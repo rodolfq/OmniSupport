@@ -1,0 +1,42 @@
+@import "tailwindcss";
+
+@keyframes border-pulse {
+  0%, 100% { border-color: rgb(248 113 113); box-shadow: 0 0 0 0 rgba(239, 68, 68, 0.4); }
+  50% { border-color: rgb(220 38 38); box-shadow: 0 0 0 10px rgba(239, 68, 68, 0); }
+}
+
+.animate-border-pulse {
+  animation: border-pulse 2s cubic-bezier(0.4, 0, 0.6, 1) infinite;
+}
+
+:root {
+  --foreground-rgb: 0, 0, 0;
+  --background-start-rgb: 214, 219, 220;
+  --background-end-rgb: 255, 255, 255;
+}
+
+body {
+  color: rgb(var(--foreground-rgb));
+  background: white;
+}
+
+@layer utilities {
+  .text-balance {
+    text-wrap: balance;
+  }
+
+  .custom-scrollbar::-webkit-scrollbar {
+    width: 6px;
+    height: 6px;
+  }
+  .custom-scrollbar::-webkit-scrollbar-track {
+    background: transparent;
+  }
+  .custom-scrollbar::-webkit-scrollbar-thumb {
+    background: #e2e8f0;
+    border-radius: 10px;
+  }
+  .custom-scrollbar::-webkit-scrollbar-thumb:hover {
+    background: #cbd5e1;
+  }
+}
