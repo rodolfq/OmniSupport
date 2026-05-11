@@ -59,7 +59,9 @@ const nextConfig: NextConfig = {
     'pino',
     'ws',
     'bufferutil',
-    'utf-8-validate'
+    'utf-8-validate',
+    'postgres',
+    'pg'
   ],
   eslint: {
     ignoreDuringBuilds: true,

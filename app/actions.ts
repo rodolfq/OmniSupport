@@ -1,165 +1,125 @@
 'use server';
 
-import { Client } from 'pg';
+import postgres from 'postgres';
 
 const connectionString = 'postgresql://postgres:gLhm2cGBAKWGvQ*@db.edrixccffpbinvfieoyg.supabase.co:5432/postgres';
+const sql = postgres(connectionString, { ssl: 'require' });
 
 export async function createUser(email: string, name: string, role: string, companyId: string | null, phones: string[], viewAllCompanyTickets: boolean) {
   console.log('Iniciando createUser:', { email, name, role, companyId });
-  const client = new Client({ connectionString });
   
   // Sanitize companyId
   const sanitizedCompanyId = (companyId === 'platform-company-id' || companyId === 'company-id' || !companyId) ? null : companyId;
   
   try {
-    await client.connect();
-    console.log('DB conectado para createUser');
+    const password = Math.random().toString(36).slice(-8); // Generate random password
     
     // Call the RPC to create the auth user
-    // The RPC creates the user in auth.users and triggers handle_new_user to populate profiles
-    const password = Math.random().toString(36).slice(-8); // Generate random password
-    console.log('Chamando create_user_account...');
-    const result = await client.query("SELECT create_user_account($1, $2, $3, $4)", [email, password, name, role]);
-    console.log('Resultado create_user_account:', result.rows[0]);
+    const [result] = await sql`SELECT create_user_account(${email}, ${password}, ${name}, ${role}) as create_user_account`;
     
-    if (result.rows[0].create_user_account.error) {
-        return { error: result.rows[0].create_user_account.error };
+    if (result.create_user_account.error) {
+        return { error: result.create_user_account.error };
     }
     
-    const userId = result.rows[0].create_user_account.id;
-    console.log('Usuário criado com ID:', userId);
+    const userId = result.create_user_account.id;
     
     // Update the profile with extra fields
-    console.log('Atualizando perfil com dados extras:', { sanitizedCompanyId, phone: phones[0], viewAllCompanyTickets });
-    await client.query(
-        "UPDATE profiles SET company_id = $1, phone = $2, view_all_company_tickets = $3 WHERE id = $4",
-        [sanitizedCompanyId, phones[0] || '', viewAllCompanyTickets, userId]
-    );
-    console.log('Perfil atualizado com sucesso.');
+    await sql`UPDATE profiles SET company_id = ${sanitizedCompanyId}, phone = ${phones[0] || ''}, view_all_company_tickets = ${viewAllCompanyTickets} WHERE id = ${userId}`;
+    
     return { id: userId };
   } catch (err) {
     console.error("Erro inesperado ao criar usuário:", err);
-    return { error: 'Erro inesperado ao criar usuário.' };
-  } finally {
-    await client.end();
+    return { error: 'Erro inesperado ao criar usuário no servidor.' };
   }
 }
 
 export async function saveCompany(id: string | null, name: string, industry: string, phone: string) {
-  const client = new Client({ connectionString });
   try {
-    await client.connect();
-    
     // Check for duplicate name
-    let checkQuery = "SELECT id FROM companies WHERE name ILIKE $1";
-    const params: any[] = [name];
+    let checkResult;
     if (id) {
-        checkQuery += " AND id <> $2";
-        params.push(id);
+        checkResult = await sql`SELECT id FROM companies WHERE name ILIKE ${name} AND id <> ${id}`;
+    } else {
+        checkResult = await sql`SELECT id FROM companies WHERE name ILIKE ${name}`;
     }
-    const checkResult = await client.query(checkQuery, params);
     
-    if (checkResult.rows.length > 0) {
+    if (checkResult.length > 0) {
         return { error: 'Empresa com este nome já existe.' };
     }
     
     if (id) {
-       await client.query(
-        "UPDATE companies SET name = $1, industry = $2, phone = $3 WHERE id = $4",
-        [name, industry, phone, id]
-      );
-      return { id };
+       await sql`UPDATE companies SET name = ${name}, industry = ${industry}, phone = ${phone} WHERE id = ${id}`;
+       return { id };
     } else {
-      const result = await client.query(
-        "INSERT INTO companies (name, industry, phone) VALUES ($1, $2, $3) RETURNING id",
-        [name, industry, phone]
-      );
-      return { id: result.rows[0].id };
+      const [result] = await sql`INSERT INTO companies (name, industry, phone) VALUES (${name}, ${industry}, ${phone}) RETURNING id`;
+      return { id: result.id };
     }
   } catch (err) {
     console.error("Erro ao salvar empresa:", err);
-    return { error: 'Erro ao salvar empresa.' };
-  } finally {
-    await client.end();
+    return { error: 'Erro ao salvar empresa no servidor.' };
   }
 }
 
 export async function deleteCompany(id: string) {
-  const client = new Client({ connectionString });
   try {
-    await client.connect();
-    await client.query("DELETE FROM companies WHERE id = $1", [id]);
+    await sql`DELETE FROM companies WHERE id = ${id}`;
     return { success: true };
   } catch (err) {
     console.error("Erro ao excluir empresa:", err);
-    return { error: 'Erro ao excluir empresa.' };
-  } finally {
-    await client.end();
+    return { error: 'Erro ao excluir empresa no servidor.' };
   }
 }
 
 export async function getCompanies() {
-  const client = new Client({ connectionString });
   try {
-    await client.connect();
-    const result = await client.query("SELECT * FROM companies");
-    return result.rows;
-  } finally {
-    await client.end();
+    const rows = await sql`SELECT id, name, industry, phone FROM companies ORDER BY name ASC`;
+    return rows.map(row => ({
+      id: row.id,
+      name: row.name,
+      industry: row.industry || '',
+      phone: row.phone || ''
+    }));
+  } catch (err) {
+    console.error("Erro ao buscar empresas:", err);
+    return [];
   }
 }
 
 export async function getUsers() {
-  const client = new Client({ connectionString });
   try {
-    await client.connect();
-    const result = await client.query("SELECT * FROM profiles");
-    // Map snake_case to camelCase
-    const users = result.rows.map(row => ({
-      ...row,
+    const rows = await sql`SELECT id, name, email, role, company_id, phone, view_all_company_tickets, must_change_password FROM profiles`;
+    return rows.map(row => ({
+      id: row.id,
+      name: row.name,
+      email: row.email,
+      role: row.role,
       companyId: row.company_id,
-      viewAllCompanyTickets: row.view_all_company_tickets,
+      phone: row.phone,
+      viewAllCompanyTickets: !!row.view_all_company_tickets,
+      mustChangePassword: !!row.must_change_password
     }));
-    console.log("Usuários recuperados do banco:", users.length);
-    return users;
-  } finally {
-    await client.end();
+  } catch (err) {
+    console.error("Erro ao buscar usuários:", err);
+    return [];
   }
 }
 
 export async function deleteUser(id: string) {
-  const client = new Client({ connectionString });
   try {
-    await client.connect();
-    await client.query("DELETE FROM profiles WHERE id = $1", [id]);
-    // Also likely need to remove from auth.users, but the RPC might handle it if there's a trigger.
-    // The current RPC-based setup might need to keep in sync.
-    // For now, let's just delete from profiles.
-  } finally {
-    await client.end();
+    await sql`DELETE FROM profiles WHERE id = ${id}`;
+  } catch (err) {
+    console.error("Erro ao excluir usuário:", err);
   }
 }
 
 export async function updateUser(id: string, name: string, email: string, role: string, companyId?: string | null, viewAllCompanyTickets?: boolean) {
-  console.log('Iniciando updateUser:', { id, name, email, role, companyId, viewAllCompanyTickets });
-  const client = new Client({ connectionString });
-  
-  // Sanitize companyId
   const sanitizedCompanyId = (companyId === 'platform-company-id' || companyId === 'company-id' || !companyId) ? null : companyId;
 
   try {
-    await client.connect();
-    console.log('DB conectado para updateUser');
-    await client.query(
-      "UPDATE profiles SET name = $1, email = $2, role = $3, company_id = $4, view_all_company_tickets = $5 WHERE id = $6",
-      [name, email, role, sanitizedCompanyId, viewAllCompanyTickets ?? false, id]
-    );
-    console.log('Update executado com sucesso.');
+    await sql`UPDATE profiles SET name = ${name}, email = ${email}, role = ${role}, company_id = ${sanitizedCompanyId}, view_all_company_tickets = ${viewAllCompanyTickets ?? false} WHERE id = ${id}`;
     return { success: true };
   } catch (err) {
     console.error("Erro ao atualizar usuário:", err);
-    return { error: 'Erro ao atualizar usuário no banco de dados.' };
-  } finally {
-    await client.end();
+    return { error: 'Erro ao atualizar usuário no servidor.' };
   }
 }
