@@ -34,8 +34,11 @@ import {
   TicketStatus,
   TicketPriority,
   Ticket,
-  Company
-} from '@/lib/types';
+  Company,
+  MockDB
+} from '@/lib/mock-db';
+// Remove import from '@/lib/types' if it was redundant or replace it if necessary
+// In this case, we prefer mock-db for the logic and types.
 import { fetchChatSessions, pushChatMessage } from '@/lib/services/chat.service';
 import { fetchQuickNotes, fetchAnalystStatuses, fetchCompanies, fetchUsers, fetchQueues } from '@/lib/services/config.service';
 import { cn, maskPhone, matchPhones, safeJsonStringify } from '@/lib/utils';
@@ -151,6 +154,7 @@ export function ChatWidget() {
     const controller = new AbortController();
 
     async function loadData() {
+      console.log('ChatWidget: Iniciando loadData');
       try {
         const [sessions, notes, statuses, comp, users] = await Promise.all([
             fetchChatSessions(controller.signal),
@@ -159,6 +163,11 @@ export function ChatWidget() {
             fetchCompanies(controller.signal),
             fetchUsers(controller.signal)
         ]);
+        console.log('ChatWidget: Dados carregados com sucesso', { 
+            sessions: sessions.length, 
+            companies: comp.length, 
+            users: users.length 
+        });
         setCustomerSessions(sessions);
         setQuickNotes(notes);
         setAnalystStatuses(statuses);

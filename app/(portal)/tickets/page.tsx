@@ -1,7 +1,7 @@
 'use client';
 
 import React, { useState, useEffect, useMemo } from 'react';
-import { Ticket, TicketStatus, Permission, UserRole } from '@/lib/mock-db';
+import { Ticket, TicketStatus, Permission, UserRole, MockDB } from '@/lib/mock-db';
 import { fetchAllTickets } from '@/lib/tickets';
 import { Search, Filter, MoreHorizontal, FileText, ChevronRight, Star, ArrowUpDown, GripVertical, Loader2 } from 'lucide-react';
 import { cn, safeJsonStringify } from '@/lib/utils';

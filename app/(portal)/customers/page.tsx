@@ -146,8 +146,10 @@ export default function CustomersPage() {
   const loadData = async () => {
     setIsLoading(true);
     try {
+        console.log('🔄 Clientes: Carregando dados...');
         const loadedCompanies = await getCompanies();
         const loadedUsers = await getUsers();
+        console.log(`✅ Clientes: getCompanies=${loadedCompanies.length}, getUsers=${loadedUsers.length}`);
 
         // Filtering logic still applies
         let filteredUsers = loadedUsers;

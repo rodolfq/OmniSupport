@@ -72,7 +72,9 @@ export async function deleteCompany(id: string) {
 
 export async function getCompanies() {
   try {
+    console.log('🔄 Server Action: getCompanies iniciado');
     const rows = await sql`SELECT id, name, industry, phone FROM companies ORDER BY name ASC`;
+    console.log(`📊 getCompanies: ${rows.length} empresas encontradas`);
     return rows.map(row => ({
       id: row.id,
       name: row.name,
@@ -80,14 +82,16 @@ export async function getCompanies() {
       phone: row.phone || ''
     }));
   } catch (err) {
-    console.error("Erro ao buscar empresas:", err);
+    console.error("❌ Erro ao buscar empresas (actions.ts):", err);
     return [];
   }
 }
 
 export async function getUsers() {
   try {
+    console.log('🔄 Server Action: getUsers iniciado');
     const rows = await sql`SELECT id, name, email, role, company_id, phone, view_all_company_tickets, must_change_password FROM profiles`;
+    console.log(`📊 getUsers: ${rows.length} usuários encontrados`);
     return rows.map(row => ({
       id: row.id,
       name: row.name,
@@ -99,7 +103,7 @@ export async function getUsers() {
       mustChangePassword: !!row.must_change_password
     }));
   } catch (err) {
-    console.error("Erro ao buscar usuários:", err);
+    console.error("❌ Erro ao buscar usuários (actions.ts):", err);
     return [];
   }
 }

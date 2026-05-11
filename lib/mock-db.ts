@@ -1,184 +1,23 @@
+console.log('📦 MockDB: Módulo carregado (lib/mock-db.ts)');
+
 import { supabase } from './supabase';
+import { 
+  TicketStatus, UserRole, Permission, TicketPriority,
+  User, Company, Ticket, Message, Attachment,
+  ChatSession, ChatMessage, AnalystStatus, AbsenceReason,
+  InternalGroup, SavedFilter, UserStatusHistory,
+  PriorityConfig
+} from './types';
+import { safeJsonStringify } from './utils';
 import { v4 as uuidv4 } from 'uuid';
 
-export enum TicketStatus {
-  NEW = 'Novo',
-  IN_PROGRESS = 'Em Andamento',
-  AWAITING_INTERNAL = 'Aguardando Equipe interna',
-  AWAITING_CUSTOMER = 'Aguardando Cliente',
-  CLOSED = 'Concluído'
-}
-
-export interface StatusConfig {
-  id: string;
-  label: string;
-  color: string;
-}
-
-import { safeJsonStringify } from './utils';
-
-export enum UserRole {
-  ADMIN = 'Equipe',
-  // eslint-disable-next-line @typescript-eslint/no-duplicate-enum-values
-  SUPPORT = 'Equipe',
-  CUSTOMER = 'Funcionário',
-  // eslint-disable-next-line @typescript-eslint/no-duplicate-enum-values
-  INTERNAL = 'Equipe'
-}
-
-export enum Permission {
-  TICKETS_READ = 'tickets:read',
-  TICKETS_WRITE = 'tickets:write',
-  TICKETS_DELETE = 'tickets:delete',
-  TICKETS_ASSIGN = 'tickets:assign',
-  CUSTOMERS_READ = 'customers:read',
-  CUSTOMERS_WRITE = 'customers:write',
-  TEAM_READ = 'team:read',
-  TEAM_WRITE = 'team:write',
-  SETTINGS_READ = 'settings:read',
-  SETTINGS_WRITE = 'settings:write',
-  REPORTS_READ = 'reports:read',
-  INTERNAL_TICKETS_VIEW = 'internal:view',
-  OUTSIDE_QUEUE_VIEW = 'tickets:outside_queue',
-  DASHBOARD_VIEW = 'dashboard:view',
-  CHAT_INTERNAL_VIEW = 'chat:internal'
-}
-
-export interface RolePermission {
-  id: string;
-  name: string;
-  permissions: Permission[];
-}
-
-export interface User {
-  id: string;
-  name: string;
-  email: string;
-  role: string; // Changed from UserRole to string for dynamic profiles
-  companyId?: string;
-  avatarUrl?: string;
-  phone?: string;
-  phones?: string[];
-  password?: string;
-  mustChangePassword?: boolean;
-  viewAllCompanyTickets?: boolean;
-  status?: 'online' | 'away' | 'offline';
-  isAdmin?: boolean;
-  chatPreferences?: {
-    bubbleColor?: string;
-    avatarSize?: 'xs' | 'sm' | 'md' | 'lg' | 'none';
-    fontSize?: 'sm' | 'md' | 'lg';
-    personalStickers?: string[];
-  };
-}
-
-export interface Company {
-  id: string;
-  name: string;
-  industry?: string;
-  phone?: string;
-}
-
-export interface Attachment {
-  id: string;
-  name: string;
-  type: string;
-  url: string;
-  size: number;
-}
-
-export interface PriorityConfig {
-  id: string;
-  label: string;
-  sla_hours: number;
-  color: string;
-}
-
-export interface CategoryConfig {
-  id: string;
-  label: string;
-}
-
-export interface TagConfig {
-  id: string;
-  label: string;
-  color: string;
-  domain: 'chat' | 'ticket';
-}
-
-export enum TicketPriority {
-  LOW = 'Baixa',
-  MEDIUM = 'Média',
-  HIGH = 'Alta',
-  URGENT = 'Urgente'
-}
-
-export interface InternalTicket {
-  id: string;
-  parentTicketId: string;
-  title: string;
-  teamId: string; // Equipe
-  assigneeId?: string; // Responsável
-  priority: number; // 0-3 stars
-  tags: string[];
-  creatorId: string;
-  description: string;
-  createdAt: string;
-  updatedAt: string;
-  slaLimit?: string; // ISO string for expiration
-}
-
-export interface Ticket {
-  id: string;
-  ticketNumber?: number;
-  title: string;
-  description: string;
-  status: TicketStatus;
-  priority: TicketPriority | string;
-  companyId?: string;
-  customerId: string;
-  customerName?: string;
-  employeeIds?: string[]; // Access/Notification
-  assigneeId?: string;
-  createdAt: string;
-  completedAt?: string;
-  updatedAt: string;
-  category: string;
-  tags: string[];
-  attachments?: Attachment[];
-  relatedTickets?: string[];
-  history?: any[];
-  internalTicketId?: string;
-  slaLimit?: string; // ISO string for expiration
-}
-
-export interface Message {
-  id: string;
-  ticketId?: string;
-  senderId: string;
-  text: string;
-  timestamp: string;
-  isVisibleToCustomer: boolean;
-  type: 'text' | 'system' | 'internal';
-  attachments?: Attachment[];
-}
-
-export interface WhatsappInstance {
-  id: string;
-  name: string;
-  phone: string;
-  status: 'connected' | 'disconnected' | 'connecting' | 'error';
-  qrCode?: string;
-}
-
-export interface Queue {
-  id: string;
-  name: string;
-  description?: string;
-  whatsappInstanceId?: string;
-  memberIds: string[];
-  createdAt: string;
-}
+export { 
+  TicketStatus, UserRole, Permission, TicketPriority,
+  type User, type Company, type Ticket, type Message, type Attachment,
+  type ChatSession, type ChatMessage, type AnalystStatus, type AbsenceReason,
+  type InternalGroup, type SavedFilter, type UserStatusHistory,
+  type PriorityConfig
+};
 
 const STORAGE_KEYS = {
   USERS: 'omnisupport_users',
@@ -201,83 +40,6 @@ const STORAGE_KEYS = {
   QUEUES: 'omnisupport_queues',
   WHATSAPP_INSTANCES: 'omnisupport_whatsapp_instances'
 };
-
-export interface QuickNote {
-  id: string;
-  shortcut: string;
-  content: string;
-  category: string;
-}
-
-export interface ChatMessage {
-  id: string;
-  senderId: string;
-  senderName: string;
-  text: string;
-  timestamp: string;
-  type: 'text' | 'system' | 'file' | 'gif' | 'sticker';
-  isDeleted?: boolean;
-  replyToId?: string; // ID of the message being replied to
-  readBy?: string[]; // Array of user IDs who have read the message
-  metadata?: {
-    fileUrl?: string;
-    fileName?: string;
-    fileSize?: number;
-    gifUrl?: string;
-    stickerUrl?: string;
-  };
-}
-
-export interface ChatSession {
-  id: string;
-  customerId: string;
-  customerName: string;
-  customerPhone?: string;
-  assigneeId?: string;
-  queueId?: string; // ID of the queue this chat belongs to
-  status: 'pending' | 'active' | 'closed';
-  messages: ChatMessage[];
-  startedAt: string;
-  lastMessageAt: string;
-}
-
-export interface InternalGroup {
-  id: string;
-  name: string;
-  imageUrl?: string;
-  type: 'direct' | 'group';
-  memberIds: string[];
-  messages: ChatMessage[];
-  lastMessageAt: string;
-  pinnedBy?: string[]; // IDs of users who have pinned this chat in sidebar
-  pinnedMessageIds?: string[]; // IDs of messages pinned within this chat
-  mutedBy?: string[]; // IDs of users who have muted this chat
-  readLaterBy?: string[]; // IDs of users who marked this as "read later"
-  hiddenBy?: string[]; // IDs of users who hid this chat
-}
-
-export interface AnalystStatus {
-  userId: string;
-  isOnline: boolean;
-  lastActive: string;
-  currentLoad: number;
-  currentReason?: string;
-}
-
-export interface UserStatusHistory {
-  id: string;
-  userId: string;
-  status: 'online' | 'away' | 'offline';
-  reason?: string;
-  timestamp: string;
-  duration?: number; // em segundos
-}
-
-export interface SavedFilter {
-  id: string;
-  name: string;
-  filters: any;
-}
 
 export class MockDB {
   private static isBrowser = typeof window !== 'undefined';
@@ -302,7 +64,7 @@ export class MockDB {
       this._cache[key] = [...result];
       return [...result];
     } catch (e) {
-      console.error(`Error parsing MockDB key ${key}:`, e);
+      console.error(`❌ MockDB: Error parsing key ${key}:`, e);
       return [];
     }
   }
@@ -315,36 +77,28 @@ export class MockDB {
       localStorage.setItem(key, safeData);
       this._cache[key] = data; // Use original data for cache
     } catch (e) {
-      console.error(`Fatal stringify error for key ${key}:`, e);
+      console.error(`❌ MockDB: Fatal stringify error for key ${key}:`, e);
     }
   }
 
   private static _syncPromise: Promise<void> | null = null;
 
   static async syncFromSupabase() {
-    if (!this.isBrowser || !supabase) return;
+    if (!this.isBrowser || !supabase) {
+        console.warn('⚠️ MockDB: syncFromSupabase ignorado (isBrowser: false ou supabase: null)');
+        return;
+    }
     
     // If a sync is already in progress, wait for it
     if (this._syncPromise) return this._syncPromise;
 
     this._syncPromise = (async () => {
-      console.time('Supabase Sync');
-      console.log('🔄 Sincronizando com Supabase...');
+      console.time('🔄 Supabase Sync');
+      console.log('🔄 MockDB: Iniciando sincronização com Supabase...');
       try {
+        console.log('🔄 MockDB: Consultando tabelas em paralelo...');
         // 1. Fetch data in parallel - Primary Source of Truth
-        const [
-          { data: remoteProfiles },
-          { data: tickets },
-          { data: chatSessionsRaw },
-          { data: chatMessagesRaw },
-          { data: messages },
-          { data: companies },
-          { data: analystStatusesRaw },
-          { data: historyRaw },
-          { data: absenceReasonsRaw },
-          { data: tagsRaw },
-          { data: prioritiesRaw }
-        ] = await Promise.all([
+        const results = await Promise.all([
           supabase.from('profiles').select('*'),
           supabase.from('tickets').select('*'),
           supabase.from('chat_sessions').select('*'),
@@ -357,6 +111,41 @@ export class MockDB {
           supabase.from('config_tags').select('*'),
           supabase.from('config_priorities').select('*')
         ]);
+
+        const [
+          { data: remoteProfiles, error: profilesErr },
+          { data: tickets, error: ticketsErr },
+          { data: chatSessionsRaw, error: chatSessionsErr },
+          { data: chatMessagesRaw, error: chatMessagesErr },
+          { data: messages, error: messagesErr },
+          { data: companies, error: companiesErr },
+          { data: analystStatusesRaw, error: analystStatusesErr },
+          { data: historyRaw, error: historyErr },
+          { data: absenceReasonsRaw, error: absenceErr },
+          { data: tagsRaw, error: tagsErr },
+          { data: prioritiesRaw, error: prioritiesErr }
+        ] = results;
+
+        // Log any errors
+        if (profilesErr) console.error('Supabase Sync Error (profiles):', profilesErr);
+        if (ticketsErr) console.error('Supabase Sync Error (tickets):', ticketsErr);
+        if (chatSessionsErr) console.error('Supabase Sync Error (chatSessions):', chatSessionsErr);
+        if (chatMessagesErr) console.error('Supabase Sync Error (chatMessages):', chatMessagesErr);
+        if (messagesErr) console.error('Supabase Sync Error (ticketMessages):', messagesErr);
+        if (companiesErr) console.error('Supabase Sync Error (companies):', companiesErr);
+        if (analystStatusesErr) console.error('Supabase Sync Error (analystStatuses):', analystStatusesErr);
+        if (historyErr) console.error('Supabase Sync Error (history):', historyErr);
+        if (absenceErr) console.error('Supabase Sync Error (absenceReasons):', absenceErr);
+        if (tagsErr) console.error('Supabase Sync Error (tags):', tagsErr);
+        if (prioritiesErr) console.error('Supabase Sync Error (priorities):', prioritiesErr);
+
+        console.log('📊 Supabase Sync Status:', {
+            profiles: remoteProfiles?.length || 0,
+            tickets: tickets?.length || 0,
+            chatSessions: chatSessionsRaw?.length || 0,
+            chatMessages: chatMessagesRaw?.length || 0,
+            companies: companies?.length || 0
+        });
 
         // Process Tags
         if (tagsRaw) {
@@ -511,7 +300,7 @@ export class MockDB {
           this.set(STORAGE_KEYS.MESSAGES, mappedMessages);
         }
 
-        console.log('✅ Sincronização Supabase concluída.');
+        console.log('✅ MockDB: Sincronização Supabase concluída.');
       } catch (e: any) {
         const isAbortError = 
           e?.message?.toLowerCase().includes('aborted') || 
@@ -519,11 +308,11 @@ export class MockDB {
           e?.code === '20';
           
         if (!isAbortError) {
-          console.error('❌ Erro no sync do Supabase:', e);
+          console.error('❌ MockDB: Erro fatal no sync do Supabase:', e);
         }
       } finally {
         this._syncPromise = null;
-        console.timeEnd('Supabase Sync');
+        console.timeEnd('🔄 Supabase Sync');
       }
     })();
 
@@ -534,9 +323,12 @@ export class MockDB {
     if (!this.isBrowser) return;
     if (this._initPromise) return this._initPromise;
 
+    console.log('🚀 MockDB: Iniciando inicialização (init())...');
     this._initPromise = (async () => {
-      // 1. Sync from Supabase
-      await this.syncFromSupabase();
+      try {
+        // 1. Sync from Supabase
+        await this.syncFromSupabase();
+        console.log('✅ MockDB: Sync inicial concluído');
 
       // 2. Initialize Defaults if local storage is empty
       if (this.get(STORAGE_KEYS.WHATSAPP_INSTANCES).length === 0) {
@@ -669,6 +461,9 @@ export class MockDB {
       }
       if (this.get(STORAGE_KEYS.TICKETS).length === 0) {
         this.set(STORAGE_KEYS.TICKETS, []);
+      }
+      } catch (e) {
+        console.error('❌ MockDB: Erro durante MockDB.init:', e);
       }
     })();
 
