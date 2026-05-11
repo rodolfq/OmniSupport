@@ -7,7 +7,7 @@ import { createUser } from '@/app/actions';
 import { UserRole } from '@/lib/mock-db';
 import { maskPhone } from '@/lib/utils';
 
-export function NewEmployeeModal({ isOpen, onClose, companyId, onSuccess }: { isOpen: boolean, onClose: () => void, companyId: string, onSuccess?: () => void }) {
+export function NewEmployeeModal({ isOpen, onClose, companyId, onSuccess }: { isOpen: boolean, onClose: () => void, companyId?: string, onSuccess?: () => void }) {
   const [name, setName] = useState('');
   const [email, setEmail] = useState('');
   const [phones, setPhones] = useState<string[]>(['']);
@@ -25,8 +25,9 @@ export function NewEmployeeModal({ isOpen, onClose, companyId, onSuccess }: { is
     setError(null);
     
     try {
-      // Role as SUPPORT (Equipe) as requested
-      const result = await createUser(email, name, UserRole.SUPPORT, companyId, phones, viewAllCompanyTickets);
+      // Adjust role: if companyId is present, it's a customer (Funcionário), otherwise it's support (Equipe)
+      const role = companyId ? UserRole.CUSTOMER : UserRole.SUPPORT;
+      const result = await createUser(email, name, role, companyId || null, phones, viewAllCompanyTickets);
       
       if (result.error) {
         if (result.error.includes('Email already exists')) {
@@ -78,8 +79,8 @@ export function NewEmployeeModal({ isOpen, onClose, companyId, onSuccess }: { is
           >
             <div className="bg-slate-900 px-8 py-6 text-white flex items-center justify-between">
               <div>
-                <h3 className="text-xl font-black tracking-tight text-white m-0">Novo Colaborador</h3>
-                <p className="text-[10px] text-slate-400 font-bold uppercase tracking-widest mt-1">Adicione um novo usuário à empresa</p>
+                <h3 className="text-xl font-black tracking-tight text-white m-0">Novo Funcionário</h3>
+                <p className="text-[10px] text-slate-400 font-bold uppercase tracking-widest mt-1">Adicione um novo usuário do cliente para abrir chamados</p>
               </div>
               <button onClick={onClose} className="p-2 hover:bg-white/10 rounded-xl transition-colors text-slate-400 hover:text-white">
                 <X size={20} />
@@ -93,7 +94,7 @@ export function NewEmployeeModal({ isOpen, onClose, companyId, onSuccess }: { is
                   type="text" 
                   value={name}
                   onChange={(e) => setName(e.target.value)}
-                  placeholder="Nome do colaborador"
+                  placeholder="Nome do funcionário"
                   className="w-full bg-slate-50 border border-slate-200 rounded-xl px-4 py-3 text-sm font-medium focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-500 outline-none transition-all"
                   required
                 />
@@ -159,8 +160,7 @@ export function NewEmployeeModal({ isOpen, onClose, companyId, onSuccess }: { is
                     <Shield size={14} />
                   </div>
                   <div>
-                    <p className="text-[11px] font-black text-indigo-900 uppercase tracking-wider">Visualizar todos os chamados</p>
-                    <p className="text-[9px] text-indigo-400 font-bold uppercase tracking-widest leading-none mt-0.5">Visibilidade da empresa</p>
+                    <p className="text-[11px] font-black text-indigo-900 uppercase tracking-tight">Visualizar apenas chamados internos</p>
                   </div>
                 </div>
                 <div 

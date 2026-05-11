@@ -155,10 +155,10 @@ export default function CustomersPage() {
 
         if (currentUser?.role === UserRole.CUSTOMER) {
           filteredCompanies = loadedCompanies.filter(c => c.id === currentUser.companyId);
-          filteredUsers = loadedUsers.filter(u => u.companyId === currentUser.companyId);
+          filteredUsers = loadedUsers.filter(u => u.role === 'Funcionário' && u.companyId === currentUser.companyId);
         } else {
-            // Admin/internal team: Only show users with companyId (Employees)
-            filteredUsers = loadedUsers.filter(u => !!u.companyId);
+            // Admin/internal team: Only show users with 'Funcionário' role and associated company
+            filteredUsers = loadedUsers.filter(u => u.role === 'Funcionário' && !!u.companyId);
         }
 
         setCompanies(filteredCompanies);

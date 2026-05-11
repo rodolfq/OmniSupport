@@ -441,6 +441,7 @@ export class MockDB {
             phone: p.phone,
             password: p.password,
             companyId: p.company_id,
+            viewAllCompanyTickets: p.view_all_company_tickets,
             status: 'online' as const,
             mustChangePassword: p.must_change_password ?? false
           }));
@@ -1041,12 +1042,48 @@ export class MockDB {
     this.set(STORAGE_KEYS.USERS, updatedUsers);
   }
 
-  static async resetPassword(email: string, newPassword: string) {
+  static getUsers() { return this.get<User>(STORAGE_KEYS.USERS); }
+  static getTickets() { return this.get<Ticket>(STORAGE_KEYS.TICKETS); }
+  static saveUser(user: User) {
+    const users = this.getUsers();
+    const index = users.findIndex(u => u.id === user.id);
+    if (index >= 0) users[index] = user; else users.push(user);
+    this.set(STORAGE_KEYS.USERS, users);
+  }
+  static saveTicket(ticket: Ticket) {
+    const tickets = this.getTickets();
+    const index = tickets.findIndex(t => t.id === ticket.id);
+    if (index >= 0) tickets[index] = ticket;
+    else tickets.push(ticket);
+    this.set(STORAGE_KEYS.TICKETS, tickets);
+
+    // Sync to Supabase - Atomic update/insert
     if (supabase) {
-      const { error } = await supabase.rpc('admin_change_password', { p_email: email, p_password: newPassword });
-      if (error) {
-        console.error('Erro ao redefinir senha no Supabase:', error);
-      }
+      const db = supabase;
+      const syncTicket = async () => {
+        try {
+          const payload = {
+            id: ticket.id,
+            title: ticket.title,
+            description: ticket.description,
+            status: ticket.status,
+            priority: ticket.priority,
+            category: ticket.category,
+            company_id: ticket.companyId || null,
+            customer_id: ticket.customerId,
+            assignee_id: ticket.assigneeId || null,
+            created_at: ticket.createdAt,
+            updated_at: new Date().toISOString(),
+            tags: ticket.tags || []
+          };
+          
+          const { error } = await db.from('tickets').upsert(payload);
+          if (error) console.error('❌ Erro Supabase ao salvar ticket:', error.message);
+        } catch (e) {
+          console.error('❌ Erro inesperado ao sincronizar ticket:', e);
+        }
+      };
+      syncTicket();
     }
   }
 

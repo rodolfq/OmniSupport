@@ -4,30 +4,38 @@ import { Client } from 'pg';
 
 const connectionString = 'postgresql://postgres:gLhm2cGBAKWGvQ*@db.edrixccffpbinvfieoyg.supabase.co:5432/postgres';
 
-export async function createUser(email: string, name: string, role: string, companyId: string, phones: string[], viewAllCompanyTickets: boolean) {
+export async function createUser(email: string, name: string, role: string, companyId: string | null, phones: string[], viewAllCompanyTickets: boolean) {
+  console.log('Iniciando createUser:', { email, name, role, companyId });
   const client = new Client({ connectionString });
+  
+  // Sanitize companyId
+  const sanitizedCompanyId = (companyId === 'platform-company-id' || companyId === 'company-id' || !companyId) ? null : companyId;
   
   try {
     await client.connect();
+    console.log('DB conectado para createUser');
     
     // Call the RPC to create the auth user
     // The RPC creates the user in auth.users and triggers handle_new_user to populate profiles
     const password = Math.random().toString(36).slice(-8); // Generate random password
-    
+    console.log('Chamando create_user_account...');
     const result = await client.query("SELECT create_user_account($1, $2, $3, $4)", [email, password, name, role]);
+    console.log('Resultado create_user_account:', result.rows[0]);
     
     if (result.rows[0].create_user_account.error) {
         return { error: result.rows[0].create_user_account.error };
     }
     
     const userId = result.rows[0].create_user_account.id;
+    console.log('Usuário criado com ID:', userId);
     
     // Update the profile with extra fields
+    console.log('Atualizando perfil com dados extras:', { sanitizedCompanyId, phone: phones[0], viewAllCompanyTickets });
     await client.query(
         "UPDATE profiles SET company_id = $1, phone = $2, view_all_company_tickets = $3 WHERE id = $4",
-        [companyId, phones[0] || '', viewAllCompanyTickets, userId]
+        [sanitizedCompanyId, phones[0] || '', viewAllCompanyTickets, userId]
     );
-
+    console.log('Perfil atualizado com sucesso.');
     return { id: userId };
   } catch (err) {
     console.error("Erro inesperado ao criar usuário:", err);
@@ -132,14 +140,25 @@ export async function deleteUser(id: string) {
   }
 }
 
-export async function updateUser(id: string, name: string, email: string, role: string, companyId?: string) {
+export async function updateUser(id: string, name: string, email: string, role: string, companyId?: string | null, viewAllCompanyTickets?: boolean) {
+  console.log('Iniciando updateUser:', { id, name, email, role, companyId, viewAllCompanyTickets });
   const client = new Client({ connectionString });
+  
+  // Sanitize companyId
+  const sanitizedCompanyId = (companyId === 'platform-company-id' || companyId === 'company-id' || !companyId) ? null : companyId;
+
   try {
     await client.connect();
+    console.log('DB conectado para updateUser');
     await client.query(
-      "UPDATE profiles SET name = $1, email = $2, role = $3, company_id = $4 WHERE id = $5",
-      [name, email, role, companyId, id]
+      "UPDATE profiles SET name = $1, email = $2, role = $3, company_id = $4, view_all_company_tickets = $5 WHERE id = $6",
+      [name, email, role, sanitizedCompanyId, viewAllCompanyTickets ?? false, id]
     );
+    console.log('Update executado com sucesso.');
+    return { success: true };
+  } catch (err) {
+    console.error("Erro ao atualizar usuário:", err);
+    return { error: 'Erro ao atualizar usuário no banco de dados.' };
   } finally {
     await client.end();
   }

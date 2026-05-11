@@ -1,8 +1,9 @@
 'use client';
 
 import React, { useState, useEffect, useMemo } from 'react';
-import { Ticket, TicketStatus, MockDB, Permission, UserRole } from '@/lib/mock-db';
-import { Search, Filter, MoreHorizontal, FileText, ChevronRight, Star, ArrowUpDown, GripVertical } from 'lucide-react';
+import { Ticket, TicketStatus, Permission, UserRole } from '@/lib/mock-db';
+import { fetchAllTickets } from '@/lib/tickets';
+import { Search, Filter, MoreHorizontal, FileText, ChevronRight, Star, ArrowUpDown, GripVertical, Loader2 } from 'lucide-react';
 import { cn, safeJsonStringify } from '@/lib/utils';
 import Link from 'next/link';
 import { motion, AnimatePresence } from 'motion/react';
@@ -108,8 +109,11 @@ export default function TicketsPage() {
     { id: 'action', label: 'Ação', sortable: false },
   ]);
 
+  const [loading, setLoading] = useState(true);
+
   const companies = useMemo(() => MockDB.getCompanies(), [refreshTrigger]);
   const users = useMemo(() => MockDB.getUsers(), [refreshTrigger]);
+  const priorities = useMemo(() => MockDB.getPriorities(), [refreshTrigger]);
 
   const sensors = useSensors(
     useSensor(PointerSensor, {
@@ -122,52 +126,67 @@ export default function TicketsPage() {
     })
   );
 
-  useEffect(() => {
+  const loadTickets = async () => {
     if (!currentUser) return;
+    setLoading(true);
+    try {
+      let tickets = await fetchAllTickets();
 
-    let tickets = MockDB.getTickets();
-
-    // Update selected ticket if it exists to reflect latest changes from DB
-    if (selectedTicket) {
-      const latest = tickets.find(t => t.id === selectedTicket.id);
-      if (latest && safeJsonStringify(latest) !== safeJsonStringify(selectedTicket)) {
-        setSelectedTicket(latest);
+      // Update selected ticket if it exists to reflect latest changes from DB
+      if (selectedTicket) {
+        const latest = tickets.find(t => t.id === selectedTicket.id);
+        if (latest && safeJsonStringify(latest) !== safeJsonStringify(selectedTicket)) {
+          setSelectedTicket(latest);
+        }
       }
-    }
-    
-    // Role based filtering
-    if (currentUser.role === UserRole.CUSTOMER) {
-      // Customers only see tickets from their company
-      tickets = tickets.filter(t => t.companyId === currentUser.companyId);
       
-      // If not marked to view all company tickets, filter by their own tickets or where they are collaborators
-      if (!currentUser.viewAllCompanyTickets) {
-        tickets = tickets.filter(t => t.customerId === currentUser.id || t.employeeIds?.includes(currentUser.id));
-      }
-    } else {
-      // Platform team filtering
-      const canViewOutsideQueue = hasPermission(Permission.OUTSIDE_QUEUE_VIEW) || currentUser.role === UserRole.ADMIN;
-      const hasFullRead = hasPermission(Permission.TICKETS_READ);
-      const hasInternalView = hasPermission(Permission.INTERNAL_TICKETS_VIEW);
+      // Role based filtering
+      if (currentUser.role === UserRole.CUSTOMER) {
+        // Customers only see tickets from their company
+        tickets = tickets.filter(t => t.companyId === currentUser.companyId);
+        
+        // If not marked to view all company tickets, filter by their own tickets or where they are collaborators
+        if (!currentUser.viewAllCompanyTickets) {
+          tickets = tickets.filter(t => t.customerId === currentUser.id || t.employeeIds?.includes(currentUser.id));
+        }
+      } else {
+        // Platform team filtering
+        const canViewOutsideQueue = hasPermission(Permission.OUTSIDE_QUEUE_VIEW) || currentUser.role === UserRole.ADMIN;
+        const hasFullRead = hasPermission(Permission.TICKETS_READ);
+        const hasInternalView = hasPermission(Permission.INTERNAL_TICKETS_VIEW);
 
-      if (!canViewOutsideQueue) {
-        tickets = tickets.filter(t => 
-          !t.assigneeId || 
-          t.assigneeId === currentUser.id || 
-          t.employeeIds?.includes(currentUser.id)
-        );
-      }
+        // Se marcado para ver apenas internos, remove chamados com empresa vinculada
+        if (currentUser.viewAllCompanyTickets) {
+          tickets = tickets.filter(t => !t.companyId);
+        }
 
-      // If they don't have full read but have internal view, only show tickets with internal tickets they can access
-      if (!hasFullRead && hasInternalView) {
-        const internalTickets = MockDB.getInternalTickets();
-        const ticketsWithInternal = new Set(internalTickets.map(it => it.parentTicketId));
-        tickets = tickets.filter(t => ticketsWithInternal.has(t.id));
+        if (!canViewOutsideQueue) {
+          tickets = tickets.filter(t => 
+            !t.assigneeId || 
+            t.assigneeId === currentUser.id || 
+            t.employeeIds?.includes(currentUser.id)
+          );
+        }
+
+        // If they don't have full read but have internal view, only show tickets with internal tickets they can access
+        if (!hasFullRead && hasInternalView) {
+          const internalTickets = MockDB.getInternalTickets();
+          const ticketsWithInternal = new Set(internalTickets.map(it => it.parentTicketId));
+          tickets = tickets.filter(t => ticketsWithInternal.has(t.id));
+        }
       }
+      
+      setAllTickets(tickets);
+      setFilteredTickets(tickets);
+    } catch (error) {
+      console.error("Error loading tickets:", error);
+    } finally {
+      setLoading(false);
     }
-    
-    setAllTickets(tickets);
-    setFilteredTickets(tickets);
+  };
+
+  useEffect(() => {
+    loadTickets();
   }, [currentUser, refreshTrigger]);
 
   const handleSort = (key: string) => {
@@ -232,8 +251,6 @@ export default function TicketsPage() {
   const formatDate = (dateStr: string) => {
     return new Date(dateStr).toLocaleString('pt-BR', { day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' });
   };
-
-  const priorities = useMemo(() => MockDB.getPriorities(), [refreshTrigger]);
 
   const getSLAStatus = (ticket: Ticket) => {
     if (ticket.status === TicketStatus.CLOSED) return { label: '---', color: 'text-slate-400', isOverdue: false };
@@ -414,7 +431,16 @@ export default function TicketsPage() {
               </tr>
             </thead>
             <tbody className="divide-y divide-slate-50">
-              {visibleTickets.length === 0 ? (
+              {loading ? (
+                <tr>
+                  <td colSpan={columns.length} className="px-6 py-12 text-center">
+                    <div className="flex flex-col items-center gap-4 text-slate-400">
+                      <Loader2 size={32} className="animate-spin text-indigo-600" />
+                      <p className="text-sm font-bold uppercase tracking-widest text-[10px]">Carregando chamados...</p>
+                    </div>
+                  </td>
+                </tr>
+              ) : visibleTickets.length === 0 ? (
                 <tr>
                   <td colSpan={columns.length} className="px-6 py-12 text-center">
                      <div className="flex flex-col items-center gap-2 text-slate-400">
@@ -460,7 +486,7 @@ export default function TicketsPage() {
             ticket={selectedTicket} 
             onClose={() => {
               setSelectedTicket(null);
-              setAllTickets(MockDB.getTickets());
+              loadTickets();
             }} 
           />
         )}

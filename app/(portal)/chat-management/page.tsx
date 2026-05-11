@@ -79,7 +79,8 @@ export default function ChatManagementPage() {
   const [noteContent, setNoteContent] = useState('');
   const [noteCategory, setNoteCategory] = useState('');
 
-  const refreshData = React.useCallback(() => {
+  const refreshData = React.useCallback(async (sync = false) => {
+    if (sync) await MockDB.syncFromSupabase();
     setSessions(MockDB.getChatSessions());
     setStatuses(MockDB.getAnalystStatuses());
     setNotes(MockDB.getQuickNotes());
@@ -99,7 +100,7 @@ export default function ChatManagementPage() {
       window.location.href = '/my-tickets';
       return;
     }
-    refreshData();
+    refreshData(true);
   }, [refreshTrigger, currentUser, refreshData]);
 
   const isSubscribedRef = useRef(false);

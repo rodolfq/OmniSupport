@@ -190,6 +190,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
             role: profileToUse.role,
             companyId: profileToUse.company_id,
             phone: profileToUse.phone,
+            viewAllCompanyTickets: profileToUse.view_all_company_tickets,
             mustChangePassword: profileToUse.must_change_password,
             isAdmin: profileToUse.is_admin
           };
@@ -238,6 +239,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
               role: profileToUse.role,
               companyId: profileToUse.company_id,
               phone: profileToUse.phone,
+              viewAllCompanyTickets: profileToUse.view_all_company_tickets,
               mustChangePassword: profileToUse.must_change_password,
               isAdmin: profileToUse.is_admin
             });

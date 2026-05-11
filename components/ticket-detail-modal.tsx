@@ -75,7 +75,7 @@ export function TicketDetailModal({ ticket, onClose }: TicketDetailModalProps) {
     const fetchedCompanies = MockDB.getCompanies();
     setAllUsers(users);
     setCompanies(fetchedCompanies);
-    setAnalysts(users.filter(u => u.role === UserRole.ADMIN || u.role === UserRole.SUPPORT || u.role === UserRole.INTERNAL || u.role === 'Equipe'));
+    setAnalysts(users.filter(u => u.role !== UserRole.CUSTOMER && u.role !== 'Funcionário'));
     setStatuses(MockDB.getStatuses());
     setAssigneeId(ticket.assigneeId || '');
     setTicketStatus(ticket.status);

@@ -70,46 +70,28 @@ export function safeJsonStringify(obj: any) {
         
         // 2. Filter out DOM nodes, react internal keys, and Event objects
         try {
-          // Basic DOM check
-          if (typeof value.nodeType === 'number' && typeof value.nodeName === 'string') {
-            return `[DOM ${value.nodeName}]`;
-          }
-          
-          // Key based filtering for React internals
-          if (typeof key === 'string' && (
+          // Identify if it's a DOM element or React internal node
+          const isDom = typeof value.nodeType === 'number' && typeof value.nodeName === 'string';
+          const isReactInternal = typeof key === 'string' && (
             key.startsWith('__reactFiber') || 
             key.startsWith('__reactProps') || 
             key.startsWith('__reactInternal') ||
             key.startsWith('_react') ||
             key === 'stateNode'
-          )) {
-            return '[React Internal]';
+          );
+          
+          if (isDom || isReactInternal) {
+            return isDom ? `[DOM ${value.nodeName}]` : '[React Internal]';
           }
           
-          // Constructor name check is very effective
+          // Constructor check
           if (value.constructor && typeof value.constructor.name === 'string') {
             const name = value.constructor.name;
-            const forbiddenNames = [
-              'FiberNode', 'Fiber', 'HTMLElement', 'HTMLDivElement', 
-              'HTMLButtonElement', 'HTMLSpanElement', 'Window', 'Document', 
-              'Event', 'SyntheticEvent', 'SyntheticBaseEvent'
-            ];
-            if (forbiddenNames.some(forbidden => name.includes(forbidden))) {
+            if (['FiberNode', 'HTMLElement', 'HTMLDivElement', 'Window', 'Document', 'Event'].some(n => name.includes(n))) {
               return `[${name}]`;
             }
           }
-
-          // Recursive check for event-like properties
-          if (typeof value.preventDefault === 'function' && typeof value.stopPropagation === 'function') {
-            return '[Event]';
-          }
-          
-          // Check for window/global to avoid huge dumps
-          if (value === window || (typeof global !== 'undefined' && value === global)) {
-             return '[Global Object]';
-          }
         } catch (e) {
-          // If we can't inspect the object, it's safer to just represent it as a string
           return '[Unsafe Object]';
         }
         
@@ -119,12 +101,7 @@ export function safeJsonStringify(obj: any) {
       return value;
     });
   } catch (err) {
-    console.error('Final fallback in safeJsonStringify:', err);
-    try {
-      // One last desperate attempt: just stringify the type and constructor
-      return JSON.stringify(`[Serialization Failed: ${err instanceof Error ? err.message : String(err)}]`);
-    } catch {
-      return '"[Serialization Failed]"';
-    }
+    console.error('safeJsonStringify failed:', err);
+    return '"[Serialization Failed]"';
   }
 }

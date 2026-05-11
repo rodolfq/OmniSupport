@@ -2,21 +2,19 @@
 
 import React, { useState, useEffect } from 'react';
 import { 
-  Users, UserPlus, Search, Mail, Shield, Key, Trash2, Edit2, CheckCircle2, XCircle, Bell
+  Search, Mail, Shield, Key, Trash2, Edit2, CheckCircle2, XCircle, Bell, UserPlus
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { motion, AnimatePresence } from 'motion/react';
 import { useApp } from '@/app/app-context';
 import { NotificationSettingsContent } from '@/components/notification-settings';
-import { UserRole } from '@/lib/mock-db';
-import { NewEmployeeModal } from '@/components/new-employee-modal';
-import { getUsers, createUser, updateUser, deleteUser } from '@/app/actions';
+import { getUsers, createUser, updateUser, deleteUser, getCompanies } from '@/app/actions';
+import { User, MockDB, UserRole } from '@/lib/mock-db';
 
 export default function TeamManagementPage() {
   const [analysts, setAnalysts] = useState<any[]>([]);
   const [search, setSearch] = useState('');
   const [isModalOpen, setIsModalOpen] = useState(false);
-  const [isNewEmployeeModalOpen, setIsNewEmployeeModalOpen] = useState(false);
   const [isNotifModalOpen, setIsNotifModalOpen] = useState(false);
   const [selectedUser, setSelectedUser] = useState<any | null>(null);
   
@@ -24,15 +22,25 @@ export default function TeamManagementPage() {
   const [name, setName] = useState('');
   const [email, setEmail] = useState('');
   const [role, setRole] = useState<string>('Funcionário');
+  const [companyId, setCompanyId] = useState<string | undefined>();
+  const [viewAllCompanyTickets, setViewAllCompanyTickets] = useState(false);
+  const [password, setPassword] = useState('');
+  const [isChangingPassword, setIsChangingPassword] = useState(false);
+  const [companies, setCompanies] = useState<any[]>([]);
+  const [isSaving, setIsSaving] = useState(false);
   
   const { currentUser } = useApp();
 
   const fetchUsers = async () => {
     try {
-      const users = await getUsers();
+      const [users, companiesList] = await Promise.all([
+        getUsers(),
+        getCompanies()
+      ]);
       setAnalysts(users || []);
+      setCompanies(companiesList || []);
     } catch (e) {
-      console.error("Erro ao buscar usuários:", e);
+      console.error("Erro ao buscar usuários/empresas:", e);
     }
   };
 
@@ -41,26 +49,33 @@ export default function TeamManagementPage() {
   }, []);
 
   const filteredAnalysts = analysts.filter(a => 
-    // Filter logic: Internal team are those in the 'Equipe' role, 
-    // without a companyId.
-    (a.role === 'Equipe' && !a.companyId) &&
+    // Filter logic: Internal team are those who are NOT 'Funcionário'
+    (a.role !== 'Funcionário') &&
     (a.name.toLowerCase().includes(search.toLowerCase()) || 
     a.email.toLowerCase().includes(search.toLowerCase()))
   );
+
+  const roles = [
+    { id: '1', name: 'Equipe' },
+    { id: '2', name: 'Gestor' },
+    { id: '3', name: 'Administrador' }
+  ];
 
   const handleOpenModal = (user?: User) => {
     if (user) {
       setSelectedUser(user);
       setName(user.name);
       setEmail(user.email);
-      setRole(user.role.toString());
+      setRole(user.role);
       setCompanyId(user.companyId);
+      setViewAllCompanyTickets(user.viewAllCompanyTickets || false);
     } else {
       setSelectedUser(null);
       setName('');
       setEmail('');
-      setRole('Suporte');
-      setCompanyId(currentUser?.role === UserRole.CUSTOMER ? currentUser.companyId : undefined);
+      setRole('Equipe');
+      setCompanyId(undefined);
+      setViewAllCompanyTickets(false);
     }
     setPassword('');
     setIsChangingPassword(false);
@@ -68,24 +83,76 @@ export default function TeamManagementPage() {
   };
 
   const handleSave = async () => {
-    if (!name || !email) return;
+    console.log('Iniciando salvamento:', { name, email, role, companyId, selectedUser: !!selectedUser });
+    
+    if (!name || name.trim() === '') {
+      alert('Por favor, preencha o nome completo.');
+      return;
+    }
+    if (!email || email.trim() === '') {
+      alert('Por favor, preencha o e-mail corporativo.');
+      return;
+    }
 
+    const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+    if (!emailRegex.test(email.trim())) {
+      alert('Por favor, insira um e-mail válido.');
+      return;
+    }
+
+    setIsSaving(true);
     try {
+      let result;
       if (selectedUser) {
         // Edit mode
-        await updateUser(selectedUser.id, name, email, role as string, companyId);
+        console.log('Modo edição para:', selectedUser.id);
+        result = await updateUser(selectedUser.id, name.trim(), email.trim(), role, companyId || null, viewAllCompanyTickets);
+        
+        if (result && result.error) {
+          console.error('Erro retornado de updateUser:', result.error);
+          alert('Erro ao atualizar usuário: ' + result.error);
+          setIsSaving(false);
+          return;
+        }
+        
+        alert('Usuário atualizado com sucesso!');
       } else {
         // Create mode
-        await createUser(email, name, role as string, companyId || 'platform-company-id', [], false);
+        console.log('Modo criação para:', email);
+        result = await createUser(email.trim(), name.trim(), role, companyId || null, [], viewAllCompanyTickets);
+        
+        if (result && result.error) {
+          console.error('Erro retornado de createUser:', result.error);
+          alert('Erro ao criar usuário: ' + result.error);
+          setIsSaving(false);
+          return;
+        }
+        
+        alert('Usuário criado com sucesso!');
       }
 
       // Refresh list immediately
+      console.log('Limpando estado e fechando modal...');
       await fetchUsers();
       setIsModalOpen(false);
+      resetForm();
     } catch (error) {
-      console.error('Erro ao salvar usuário:', error);
-      alert('Erro ao salvar usuário.');
+      console.error('Erro crítico ao salvar usuário:', error);
+      alert('Erro inesperado ao salvar usuário. Verifique sua conexão e tente novamente.');
+    } finally {
+      setIsSaving(false);
     }
+  };
+
+  const resetForm = () => {
+    setSelectedUser(null);
+    setName('');
+    setEmail('');
+    setRole('Equipe');
+    setCompanyId(undefined);
+    setViewAllCompanyTickets(false);
+    setPassword('');
+    setIsChangingPassword(false);
   };
 
   const handlePasswordChange = () => {
@@ -119,12 +186,10 @@ export default function TeamManagementPage() {
       <div className="flex flex-col md:flex-row md:items-end justify-between gap-4">
         <div>
           <h2 className="text-3xl font-black text-slate-800 tracking-tight">
-            {currentUser?.role === UserRole.CUSTOMER ? 'Contatos da Empresa' : 'Gestão da Equipe'}
+            Gestão da Equipe
           </h2>
           <p className="text-slate-500 font-medium">
-            {currentUser?.role === UserRole.CUSTOMER 
-              ? 'Gerencie quem pode acessar os chamados da sua empresa' 
-              : 'Configure analistas, permissões e acessos'}
+            Configure analistas, permissões e acessos do time interno
           </p>
         </div>
         <div className="flex items-center gap-3">
@@ -136,11 +201,11 @@ export default function TeamManagementPage() {
             Minhas Notificações
           </button>
           <button 
-            onClick={() => setIsNewEmployeeModalOpen(true)}
+            onClick={() => handleOpenModal()}
             className="bg-indigo-600 hover:bg-indigo-700 text-white px-6 py-3 rounded-2xl text-sm font-black uppercase tracking-widest shadow-lg shadow-indigo-200 transition-all flex items-center gap-2"
           >
             <UserPlus size={18} />
-            {currentUser?.role === UserRole.CUSTOMER ? 'Novo Contato' : 'Adicionar Analista'}
+            Adicionar Analista
           </button>
         </div>
       </div>
@@ -165,7 +230,7 @@ export default function TeamManagementPage() {
               <tr className="bg-slate-50/50">
                 <th className="px-8 py-5 text-[10px] font-black uppercase text-slate-400 tracking-widest">ID</th>
                 <th className="px-8 py-5 text-[10px] font-black uppercase text-slate-400 tracking-widest">
-                  {currentUser?.role === UserRole.CUSTOMER ? 'Nome' : 'Analista'}
+                  Equipe / Analista
                 </th>
                 <th className="px-8 py-5 text-[10px] font-black uppercase text-slate-400 tracking-widest">Cargo/Nível</th>
                 <th className="px-8 py-5 text-[10px] font-black uppercase text-slate-400 tracking-widest">Status</th>
@@ -239,16 +304,6 @@ export default function TeamManagementPage() {
         </div>
       </div>
 
-      <NewEmployeeModal 
-        isOpen={isNewEmployeeModalOpen} 
-        onClose={() => setIsNewEmployeeModalOpen(false)} 
-        companyId={currentUser?.role === UserRole.CUSTOMER ? (currentUser.companyId || 'company-id') : 'platform-company-id'}
-        onSuccess={async () => {
-          await fetchUsers();
-          setIsNewEmployeeModalOpen(false);
-        }}
-      />
-      
       <AnimatePresence>
         {isModalOpen && (
           <div className="fixed inset-0 z-[100] flex items-center justify-center p-4">
@@ -338,6 +393,31 @@ export default function TeamManagementPage() {
                   </div>
                 )}
 
+                {role !== UserRole.CUSTOMER && (
+                  <div className="p-4 bg-indigo-50/50 rounded-2xl border border-indigo-100 flex items-center justify-between">
+                    <div className="flex items-center gap-3">
+                      <div className="w-8 h-8 rounded-lg bg-white border border-indigo-100 flex items-center justify-center text-indigo-600 shadow-sm">
+                        <Shield size={14} />
+                      </div>
+                      <div>
+                        <p className="text-[11px] font-black text-indigo-900 uppercase tracking-tight">Visualizar apenas chamados internos</p>
+                      </div>
+                    </div>
+                    <div 
+                      onClick={() => setViewAllCompanyTickets(!viewAllCompanyTickets)}
+                      className={cn(
+                        "w-12 h-6 rounded-full p-1 cursor-pointer transition-all",
+                        viewAllCompanyTickets ? "bg-indigo-600" : "bg-slate-200"
+                      )}
+                    >
+                      <div className={cn(
+                        "w-4 h-4 rounded-full bg-white shadow-sm transition-transform",
+                        viewAllCompanyTickets ? "translate-x-6" : "translate-x-0"
+                      )} />
+                    </div>
+                  </div>
+                )}
+
                 {selectedUser && (
                   <div className="pt-4 border-t border-slate-100">
                     {isChangingPassword ? (
@@ -389,9 +469,15 @@ export default function TeamManagementPage() {
                 </button>
                 <button 
                   onClick={handleSave}
-                  className="px-12 py-3 bg-indigo-600 text-white rounded-2xl text-[10px] font-black uppercase tracking-widest hover:bg-indigo-700 transition-all shadow-lg shadow-indigo-200 font-bold"
+                  disabled={isSaving}
+                  className={cn(
+                    "px-12 py-3 text-white rounded-2xl text-[10px] font-black uppercase tracking-widest transition-all shadow-lg font-bold",
+                    isSaving 
+                      ? "bg-indigo-400 cursor-not-allowed opacity-70" 
+                      : "bg-indigo-600 hover:bg-indigo-700 shadow-indigo-200"
+                  )}
                 >
-                  Salvar Alterações
+                  {isSaving ? 'Salvando...' : (selectedUser ? 'Salvar Alterações' : 'Criar Conta')}
                 </button>
               </div>
             </motion.div>
