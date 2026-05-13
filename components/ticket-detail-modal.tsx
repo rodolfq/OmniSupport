@@ -3,7 +3,8 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { X, User, MessageCircle, Clock, Link2, Paperclip, Save, Maximize2, Minimize2, Send, Lock, History, Download, File, Image as ImageIcon, Film } from 'lucide-react';
 import { motion } from 'motion/react';
-import { Ticket, MockDB, TicketStatus, User as UserType, Message, UserRole, InternalTicket, Permission, StatusConfig, Company, Attachment } from '@/lib/mock-db';
+import { Ticket, MockDB, TicketStatus, User as UserType, Message, UserRole, InternalTicket, Permission, StatusConfig, Company, Attachment, PriorityConfig, CategoryConfig } from '@/lib/mock-db';
+import { supabase } from '@/lib/supabase';
 import { cn } from '@/lib/utils';
 import { useApp } from '@/app/app-context';
 import { Star } from 'lucide-react';
@@ -30,9 +31,11 @@ export function TicketDetailModal({ ticket, onClose }: TicketDetailModalProps) {
   const [analysts, setAnalysts] = useState<UserType[]>([]);
   const [allUsers, setAllUsers] = useState<UserType[]>([]);
   const [statuses, setStatuses] = useState<StatusConfig[]>([]);
+  const [categories, setCategories] = useState<CategoryConfig[]>([]);
+  const [priorities, setPriorities] = useState<PriorityConfig[]>([]);
   const [employeeIds, setEmployeeIds] = useState<string[]>(ticket?.employeeIds || []);
 
-  // Helper to aggregate all attachments
+  // ... (rest of memos)
   const allAttachments = React.useMemo(() => {
     if (!ticket) return [];
     const fromTicket = ticket.attachments || [];
@@ -71,12 +74,26 @@ export function TicketDetailModal({ ticket, onClose }: TicketDetailModalProps) {
 
   useEffect(() => {
     if (!ticket) return;
-    const users = MockDB.getUsers();
-    const fetchedCompanies = MockDB.getCompanies();
-    setAllUsers(users);
-    setCompanies(fetchedCompanies);
-    setAnalysts(users.filter(u => u.role !== UserRole.CUSTOMER && u.role !== 'Funcionário'));
-    setStatuses(MockDB.getStatuses());
+    
+    async function fetchConfigs() {
+      const { data: profiles } = await supabase.from('profiles').select('*');
+      const { data: statusList } = await supabase.from('config_statuses').select('*');
+      const { data: categoryList } = await supabase.from('config_categories').select('*');
+      const { data: priorityList } = await supabase.from('config_priorities').select('*');
+      const { data: compList } = await supabase.from('companies').select('*');
+
+      if (profiles) {
+        setAllUsers(profiles.map(u => ({ ...u, companyId: u.company_id })) as any);
+        setAnalysts(profiles.filter(u => u.role === 'Equipe' || u.is_admin) as any);
+      }
+      if (statusList) setStatuses(statusList as any);
+      if (categoryList) setCategories(categoryList as any);
+      if (priorityList) setPriorities(priorityList as any);
+      if (compList) setCompanies(compList as any);
+    }
+
+    fetchConfigs();
+    
     setAssigneeId(ticket.assigneeId || '');
     setTicketStatus(ticket.status);
     setTicketDescription(ticket.description);
@@ -90,7 +107,7 @@ export function TicketDetailModal({ ticket, onClose }: TicketDetailModalProps) {
     loadInternalTicket();
     
     // Set default history tab based on role and permissions
-    if (currentUser?.role === UserRole.CUSTOMER) {
+    if (currentUser?.role === UserRole.CUSTOMER || currentUser?.role === 'Funcionário') {
       setHistoryTab('customer');
     } else if (hasPermission(Permission.INTERNAL_TICKETS_VIEW) && !hasPermission(Permission.TICKETS_READ)) {
       setHistoryTab('internal');
@@ -305,11 +322,7 @@ export function TicketDetailModal({ ticket, onClose }: TicketDetailModalProps) {
     toast.success('Descrição atualizada');
   };
 
-  const itCreator = internalTicket ? MockDB.getUsers().find(u => u.id === internalTicket.creatorId) : null;
-  const customer = MockDB.getUsers().find(u => u.id === ticket.customerId);
-
-  const priorities = MockDB.getPriorities();
-  const priorityConfig = priorities.find(p => p.label === ticket.priority) || priorities[0];
+  const itCreator = internalTicket ? allUsers.find(u => u.id === internalTicket.creatorId) : null;
 
   const handleTakeTicket = () => {
     if (!currentUser || !ticket) return;
@@ -437,10 +450,9 @@ export function TicketDetailModal({ ticket, onClose }: TicketDetailModalProps) {
                             }}
                             className="text-sm font-bold text-slate-700 bg-transparent border-none outline-none focus:ring-2 focus:ring-indigo-500/10 rounded px-1 -ml-1 cursor-pointer hover:bg-slate-50 transition-all"
                           >
-                            <option value="Suporte">Suporte</option>
-                            <option value="Financeiro">Financeiro</option>
-                            <option value="Vendas">Vendas</option>
-                            <option value="Implementação">Implementação</option>
+                            {categories.map(cat => (
+                              <option key={cat.id} value={cat.label}>{cat.label}</option>
+                            ))}
                           </select>
                        </div>
                        <div className="flex items-start gap-4">
@@ -631,11 +643,19 @@ export function TicketDetailModal({ ticket, onClose }: TicketDetailModalProps) {
                            <span className="text-sm font-bold text-indigo-600 bg-indigo-50 px-2 py-0.5 rounded uppercase tracking-tighter">{ticket.status}</span>
                         </div>
                         <div className="flex items-start gap-4">
+                           <span className="text-[11px] font-black uppercase text-slate-400 w-24 pt-0.5">Prioridade</span>
+                           <span className="text-sm font-bold text-slate-700">{ticket.priority}</span>
+                        </div>
+                        <div className="flex items-start gap-4">
                            <span className="text-[11px] font-black uppercase text-slate-400 w-24 pt-0.5">Identificado</span>
                            <span className="text-sm font-bold text-slate-700">#{ticket.ticketNumber || ticket.id.slice(0, 8)}</span>
                         </div>
                      </div>
                      <div className="space-y-3">
+                        <div className="flex items-start gap-4">
+                           <span className="text-[11px] font-black uppercase text-slate-400 w-24 pt-0.5">Categoria</span>
+                           <span className="text-sm font-bold text-slate-700">{ticket.category}</span>
+                        </div>
                         <div className="flex items-start gap-4">
                            <span className="text-[11px] font-black uppercase text-slate-400 w-24 pt-0.5">Abertura</span>
                            <span className="text-sm font-bold text-slate-700">{new Date(ticket.createdAt).toLocaleDateString()}</span>
@@ -931,7 +951,7 @@ export function TicketDetailModal({ ticket, onClose }: TicketDetailModalProps) {
                 .filter(m => historyTab === 'customer' ? m.isVisibleToCustomer : !m.isVisibleToCustomer)
                 .map((m) => {
                   const isInternal = m.type === 'internal' || !m.isVisibleToCustomer;
-                  const sender = MockDB.getUsers().find(u => u.id === m.senderId);
+                  const sender = allUsers.find(u => u.id === m.senderId);
                   
                   return (
                     <div key={m.id} className="group animate-in fade-in slide-in-from-right-2 duration-300">

@@ -15,6 +15,7 @@ export function ChangePasswordModal({ isOpen, onClose }: { isOpen: boolean, onCl
   const [showPassword, setShowPassword] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [isSuccess, setIsSuccess] = useState(false);
+  const [isLoading, setIsLoading] = useState(false);
 
   const handleUpdatePassword = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -32,31 +33,41 @@ export function ChangePasswordModal({ isOpen, onClose }: { isOpen: boolean, onCl
 
     if (!currentUser) return;
     
+    setIsLoading(true);
     // First, update Auth password
     if (!supabase) {
       setError('Erro de configuração: Supabase não inicializado.');
-      return;
-    }
-    const { error: authError } = await supabase.auth.updateUser({
-      password: newPassword
-    });
-
-    if (authError) {
-      setError('Erro ao atualizar senha no servidor: ' + authError.message);
+      setIsLoading(false);
       return;
     }
 
-    const updatedUser = { 
-      ...currentUser, 
-      password: newPassword, 
-      mustChangePassword: false 
-    };
-    
-    await MockDB.saveUser(updatedUser);
-    setCurrentUser(updatedUser);
-    setIsSuccess(true);
-    toast.success('Senha alterada com sucesso!');
-    setTimeout(onClose, 2000);
+    try {
+      const { error: authError } = await supabase.auth.updateUser({
+        password: newPassword
+      });
+
+      if (authError) {
+        setError('Erro ao atualizar senha no servidor: ' + authError.message);
+        setIsLoading(false);
+        return;
+      }
+
+      const updatedUser = { 
+        ...currentUser, 
+        password: newPassword, 
+        mustChangePassword: false 
+      };
+      
+      await MockDB.saveUser(updatedUser);
+      setCurrentUser(updatedUser);
+      setIsSuccess(true);
+      toast.success('Senha alterada com sucesso!');
+      setTimeout(onClose, 2000);
+    } catch (err: any) {
+      setError('Erro inesperado: ' + err.message);
+    } finally {
+      setIsLoading(false);
+    }
   };
 
   if (!isOpen) return null;
@@ -111,8 +122,18 @@ export function ChangePasswordModal({ isOpen, onClose }: { isOpen: boolean, onCl
                 className="w-full bg-slate-50 border border-slate-200 rounded-2xl px-4 py-3 text-sm font-bold focus:ring-4 focus:ring-indigo-500/10 outline-none"
               />
             </div>
-            <button className="w-full mt-4 py-4 bg-indigo-600 text-white rounded-2xl text-[11px] font-black uppercase tracking-widest shadow-xl shadow-indigo-100 hover:bg-indigo-700 transition-all">
-              Atualizar Senha
+            <button 
+              disabled={isLoading}
+              className="w-full mt-4 py-4 bg-indigo-600 text-white rounded-2xl text-[11px] font-black uppercase tracking-widest shadow-xl shadow-indigo-100 hover:bg-indigo-700 transition-all flex items-center justify-center gap-2 disabled:opacity-70 disabled:cursor-not-allowed"
+            >
+              {isLoading ? (
+                <>
+                  <div className="w-4 h-4 border-2 border-white/30 border-t-white rounded-full animate-spin" />
+                  Salvando...
+                </>
+              ) : (
+                'Atualizar Senha'
+              )}
             </button>
           </form>
         )}

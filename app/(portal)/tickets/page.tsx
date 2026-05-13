@@ -3,6 +3,7 @@
 import React, { useState, useEffect, useMemo } from 'react';
 import { Ticket, TicketStatus, Permission, UserRole, MockDB } from '@/lib/mock-db';
 import { fetchAllTickets } from '@/lib/tickets';
+import { supabase } from '@/lib/supabase';
 import { Search, Filter, MoreHorizontal, FileText, ChevronRight, Star, ArrowUpDown, GripVertical, Loader2 } from 'lucide-react';
 import { cn, safeJsonStringify } from '@/lib/utils';
 import Link from 'next/link';
@@ -110,10 +111,9 @@ export default function TicketsPage() {
   ]);
 
   const [loading, setLoading] = useState(true);
-
-  const companies = useMemo(() => MockDB.getCompanies(), [refreshTrigger]);
-  const users = useMemo(() => MockDB.getUsers(), [refreshTrigger]);
-  const priorities = useMemo(() => MockDB.getPriorities(), [refreshTrigger]);
+  const [priorities, setPriorities] = useState<any[]>([]);
+  const [companies, setCompanies] = useState<any[]>([]);
+  const [users, setUsers] = useState<any[]>([]);
 
   const sensors = useSensors(
     useSensor(PointerSensor, {
@@ -130,6 +130,17 @@ export default function TicketsPage() {
     if (!currentUser) return;
     setLoading(true);
     try {
+      // Fetch config and data
+      const [pRes, cRes, uRes] = await Promise.all([
+        supabase.from('config_priorities').select('*'),
+        supabase.from('companies').select('*'),
+        supabase.from('profiles').select('*')
+      ]);
+
+      if (pRes.data) setPriorities(pRes.data);
+      if (cRes.data) setCompanies(cRes.data);
+      if (uRes.data) setUsers(uRes.data);
+
       let tickets = await fetchAllTickets();
 
       // Update selected ticket if it exists to reflect latest changes from DB

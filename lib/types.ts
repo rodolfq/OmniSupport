@@ -125,6 +125,7 @@ export interface Ticket {
   companyId?: string;
   customerId: string;
   customerName?: string;
+  assigneeName?: string;
   employeeIds?: string[];
   assigneeId?: string;
   createdAt: string;

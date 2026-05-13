@@ -94,37 +94,43 @@ export class MockDB {
 
     this._syncPromise = (async () => {
       console.time('🔄 Supabase Sync');
-      console.log('🔄 MockDB: Iniciando sincronização com Supabase...');
+      console.log('🔄 MockDB: Iniciando sincronização com Supabase usando Singleton...');
       try {
-        console.log('🔄 MockDB: Consultando tabelas em paralelo...');
-        // 1. Fetch data in parallel - Primary Source of Truth
-        const results = await Promise.all([
-          supabase.from('profiles').select('*'),
-          supabase.from('tickets').select('*'),
-          supabase.from('chat_sessions').select('*'),
-          supabase.from('chat_messages').select('*').order('created_at', { ascending: true }),
-          supabase.from('ticket_messages').select('*'),
-          supabase.from('companies').select('*'),
-          supabase.from('analyst_status').select('*'),
-          supabase.from('user_status_history').select('*').order('timestamp', { ascending: false }).limit(2000),
-          supabase.from('absence_reasons').select('*'),
-          supabase.from('config_tags').select('*'),
-          supabase.from('config_priorities').select('*')
-        ]);
+        if (!supabase) return;
 
-        const [
-          { data: remoteProfiles, error: profilesErr },
-          { data: tickets, error: ticketsErr },
-          { data: chatSessionsRaw, error: chatSessionsErr },
-          { data: chatMessagesRaw, error: chatMessagesErr },
-          { data: messages, error: messagesErr },
-          { data: companies, error: companiesErr },
-          { data: analystStatusesRaw, error: analystStatusesErr },
-          { data: historyRaw, error: historyErr },
-          { data: absenceReasonsRaw, error: absenceErr },
-          { data: tagsRaw, error: tagsErr },
-          { data: prioritiesRaw, error: prioritiesErr }
-        ] = results;
+        // CRITICAL: Não chamamos auth.getSession() aqui. Confiaremos no singleton.
+        console.log('🔄 MockDB: Consultando tabelas sequencialmente para evitar sobrecarga...');
+        
+        // 1. Fetch data with controlled concurrency - Primary Source of Truth
+        const profilesRes = await supabase.from('profiles').select('*');
+        const ticketsRes = await supabase.from('tickets').select(`
+            *,
+            customer:profiles!tickets_customer_id_fkey(name),
+            assignee:profiles!tickets_assignee_id_fkey(name)
+        `);
+        const chatSessionsRes = await supabase.from('chat_sessions').select('*');
+        const chatMessagesRes = await supabase.from('chat_messages').select('*').order('created_at', { ascending: true });
+        const ticketMessagesRes = await supabase.from('ticket_messages').select('*');
+        const companiesRes = await supabase.from('companies').select('*');
+        const analystStatusesRes = await supabase.from('analyst_status').select('*');
+        
+        // Minor tables
+        const historyRes = await supabase.from('user_status_history').select('*').order('timestamp', { ascending: false }).limit(500);
+        const absenceRes = await supabase.from('absence_reasons').select('*');
+        const tagsRes = await supabase.from('config_tags').select('*');
+        const prioritiesRes = await supabase.from('config_priorities').select('*');
+
+        const { data: remoteProfiles, error: profilesErr } = profilesRes;
+        const { data: tickets, error: ticketsErr } = ticketsRes;
+        const { data: chatSessionsRaw, error: chatSessionsErr } = chatSessionsRes;
+        const { data: chatMessagesRaw, error: chatMessagesErr } = chatMessagesRes;
+        const { data: messages, error: messagesErr } = ticketMessagesRes;
+        const { data: companies, error: companiesErr } = companiesRes;
+        const { data: analystStatusesRaw, error: analystStatusesErr } = analystStatusesRes;
+        const { data: historyRaw, error: historyErr } = historyRes;
+        const { data: absenceReasonsRaw, error: absenceErr } = absenceRes;
+        const { data: tagsRaw, error: tagsErr } = tagsRes;
+        const { data: prioritiesRaw, error: prioritiesErr } = prioritiesRes;
 
         // Log any errors
         if (profilesErr) console.error('Supabase Sync Error (profiles):', profilesErr);
@@ -210,7 +216,7 @@ export class MockDB {
         }
 
         // Process Companies
-        if (companies) {
+        if (companies && companies.length > 0) {
           const mappedCompanies = companies.map(c => ({
             id: c.id,
             name: c.name,
@@ -218,10 +224,14 @@ export class MockDB {
             phone: c.phone || ''
           }));
           this.set(STORAGE_KEYS.COMPANIES, mappedCompanies);
+        } else if (companiesErr) {
+          console.warn('⚠️ MockDB: Falha ao carregar empresas do Supabase, mantendo locais.');
+        } else if (companies && companies.length === 0) {
+          console.log('ℹ️ MockDB: Supabase retornou 0 empresas. Mantendo dados locais se existirem.');
         }
 
         // Process Profiles
-        if (remoteProfiles) {
+        if (remoteProfiles && remoteProfiles.length > 0) {
           const mappedUsers = remoteProfiles.map(p => ({
             id: p.id,
             name: p.name,
@@ -238,7 +248,7 @@ export class MockDB {
         }
 
         // Process Tickets
-        if (tickets) {
+        if (tickets && tickets.length > 0) {
           const mappedTickets = tickets.map(t => ({
             ...t,
             id: t.id,
@@ -623,84 +633,30 @@ export class MockDB {
     if (index >= 0) {
       tickets[index] = ticket;
     } else {
-      // Find max ticket number
-      const maxTicketNumber = tickets.reduce((max, t) => Math.max(max, t.ticketNumber || 0), 0);
-      ticket.ticketNumber = maxTicketNumber + 1;
+      if (!ticket.ticketNumber) {
+        const maxTicketNumber = tickets.reduce((max, t) => Math.max(max, t.ticketNumber || 0), 0);
+        ticket.ticketNumber = maxTicketNumber + 1;
+      }
       tickets.push(ticket);
     }
     this.set(STORAGE_KEYS.TICKETS, tickets);
 
-    // Sync to Supabase in background
-    if (supabase) {
-      const db = supabase;
-      const sync = async () => {
-        console.log(`📤 Sincronizando ticket ${ticket.id} para Supabase...`);
-        
-        try {
-          // Verify authentication
-          const { data: authData } = await db.auth.getUser();
-          if (!authData.user) return;
-
-          let error: any = null;
-
-          const payload: any = {
-            title: ticket.title,
-            description: ticket.description,
-            status: ticket.status,
-            priority: ticket.priority,
-            category: ticket.category,
-            employee_ids: ticket.employeeIds || [],
-            sla_limit: ticket.slaLimit,
-            history: ticket.history || [],
-            updated_at: new Date().toISOString()
-          };
-
-          if (this.isUUID(ticket.id)) payload.id = ticket.id;
-          payload.company_id = (ticket.companyId && this.isUUID(ticket.companyId)) ? ticket.companyId : null;
-          payload.customer_id = this.isUUID(ticket.customerId) ? ticket.customerId : null;
-          payload.assignee_id = (ticket.assigneeId && this.isUUID(ticket.assigneeId)) ? ticket.assigneeId : null;
-          
-          // Mantém o número do ticket se disponível
-          if (typeof ticket.ticketNumber === 'number') {
-            payload.public_ticket_number = ticket.ticketNumber;
-          } else {
-            // Fallback para evitar erro de NOT NULL no banco
-            // Se for novo, o ideal é que o número seja gerado corretamente no salvamento local acima
-            console.warn(`⚠️ Ticket ${ticket.id} sem número. Atribuindo valor temporário.`);
-            payload.public_ticket_number = Math.floor(Date.now() / 1000); 
-          }
-
-          if (this.isUUID(ticket.id)) {
-            // Se temos um UUID, tentamos dar um upsert passando explicitamente o ID como critério de conflito
-            const { error: upsertError } = await db.from('tickets').upsert([payload], { onConflict: 'id' });
-            error = upsertError;
-          } else {
-            // Se não for UUID (local), apenas inserimos
-            const { error: insertError } = await db.from('tickets').insert([payload]);
-            error = insertError;
-          }
-          
-          if (error && error.message.includes('column') && error.message.includes('not found')) {
-            const missingColumnMatch = error.message.match(/column "(.*?)"/);
-            const missingColumn = missingColumnMatch ? missingColumnMatch[1] : null;
-            
-            if (missingColumn) {
-              console.warn(`⚠️ Coluna "${missingColumn}" não encontrada no Supabase. Tentando sem ela...`);
-              const { [missingColumn]: _unused, ...limitedPayload } = payload;
-              const retry = await db.from('tickets').upsert([limitedPayload]);
-              error = retry.error;
-            }
-          }
-
-          if (error) {
-            console.error('❌ Erro Supabase Sync (tickets):', error.message);
-          }
-        } catch (e) {
-          console.error('❌ Erro inesperado ao sincronizar ticket:', e);
-        }
-      };
-
-      sync();
+    // Sync simplificado
+    if (supabase && this.isUUID(ticket.id)) {
+      supabase.from('tickets').upsert({
+        id: ticket.id,
+        title: ticket.title,
+        description: ticket.description,
+        status: ticket.status,
+        priority: ticket.priority,
+        category: ticket.category,
+        company_id: (ticket.companyId && this.isUUID(ticket.companyId)) ? ticket.companyId : null,
+        customer_id: this.isUUID(ticket.customerId) ? ticket.customerId : null,
+        assignee_id: (ticket.assigneeId && this.isUUID(ticket.assigneeId)) ? ticket.assigneeId : null,
+        updated_at: new Date().toISOString()
+      }, { onConflict: 'id' }).then(({ error }) => {
+        if (error) console.warn('⚠️ MockDB Sync (tickets):', error.message);
+      });
     }
   }
 
@@ -759,53 +715,19 @@ export class MockDB {
     }
     this.set(STORAGE_KEYS.USERS, users);
 
-    // Sync to Supabase - CRITICAL: Non-blocking to prevent UI hang
+    // Sync simplificado
     if (supabase && this.isUUID(user.id)) {
-      const db = supabase;
-      // Run sync in background without awaiting to prevent UI lockup
-      (async () => {
-        try {
-          const { data: authData } = await db.auth.getUser();
-          if (!authData.user) return;
-
-          // Check if user is Admin to allow syncing other profiles
-          const { data: currentProfile } = await db.from('profiles').select('role, is_admin').eq('id', authData.user.id).maybeSingle();
-          const isAdmin = currentProfile?.role === UserRole.ADMIN || currentProfile?.role === 'Administrador' || currentProfile?.is_admin === true;
-
-          // If not admin and trying to sync someone else, skip
-          if (user.id !== authData.user.id && !isAdmin) return;
-
-          const payload: any = {
-            id: user.id, // Current ID being saved
-            name: user.name,
-            email: user.email,
-            role: user.role,
-            company_id: user.companyId && this.isUUID(user.companyId) ? user.companyId : null,
-            phone: user.phone || null,
-            password: user.password || null,
-            must_change_password: user.mustChangePassword
-          };
-          
-          // Use upsert - if it fails (e.g. FK violation), we just log it and move on
-          const { error: profileError } = await db.from('profiles').upsert(payload);
-          
-          if (!profileError && (user.role === UserRole.SUPPORT || user.role === UserRole.ADMIN || user.role === 'Equipe')) {
-             // Also ensure analyst_status exists
-             await db.from('analyst_status').upsert({
-               user_id: user.id,
-               is_online: false,
-               last_active: new Date().toISOString(),
-               current_load: 0
-             });
-          }
-          
-          if (profileError) {
-            console.warn('⚠️ Supabase sync warning (profiles):', profileError.message);
-          }
-        } catch (e) {
-          // Silent catch to prevent background crashes
-        }
-      })();
+      supabase.from('profiles').upsert({
+        id: user.id,
+        name: user.name,
+        email: user.email,
+        role: user.role,
+        company_id: user.companyId && this.isUUID(user.companyId) ? user.companyId : null,
+        phone: user.phone || null,
+        must_change_password: user.mustChangePassword
+      }).then(({ error }) => {
+        if (error) console.warn('⚠️ MockDB Sync (profiles):', error.message);
+      });
     }
   }
   static async deleteUser(id: string) {
@@ -837,50 +759,7 @@ export class MockDB {
     this.set(STORAGE_KEYS.USERS, updatedUsers);
   }
 
-  static getUsers() { return this.get<User>(STORAGE_KEYS.USERS); }
-  static getTickets() { return this.get<Ticket>(STORAGE_KEYS.TICKETS); }
-  static saveUser(user: User) {
-    const users = this.getUsers();
-    const index = users.findIndex(u => u.id === user.id);
-    if (index >= 0) users[index] = user; else users.push(user);
-    this.set(STORAGE_KEYS.USERS, users);
-  }
-  static saveTicket(ticket: Ticket) {
-    const tickets = this.getTickets();
-    const index = tickets.findIndex(t => t.id === ticket.id);
-    if (index >= 0) tickets[index] = ticket;
-    else tickets.push(ticket);
-    this.set(STORAGE_KEYS.TICKETS, tickets);
 
-    // Sync to Supabase - Atomic update/insert
-    if (supabase) {
-      const db = supabase;
-      const syncTicket = async () => {
-        try {
-          const payload = {
-            id: ticket.id,
-            title: ticket.title,
-            description: ticket.description,
-            status: ticket.status,
-            priority: ticket.priority,
-            category: ticket.category,
-            company_id: ticket.companyId || null,
-            customer_id: ticket.customerId,
-            assignee_id: ticket.assigneeId || null,
-            created_at: ticket.createdAt,
-            updated_at: new Date().toISOString(),
-            tags: ticket.tags || []
-          };
-          
-          const { error } = await db.from('tickets').upsert(payload);
-          if (error) console.error('❌ Erro Supabase ao salvar ticket:', error.message);
-        } catch (e) {
-          console.error('❌ Erro inesperado ao sincronizar ticket:', e);
-        }
-      };
-      syncTicket();
-    }
-  }
 
   static getCompanies() { return this.get<Company>(STORAGE_KEYS.COMPANIES); }
   static async saveCompany(company: Company) {

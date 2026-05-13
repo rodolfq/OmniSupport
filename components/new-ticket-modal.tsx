@@ -4,7 +4,7 @@ import React, { useState, useRef, useEffect } from 'react';
 import { X, Send, AlertCircle, Paperclip, Image as ImageIcon, FileText, Music, Trash2 } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import { useApp } from '@/app/app-context';
-import { TicketStatus, Ticket, Attachment, User, Company, CategoryConfig, PriorityConfig, UserRole } from '@/lib/mock-db';
+import { MockDB, TicketStatus, Ticket, Attachment, User, Company, CategoryConfig, PriorityConfig, UserRole } from '@/lib/mock-db';
 import { cn } from '@/lib/utils';
 import { fileToBase64 } from '@/lib/image-utils';
 import { toast } from 'sonner';
@@ -46,47 +46,82 @@ export function NewTicketModal() {
   const fileInputRef = useRef<HTMLInputElement>(null);
 
   const isCustomer = currentUser?.role === 'Cliente' || currentUser?.role === 'Funcionário' || currentUser?.role === UserRole.CUSTOMER;
+  
+  useEffect(() => {
+    if (isNewTicketModalOpen && currentUser) {
+      console.log('🔍 NewTicketModal Debug:', {
+        role: currentUser.role,
+        isCustomer,
+        companyId: currentUser.companyId,
+        companiesCount: companies.length
+      });
+    }
+  }, [isNewTicketModalOpen, currentUser, isCustomer, companies.length]);
 
   useEffect(() => {
     async function fetchData() {
       if (!isNewTicketModalOpen) return;
 
       try {
+        console.log('🔄 NewTicketModal: Buscando dados para novo chamado...');
         // Fetch companies (always fetch all)
-        const { data: loadedCompanies, error: companiesError } = await supabase.from('companies').select('id, name');
+        const { data: loadedCompanies, error: companiesError } = await supabase.from('companies').select('id, name').order('name', { ascending: true });
         
         console.log('DEBUG loadedCompanies:', loadedCompanies);
-        console.log('DEBUG companiesError:', companiesError);
-        
-        if (companiesError) throw companiesError;
-        
-        setCompanies(loadedCompanies || []);
+        if (companiesError) {
+          console.error('DEBUG companiesError:', companiesError);
+          // Fallback to MockDB if Supabase fails
+          setCompanies(MockDB.getCompanies());
+        } else {
+          // If Supabase is empty, check if we have local companies, otherwise use MockDB as source
+          if (!loadedCompanies || loadedCompanies.length === 0) {
+            console.warn('⚠️ NewTicketModal: Supabase retornou 0 empresas. Usando MockDB.');
+            setCompanies(MockDB.getCompanies());
+          } else {
+            setCompanies(loadedCompanies as any[]);
+          }
+        }
 
         // Fetch users
         const { data: loadedUsers, error: usersError } = await supabase.from('profiles').select('*');
-        if (usersError) throw usersError;
-        
-        const mappedUsers = (loadedUsers || []).map(u => ({
-          ...u,
-          companyId: u.company_id
-        })) as User[];
-        setUsers(mappedUsers);
+        if (usersError) {
+          console.error('DEBUG usersError:', usersError);
+          setUsers(MockDB.getUsers());
+        } else {
+          const mappedUsers = (loadedUsers || []).map(u => ({
+            ...u,
+            companyId: u.company_id
+          })) as User[];
+          setUsers(mappedUsers.length > 0 ? mappedUsers : MockDB.getUsers());
+        }
 
+        const currentUsers = users.length > 0 ? users : MockDB.getUsers();
         // Fetch analysts (filtering by role/is_admin)
-        const analysts = (loadedUsers || []).filter(u => u.role === 'Equipe' || u.is_admin);
-        setAnalysts(analysts);
+        const analystsList = currentUsers.filter(u => u.role === 'Equipe' || u.role === 'Administrador' || u.isAdmin || u.role === 'Admin');
+        setAnalysts(analystsList);
 
-        const { data: loadedCategories } = await supabase.from('config_categories').select('*');
-        setAvailableCategories(loadedCategories || []);
+        // Config tables
+        const [catRes, priRes, staRes] = await Promise.all([
+          supabase.from('config_categories').select('*'),
+          supabase.from('config_priorities').select('*'),
+          supabase.from('config_statuses').select('*')
+        ]);
 
-        const { data: loadedPriorities } = await supabase.from('config_priorities').select('*');
-        setAvailablePriorities(loadedPriorities || []);
+        if (catRes.data) setAvailableCategories(catRes.data);
+        else setAvailableCategories(MockDB.getCategories());
 
-        const { data: loadedStatuses } = await supabase.from('config_statuses').select('*');
-        setAvailableStatuses(loadedStatuses || []);
+        if (priRes.data) setAvailablePriorities(priRes.data);
+        else setAvailablePriorities(MockDB.getPriorities());
 
-        if (loadedCategories && loadedCategories.length > 0 && !category) setCategory(loadedCategories[0].label);
-        if (loadedPriorities && loadedPriorities.length > 0 && !priority) setPriority(loadedPriorities[0].label);
+        if (staRes.data) setAvailableStatuses(staRes.data);
+        else setAvailableStatuses(MockDB.getStatuses());
+
+        if (!category && (catRes.data?.[0] || MockDB.getCategories()[0])) {
+          setCategory(catRes.data?.[0]?.label || MockDB.getCategories()[0]?.label);
+        }
+        if (!priority && (priRes.data?.[0] || MockDB.getPriorities()[0])) {
+          setPriority(priRes.data?.[0]?.label || MockDB.getPriorities()[0]?.label);
+        }
         
         if (currentUser && currentUser.companyId) {
           setSelectedCompanyId(currentUser.companyId);
@@ -189,9 +224,15 @@ export function NewTicketModal() {
         setSelectedCustomerId('');
         setAssigneeId('');
       }, 1500);
-    } catch (error) {
-      console.error(error);
-      toast.error('Erro ao criar o chamado no banco. Tente novamente.');
+    } catch (error: any) {
+      console.error("Erro detalhado ao criar chamado:", {
+        message: error?.message,
+        details: error?.details,
+        hint: error?.hint,
+        code: error?.code,
+        error: error
+      });
+      toast.error('Erro ao abrir o chamado. Verifique os logs do console para mais detalhes.');
     } finally {
       setLoading(false);
     }
@@ -248,9 +289,10 @@ export function NewTicketModal() {
                       className="w-full bg-slate-50 border border-slate-200 rounded-xl px-4 py-2.5 text-sm font-medium focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-500 transition-all appearance-none outline-none disabled:opacity-60"
                       required
                     >
-                      <option value="">Selecione uma empresa</option>
+                      <option value="">Selecione uma empresa ({companies.length} encontradas)</option>
                       {companies.map(c => <option key={c.id} value={c.id}>{c.name}</option>)}
                     </select>
+                    {companies.length === 0 && <p className="text-[9px] text-red-500 font-bold mt-1">Nenhuma empresa carregada. Verifique o banco de dados.</p>}
                   </div>
                   <div className="space-y-1">
                     <label className="text-[10px] font-black uppercase tracking-widest text-slate-400 ml-1">Solicitante Principal</label>
@@ -304,30 +346,30 @@ export function NewTicketModal() {
                 />
               </div>
 
-              {!isCustomer && (
-                <div className="grid grid-cols-2 gap-4">
-                  <div className="space-y-1">
-                    <label className="text-[10px] font-black uppercase tracking-widest text-slate-400 ml-1">Categoria</label>
-                    <select 
-                      value={category}
-                      onChange={(e) => setCategory(e.target.value)}
-                      className="w-full bg-slate-50 border border-slate-200 rounded-xl px-4 py-2.5 text-sm font-medium focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-500 outline-none transition-all appearance-none"
-                    >
-                      {availableCategories.map(cat => <option key={cat.id} value={cat.label}>{cat.label}</option>)}
-                    </select>
-                  </div>
-                  <div className="space-y-1">
-                    <label className="text-[10px] font-black uppercase tracking-widest text-slate-400 ml-1">Prioridade</label>
-                    <select 
-                      value={priority}
-                      onChange={(e) => setPriority(e.target.value)}
-                      className="w-full bg-slate-50 border border-slate-200 rounded-xl px-4 py-2.5 text-sm font-medium focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-500 outline-none transition-all appearance-none"
-                    >
-                      {availablePriorities.map(p => <option key={p.id} value={p.label}>{p.label}</option>)}
-                    </select>
-                  </div>
+              <div className="grid grid-cols-2 gap-4">
+                <div className="space-y-1">
+                  <label className="text-[10px] font-black uppercase tracking-widest text-slate-400 ml-1">Categoria</label>
+                  <select 
+                    value={category}
+                    onChange={(e) => setCategory(e.target.value)}
+                    className="w-full bg-slate-50 border border-slate-200 rounded-xl px-4 py-2.5 text-sm font-medium focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-500 outline-none transition-all appearance-none"
+                  >
+                    <option value="">Selecione uma categoria</option>
+                    {availableCategories.map(cat => <option key={cat.id} value={cat.label}>{cat.label}</option>)}
+                  </select>
                 </div>
-              )}
+                <div className="space-y-1">
+                  <label className="text-[10px] font-black uppercase tracking-widest text-slate-400 ml-1">Prioridade</label>
+                  <select 
+                    value={priority}
+                    onChange={(e) => setPriority(e.target.value)}
+                    className="w-full bg-slate-50 border border-slate-200 rounded-xl px-4 py-2.5 text-sm font-medium focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-500 outline-none transition-all appearance-none"
+                  >
+                    <option value="">Selecione a prioridade</option>
+                    {availablePriorities.map(p => <option key={p.id} value={p.label}>{p.label}</option>)}
+                  </select>
+                </div>
+              </div>
 
               {!isCustomer && (
                 <div className="space-y-1">
@@ -416,11 +458,22 @@ export function NewTicketModal() {
                   type="submit"
                   disabled={loading || saveSuccess}
                   className={cn(
-                    "flex-1 px-6 py-3 rounded-xl text-sm font-black uppercase tracking-widest shadow-lg transition-all flex items-center justify-center gap-2 disabled:opacity-50",
+                    "flex-1 px-6 py-3 rounded-xl text-sm font-black uppercase tracking-widest shadow-lg transition-all flex items-center justify-center gap-2 disabled:opacity-70 disabled:cursor-not-allowed",
                     saveSuccess ? "bg-emerald-500 text-white" : "bg-indigo-600 text-white shadow-indigo-100 hover:bg-indigo-700"
                   )}
                 >
-                  {loading ? 'Processando...' : saveSuccess ? 'Chamado Aberto!' : 'Abrir Chamado'} <Send size={16} />
+                  {loading ? (
+                    <>
+                      <div className="w-4 h-4 border-2 border-white/30 border-t-white rounded-full animate-spin" />
+                      Criando...
+                    </>
+                  ) : saveSuccess ? (
+                    'Chamado Aberto!'
+                  ) : (
+                    <>
+                      Abrir Chamado <Send size={16} />
+                    </>
+                  )}
                 </button>
               </div>
             </form>

@@ -36,8 +36,7 @@ export default function DashboardPage() {
       
       setLoading(true);
       try {
-        // Explicitly sync from Supabase to ensure fresh data
-        await MockDB.syncFromSupabase();
+        // O AppContext já lida com o sync inicial.
         
         if (controller.signal.aborted) return;
 

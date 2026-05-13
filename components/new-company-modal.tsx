@@ -14,6 +14,7 @@ export function NewCompanyModal({ isOpen, onClose, onSuccess, company }: { isOpe
   const [industry, setIndustry] = useState('');
   const [phone, setPhone] = useState('');
   const [errorMsg, setErrorMsg] = useState('');
+  const [isLoading, setIsLoading] = useState(false);
 
   // Update input fields when company prop changes
   React.useEffect(() => {
@@ -31,13 +32,8 @@ export function NewCompanyModal({ isOpen, onClose, onSuccess, company }: { isOpe
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setErrorMsg('');
-    const companyData: Company = {
-      id: company?.id || uuidv4(),
-      name,
-      industry,
-      phone
-    };
-
+    setIsLoading(true);
+    
     try {
       const result = await saveCompany(company?.id || null, name, industry, phone);
       
@@ -56,6 +52,8 @@ export function NewCompanyModal({ isOpen, onClose, onSuccess, company }: { isOpe
     } catch (e: any) {
       console.error('Error saving company:', e);
       setErrorMsg(e.message || 'Erro inesperado ao salvar empresa.');
+    } finally {
+      setIsLoading(false);
     }
   };
 
@@ -141,15 +139,26 @@ export function NewCompanyModal({ isOpen, onClose, onSuccess, company }: { isOpe
                 <button 
                   type="button" 
                   onClick={onClose}
-                  className="flex-1 px-6 py-3.5 rounded-xl text-sm font-bold text-slate-500 hover:bg-slate-50 transition-all border border-slate-200"
+                  disabled={isLoading}
+                  className="flex-1 px-6 py-3.5 rounded-xl text-sm font-bold text-slate-500 hover:bg-slate-50 transition-all border border-slate-200 disabled:opacity-50"
                 >
                   Cancelar
                 </button>
                 <button 
                   type="submit"
-                  className="flex-1 bg-indigo-600 text-white px-6 py-3.5 rounded-xl text-sm font-black uppercase tracking-widest shadow-lg shadow-indigo-100 hover:bg-indigo-700 transition-all flex items-center justify-center gap-2"
+                  disabled={isLoading}
+                  className="flex-1 bg-indigo-600 text-white px-6 py-3.5 rounded-xl text-sm font-black uppercase tracking-widest shadow-lg shadow-indigo-100 hover:bg-indigo-700 transition-all flex items-center justify-center gap-2 disabled:opacity-70 disabled:cursor-not-allowed"
                 >
-                  {company ? 'Salvar' : 'Cadastrar'} <Building2 size={16} />
+                  {isLoading ? (
+                    <>
+                      <div className="w-4 h-4 border-2 border-white/30 border-t-white rounded-full animate-spin" />
+                      Processando...
+                    </>
+                  ) : (
+                    <>
+                      {company ? 'Salvar' : 'Cadastrar'} <Building2 size={16} />
+                    </>
+                  )}
                 </button>
               </div>
             </form>

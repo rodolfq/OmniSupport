@@ -12,6 +12,7 @@ import { toast } from 'sonner';
 export default function LoginPage() {
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
+  const [isLoading, setIsLoading] = useState(false);
   const { currentUser, setCurrentUser } = useApp();
   const router = useRouter();
 
@@ -28,6 +29,7 @@ export default function LoginPage() {
       return;
     }
 
+    setIsLoading(true);
     try {
       const { data, error } = await supabase.auth.signInWithPassword({
         email,
@@ -35,6 +37,7 @@ export default function LoginPage() {
       });
 
       if (error) {
+        setIsLoading(false);
         let errorMessage = 'Erro ao entrar. Por favor, tente novamente.';
         
         if (error.status === 400 || error.status === 422) {
@@ -64,6 +67,7 @@ export default function LoginPage() {
         router.push('/dashboard');
       }
     } catch (err: any) {
+      setIsLoading(false);
       toast.error('Erro inesperado: ' + err.message);
     }
   };
@@ -92,6 +96,7 @@ export default function LoginPage() {
                   placeholder="exemplo@empresa.com"
                   className="w-full bg-slate-50 border border-slate-200 rounded-xl py-3 pl-12 pr-4 focus:outline-none focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-500 transition-all font-medium"
                   required
+                  disabled={isLoading}
                 />
               </div>
             </div>
@@ -107,24 +112,35 @@ export default function LoginPage() {
                   placeholder="••••••••"
                   className="w-full bg-slate-50 border border-slate-200 rounded-xl py-3 pl-12 pr-4 focus:outline-none focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-500 transition-all font-medium"
                   required
+                  disabled={isLoading}
                 />
               </div>
             </div>
 
             <div className="flex items-center justify-between text-xs font-bold px-1">
               <label className="flex items-center gap-2 text-slate-500 cursor-pointer">
-                <input type="checkbox" className="rounded border-slate-300 text-indigo-600 focus:ring-indigo-500" />
+                <input type="checkbox" className="rounded border-slate-300 text-indigo-600 focus:ring-indigo-500" disabled={isLoading} />
                 Lembrar-me
               </label>
-              <button type="button" className="text-indigo-600 hover:underline">Esqueceu a senha?</button>
+              <button type="button" className="text-indigo-600 hover:underline" disabled={isLoading}>Esqueceu a senha?</button>
             </div>
 
             <button 
               type="submit" 
-              className="w-full bg-indigo-600 text-white py-4 rounded-xl font-black uppercase tracking-widest text-sm shadow-lg shadow-indigo-100 hover:bg-indigo-700 transition-all flex items-center justify-center gap-2 group"
+              disabled={isLoading}
+              className="w-full bg-indigo-600 text-white py-4 rounded-xl font-black uppercase tracking-widest text-sm shadow-lg shadow-indigo-100 hover:bg-indigo-700 transition-all flex items-center justify-center gap-2 group disabled:opacity-70 disabled:cursor-not-allowed"
             >
-              Entrar no Sistema
-              <ArrowRight size={18} className="group-hover:translate-x-1 transition-transform" />
+              {isLoading ? (
+                <>
+                  <div className="w-5 h-5 border-2 border-white/30 border-t-white rounded-full animate-spin" />
+                  Autenticando...
+                </>
+              ) : (
+                <>
+                  Entrar no Sistema
+                  <ArrowRight size={18} className="group-hover:translate-x-1 transition-transform" />
+                </>
+              )}
             </button>
           </form>
 

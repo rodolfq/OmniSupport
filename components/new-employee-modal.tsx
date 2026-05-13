@@ -190,7 +190,18 @@ export function NewEmployeeModal({ isOpen, onClose, companyId, onSuccess }: { is
                   disabled={loading || saveSuccess}
                   className={`flex-1 px-6 py-3.5 rounded-xl text-sm font-black uppercase tracking-widest shadow-lg transition-all flex items-center justify-center gap-2 disabled:opacity-50 ${saveSuccess ? 'bg-emerald-500 text-white' : 'bg-slate-900 text-white hover:bg-slate-800'}`}
                 >
-                  {loading ? 'Processando...' : saveSuccess ? 'Salvo' : 'Confirmar'} <UserPlus size={16} />
+                  {loading ? (
+                    <>
+                      <div className="w-4 h-4 border-2 border-white/30 border-t-white rounded-full animate-spin" />
+                      Salvando...
+                    </>
+                  ) : saveSuccess ? (
+                    'Salvo'
+                  ) : (
+                    <>
+                      Confirmar <UserPlus size={16} />
+                    </>
+                  )}
                 </button>
               </div>
             </form>

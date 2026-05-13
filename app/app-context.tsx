@@ -78,6 +78,7 @@ const DEFAULT_SETTINGS: NotificationSettings = {
 export function AppProvider({ children }: { children: React.ReactNode }) {
 // ... existing state ...
   const [currentUser, setCurrentUser] = useState<User | null>(null);
+  const [authInitialized, setAuthInitialized] = useState(false);
   const [isNewTicketModalOpen, setIsNewTicketModalOpen] = useState(false);
   const [preselectedUserId, setPreselectedUserId] = useState<string | null>(null);
   const [preselectedCompanyId, setPreselectedCompanyId] = useState<string | null>(null);
@@ -152,117 +153,133 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
   }, [refreshAbsenceReasons]);
 
   useEffect(() => {
+    let isMounted = true;
     const initAuth = async () => {
-      if (!supabase) return;
-
-      // 1. Get initial session
-      const { data: { session } } = await supabase.auth.getSession();
-      
-      if (session?.user) {
-        // Fetch profile from Supabase
-        const { data: profile } = await supabase.from('profiles').select('*').eq('id', session.user.id).single();
-        
-        let profileToUse = profile;
-
-        // CRITICAL FIX: Ensure admin@systemsat.com.br has the correct name and role
-        if (session.user.email === 'admin@systemsat.com.br') {
-          if (!profile || profile.name === 'teste' || profile.role !== UserRole.ADMIN) {
-            console.log('🔧 Fixing Admin Profile...');
-            const updatedProfile = { 
-              id: session.user.id,
-              name: 'Admin Systemsat',
-              email: session.user.email,
-              role: UserRole.ADMIN,
-              company_id: null,
-              must_change_password: false
-            };
-            await supabase.from('profiles').upsert(updatedProfile);
-            profileToUse = { ...profile, ...updatedProfile };
-            setCurrentUser(profileToUse);
-          }
-        }
-        
-        if (profileToUse) {
-          const user: User = {
-            id: profileToUse.id,
-            name: profileToUse.name,
-            email: profileToUse.email,
-            role: profileToUse.role,
-            companyId: profileToUse.company_id,
-            phone: profileToUse.phone,
-            viewAllCompanyTickets: profileToUse.view_all_company_tickets,
-            mustChangePassword: profileToUse.must_change_password,
-            isAdmin: profileToUse.is_admin
-          };
-          setCurrentUser(user);
-        } else {
-          // Fallback if profile doesn't exist yet but user is auth'd
-          const newUser: User = {
-            id: session.user.id,
-            name: session.user.user_metadata?.name || session.user.email?.split('@')[0] || 'User',
-            email: session.user.email || '',
-            role: UserRole.CUSTOMER // Default role
-          };
-          setCurrentUser(newUser);
-          // Sync new profile to DB
-          await MockDB.saveUser(newUser);
-        }
+      if (!supabase) {
+        setAuthInitialized(true);
+        return;
       }
 
-      // 2. Listen for changes
-      const { data: { subscription } } = supabase.auth.onAuthStateChange(async (event, session) => {
-        if (!supabase) return;
-        if (session?.user) {
-          const { data: profile } = await supabase.from('profiles').select('*').eq('id', session.user.id).single();
+      console.log('🔐 AppContext: Inicializando Auth...');
+      try {
+          const { data: { session } } = await supabase.auth.getSession();
           
-          let profileToUse = profile;
-          if (session.user.email === 'admin@systemsat.com.br') {
-             if (!profile || profile.name === 'teste' || profile.role !== UserRole.ADMIN || profile.company_id !== null) {
-                const updatedProfile = { 
-                  id: session.user.id,
-                  name: 'Admin Systemsat',
-                  email: session.user.email,
-                  role: UserRole.ADMIN,
-                  company_id: null,
-                  must_change_password: false
-                };
-                await supabase.from('profiles').upsert(updatedProfile);
-                profileToUse = { ...profile, ...updatedProfile };
-             }
+          if (!isMounted) return;
+
+          if (session?.user) {
+            console.log('👤 AppContext: Usuário autenticado:', session.user.email);
+            
+            // 1. Buscar perfil
+            const { data: profile } = await supabase
+              .from('profiles')
+              .select('*')
+              .eq('id', session.user.id)
+              .maybeSingle();
+            
+            if (!isMounted) return;
+
+            if (profile) {
+              const user: User = {
+                id: profile.id,
+                name: profile.name,
+                email: profile.email,
+                role: profile.role,
+                companyId: profile.company_id,
+                phone: profile.phone,
+                viewAllCompanyTickets: profile.view_all_company_tickets,
+                mustChangePassword: profile.must_change_password,
+                isAdmin: profile.is_admin
+              };
+              setCurrentUser(user);
+            } else {
+              // Fallback imediato usando dados da auth se o perfil ainda não existir
+              const newUser: User = {
+                id: session.user.id,
+                name: session.user.user_metadata?.name || session.user.email?.split('@')[0] || 'Usuário',
+                email: session.user.email || '',
+                role: UserRole.CUSTOMER
+              };
+              setCurrentUser(newUser);
+              
+              // Tenta salvar perfil no background
+              MockDB.saveUser(newUser).catch(() => {});
+            }
           }
 
-          if (profileToUse) {
-            setCurrentUser({
-              id: profileToUse.id,
-              name: profileToUse.name,
-              email: profileToUse.email,
-              role: profileToUse.role,
-              companyId: profileToUse.company_id,
-              phone: profileToUse.phone,
-              viewAllCompanyTickets: profileToUse.view_all_company_tickets,
-              mustChangePassword: profileToUse.must_change_password,
-              isAdmin: profileToUse.is_admin
-            });
-          }
-        } else {
-          setCurrentUser(null);
-        }
-      });
+          // 2. Listener simplificado
+          const { data: { subscription } } = supabase.auth.onAuthStateChange(async (event, session) => {
+            if (!isMounted) return;
+            console.log(`🔐 AppContext: Evento Auth [${event}]`);
 
-      return () => subscription.unsubscribe();
+            if (session?.user) {
+              const { data: profile } = await supabase.from('profiles').select('*').eq('id', session.user.id).maybeSingle();
+              if (!isMounted) return;
+
+              if (profile) {
+                setCurrentUser({
+                  id: profile.id,
+                  name: profile.name,
+                  email: profile.email,
+                  role: profile.role,
+                  companyId: profile.company_id,
+                  phone: profile.phone,
+                  viewAllCompanyTickets: profile.view_all_company_tickets,
+                  mustChangePassword: profile.must_change_password,
+                  isAdmin: profile.is_admin
+                });
+              } else {
+                 setCurrentUser({
+                    id: session.user.id,
+                    name: session.user.user_metadata?.name || session.user.email?.split('@')[0] || 'Usuário',
+                    email: session.user.email || '',
+                    role: UserRole.CUSTOMER
+                 });
+              }
+            } else {
+              setCurrentUser(null);
+            }
+          });
+
+      } catch (err) {
+        console.error('❌ AppContext: Erro na inicialização do Auth:', err);
+      } finally {
+        if (isMounted) setAuthInitialized(true);
+      }
     };
 
     initAuth();
+
+    return () => {
+      isMounted = false;
+      // Note: A subscrição do auth será limpa pelo garbage collector se não conseguirmos dar unsubscribe
+      // mas o isMounted evita que os callbacks rodem.
+    };
   }, []);
 
   useEffect(() => {
-    const initMockDB = async () => {
-      await MockDB.init();
-      await refreshAbsenceReasons();
-      triggerRefresh();
+    if (!authInitialized) return;
+    
+    // Sincroniza o DB apenas quando o Auth estiver pronto.
+    // Se o usuário mudar (login/logout), re-syncamos os dados.
+    const syncDatabase = async () => {
+      console.log('📦 AppContext: Coordenando sincronismo de dados...', { 
+        loggedIn: !!currentUser,
+        userId: currentUser?.id 
+      });
+      
+      try {
+        await MockDB.init();
+        await refreshAbsenceReasons();
+        triggerRefresh();
+      } catch (err) {
+        console.error('❌ AppContext: Falha ao sincronizar MockDB:', err);
+      }
     };
-    initMockDB();
-  }, [triggerRefresh]);
+
+    // Pequeno debounce para evitar disparos múltiplos durante transições rápidas de auth
+    const timer = setTimeout(syncDatabase, 300);
+    return () => clearTimeout(timer);
+  }, [authInitialized, currentUser?.id, triggerRefresh, refreshAbsenceReasons]);
 
   useEffect(() => {
     if (currentUser) {

@@ -2,12 +2,13 @@ import { supabase } from './supabase';
 import { Ticket, Message } from './types'; 
 
 export async function fetchAllTickets(signal?: AbortSignal): Promise<Ticket[]> {
-    const { data, error } = await supabase!
+    if (!supabase) return [];
+    const { data, error } = await supabase
         .from('tickets')
         .select(`
             *,
-            companies (name),
-            profiles!fk_tickets_customer(name)
+            customer:profiles!tickets_customer_id_fkey(name),
+            assignee:profiles!tickets_assignee_id_fkey(name)
         `)
         .abortSignal(signal as any);
         
@@ -23,17 +24,23 @@ export async function fetchAllTickets(signal?: AbortSignal): Promise<Ticket[]> {
         ticketNumber: t.public_ticket_number,
         companyId: t.company_id,
         customerId: t.customer_id,
-        customerName: t.profiles?.name,
+        customerName: t.customer?.name,
         assigneeId: t.assignee_id,
+        assigneeName: t.assignee?.name,
         createdAt: t.created_at,
         updatedAt: t.updated_at
     })) as Ticket[];
 }
 
 export async function getTicketById(id: string, signal?: AbortSignal): Promise<Ticket | null> {
-    const { data, error } = await supabase!
+    if (!supabase) return null;
+    const { data, error } = await supabase
         .from('tickets')
-        .select('*')
+        .select(`
+            *,
+            customer:profiles!tickets_customer_id_fkey(name),
+            assignee:profiles!tickets_assignee_id_fkey(name)
+        `)
         .eq('id', id)
         .abortSignal(signal as any)
         .single();
@@ -51,44 +58,68 @@ export async function getTicketById(id: string, signal?: AbortSignal): Promise<T
         ticketNumber: data.public_ticket_number,
         companyId: data.company_id,
         customerId: data.customer_id,
+        customerName: data.customer?.name,
         assigneeId: data.assignee_id,
+        assigneeName: data.assignee?.name,
         createdAt: data.created_at,
         updatedAt: data.updated_at
     } as Ticket;
 }
 
 export async function createTicket(ticket: Ticket): Promise<void> {
-    // Get max public_ticket_number for sequential numbering
-    const { data: maxTicket } = await supabase!
-        .from('tickets')
-        .select('public_ticket_number')
-        .order('public_ticket_number', { ascending: false })
-        .limit(1)
-        .maybeSingle();
+    console.log("🎟️ createTicket: Iniciando criação...");
     
-    const nextNumber = maxTicket?.public_ticket_number ? maxTicket.public_ticket_number + 1 : 1;
+    if (!supabase) {
+        throw new Error("Supabase client não inicializado.");
+    }
 
-    const { error } = await supabase!
+    // 1. Obter sessão atual de forma robusta
+    const { data: { session }, error: sessionError } = await supabase.auth.getSession();
+    
+    if (sessionError) {
+        console.error("❌ Erro ao buscar sessão:", sessionError);
+    }
+
+    const authUser = session?.user || null;
+    
+    // 2. Definir UID do usuário (prioridade absoluta para o que vem da sessão)
+    const userId = authUser?.id || ticket.customerId;
+    
+    if (!userId) {
+      console.error("🚫 createTicket: NID não encontrado. Sessão inválida.");
+      throw new Error("Sessão expirada. Por favor, faça login novamente.");
+    }
+
+    const payload = {
+        title: ticket.title,
+        description: ticket.description,
+        status: ticket.status || 'Novo',
+        priority: ticket.priority || 'Baixa',
+        category: ticket.category || 'Geral',
+        customer_id: userId,
+        assignee_id: ticket.assigneeId || null,
+        company_id: (ticket.companyId && ticket.companyId !== '') ? ticket.companyId : null,
+    };
+
+    console.log("📤 createTicket - Payload Simplificado:", payload);
+
+    const { data, error } = await supabase
         .from('tickets')
-        .insert({
-          id: ticket.id,
-          public_ticket_number: nextNumber,
-          title: ticket.title,
-          description: ticket.description,
-          status: ticket.status,
-          priority: ticket.priority,
-          category: ticket.category,
-          company_id: ticket.companyId,
-          customer_id: ticket.customerId,
-          assignee_id: ticket.assigneeId,
-          created_at: ticket.createdAt,
-          updated_at: ticket.updatedAt
-        });
+        .insert(payload)
+        .select()
+        .single();
         
     if (error) {
-        console.error("Error creating ticket:", error);
+        console.error("🚫 ERRO SUPABASE TICKETS:", {
+            code: error.code,
+            message: error.message,
+            details: error.details,
+            hint: error.hint
+        });
         throw error;
     }
+    
+    console.log("✅ Ticket criado com sucesso!", data);
 }
 
 export async function updateTicket(ticket: Partial<Ticket> & { id: string }): Promise<void> {

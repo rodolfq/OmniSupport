@@ -80,7 +80,6 @@ export default function ChatManagementPage() {
   const [noteCategory, setNoteCategory] = useState('');
 
   const refreshData = React.useCallback(async (sync = false) => {
-    if (sync) await MockDB.syncFromSupabase();
     setSessions(MockDB.getChatSessions());
     setStatuses(MockDB.getAnalystStatuses());
     setNotes(MockDB.getQuickNotes());

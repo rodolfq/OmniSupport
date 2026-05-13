@@ -6,6 +6,7 @@ import { MockDB, TicketStatus, User, Company, SavedFilter, UserRole } from '@/li
 import { cn, normalizeString } from '@/lib/utils';
 import { motion, AnimatePresence } from 'motion/react';
 import { useApp } from '@/app/app-context';
+import { supabase } from '@/lib/supabase';
 
 interface FilterBarProps {
   onFilterChange: (filteredTickets: any[]) => void;
@@ -34,9 +35,16 @@ export function FilterBar({ onFilterChange, originalTickets }: FilterBarProps) {
   const [isSaving, setIsSaving] = useState(false);
 
   useEffect(() => {
-    setCompanies(MockDB.getCompanies());
-    setAnalysts(MockDB.getAnalysts());
-    setSavedFilters(MockDB.getSavedFilters());
+    async function fetchData() {
+      const { data: compList } = await supabase.from('companies').select('*');
+      const { data: profiles } = await supabase.from('profiles').select('*');
+      
+      if (compList) setCompanies(compList);
+      if (profiles) setAnalysts(profiles.filter(u => u.role === 'Equipe' || u.is_admin) as any);
+      
+      setSavedFilters(MockDB.getSavedFilters());
+    }
+    fetchData();
   }, []);
 
   useEffect(() => {
