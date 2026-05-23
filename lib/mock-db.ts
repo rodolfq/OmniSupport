@@ -94,164 +94,149 @@ export class MockDB {
 
     this._syncPromise = (async () => {
       console.time('🔄 Supabase Sync');
-      console.log('🔄 MockDB: Iniciando sincronização com Supabase usando Singleton...');
+      console.log('🔄 MockDB: Iniciando sincronização resiliente com Supabase...');
       try {
         if (!supabase) return;
 
-        // CRITICAL: Não chamamos auth.getSession() aqui. Confiaremos no singleton.
-        console.log('🔄 MockDB: Consultando tabelas sequencialmente para evitar sobrecarga...');
+        // Helper para busca segura individual
+        const safeFetch = async (table: string, query: any = null) => {
+          try {
+            const finalQuery = query || supabase.from(table).select('*');
+            const { data, error } = await finalQuery;
+            if (error) {
+              console.warn(`⚠️ MockDB Sync: Tabela ${table} falhou:`, error.message);
+              return null;
+            }
+            return data;
+          } catch (e) {
+            console.error(`❌ MockDB Sync: Erro crítico em ${table}:`, e);
+            return null;
+          }
+        };
         
-        // 1. Fetch data with controlled concurrency - Primary Source of Truth
-        const profilesRes = await supabase.from('profiles').select('*');
-        const ticketsRes = await supabase.from('tickets').select(`
-            *,
-            customer:profiles!tickets_customer_id_fkey(name),
-            assignee:profiles!tickets_assignee_id_fkey(name)
-        `);
-        const chatSessionsRes = await supabase.from('chat_sessions').select('*');
-        const chatMessagesRes = await supabase.from('chat_messages').select('*').order('created_at', { ascending: true });
-        const ticketMessagesRes = await supabase.from('ticket_messages').select('*');
-        const companiesRes = await supabase.from('companies').select('*');
-        const analystStatusesRes = await supabase.from('analyst_status').select('*');
-        
-        // Minor tables
-        const historyRes = await supabase.from('user_status_history').select('*').order('timestamp', { ascending: false }).limit(500);
-        const absenceRes = await supabase.from('absence_reasons').select('*');
-        const tagsRes = await supabase.from('config_tags').select('*');
-        const prioritiesRes = await supabase.from('config_priorities').select('*');
+        // 1. Fetch data independently
+        const [
+          remoteProfiles,
+          tickets,
+          chatSessionsRaw,
+          chatMessagesRaw,
+          messages,
+          companies,
+          analystStatusesRaw,
+          historyRaw,
+          absenceReasonsRaw,
+          tagsRaw,
+          prioritiesRaw,
+          categoriesRaw,
+          statusesRaw
+        ] = await Promise.all([
+          safeFetch('profiles'),
+          safeFetch('tickets', supabase.from('tickets').select('*, customer:profiles!tickets_customer_id_fkey(name), assignee:profiles!tickets_assignee_id_fkey(name)')),
+          safeFetch('chat_sessions'),
+          safeFetch('chat_messages', supabase.from('chat_messages').select('*').order('created_at', { ascending: true })),
+          safeFetch('ticket_messages'),
+          safeFetch('companies'),
+          safeFetch('analyst_status'),
+          safeFetch('user_status_history', supabase.from('user_status_history').select('*').order('timestamp', { ascending: false }).limit(500)),
+          safeFetch('absence_reasons'),
+          safeFetch('config_tags'),
+          safeFetch('config_priorities'),
+          safeFetch('config_categories'),
+          safeFetch('config_statuses')
+        ]);
 
-        const { data: remoteProfiles, error: profilesErr } = profilesRes;
-        const { data: tickets, error: ticketsErr } = ticketsRes;
-        const { data: chatSessionsRaw, error: chatSessionsErr } = chatSessionsRes;
-        const { data: chatMessagesRaw, error: chatMessagesErr } = chatMessagesRes;
-        const { data: messages, error: messagesErr } = ticketMessagesRes;
-        const { data: companies, error: companiesErr } = companiesRes;
-        const { data: analystStatusesRaw, error: analystStatusesErr } = analystStatusesRes;
-        const { data: historyRaw, error: historyErr } = historyRes;
-        const { data: absenceReasonsRaw, error: absenceErr } = absenceRes;
-        const { data: tagsRaw, error: tagsErr } = tagsRes;
-        const { data: prioritiesRaw, error: prioritiesErr } = prioritiesRes;
-
-        // Log any errors
-        if (profilesErr) console.error('Supabase Sync Error (profiles):', profilesErr);
-        if (ticketsErr) console.error('Supabase Sync Error (tickets):', ticketsErr);
-        if (chatSessionsErr) console.error('Supabase Sync Error (chatSessions):', chatSessionsErr);
-        if (chatMessagesErr) console.error('Supabase Sync Error (chatMessages):', chatMessagesErr);
-        if (messagesErr) console.error('Supabase Sync Error (ticketMessages):', messagesErr);
-        if (companiesErr) console.error('Supabase Sync Error (companies):', companiesErr);
-        if (analystStatusesErr) console.error('Supabase Sync Error (analystStatuses):', analystStatusesErr);
-        if (historyErr) console.error('Supabase Sync Error (history):', historyErr);
-        if (absenceErr) console.error('Supabase Sync Error (absenceReasons):', absenceErr);
-        if (tagsErr) console.error('Supabase Sync Error (tags):', tagsErr);
-        if (prioritiesErr) console.error('Supabase Sync Error (priorities):', prioritiesErr);
-
-        console.log('📊 Supabase Sync Status:', {
+        console.log('📊 Resumo Sync:', {
             profiles: remoteProfiles?.length || 0,
             tickets: tickets?.length || 0,
-            chatSessions: chatSessionsRaw?.length || 0,
-            chatMessages: chatMessagesRaw?.length || 0,
-            companies: companies?.length || 0
+            companies: companies?.length || 0,
+            messages: messages?.length || 0
         });
 
-        // Process Tags
+        // 2. Normalização e Processamento de Profiles (CRUCIAL PARA OS FILTROS)
+        if (remoteProfiles && remoteProfiles.length > 0) {
+          const mappedUsers = remoteProfiles.map(p => {
+            // Normalizar role para garantir que bate com os filtros da UI
+            let normalizedRole = p.role;
+            if (p.role === 'customer' || !p.role) normalizedRole = 'Funcionário';
+            if (p.role === 'support' || p.role === 'admin' || p.role === 'Admin') normalizedRole = 'Equipe';
+            
+            return {
+              id: p.id,
+              name: p.name || 'Sem Nome',
+              email: p.email,
+              role: normalizedRole,
+              phone: p.phone,
+              password: p.password,
+              companyId: p.company_id,
+              viewAllCompanyTickets: p.view_all_company_tickets,
+              status: 'online' as const,
+              mustChangePassword: p.must_change_password ?? false
+            };
+          });
+          this.set(STORAGE_KEYS.USERS, mappedUsers);
+        }
+
+        // 3. Process Tags
         if (tagsRaw) {
-          const mappedTags: TagConfig[] = tagsRaw.map(t => ({
+          this.set(STORAGE_KEYS.CONFIG_TAGS, tagsRaw.map(t => ({
             id: t.id,
             label: t.label,
             color: t.color,
-            domain: t.domain as 'chat' | 'ticket'
-          }));
-          this.set(STORAGE_KEYS.CONFIG_TAGS, mappedTags);
+            domain: t.domain
+          })));
         }
         
-        // Process Absence Reasons
+        // 4. Process Absence Reasons
         if (absenceReasonsRaw) {
           this.set(STORAGE_KEYS.ABSENCE_REASONS, absenceReasonsRaw.map((r: any) => ({ id: String(r.id), label: r.label })));
-        } else {
-          // Default reasons if table is empty or query fails
-          const defaultReasons = [
-            { id: uuidv4(), label: 'Almoço' },
-            { id: uuidv4(), label: 'Reunião' },
-            { id: uuidv4(), label: 'Pessoal' },
-            { id: uuidv4(), label: 'Pausa' }
-          ];
-          this.set(STORAGE_KEYS.ABSENCE_REASONS, defaultReasons);
         }
         
-        // Process Priorities
+        // 5. Process Priorities
         if (prioritiesRaw) {
-          const mappedPriorities: PriorityConfig[] = prioritiesRaw.map(p => ({
+          this.set(STORAGE_KEYS.CONFIG_PRIORITIES, prioritiesRaw.map(p => ({
             id: p.id,
             label: p.label,
-            sla_hours: p.sla_hours,
-            slaDays: p.sla_hours / 24,
+            slaHours: p.sla_hours,
+            slaDays: (p.sla_hours || 0) / 24,
             color: p.color
-          }));
-          this.set(STORAGE_KEYS.CONFIG_PRIORITIES, mappedPriorities);
+          })));
         }
 
-        // Process Analyst Statuses
+        // 6. Process Categories
+        if (categoriesRaw) {
+          this.set(STORAGE_KEYS.CONFIG_CATEGORIES, categoriesRaw.map(c => ({ id: c.id, label: c.label })));
+        }
+
+        // 7. Process Statuses
+        if (statusesRaw) {
+          this.set(STORAGE_KEYS.CONFIG_STATUSES, statusesRaw.map(s => ({ id: s.id, label: s.label, color: s.color })));
+        }
+
+        // 8. Process Analyst Statuses
         if (analystStatusesRaw) {
-          const mappedStatuses: AnalystStatus[] = analystStatusesRaw.map(s => ({
+          this.set(STORAGE_KEYS.ANALYST_STATUS, analystStatusesRaw.map(s => ({
             userId: s.user_id,
             isOnline: s.is_online,
             lastActive: s.last_active,
             currentLoad: s.current_load,
             currentReason: s.current_reason
-          }));
-          this.set(STORAGE_KEYS.ANALYST_STATUS, mappedStatuses);
+          })));
         }
 
-        // Process Status History
-        if (historyRaw) {
-          const mappedHistory: UserStatusHistory[] = historyRaw.map((h: any) => ({
-            id: h.id,
-            userId: h.user_id,
-            status: h.status,
-            reason: h.reason,
-            timestamp: h.timestamp,
-            duration: h.duration
-          }));
-          this.set(STORAGE_KEYS.USER_STATUS_HISTORY, mappedHistory);
-        }
-
-        // Process Companies
+        // 9. Process Companies
         if (companies && companies.length > 0) {
-          const mappedCompanies = companies.map(c => ({
+          this.set(STORAGE_KEYS.COMPANIES, companies.map(c => ({
             id: c.id,
             name: c.name,
             industry: c.industry || '',
             phone: c.phone || ''
-          }));
-          this.set(STORAGE_KEYS.COMPANIES, mappedCompanies);
-        } else if (companiesErr) {
-          console.warn('⚠️ MockDB: Falha ao carregar empresas do Supabase, mantendo locais.');
-        } else if (companies && companies.length === 0) {
-          console.log('ℹ️ MockDB: Supabase retornou 0 empresas. Mantendo dados locais se existirem.');
+          })));
         }
 
-        // Process Profiles
-        if (remoteProfiles && remoteProfiles.length > 0) {
-          const mappedUsers = remoteProfiles.map(p => ({
-            id: p.id,
-            name: p.name,
-            email: p.email,
-            role: p.role as any,
-            phone: p.phone,
-            password: p.password,
-            companyId: p.company_id,
-            viewAllCompanyTickets: p.view_all_company_tickets,
-            status: 'online' as const,
-            mustChangePassword: p.must_change_password ?? false
-          }));
-          this.set(STORAGE_KEYS.USERS, mappedUsers);
-        }
-
-        // Process Tickets
+        // 10. Process Tickets
         if (tickets && tickets.length > 0) {
           const mappedTickets = tickets.map(t => ({
             ...t,
-            id: t.id,
             ticketNumber: t.public_ticket_number || t.ticket_number,
             companyId: t.company_id,
             customerId: t.customer_id,
@@ -598,7 +583,102 @@ export class MockDB {
       }
     }
   }
-  static getTickets() { return this.get<Ticket>(STORAGE_KEYS.TICKETS); }
+  static async uploadFile(file: File, bucket: string = 'attachments'): Promise<Attachment> {
+    if (!supabase) throw new Error('Supabase não disponível');
+
+    const fileExt = file.name.split('.').pop();
+    const fileName = `${uuidv4()}.${fileExt}`;
+    const filePath = `${fileName}`;
+
+    console.log(`📤 Subindo arquivo: ${file.name} para o bucket ${bucket}...`);
+
+    const { data, error } = await supabase.storage
+      .from(bucket)
+      .upload(filePath, file);
+
+    if (error) {
+      console.error('❌ Erro no upload:', error.message);
+      throw error;
+    }
+
+    const { data: { publicUrl } } = supabase.storage
+      .from(bucket)
+      .getPublicUrl(filePath);
+
+    const attachment: Attachment = {
+      id: uuidv4(),
+      name: file.name,
+      type: file.type,
+      url: publicUrl,
+      size: file.size
+    };
+
+    console.log('✅ Upload concluído:', attachment.url);
+    return attachment;
+  }
+
+  static getTickets() { 
+    const list = this.get<Ticket>(STORAGE_KEYS.TICKETS); 
+    const hasExample = list.some(t => t.id === 'ex-ticket-payment-error');
+    if (!hasExample) {
+      const example: Ticket = {
+        id: "ex-ticket-payment-error",
+        ticketNumber: 1308,
+        title: "🚨 Instabilidade Crítica: Webhooks de Pagamento Duplicados (Gateway API)",
+        description: "Durante as últimas 2 horas, recebemos diversos reportes de clientes finais reclamando de cobranças duplicadas em transações Pix/Cartão de Crédito. Ao analisar os payloads que chegam no endpoint `/api/v1/payments/webhook`, observamos que a API do gateway de pagamento está realizando retentativas em menos de 500ms por ausência de um cabeçalho IDempotente. Precisamos reavaliar a validação de concorrência e o lock pessimista no banco.",
+        status: "Em Andamento" as any, 
+        priority: "3", 
+        category: "Suporte Técnico",
+        companyId: "11111111-1111-4111-8111-111111111111",
+        customerName: "Carlos Henrique (CTO - Matriz)",
+        customerId: "cust-demo-robson",
+        assigneeId: "9ca681d2-06c7-4a9c-8ef0-cfe404078356",
+        assigneeName: "Suporte Omnichannel",
+        createdAt: "2026-05-21T11:22:51Z",
+        updatedAt: "2026-05-21T13:22:51Z",
+        tags: ["Bug", "Urgente"],
+        attachments: [
+          {
+            id: "att-demo-json",
+            name: "payload_webhook_payload.json",
+            type: "application/json",
+            url: "https://raw.githubusercontent.com/json-iterator/test-data/master/large-file.json",
+            size: 47291
+          },
+          {
+            id: "att-demo-png",
+            name: "erro_banco_deadlock.png",
+            type: "image/png",
+            url: "https://picsum.photos/seed/error/800/600",
+            size: 215430
+          }
+        ],
+        history: [
+          {
+            id: "h1",
+            actor: "Carlos Henrique",
+            action: "Criou o chamado no portal",
+            timestamp: "2026-05-21T11:22:51Z"
+          },
+          {
+            id: "h2",
+            actor: "Sistema",
+            action: "Atribuiu automaticamente para o Nível 2 - Técnico baseado nas tags de relevância",
+            timestamp: "2026-05-21T11:23:05Z"
+          },
+          {
+            id: "h3",
+            actor: "Suporte Omnichannel",
+            action: "Alterou a prioridade para Alta (SLA de 24 horas - Nível Crítico)",
+            timestamp: "2026-05-21T11:45:12Z"
+          }
+        ]
+      };
+      list.unshift(example);
+      this.set(STORAGE_KEYS.TICKETS, list);
+    }
+    return list;
+  }
   static getCompanies() { return this.get<Company>(STORAGE_KEYS.COMPANIES); }
   static getPriorities() { return this.get<PriorityConfig>(STORAGE_KEYS.CONFIG_PRIORITIES); }
   
@@ -612,7 +692,7 @@ export class MockDB {
     return date.toISOString();
   }
 
-  static saveTicket(ticket: Ticket, historyEntry?: any) {
+  static async saveTicket(ticket: Ticket, historyEntry?: any) {
     const tickets = this.getTickets();
     const index = tickets.findIndex(t => t.id === ticket.id);
     
@@ -643,7 +723,7 @@ export class MockDB {
 
     // Sync simplificado
     if (supabase && this.isUUID(ticket.id)) {
-      supabase.from('tickets').upsert({
+      const { error } = await supabase.from('tickets').upsert({
         id: ticket.id,
         title: ticket.title,
         description: ticket.description,
@@ -654,54 +734,99 @@ export class MockDB {
         customer_id: this.isUUID(ticket.customerId) ? ticket.customerId : null,
         assignee_id: (ticket.assigneeId && this.isUUID(ticket.assigneeId)) ? ticket.assigneeId : null,
         updated_at: new Date().toISOString()
-      }, { onConflict: 'id' }).then(({ error }) => {
-        if (error) console.warn('⚠️ MockDB Sync (tickets):', error.message);
-      });
+      }, { onConflict: 'id' });
+      
+      if (error) {
+        console.warn('⚠️ MockDB Sync (tickets):', error.message);
+        throw error;
+      }
     }
   }
 
   static getMessages(ticketId?: string) {
     const all = this.get<Message>(STORAGE_KEYS.MESSAGES);
+    const hasExampleMessages = all.some(m => m.ticketId === 'ex-ticket-payment-error');
+    if (!hasExampleMessages) {
+      const exampleMessages: Message[] = [
+        {
+          id: "msg-demo-1",
+          ticketId: "ex-ticket-payment-error",
+          senderId: "cust-demo-robson",
+          text: "Olá pessoal, estamos tendo um problema muito severo de conectividade e concorrência na nossa integração. Os webhooks de pagamento estão vindo replicados e o banco de dados está apresentando 'deadlocks' ao atualizar o status do pedido do cliente final. Anexei abaixo o log JSON do webhook duplicado que causou o problema e um print do console com o erro de deadlock no Postgres do nosso lado. Precisamos de ajuda urgente para alinhar se há alguma configuração de idempotência na API do gateway de vocês!",
+          timestamp: "2026-05-21T11:22:51Z",
+          isVisibleToCustomer: true,
+          type: "text",
+          attachments: [
+            {
+              id: "att-demo-json",
+              name: "payload_webhook_payload.json",
+              type: "application/json",
+              url: "https://raw.githubusercontent.com/json-iterator/test-data/master/large-file.json",
+              size: 47291
+            },
+            {
+              id: "att-demo-png",
+              name: "erro_banco_deadlock.png",
+              type: "image/png",
+              url: "https://picsum.photos/seed/error/800/600",
+              size: 215430
+            }
+          ]
+        },
+        {
+          id: "msg-demo-2",
+          ticketId: "ex-ticket-payment-error",
+          senderId: "9ca681d2-06c7-4a9c-8ef0-cfe404078356",
+          text: "[NOTA INTERNA - INFRAESTRUTURA] Equipe do Nível 2, verifiquei que o cluster de Redis que gerencia a fila de idempotência deu timeout por volta das 11:15 por alta de conexões concorrentes. Reiniciei a instância em cluster e ajustei o número máximo de conexões TCP aceitas simultaneamente de 10k para 50k. Vou responder ao cliente explicando o cenário ocorrido e sugerindo um lock otimista na tabela 'orders' para segurança de borda adicional.",
+          timestamp: "2026-05-21T11:50:33Z",
+          isVisibleToCustomer: false,
+          type: "internal",
+          attachments: []
+        },
+        {
+          id: "msg-demo-3",
+          ticketId: "ex-ticket-payment-error",
+          senderId: "9ca681d2-06c7-4a9c-8ef0-cfe404078356",
+          text: `Olá Carlos Henrique! Tudo bem?\n\nIdentificamos uma sobrecarga temporária em nosso barramento secundário de idempotência que gerou timeouts intermitentes na validação distribuída. Isso ocasionou o disparo de envios duplicados por nossa API de Webhook antes de completada a persistência original.\n\nA instabilidade foi resolvida em definitivo às 11:48 de hoje pela equipe de infraestrutura. De toda forma, como melhor prática de resiliência, sugerimos duas ações:\n1. Adicione um Lock Otimista (utilizando controle de versão na tabela de transações) para blindar seu banco contra concorrência.\n2. Avalie processar as mensagens webhook de forma assíncrona, enviando o status HTTP 200 de imediato e processando a entrada em segundo plano.\n\nFicamos à disposição para realizar testes conjuntos caso queira simular novas chamadas simultâneas!`,
+          timestamp: "2026-05-21T12:05:00Z",
+          isVisibleToCustomer: true,
+          type: "text",
+          attachments: []
+        }
+      ];
+      all.push(...exampleMessages);
+      this.set(STORAGE_KEYS.MESSAGES, all);
+    }
     return ticketId ? all.filter(m => m.ticketId === ticketId) : all;
   }
 
-  static saveMessage(message: Message) {
+  static async saveMessage(message: Message) {
     const messages = this.get<Message>(STORAGE_KEYS.MESSAGES);
     messages.push(message);
     this.set(STORAGE_KEYS.MESSAGES, messages);
 
-    // Sync to Supabase in background
+    // Sync to Supabase - Primary Persistence
     if (supabase && message.ticketId) {
-      const db = supabase;
-      const syncMessage = async () => {
-        try {
-          // Verify authentication
-          const { data: authData } = await db.auth.getUser();
-          if (!authData.user) return;
-
-          console.log(`📤 Sincronizando mensagem para ticket ${message.ticketId}...`);
-          
-          const payload: any = {
-            content: message.text,
-            type: message.type
-          };
-
-          if (this.isUUID(message.ticketId)) payload.ticket_id = message.ticketId;
-          if (this.isUUID(message.senderId)) payload.author_id = message.senderId;
-
-          // Only attempt insert if we have a valid ticket_id and author_id
-          if (payload.ticket_id && payload.author_id) {
-            const { error } = await db.from('ticket_messages').insert([payload]);
-            if (error) {
-              console.error('❌ Erro Supabase Sync (messages):', error.message);
-            }
-          }
-        } catch (e) {
-          console.error('❌ Erro inesperado ao sincronizar mensagem:', e);
-        }
+      const payload: any = {
+        id: message.id,
+        content: message.text,
+        type: message.type,
+        ticket_id: this.isUUID(message.ticketId) ? message.ticketId : null,
+        author_id: this.isUUID(message.senderId) ? message.senderId : null,
+        created_at: message.timestamp,
+        is_visible_to_customer: message.isVisibleToCustomer,
+        attachments_data: message.attachments || []
       };
 
-      syncMessage();
+      if (payload.ticket_id && payload.author_id) {
+        const { error } = await supabase.from('ticket_messages').upsert([payload]);
+        if (error) {
+          console.error('❌ Erro Supabase Sync (messages):', error.message);
+          throw error;
+        } else {
+          console.log('✅ Mensagem persistida no Supabase');
+        }
+      }
     }
   }
   static getUsers() { return this.get<User>(STORAGE_KEYS.USERS); }
@@ -717,7 +842,7 @@ export class MockDB {
 
     // Sync simplificado
     if (supabase && this.isUUID(user.id)) {
-      supabase.from('profiles').upsert({
+      const { error } = await supabase.from('profiles').upsert({
         id: user.id,
         name: user.name,
         email: user.email,
@@ -725,9 +850,11 @@ export class MockDB {
         company_id: user.companyId && this.isUUID(user.companyId) ? user.companyId : null,
         phone: user.phone || null,
         must_change_password: user.mustChangePassword
-      }).then(({ error }) => {
-        if (error) console.warn('⚠️ MockDB Sync (profiles):', error.message);
       });
+      if (error) {
+        console.warn('⚠️ MockDB Sync (profiles):', error.message);
+        throw error;
+      }
     }
   }
   static async deleteUser(id: string) {
@@ -1005,7 +1132,7 @@ export class MockDB {
   }
 
   static getChatSessions() { return this.get<ChatSession>(STORAGE_KEYS.CHAT_SESSIONS); }
-  static saveChatSession(session: ChatSession) {
+  static async saveChatSession(session: ChatSession) {
     const sessions = this.getChatSessions();
     const idx = sessions.findIndex(s => s.id === session.id);
     const oldSession = idx >= 0 ? sessions[idx] : null;
@@ -1015,29 +1142,22 @@ export class MockDB {
 
     // Sync to Supabase
     if (supabase) {
-      const db = supabase;
-      const syncSession = async () => {
-        try {
-          const payload: any = {
-            id: session.id,
-            customer_id: session.customerId,
-            customer_name: session.customerName,
-            customer_phone: session.customerPhone || null,
-            assignee_id: session.assigneeId || null,
-            queue_id: session.queueId || null,
-            status: session.status
-          };
-          if (session.startedAt) payload.created_at = session.startedAt;
-          
-          const { error: sessionError } = await db.from('chat_sessions').upsert(payload);
-          if (sessionError) console.error('❌ Erro ao sincronizar sessão de chat:', sessionError.message);
-
-          // Messages are now synced individually via pushChatMessage
-        } catch (e) {
-          console.error('❌ Erro inesperado na sincronização de chat:', e);
-        }
+      const payload: any = {
+        id: session.id,
+        customer_id: session.customerId,
+        customer_name: session.customerName,
+        customer_phone: session.customerPhone || null,
+        assignee_id: session.assigneeId || null,
+        queue_id: session.queueId || null,
+        status: session.status
       };
-      syncSession();
+      if (session.startedAt) payload.created_at = session.startedAt;
+      
+      const { error: sessionError } = await supabase.from('chat_sessions').upsert(payload);
+      if (sessionError) {
+        console.error('❌ Erro ao sincronizar sessão de chat:', sessionError.message);
+        throw sessionError;
+      }
     }
 
     // If status changed to closed and had an assignee, decrement load
@@ -1062,28 +1182,24 @@ export class MockDB {
 
     // 2. Sync to Supabase - Atomic message insert
     if (supabase) {
-      const db = supabase;
       console.log(`📤 Enviando mensagem ${message.id} para Supabase...`);
-      try {
-        // 1. Insert message
-        const { error: msgError } = await db.from('chat_messages').upsert({
-          id: message.id,
-          session_id: sessionId,
-          sender_id: message.senderId,
-          sender_name: message.senderName,
-          text: message.text,
-          type: message.type,
-          metadata: message.metadata || null,
-          created_at: message.timestamp
-        });
-        
-        if (msgError) {
-          console.error('❌ Erro Supabase (chat_messages):', msgError.message);
-        } else {
-          console.log('✅ Mensagem sincronizada no Supabase');
-        }
-      } catch (e) {
-        console.error('❌ Erro inesperado ao enviar mensagem:', e);
+      // 1. Insert message
+      const { error: msgError } = await supabase.from('chat_messages').upsert({
+        id: message.id,
+        session_id: sessionId,
+        sender_id: message.senderId,
+        sender_name: message.senderName,
+        text: message.text,
+        type: message.type,
+        metadata: message.metadata || null,
+        created_at: message.timestamp
+      });
+      
+      if (msgError) {
+        console.error('❌ Erro Supabase (chat_messages):', msgError.message);
+        throw msgError;
+      } else {
+        console.log('✅ Mensagem sincronizada no Supabase');
       }
     }
   }
@@ -1153,7 +1269,29 @@ export class MockDB {
     this.set(STORAGE_KEYS.INTERNAL_CHATS, groups);
   }
 
-  static getInternalTickets() { return this.get<InternalTicket>(STORAGE_KEYS.INTERNAL_TICKETS); }
+  static getInternalTickets() { 
+    const list = this.get<InternalTicket>(STORAGE_KEYS.INTERNAL_TICKETS); 
+    const hasExample = list.some(it => it.parentTicketId === 'ex-ticket-payment-error');
+    if (!hasExample) {
+      const demoInternal: InternalTicket = {
+        id: "int-ticket-1",
+        parentTicketId: "ex-ticket-payment-error",
+        title: "⚙️ Investigação de Timeout no Cluster Redis do Barramento de Webhooks",
+        teamId: "q2", 
+        assigneeId: "9ca681d2-06c7-4a9c-8ef0-cfe404078356",
+        priority: 3, 
+        tags: ["Redis", "High-Priority-Devops"],
+        creatorId: "9ca681d2-06c7-4a9c-8ef0-cfe404078356",
+        description: "Reclamado timeout na fila de processamento redundante. Foi verificado que o limite de conexões simultâneas (maxclients) excedeu os 10k configurados por padrão. Ajustado para 50k para comportar alta volumetria e adicionado monitoramento periódico no Grafana.",
+        createdAt: "2026-05-21T11:40:00Z",
+        updatedAt: "2026-05-21T11:50:00Z",
+        slaLimit: "2026-05-22T11:40:00Z"
+      };
+      list.push(demoInternal);
+      this.set(STORAGE_KEYS.INTERNAL_TICKETS, list);
+    }
+    return list;
+  }
   static getInternalTicketByParent(parentId: string) {
     return this.getInternalTickets().find(it => it.parentTicketId === parentId);
   }

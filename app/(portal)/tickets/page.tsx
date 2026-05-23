@@ -309,7 +309,14 @@ export default function TicketsPage() {
         return (
           <td key="title" className="px-6 py-5">
             <div className="flex flex-col">
-              <span className="font-bold text-slate-800 text-sm italic">{ticket.title}</span>
+              <div className="flex flex-wrap items-center gap-2">
+                <span className="font-bold text-slate-800 text-sm italic">{ticket.title}</span>
+                {ticket.id === 'ex-ticket-payment-error' && (
+                  <span className="text-[9px] font-black uppercase tracking-tight text-indigo-700 bg-indigo-50 border border-indigo-200/50 px-1.5 py-0.5 rounded shadow-sm animate-pulse select-none">
+                    Chamado Exemplo (Sem Banco)
+                  </span>
+                )}
+              </div>
               <span className="text-[10px] text-slate-400 font-medium">{ticket.category}</span>
             </div>
           </td>

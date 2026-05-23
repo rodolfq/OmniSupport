@@ -1,5 +1,6 @@
 {
   "name": "Remix: OmniSupport",
   "description": "Plataforma avançada de suporte e gestão visual de chamados com IA integrada.",
-  "requestFramePermissions": []
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
 }

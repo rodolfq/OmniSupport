@@ -8,8 +8,12 @@ async function checkData() {
   try {
     await client.connect();
     
-    console.log("\n--- Dados em 'companies' ---");
-    const result = await client.query(`SELECT * FROM companies;`);
+    console.log("\n--- Estrutura da tabela 'users' ---");
+    const result = await client.query(`
+      SELECT column_name, data_type 
+      FROM information_schema.columns 
+      WHERE table_name = 'users' AND table_schema = 'public';
+    `);
     console.table(result.rows);
   } catch (err) {
     console.error("Erro na inspeção:", err);

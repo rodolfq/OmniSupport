@@ -118,16 +118,23 @@ export async function getUsers() {
     if (error) throw error;
 
     console.log(`📊 getUsers: ${rows?.length || 0} usuários encontrados`);
-    return (rows || []).map(row => ({
-      id: row.id,
-      name: row.name,
-      email: row.email,
-      role: row.role,
-      companyId: row.company_id,
-      phone: row.phone,
-      viewAllCompanyTickets: !!row.view_all_company_tickets,
-      mustChangePassword: !!row.must_change_password
-    }));
+    return (rows || []).map(row => {
+      // Normalizar role para o formato amigável da UI
+      let normalizedRole = row.role;
+      if (row.role === 'customer' || !row.role) normalizedRole = 'Funcionário';
+      if (row.role === 'support' || row.role === 'admin' || row.role === 'Admin') normalizedRole = 'Equipe';
+      
+      return {
+        id: row.id,
+        name: row.name,
+        email: row.email,
+        role: normalizedRole,
+        companyId: row.company_id,
+        phone: row.phone,
+        viewAllCompanyTickets: !!row.view_all_company_tickets,
+        mustChangePassword: !!row.must_change_password
+      };
+    });
   } catch (err) {
     console.error("❌ Erro ao buscar usuários (actions.ts):", err);
     return [];

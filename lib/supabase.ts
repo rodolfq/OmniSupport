@@ -6,22 +6,25 @@ const supabaseAnonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!
 // Singleton robusto usando o cliente padrão
 let instance: ReturnType<typeof createClient> | null = null
 
-export const supabase = typeof window !== 'undefined'
-  ? (() => {
-      if (!instance) {
-        instance = createClient(supabaseUrl, supabaseAnonKey, {
-          auth: {
-            persistSession: true,
-            autoRefreshToken: true,
-            detectSessionInUrl: true,
-            storageKey: 'sb-auth-v5-token', 
-          }
-        })
-        console.log('⚡ Supabase Client: Inicializado com persistência v5')
+export const supabase = (() => {
+  if (typeof window === 'undefined') {
+    // Server-side
+    return createClient(supabaseUrl, supabaseAnonKey);
+  }
+
+  if (!instance) {
+    instance = createClient(supabaseUrl, supabaseAnonKey, {
+      auth: {
+        persistSession: true,
+        autoRefreshToken: true,
+        detectSessionInUrl: true,
+        storageKey: 'sb-auth-v5-token', 
       }
-      return instance
-    })()
-  : null
+    })
+    console.log('⚡ Supabase Client: Inicializado com persistência v5')
+  }
+  return instance
+})()
 
 export function getSupabase() {
   return supabase

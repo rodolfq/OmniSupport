@@ -8,19 +8,7 @@ export default function RootPage() {
   const router = useRouter();
 
   useEffect(() => {
-    const checkSession = async () => {
-      if (!supabase) {
-        router.push('/login');
-        return;
-      }
-      const { data: { session } } = await supabase.auth.getSession();
-      if (session) {
-        router.push('/dashboard');
-      } else {
-        router.push('/login');
-      }
-    };
-    checkSession();
+    router.push('/dashboard');
   }, [router]);
 
   return (

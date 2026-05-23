@@ -15,6 +15,9 @@ export default function TicketDetailPage() {
   const [messages, setMessages] = useState<Message[]>([]);
   const [input, setInput] = useState('');
   const [isInternal, setIsInternal] = useState(false);
+  const [isUploading, setIsInternalUploading] = useState(false);
+  const [previewAttachments, setPreviewAttachments] = useState<any[]>([]);
+  const fileInputRef = React.useRef<HTMLInputElement>(null);
 
   useEffect(() => {
     if (!params.id) return;
@@ -25,8 +28,25 @@ export default function TicketDetailPage() {
     }
   }, [params.id]);
 
+  const handleFileSelect = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const files = e.target.files;
+    if (!files || files.length === 0) return;
+
+    setIsInternalUploading(true);
+    try {
+      const file = files[0];
+      const attachment = await MockDB.uploadFile(file);
+      setPreviewAttachments([...previewAttachments, attachment]);
+    } catch (error) {
+      console.error('Falha no upload:', error);
+      alert('Erro ao subir arquivo. Verifique sua conexão.');
+    } finally {
+      setIsInternalUploading(false);
+    }
+  };
+
   const handleSendMessage = () => {
-    if (!input.trim() || !ticket || !currentUser) return;
+    if ((!input.trim() && previewAttachments.length === 0) || !ticket || !currentUser) return;
     const newMessage: Message = {
       id: Math.random().toString(36).substr(2, 9),
       ticketId: ticket.id,
@@ -34,11 +54,13 @@ export default function TicketDetailPage() {
       text: input,
       timestamp: new Date().toISOString(),
       isVisibleToCustomer: !isInternal,
-      type: isInternal ? 'internal' : 'text'
+      type: isInternal ? 'internal' : 'text',
+      attachments: previewAttachments
     };
     MockDB.saveMessage(newMessage);
     setMessages([...messages, newMessage]);
     setInput('');
+    setPreviewAttachments([]);
   };
 
   const handlePriorityUpdate = (newPriority: number) => {
@@ -137,6 +159,29 @@ export default function TicketDetailPage() {
                 )}>
                   {m.type === 'internal' && <div className="text-[10px] uppercase font-black text-amber-600 mb-1 flex items-center gap-1"><Lock size={10} /> Nota Interna</div>}
                   <p className="text-sm leading-relaxed">{m.text}</p>
+                  
+                  {m.attachments && m.attachments.length > 0 && (
+                    <div className="mt-3 space-y-2">
+                      {m.attachments.map((att: any) => (
+                        <a 
+                          key={att.id} 
+                          href={att.url} 
+                          target="_blank" 
+                          rel="noopener noreferrer"
+                          className={cn(
+                            "flex items-center gap-2 p-2 rounded-lg text-xs font-bold transition-colors",
+                            m.senderId === currentUser?.id 
+                              ? "bg-indigo-500/50 hover:bg-indigo-500 text-white" 
+                              : "bg-slate-100 hover:bg-slate-200 text-slate-700"
+                          )}
+                        >
+                          <Paperclip size={14} />
+                          <span className="truncate max-w-[150px]">{att.name}</span>
+                        </a>
+                      ))}
+                    </div>
+                  )}
+
                   <span className={cn("text-[9px] mt-2 block font-bold uppercase tracking-widest", m.senderId === currentUser?.id ? "text-indigo-200" : "text-slate-400")}>
                     {formatDate(m.timestamp)}
                   </span>
@@ -156,12 +201,39 @@ export default function TicketDetailPage() {
                 placeholder={isInternal ? "Escreva uma nota interna visível apenas para a equipe..." : "Digite sua resposta para o cliente..."}
                 className="bg-transparent w-full p-2 text-sm focus:outline-none resize-none min-h-[80px]" 
               />
+              
+              {previewAttachments.length > 0 && (
+                <div className="flex flex-wrap gap-2 p-2 border-t border-slate-100">
+                  {previewAttachments.map(att => (
+                    <div key={att.id} className="bg-white border border-slate-200 rounded-lg px-3 py-1.5 flex items-center gap-2 shadow-sm text-[10px] font-bold text-slate-600 animate-in fade-in zoom-in duration-200">
+                      <Paperclip size={12} className="text-indigo-500" />
+                      <span className="max-w-[100px] truncate">{att.name}</span>
+                      <button onClick={() => setPreviewAttachments(prev => prev.filter(a => a.id !== att.id))} className="text-red-400 hover:text-red-600 ml-1">×</button>
+                    </div>
+                  ))}
+                </div>
+              )}
+
               <div className="flex justify-between items-center border-t border-slate-200 pt-2 px-1">
                 <div className="flex gap-3 text-slate-400">
-                  <Paperclip size={18} className="cursor-pointer hover:text-slate-600" />
+                  <input 
+                    type="file" 
+                    ref={fileInputRef} 
+                    className="hidden" 
+                    onChange={handleFileSelect} 
+                  />
+                  <button 
+                    onClick={() => fileInputRef.current?.click()}
+                    disabled={isUploading}
+                    className={cn("transition-colors", isUploading ? "text-indigo-500 animate-pulse" : "hover:text-slate-600")}
+                  >
+                    <Paperclip size={18} />
+                  </button>
                   <Eye size={18} className="cursor-pointer hover:text-slate-600" />
                 </div>
-                <button onClick={handleSendMessage} className="bg-indigo-600 text-white px-6 py-1.5 rounded-lg text-sm font-bold shadow-md hover:bg-indigo-700 transition-colors">Enviar</button>
+                <button onClick={handleSendMessage} className="bg-indigo-600 text-white px-6 py-1.5 rounded-lg text-sm font-bold shadow-md hover:bg-indigo-700 transition-colors">
+                  {isUploading ? "Enviando..." : "Enviar"}
+                </button>
               </div>
             </div>
           </div>

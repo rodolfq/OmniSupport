@@ -32,15 +32,7 @@ export default function PortalLayout({ children }: { children: React.ReactNode }
 
   React.useEffect(() => {
     setMounted(true);
-    // If not logged in, redirect to login
-    // We wait a bit to ensure initialization is complete
-    const checkAuth = setTimeout(() => {
-      if (mounted && !currentUser) {
-        router.push('/login');
-      }
-    }, 3000);
-    return () => clearTimeout(checkAuth);
-  }, [currentUser, router, mounted]);
+  }, []);
 
   if (!mounted) {
     return <div className="min-h-screen bg-slate-50 flex items-center justify-center font-bold text-slate-400">Carregando...</div>;

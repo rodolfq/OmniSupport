@@ -1,10 +1,14 @@
 import { 
   WASocket,
-  SignalDataTypeMap
+  SignalDataTypeMap,
+  downloadContentFromMessage,
+  proto
 } from '@whiskeysockets/baileys';
 import { Boom } from '@hapi/boom';
 import pino from 'pino';
 import { supabase } from './supabase';
+import { v4 as uuidv4 } from 'uuid';
+import { Attachment } from './types';
 
 // Use a more robust pino configuration to avoid EPIPE on closed stdout
 const logger = pino({
@@ -239,16 +243,33 @@ class WhatsAppManager {
           if (!jid || !jid.includes('@s.whatsapp.net')) continue;
           
           const phone = jid.split('@')[0];
-          const text = msg.message.conversation || 
+          let text = msg.message.conversation || 
                        msg.message.extendedTextMessage?.text || 
                        msg.message.imageMessage?.caption || 
+                       msg.message.videoMessage?.caption ||
+                       msg.message.documentMessage?.caption ||
                        '';
           
           const pushName = msg.pushName || phone;
 
-          // Only process if there's text content (or caption)
-          if (text) {
-            await this.processIncomingMessage(sessionId, phone, text, pushName, msg);
+          // Check for media
+          let mediaData = null;
+          const messageType = Object.keys(msg.message)[0];
+          
+          if (['imageMessage', 'videoMessage', 'documentMessage', 'audioMessage'].includes(messageType)) {
+            try {
+              mediaData = await this.downloadAndUploadMedia(msg.message, messageType);
+              if (mediaData && !text) {
+                text = `[Arquivo: ${mediaData.name}]`;
+              }
+            } catch (err) {
+              console.error(`[WhatsApp:${sessionId}] Falha ao processar mídia:`, err);
+            }
+          }
+
+          // Process if there's content or media
+          if (text || mediaData) {
+            await this.processIncomingMessage(sessionId, phone, text, pushName, msg, mediaData);
           }
         }
       });
@@ -335,7 +356,7 @@ class WhatsAppManager {
     return { status: inst.status, qr: inst.qr };
   }
 
-  public async sendMessage(sessionId: string, jid: string, text: string) {
+  public async sendMessage(sessionId: string, jid: string, text: string, options?: { mediaUrl?: string, mimetype?: string, fileName?: string }) {
     const inst = this.instances.get(sessionId);
     if (!inst || inst.status !== 'connected') {
       throw new Error('WhatsApp not connected');
@@ -344,7 +365,22 @@ class WhatsAppManager {
     // Ensure jid format
     const formattedJid = jid.includes('@s.whatsapp.net') ? jid : `${jid.replace(/\D/g, '')}@s.whatsapp.net`;
     
-    await inst.socket.sendMessage(formattedJid, { text });
+    if (options?.mediaUrl) {
+      const type = options.mimetype?.startsWith('image/') ? 'image' : 
+                   options.mimetype?.startsWith('video/') ? 'video' : 
+                   options.mimetype?.startsWith('audio/') ? 'audio' : 'document';
+      
+      const messagePayload: any = {
+        [type === 'document' ? 'document' : type]: { url: options.mediaUrl },
+        caption: text,
+        mimetype: options.mimetype,
+        fileName: options.fileName
+      };
+
+      await inst.socket.sendMessage(formattedJid, messagePayload);
+    } else {
+      await inst.socket.sendMessage(formattedJid, { text });
+    }
   }
 
   public async logout(sessionId: string) {
@@ -363,10 +399,50 @@ class WhatsAppManager {
     }
   }
 
-  private async processIncomingMessage(sessionId: string, phone: string, text: string, pushName: string, _msg: any) {
+  private async downloadAndUploadMedia(message: any, type: string): Promise<Attachment | null> {
+    if (!supabase) return null;
+
+    const mediaMessage = message[type];
+    const stream = await downloadContentFromMessage(mediaMessage, type.replace('Message', '') as any);
+    let buffer = Buffer.from([]);
+    for await (const chunk of stream) {
+      buffer = Buffer.concat([buffer, chunk]);
+    }
+
+    const fileName = mediaMessage.fileName || `${uuidv4()}.${mediaMessage.mimetype?.split('/')[1] || 'bin'}`;
+    const filePath = `whatsapp/${fileName}`;
+
+    console.log(`[WhatsApp:Media] Subindo arquivo do WhatsApp: ${fileName}...`);
+
+    const { error: uploadError } = await supabase.storage
+      .from('attachments')
+      .upload(filePath, buffer, {
+        contentType: mediaMessage.mimetype,
+        upsert: true
+      });
+
+    if (uploadError) {
+      console.error('[WhatsApp:Media] Erro no upload Supabase:', uploadError.message);
+      return null;
+    }
+
+    const { data: { publicUrl } } = supabase.storage
+      .from('attachments')
+      .getPublicUrl(filePath);
+
+    return {
+      id: uuidv4(),
+      name: fileName,
+      type: mediaMessage.mimetype || 'application/octet-stream',
+      url: publicUrl,
+      size: buffer.length
+    };
+  }
+
+  private async processIncomingMessage(sessionId: string, phone: string, text: string, pushName: string, _msg: any, mediaData?: Attachment | null) {
     if (!supabase) return;
 
-    console.log(`[WhatsApp:Incoming] From: ${phone}, Text: ${text.substring(0, 20)}...`);
+    console.log(`[WhatsApp:Incoming] From: ${phone}, Text: ${text.substring(0, 20)}... Media: ${!!mediaData}`);
 
     // 1. Identify User/Employee
     let customerId = phone;
@@ -374,7 +450,6 @@ class WhatsAppManager {
     const customerPhone = phone;
     
     // Try to find user by phone in profiles
-    // We try exact match, or matching removing leading zeros/plus if needed
     const { data: profile } = await supabase
       .from('profiles')
       .select('id, name, phone, company_id')
@@ -400,7 +475,6 @@ class WhatsAppManager {
     let activeSessionId;
     if (session) {
       activeSessionId = session.id;
-      // Update session if identity changed
       const updates: any = {};
       if (profile && session.customer_id !== profile.id) {
         updates.customer_id = profile.id;
@@ -408,7 +482,7 @@ class WhatsAppManager {
       }
       await supabase.from('chat_sessions').update(updates).eq('id', activeSessionId);
     } else {
-      activeSessionId = (globalThis as any).crypto?.randomUUID() || Math.random().toString(36).substring(2);
+      activeSessionId = uuidv4();
       await supabase.from('chat_sessions').insert({
         id: activeSessionId,
         customer_id: customerId,
@@ -421,15 +495,26 @@ class WhatsAppManager {
     }
 
     // 3. Insert Message
-    await supabase.from('chat_messages').insert({
-      id: (globalThis as any).crypto?.randomUUID() || Math.random().toString(36).substring(2),
+    const messageId = uuidv4();
+    const payload: any = {
+      id: messageId,
       session_id: activeSessionId,
       sender_id: customerId,
       sender_name: customerName,
       text: text,
-      type: 'text',
+      type: mediaData ? 'file' : 'text',
       created_at: new Date().toISOString()
-    });
+    };
+
+    if (mediaData) {
+      payload.metadata = {
+        fileUrl: mediaData.url,
+        fileName: mediaData.name,
+        fileSize: mediaData.size
+      };
+    }
+
+    await supabase.from('chat_messages').insert(payload);
 
     console.log(`[WhatsApp:Incoming] Message processed for session ${activeSessionId}`);
   }
