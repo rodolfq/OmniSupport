@@ -180,8 +180,9 @@ export function ChatWidget() {
             setUserQueues(myQueues);
         }
       } catch (err: any) {
-        if (err.name === 'AbortError' || err.message?.includes('aborted')) return;
-        console.error("Error in loadData:", err?.message || err);
+        const errMsg = err?.message ?? '';
+        if (err?.name === 'AbortError' || errMsg.includes('aborted')) return;
+        console.error("Error in loadData:", errMsg || err);
       }
     }
     loadData();

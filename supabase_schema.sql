@@ -167,7 +167,8 @@ CREATE TABLE public.chat_sessions (
   queue_id TEXT,
   status TEXT DEFAULT 'waiting', -- 'waiting', 'active', 'closed'
   created_at TIMESTAMP WITH TIME ZONE DEFAULT timezone('utc'::text, now()) NOT NULL,
-  updated_at TIMESTAMP WITH TIME ZONE DEFAULT timezone('utc'::text, now()) NOT NULL
+  updated_at TIMESTAMP WITH TIME ZONE DEFAULT timezone('utc'::text, now()) NOT NULL,
+  last_message_at TIMESTAMP WITH TIME ZONE
 );
 
 -- 11. Chat Participants

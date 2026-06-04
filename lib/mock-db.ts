@@ -82,6 +82,7 @@ export class MockDB {
   }
 
   private static _syncPromise: Promise<void> | null = null;
+  private static initialized = false;
 
   static async syncFromSupabase() {
     if (!this.isBrowser || !supabase) {
@@ -160,18 +161,19 @@ export class MockDB {
             if (p.role === 'customer' || !p.role) normalizedRole = 'Funcionário';
             if (p.role === 'support' || p.role === 'admin' || p.role === 'Admin') normalizedRole = 'Equipe';
             
-            return {
-              id: p.id,
-              name: p.name || 'Sem Nome',
-              email: p.email,
-              role: normalizedRole,
-              phone: p.phone,
-              password: p.password,
-              companyId: p.company_id,
-              viewAllCompanyTickets: p.view_all_company_tickets,
-              status: 'online' as const,
-              mustChangePassword: p.must_change_password ?? false
-            };
+return {
+               id: p.id,
+               name: p.name || 'Sem Nome',
+               email: p.email,
+               role: normalizedRole,
+               phone: p.phone,
+               password: p.password,
+               companyId: p.company_id,
+               viewAllCompanyTickets: p.view_all_company_tickets,
+               status: 'online' as const,
+               mustChangePassword: p.must_change_password ?? false,
+               isAdmin: p.is_admin ?? false
+             };
           });
           this.set(STORAGE_KEYS.USERS, mappedUsers);
         }
