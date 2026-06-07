@@ -49,7 +49,7 @@ export function NewTicketModal() {
   
   useEffect(() => {
     if (isNewTicketModalOpen && currentUser) {
-      console.log('ðŸ” NewTicketModal Debug:', {
+      console.log('” NewTicketModal Debug:', {
         role: currentUser.role,
         isCustomer,
         companyId: currentUser.companyId,
@@ -63,7 +63,7 @@ export function NewTicketModal() {
       if (!isNewTicketModalOpen) return;
 
       try {
-        console.log('ðŸ”„ NewTicketModal: Buscando dados para novo chamado...');
+        console.log('”„ NewTicketModal: Buscando dados para novo chamado...');
         // Fetch companies (always fetch all)
         const { data: loadedCompanies, error: companiesError } = await supabase.from('companies').select('id, name').order('name', { ascending: true });
         
@@ -482,4 +482,6 @@ export function NewTicketModal() {
     </AnimatePresence>
   );
 }
+
+
 

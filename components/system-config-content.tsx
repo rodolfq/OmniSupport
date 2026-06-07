@@ -36,7 +36,7 @@ export function SystemConfigContent({ categories, priorities, setCategories, set
     const hours = days * 24;
     const priority = priorities.find((p: any) => p.label === label);
 
-    console.log(`ðŸ’¾ Salvando SLA para ${label}: ${days} dias (${hours} horas)`);
+    console.log(`’¾ Salvando SLA para ${label}: ${days} dias (${hours} horas)`);
 
     if (priority) {
       const { error } = await supabase.from('config_priorities').update({ sla_hours: hours }).eq('id', priority.id);
@@ -142,3 +142,5 @@ export function SystemConfigContent({ categories, priorities, setCategories, set
     </div>
   );
 }
+
+

@@ -735,7 +735,7 @@ const handleSendMessage = async (isInternal: boolean) => {
                           "px-4 py-3 border-b-2 transition-all flex items-center justify-center",
                           activeTab === 'history' ? "border-slate-500 text-slate-600 bg-slate-50/50" : "border-transparent text-slate-400 hover:text-slate-600"
                         )}
-                        title="HistÃ³rico de alteraÃ§Ãµes"
+                        title="Histórico de alteraÃ§Ãµes"
                       >
                         <History size={16} />
                       </button>
@@ -966,7 +966,7 @@ const handleSendMessage = async (isInternal: boolean) => {
                        historyTab === 'customer' ? "text-indigo-600" : "text-slate-400"
                      )}
                    >
-                     HistÃ³rico Cliente
+                     Histórico Cliente
                    </button>
                  )}
                  {currentUser?.role !== UserRole.CUSTOMER && hasPermission(Permission.INTERNAL_TICKETS_VIEW) && (
@@ -1115,6 +1115,8 @@ const handleSendMessage = async (isInternal: boolean) => {
     </div>
   );
 }
+
+
 
 
 

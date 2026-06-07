@@ -168,3 +168,5 @@ export function NewCompanyModal({ isOpen, onClose, onSuccess, company }: { isOpe
     </AnimatePresence>
   );
 }
+
+

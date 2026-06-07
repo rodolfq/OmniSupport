@@ -140,3 +140,5 @@ export function ChangePasswordModal({ isOpen, onClose }: { isOpen: boolean, onCl
     </div>
   );
 }
+
+

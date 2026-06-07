@@ -326,3 +326,5 @@ export function RichEditor({ content, onChange, placeholder = 'Comece a digitar.
     </div>
   );
 }
+
+

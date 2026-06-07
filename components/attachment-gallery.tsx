@@ -102,3 +102,5 @@ export function AttachmentGallery({ attachments, title = "Todos os Anexos" }: At
     </div>
   );
 }
+
+

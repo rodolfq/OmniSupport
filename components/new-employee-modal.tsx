@@ -211,3 +211,5 @@ export function NewEmployeeModal({ isOpen, onClose, companyId, onSuccess }: { is
     </AnimatePresence>
   );
 }
+
+

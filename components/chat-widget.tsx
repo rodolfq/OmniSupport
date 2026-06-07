@@ -301,12 +301,12 @@ export function ChatWidget() {
 
       // 2. Clear previous subscription if switching sessions
       if (messagesChannelRef.current) {
-        console.log(`ðŸ§¹ Limpando canal anterior: ${isSubscribedRef.current}`);
+        console.log(`§¹ Limpando canal anterior: ${isSubscribedRef.current}`);
         supabase.removeChannel(messagesChannelRef.current);
         messagesChannelRef.current = null;
       }
 
-      console.log(`ðŸ“¡ InscriÃ§Ã£o realtime p/ sessÃ£o: ${selectedChatId}`);
+      console.log(`“¡ InscriÃ§Ã£o realtime p/ sessÃ£o: ${selectedChatId}`);
       isSubscribedRef.current = selectedChatId;
       
       // 3. Define channel and event listeners BEFORE subscribe
@@ -322,7 +322,7 @@ export function ChatWidget() {
             filter: `session_id=eq.${selectedChatId}`
           },
           async (payload) => {
-            console.log('ðŸ“© Nova mensagem detectada via realtime:', payload.new.id);
+            console.log('“© Nova mensagem detectada via realtime:', payload.new.id);
             const newMessage = payload.new;
             
             // Play sound and add notification if message is NOT from current user
@@ -355,7 +355,7 @@ export function ChatWidget() {
 
     return () => {
       if (messagesChannelRef.current && supabase) {
-        console.log(`ðŸš« Desconectando realtime sessÃ£o: ${isSubscribedRef.current}`);
+        console.log(`š« Desconectando realtime sessÃ£o: ${isSubscribedRef.current}`);
         supabase.removeChannel(messagesChannelRef.current);
         messagesChannelRef.current = null;
         isSubscribedRef.current = null;
@@ -731,7 +731,7 @@ export function ChatWidget() {
                                   {company && (
                                     <p className="text-[9px] text-indigo-600 font-bold uppercase tracking-widest">{company.name}</p>
                                   )}
-                                  <p className="text-[10px] text-slate-400 font-medium">{s.status === 'pending' ? 'ðŸŸ¡ Aguardando' : 'ðŸŸ¢ Em curso'}</p>
+                                  <p className="text-[10px] text-slate-400 font-medium">{s.status === 'pending' ? 'Ÿ¡ Aguardando' : 'Ÿ¢ Em curso'}</p>
                                 </div>
                               </div>
                             </button>
@@ -1022,7 +1022,7 @@ export function ChatWidget() {
              <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} onClick={() => setIsFinishModalOpen(false)} className="absolute inset-0 bg-slate-900/40 backdrop-blur-sm" />
              <motion.div initial={{ scale: 0.9, opacity: 0 }} animate={{ scale: 1, opacity: 1 }} exit={{ scale: 0.9, opacity: 0 }} className="relative bg-white w-full max-w-sm rounded-[2.5rem] shadow-2xl p-8">
                 <h3 className="text-xl font-black text-slate-800 uppercase tracking-tight mb-2">Finalizar Chat</h3>
-                <p className="text-xs text-slate-400 font-medium mb-6">Transforme esta conversa em um chamado para histÃ³rico.</p>
+                <p className="text-xs text-slate-400 font-medium mb-6">Transforme esta conversa em um chamado para Histórico.</p>
                 
                 <div className="space-y-4">
                    <div className="space-y-1.5">
@@ -1092,3 +1092,5 @@ export function ChatWidget() {
     </div>
   );
 }
+
+

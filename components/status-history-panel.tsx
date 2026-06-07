@@ -138,7 +138,7 @@ useEffect(() => {
         <div>
           <h2 className="text-xl font-black text-slate-800 uppercase tracking-tight">Análise de Tempo e PresenÃ§a</h2>
           <p className="text-[10px] text-slate-500 font-bold uppercase tracking-widest">
-            {isAdmin ? 'Gestão completa de disponibilidade e motivos' : 'Seu histÃ³rico pessoal de disponibilidade'}
+            {isAdmin ? 'Gestão completa de disponibilidade e motivos' : 'Seu Histórico pessoal de disponibilidade'}
           </p>
         </div>
         
@@ -241,7 +241,7 @@ useEffect(() => {
              </div>
           </div>
 
-          {/* HistÃ³rico Detalhado */}
+          {/* Histórico Detalhado */}
           <div className="lg:col-span-2">
             <HistoryList 
               history={history} 
@@ -370,4 +370,6 @@ function StatCard({ label, value, color, icon }: { label: string; value: string 
     </div>
   );
 }
+
+
 
