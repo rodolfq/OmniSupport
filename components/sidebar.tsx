@@ -1,9 +1,10 @@
-'use client';
+﻿'use client';
 
 import React, { useState, useMemo } from 'react';
 import Link from 'next/link';
 import { usePathname, useRouter } from 'next/navigation';
-import { MockDB, Permission, UserRole } from '@/lib/mock-db';
+import { Permission, UserRole } from '@/lib/types';
+import { UserService } from '@/lib/services/user-service';
 import { 
   LayoutDashboard, 
   Ticket, 
@@ -62,7 +63,7 @@ export function Sidebar() {
           ]
         },
         { 
-          name: 'Configurações', 
+          name: 'ConfiguraÃ§Ãµes', 
           icon: Settings, 
           href: '/settings',
           subItems: [
@@ -80,23 +81,23 @@ export function Sidebar() {
         permission: Permission.DASHBOARD_VIEW,
         subItems: [
           { name: 'Geral', icon: LayoutDashboard, href: '/dashboard', permission: Permission.DASHBOARD_VIEW },
-          { name: 'Relatórios', icon: PieChart, href: '/reports', permission: Permission.REPORTS_READ },
+          { name: 'RelatÃ³rios', icon: PieChart, href: '/reports', permission: Permission.REPORTS_READ },
         ]
       },
-      { 
+{ 
         name: 'Chamados', 
         icon: Ticket, 
         permission: Permission.TICKETS_READ,
         subItems: [
           { name: 'Todos os Chamados', icon: Ticket, href: '/tickets', permission: Permission.TICKETS_READ },
           { name: 'Meus Chamados', icon: UserCircle, href: '/my-tickets' },
-          { name: 'Painel Chat', icon: MessageSquare, href: '/chat-management', permission: Permission.TICKETS_READ },
+          { name: 'Painel Chat', icon: MessageSquare, href: '/chat-management', permission: Permission.OUTSIDE_QUEUE_VIEW },
         ]
       },
       { name: 'Chat Interno', icon: MessageCircle, href: '/chat-internal', permission: Permission.CHAT_INTERNAL_VIEW },
       { name: 'Clientes', icon: Users, href: '/customers', permission: Permission.CUSTOMERS_READ },
       { 
-        name: 'Configurações', 
+        name: 'ConfiguraÃ§Ãµes', 
         icon: Settings, 
         href: '/settings',
         subItems: [
@@ -116,7 +117,7 @@ export function Sidebar() {
     if (currentUser.role === UserRole.ADMIN) {
       return Object.values(Permission);
     }
-    return MockDB.getPermissionsByRole(currentUser.role);
+    return UserService.getPermissionsByRole(currentUser.role);
   }, [currentUser]);
 
   return (
@@ -271,3 +272,4 @@ export function Sidebar() {
     </div>
   );
 }
+

@@ -1,4 +1,4 @@
-'use client';
+﻿'use client';
 
 import React, { useState, useEffect, useRef, Suspense } from 'react';
 import { 
@@ -37,8 +37,6 @@ import {
   Company,
   MockDB
 } from '@/lib/mock-db';
-// Remove import from '@/lib/types' if it was redundant or replace it if necessary
-// In this case, we prefer mock-db for the logic and types.
 import { fetchChatSessions, pushChatMessage } from '@/lib/services/chat.service';
 import { fetchQuickNotes, fetchAnalystStatuses, fetchCompanies, fetchUsers, fetchQueues } from '@/lib/services/config.service';
 import { cn, maskPhone, matchPhones, safeJsonStringify } from '@/lib/utils';
@@ -103,7 +101,7 @@ export function ChatWidget() {
   const setSelectedChatId = setActiveOmniChatId;
   const selectedChat = customerSessions.find(s => s.id === selectedChatId);
   const unreadCount = notifications.filter(n => !n.read && n.type.startsWith('chat_')).length;
-  const isCustomer = currentUser?.role === UserRole.CUSTOMER;
+  const isCustomer = currentUser?.role === UserRole.EMPLOYEE;
   const [lastViewedAt, setLastViewedAt] = useState<Record<string, string>>({});
   const [message, setMessage] = useState('');
   const [quickNotes, setQuickNotes] = useState<QuickNote[]>([]);
@@ -156,13 +154,16 @@ export function ChatWidget() {
     async function loadData() {
       console.log('ChatWidget: Iniciando loadData');
       try {
-        const [sessions, notes, statuses, comp, users] = await Promise.all([
-            fetchChatSessions(controller.signal),
-            fetchQuickNotes(controller.signal),
-            fetchAnalystStatuses(controller.signal),
-            fetchCompanies(controller.signal),
-            fetchUsers(controller.signal)
-        ]);
+        // Use individual try-catch for better error identification
+        let sessions = await fetchChatSessions(controller.signal).catch(e => { console.error('sessions fetch error:', e); return [] as any; });
+        let notes = await fetchQuickNotes(controller.signal).catch(e => { console.error('notes fetch error:', e); return [] as any; });
+        let statuses = await fetchAnalystStatuses(controller.signal).catch(e => { console.error('statuses fetch error:', e); return [] as any; });
+        let comp = await fetchCompanies(controller.signal).catch(e => { console.error('companies fetch error:', e); return [] as any; });
+        let users = await fetchUsers(controller.signal).catch(e => { console.error('users fetch error:', e); return [] as any; });
+        
+        // Check if controller was aborted
+        if (controller.signal.aborted) return;
+
         console.log('ChatWidget: Dados carregados com sucesso', { 
             sessions: sessions.length, 
             companies: comp.length, 
@@ -175,14 +176,16 @@ export function ChatWidget() {
         setAllUsers(users);
         
         if (currentUser) {
-            const allQueues = await fetchQueues(controller.signal);
-            const myQueues = allQueues.filter(q => q.memberIds.includes(currentUser.id)).map(q => q.id);
-            setUserQueues(myQueues);
+            let allQueues = await fetchQueues(controller.signal).catch(e => { console.error('queues fetch error:', e); return [] as any; });
+            const myQueues = allQueues.filter((q: any) => q.memberIds?.includes?.(currentUser.id)).map((q: any) => q.id);
+            setUserQueues(myQueues || []);
         }
       } catch (err: any) {
-        const errMsg = err?.message ?? '';
-        if (err?.name === 'AbortError' || errMsg.includes('aborted')) return;
-        console.error("Error in loadData:", errMsg || err);
+        // Silently ignore abort errors
+        const errMsg = String(err?.message ?? '');
+        const errName = String(err?.name ?? '');
+        if (errName.includes('AbortError') || errMsg.toLowerCase().includes('aborted')) return;
+        console.error("Error in loadData (fallback catch):", err);
       }
     }
     loadData();
@@ -264,7 +267,8 @@ export function ChatWidget() {
         const sessions = await fetchChatSessions(controller.signal);
         setCustomerSessions(sessions);
       } catch (err: any) {
-        if (err.name === 'AbortError' || err.message?.includes('aborted')) {
+        const errMsg = String(err?.message ?? '');
+        if (err?.name === 'AbortError' || errMsg.includes('aborted')) {
           // Ignore
         } else {
           console.error("Failed to load sessions in widget:", err);
@@ -297,12 +301,12 @@ export function ChatWidget() {
 
       // 2. Clear previous subscription if switching sessions
       if (messagesChannelRef.current) {
-        console.log(`🧹 Limpando canal anterior: ${isSubscribedRef.current}`);
+        console.log(`ðŸ§¹ Limpando canal anterior: ${isSubscribedRef.current}`);
         supabase.removeChannel(messagesChannelRef.current);
         messagesChannelRef.current = null;
       }
 
-      console.log(`📡 Inscrição realtime p/ sessão: ${selectedChatId}`);
+      console.log(`ðŸ“¡ InscriÃ§Ã£o realtime p/ sessÃ£o: ${selectedChatId}`);
       isSubscribedRef.current = selectedChatId;
       
       // 3. Define channel and event listeners BEFORE subscribe
@@ -318,7 +322,7 @@ export function ChatWidget() {
             filter: `session_id=eq.${selectedChatId}`
           },
           async (payload) => {
-            console.log('📩 Nova mensagem detectada via realtime:', payload.new.id);
+            console.log('ðŸ“© Nova mensagem detectada via realtime:', payload.new.id);
             const newMessage = payload.new;
             
             // Play sound and add notification if message is NOT from current user
@@ -342,7 +346,7 @@ export function ChatWidget() {
       // 4. Finally subscribe
       channel.subscribe((status: string) => {
         if (status === 'SUBSCRIBED') {
-          console.log(`✅ Conectado ao chat realtime: ${channelName}`);
+          console.log(`âœ… Conectado ao chat realtime: ${channelName}`);
         }
       });
 
@@ -351,7 +355,7 @@ export function ChatWidget() {
 
     return () => {
       if (messagesChannelRef.current && supabase) {
-        console.log(`🚫 Desconectando realtime sessão: ${isSubscribedRef.current}`);
+        console.log(`ðŸš« Desconectando realtime sessÃ£o: ${isSubscribedRef.current}`);
         supabase.removeChannel(messagesChannelRef.current);
         messagesChannelRef.current = null;
         isSubscribedRef.current = null;
@@ -514,7 +518,7 @@ export function ChatWidget() {
     const newTicket: Ticket = {
       id: crypto.randomUUID(),
       title: ticketTitle,
-      description: `HISTÓRICO DO CHAT:\n------------------\n${formattedChatLog}\n------------------\nChat Finalizado em: ${new Date().toLocaleString()}`,
+      description: `HISTÃ“RICO DO CHAT:\n------------------\n${formattedChatLog}\n------------------\nChat Finalizado em: ${new Date().toLocaleString()}`,
       status: closeTicketImmediately ? TicketStatus.CLOSED : TicketStatus.NEW,
       priority: TicketPriority.MEDIUM,
       category: 'Atendimento Chat',
@@ -727,7 +731,7 @@ export function ChatWidget() {
                                   {company && (
                                     <p className="text-[9px] text-indigo-600 font-bold uppercase tracking-widest">{company.name}</p>
                                   )}
-                                  <p className="text-[10px] text-slate-400 font-medium">{s.status === 'pending' ? '🟡 Aguardando' : '🟢 Em curso'}</p>
+                                  <p className="text-[10px] text-slate-400 font-medium">{s.status === 'pending' ? 'ðŸŸ¡ Aguardando' : 'ðŸŸ¢ Em curso'}</p>
                                 </div>
                               </div>
                             </button>
@@ -755,7 +759,7 @@ export function ChatWidget() {
                         {(() => {
                            if (isCustomer) return (
                              <span className="text-[10px] text-emerald-500 font-black uppercase tracking-tighter">
-                               Sempre disponível
+                               Sempre disponÃ­vel
                              </span>
                            );
                            
@@ -831,7 +835,7 @@ export function ChatWidget() {
                           {m.text}
                         </div>
                         <span className="text-[9px] text-slate-400 font-black uppercase mt-1.5 px-1 tracking-widest">
-                          {m.senderId === currentUser.id ? 'Você' : m.senderName} • {new Date(m.timestamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+                          {m.senderId === currentUser.id ? 'VocÃª' : m.senderName} â€¢ {new Date(m.timestamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
                         </span>
                       </div>
                     ))}
@@ -862,7 +866,7 @@ export function ChatWidget() {
                           exit={{ opacity: 0, y: 10 }}
                           className="absolute bottom-full left-6 right-6 mb-4 bg-white border border-slate-200 rounded-[2rem] shadow-2xl p-3 max-h-64 overflow-y-auto z-10"
                         >
-                          <p className="p-3 text-[10px] font-black uppercase text-slate-400 tracking-widest border-b border-slate-50 mb-2">Comandos Rápidos</p>
+                          <p className="p-3 text-[10px] font-black uppercase text-slate-400 tracking-widest border-b border-slate-50 mb-2">Comandos RÃ¡pidos</p>
                           {quickNotes.filter(n => n.shortcut.includes(message.slice(1))).map(note => (
                             <button 
                               key={note.id}
@@ -885,7 +889,7 @@ export function ChatWidget() {
                          value={message}
                          onChange={handleInputChange}
                          onKeyDown={(e) => e.key === 'Enter' && handleSendMessage()}
-                         placeholder="Resposta padrão '/' para atalhos..." 
+                         placeholder="Resposta padrÃ£o '/' para atalhos..." 
                          className="flex-1 bg-slate-50 border border-slate-200 rounded-2xl px-5 py-4 text-sm font-bold focus:ring-4 focus:ring-indigo-500/10 outline-none transition-all"
                        />
                        <button 
@@ -922,7 +926,7 @@ export function ChatWidget() {
 
                 <div className="space-y-4">
                    <div className="space-y-1.5 relative">
-                      <label className="text-[10px] font-black uppercase text-slate-400 tracking-widest ml-1">Buscar Cliente ou Funcionário</label>
+                      <label className="text-[10px] font-black uppercase text-slate-400 tracking-widest ml-1">Buscar Cliente ou FuncionÃ¡rio</label>
                       <div className="relative">
                         <Search className="absolute left-4 top-1/2 -translate-y-1/2 text-slate-400" size={16} />
                         <input 
@@ -953,7 +957,7 @@ export function ChatWidget() {
                                   <p className="text-[11px] font-black uppercase text-slate-800 leading-none mb-1 truncate">{res.name}</p>
                                   <div className="flex items-center gap-2">
                                     <p className="text-[9px] text-slate-400 font-bold uppercase whitespace-nowrap">
-                                      {res.type === 'company' ? 'Empresa' : `Funcionário • ${res.companyName || 'S/ Empresa'}`}
+                                      {res.type === 'company' ? 'Empresa' : `FuncionÃ¡rio â€¢ ${res.companyName || 'S/ Empresa'}`}
                                     </p>
                                   </div>
                                 </div>
@@ -978,7 +982,7 @@ export function ChatWidget() {
 
                    <div className="grid grid-cols-2 gap-4">
                      <div className="space-y-1.5">
-                        <label className="text-[10px] font-black uppercase text-slate-400 tracking-widest ml-1">Número</label>
+                        <label className="text-[10px] font-black uppercase text-slate-400 tracking-widest ml-1">NÃºmero</label>
                         <input 
                           type="tel" 
                           value={newChatNumber} 
@@ -993,7 +997,7 @@ export function ChatWidget() {
                           type="text" 
                           value={newChatName} 
                           onChange={e => setNewChatName(e.target.value)} 
-                          placeholder="Identificação" 
+                          placeholder="IdentificaÃ§Ã£o" 
                           className="w-full bg-slate-50 border border-slate-200 rounded-2xl px-4 py-3 text-sm font-bold focus:ring-4 focus:ring-indigo-500/10 outline-none" 
                         />
                      </div>
@@ -1018,7 +1022,7 @@ export function ChatWidget() {
              <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} onClick={() => setIsFinishModalOpen(false)} className="absolute inset-0 bg-slate-900/40 backdrop-blur-sm" />
              <motion.div initial={{ scale: 0.9, opacity: 0 }} animate={{ scale: 1, opacity: 1 }} exit={{ scale: 0.9, opacity: 0 }} className="relative bg-white w-full max-w-sm rounded-[2.5rem] shadow-2xl p-8">
                 <h3 className="text-xl font-black text-slate-800 uppercase tracking-tight mb-2">Finalizar Chat</h3>
-                <p className="text-xs text-slate-400 font-medium mb-6">Transforme esta conversa em um chamado para histórico.</p>
+                <p className="text-xs text-slate-400 font-medium mb-6">Transforme esta conversa em um chamado para histÃ³rico.</p>
                 
                 <div className="space-y-4">
                    <div className="space-y-1.5">
@@ -1027,7 +1031,7 @@ export function ChatWidget() {
                         type="text" 
                         value={ticketTitle} 
                         onChange={e => setTicketTitle(e.target.value)} 
-                        placeholder="Ex: Suporte técnico - Erro no login" 
+                        placeholder="Ex: Suporte tÃ©cnico - Erro no login" 
                         className="w-full bg-slate-50 border border-slate-200 rounded-2xl px-4 py-3 text-sm font-bold focus:ring-4 focus:ring-indigo-500/10 outline-none" 
                       />
                    </div>
@@ -1041,7 +1045,7 @@ export function ChatWidget() {
                       />
                       <div className="flex flex-col">
                          <span className="text-xs font-black uppercase text-slate-700 tracking-tight">Fechar Imediatamente</span>
-                         <span className="text-[9px] text-slate-400 font-medium">O chamado será criado com status &quot;Concluído&quot;</span>
+                         <span className="text-[9px] text-slate-400 font-medium">O chamado serÃ¡ criado com status &quot;ConcluÃ­do&quot;</span>
                       </div>
                    </label>
 

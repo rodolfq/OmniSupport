@@ -57,7 +57,11 @@ export async function fetchChatSessions(signal?: AbortSignal): Promise<ChatSessi
 }
 
 export async function pushChatMessage(sessionId: string, message: ChatMessage): Promise<void> {
-    const { error } = await supabase!
+    if (!supabase) {
+        throw new Error('Supabase not initialized');
+    }
+    
+    const { error } = await supabase
         .from('chat_messages')
         .insert({
           session_id: sessionId,

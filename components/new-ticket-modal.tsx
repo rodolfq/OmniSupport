@@ -1,4 +1,4 @@
-'use client';
+﻿'use client';
 
 import React, { useState, useRef, useEffect } from 'react';
 import { X, Send, AlertCircle, Paperclip, Image as ImageIcon, FileText, Music, Trash2 } from 'lucide-react';
@@ -45,11 +45,11 @@ export function NewTicketModal() {
 
   const fileInputRef = useRef<HTMLInputElement>(null);
 
-  const isCustomer = currentUser?.role === 'Cliente' || currentUser?.role === 'Funcionário' || currentUser?.role === UserRole.CUSTOMER;
+  const isCustomer = currentUser?.role === UserRole.EMPLOYEE;
   
   useEffect(() => {
     if (isNewTicketModalOpen && currentUser) {
-      console.log('🔍 NewTicketModal Debug:', {
+      console.log('ðŸ” NewTicketModal Debug:', {
         role: currentUser.role,
         isCustomer,
         companyId: currentUser.companyId,
@@ -63,7 +63,7 @@ export function NewTicketModal() {
       if (!isNewTicketModalOpen) return;
 
       try {
-        console.log('🔄 NewTicketModal: Buscando dados para novo chamado...');
+        console.log('ðŸ”„ NewTicketModal: Buscando dados para novo chamado...');
         // Fetch companies (always fetch all)
         const { data: loadedCompanies, error: companiesError } = await supabase.from('companies').select('id, name').order('name', { ascending: true });
         
@@ -75,7 +75,7 @@ export function NewTicketModal() {
         } else {
           // If Supabase is empty, check if we have local companies, otherwise use MockDB as source
           if (!loadedCompanies || loadedCompanies.length === 0) {
-            console.warn('⚠️ NewTicketModal: Supabase retornou 0 empresas. Usando MockDB.');
+            console.warn('âš ï¸ NewTicketModal: Supabase retornou 0 empresas. Usando MockDB.');
             setCompanies(MockDB.getCompanies());
           } else {
             setCompanies(loadedCompanies as any[]);
@@ -190,19 +190,18 @@ export function NewTicketModal() {
 
     const newTicket: Ticket = {
       id: crypto.randomUUID(),
+      ticketNumber: undefined,
       title,
       description,
       status: (availableStatuses[0]?.label || TicketStatus.NEW) as any,
       priority,
       companyId: selectedCompanyId,
       customerId: selectedCustomerId || currentUser.id,
-      employeeIds: employeeIds.length > 0 ? employeeIds : [selectedCustomerId || currentUser.id],
-      assigneeId: assigneeId || undefined,
+      category: category || 'Geral',
+      tags: [],
+      // Note: employeeIds, assigneeId, attachments not in current schema - ignored for DB
       createdAt: new Date().toISOString(),
       updatedAt: new Date().toISOString(),
-      category,
-      tags: [],
-      attachments
     };
 
     try {
@@ -211,7 +210,7 @@ export function NewTicketModal() {
       
       setSaveSuccess(true);
       triggerRefresh();
-      toast.success(`Chamado ${newTicket.id.slice(0, 8)} criado com sucesso!`);
+      toast.success(`Chamado criado com sucesso!`);
       
       setTimeout(() => {
         setSaveSuccess(false);
@@ -266,7 +265,7 @@ export function NewTicketModal() {
             <div className="bg-slate-900 px-8 py-6 text-white flex items-center justify-between">
               <div>
                 <h3 className="text-xl font-black tracking-tight m-0">Novo Chamado</h3>
-                <p className="text-[10px] text-slate-400 font-bold uppercase tracking-widest mt-1">Descreva sua solicitação com detalhes</p>
+                <p className="text-[10px] text-slate-400 font-bold uppercase tracking-widest mt-1">Descreva sua solicitaÃ§Ã£o com detalhes</p>
               </div>
               <button onClick={() => setIsNewTicketModalOpen(false)} className="p-2 hover:bg-white/10 rounded-xl transition-colors text-slate-400 hover:text-white">
                 <X size={20} />
@@ -274,7 +273,7 @@ export function NewTicketModal() {
             </div>
 
             <form onSubmit={handleSubmit} className="p-8 space-y-5 max-h-[80vh] overflow-y-auto">
-              {/* Informações Básicas */}
+              {/* InformaÃ§Ãµes BÃ¡sicas */}
               {!isCustomer && (
                 <div className="grid grid-cols-2 gap-4">
                   <div className="space-y-1">
@@ -309,10 +308,10 @@ export function NewTicketModal() {
                 </div>
               )}
 
-              {/* Funcionários com Acesso */}
+              {/* FuncionÃ¡rios com Acesso */}
               {!isCustomer && (
                 <div className="space-y-1">
-                  <label className="text-[10px] font-black uppercase tracking-widest text-slate-400 ml-1">Funcionários com Acesso (Recebem atualizações)</label>
+                  <label className="text-[10px] font-black uppercase tracking-widest text-slate-400 ml-1">FuncionÃ¡rios com Acesso (Recebem atualizaÃ§Ãµes)</label>
                   <div className="flex flex-wrap gap-2 p-3 bg-slate-50 border border-slate-200 rounded-xl min-h-[46px]">
                     {filteredUsers.length === 0 && <p className="text-xs text-slate-400 italic">Selecione uma empresa primeiro</p>}
                     {filteredUsers.map(u => (
@@ -340,7 +339,7 @@ export function NewTicketModal() {
                   type="text" 
                   value={title}
                   onChange={(e) => setTitle(e.target.value)}
-                  placeholder="Ex: Erro ao gerar relatório mensal"
+                  placeholder="Ex: Erro ao gerar relatÃ³rio mensal"
                   className="w-full bg-slate-50 border border-slate-200 rounded-xl px-4 py-2.5 text-sm font-medium focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-500 outline-none transition-all"
                   required
                 />
@@ -373,13 +372,13 @@ export function NewTicketModal() {
 
               {!isCustomer && (
                 <div className="space-y-1">
-                  <label className="text-[10px] font-black uppercase tracking-widest text-slate-400 ml-1">Analista Responsável (Opcional)</label>
+                  <label className="text-[10px] font-black uppercase tracking-widest text-slate-400 ml-1">Analista ResponsÃ¡vel (Opcional)</label>
                   <select 
                     value={assigneeId}
                     onChange={(e) => setAssigneeId(e.target.value)}
                     className="w-full bg-slate-50 border border-slate-200 rounded-xl px-4 py-2.5 text-sm font-medium focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-500 outline-none transition-all appearance-none"
                   >
-                    <option value="">Aguardando Atribuição</option>
+                    <option value="">Aguardando AtribuiÃ§Ã£o</option>
                     {analysts.map(a => <option key={a.id} value={a.id}>{a.name} ({a.role})</option>)}
                   </select>
                 </div>
@@ -390,14 +389,14 @@ export function NewTicketModal() {
                 <RichEditor 
                   content={description}
                   onChange={setDescription}
-                  placeholder="Explique o que aconteceu, passos para reproduzir, insira imagens ou vídeos..."
+                  placeholder="Explique o que aconteceu, passos para reproduzir, insira imagens ou vÃ­deos..."
                   minHeight="200px"
                 />
               </div>
 
               {/* Anexos */}
               <div className="space-y-2">
-                <label className="text-[10px] font-black uppercase tracking-widest text-slate-400 ml-1">Anexos (Imagem, Áudio, Docs)</label>
+                <label className="text-[10px] font-black uppercase tracking-widest text-slate-400 ml-1">Anexos (Imagem, Ãudio, Docs)</label>
                 <div 
                   onDragOver={(e) => { e.preventDefault(); setIsDragging(true); }}
                   onDragLeave={() => setIsDragging(false)}
@@ -410,7 +409,7 @@ export function NewTicketModal() {
                 >
                   <Paperclip className="text-slate-400" size={24} />
                   <p className="text-xs font-bold text-slate-500">Clique ou arraste arquivos aqui</p>
-                  <p className="text-[10px] text-slate-400">Suporta múltiplos arquivos e imagens do clipboard</p>
+                  <p className="text-[10px] text-slate-400">Suporta mÃºltiplos arquivos e imagens do clipboard</p>
                   <input 
                     type="file" 
                     multiple 
@@ -442,7 +441,7 @@ export function NewTicketModal() {
               <div className="bg-amber-50 border border-amber-200 p-4 rounded-2xl flex gap-3 text-amber-800">
                 <AlertCircle size={20} className="shrink-0 mt-0.5" />
                 <p className="text-xs font-medium leading-relaxed">
-                  Ao enviar, sua solicitação passará pela triagem inteligente da IA OmniSupport para direcionamento imediato ao departamento correto.
+                  Ao enviar, sua solicitaÃ§Ã£o passarÃ¡ pela triagem inteligente da IA OmniSupport para direcionamento imediato ao departamento correto.
                 </p>
               </div>
 

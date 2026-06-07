@@ -1,4 +1,4 @@
-'use client';
+﻿'use client';
 
 import React from 'react';
 import { useApp } from '@/app/app-context';
@@ -32,8 +32,8 @@ export default function ActivitiesPage() {
     <div className="max-w-4xl mx-auto space-y-8 animate-in fade-in duration-500">
       <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
         <div>
-          <h1 className="text-3xl font-black text-slate-800 uppercase tracking-tight">Atividades e Notificações</h1>
-          <p className="text-sm font-medium text-slate-500 mt-1">Histórico completo de eventos do seu portal.</p>
+          <h1 className="text-3xl font-black text-slate-800 uppercase tracking-tight">Atividades e NotificaÃ§Ãµes</h1>
+          <p className="text-sm font-medium text-slate-500 mt-1">HistÃ³rico completo de eventos do seu portal.</p>
         </div>
         <div className="flex items-center gap-3">
           <button 
@@ -46,7 +46,7 @@ export default function ActivitiesPage() {
             onClick={clearNotifications}
             className="px-4 py-2 bg-red-50 text-red-600 rounded-xl text-xs font-bold hover:bg-red-100 transition-all"
           >
-            Limpar Histórico
+            Limpar HistÃ³rico
           </button>
         </div>
       </div>
@@ -55,7 +55,7 @@ export default function ActivitiesPage() {
         <div className="p-6 border-b border-slate-100 bg-slate-50/50 flex items-center justify-between">
           <div className="flex items-center gap-6">
             <button className="text-[10px] font-black uppercase text-indigo-600 border-b-2 border-indigo-600 pb-1 tracking-widest">Todas</button>
-            <button className="text-[10px] font-black uppercase text-slate-400 hover:text-slate-600 pb-1 tracking-widest transition-all">Não lidas</button>
+            <button className="text-[10px] font-black uppercase text-slate-400 hover:text-slate-600 pb-1 tracking-widest transition-all">NÃ£o lidas</button>
             <button className="text-[10px] font-black uppercase text-slate-400 hover:text-slate-600 pb-1 tracking-widest transition-all">Tickets</button>
             <button className="text-[10px] font-black uppercase text-slate-400 hover:text-slate-600 pb-1 tracking-widest transition-all">Chats</button>
           </div>
@@ -76,7 +76,7 @@ export default function ActivitiesPage() {
                 <Bell size={32} />
               </div>
               <h3 className="text-sm font-black text-slate-800 uppercase tracking-tight">Sem atividades recentes</h3>
-              <p className="text-xs text-slate-400 font-medium mt-1">Tudo o que acontecer no portal aparecerá aqui.</p>
+              <p className="text-xs text-slate-400 font-medium mt-1">Tudo o que acontecer no portal aparecerÃ¡ aqui.</p>
             </div>
           ) : (
             notifications.map((notif) => (

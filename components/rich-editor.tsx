@@ -1,8 +1,9 @@
-'use client';
+﻿'use client';
 
 import React, { useCallback, useEffect } from 'react';
 import { useEditor, EditorContent } from '@tiptap/react';
-// @ts-expect-error - Some versions of Tiptap export menus from a subpath
+// Some versions of Tiptap export menus from a subpath
+// eslint-disable-next-line @typescript-eslint/no-unsafe-assignment
 import { BubbleMenu } from '@tiptap/react/menus';
 import StarterKit from '@tiptap/starter-kit';
 import Image from '@tiptap/extension-image';
@@ -32,7 +33,9 @@ export function RichEditor({ content, onChange, placeholder = 'Comece a digitar.
   const editor = useEditor({
     immediatelyRender: false,
     extensions: [
-      StarterKit,
+      StarterKit.configure({
+        link: false,
+      }),
       BubbleMenuExtension,
       FloatingMenuExtension,
       Image.configure({
@@ -65,13 +68,28 @@ export function RichEditor({ content, onChange, placeholder = 'Comece a digitar.
     editorProps: {
       attributes: {
         class: cn(
-          "prose prose-sm max-w-none focus:outline-none focus:ring-0 p-4 min-h-[inherit]",
+          "prose prose-sm max-w-none focus:outline-none focus:ring-0 p-4",
           "prose-headings:font-black prose-headings:tracking-tighter",
-          "prose-p:text-slate-600 prose-p:font-medium leading-relaxed"
+          "prose-p:text-slate-600 prose-p:font-medium leading-relaxed",
+          "prose-a:text-indigo-600 prose-a:underline"
         ),
       },
     },
   });
+
+  // Ensure editor is editable
+  useEffect(() => {
+    if (editor) {
+      editor.setEditable(true);
+    }
+  }, [editor]);
+
+  // Handle click to focus
+  const handleContainerClick = useCallback((e: React.MouseEvent) => {
+    if (editor && e.target === e.currentTarget) {
+      editor.chain().focus().run();
+    }
+  }, [editor]);
 
   // Sync content if it changes externally (and it's not the editor's own update)
   useEffect(() => {
@@ -127,7 +145,7 @@ export function RichEditor({ content, onChange, placeholder = 'Comece a digitar.
           type="button"
           onClick={() => editor.chain().focus().toggleItalic().run()}
           className={cn("p-1.5 rounded-lg transition-all hover:bg-white hover:shadow-sm", editor.isActive('italic') ? "bg-white shadow-sm text-indigo-600" : "text-slate-400")}
-          title="Itálico"
+          title="ItÃ¡lico"
         >
           <Italic size={16} />
         </button>
@@ -169,7 +187,7 @@ export function RichEditor({ content, onChange, placeholder = 'Comece a digitar.
           type="button"
           onClick={() => editor.chain().focus().toggleBlockquote().run()}
           className={cn("p-1.5 rounded-lg transition-all hover:bg-white hover:shadow-sm", editor.isActive('blockquote') ? "bg-white shadow-sm text-indigo-600" : "text-slate-400")}
-          title="Citação"
+          title="CitaÃ§Ã£o"
         >
           <Quote size={16} />
         </button>
@@ -194,7 +212,7 @@ export function RichEditor({ content, onChange, placeholder = 'Comece a digitar.
           type="button"
           onClick={() => openUrlModal('youtube')}
           className="p-1.5 rounded-lg transition-all hover:bg-white hover:shadow-sm text-slate-400"
-          title="Vídeo do YouTube"
+          title="VÃ­deo do YouTube"
         >
           <YoutubeIcon size={16} />
         </button>
@@ -229,7 +247,7 @@ export function RichEditor({ content, onChange, placeholder = 'Comece a digitar.
               placeholder={
                 isUrlModalOpen === 'link' ? "Digite a URL do link..." :
                 isUrlModalOpen === 'image' ? "Cole a URL da imagem..." :
-                "Cole a URL do vídeo do YouTube..."
+                "Cole a URL do vÃ­deo do YouTube..."
               }
               className="flex-1 px-3 py-1.5 text-sm border border-slate-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-500"
             />
@@ -250,13 +268,18 @@ export function RichEditor({ content, onChange, placeholder = 'Comece a digitar.
         </div>
       )}
 
-      {/* Editor Content Area */}
-      <div style={{ minHeight }} className="cursor-text bg-white">
-        <EditorContent editor={editor} />
-      </div>
+{/* Editor Content Area */}
+        <div 
+          style={{ minHeight }} 
+          className="cursor-text bg-white relative"
+          onClick={handleContainerClick}
+        >
+          <EditorContent editor={editor} className="outline-none focus:outline-none pointer-events-auto" />
+        </div>
 
       {/* Bubble Menu for quick formatting */}
       {editor && (
+        // @ts-expect-error - BubbleMenu type version mismatch
         <BubbleMenu editor={editor} tippyOptions={{ duration: 100 }} className="flex bg-slate-900 rounded-lg shadow-xl p-1 gap-1 overflow-hidden border border-slate-700">
           <button
             type="button"
@@ -282,7 +305,7 @@ export function RichEditor({ content, onChange, placeholder = 'Comece a digitar.
         </BubbleMenu>
       )}
 
-      {/* Custom Paste handling for images/mídia */}
+      {/* Custom Paste handling for images/mÃ­dia */}
       <div className="hidden">
         <input 
           type="file" 

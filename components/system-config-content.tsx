@@ -1,4 +1,4 @@
-'use client';
+﻿'use client';
 
 import React from 'react';
 import { Plus, Trash2, Star } from 'lucide-react';
@@ -36,7 +36,7 @@ export function SystemConfigContent({ categories, priorities, setCategories, set
     const hours = days * 24;
     const priority = priorities.find((p: any) => p.label === label);
 
-    console.log(`💾 Salvando SLA para ${label}: ${days} dias (${hours} horas)`);
+    console.log(`ðŸ’¾ Salvando SLA para ${label}: ${days} dias (${hours} horas)`);
 
     if (priority) {
       const { error } = await supabase.from('config_priorities').update({ sla_hours: hours }).eq('id', priority.id);
@@ -45,7 +45,7 @@ export function SystemConfigContent({ categories, priorities, setCategories, set
         console.error('Update error:', error);
       }
       else {
-        console.log(`✅ SLA de ${label} atualizado com sucesso no Supabase`);
+        console.log(`âœ… SLA de ${label} atualizado com sucesso no Supabase`);
         setPriorities(priorities.map((p: any) => p.id === priority.id ? { ...p, sla_hours: hours } : p));
         // Update MockDB cache immediately
         await MockDB.syncFromSupabase();
@@ -65,7 +65,7 @@ export function SystemConfigContent({ categories, priorities, setCategories, set
     }
   };
 
-  const priorityLabels = ['Baixa', 'Média', 'Alta', 'Urgente'];
+  const priorityLabels = ['Baixa', 'MÃ©dia', 'Alta', 'Urgente'];
 
   return (
     <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-8 border-t border-slate-200 pt-8 mt-8">
@@ -136,7 +136,7 @@ export function SystemConfigContent({ categories, priorities, setCategories, set
           })}
         </div>
         <p className="text-[10px] text-slate-400 font-medium px-2 italic">
-          * O SLA define o tempo máximo para atendimento em dias inteiros.
+          * O SLA define o tempo mÃ¡ximo para atendimento em dias inteiros.
         </p>
       </div>
     </div>

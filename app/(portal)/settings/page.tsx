@@ -1,12 +1,12 @@
-'use client';
+﻿'use client';
 
 import React, { useState, useEffect } from 'react';
 import { 
   Shield, User, Lock, Save, Plus, Key, Globe, Edit2, Bell, Database, Loader2, Clock
 } from 'lucide-react';
-import { cn, maskPhone } from '@/lib/utils';
+import { cn, maskPhone, safeJsonStringify } from '@/lib/utils';
 import { supabase } from '@/lib/supabase';
-import { MockDB, UserRole, WhatsappInstance } from '@/lib/mock-db';
+import { UserRole, type WhatsappInstance, MockDB } from '@/lib/mock-db';
 import { useApp } from '@/app/app-context';
 import { NotificationSettingsContent } from '@/components/notification-settings';
 import { SystemConfigContent } from '@/components/system-config-content';
@@ -15,6 +15,7 @@ import { TagManager } from '@/components/tag-manager';
 import { ChangePasswordModal } from '@/components/change-password-modal';
 import { fileToBase64, isValidImageUrl } from '@/lib/image-utils';
 import { toast } from 'sonner';
+import { getWhatsappInstances, saveWhatsappInstance } from '@/app/actions';
 
 type Tab = 'profile' | 'security' | 'whatsapp' | 'notifications' | 'system' | 'history';
 
@@ -32,7 +33,15 @@ export default function SettingsPage() {
   const [previewUrl, setPreviewUrl] = useState<string | null>(null);
   const [isUploading, setIsUploading] = useState(false);
   
-  const [whatsappInstances, setWhatsappInstances] = useState<WhatsappInstance[]>(MockDB.getWhatsappInstances());
+  const [whatsappInstances, setWhatsappInstances] = useState<WhatsappInstance[]>([]);
+  
+  useEffect(() => {
+    const loadInstances = async () => {
+      const instances = await getWhatsappInstances();
+      setWhatsappInstances(instances);
+    };
+    loadInstances();
+  }, []);
   const [selectedInstance, setSelectedInstance] = useState<WhatsappInstance | null>(whatsappInstances[0] || null);
   const [qrStatus, setQrStatus] = useState<'idle' | 'generating' | 'ready' | 'connected'>(
     selectedInstance?.status === 'connected' ? 'connected' : 'idle'
@@ -70,7 +79,7 @@ export default function SettingsPage() {
         
         // 3. Persist only after processing
         const updatedUser = { ...currentUser, avatarUrl: base64 };
-        MockDB.saveUser(updatedUser);
+        await supabase.from('profiles').update({ avatar_url: base64 }).eq('id', currentUser.id);
         setCurrentUser(updatedUser);
         toast.success('Avatar atualizado com sucesso!');
         
@@ -100,9 +109,10 @@ export default function SettingsPage() {
         setRealQr(null);
         if (selectedInstance.status !== 'connected') {
           const updated = { ...selectedInstance, status: 'connected' as const };
-          MockDB.saveWhatsappInstance(updated);
-          setWhatsappInstances(MockDB.getWhatsappInstances());
-          setSelectedInstance(updated);
+          await saveWhatsappInstance(selectedInstance.id, selectedInstance.name, selectedInstance.phone, 'connected');
+          const instances = await getWhatsappInstances();
+          setWhatsappInstances(instances);
+          setSelectedInstance(instances.find(i => i.id === selectedInstance.id) || updated);
           setWhatsappStatus('connected');
         }
       } else if (data.qr) {
@@ -148,20 +158,20 @@ export default function SettingsPage() {
       
       if (!res.ok) {
         const data = await res.json();
-        throw new Error(data.error || 'Erro ao iniciar conexão');
+        throw new Error(data.error || 'Erro ao iniciar conexÃ£o');
       }
 
-      toast.info(force ? 'Reiniciando conexão do zero...' : 'Iniciando pareamento... Aguarde o QR Code.');
+      toast.info(force ? 'Reiniciando conexÃ£o do zero...' : 'Iniciando pareamento... Aguarde o QR Code.');
     } catch (error: any) {
       console.error('Error starting connection:', error);
       setQrStatus('idle');
-      toast.error(error.message || 'Erro de conexão com o servidor.');
+      toast.error(error.message || 'Erro de conexÃ£o com o servidor.');
     }
   };
 
   const handleDisconnect = async () => {
     if (!selectedInstance) return;
-    const confirm = window.confirm('Deseja realmente desconectar e limpar esta sessão?');
+    const confirm = window.confirm('Deseja realmente desconectar e limpar esta sessÃ£o?');
     if (!confirm) return;
 
     try {
@@ -172,40 +182,33 @@ export default function SettingsPage() {
       });
       setQrStatus('idle');
       setRealQr(null);
-      const updated = { ...selectedInstance, status: 'disconnected' as const };
-      MockDB.saveWhatsappInstance(updated);
-      setWhatsappInstances(MockDB.getWhatsappInstances());
-      setSelectedInstance(updated);
+      await saveWhatsappInstance(selectedInstance.id, selectedInstance.name, selectedInstance.phone, 'disconnected');
+      const instances = await getWhatsappInstances();
+      setWhatsappInstances(instances);
+      setSelectedInstance(instances.find(i => i.id === selectedInstance.id) || null);
       
-      const all = MockDB.getWhatsappInstances();
-      if (!all.some(i => i.status === 'connected')) setWhatsappStatus('disconnected');
+      if (!instances.some(i => i.status === 'connected')) setWhatsappStatus('disconnected');
     } catch (error) {
       console.error('Error disconnecting:', error);
     }
   };
 
-  const handleUpdateInstanceName = () => {
+  const handleUpdateInstanceName = async () => {
     if (!selectedInstance || !editInstanceName) return;
-    const updated = { ...selectedInstance, name: editInstanceName };
-    MockDB.saveWhatsappInstance(updated);
-    setWhatsappInstances(MockDB.getWhatsappInstances());
-    setSelectedInstance(updated);
+    await saveWhatsappInstance(selectedInstance.id, editInstanceName, selectedInstance.phone, selectedInstance.status);
+    const instances = await getWhatsappInstances();
+    setWhatsappInstances(instances);
+    setSelectedInstance(instances.find(i => i.id === selectedInstance.id) || null);
     setIsEditInstanceModalOpen(false);
     toast.success('Nome do canal atualizado!');
   };
 
-  const handleCreateInstance = () => {
+  const handleCreateInstance = async () => {
     if (!newInstanceName || !newInstancePhone) return;
-    const newInst: WhatsappInstance = {
-      id: `wa-${Math.random().toString(36).substr(2, 9)}`,
-      name: newInstanceName,
-      phone: newInstancePhone,
-      status: 'disconnected'
-    };
-    MockDB.saveWhatsappInstance(newInst);
-    const updatedList = MockDB.getWhatsappInstances();
-    setWhatsappInstances(updatedList);
-    setSelectedInstance(newInst);
+    await saveWhatsappInstance(null, newInstanceName, newInstancePhone, 'disconnected');
+    const instances = await getWhatsappInstances();
+    setWhatsappInstances(instances);
+    setSelectedInstance(instances[instances.length - 1] || null);
     setIsNewInstanceModalOpen(false);
     setNewInstanceName('');
     setNewInstancePhone('');
@@ -222,16 +225,16 @@ export default function SettingsPage() {
   return (
     <div className="space-y-8 px-6 lg:px-10 max-w-[1600px] mx-auto">
       <div>
-        <h2 className="text-3xl font-black text-slate-800 tracking-tight">Configurações</h2>
-        <p className="text-slate-500 font-medium">Personalize sua experiência e gerencie parâmetros do sistema</p>
+        <h2 className="text-3xl font-black text-slate-800 tracking-tight">ConfiguraÃ§Ãµes</h2>
+        <p className="text-slate-500 font-medium">Personalize sua experiÃªncia e gerencie parÃ¢metros do sistema</p>
       </div>
 
       <div className="grid grid-cols-1 md:grid-cols-12 gap-8">
         <aside className="md:col-span-3 lg:col-span-2 space-y-1">
           <SettingsNavLink icon={<User size={18} />} label="Perfil" active={activeTab === 'profile'} onClick={() => setActiveTab('profile')} />
-          <SettingsNavLink icon={<Bell size={18} />} label="Notificações" active={activeTab === 'notifications'} onClick={() => setActiveTab('notifications')} />
-          <SettingsNavLink icon={<Shield size={18} />} label="Segurança" active={activeTab === 'security'} onClick={() => setActiveTab('security')} />
-          <SettingsNavLink icon={<Clock size={18} />} label="Ausência / Histórico" active={activeTab === 'history'} onClick={() => setActiveTab('history')} />
+          <SettingsNavLink icon={<Bell size={18} />} label="NotificaÃ§Ãµes" active={activeTab === 'notifications'} onClick={() => setActiveTab('notifications')} />
+          <SettingsNavLink icon={<Shield size={18} />} label="SeguranÃ§a" active={activeTab === 'security'} onClick={() => setActiveTab('security')} />
+          <SettingsNavLink icon={<Clock size={18} />} label="AusÃªncia / HistÃ³rico" active={activeTab === 'history'} onClick={() => setActiveTab('history')} />
           {currentUser?.role === UserRole.ADMIN && (
             <>
               <SettingsNavLink icon={<Globe size={18} />} label="WhatsApp" active={activeTab === 'whatsapp'} onClick={() => setActiveTab('whatsapp')} />
@@ -307,7 +310,7 @@ export default function SettingsPage() {
                     <div className="p-6 bg-slate-50 rounded-3xl border border-slate-100">
                       <h4 className="text-xs font-black uppercase text-slate-800 mb-4 flex items-center gap-2">
                         <Globe size={14} className="text-indigo-600" />
-                        Instruções para {selectedInstance?.name}
+                        InstruÃ§Ãµes para {selectedInstance?.name}
                       </h4>
                       <ul className="text-xs text-slate-500 space-y-3 font-medium">
                         <li className="flex gap-3">
@@ -330,9 +333,9 @@ export default function SettingsPage() {
                               <Shield size={10} />
                            </div>
                            <div className="space-y-1">
-                              <p className="text-[10px] font-black text-indigo-800 uppercase tracking-tight">Conexão Segura</p>
+                              <p className="text-[10px] font-black text-indigo-800 uppercase tracking-tight">ConexÃ£o Segura</p>
                               <p className="text-[10px] text-indigo-700 font-medium leading-relaxed">
-                                Use o WhatsApp oficial no seu celular para escanear o código. A conexão é criptografada de ponta a ponta.
+                                Use o WhatsApp oficial no seu celular para escanear o cÃ³digo. A conexÃ£o Ã© criptografada de ponta a ponta.
                               </p>
                            </div>
                         </div>
@@ -345,7 +348,7 @@ export default function SettingsPage() {
                           onClick={() => startLinking()}
                           className="w-full py-4 bg-emerald-600 text-white rounded-2xl text-xs font-black uppercase tracking-widest shadow-xl shadow-emerald-100 hover:bg-emerald-700 transition-all flex items-center justify-center gap-2"
                         >
-                          Gerar Autenticação
+                          Gerar AutenticaÃ§Ã£o
                         </button>
                         <button 
                           onClick={() => startLinking(true)}
@@ -366,7 +369,7 @@ export default function SettingsPage() {
                             onClick={() => startLinking(true)}
                             className="flex-1 py-2 bg-slate-100 hover:bg-slate-200 text-slate-600 rounded-xl text-[10px] font-black uppercase tracking-widest transition-all"
                           >
-                            Forçar Novo QR
+                            ForÃ§ar Novo QR
                           </button>
                           <button 
                             onClick={handleDisconnect}
@@ -455,15 +458,15 @@ export default function SettingsPage() {
             <div className="bg-white border border-slate-200 rounded-[2rem] p-10 shadow-sm space-y-8 animate-in fade-in slide-in-from-bottom-4 duration-300">
                <div>
                   <h3 className="text-xl font-black text-slate-800 uppercase tracking-tight flex items-center gap-2">
-                    <Bell className="text-indigo-600" size={24} /> Configurações de Alerta
+                    <Bell className="text-indigo-600" size={24} /> ConfiguraÃ§Ãµes de Alerta
                   </h3>
-                  <p className="text-xs text-slate-400 font-bold uppercase tracking-widest mt-1">Gerencie como você recebe as notificações</p>
+                  <p className="text-xs text-slate-400 font-bold uppercase tracking-widest mt-1">Gerencie como vocÃª recebe as notificaÃ§Ãµes</p>
                </div>
 
                <div className="flex gap-4 p-6 bg-slate-50 rounded-3xl border border-slate-100">
                   <div className="flex-1">
                     <p className="text-sm font-black text-slate-800 uppercase tracking-tight">Teste de Som</p>
-                    <p className="text-xs text-slate-500 font-medium leading-relaxed">Clique para testar os sons e desbloquear o áudio no seu navegador.</p>
+                    <p className="text-xs text-slate-500 font-medium leading-relaxed">Clique para testar os sons e desbloquear o Ã¡udio no seu navegador.</p>
                   </div>
                   <div className="flex gap-2">
                     <button 
@@ -486,7 +489,7 @@ export default function SettingsPage() {
           )}
           {activeTab === 'profile' && currentUser && (
             <div className="bg-white border border-slate-200 rounded-2xl p-8 shadow-sm">
-              <h3 className="font-bold text-slate-800 mb-6 flex items-center gap-2"><User size={20} className="text-indigo-600" /> Informações do Perfil</h3>
+              <h3 className="font-bold text-slate-800 mb-6 flex items-center gap-2"><User size={20} className="text-indigo-600" /> InformaÃ§Ãµes do Perfil</h3>
               
               <div className="flex flex-col md:flex-row gap-8 mb-8 items-start">
                 <div className="relative group">
@@ -571,7 +574,7 @@ export default function SettingsPage() {
                     <label className="text-[10px] font-black uppercase text-slate-400 tracking-widest">Bio</label>
                     <textarea 
                       className="w-full bg-slate-50 border border-slate-200 rounded-xl px-4 py-2.5 text-sm min-h-[100px]" 
-                      defaultValue={currentUser.role === 'Administrador' ? "Lead Product Designer focado em experiências escaláveis." : "Colaborador da equipe OmniSupport."} 
+                      defaultValue={currentUser.role === 'Administrador' ? "Lead Product Designer focado em experiÃªncias escalÃ¡veis." : "Colaborador da equipe OmniSupport."} 
                     />
                   </div>
                 </div>
@@ -595,12 +598,12 @@ export default function SettingsPage() {
             <div className="space-y-6">
               <div className="bg-white border border-slate-200 rounded-2xl p-8 shadow-sm">
                 <h3 className="font-bold text-slate-800 mb-6 flex items-center gap-2"><Lock size={20} className="text-indigo-600" /> Alterar Senha</h3>
-                <p className="text-sm text-slate-500 mb-6">Para sua segurança, recomendamos alterar sua senha periodicamente.</p>
+                <p className="text-sm text-slate-500 mb-6">Para sua seguranÃ§a, recomendamos alterar sua senha periodicamente.</p>
                 <button 
                   onClick={() => setIsPasswordModalOpen(true)}
                   className="bg-slate-900 text-white px-6 py-2.5 rounded-xl text-sm font-bold shadow-md hover:bg-slate-800 transition-all flex items-center gap-2"
                 >
-                  <Key size={16} /> Abrir Alteração de Senha
+                  <Key size={16} /> Abrir AlteraÃ§Ã£o de Senha
                 </button>
               </div>
             </div>
@@ -619,13 +622,13 @@ export default function SettingsPage() {
                </div>
                <div>
                   <h3 className="text-xl font-black text-slate-800 tracking-tight uppercase leading-none mb-1">Editar Canal</h3>
-                  <p className="text-[10px] text-slate-400 font-bold uppercase tracking-widest leading-none">Alterar Nome da Conexão</p>
+                  <p className="text-[10px] text-slate-400 font-bold uppercase tracking-widest leading-none">Alterar Nome da ConexÃ£o</p>
                </div>
             </div>
 
             <div className="space-y-4">
                <div className="space-y-1">
-                  <label className="text-[10px] font-black uppercase text-slate-400 tracking-widest ml-1">Nome da Conexão</label>
+                  <label className="text-[10px] font-black uppercase text-slate-400 tracking-widest ml-1">Nome da ConexÃ£o</label>
                   <input 
                     type="text" 
                     value={editInstanceName}
@@ -646,7 +649,7 @@ export default function SettingsPage() {
                  onClick={handleUpdateInstanceName}
                  className="flex-1 py-4 bg-indigo-600 text-white rounded-2xl text-[10px] font-black uppercase tracking-widest hover:bg-indigo-700 transition-all shadow-xl shadow-indigo-100"
                >
-                 Salvar Alterações
+                 Salvar AlteraÃ§Ãµes
                </button>
             </div>
           </div>
@@ -663,13 +666,13 @@ export default function SettingsPage() {
                </div>
                <div>
                   <h3 className="text-xl font-black text-slate-800 tracking-tight uppercase leading-none mb-1">Novo Canal</h3>
-                  <p className="text-[10px] text-slate-400 font-bold uppercase tracking-widest leading-none">Criar Instância WhatsApp</p>
+                  <p className="text-[10px] text-slate-400 font-bold uppercase tracking-widest leading-none">Criar InstÃ¢ncia WhatsApp</p>
                </div>
             </div>
 
             <div className="space-y-4">
                <div className="space-y-1">
-                  <label className="text-[10px] font-black uppercase text-slate-400 tracking-widest ml-1">Nome da Conexão</label>
+                  <label className="text-[10px] font-black uppercase text-slate-400 tracking-widest ml-1">Nome da ConexÃ£o</label>
                   <input 
                     type="text" 
                     value={newInstanceName}
@@ -679,7 +682,7 @@ export default function SettingsPage() {
                   />
                </div>
                <div className="space-y-1">
-                  <label className="text-[10px] font-black uppercase text-slate-400 tracking-widest ml-1">Número (com DDD)</label>
+                  <label className="text-[10px] font-black uppercase text-slate-400 tracking-widest ml-1">NÃºmero (com DDD)</label>
                   <input 
                     type="text" 
                     value={newInstancePhone}

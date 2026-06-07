@@ -1,4 +1,4 @@
-import React, { Suspense } from "react";
+﻿import React, { Suspense } from "react";
 import type { Metadata } from "next";
 import { Inter } from "next/font/google";
 import "./globals.css";
@@ -9,7 +9,7 @@ const inter = Inter({ subsets: ["latin"] });
 
 export const metadata: Metadata = {
   title: "OmniSupport - Redefinindo o Atendimento",
-  description: "Plataforma avançada de suporte ao cliente com IA",
+  description: "Plataforma avanÃ§ada de suporte ao cliente com IA",
   icons: {
     icon: "/favicon.svg",
   }

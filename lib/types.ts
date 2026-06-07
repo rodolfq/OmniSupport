@@ -8,10 +8,10 @@ export enum TicketStatus {
 
 /* eslint-disable @typescript-eslint/no-duplicate-enum-values */
 export enum UserRole {
-  ADMIN = 'Equipe',
-  SUPPORT = 'Equipe',
-  CUSTOMER = 'Funcionário',
-  INTERNAL = 'Equipe'
+  ADMIN = 'Administrador',
+  SUPPORT = 'Equipe', 
+  CUSTOMER = 'Cliente',
+  EMPLOYEE = 'Funcionário'
 }
 
 export enum Permission {
@@ -78,6 +78,7 @@ export interface PriorityConfig {
   id: string;
   label: string;
   slaHours: number;
+  slaDays?: number;
   color: string;
 }
 

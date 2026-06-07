@@ -1,4 +1,4 @@
-'use client';
+﻿'use client';
 
 import React, { useState } from 'react';
 import { Plus, Trash2, Tag, Hash } from 'lucide-react';
@@ -10,9 +10,9 @@ import { toast } from 'sonner';
 
 const TAG_COLORS = [
   { bg: 'bg-slate-100', text: 'text-slate-700', label: 'Cinza' },
-  { bg: 'bg-indigo-100', text: 'text-indigo-700', label: 'Índigo' },
+  { bg: 'bg-indigo-100', text: 'text-indigo-700', label: 'Ãndigo' },
   { bg: 'bg-emerald-100', text: 'text-emerald-700', label: 'Esmeralda' },
-  { bg: 'bg-amber-100', text: 'text-amber-700', label: 'Âmbar' },
+  { bg: 'bg-amber-100', text: 'text-amber-700', label: 'Ã‚mbar' },
   { bg: 'bg-rose-100', text: 'text-rose-700', label: 'Rosa' },
   { bg: 'bg-cyan-100', text: 'text-cyan-700', label: 'Ciano' },
   { bg: 'bg-violet-100', text: 'text-violet-700', label: 'Violeta' },
@@ -145,7 +145,7 @@ export function TagManager() {
         <div className="grid grid-cols-2 md:grid-cols-4 lg:grid-cols-5 gap-3">
           {filteredTags.length === 0 ? (
             <div className="col-span-full py-12 text-center">
-              <p className="text-slate-400 text-xs font-bold uppercase tracking-widest italic">Nenhuma tag cadastrada para este domínio.</p>
+              <p className="text-slate-400 text-xs font-bold uppercase tracking-widest italic">Nenhuma tag cadastrada para este domÃ­nio.</p>
             </div>
           ) : (
             filteredTags.map((tag) => (
@@ -190,7 +190,7 @@ export function TagManager() {
         <div className="space-y-1">
            <h4 className="text-sm font-black text-indigo-900 uppercase tracking-tight">Para que servem as tags?</h4>
            <p className="text-[10px] text-indigo-700 font-medium leading-relaxed uppercase tracking-widest">
-             Tags ajudam na categorização rápida, filtragem em relatórios e identificação visual instantânea do tipo de atendimento que está sendo realizado.
+             Tags ajudam na categorizaÃ§Ã£o rÃ¡pida, filtragem em relatÃ³rios e identificaÃ§Ã£o visual instantÃ¢nea do tipo de atendimento que estÃ¡ sendo realizado.
            </p>
         </div>
       </div>

@@ -1,16 +1,17 @@
-'use client';
+﻿'use client';
 
 import React, { useState, useEffect } from 'react';
 import { X, Save, Mail, Phone, Shield, Lock, Eye, EyeOff, Plus, Trash2, AlertTriangle } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
-import { MockDB, UserRole, User, Company } from '@/lib/mock-db';
+import { MockDB, UserRole, type User, type Company } from '@/lib/mock-db';
 import { maskPhone } from '@/lib/utils';
 import { Globe } from 'lucide-react';
+import { supabase } from '@/lib/supabase';
 
 export function EditEmployeeModal({ isOpen, onClose, user, onSuccess }: { isOpen: boolean, onClose: () => void, user: User | null, onSuccess?: () => void }) {
   const [name, setName] = useState('');
   const [email, setEmail] = useState('');
-  const [role, setRole] = useState(UserRole.CUSTOMER);
+  const [role, setRole] = useState(UserRole.EMPLOYEE);
   const [phones, setPhones] = useState<string[]>([]);
   const [companyId, setCompanyId] = useState('');
   const [companies, setCompanies] = useState<Company[]>([]);
@@ -23,14 +24,16 @@ export function EditEmployeeModal({ isOpen, onClose, user, onSuccess }: { isOpen
   const [deleteLoading, setDeleteLoading] = useState(false);
 
   useEffect(() => {
-    setCompanies(MockDB.getCompanies());
+    supabase.from('companies').select('id, name').then(({ data }) => {
+      if (data) setCompanies(data as Company[]);
+    });
   }, []);
 
   useEffect(() => {
     if (user) {
       setName(user.name || '');
       setEmail(user.email || '');
-      setRole(user.role as any || UserRole.CUSTOMER);
+      setRole(user.role as any || UserRole.EMPLOYEE);
       setCompanyId(user.companyId || '');
       
       const userPhones = user.phones || (user.phone ? [user.phone] : []);
@@ -55,7 +58,7 @@ export function EditEmployeeModal({ isOpen, onClose, user, onSuccess }: { isOpen
         companyId,
         viewAllCompanyTickets
       };
-      MockDB.saveUser(updatedUser);
+      await MockDB.saveUser(updatedUser);
       setSaveSuccess(true);
       if (onSuccess) onSuccess();
       
@@ -65,7 +68,7 @@ export function EditEmployeeModal({ isOpen, onClose, user, onSuccess }: { isOpen
       }, 1500);
     } catch (error) {
       console.error(error);
-      alert('Erro ao atualizar usuário.');
+      alert('Erro ao atualizar usuÃ¡rio.');
     } finally {
       setLoading(false);
     }
@@ -77,13 +80,24 @@ export function EditEmployeeModal({ isOpen, onClose, user, onSuccess }: { isOpen
       setLoading(true);
       const newPassword = Math.random().toString(36).slice(-8); // Generate 8 char password
       console.log('Resetting password for:', user.email, 'New:', newPassword);
+      
+      // Update password in auth.users via RPC
+      const { data, error: rpcError } = await supabase.rpc('admin_update_user_password', {
+        p_email: user.email,
+        p_password: newPassword
+      });
+      
+      if (rpcError) {
+        throw rpcError;
+      }
+      
+      // Update profile with mustChangePassword flag
       const updatedUser = {
         ...user,
-        password: newPassword,
         mustChangePassword: true
       };
       await MockDB.saveUser(updatedUser);
-      await MockDB.resetPassword(user.email, newPassword);
+      
       console.log('Password reset successful. Generated:', newPassword);
       setGeneratedPassword(newPassword);
     } catch (e: any) {
@@ -103,7 +117,7 @@ export function EditEmployeeModal({ isOpen, onClose, user, onSuccess }: { isOpen
       onClose();
     } catch (error: any) {
       console.error(error);
-      alert(error.message || 'Erro ao excluir usuário.');
+      alert(error.message || 'Erro ao excluir usuÃ¡rio.');
     } finally {
       setDeleteLoading(false);
       setShowDeleteConfirm(false);
@@ -130,7 +144,7 @@ export function EditEmployeeModal({ isOpen, onClose, user, onSuccess }: { isOpen
             <div className="bg-slate-900 px-8 py-6 text-white flex items-center justify-between">
               <div>
                 <h3 className="text-xl font-black tracking-tight text-white m-0">Editar Colaborador</h3>
-                <p className="text-[10px] text-slate-400 font-bold uppercase tracking-widest mt-1">Configure as permissões de {user.name}</p>
+                <p className="text-[10px] text-slate-400 font-bold uppercase tracking-widest mt-1">Configure as permissÃµes de {user.name}</p>
               </div>
               <button onClick={onClose} className="p-2 hover:bg-white/10 rounded-xl transition-colors text-slate-400 hover:text-white">
                 <X size={20} />
@@ -228,7 +242,7 @@ export function EditEmployeeModal({ isOpen, onClose, user, onSuccess }: { isOpen
                   onClick={() => setPhones([...phones, ''])}
                   className="w-full py-2.5 border-2 border-dashed border-slate-200 rounded-xl text-[10px] font-black uppercase tracking-widest text-slate-400 hover:border-indigo-300 hover:text-indigo-600 transition-all flex items-center justify-center gap-2"
                 >
-                  <Plus size={14} /> Adicionar outro número
+                  <Plus size={14} /> Adicionar outro nÃºmero
                 </button>
               </div>
 
@@ -241,7 +255,7 @@ export function EditEmployeeModal({ isOpen, onClose, user, onSuccess }: { isOpen
                       </div>
                       <div>
                         <p className="text-[11px] font-black text-slate-800 uppercase tracking-wider">Acesso ao Login</p>
-                        <p className="text-[10px] text-slate-400 font-bold uppercase tracking-widest">Segurança da conta</p>
+                        <p className="text-[10px] text-slate-400 font-bold uppercase tracking-widest">SeguranÃ§a da conta</p>
                       </div>
                     </div>
                     <button 
@@ -281,7 +295,7 @@ export function EditEmployeeModal({ isOpen, onClose, user, onSuccess }: { isOpen
                 <p className="text-[9px] text-slate-400 font-bold uppercase leading-relaxed">
                   {viewAllCompanyTickets 
                     ? "Visualizar todos os chamados da empresa." 
-                    : "Apenas visualizar os próprios chamados."}
+                    : "Apenas visualizar os prÃ³prios chamados."}
                 </p>
               </div>
 
@@ -345,9 +359,9 @@ export function EditEmployeeModal({ isOpen, onClose, user, onSuccess }: { isOpen
                   <div className="w-16 h-16 bg-rose-100 rounded-2xl flex items-center justify-center text-rose-500 mx-auto mb-6">
                     <AlertTriangle size={32} />
                   </div>
-                  <h4 className="text-xl font-black text-slate-900 text-center mb-2">Excluir Funcionário?</h4>
+                  <h4 className="text-xl font-black text-slate-900 text-center mb-2">Excluir FuncionÃ¡rio?</h4>
                   <p className="text-sm text-slate-500 text-center mb-8 font-medium">
-                    Esta ação não pode ser desfeita. O colaborador <span className="font-bold text-slate-900">{user.name}</span> perderá acesso imediato ao sistema.
+                    Esta aÃ§Ã£o nÃ£o pode ser desfeita. O colaborador <span className="font-bold text-slate-900">{user.name}</span> perderÃ¡ acesso imediato ao sistema.
                   </p>
                   
                   <div className="space-y-3">

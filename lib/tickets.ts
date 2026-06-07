@@ -109,22 +109,27 @@ export async function fetchAllTickets(signal?: AbortSignal): Promise<Ticket[]> {
         try {
             const { data, error } = await supabase
                 .from('tickets')
-                .select(`
-                    *,
-                    customer:profiles!tickets_customer_id_fkey(name),
-                    assignee:profiles!tickets_assignee_id_fkey(name)
-                `)
+                .select('*')
                 .abortSignal(signal as any);
                 
             if (!error && data) {
+                // Carrega nomes de clientes separadamente
+                const customerIds = [...new Set(data.map((t: any) => t.customer_id).filter(Boolean))];
+                
+                const { data: customers } = await supabase
+                    .from('profiles')
+                    .select('id, name')
+                    .in('id', customerIds);
+                
+                const customerMap = new Map(customers?.map((c: any) => [c.id, c.name]) || []);
+                
                 remoteTickets = data.map((t: any) => ({
                     ...t,
-                    ticketNumber: t.public_ticket_number,
+                    ticketId: t.number, // Map 'number' to ticketId for compatibility
                     companyId: t.company_id,
                     customerId: t.customer_id,
-                    customerName: t.customer?.name,
-                    assigneeId: t.assignee_id,
-                    assigneeName: t.assignee?.name,
+                    customerName: customerMap.get(t.customer_id),
+                    // Note: assignee_id and category don't exist in current schema
                     createdAt: t.created_at,
                     updatedAt: t.updated_at
                 })) as Ticket[];
@@ -149,11 +154,7 @@ export async function getTicketById(id: string, signal?: AbortSignal): Promise<T
     if (!supabase) return null;
     const { data, error } = await supabase
         .from('tickets')
-        .select(`
-            *,
-            customer:profiles!tickets_customer_id_fkey(name),
-            assignee:profiles!tickets_assignee_id_fkey(name)
-        `)
+        .select('*')
         .eq('id', id)
         .abortSignal(signal as any)
         .single();
@@ -168,12 +169,9 @@ export async function getTicketById(id: string, signal?: AbortSignal): Promise<T
     
     return {
         ...data,
-        ticketNumber: data.public_ticket_number,
+        ticketNumber: data.number,
         companyId: data.company_id,
         customerId: data.customer_id,
-        customerName: data.customer?.name,
-        assigneeId: data.assignee_id,
-        assigneeName: data.assignee?.name,
         createdAt: data.created_at,
         updatedAt: data.updated_at
     } as Ticket;
@@ -181,6 +179,7 @@ export async function getTicketById(id: string, signal?: AbortSignal): Promise<T
 
 export async function createTicket(ticket: Ticket): Promise<void> {
     console.log("🎟️ createTicket: Iniciando criação...");
+    console.log("🎟️ Supabase client check:", { supabaseExists: !!supabase, supabaseUrl: process.env.NEXT_PUBLIC_SUPABASE_URL?.substring(0, 30) + '...' });
     
     if (!supabase) {
         throw new Error("Supabase client não inicializado.");
@@ -203,50 +202,96 @@ export async function createTicket(ticket: Ticket): Promise<void> {
       throw new Error("Sessão expirada. Por favor, faça login novamente.");
     }
 
+    // Validate UUID format
+    const uuidRegex = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+    const validatedCompanyId = ticket.companyId && uuidRegex.test(ticket.companyId) ? ticket.companyId : null;
+    const validatedCustomerId = uuidRegex.test(userId) ? userId : null;
+    
+    console.log("🎟️ createTicket: Validação UUIDs:", { 
+        originalUserId: userId, 
+        validatedCustomerId,
+        originalCompanyId: ticket.companyId,
+        validatedCompanyId 
+    });
+
+    if (!validatedCustomerId) {
+        throw new Error("ID do usuário inválido. Por favor, faça login novamente.");
+    }
+
+    // Ensure profile exists for this user (auto-create fallback)
+    const { data: existingProfile } = await supabase
+        .from('profiles')
+        .select('id')
+        .eq('id', validatedCustomerId)
+        .maybeSingle();
+    
+    if (!existingProfile) {
+        console.log("🎟️ createTicket: Profile não existe, criando...");
+        await supabase.from('profiles').insert({
+            id: validatedCustomerId,
+            email: authUser?.email || 'auto-created@ticket.com',
+            name: authUser?.user_metadata?.name || authUser?.email?.split('@')[0] || 'Usuário Auto-criado',
+            role: 'Cliente',
+            company_id: validatedCompanyId || '11111111-1111-4111-8111-111111111111'
+        });
+    }
+
     const payload = {
         title: ticket.title,
         description: ticket.description,
         status: ticket.status || 'Novo',
         priority: ticket.priority || 'Baixa',
         category: ticket.category || 'Geral',
-        customer_id: userId,
-        assignee_id: ticket.assigneeId || null,
-        company_id: (ticket.companyId && ticket.companyId !== '') ? ticket.companyId : null,
+        company_id: validatedCompanyId,
+        customer_id: validatedCustomerId,
     };
 
-    console.log("📤 createTicket - Payload Simplificado:", payload);
+console.log("📤 createTicket - Payload Simplificado:", payload);
 
-    const { data, error } = await supabase
-        .from('tickets')
-        .insert(payload)
-        .select()
-        .single();
-        
-    if (error) {
-        console.error("🚫 ERRO SUPABASE TICKETS:", {
-            code: error.code,
-            message: error.message,
-            details: error.details,
-            hint: error.hint
-        });
-        throw error;
-    }
+    try {
+        const { data, error } = await supabase
+            .from('tickets')
+            .insert(payload)
+            .select();
     
-    console.log("✅ Ticket criado com sucesso!", data);
+        if (error) {
+            console.error("🚫 ERRO SUPABASE TICKETS:", {
+                code: error.code || 'no-code',
+                message: error.message || 'Sem mensagem de erro',
+                details: error.details || 'Sem detalhes',
+                hint: error.hint || 'Sem dica',
+                fullError: error
+            });
+            throw error;
+        }
+        
+        console.log("✅ Ticket criado com sucesso!", data);
+    } catch (err: any) {
+        console.error("🚫 EXCEÇÃO AO CRIAR TICKET:", {
+            name: err?.name,
+            message: err?.message,
+            stack: err?.stack,
+            error: err
+        });
+        throw err;
+    }
 }
 
 export async function updateTicket(ticket: Partial<Ticket> & { id: string }): Promise<void> {
-    const { error } = await supabase!
+    if (!supabase) {
+        throw new Error('Supabase not initialized');
+    }
+    
+    const { error } = await supabase
         .from('tickets')
         .update({
           title: ticket.title,
           description: ticket.description,
           status: ticket.status,
           priority: ticket.priority,
-          category: ticket.category,
           company_id: ticket.companyId,
           customer_id: ticket.customerId,
-          assignee_id: ticket.assigneeId,
+          // Note: assignee_id and category don't exist in current schema
           updated_at: new Date().toISOString()
         })
         .eq('id', ticket.id);
@@ -261,7 +306,9 @@ export async function fetchMessages(ticketId: string, signal?: AbortSignal): Pro
     if (ticketId === 'ex-ticket-payment-error') {
         return MOCK_EXAMPLE_MESSAGES;
     }
-    const { data, error } = await supabase!
+    if (!supabase) return [];
+    
+    const { data, error } = await supabase
         .from('ticket_messages')
         .select('*')
         .eq('ticket_id', ticketId)
@@ -286,7 +333,11 @@ export async function fetchMessages(ticketId: string, signal?: AbortSignal): Pro
 }
 
 export async function createMessage(message: Message): Promise<void> {
-    const { error } = await supabase!
+    if (!supabase) {
+        throw new Error('Supabase not initialized');
+    }
+    
+    const { error } = await supabase
         .from('ticket_messages')
         .insert({
           ticket_id: message.ticketId,

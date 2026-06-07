@@ -1,4 +1,4 @@
-'use client';
+﻿'use client';
 
 import React, { useState, useEffect } from 'react';
 import { 
@@ -9,7 +9,7 @@ import { motion, AnimatePresence } from 'motion/react';
 import { useApp } from '@/app/app-context';
 import { NotificationSettingsContent } from '@/components/notification-settings';
 import { getUsers, createUser, updateUser, deleteUser, getCompanies } from '@/app/actions';
-import { User, MockDB, UserRole } from '@/lib/mock-db';
+import { UserRole, type User } from '@/lib/types';
 
 export default function TeamManagementPage() {
   const [analysts, setAnalysts] = useState<any[]>([]);
@@ -21,7 +21,7 @@ export default function TeamManagementPage() {
   // Form state
   const [name, setName] = useState('');
   const [email, setEmail] = useState('');
-  const [role, setRole] = useState<string>('Funcionário');
+  const [role, setRole] = useState<string>('FuncionÃ¡rio');
   const [companyId, setCompanyId] = useState<string | undefined>();
   const [viewAllCompanyTickets, setViewAllCompanyTickets] = useState(false);
   const [password, setPassword] = useState('');
@@ -40,7 +40,7 @@ export default function TeamManagementPage() {
       setAnalysts(users || []);
       setCompanies(companiesList || []);
     } catch (e) {
-      console.error("Erro ao buscar usuários/empresas:", e);
+      console.error("Erro ao buscar usuÃ¡rios/empresas:", e);
     }
   };
 
@@ -49,8 +49,8 @@ export default function TeamManagementPage() {
   }, []);
 
   const filteredAnalysts = analysts.filter(a => 
-    // Filter logic: Internal team are those who are NOT 'Funcionário'
-    (a.role !== 'Funcionário') &&
+    // Filter logic: Internal team are those who are NOT 'FuncionÃ¡rio'
+    (a.role !== 'FuncionÃ¡rio') &&
     (a.name.toLowerCase().includes(search.toLowerCase()) || 
     a.email.toLowerCase().includes(search.toLowerCase()))
   );
@@ -96,7 +96,7 @@ export default function TeamManagementPage() {
 
     const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
     if (!emailRegex.test(email.trim())) {
-      alert('Por favor, insira um e-mail válido.');
+      alert('Por favor, insira um e-mail vÃ¡lido.');
       return;
     }
 
@@ -105,30 +105,30 @@ export default function TeamManagementPage() {
       let result;
       if (selectedUser) {
         // Edit mode
-        console.log('Modo edição para:', selectedUser.id);
+        console.log('Modo ediÃ§Ã£o para:', selectedUser.id);
         result = await updateUser(selectedUser.id, name.trim(), email.trim(), role, companyId || null, viewAllCompanyTickets);
         
         if (result && result.error) {
           console.error('Erro retornado de updateUser:', result.error);
-          alert('Erro ao atualizar usuário: ' + result.error);
+          alert('Erro ao atualizar usuÃ¡rio: ' + result.error);
           setIsSaving(false);
           return;
         }
         
-        alert('Usuário atualizado com sucesso!');
+        alert('UsuÃ¡rio atualizado com sucesso!');
       } else {
         // Create mode
-        console.log('Modo criação para:', email);
+        console.log('Modo criaÃ§Ã£o para:', email);
         result = await createUser(email.trim(), name.trim(), role, companyId || null, [], viewAllCompanyTickets);
         
         if (result && result.error) {
           console.error('Erro retornado de createUser:', result.error);
-          alert('Erro ao criar usuário: ' + result.error);
+          alert('Erro ao criar usuÃ¡rio: ' + result.error);
           setIsSaving(false);
           return;
         }
         
-        alert('Usuário criado com sucesso!');
+        alert('UsuÃ¡rio criado com sucesso!');
       }
 
       // Refresh list immediately
@@ -137,8 +137,8 @@ export default function TeamManagementPage() {
       setIsModalOpen(false);
       resetForm();
     } catch (error) {
-      console.error('Erro crítico ao salvar usuário:', error);
-      alert('Erro inesperado ao salvar usuário. Verifique sua conexão e tente novamente.');
+      console.error('Erro crÃ­tico ao salvar usuÃ¡rio:', error);
+      alert('Erro inesperado ao salvar usuÃ¡rio. Verifique sua conexÃ£o e tente novamente.');
     } finally {
       setIsSaving(false);
     }
@@ -158,10 +158,9 @@ export default function TeamManagementPage() {
   const handlePasswordChange = () => {
     if (!password || !selectedUser) return;
     
-    const updated: User = { ...selectedUser, password, mustChangePassword: true };
-    MockDB.saveUser(updated);
-    
-    alert(`Senha alterada com sucesso para ${selectedUser.name}. O usuário precisará alterá-la no próximo login.`);
+    // TODO: Implementar reset de senha via RPC admin_update_user_password
+    // Por enquanto, apenas desabilitar a mudanÃ§a de senha
+    alert(`Funcionalidade de alteraÃ§Ã£o de senha em desenvolvimento.`);
     setIsChangingPassword(false);
     setPassword('');
   };
@@ -175,8 +174,8 @@ export default function TeamManagementPage() {
         await fetchUsers();
         setIsModalOpen(false);
       } catch (error) {
-        console.error('Erro ao excluir usuário:', error);
-        alert('Não foi possível excluir o usuário. Verifique suas permissões no sistema.');
+        console.error('Erro ao excluir usuÃ¡rio:', error);
+        alert('NÃ£o foi possÃ­vel excluir o usuÃ¡rio. Verifique suas permissÃµes no sistema.');
       }
     }
   };
@@ -186,10 +185,10 @@ export default function TeamManagementPage() {
       <div className="flex flex-col md:flex-row md:items-end justify-between gap-4">
         <div>
           <h2 className="text-3xl font-black text-slate-800 tracking-tight">
-            Gestão da Equipe
+            GestÃ£o da Equipe
           </h2>
           <p className="text-slate-500 font-medium">
-            Configure analistas, permissões e acessos do time interno
+            Configure analistas, permissÃµes e acessos do time interno
           </p>
         </div>
         <div className="flex items-center gap-3">
@@ -198,7 +197,7 @@ export default function TeamManagementPage() {
             className="hidden md:flex items-center gap-2 px-6 py-3 bg-white border border-slate-200 text-slate-600 rounded-2xl text-sm font-black uppercase tracking-widest hover:bg-slate-50 transition-all shadow-sm"
           >
             <Bell size={18} />
-            Minhas Notificações
+            Minhas NotificaÃ§Ãµes
           </button>
           <button 
             onClick={() => handleOpenModal()}
@@ -232,9 +231,9 @@ export default function TeamManagementPage() {
                 <th className="px-8 py-5 text-[10px] font-black uppercase text-slate-400 tracking-widest">
                   Equipe / Analista
                 </th>
-                <th className="px-8 py-5 text-[10px] font-black uppercase text-slate-400 tracking-widest">Cargo/Nível</th>
+                <th className="px-8 py-5 text-[10px] font-black uppercase text-slate-400 tracking-widest">Cargo/NÃ­vel</th>
                 <th className="px-8 py-5 text-[10px] font-black uppercase text-slate-400 tracking-widest">Status</th>
-                <th className="px-8 py-5 text-[10px] font-black uppercase text-slate-400 tracking-widest text-right">Ações</th>
+                <th className="px-8 py-5 text-[10px] font-black uppercase text-slate-400 tracking-widest text-right">AÃ§Ãµes</th>
               </tr>
             </thead>
             <tbody className="divide-y divide-slate-50">
@@ -342,7 +341,7 @@ export default function TeamManagementPage() {
                     value={name || ''}
                     onChange={(e) => setName(e.target.value)}
                     className="w-full bg-slate-50 border border-slate-200 rounded-2xl px-4 py-3 text-sm font-bold focus:ring-4 focus:ring-indigo-500/10 outline-none transition-all"
-                    placeholder="Ex: João da Silva"
+                    placeholder="Ex: JoÃ£o da Silva"
                   />
                 </div>
 
@@ -375,7 +374,7 @@ export default function TeamManagementPage() {
 
                 {role !== UserRole.CUSTOMER && (
                   <div className="space-y-1.5">
-                    <label className="text-[10px] font-black uppercase text-slate-400 tracking-widest ml-1">Nível de Acesso</label>
+                    <label className="text-[10px] font-black uppercase text-slate-400 tracking-widest ml-1">NÃ­vel de Acesso</label>
                     <div className="grid grid-cols-2 gap-3">
                       {roles.map(r => (
                         <button 
@@ -477,7 +476,7 @@ export default function TeamManagementPage() {
                       : "bg-indigo-600 hover:bg-indigo-700 shadow-indigo-200"
                   )}
                 >
-                  {isSaving ? 'Salvando...' : (selectedUser ? 'Salvar Alterações' : 'Criar Conta')}
+                  {isSaving ? 'Salvando...' : (selectedUser ? 'Salvar AlteraÃ§Ãµes' : 'Criar Conta')}
                 </button>
               </div>
             </motion.div>
@@ -504,9 +503,9 @@ export default function TeamManagementPage() {
               <div className="p-8 border-b border-slate-100 bg-slate-50/50 flex items-center justify-between">
                 <div>
                   <h3 className="text-2xl font-black text-slate-800 tracking-tight uppercase">
-                    Configurações de Alerta
+                    ConfiguraÃ§Ãµes de Alerta
                   </h3>
-                  <p className="text-sm text-slate-500 font-medium">Personalize seus alertas sonoros e notificações do sistema</p>
+                  <p className="text-sm text-slate-500 font-medium">Personalize seus alertas sonoros e notificaÃ§Ãµes do sistema</p>
                 </div>
                 <button onClick={() => setIsNotifModalOpen(false)} className="text-slate-400 hover:text-slate-600 transition-colors">
                   <XCircle size={28} />

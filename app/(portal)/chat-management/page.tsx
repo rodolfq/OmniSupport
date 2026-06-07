@@ -1,16 +1,15 @@
-'use client';
+﻿'use client';
 
 import React, { useState, useEffect, useRef } from 'react';
 import { toast } from 'sonner';
 import { 
-  MockDB, 
   ChatSession, 
   AnalystStatus, 
-  QuickNote, 
   User, 
   UserRole,
-  Company
-} from '@/lib/mock-db';
+  Company,
+  QuickNote
+} from '@/lib/types';
 import { 
   MessageSquare, 
   Users, 
@@ -39,6 +38,7 @@ import { motion, AnimatePresence } from 'motion/react';
 import { useApp } from '@/app/app-context';
 import { LinkContactModal } from '@/components/link-contact-modal';
 import { supabase } from '@/lib/supabase';
+import { getQuickNotes, saveQuickNote as saveQuickNoteAction, deleteQuickNote, getAnalysts, getCompanies, updateUserStatus } from '@/app/actions';
 
 export default function ChatManagementPage() {
   const { currentUser, setActiveOmniChatId, setIsOmniChatOpen, refreshTrigger } = useApp();
@@ -80,16 +80,33 @@ export default function ChatManagementPage() {
   const [noteCategory, setNoteCategory] = useState('');
 
   const refreshData = React.useCallback(async (sync = false) => {
-    setSessions(MockDB.getChatSessions());
-    setStatuses(MockDB.getAnalystStatuses());
-    setNotes(MockDB.getQuickNotes());
-    setAnalysts(MockDB.getAnalysts());
-    setCustomers(MockDB.getUsers());
-    setCompanies(MockDB.getCompanies());
+    // Get chat sessions from Supabase
+    const { data: chatData, error: chatError } = await supabase.from('chat_sessions').select('*');
+    setSessions(chatData || []);
+    
+    // Get analyst statuses
+    const { data: statusData } = await supabase.from('analyst_status').select('*');
+    setStatuses(statusData || []);
+    
+    // Get quick notes via action
+    const notesData = await getQuickNotes();
+    setNotes(notesData);
+    
+    // Get analysts and customers
+    const analystsData = await getAnalysts();
+    setAnalysts(analystsData);
+    
+    // Get customers (users with role 'Cliente')
+    const { data: customersData } = await supabase.from('profiles').select('id, name, email, role, company_id, phone, phones').eq('role', 'Cliente');
+    setCustomers(customersData || []);
+    
+    // Get companies
+    const companiesData = await getCompanies();
+    setCompanies(companiesData);
 
     if (currentUser) {
-      const allQueues = MockDB.getQueues();
-      const myQueues = allQueues.filter(q => q.memberIds.includes(currentUser.id)).map(q => q.id);
+      const { data: queuesData } = await supabase.from('queues').select('id, member_ids');
+      const myQueues = queuesData?.filter(q => q.member_ids?.includes(currentUser.id)).map(q => q.id) || [];
       setUserQueues(myQueues);
     }
   }, [currentUser]);
@@ -115,7 +132,7 @@ export default function ChatManagementPage() {
       }
 
       const channelName = `chat-management-sync-${Date.now()}`;
-      console.log(`📡 Realtime ativo: ${channelName}`);
+      console.log(`ðŸ“¡ Realtime ativo: ${channelName}`);
       isSubscribedRef.current = true;
       
       // 2. Define channel and event listeners BEFORE subscribe
@@ -124,8 +141,7 @@ export default function ChatManagementPage() {
           'postgres_changes',
           { event: '*', schema: 'public', table: 'chat_sessions' },
           async () => {
-            console.log('🔄 Atualizando fila via Realtime');
-            await MockDB.syncFromSupabase();
+            console.log('ðŸ”„ Atualizando fila via Realtime');
             refreshData();
           }
         )
@@ -133,8 +149,7 @@ export default function ChatManagementPage() {
           'postgres_changes',
           { event: '*', schema: 'public', table: 'analyst_status' },
           async () => {
-            console.log('🔄 Atualizando status via Realtime');
-            await MockDB.syncFromSupabase();
+            console.log('ðŸ”„ Atualizando status via Realtime');
             refreshData();
           }
         );
@@ -142,7 +157,7 @@ export default function ChatManagementPage() {
       // 3. Subscribe
       channel.subscribe((status: string) => {
         if (status === 'SUBSCRIBED') {
-          console.log(`✅ Realtime Gerenciamento conectado: ${channelName}`);
+          console.log(`âœ… Realtime Gerenciamento conectado: ${channelName}`);
         }
       });
       channelRef.current = channel;
@@ -150,7 +165,7 @@ export default function ChatManagementPage() {
 
     return () => {
       if (channelRef.current && supabase) {
-        console.log('🚫 Desconectando Realtime Gerenciamento');
+        console.log('ðŸš« Desconectando Realtime Gerenciamento');
         supabase.removeChannel(channelRef.current);
         channelRef.current = null;
         isSubscribedRef.current = false;
@@ -158,53 +173,41 @@ export default function ChatManagementPage() {
     };
   }, [currentUser, refreshData]);
 
-  useEffect(() => {
+useEffect(() => {
     // Auto distribution trigger for pending sessions
     const distributeInterval = setInterval(() => {
-      const pendingSessions = MockDB.getChatSessions().filter(s => s.status === 'pending' && !s.assigneeId);
+      const pendingSessions = sessions.filter(s => s.status === 'pending' && !s.assigneeId);
       if (pendingSessions.length > 0) {
-        let changed = false;
-        pendingSessions.forEach(s => {
-          const assignedId = MockDB.distributeChat(s.id);
-          if (assignedId) changed = true;
-        });
-        if (changed) {
-          refreshData();
-        }
+        // TODO: Implementar distribuiÃ§Ã£o automÃ¡tica via Supabase
+        refreshData();
       }
     }, 5000);
 
     return () => clearInterval(distributeInterval);
-  }, [refreshData]);
+  }, [sessions, refreshData]);
 
-  const handleToggleOnline = (userId: string, current: boolean) => {
-    MockDB.updateAnalystStatus(userId, !current);
+  const handleToggleOnline = async (userId: string, current: boolean) => {
+    await updateUserStatus(userId, !current);
     refreshData();
   };
 
-  const handleDisconnect = (userId: string) => {
-    if (confirm('Deseja desconectar este analista forçadamente?')) {
-      MockDB.updateAnalystStatus(userId, false);
+  const handleDisconnect = async (userId: string) => {
+    if (confirm('Desconectar este analista forÃ§adamente?')) {
+      await updateUserStatus(userId, false);
       refreshData();
     }
   };
 
-  const handleSaveNote = () => {
+  const handleSaveNote = async () => {
     if (!noteShortcut || !noteContent) return;
-    const note: QuickNote = {
-      id: selectedNote?.id || Math.random().toString(36).substr(2, 9),
-      shortcut: noteShortcut.replace('/', ''),
-      content: noteContent,
-      category: noteCategory || 'Geral'
-    };
-    MockDB.saveQuickNote(note);
+    await saveQuickNoteAction(selectedNote?.id || null, noteShortcut.replace('/', ''), noteContent, noteCategory || 'Geral');
     setIsNoteModalOpen(false);
     refreshData();
   };
 
-  const handleDeleteNote = (id: string) => {
-    if (confirm('Excluir esta nota rápida?')) {
-      MockDB.deleteQuickNote(id);
+  const handleDeleteNote = async (id: string) => {
+    if (confirm('Excluir esta nota rÃ¡pida?')) {
+      await deleteQuickNote(id);
       refreshData();
     }
   };
@@ -224,23 +227,14 @@ export default function ChatManagementPage() {
     setIsNoteModalOpen(true);
   };
 
-  const handleAssignAnalyst = (sessionId: string) => {
+  const handleAssignAnalyst = async (sessionId: string) => {
     if (!currentUser) return;
-    const allSessions = MockDB.getChatSessions();
-    const session = allSessions.find(s => s.id === sessionId);
-    if (session) {
-      session.assigneeId = currentUser.id;
-      session.status = 'active';
-      MockDB.saveChatSession(session);
-      
-      // Update load
-      const statuses = MockDB.getAnalystStatuses();
-      const idx = statuses.findIndex(s => s.userId === currentUser.id);
-      if (idx >= 0) {
-        statuses[idx].currentLoad += 1;
-        MockDB.saveAnalystStatus(statuses[idx]);
-      }
-      
+    const { error } = await supabase.from('chat_sessions').update({
+      assignee_id: currentUser.id,
+      status: 'active'
+    }).eq('id', sessionId);
+    
+    if (!error) {
       refreshData();
       toast.success('Atendimento assumido com sucesso!');
     }
@@ -251,7 +245,7 @@ export default function ChatManagementPage() {
       <div className="flex flex-col md:flex-row md:items-end justify-between gap-4">
         <div>
           <h2 className="text-3xl font-black text-slate-800 tracking-tight">Canais de Atendimento</h2>
-          <p className="text-slate-500 font-medium">Controle de atendimento via WhatsApp e notas rápidas</p>
+          <p className="text-slate-500 font-medium">Controle de atendimento via WhatsApp e notas rÃ¡pidas</p>
         </div>
       </div>
 
@@ -284,7 +278,7 @@ export default function ChatManagementPage() {
             activeTab === 'notes' ? "bg-white text-indigo-600 shadow-lg" : "text-slate-500 hover:text-slate-700"
           )}
         >
-          <Zap size={14} /> Notas Rápidas
+          <Zap size={14} /> Notas RÃ¡pidas
         </button>
         <button 
           onClick={() => setActiveTab('history')}
@@ -293,7 +287,7 @@ export default function ChatManagementPage() {
             activeTab === 'history' ? "bg-white text-indigo-600 shadow-lg" : "text-slate-500 hover:text-slate-700"
           )}
         >
-          <History size={14} /> Histórico
+          <History size={14} /> HistÃ³rico
         </button>
       </div>
 
@@ -304,7 +298,7 @@ export default function ChatManagementPage() {
                  <div className="p-8 border-b border-slate-100 flex flex-col md:flex-row md:items-center justify-between gap-4">
                     <div>
                        <h3 className="text-sm font-black uppercase text-slate-800 tracking-widest">Controle de Atendimentos</h3>
-                       <p className="text-[10px] text-slate-400 font-bold uppercase tracking-widest mt-1">Sessões pendentes e em curso</p>
+                       <p className="text-[10px] text-slate-400 font-bold uppercase tracking-widest mt-1">SessÃµes pendentes e em curso</p>
                     </div>
                     <div className="flex bg-slate-100 p-1 rounded-2xl gap-1">
                        {[
@@ -441,7 +435,7 @@ export default function ChatManagementPage() {
           
           <div className="space-y-6">
              <div className="bg-white border border-slate-200 rounded-[2.5rem] shadow-sm p-8">
-                <h3 className="text-sm font-black uppercase text-slate-800 tracking-widest mb-6">Distribuição Automática</h3>
+                <h3 className="text-sm font-black uppercase text-slate-800 tracking-widest mb-6">DistribuiÃ§Ã£o AutomÃ¡tica</h3>
                 <div className="space-y-4">
                    <div className="flex items-center justify-between p-4 bg-emerald-50 border border-emerald-100 rounded-2xl">
                       <div className="flex items-center gap-3">
@@ -453,7 +447,7 @@ export default function ChatManagementPage() {
                       </div>
                    </div>
                    <p className="text-[10px] text-slate-400 font-medium leading-relaxed">
-                      A distribuição justa está ativa. Novos atendimentos são alocados automaticamente para analistas com menor carga de trabalho.
+                      A distribuiÃ§Ã£o justa estÃ¡ ativa. Novos atendimentos sÃ£o alocados automaticamente para analistas com menor carga de trabalho.
                    </p>
                 </div>
              </div>
@@ -469,7 +463,7 @@ export default function ChatManagementPage() {
                     <th className="px-8 py-5 text-[10px] font-black uppercase text-slate-400 tracking-widest">Analista</th>
                     <th className="px-8 py-5 text-[10px] font-black uppercase text-slate-400 tracking-widest">Carga Atual</th>
                     <th className="px-8 py-5 text-[10px] font-black uppercase text-slate-400 tracking-widest">Status</th>
-                    <th className="px-8 py-5 text-[10px] font-black uppercase text-slate-400 tracking-widest text-right">Ação</th>
+                    <th className="px-8 py-5 text-[10px] font-black uppercase text-slate-400 tracking-widest text-right">AÃ§Ã£o</th>
                  </tr>
               </thead>
               <tbody className="divide-y divide-slate-50">
@@ -540,7 +534,7 @@ export default function ChatManagementPage() {
               </div>
               
               <div className="space-y-1.5">
-                <label className="text-[9px] font-black uppercase text-slate-400 tracking-widest ml-1">Até</label>
+                <label className="text-[9px] font-black uppercase text-slate-400 tracking-widest ml-1">AtÃ©</label>
                 <div className="relative">
                   <Calendar size={14} className="absolute left-4 top-1/2 -translate-y-1/2 text-slate-400" />
                   <input 
@@ -575,10 +569,10 @@ export default function ChatManagementPage() {
               </div>
 
               <div className="space-y-1.5">
-                <label className="text-[9px] font-black uppercase text-slate-400 tracking-widest ml-1">Funcionário</label>
+                <label className="text-[9px] font-black uppercase text-slate-400 tracking-widest ml-1">FuncionÃ¡rio</label>
                 <input 
                   type="text" 
-                  placeholder="Nome do funcionário..."
+                  placeholder="Nome do funcionÃ¡rio..."
                   value={filterEmployee}
                   onChange={(e) => setFilterEmployee(e.target.value)}
                   className="w-full bg-slate-50 border border-slate-200 rounded-xl px-4 py-2.5 text-xs font-bold focus:ring-4 focus:ring-indigo-500/10 outline-none transition-all"
@@ -591,7 +585,7 @@ export default function ChatManagementPage() {
                   <Search size={14} className="absolute left-4 top-1/2 -translate-y-1/2 text-slate-400" />
                   <input 
                     type="text" 
-                    placeholder="Buscar conteúdo..."
+                    placeholder="Buscar conteÃºdo..."
                     value={filterText}
                     onChange={(e) => setFilterText(e.target.value)}
                     className="w-full bg-slate-50 border border-slate-200 rounded-xl pl-10 pr-4 py-2.5 text-xs font-bold focus:ring-4 focus:ring-indigo-500/10 outline-none transition-all"
@@ -630,8 +624,8 @@ export default function ChatManagementPage() {
                     <th className="px-8 py-4 text-[9px] font-black uppercase text-slate-400 tracking-widest">Data/Hora</th>
                     <th className="px-8 py-4 text-[9px] font-black uppercase text-slate-400 tracking-widest">Cliente</th>
                     <th className="px-8 py-4 text-[9px] font-black uppercase text-slate-400 tracking-widest">Analista</th>
-                    <th className="px-8 py-4 text-[9px] font-black uppercase text-slate-400 tracking-widest">Última Mensagem</th>
-                    <th className="px-8 py-4 text-[9px] font-black uppercase text-slate-400 tracking-widest text-right">Ações</th>
+                    <th className="px-8 py-4 text-[9px] font-black uppercase text-slate-400 tracking-widest">Ãšltima Mensagem</th>
+                    <th className="px-8 py-4 text-[9px] font-black uppercase text-slate-400 tracking-widest text-right">AÃ§Ãµes</th>
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-slate-50">
@@ -685,7 +679,7 @@ export default function ChatManagementPage() {
                                 <span className="text-xs font-medium text-slate-600">{analyst.name}</span>
                               </div>
                             ) : (
-                              <span className="text-[10px] uppercase text-slate-300 font-black tracking-widest italic">Não Atribuído</span>
+                              <span className="text-[10px] uppercase text-slate-300 font-black tracking-widest italic">NÃ£o AtribuÃ­do</span>
                             )}
                           </td>
                           <td className="px-8 py-5">
@@ -709,7 +703,7 @@ export default function ChatManagementPage() {
               {sessions.filter(s => s.status === 'closed').length === 0 && (
                 <div className="p-20 text-center text-slate-400">
                   <History size={48} className="mx-auto mb-4 opacity-20" />
-                  <p className="text-sm font-bold">Nenhum atendimento encerrado até o momento</p>
+                  <p className="text-sm font-bold">Nenhum atendimento encerrado atÃ© o momento</p>
                 </div>
               )}
             </div>
@@ -724,7 +718,7 @@ export default function ChatManagementPage() {
                 onClick={() => handleOpenNoteModal()}
                 className="bg-indigo-600 text-white px-6 py-3 rounded-2xl text-[10px] font-black uppercase tracking-widest shadow-lg shadow-indigo-100 flex items-center gap-2 hover:bg-indigo-700 transition-all"
               >
-                 <Plus size={16} /> Nova Nota Rápida
+                 <Plus size={16} /> Nova Nota RÃ¡pida
               </button>
            </div>
            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
@@ -791,17 +785,17 @@ export default function ChatManagementPage() {
                        type="text" 
                        value={noteCategory}
                        onChange={(e) => setNoteCategory(e.target.value)}
-                       placeholder="Geral, Saudação, Encerramento..."
+                       placeholder="Geral, SaudaÃ§Ã£o, Encerramento..."
                        className="w-full bg-slate-50 border border-slate-200 rounded-2xl px-4 py-3 text-sm font-bold focus:ring-4 focus:ring-indigo-500/10 outline-none transition-all"
                      />
                   </div>
                   <div className="space-y-1.5">
-                     <label className="text-[10px] font-black uppercase text-slate-400 tracking-widest ml-1">Conteúdo da Resposta</label>
+                     <label className="text-[10px] font-black uppercase text-slate-400 tracking-widest ml-1">ConteÃºdo da Resposta</label>
                      <textarea 
                        value={noteContent}
                        onChange={(e) => setNoteContent(e.target.value)}
                        rows={4}
-                       placeholder="Digite o texto que será inserido automaticamente..."
+                       placeholder="Digite o texto que serÃ¡ inserido automaticamente..."
                        className="w-full bg-slate-50 border border-slate-200 rounded-2xl px-4 py-3 text-sm font-bold focus:ring-4 focus:ring-indigo-500/10 outline-none transition-all resize-none"
                      />
                   </div>

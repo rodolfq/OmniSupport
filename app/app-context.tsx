@@ -1,11 +1,12 @@
-'use client';
+﻿'use client';
 
 import React, { createContext, useContext, useState, useEffect, useRef, useCallback, useMemo } from 'react';
 import { User, UserRole, Permission, AbsenceReason } from '@/lib/types';
 import { safeJsonStringify } from '@/lib/utils';
 import { supabase } from '@/lib/supabase';
 import { toast } from 'sonner';
-import { MockDB } from '@/lib/mock-db';
+import { UserService } from '@/lib/services/user-service';
+import { ChatService, AbsenceReasonService, UserStatusHistoryService, AnalystService } from '@/lib/services/chat-service';
 
 export interface AppNotification {
   id: string;
@@ -67,7 +68,7 @@ const AppContext = createContext<AppContextType | undefined>(undefined);
 
 const DEFAULT_SETTINGS: NotificationSettings = {
   systemSound: '/audio/Alerta.mp3',
-  chatSound: '/audio/notificação1.mp3',
+  chatSound: '/audio/notificaÃ§Ã£o1.mp3',
   ticket_new: true,
   ticket_assigned: true,
   ticket_update: true,
@@ -77,7 +78,6 @@ const DEFAULT_SETTINGS: NotificationSettings = {
 };
 
 export function AppProvider({ children }: { children: React.ReactNode }) {
-// ... existing state ...
   const [currentUser, setCurrentUser] = useState<User | null>(null);
   const [authInitialized, setAuthInitialized] = useState(false);
   const [isNewTicketModalOpen, setIsNewTicketModalOpen] = useState(false);
@@ -96,6 +96,12 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
 
   const [notifications, setNotifications] = useState<AppNotification[]>([]);
   const lastCheckTimeRef = useRef<string>(new Date().toISOString());
+
+  const [whatsappStatus, setWhatsappStatus] = useState<'connected' | 'disconnected' | 'connecting' | 'error'>('disconnected');
+  const [dbStatus, setDbStatus] = useState<'connected' | 'disconnected' | 'error'>('disconnected');
+  const [userStatus, setUserStatusState] = useState<'online' | 'away' | 'offline'>('online');
+  const [userStatusReason, setUserStatusReason] = useState<string | null>(null);
+  const [absenceReasons, setAbsenceReasons] = useState<AbsenceReason[]>([]);
 
   const triggerRefresh = React.useCallback(() => {
     setRefreshTrigger(prev => prev + 1);
@@ -162,15 +168,14 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
   useEffect(() => { activeChatRef.current = activeOmniChatId; }, [activeOmniChatId]);
   useEffect(() => { chatOpenRef.current = isOmniChatOpen; }, [isOmniChatOpen]);
   useEffect(() => { settingsRef.current = notificationSettings; }, [notificationSettings]);
-  const [whatsappStatus, setWhatsappStatus] = useState<'connected' | 'disconnected' | 'connecting' | 'error'>('disconnected');
-  const [dbStatus, setDbStatus] = useState<'connected' | 'disconnected' | 'error'>('disconnected');
-  const [userStatus, setUserStatusState] = useState<'online' | 'away' | 'offline'>('online');
-  const [userStatusReason, setUserStatusReason] = useState<string | null>(null);
-  const [absenceReasons, setAbsenceReasons] = useState<AbsenceReason[]>([]);
 
   const refreshAbsenceReasons = React.useCallback(async () => {
-    const reasons = MockDB.getAbsenceReasons();
-    setAbsenceReasons(reasons);
+    try {
+      const reasons = await AbsenceReasonService.getAll();
+      setAbsenceReasons(reasons);
+    } catch (error) {
+      console.error('Error loading absence reasons:', error);
+    }
   }, []);
 
   const setUserStatus = React.useCallback((status: 'online' | 'away' | 'offline', reason?: string) => {
@@ -185,14 +190,11 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
         return;
       }
       try {
-        // Try a simple health check query
         const { error } = await supabase.from('config_priorities').select('label').limit(1);
         if (error) {
-          // If we receive a PostgREST error with a code or containing permission-related text,
-          // it means the database is online and responding. Network errors/offline won't return a PostgREST error.
           const isDbAlive = !!(
             error.code || 
-            error.status || 
+            (error as any).status || 
             error.message?.toLowerCase().includes('permission') || 
             error.message?.toLowerCase().includes('security') || 
             error.message?.toLowerCase().includes('jwt') ||
@@ -213,7 +215,6 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     };
     checkDb();
     refreshAbsenceReasons();
-    // Check every minute
     const interval = setInterval(checkDb, 60000);
     return () => clearInterval(interval);
   }, [refreshAbsenceReasons]);
@@ -226,107 +227,85 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
         return;
       }
 
-      console.log('🔐 AppContext: Inicializando Auth...');
+      console.log('ðŸ” AppContext: Inicializando Auth...');
       try {
-          const { data: { session } } = await supabase.auth.getSession();
-          
-          if (!isMounted) return;
+        const { data: { session } } = await supabase.auth.getSession();
+        
+        if (!isMounted) return;
 
-          if (session?.user) {
-            console.log('👤 AppContext: Usuário autenticado:', session.user.email);
-            
-            // 1. Buscar perfil
-            const { data: profile } = await supabase
-              .from('profiles')
-              .select('*')
-              .eq('id', session.user.id)
-              .maybeSingle();
+        if (session?.user) {
+          console.log('ðŸ‘¤ AppContext: UsuÃ¡rio autenticado:', session.user.email);
+          
+          try {
+            const profile = await UserService.getCurrentProfile();
             
             if (!isMounted) return;
 
             if (profile) {
-              const user: User = {
-                id: profile.id,
-                name: profile.name,
-                email: profile.email,
-                role: profile.role,
-                companyId: profile.company_id,
-                phone: profile.phone,
-                viewAllCompanyTickets: profile.view_all_company_tickets,
-                mustChangePassword: profile.must_change_password,
-                isAdmin: profile.is_admin
-              };
-              setCurrentUser(user);
+              setCurrentUser(profile);
             } else {
-              // Fallback imediato usando dados da auth se o perfil ainda não existir
               const newUser: User = {
                 id: session.user.id,
-                name: session.user.user_metadata?.name || session.user.email?.split('@')[0] || 'Usuário',
+                name: session.user.user_metadata?.name || session.user.email?.split('@')[0] || 'UsuÃ¡rio',
                 email: session.user.email || '',
-                role: UserRole.CUSTOMER
+                role: UserRole.EMPLOYEE
               };
               setCurrentUser(newUser);
-              
-              // Tenta salvar perfil no background
-              MockDB.saveUser(newUser).catch(() => {});
             }
-          } else {
-            console.log('👤 AppContext: Sem sessão ativa. Definindo usuário padrão (desenvolvimento)');
-            const defaultUser: User = {
-              id: '9ca681d2-06c7-4a9c-8ef0-cfe404078356',
-              name: 'Admin Supremo',
-              email: 'admin@support.com',
-              role: UserRole.ADMIN,
-              viewAllCompanyTickets: false,
-              isAdmin: true
-            };
-            setCurrentUser(defaultUser);
-          }
-
-          // 2. Listener simplificado
-          const { data: { subscription } } = supabase.auth.onAuthStateChange(async (event, session) => {
+          } catch (e) {
+            console.error('âŒ initAuth profile error:', e);
             if (!isMounted) return;
-            console.log(`🔐 AppContext: Evento Auth [${event}]`);
+            setCurrentUser({
+              id: session.user.id,
+              name: session.user.user_metadata?.name || session.user.email?.split('@')[0] || 'UsuÃ¡rio',
+              email: session.user.email || '',
+              role: UserRole.EMPLOYEE
+            });
+          }
+        } else {
+          setCurrentUser(null);
+        }
 
+        console.log('ðŸ” AppContext: Auth state listener configurado');
+        
+        const { data: { subscription } } = supabase.auth.onAuthStateChange(async (event, session) => {
+          if (!isMounted) return;
+          console.log(`ðŸ” AppContext: Evento Auth [${event}]`);
+
+          try {
             if (session?.user) {
-              const { data: profile } = await supabase.from('profiles').select('*').eq('id', session.user.id).maybeSingle();
+              const profile = await UserService.getCurrentProfile();
               if (!isMounted) return;
 
               if (profile) {
-                setCurrentUser({
-                  id: profile.id,
-                  name: profile.name,
-                  email: profile.email,
-                  role: profile.role,
-                  companyId: profile.company_id,
-                  phone: profile.phone,
-                  viewAllCompanyTickets: profile.view_all_company_tickets,
-                  mustChangePassword: profile.must_change_password,
-                  isAdmin: profile.is_admin
-                });
+                setCurrentUser(profile);
               } else {
-                 setCurrentUser({
-                    id: session.user.id,
-                    name: session.user.user_metadata?.name || session.user.email?.split('@')[0] || 'Usuário',
-                    email: session.user.email || '',
-                    role: UserRole.CUSTOMER
-                 });
+                setCurrentUser({
+                  id: session.user.id,
+                  name: session.user.user_metadata?.name || session.user.email?.split('@')[0] || 'UsuÃ¡rio',
+                  email: session.user.email || '',
+                  role: UserRole.EMPLOYEE
+                });
               }
             } else {
-              const defaultUser: User = {
-                id: '9ca681d2-06c7-4a9c-8ef0-cfe404078356',
-                name: 'Admin Supremo',
-                email: 'admin@support.com',
-                role: UserRole.ADMIN,
-                viewAllCompanyTickets: false,
-                isAdmin: true
-              };
-              setCurrentUser(defaultUser);
+              setCurrentUser(null);
             }
-          });
+          } catch (e) {
+            console.error('âŒ onAuthStateChange error:', e);
+            // Fallback - set user from session anyway
+            if (session?.user && isMounted) {
+              setCurrentUser({
+                id: session.user.id,
+                name: session.user.user_metadata?.name || session.user.email?.split('@')[0] || 'UsuÃ¡rio',
+                email: session.user.email || '',
+                role: UserRole.EMPLOYEE
+              });
+            }
+          }
+        });
 
       } catch (err) {
-        console.error('❌ AppContext: Erro na inicialização do Auth:', err);
+        console.error('âŒ AppContext: Erro na inicializaÃ§Ã£o do Auth:', err);
       } finally {
         if (isMounted) setAuthInitialized(true);
       }
@@ -336,24 +315,19 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
 
     return () => {
       isMounted = false;
-      // Note: A subscrição do auth será limpa pelo garbage collector se não conseguirmos dar unsubscribe
-      // mas o isMounted evita que os callbacks rodem.
     };
   }, []);
 
   useEffect(() => {
     if (!authInitialized || !supabase || !currentUser) return;
 
-    console.log('📡 Realtime: Iniciando canais de escuta...');
+    console.log('ðŸ“¡ Realtime: Iniciando canais de escuta...');
 
-    // Channel for Tickets and Messages
     const ticketsChannel = supabase.channel('tickets-changes')
       .on('postgres_changes', { event: '*', schema: 'public', table: 'tickets' }, async (payload) => {
-        console.log('📡 Realtime: Mudança detectada em tickets', payload);
-        await MockDB.syncFromSupabase();
+        console.log('ðŸ“¡ Realtime: MudanÃ§a detectada em tickets', payload);
         triggerRefresh();
         
-        // Notify if it's a new ticket
         if (payload.eventType === 'INSERT' && currentUser.role !== UserRole.CUSTOMER) {
           const newTicket = payload.new;
           addNotification({
@@ -365,25 +339,20 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
         }
       })
       .on('postgres_changes', { event: '*', schema: 'public', table: 'ticket_messages' }, async (payload) => {
-        console.log('📡 Realtime: Nova mensagem de ticket', payload);
-        await MockDB.syncFromSupabase();
+        console.log('ðŸ“¡ Realtime: Nova mensagem de ticket', payload);
         triggerRefresh();
       })
       .subscribe();
 
-    // Channel for Chat
     const chatChannel = supabase.channel('chats-changes')
       .on('postgres_changes', { event: '*', schema: 'public', table: 'chat_sessions' }, async (payload) => {
-        console.log('📡 Realtime: Mudança em sessões de chat', payload);
-        await MockDB.syncFromSupabase();
+        console.log('ðŸ“¡ Realtime: MudanÃ§a em sessÃµes de chat', payload);
         triggerRefresh();
       })
       .on('postgres_changes', { event: '*', schema: 'public', table: 'chat_messages' }, async (payload) => {
-        console.log('📡 Realtime: Nova mensagem de chat', payload);
-        await MockDB.syncFromSupabase();
+        console.log('ðŸ“¡ Realtime: Nova mensagem de chat', payload);
         triggerRefresh();
         
-        // Play sound for new messages if the chat isn't active or open
         if (payload.eventType === 'INSERT' && payload.new.sender_id !== currentUser.id) {
           const isCurrentChat = activeChatRef.current === payload.new.session_id;
           if (!isCurrentChat || !chatOpenRef.current) {
@@ -393,17 +362,15 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       })
       .subscribe();
 
-    // Channel for Analyst Status
     const statusChannel = supabase.channel('status-changes')
       .on('postgres_changes', { event: '*', schema: 'public', table: 'analyst_status' }, async (payload) => {
-        console.log('📡 Realtime: Mudança de status de analista', payload);
-        await MockDB.syncFromSupabase();
+        console.log('ðŸ“¡ Realtime: MudanÃ§a de status de analista', payload);
         triggerRefresh();
       })
       .subscribe();
 
     return () => {
-      console.log('📡 Realtime: Encerrando canais...');
+      console.log('ðŸ“¡ Realtime: Encerrando canais...');
       supabase.removeChannel(ticketsChannel);
       supabase.removeChannel(chatChannel);
       supabase.removeChannel(statusChannel);
@@ -411,38 +378,10 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
   }, [authInitialized, currentUser?.id, triggerRefresh, addNotification, playSound]);
 
   useEffect(() => {
-    if (!authInitialized) return;
-    
-    // Sincroniza o DB apenas quando o Auth estiver pronto.
-    // Se o usuário mudar (login/logout), re-syncamos os dados.
-    const syncDatabase = async () => {
-      console.log('📦 AppContext: Coordenando sincronismo de dados...', { 
-        loggedIn: !!currentUser,
-        userId: currentUser?.id 
-      });
-      
-      try {
-        await MockDB.init();
-        await refreshAbsenceReasons();
-        triggerRefresh();
-      } catch (err) {
-        console.error('❌ AppContext: Falha ao sincronizar MockDB:', err);
-      }
-    };
-
-    // Pequeno debounce para evitar disparos múltiplos durante transições rápidas de auth
-    const timer = setTimeout(syncDatabase, 300);
-    return () => clearTimeout(timer);
-  }, [authInitialized, currentUser?.id, triggerRefresh, refreshAbsenceReasons]);
-
-  useEffect(() => {
     if (currentUser) {
       const updateStatus = async () => {
-        const updatedUser: User = { ...currentUser, status: userStatus, statusReason: userStatusReason || undefined };
-        await MockDB.saveUser(updatedUser);
-        
         if (currentUser.role !== UserRole.CUSTOMER) {
-          await MockDB.logStatusChange(currentUser.id, userStatus, userStatusReason || undefined);
+          await AnalystService.logStatusChange(currentUser.id, userStatus, userStatusReason || undefined);
         }
       };
       updateStatus();
@@ -450,12 +389,17 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
   }, [userStatus, userStatusReason, currentUser?.id]);
 
   useEffect(() => {
-// ... existing storage logic ...
+    if (!authInitialized) return;
+    
+    refreshAbsenceReasons();
+    triggerRefresh();
+  }, [authInitialized, triggerRefresh, refreshAbsenceReasons]);
+
+  useEffect(() => {
     const savedSettings = localStorage.getItem('omni_notif_settings');
     if (savedSettings) {
       try {
         const parsed = JSON.parse(savedSettings);
-        // Migration check: if they have the old object structure, reset to default or try to adapt
         if (typeof parsed.ticket_new === 'object') {
            setNotificationSettings(DEFAULT_SETTINGS);
         } else {
@@ -484,7 +428,6 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     });
   }, []);
 
-  // Unlock audio on first user interaction
   useEffect(() => {
     const unlock = () => {
       const audio = new Audio();
@@ -513,7 +456,6 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
 
   const markNotificationsAsReadByTarget = React.useCallback((targetId: string) => {
     setNotifications(prev => {
-      // Avoid unnecessary state updates if nothing changes
       const hasUnread = prev.some(n => n.targetId === targetId && !n.read);
       if (!hasUnread) return prev;
 
@@ -531,7 +473,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
   const hasPermission = React.useCallback((permission: Permission) => {
     if (!userRef.current) return false;
     const roleName = userRef.current.role.toString();
-    const perms = MockDB.getPermissionsByRole(roleName);
+    const perms = UserService.getPermissionsByRole(roleName);
     return perms.includes(permission);
   }, []);
 

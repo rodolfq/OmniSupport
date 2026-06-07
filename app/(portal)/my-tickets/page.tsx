@@ -1,4 +1,4 @@
-'use client';
+﻿'use client';
 
 import React, { useState, useEffect, useMemo } from 'react';
 import { useApp } from '@/app/app-context';
@@ -86,7 +86,7 @@ export default function MyTicketsPage() {
       <div className="flex flex-col md:flex-row md:items-center justify-between gap-6">
         <div>
           <h2 className="text-3xl font-black text-slate-800 uppercase tracking-tight">Meus Chamados</h2>
-          <p className="text-slate-500 font-medium mt-1">Acompanhe suas solicitações e interaja com o suporte.</p>
+          <p className="text-slate-500 font-medium mt-1">Acompanhe suas solicitaÃ§Ãµes e interaja com o suporte.</p>
         </div>
         
         <button 
@@ -233,7 +233,7 @@ export default function MyTicketsPage() {
                <TicketIcon size={48} />
             </div>
             <h3 className="text-2xl font-black text-slate-800 uppercase tracking-tight mb-2">Sem chamados por aqui</h3>
-            <p className="text-slate-400 font-medium mb-8">Nenhum chamado corresponde aos filtros selecionados ou você ainda não abriu solicitações.</p>
+            <p className="text-slate-400 font-medium mb-8">Nenhum chamado corresponde aos filtros selecionados ou vocÃª ainda nÃ£o abriu solicitaÃ§Ãµes.</p>
             <button 
               onClick={() => setIsNewTicketModalOpen(true)}
               className="inline-flex items-center gap-3 bg-slate-900 text-white px-10 py-5 rounded-3xl text-sm font-black uppercase tracking-widest hover:bg-indigo-600 transition-all shadow-xl hover:shadow-indigo-100"

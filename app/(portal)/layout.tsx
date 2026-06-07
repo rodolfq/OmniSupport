@@ -1,4 +1,4 @@
-'use client';
+﻿'use client';
 
 import React, { useState, Suspense } from 'react';
 import { Sidebar } from '@/components/sidebar';
@@ -39,7 +39,7 @@ export default function PortalLayout({ children }: { children: React.ReactNode }
   }
 
   if (!currentUser) {
-    return <div className="min-h-screen bg-slate-50 flex items-center justify-center font-bold text-slate-400">Verificando sessão...</div>;
+    return <div className="min-h-screen bg-slate-50 flex items-center justify-center font-bold text-slate-400">Verificando sessÃ£o...</div>;
   }
 
   const unreadCount = notifications.filter(n => !n.read && !n.type.startsWith('chat_')).length;
@@ -103,7 +103,7 @@ export default function PortalLayout({ children }: { children: React.ReactNode }
                         </button>
 
                         <div className="px-4 pt-3 pb-1 text-[9px] font-black uppercase text-slate-400 bg-slate-50/50 flex justify-between items-center">
-                          <span>Motivos de Ausência</span>
+                          <span>Motivos de AusÃªncia</span>
                           {absenceReasons.length > 5 && <span className="text-[8px] opacity-40 lowercase font-normal italic">Role para ver mais</span>}
                         </div>
                         <div className="py-1 max-h-[250px] overflow-y-auto custom-scrollbar">
@@ -183,7 +183,7 @@ export default function PortalLayout({ children }: { children: React.ReactNode }
                     />
                     <div className="absolute right-0 mt-2 w-80 bg-white border border-slate-200 rounded-2xl shadow-2xl z-50 overflow-hidden transform origin-top-right transition-all animate-in fade-in zoom-in-95 duration-200">
                       <div className="p-4 border-b border-slate-100 flex items-center justify-between bg-slate-50/50">
-                        <h3 className="text-[10px] font-black uppercase tracking-widest text-slate-800">Notificações de chamados</h3>
+                        <h3 className="text-[10px] font-black uppercase tracking-widest text-slate-800">NotificaÃ§Ãµes de chamados</h3>
                         <button 
                           onClick={() => {
                             notifications.filter(n => !n.type.startsWith('chat_')).forEach(n => markNotificationRead(n.id));
@@ -197,7 +197,7 @@ export default function PortalLayout({ children }: { children: React.ReactNode }
                         {notifications.filter(n => !n.type.startsWith('chat_')).length === 0 ? (
                           <div className="p-10 text-center text-slate-400">
                             <Bell size={32} className="mx-auto mb-3 opacity-20" />
-                            <p className="text-xs font-bold">Nenhuma notificação de ticket</p>
+                            <p className="text-xs font-bold">Nenhuma notificaÃ§Ã£o de ticket</p>
                           </div>
                         ) : (
                           notifications.filter(n => !n.type.startsWith('chat_')).map(notif => (

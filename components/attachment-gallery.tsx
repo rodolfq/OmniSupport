@@ -1,4 +1,4 @@
-'use client';
+﻿'use client';
 
 import React from 'react';
 import { Download, File, Image as ImageIcon, Film, Music, ExternalLink } from 'lucide-react';
@@ -82,7 +82,7 @@ export function AttachmentGallery({ attachments, title = "Todos os Anexos" }: At
                   <div className="min-w-0">
                     <p className="text-xs font-black text-slate-800 truncate" title={file.name}>{file.name}</p>
                     <p className="text-[10px] font-bold text-slate-400 mt-0.5 uppercase tracking-tighter">
-                      {file.type.split('/')[1] || 'FILE'} • {formatSize(file.size)}
+                      {file.type.split('/')[1] || 'FILE'} â€¢ {formatSize(file.size)}
                     </p>
                   </div>
                   <a 

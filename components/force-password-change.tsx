@@ -1,8 +1,8 @@
-'use client';
+﻿'use client';
 
 import React, { useState } from 'react';
 import { useApp } from '@/app/app-context';
-import { MockDB } from '@/lib/mock-db';
+import { supabase } from '@/lib/supabase';
 import { motion, AnimatePresence } from 'motion/react';
 import { Lock, Eye, EyeOff, AlertCircle, CheckCircle2 } from 'lucide-react';
 
@@ -29,7 +29,7 @@ export function ForcePasswordChange() {
       }
 
       if (newPassword !== confirmPassword) {
-        throw new Error('As senhas não coincidem.');
+        throw new Error('As senhas nÃ£o coincidem.');
       }
 
       const updatedUser = { 
@@ -38,8 +38,9 @@ export function ForcePasswordChange() {
         mustChangePassword: false 
       };
       
-      // Save to local state and trigger DB sync
-      await MockDB.saveUser(updatedUser);
+      // Atualizar no Supabase - usando admin API para mudar senha
+      await supabase.auth.admin.updateUserById(currentUser.id, { password: newPassword });
+      await supabase.from('profiles').update({ must_change_password: false }).eq('id', currentUser.id);
       setCurrentUser(updatedUser);
       setIsSuccess(true);
     } catch (err: any) {
@@ -60,8 +61,8 @@ export function ForcePasswordChange() {
           <div className="w-16 h-16 bg-white/20 rounded-2xl flex items-center justify-center mx-auto mb-4 backdrop-blur-sm">
             <Lock size={32} />
           </div>
-          <h2 className="text-2xl font-black uppercase tracking-tight">Alteração Obrigatória</h2>
-          <p className="text-indigo-100 text-sm mt-2 font-medium opacity-80">Por segurança, você deve definir uma nova senha no seu primeiro acesso.</p>
+          <h2 className="text-2xl font-black uppercase tracking-tight">AlteraÃ§Ã£o ObrigatÃ³ria</h2>
+          <p className="text-indigo-100 text-sm mt-2 font-medium opacity-80">Por seguranÃ§a, vocÃª deve definir uma nova senha no seu primeiro acesso.</p>
         </div>
 
         <div className="p-10">
@@ -71,12 +72,12 @@ export function ForcePasswordChange() {
                 <CheckCircle2 size={40} />
               </div>
               <h3 className="text-xl font-bold text-slate-800 mb-2">Senha alterada!</h3>
-              <p className="text-slate-500 text-sm mb-8">Agora você já pode acessar todos os recursos do portal.</p>
+              <p className="text-slate-500 text-sm mb-8">Agora vocÃª jÃ¡ pode acessar todos os recursos do portal.</p>
               <button 
                 onClick={() => window.location.reload()}
                 className="w-full bg-slate-900 text-white py-4 rounded-2xl text-xs font-black uppercase tracking-widest shadow-xl shadow-slate-100 hover:bg-slate-800 transition-all"
               >
-                Começar agora
+                ComeÃ§ar agora
               </button>
             </div>
           ) : (
@@ -97,7 +98,7 @@ export function ForcePasswordChange() {
                       value={newPassword}
                       onChange={e => setNewPassword(e.target.value)}
                       className="w-full bg-slate-50 border border-slate-200 rounded-2xl px-5 py-4 text-sm font-bold focus:ring-4 focus:ring-indigo-500/10 outline-none transition-all"
-                      placeholder="••••••••"
+                      placeholder="â€¢â€¢â€¢â€¢â€¢â€¢â€¢â€¢"
                       required
                     />
                     <button 
@@ -117,7 +118,7 @@ export function ForcePasswordChange() {
                     value={confirmPassword}
                     onChange={e => setConfirmPassword(e.target.value)}
                     className="w-full bg-slate-50 border border-slate-200 rounded-2xl px-5 py-4 text-sm font-bold focus:ring-4 focus:ring-indigo-500/10 outline-none transition-all"
-                    placeholder="••••••••"
+                    placeholder="â€¢â€¢â€¢â€¢â€¢â€¢â€¢â€¢"
                     required
                   />
                 </div>

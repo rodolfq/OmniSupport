@@ -1,10 +1,12 @@
-'use client';
+﻿'use client';
 
 import React, { useState, useEffect } from 'react';
 import { Clock, Info, AlertCircle, CheckCircle2, Coffee, Users, Filter, Plus, Trash2 } from 'lucide-react';
-import { MockDB, UserStatusHistory } from '@/lib/mock-db';
+import { UserStatusHistory, User } from '@/lib/types';
+import { AbsenceReasonService, UserStatusHistoryService } from '@/lib/services/chat-service';
+import { UserService } from '@/lib/services/user-service';
 import { useApp } from '@/app/app-context';
-import { UserRole, Profile } from '@/lib/types';
+import { UserRole } from '@/lib/types';
 import { cn } from '@/lib/utils';
 import { format } from 'date-fns';
 import { ptBR } from 'date-fns/locale';
@@ -19,7 +21,7 @@ export function StatusHistoryPanel({ userId }: StatusHistoryPanelProps) {
   const isAdmin = currentUser?.role === UserRole.ADMIN;
   
   const [history, setHistory] = useState<UserStatusHistory[]>([]);
-  const [profiles, setProfiles] = useState<Profile[]>([]);
+  const [profiles, setProfiles] = useState<User[]>([]);
   const [selectedUserId, setSelectedUserId] = useState<string>(userId);
   const [periodFilter, setPeriodFilter] = useState<'all' | 'today' | 'month' | 'year' | 'specific'>('all');
   const [selectedDate, setSelectedDate] = useState<string>(new Date().toISOString().split('T')[0]);
@@ -31,18 +33,21 @@ export function StatusHistoryPanel({ userId }: StatusHistoryPanelProps) {
     offline: 0
   });
 
-  useEffect(() => {
-    if (isAdmin) {
-      setProfiles(MockDB.getUsers());
-    }
-  }, [isAdmin]);
+useEffect(() => {
+     const loadProfiles = async () => {
+       if (isAdmin) {
+         setProfiles(await UserService.getAllUsers());
+       }
+     };
+     loadProfiles();
+   }, [isAdmin]);
 
-  useEffect(() => {
-    const loadHistory = () => {
-      const allHistory = MockDB.getStatusHistory();
-      let targetHistory = isAdmin && selectedUserId === 'all' 
-        ? allHistory 
-        : allHistory.filter(h => h.userId === (selectedUserId === 'all' ? h.userId : selectedUserId));
+useEffect(() => {
+     const loadHistory = async () => {
+       const allHistory = await UserStatusHistoryService.getAll();
+       let targetHistory = isAdmin && selectedUserId === 'all' 
+         ? allHistory 
+         : allHistory.filter(h => h.userId === (selectedUserId === 'all' ? h.userId : selectedUserId));
       
       // Apply period filter
       const now = new Date();
@@ -83,10 +88,10 @@ export function StatusHistoryPanel({ userId }: StatusHistoryPanelProps) {
     if (!newReason.trim()) return;
     
     try {
-      await MockDB.saveAbsenceReason({ label: newReason.trim() });
+      await AbsenceReasonService.save({ label: newReason.trim() });
       await refreshAbsenceReasons();
       setNewReason('');
-      toast.success('Motivo de ausência adicionado com sucesso!');
+      toast.success('Motivo de ausÃªncia adicionado com sucesso!');
     } catch {
       toast.error('Erro ao adicionar motivo.');
     }
@@ -94,7 +99,7 @@ export function StatusHistoryPanel({ userId }: StatusHistoryPanelProps) {
 
   const handleDeleteReason = async (id: string) => {
     try {
-      await MockDB.deleteAbsenceReason(id);
+      await AbsenceReasonService.delete(id);
       await refreshAbsenceReasons();
       toast.success('Motivo removido.');
     } catch {
@@ -121,8 +126,8 @@ export function StatusHistoryPanel({ userId }: StatusHistoryPanelProps) {
     if (status === 'online') return <CheckCircle2 className="text-emerald-500" size={16} />;
     if (status === 'offline') return <AlertCircle className="text-slate-400" size={16} />;
     
-    if (reason === 'Almoço') return <Coffee className="text-amber-500" size={16} />;
-    if (reason === 'Reunião') return <Users className="text-amber-500" size={16} />;
+    if (reason === 'AlmoÃ§o') return <Coffee className="text-amber-500" size={16} />;
+    if (reason === 'ReuniÃ£o') return <Users className="text-amber-500" size={16} />;
     return <Info className="text-amber-500" size={16} />;
   };
 
@@ -131,9 +136,9 @@ export function StatusHistoryPanel({ userId }: StatusHistoryPanelProps) {
       {/* Header com Filtro para Admin */}
       <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 bg-white p-6 border border-slate-200 rounded-[2rem] shadow-sm">
         <div>
-          <h2 className="text-xl font-black text-slate-800 uppercase tracking-tight">Análise de Tempo e Presença</h2>
+          <h2 className="text-xl font-black text-slate-800 uppercase tracking-tight">Análise de Tempo e PresenÃ§a</h2>
           <p className="text-[10px] text-slate-500 font-bold uppercase tracking-widest">
-            {isAdmin ? 'Gestão completa de disponibilidade e motivos' : 'Seu histórico pessoal de disponibilidade'}
+            {isAdmin ? 'Gestão completa de disponibilidade e motivos' : 'Seu histÃ³rico pessoal de disponibilidade'}
           </p>
         </div>
         
@@ -159,11 +164,11 @@ export function StatusHistoryPanel({ userId }: StatusHistoryPanelProps) {
                 onChange={(e: any) => setPeriodFilter(e.target.value)}
                 className="bg-slate-50 border border-slate-200 rounded-xl px-4 py-2 text-xs font-bold text-slate-700 focus:outline-none focus:ring-2 focus:ring-indigo-500/20 transition-all"
               >
-                <option value="all">Todo o Período</option>
+                <option value="all">Todo o PerÃ­odo</option>
                 <option value="today">Hoje</option>
-                <option value="month">Este Mês</option>
+                <option value="month">Este MÃªs</option>
                 <option value="year">Este Ano</option>
-                <option value="specific">Data Específica</option>
+                <option value="specific">Data EspecÃ­fica</option>
               </select>
 
               {periodFilter === 'specific' && (
@@ -181,7 +186,7 @@ export function StatusHistoryPanel({ userId }: StatusHistoryPanelProps) {
 
       <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
         <StatCard label="Tempo Online" value={formatDuration(stats.online)} color="emerald" icon={<CheckCircle2 size={20} />} />
-        <StatCard label="Tempo em Ausência" value={formatDuration(stats.away)} color="amber" icon={<Clock size={20} />} />
+        <StatCard label="Tempo em AusÃªncia" value={formatDuration(stats.away)} color="amber" icon={<Clock size={20} />} />
         <StatCard label="Tempo Offline" value={formatDuration(stats.offline)} color="slate" icon={<AlertCircle size={20} />} />
       </div>
 
@@ -191,7 +196,7 @@ export function StatusHistoryPanel({ userId }: StatusHistoryPanelProps) {
           <div className="lg:col-span-1 space-y-4">
              <div className="bg-white border border-slate-200 rounded-[2rem] overflow-hidden shadow-sm h-full">
                 <div className="px-6 py-4 border-b border-slate-100 bg-slate-50/50">
-                  <h3 className="text-sm font-black text-slate-800 uppercase tracking-tight">Motivos de Ausência</h3>
+                  <h3 className="text-sm font-black text-slate-800 uppercase tracking-tight">Motivos de AusÃªncia</h3>
                 </div>
                 <div className="p-6 space-y-4">
                   <form onSubmit={handleAddReason} className="flex gap-2">
@@ -236,7 +241,7 @@ export function StatusHistoryPanel({ userId }: StatusHistoryPanelProps) {
              </div>
           </div>
 
-          {/* Histórico Detalhado */}
+          {/* HistÃ³rico Detalhado */}
           <div className="lg:col-span-2">
             <HistoryList 
               history={history} 
@@ -305,7 +310,7 @@ function HistoryList({ history, isAdmin, getUserName, getStatusIcon, formatDurat
                       entry.status === 'away' ? "text-amber-600" :
                       "text-slate-500"
                     )}>
-                      {entry.status === 'online' ? 'Disponível' : 
+                      {entry.status === 'online' ? 'DisponÃ­vel' : 
                        entry.status === 'away' ? 'Ausente' : 'Offline'}
                     </span>
                     {entry.reason && (
@@ -315,7 +320,7 @@ function HistoryList({ history, isAdmin, getUserName, getStatusIcon, formatDurat
                     )}
                   </div>
                   <p className="text-[10px] text-slate-400 font-medium mt-0.5">
-                    {format(new Date(entry.timestamp), "dd/MM 'às' HH:mm", { locale: ptBR })}
+                    {format(new Date(entry.timestamp), "dd/MM 'Ã s' HH:mm", { locale: ptBR })}
                   </p>
                 </div>
               </div>
@@ -340,7 +345,7 @@ function HistoryList({ history, isAdmin, getUserName, getStatusIcon, formatDurat
   );
 }
 
-function StatCard({ label, value, color, icon }: any) {
+function StatCard({ label, value, color, icon }: { label: string; value: string | number; color: 'emerald' | 'amber' | 'slate'; icon: React.ReactNode }) {
   const colors = {
     emerald: "bg-emerald-50 border-emerald-100 text-emerald-600",
     amber: "bg-amber-50 border-amber-100 text-amber-600",
@@ -365,3 +370,4 @@ function StatCard({ label, value, color, icon }: any) {
     </div>
   );
 }
+

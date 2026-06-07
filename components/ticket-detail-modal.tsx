@@ -1,9 +1,9 @@
-'use client';
+﻿'use client';
 
 import React, { useState, useEffect, useRef } from 'react';
 import { X, User, MessageCircle, Clock, Link2, Paperclip, Save, Maximize2, Minimize2, Send, Lock, History, Download, File, Image as ImageIcon, Film } from 'lucide-react';
 import { motion } from 'motion/react';
-import { Ticket, MockDB, TicketStatus, User as UserType, Message, UserRole, InternalTicket, Permission, StatusConfig, Company, Attachment, PriorityConfig, CategoryConfig } from '@/lib/mock-db';
+import { Ticket, TicketStatus, User as UserType, Message, UserRole, StatusConfig, Company, Attachment, PriorityConfig, CategoryConfig, InternalTicket, Permission } from '@/lib/types';
 import { supabase } from '@/lib/supabase';
 import { cn } from '@/lib/utils';
 import { useApp } from '@/app/app-context';
@@ -11,6 +11,10 @@ import { Star } from 'lucide-react';
 import { toast } from 'sonner';
 import { RichEditor } from './rich-editor';
 import { AttachmentGallery } from './attachment-gallery';
+import { TicketService, MessageService, InternalTicketService } from '@/lib/services/ticket-service';
+import { UserService } from '@/lib/services/user-service';
+import { CompanyService } from '@/lib/services/company-service';
+import { ConfigService } from '@/lib/services/config-service';
 
 interface TicketDetailModalProps {
   ticket: Ticket | null;
@@ -27,6 +31,8 @@ export function TicketDetailModal({ ticket, onClose }: TicketDetailModalProps) {
   const [activeTab, setActiveTab] = useState<'description' | 'internal' | 'history' | 'attachments'>('description');
   const [historyTab, setHistoryTab] = useState<'customer' | 'internal'>('customer');
   const [message, setMessage] = useState('');
+   const [messageAttachments, setMessageAttachments] = useState<Attachment[]>([]);
+   const messageFileInputRef = useRef<HTMLInputElement>(null);
   const [messages, setMessages] = useState<Message[]>([]);
   const [analysts, setAnalysts] = useState<UserType[]>([]);
   const [allUsers, setAllUsers] = useState<UserType[]>([]);
@@ -55,7 +61,7 @@ export function TicketDetailModal({ ticket, onClose }: TicketDetailModalProps) {
   const [ticketStatus, setTicketStatus] = useState(ticket?.status || TicketStatus.NEW);
   const [ticketDescription, setTicketDescription] = useState(ticket?.description || '');
   const [mainTeam, setMainTeam] = useState(ticket?.category || 'Suporte');
-  const [mainPriority, setMainPriority] = useState(ticket?.priority || 'Média');
+  const [mainPriority, setMainPriority] = useState(ticket?.priority || 'MÃ©dia');
   const [mainTags, setMainTags] = useState(ticket?.tags || []);
   const [customerId, setCustomerId] = useState(ticket?.customerId || '');
   const [companyId, setCompanyId] = useState(ticket?.companyId || '');
@@ -107,7 +113,7 @@ export function TicketDetailModal({ ticket, onClose }: TicketDetailModalProps) {
     loadInternalTicket();
     
     // Set default history tab based on role and permissions
-    if (currentUser?.role === UserRole.CUSTOMER || currentUser?.role === 'Funcionário') {
+    if (currentUser?.role === UserRole.EMPLOYEE) {
       setHistoryTab('customer');
     } else if (hasPermission(Permission.INTERNAL_TICKETS_VIEW) && !hasPermission(Permission.TICKETS_READ)) {
       setHistoryTab('internal');
@@ -140,116 +146,154 @@ export function TicketDetailModal({ ticket, onClose }: TicketDetailModalProps) {
 
   if (!ticket) return null;
 
-  const loadMessages = () => {
-    setMessages(MockDB.getMessages(ticket.id));
-  };
+const loadMessages = async () => {
+     if (ticket) {
+       const msgs = await MessageService.getByTicket(ticket.id);
+       setMessages(msgs);
+     }
+   };
 
-  const loadInternalTicket = () => {
-    const it = MockDB.getInternalTicketByParent(ticket.id);
-    if (it) {
-      setInternalTicket(it);
-      setItTitle(it.title);
-      setItTeam(it.teamId);
-      setItAssignee(it.assigneeId || '');
-      setItPriority(it.priority);
-      setItTags(it.tags);
-      setItDescription(it.description);
-      setItSla(it.slaLimit || '');
-    } else {
-      setInternalTicket(null);
-      setItTitle(`Interno: ${ticket.title}`);
-      setItTeam('Desenvolvimento');
-      setItAssignee('');
-      setItPriority(1);
-      setItTags([]);
-      setItDescription('');
-      setItSla('');
-    }
-  };
+   const loadInternalTicket = async () => {
+     if (!ticket) return;
+     const it = await InternalTicketService.getByParent(ticket.id);
+     if (it) {
+       setInternalTicket(it);
+       setItTitle(it.title);
+       setItTeam(it.teamId);
+       setItAssignee(it.assigneeId || '');
+       setItPriority(it.priority);
+       setItTags(it.tags);
+       setItDescription(it.description);
+       setItSla(it.slaLimit || '');
+     } else {
+       setInternalTicket(null);
+       setItTitle(`Interno: ${ticket.title}`);
+       setItTeam('Desenvolvimento');
+       setItAssignee('');
+       setItPriority(1);
+       setItTags([]);
+       setItDescription('');
+       setItSla('');
+     }
+   };
 
-  const handleCreateInternalTicket = () => {
-    if (!currentUser) return;
-    const newIT: InternalTicket = {
-      id: `IT-${Math.random().toString(36).substr(2, 5).toUpperCase()}`,
-      parentTicketId: ticket.id,
-      title: itTitle,
-      teamId: itTeam,
-      assigneeId: itAssignee || undefined,
-      priority: itPriority,
-      tags: itTags,
-      creatorId: currentUser.id,
-      description: itDescription,
-      createdAt: new Date().toISOString(),
-      updatedAt: new Date().toISOString(),
-      slaLimit: itSla || undefined
+const handleCreateInternalTicket = async () => {
+     if (!currentUser || !ticket) return;
+     const newIT: InternalTicket = {
+       id: `IT-${Math.random().toString(36).substr(2, 5).toUpperCase()}`,
+       parentTicketId: ticket.id,
+       title: itTitle,
+       teamId: itTeam,
+       assigneeId: itAssignee || undefined,
+       priority: itPriority,
+       tags: itTags,
+       creatorId: currentUser.id,
+       description: itDescription,
+       createdAt: new Date().toISOString(),
+       updatedAt: new Date().toISOString(),
+       slaLimit: itSla || undefined
+     };
+     await InternalTicketService.save(newIT);
+     setInternalTicket(newIT);
+
+     const msg: Message = {
+       id: Math.random().toString(36).substr(2, 9),
+       ticketId: ticket.id,
+       senderId: currentUser.id,
+       text: `Criou o ticket interno ${newIT.id}`,
+       timestamp: new Date().toISOString(),
+       isVisibleToCustomer: false,
+       type: 'internal'
+     };
+     await MessageService.create(msg);
+     loadMessages();
+   };
+
+   const handleUpdateInternalTicket = async () => {
+     if (!internalTicket) return;
+     const updatedIT: InternalTicket = {
+       ...internalTicket,
+       title: itTitle,
+       teamId: itTeam,
+       assigneeId: itAssignee,
+       priority: itPriority,
+       tags: itTags,
+       description: itDescription,
+       updatedAt: new Date().toISOString(),
+       slaLimit: itSla || undefined
+     };
+     await InternalTicketService.save(updatedIT);
+     setInternalTicket(updatedIT);
+   };
+
+const handleSendMessage = async (isInternal: boolean) => {
+      if (!message.trim() || !currentUser || !ticket) return;
+
+      const newMessage: Message = {
+        id: Math.random().toString(36).substr(2, 9),
+        ticketId: ticket.id,
+        senderId: currentUser.id,
+        text: message,
+        timestamp: new Date().toISOString(),
+        isVisibleToCustomer: !isInternal,
+        type: isInternal ? 'internal' : 'text',
+        attachments: messageAttachments.length > 0 ? messageAttachments : undefined
+      };
+
+      await MessageService.create(newMessage);
+
+      const updatedTicket: Ticket = {
+        ...ticket,
+        updatedAt: new Date().toISOString()
+      };
+      await TicketService.update(updatedTicket);
+
+      setMessage('');
+      setMessageAttachments([]);
+      loadMessages();
+      triggerRefresh();
     };
-    MockDB.saveInternalTicket(newIT);
-    setInternalTicket(newIT);
 
-    const msg: Message = {
-      id: Math.random().toString(36).substr(2, 9),
-      ticketId: ticket.id,
-      senderId: currentUser.id,
-      text: `Criou o ticket interno ${newIT.id}`,
-      timestamp: new Date().toISOString(),
-      isVisibleToCustomer: false,
-      type: 'internal'
-    };
-    MockDB.saveMessage(msg);
-    loadMessages();
-  };
+    const handleMessageFileUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
+      const files = Array.from(e.target.files || []);
+      if (files.length === 0) return;
 
-  const handleUpdateInternalTicket = () => {
-    if (!internalTicket) return;
-    const updatedIT: InternalTicket = {
-      ...internalTicket,
-      title: itTitle,
-      teamId: itTeam,
-      assigneeId: itAssignee,
-      priority: itPriority,
-      tags: itTags,
-      description: itDescription,
-      updatedAt: new Date().toISOString(),
-      slaLimit: itSla || undefined
-    };
-    MockDB.saveInternalTicket(updatedIT);
-    setInternalTicket(updatedIT);
-  };
+      for (const file of files) {
+        const fileId = Math.random().toString(36).substr(2, 9);
+        const fileName = `${Date.now()}-${file.name}`;
+        
+        // Upload to Supabase Storage
+        const { data: uploadData, error: uploadError } = await supabase
+          .storage
+          .from('attachments')
+          .upload(fileName, file);
 
-  const handleSendMessage = (isInternal: boolean) => {
-    if (!message.trim() || !currentUser) return;
+        if (uploadError) {
+          toast.error(`Erro ao fazer upload de ${file.name}`);
+          continue;
+        }
 
-    const newMessage: Message = {
-      id: Math.random().toString(36).substr(2, 9),
-      ticketId: ticket.id,
-      senderId: currentUser.id,
-      text: message,
-      timestamp: new Date().toISOString(),
-      isVisibleToCustomer: !isInternal,
-      type: isInternal ? 'internal' : 'text'
+        const { data: { publicUrl } } = supabase
+          .storage
+          .from('attachments')
+          .getPublicUrl(uploadData.path);
+
+        setMessageAttachments(prev => [...prev, {
+          id: fileId,
+          name: file.name,
+          type: file.type,
+          url: publicUrl,
+          size: file.size
+        }]);
+      }
+      
+      // Reset input
+      if (messageFileInputRef.current) {
+        messageFileInputRef.current.value = '';
+      }
     };
 
-    MockDB.saveMessage(newMessage);
-
-    // Add to history as well
-    const historyEntry = {
-      action: isInternal ? 'note_internal' : 'message_sent',
-      description: isInternal ? `Adicionou uma nota interna` : `Enviou uma mensagem ao cliente`,
-      author: currentUser.name
-    };
-    
-    const updatedTicket: Ticket = {
-      ...ticket,
-      updatedAt: new Date().toISOString()
-    };
-    MockDB.saveTicket(updatedTicket, historyEntry);
-
-    setMessage('');
-    loadMessages();
-    triggerRefresh();
-  };
-
-  const handleUpdateMainTicket = (overrides: Partial<Ticket> = {}) => {
+  const handleUpdateMainTicket = async (overrides: Partial<Ticket> = {}) => {
     if (!ticket) return;
 
     // Use values from overrides if provided, otherwise fallback to local state
@@ -265,9 +309,9 @@ export function TicketDetailModal({ ticket, onClose }: TicketDetailModalProps) {
 
     // Detect changes for history
     const changes: string[] = [];
-    if (ticket.status !== statusToSave) changes.push(`Status: ${ticket.status} ➔ ${statusToSave}`);
-    if (ticket.priority !== priorityToSave) changes.push(`Prioridade: ${ticket.priority} ➔ ${priorityToSave}`);
-    if (ticket.category !== categoryToSave) changes.push(`Categoria: ${ticket.category} ➔ ${categoryToSave}`);
+    if (ticket.status !== statusToSave) changes.push(`Status: ${ticket.status} âž” ${statusToSave}`);
+    if (ticket.priority !== priorityToSave) changes.push(`Prioridade: ${ticket.priority} âž” ${priorityToSave}`);
+    if (ticket.category !== categoryToSave) changes.push(`Categoria: ${ticket.category} âž” ${categoryToSave}`);
     
     const oldAssigneeId = ticket.assigneeId === '' ? undefined : ticket.assigneeId;
     const newAssigneeId = assigneeToSave === '' ? undefined : assigneeToSave;
@@ -275,7 +319,7 @@ export function TicketDetailModal({ ticket, onClose }: TicketDetailModalProps) {
     if (oldAssigneeId !== newAssigneeId) {
       const oldAnalyst = allUsers.find(u => u.id === oldAssigneeId)?.name || 'Ninguém';
       const newAnalyst = allUsers.find(u => u.id === newAssigneeId)?.name || 'Ninguém';
-      changes.push(`Responsável: ${oldAnalyst} ➔ ${newAnalyst}`);
+      changes.push(`Responsável: ${oldAnalyst} → ${newAnalyst}`);
     }
     
     if (ticket.description !== descriptionToSave) changes.push('Descrição alterada');
@@ -300,23 +344,19 @@ export function TicketDetailModal({ ticket, onClose }: TicketDetailModalProps) {
       author: currentUser?.name || 'Sistema'
     } : undefined;
 
-    MockDB.saveTicket(updated, historyEntry);
+    await TicketService.update(updated);
     triggerRefresh();
     toast.success('Ticket atualizado');
   };
 
-  const saveMainTicketDescription = () => {
+  const saveMainTicketDescription = async () => {
     if (ticket.description === ticketDescription) {
       setIsEditingDescription(false);
       return;
     }
 
     const updated: Ticket = { ...ticket, description: ticketDescription, updatedAt: new Date().toISOString() };
-    MockDB.saveTicket(updated, {
-      action: 'update',
-      description: 'Alterou a descrição do chamado',
-      author: currentUser?.name || 'Sistema'
-    });
+    await TicketService.update(updated);
     triggerRefresh();
     setIsEditingDescription(false);
     toast.success('Descrição atualizada');
@@ -324,7 +364,7 @@ export function TicketDetailModal({ ticket, onClose }: TicketDetailModalProps) {
 
   const itCreator = internalTicket ? allUsers.find(u => u.id === internalTicket.creatorId) : null;
 
-  const handleTakeTicket = () => {
+  const handleTakeTicket = async () => {
     if (!currentUser || !ticket) return;
     const nextStatus = ticket.status === TicketStatus.NEW ? TicketStatus.IN_PROGRESS : ticket.status;
     setAssigneeId(currentUser.id);
@@ -335,7 +375,7 @@ export function TicketDetailModal({ ticket, onClose }: TicketDetailModalProps) {
     });
   };
 
-  const handleCompleteTicket = () => {
+  const handleCompleteTicket = async () => {
     if (!ticket || !currentUser) return;
     setTicketStatus(TicketStatus.CLOSED);
     handleUpdateMainTicket({ 
@@ -472,41 +512,41 @@ export function TicketDetailModal({ ticket, onClose }: TicketDetailModalProps) {
                              </select>
                           </div>
                        </div>
-                       <div className="flex items-start gap-4">
-                          <span className="text-[11px] font-black uppercase text-slate-400 w-24 pt-0.5">Vencimento</span>
-                          <div className="flex flex-col">
-                            <span className={cn(
-                              "text-sm font-bold",
-                              (() => {
-                                const config = priorities.find(p => p.label === mainPriority);
-                                if (!config || !config.sla_hours) return false;
-                                const limit = new Date(new Date(ticket.createdAt).getTime() + config.sla_hours * 60 * 60 * 1000);
-                                return limit < new Date() && ticketStatus !== TicketStatus.CLOSED;
-                              })() ? "text-red-600" : "text-slate-700"
-                            )}>
-                              {(() => {
-                                const config = priorities.find(p => p.label === mainPriority);
-                                if (!config || !config.sla_hours) return '---';
-                                const limit = new Date(new Date(ticket.createdAt).getTime() + config.sla_hours * 60 * 60 * 1000);
-                                return limit.toLocaleString('pt-BR', { day: '2-digit', month: '2-digit', year: 'numeric', hour: '2-digit', minute: '2-digit' });
-                              })()}
-                            </span>
-                            {(() => {
-                              const config = priorities.find(p => p.label === mainPriority);
-                              if (!config || !config.sla_hours) return false;
-                              const limit = new Date(new Date(ticket.createdAt).getTime() + config.sla_hours * 60 * 60 * 1000);
-                              return limit < new Date() && ticketStatus !== TicketStatus.CLOSED;
-                            })() && (
-                              <span className="text-[10px] font-black text-red-500 uppercase tracking-tight">Prazo ultrapassado</span>
-                            )}
-                          </div>
-                       </div>
+<div className="flex items-start gap-4">
+                           <span className="text-[11px] font-black uppercase text-slate-400 w-24 pt-0.5">Vencimento</span>
+                           <div className="flex flex-col">
+                             <span className={cn(
+                               "text-sm font-bold",
+                               (() => {
+                                   const config = priorities.find(p => p.label === mainPriority);
+                                   if (!config || !config.slaHours) return false;
+                                   const limit = new Date(new Date(ticket.createdAt).getTime() + config.slaHours * 60 * 60 * 1000);
+                                   return limit < new Date() && ticketStatus !== TicketStatus.CLOSED;
+                                 })() ? "text-red-600" : "text-slate-700"
+                             )}>
+                               {(() => {
+                                 const config = priorities.find(p => p.label === mainPriority);
+                                 if (!config || !config.slaHours) return '---';
+                                 const limit = new Date(new Date(ticket.createdAt).getTime() + config.slaHours * 60 * 60 * 1000);
+                                 return limit.toLocaleString('pt-BR', { day: '2-digit', month: '2-digit', year: 'numeric', hour: '2-digit', minute: '2-digit' });
+                               })()}
+                             </span>
+                             {(() => {
+                               const config = priorities.find(p => p.label === mainPriority);
+                               if (!config || !config.slaHours) return false;
+                               const limit = new Date(new Date(ticket.createdAt).getTime() + config.slaHours * 60 * 60 * 1000);
+                               return limit < new Date() && ticketStatus !== TicketStatus.CLOSED;
+                             })() && (
+                               <span className="text-[10px] font-black text-red-500 uppercase tracking-tight">Prazo ultrapassado</span>
+                             )}
+                           </div>
+                        </div>
                        <div className="flex items-start gap-4">
                           <span className="text-[11px] font-black uppercase text-slate-400 w-24 pt-0.5">Prioridade</span>
                           <div className="flex items-center gap-0.5 pt-0.5">
                              {[1, 2, 3, 4].map((star) => {
                                // Priority mapping
-                               const priorityLabels = ['Baixa', 'Média', 'Alta', 'Urgente'];
+                               const priorityLabels = ['Baixa', 'MÃ©dia', 'Alta', 'Urgente'];
                                const currentStars = priorityLabels.indexOf(mainPriority) + 1;
                                
                                return (
@@ -560,9 +600,9 @@ export function TicketDetailModal({ ticket, onClose }: TicketDetailModalProps) {
                        </div>
                        <div className="flex items-start gap-4">
                           <span className="text-[11px] font-black uppercase text-slate-400 w-24 pt-0.5">Contato</span>
-                          <select 
-                             value={customerId}
-                             onChange={(e) => {
+<select 
+                              value={customerId || ''}
+                              onChange={(e) => {
                                const val = e.target.value;
                                setCustomerId(val);
                                handleUpdateMainTicket({ customerId: val });
@@ -571,7 +611,7 @@ export function TicketDetailModal({ ticket, onClose }: TicketDetailModalProps) {
                           >
                              <option value="">Selecione um contato</option>
                              {allUsers
-                               .filter(u => (u.role === UserRole.CUSTOMER || u.role === 'Funcionário') && (!companyId || u.companyId === companyId))
+                               .filter(u => (u.role === UserRole.EMPLOYEE) && (!companyId || u.companyId === companyId))
                                .map(u => <option key={u.id} value={u.id}>{u.name}</option>)}
                           </select>
                        </div>
@@ -592,7 +632,7 @@ export function TicketDetailModal({ ticket, onClose }: TicketDetailModalProps) {
                                            onClick={() => {
                                               const next = employeeIds.filter(id => id !== empId);
                                               setEmployeeIds(next);
-                                              setTimeout(handleUpdateMainTicket, 0);
+                                              setTimeout(() => handleUpdateMainTicket(), 0);
                                            }}
                                            className="hover:text-red-500"
                                          >
@@ -608,7 +648,7 @@ export function TicketDetailModal({ ticket, onClose }: TicketDetailModalProps) {
                                    if (!employeeIds.includes(e.target.value)) {
                                       const next = [...employeeIds, e.target.value];
                                       setEmployeeIds(next);
-                                      setTimeout(handleUpdateMainTicket, 0);
+                                      setTimeout(() => handleUpdateMainTicket(), 0);
                                    }
                                    e.target.value = "";
                                 }}
@@ -616,20 +656,20 @@ export function TicketDetailModal({ ticket, onClose }: TicketDetailModalProps) {
                              >
                                 <option value="">+ Adicionar</option>
                                 {allUsers
-                                  .filter(u => (u.role === UserRole.CUSTOMER || u.role === 'Funcionário') && !employeeIds.includes(u.id))
+                                  .filter(u => (u.role === UserRole.EMPLOYEE) && !employeeIds.includes(u.id))
                                   .map(u => <option key={u.id} value={u.id}>{u.name}</option>)}
                              </select>
                           </div>
                        </div>
                        <div className="flex items-start gap-4 pt-1">
                           <span className="text-[11px] font-black uppercase text-slate-400 w-24 pt-0.5">Marcadores</span>
-                          <input 
-                             value={mainTags.join(', ')}
-                             onChange={(e) => setMainTags(e.target.value.split(',').map(s => s.trim()).filter(s => !!s))}
-                             onBlur={handleUpdateMainTicket}
-                             placeholder="tags..."
-                             className="text-sm font-bold text-slate-700 bg-transparent border-none outline-none focus:ring-2 focus:ring-indigo-500/10 rounded px-1 -ml-1 flex-1 hover:bg-slate-50 transition-all"
-                          />
+<input 
+                              value={mainTags.join(', ')}
+                              onChange={(e) => setMainTags(e.target.value.split(',').map(s => s.trim()).filter(s => !!s))}
+                              onBlur={() => handleUpdateMainTicket()}
+                              placeholder="tags..."
+                              className="text-sm font-bold text-slate-700 bg-transparent border-none outline-none focus:ring-2 focus:ring-indigo-500/10 rounded px-1 -ml-1 flex-1 hover:bg-slate-50 transition-all"
+                           />
                        </div>
                     </div>
                  </div>
@@ -678,7 +718,7 @@ export function TicketDetailModal({ ticket, onClose }: TicketDetailModalProps) {
                          Descrição
                        </button>
                      )}
-                     {currentUser?.role !== UserRole.CUSTOMER && hasPermission(Permission.INTERNAL_TICKETS_VIEW) && (
+{currentUser?.role !== UserRole.EMPLOYEE && hasPermission(Permission.INTERNAL_TICKETS_VIEW) && (
                        <button 
                          onClick={() => setActiveTab('internal')}
                          className={cn(
@@ -695,7 +735,7 @@ export function TicketDetailModal({ ticket, onClose }: TicketDetailModalProps) {
                           "px-4 py-3 border-b-2 transition-all flex items-center justify-center",
                           activeTab === 'history' ? "border-slate-500 text-slate-600 bg-slate-50/50" : "border-transparent text-slate-400 hover:text-slate-600"
                         )}
-                        title="Histórico de alterações"
+                        title="HistÃ³rico de alteraÃ§Ãµes"
                       >
                         <History size={16} />
                       </button>
@@ -714,22 +754,20 @@ export function TicketDetailModal({ ticket, onClose }: TicketDetailModalProps) {
                   <div className="py-8">
                      {activeTab === 'description' && (
                        <div className="space-y-4">
-                          <div className="flex items-center justify-between">
-                             <h3 className="text-xs font-black uppercase text-slate-400 tracking-widest">Descrição do Chamado</h3>
-                             {!isCustomer && (
-                               <button 
-                                 onClick={() => isEditingDescription ? saveMainTicketDescription() : setIsEditingDescription(true)}
-                                 className="text-xs font-black text-indigo-600 uppercase hover:underline"
-                               >
-                                 {isEditingDescription ? 'Salvar' : 'Editar'}
-                               </button>
-                             )}
-                          </div>
-                          {isEditingDescription ? (
-                            <RichEditor content={ticketDescription} onChange={setTicketDescription} minHeight="300px" />
-                          ) : (
-                            <div className="text-sm font-medium text-slate-700 leading-relaxed prose prose-sm max-w-none prose-p:my-2 prose-img:rounded-xl prose-img:border" dangerouslySetInnerHTML={{ __html: ticket.description }} />
-                          )}
+<div className="flex items-center justify-between">
+                              <h3 className="text-xs font-black uppercase text-slate-400 tracking-widest">Descrição do Chamado</h3>
+                              <button 
+                                onClick={() => isEditingDescription ? saveMainTicketDescription() : setIsEditingDescription(true)}
+                                className="text-xs font-black text-indigo-600 uppercase hover:underline"
+                              >
+                                {isEditingDescription ? 'Salvar' : 'Editar'}
+                              </button>
+                           </div>
+                           {isEditingDescription ? (
+                             <RichEditor content={ticketDescription} onChange={setTicketDescription} minHeight="300px" />
+                           ) : (
+                             <div className="text-sm font-medium text-slate-700 leading-relaxed prose prose-sm max-w-none prose-p:my-2 prose-img:rounded-xl prose-img:border" dangerouslySetInnerHTML={{ __html: ticket.description }} />
+                           )}
                        </div>
                      )}
 
@@ -834,10 +872,10 @@ export function TicketDetailModal({ ticket, onClose }: TicketDetailModalProps) {
                                                onClick={() => {
                                                   const newPrio = star === itPriority && star === 1 ? 0 : star;
                                                   setItPriority(newPrio);
-                                                  setTimeout(() => {
-                                                     if (internalTicket) {
+                                                  setTimeout(async () => {
+                                                      if (internalTicket) {
                                                         const updatedIT = { ...internalTicket, priority: newPrio };
-                                                        MockDB.saveInternalTicket(updatedIT);
+                                                        await InternalTicketService.save(updatedIT);
                                                         setInternalTicket(updatedIT);
                                                      }
                                                   }, 0);
@@ -852,12 +890,12 @@ export function TicketDetailModal({ ticket, onClose }: TicketDetailModalProps) {
                                   </div>
 
                                   <div className="col-span-2 space-y-2">
-                                     <label className="text-[10px] font-black uppercase text-slate-400">Descrição Técnica / Notas do Desenvolvedor</label>
+                                     <label className="text-[10px] font-black uppercase text-slate-400">Descrição TÃ©cnica / Notas do Desenvolvedor</label>
                                      <textarea 
                                        value={itDescription}
                                        onChange={(e) => setItDescription(e.target.value)}
                                        onBlur={handleUpdateInternalTicket}
-                                       placeholder="Adicione detalhes técnicos, bugs reportados ou requisitos..."
+                                       placeholder="Adicione detalhes tÃ©cnicos, bugs reportados ou requisitos..."
                                        className="w-full min-h-[120px] bg-white border border-slate-200 rounded-xl p-4 text-sm font-medium outline-none focus:border-amber-400 shadow-sm"
                                      />
                                   </div>
@@ -867,7 +905,7 @@ export function TicketDetailModal({ ticket, onClose }: TicketDetailModalProps) {
                             <div className="text-center py-20 border-2 border-dashed border-slate-200 rounded-3xl group hover:border-amber-300 transition-all">
                                <Lock className="mx-auto text-slate-200 mb-4 group-hover:text-amber-400 transition-all" size={48} />
                                <h3 className="text-lg font-black text-slate-800 uppercase tracking-tight">Criar Ticket Interno</h3>
-                               <p className="text-sm font-medium text-slate-400 mt-2 mb-6 max-w-sm mx-auto uppercase">Vincule um ticket de desenvolvimento ou manutenção técnica a este chamado do cliente.</p>
+                               <p className="text-sm font-medium text-slate-400 mt-2 mb-6 max-w-sm mx-auto uppercase">Vincule um ticket de desenvolvimento ou manutenção tÃ©cnica a este chamado do cliente.</p>
                                <button 
                                  onClick={handleCreateInternalTicket}
                                  className="px-6 py-3 bg-amber-500 text-white rounded-2xl text-xs font-black uppercase tracking-widest hover:bg-amber-600 transition-all shadow-lg shadow-amber-100"
@@ -928,7 +966,7 @@ export function TicketDetailModal({ ticket, onClose }: TicketDetailModalProps) {
                        historyTab === 'customer' ? "text-indigo-600" : "text-slate-400"
                      )}
                    >
-                     Histórico Cliente
+                     HistÃ³rico Cliente
                    </button>
                  )}
                  {currentUser?.role !== UserRole.CUSTOMER && hasPermission(Permission.INTERNAL_TICKETS_VIEW) && (
@@ -970,15 +1008,34 @@ export function TicketDetailModal({ ticket, onClose }: TicketDetailModalProps) {
                               <span className="text-[8px] font-black px-1 py-0.5 bg-amber-100 text-amber-600 rounded uppercase tracking-tighter">Interno</span>
                             )}
                           </div>
-                          <div className={cn(
-                            "p-3 rounded-2xl text-sm leading-relaxed shadow-sm prose prose-sm max-w-none",
-                            isInternal 
-                              ? "bg-amber-50 border border-amber-100 text-amber-900 border-l-4 border-l-amber-400 prose-amber" 
-                              : "bg-white border border-slate-200 text-slate-700"
-                          )}
-                          dangerouslySetInnerHTML={{ __html: m.text }}
-                          />
-                        </div>
+<div className={cn(
+                             "p-3 rounded-2xl text-sm leading-relaxed shadow-sm prose prose-sm max-w-none",
+                             isInternal 
+                               ? "bg-amber-50 border border-amber-100 text-amber-900 border-l-4 border-l-amber-400 prose-amber" 
+                               : "bg-white border border-slate-200 text-slate-700"
+                           )}
+                           dangerouslySetInnerHTML={{ __html: m.text }}
+                           />
+                           {/* Render attachments inline */}
+                           {m.attachments && m.attachments.length > 0 && (
+                             <div className="mt-3 pt-3 border-t border-slate-200">
+                               <div className="flex flex-wrap gap-2">
+                                 {m.attachments.map(att => (
+                                   <a 
+                                     key={att.id}
+                                     href={att.url}
+                                     target="_blank"
+                                     rel="noopener noreferrer"
+                                     className="flex items-center gap-1 px-2 py-1 bg-slate-100 rounded text-[10px] hover:bg-slate-200 transition-colors"
+                                   >
+                                     <File size={12} />
+                                     <span className="truncate max-w-[120px]">{att.name}</span>
+                                   </a>
+                                 ))}
+                               </div>
+                             </div>
+                           )}
+                         </div>
                       </div>
                     </div>
                   );
@@ -993,32 +1050,72 @@ export function TicketDetailModal({ ticket, onClose }: TicketDetailModalProps) {
               )}
            </div>
 
-            {/* Input Tool area */}
-            <div className="p-6 bg-white border-t border-slate-100">
-               <div className="space-y-4">
-                  <RichEditor 
-                    content={message}
-                    onChange={setMessage}
-                    placeholder={historyTab === 'internal' ? "Nota interna..." : "Escreva sua resposta..."}
-                    minHeight="100px"
-                  />
-                  <div className="flex items-center justify-end">
-                     <button 
-                       onClick={() => handleSendMessage(historyTab === 'internal')}
-                       disabled={!message.trim() || message === '<p></p>'}
-                       className={cn(
-                         "px-6 py-2 rounded-xl transition-all disabled:opacity-50 shadow-lg text-xs font-black uppercase tracking-widest flex items-center gap-2",
-                         historyTab === 'internal' ? "bg-amber-500 hover:bg-amber-600 text-white shadow-amber-100" : "bg-indigo-600 hover:bg-indigo-700 text-white shadow-indigo-100"
-                       )}
-                     >
-                        <Send size={16} />
-                        Enviar {historyTab === 'internal' ? 'Nota' : 'Resposta'}
-                     </button>
-                  </div>
-               </div>
-            </div>
+{/* Input Tool area */}
+             <div className="p-6 bg-white border-t border-slate-100">
+                <div className="space-y-4">
+                   {/* Attachment preview */}
+                   {messageAttachments.length > 0 && (
+                     <div className="flex flex-wrap gap-2">
+                       {messageAttachments.map(att => (
+                         <div key={att.id} className="flex items-center gap-1 px-2 py-1 bg-slate-100 rounded-lg text-[10px]">
+                           <File size={12} />
+                           <span className="truncate max-w-[120px]">{att.name}</span>
+                           <button
+                             onClick={() => setMessageAttachments(prev => prev.filter(a => a.id !== att.id))}
+                             className="text-red-500 hover:text-red-700"
+                           >
+                             <X size={10} />
+                           </button>
+                         </div>
+                       ))}
+                     </div>
+                   )}
+                   
+                   <RichEditor 
+                     content={message}
+                     onChange={setMessage}
+                     placeholder={historyTab === 'internal' ? "Nota interna..." : "Escreva sua resposta..."}
+                     minHeight="100px"
+                   />
+                   <div className="flex items-center justify-between">
+                      <div>
+                         <input
+                           type="file"
+                           ref={messageFileInputRef}
+                           onChange={handleMessageFileUpload}
+                           multiple
+                           accept="image/*,.pdf,.doc,.docx,.txt,.zip,audio/*"
+                           className="hidden"
+                         />
+                         <button
+                           type="button"
+                           onClick={() => messageFileInputRef.current?.click()}
+                           className="px-3 py-1.5 rounded-lg border border-slate-200 text-slate-600 hover:bg-slate-50 transition-colors text-[10px] font-black uppercase tracking-widest flex items-center gap-1"
+                         >
+                           <Paperclip size={12} />
+                           Anexar
+                         </button>
+                      </div>
+                      <button 
+                        onClick={() => handleSendMessage(historyTab === 'internal')}
+                        disabled={!message.trim() || message === '<p></p>'}
+                        className={cn(
+                          "px-6 py-2 rounded-xl transition-all disabled:opacity-50 shadow-lg text-xs font-black uppercase tracking-widest flex items-center gap-2",
+                          historyTab === 'internal' ? "bg-amber-500 hover:bg-amber-600 text-white shadow-amber-100" : "bg-indigo-600 hover:bg-indigo-700 text-white shadow-indigo-100"
+                        )}
+                      >
+                         <Send size={16} />
+                         Enviar {historyTab === 'internal' ? 'Nota' : 'Resposta'}
+                      </button>
+                   </div>
+                </div>
+             </div>
         </div>
       </motion.div>
     </div>
   );
 }
+
+
+
+

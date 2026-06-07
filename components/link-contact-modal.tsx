@@ -1,4 +1,4 @@
-'use client';
+﻿'use client';
 
 import React, { useState, useEffect } from 'react';
 import { 
@@ -38,7 +38,7 @@ export function LinkContactModal({
 
   useEffect(() => {
     if (isOpen) {
-      setUsers(MockDB.getUsers().filter(u => u.role === UserRole.CUSTOMER));
+      setUsers(MockDB.getUsers().filter(u => u.role === UserRole.EMPLOYEE));
       setCompanies(MockDB.getCompanies());
       setNewName(session?.customerName || '');
     }
@@ -96,7 +96,7 @@ export function LinkContactModal({
     const newUser = await MockDB.inviteUser(
       `contact_${Date.now()}@placeholder.com`, 
       newName, 
-      UserRole.CUSTOMER, 
+      UserRole.EMPLOYEE, 
       finalCompanyId
     );
 
@@ -134,7 +134,7 @@ export function LinkContactModal({
               <div>
                 <h3 className="text-xl font-black tracking-tight">Vincular Contato</h3>
                 <p className="text-[10px] text-slate-400 font-bold uppercase tracking-widest mt-1">
-                  Número: {maskPhone(session?.customerPhone || '')}
+                  NÃºmero: {maskPhone(session?.customerPhone || '')}
                 </p>
               </div>
               <button onClick={onClose} className="p-2 hover:bg-white/10 rounded-xl transition-colors text-slate-400">

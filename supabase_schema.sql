@@ -8,6 +8,9 @@ DROP TRIGGER IF EXISTS on_auth_user_created ON auth.users;
 DROP FUNCTION IF EXISTS public.handle_new_user() CASCADE;
 DROP FUNCTION IF EXISTS public.create_global_policy(TEXT) CASCADE;
 DROP FUNCTION IF EXISTS public.is_admin() CASCADE;
+DROP FUNCTION IF EXISTS public.create_user_account(TEXT,TEXT,TEXT,TEXT) CASCADE;
+DROP FUNCTION IF EXISTS public.admin_delete_user(UUID) CASCADE;
+DROP FUNCTION IF EXISTS public.admin_update_user_password(TEXT,TEXT) CASCADE;
 
 DROP TABLE IF EXISTS public.ticket_attachments CASCADE;
 DROP TABLE IF EXISTS public.ticket_messages CASCADE;
@@ -21,6 +24,7 @@ DROP TABLE IF EXISTS public.analyst_status CASCADE;
 DROP TABLE IF EXISTS public.user_status_history CASCADE;
 DROP TABLE IF EXISTS public.absence_reasons CASCADE;
 DROP TABLE IF EXISTS public.whatsapp_sessions CASCADE;
+DROP TABLE IF EXISTS public.whatsapp_instances CASCADE;
 DROP TABLE IF EXISTS public.config_categories CASCADE;
 DROP TABLE IF EXISTS public.config_priorities CASCADE;
 DROP TABLE IF EXISTS public.config_tags CASCADE;
@@ -29,6 +33,8 @@ DROP TABLE IF EXISTS public.quick_notes CASCADE;
 DROP TABLE IF EXISTS public.queues CASCADE;
 DROP TABLE IF EXISTS public.profiles CASCADE;
 DROP TABLE IF EXISTS public.companies CASCADE;
+DROP TABLE IF EXISTS public.internal_tickets CASCADE;
+DROP TABLE IF EXISTS public.internal_chats CASCADE;
 
 -- Drop sequence if exists to start fresh
 DROP SEQUENCE IF EXISTS public.ticket_seq CASCADE;
@@ -209,12 +215,55 @@ CREATE TABLE public.queues (
   created_at TIMESTAMP WITH TIME ZONE DEFAULT timezone('utc'::text, now()) NOT NULL
 );
 
+-- 14.5 Internal Tickets Table (Internal tracking for complex issues)
+CREATE TABLE public.internal_tickets (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  parent_ticket_id TEXT REFERENCES public.tickets(id) ON DELETE CASCADE,
+  title TEXT NOT NULL,
+  description TEXT NOT NULL,
+  team_id TEXT,
+  assignee_id UUID REFERENCES public.profiles(id) ON DELETE SET NULL,
+  priority INTEGER DEFAULT 1,
+  tags TEXT[] DEFAULT '{}',
+  creator_id UUID REFERENCES public.profiles(id) ON DELETE SET NULL,
+  created_at TIMESTAMP WITH TIME ZONE DEFAULT timezone('utc'::text, now()) NOT NULL,
+  updated_at TIMESTAMP WITH TIME ZONE DEFAULT timezone('utc'::text, now()) NOT NULL,
+  sla_limit TIMESTAMP WITH TIME ZONE
+);
+
 -- 15. WhatsApp Sessions Tables (Baileys credentials)
 CREATE TABLE public.whatsapp_sessions (
   id TEXT PRIMARY KEY,
   data JSONB NOT NULL,
   created_at TIMESTAMP WITH TIME ZONE DEFAULT timezone('utc'::text, now()) NOT NULL,
   updated_at TIMESTAMP WITH TIME ZONE DEFAULT timezone('utc'::text, now()) NOT NULL
+);
+
+-- 15.5 WhatsApp Instances Table (for UI management)
+CREATE TABLE public.whatsapp_instances (
+  id TEXT PRIMARY KEY,
+  name TEXT,
+  phone TEXT,
+  status TEXT DEFAULT 'disconnected',
+  created_at TIMESTAMP WITH TIME ZONE DEFAULT timezone('utc'::text, now()) NOT NULL,
+  updated_at TIMESTAMP WITH TIME ZONE DEFAULT timezone('utc'::text, now()) NOT NULL
+);
+
+-- internal_chats for internal messaging
+CREATE TABLE public.internal_chats (
+  id TEXT PRIMARY KEY,
+  name TEXT,
+  image_url TEXT,
+  type TEXT DEFAULT 'direct',
+  member_ids UUID[] DEFAULT '{}',
+  messages JSONB DEFAULT '[]',
+  last_message_at TIMESTAMP WITH TIME ZONE,
+  pinned_by UUID[] DEFAULT '{}',
+  pinned_message_ids TEXT[] DEFAULT '{}',
+  muted_by UUID[] DEFAULT '{}',
+  read_later_by UUID[] DEFAULT '{}',
+  hidden_by UUID[] DEFAULT '{}',
+  created_at TIMESTAMP WITH TIME ZONE DEFAULT timezone('utc'::text, now())
 );
 
 
@@ -306,6 +355,7 @@ ALTER TABLE public.chat_messages DISABLE ROW LEVEL SECURITY;
 ALTER TABLE public.quick_notes DISABLE ROW LEVEL SECURITY;
 ALTER TABLE public.queues DISABLE ROW LEVEL SECURITY;
 ALTER TABLE public.whatsapp_sessions DISABLE ROW LEVEL SECURITY;
+ALTER TABLE public.internal_tickets DISABLE ROW LEVEL SECURITY;
 
 -- Auxiliary trigger/function structure to automatically create permissive fallback policies
 CREATE OR REPLACE FUNCTION public.create_permissive_policy(table_name TEXT) RETURNS VOID AS $$
@@ -335,6 +385,7 @@ SELECT public.create_permissive_policy('chat_messages');
 SELECT public.create_permissive_policy('quick_notes');
 SELECT public.create_permissive_policy('queues');
 SELECT public.create_permissive_policy('whatsapp_sessions');
+SELECT public.create_permissive_policy('internal_tickets');
 
 -- Drop the helper function
 DROP FUNCTION IF EXISTS public.create_permissive_policy(TEXT);
@@ -485,10 +536,118 @@ BEGIN
   IF NOT EXISTS (SELECT 1 FROM pg_publication_tables WHERE pubname = 'supabase_realtime' AND schemaname = 'public' AND tablename = 'chat_sessions') THEN
     ALTER PUBLICATION supabase_realtime ADD TABLE chat_sessions;
   END IF;
-  IF NOT EXISTS (SELECT 1 FROM pg_publication_tables WHERE pubname = 'supabase_realtime' AND schemaname = 'public' AND tablename = 'chat_messages') THEN
+IF NOT EXISTS (SELECT 1 FROM pg_publication_tables WHERE pubname = 'supabase_realtime' AND schemaname = 'public' AND tablename = 'chat_messages') THEN
     ALTER PUBLICATION supabase_realtime ADD TABLE chat_messages;
   END IF;
-END $$;
+ END $$;
 
--- Reload Schema Cache
-NOTIFY pgrst, 'reload schema';
+ -- =========================================================================
+ -- RPC FUNCTIONS FOR USER MANAGEMENT
+ -- =========================================================================
+
+ -- RPC: create_user_account - Creates auth user and profile
+ CREATE OR REPLACE FUNCTION public.create_user_account(
+   p_email TEXT,
+   p_password TEXT,
+   p_name TEXT,
+   p_role TEXT DEFAULT 'Cliente'
+ ) RETURNS TABLE (
+   id UUID,
+   email TEXT,
+   name TEXT,
+   role TEXT,
+   error TEXT
+ ) LANGUAGE plpgsql SECURITY DEFINER AS $$
+ DECLARE
+   v_user_id UUID;
+   v_role TEXT := p_role;
+   v_is_admin BOOLEAN := FALSE;
+   v_lives_in_squad BOOLEAN := FALSE;
+   v_default_company UUID := '11111111-1111-4111-8111-111111111111'::UUID;
+ BEGIN
+   -- Check if user already exists
+   SELECT u.id INTO v_user_id FROM auth.users u WHERE u.email = p_email;
+   IF v_user_id IS NOT NULL THEN
+     RETURN QUERY SELECT u.id, u.email, p_name, p_role, NULL::TEXT FROM auth.users u WHERE u.id = v_user_id;
+     RETURN;
+   END IF;
+
+   -- Determine role defaults
+   IF p_role IN ('Administrador', 'admin') THEN
+     v_is_admin := TRUE;
+     v_lives_in_squad := TRUE;
+   END IF;
+   IF p_role IN ('Equipe', 'support') THEN
+     v_lives_in_squad := TRUE;
+   END IF;
+
+   -- Create user in auth.users
+   INSERT INTO auth.users (
+     instance_id, id, aud, role, email, encrypted_password,
+     email_confirmed_at, recovery_sent_at, last_sign_in_at,
+     raw_app_meta_data, raw_user_meta_data, created_at, updated_at
+   )
+   VALUES (
+     '00000000-0000-0000-0000-000000000000', gen_random_uuid(), 'authenticated', 'authenticated',
+     p_email, crypt(p_password, gen_salt('bf')),
+     now(), now(), now(),
+     '{"provider":"email","providers":["email"]}',
+     jsonb_build_object('name', p_name, 'role', p_role),
+     now(), now()
+   )
+   RETURNING id INTO v_user_id;
+
+   -- Insert profile (trigger also handles this)
+   INSERT INTO public.profiles (
+     id, email, name, role, is_admin, lives_in_squad,
+     company_id, must_change_password, view_all_company_tickets
+   )
+   VALUES (
+     v_user_id, p_email, p_name, v_role, v_is_admin, v_lives_in_squad,
+     v_default_company, TRUE, FALSE
+   )
+   ON CONFLICT (id) DO UPDATE SET
+     email = EXCLUDED.email,
+     name = EXCLUDED.name,
+     role = EXCLUDED.role;
+
+   -- Create analyst status for support team members
+   IF v_lives_in_squad THEN
+     INSERT INTO public.analyst_status (user_id, is_online, last_active, current_load)
+     VALUES (v_user_id, FALSE, now(), 0)
+     ON CONFLICT (user_id) DO NOTHING;
+   END IF;
+
+   RETURN QUERY SELECT v_user_id, p_email, p_name, p_role, NULL::TEXT;
+ EXCEPTION
+   WHEN OTHERS THEN
+     RETURN QUERY SELECT NULL::UUID, p_email, p_name, p_role, SQLERRM::TEXT;
+ END;
+ $$;
+
+ -- RPC: admin_delete_user - Deletes user from auth
+ CREATE OR REPLACE FUNCTION public.admin_delete_user(p_user_id UUID)
+ RETURNS VOID LANGUAGE plpgsql SECURITY DEFINER AS $$
+ BEGIN
+   DELETE FROM auth.users WHERE id = p_user_id;
+ END;
+ $$;
+
+ -- RPC: admin_update_user_password - Updates user password
+ CREATE OR REPLACE FUNCTION public.admin_update_user_password(p_email TEXT, p_password TEXT)
+ RETURNS VOID LANGUAGE plpgsql SECURITY DEFINER AS $$
+ BEGIN
+   UPDATE auth.users 
+   SET encrypted_password = crypt(p_password, gen_salt('bf')),
+       updated_at = now()
+   WHERE email = p_email;
+ END;
+ $$;
+
+ -- Grant permissions
+ GRANT EXECUTE ON FUNCTION public.create_user_account TO authenticated;
+ GRANT EXECUTE ON FUNCTION public.admin_delete_user TO authenticated;
+ GRANT EXECUTE ON FUNCTION public.admin_update_user_password TO authenticated;
+
+ -- Reload Schema Cache
+ NOTIFY pgrst, 'reload schema';

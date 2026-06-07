@@ -165,9 +165,10 @@ CREATE TABLE public.chat_sessions (
   customer_phone TEXT,
   assignee_id UUID REFERENCES public.profiles(id) ON DELETE SET NULL,
   queue_id TEXT,
-  status TEXT DEFAULT 'waiting', -- 'waiting', 'active', 'closed'
-  created_at TIMESTAMP WITH TIME ZONE DEFAULT timezone('utc'::text, now()) NOT NULL,
-  updated_at TIMESTAMP WITH TIME ZONE DEFAULT timezone('utc'::text, now()) NOT NULL
+status TEXT DEFAULT 'waiting', -- 'waiting', 'active', 'closed'
+   created_at TIMESTAMP WITH TIME ZONE DEFAULT timezone('utc'::text, now()) NOT NULL,
+   updated_at TIMESTAMP WITH TIME ZONE DEFAULT timezone('utc'::text, now()) NOT NULL,
+   last_message_at TIMESTAMP WITH TIME ZONE
 );
 
 -- 11. Chat Participants

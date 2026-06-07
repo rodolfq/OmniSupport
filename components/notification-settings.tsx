@@ -1,4 +1,4 @@
-'use client';
+﻿'use client';
 
 import React from 'react';
 import { Volume2 } from 'lucide-react';
@@ -31,15 +31,15 @@ export function NotificationSettingsContent() {
                           onChange={(e) => updateNotificationSettings({ systemSound: e.target.value })}
                           className="flex-1 bg-white border border-slate-200 rounded-xl px-3 py-2 text-xs font-bold outline-none focus:border-indigo-500"
                         >
-                           <option value="/audio/Alerta.mp3">Alerta (Padrão)</option>
-                           <option value="/audio/notificação1.mp3">Notificação 1 (Curta)</option>
+                           <option value="/audio/Alerta.mp3">Alerta (PadrÃ£o)</option>
+                           <option value="/audio/notificaÃ§Ã£o1.mp3">NotificaÃ§Ã£o 1 (Curta)</option>
                            <option value="/audio/Alerta.mp3">Alerta</option>
                            <option value="/audio/Baseball.mp3">Whistle (Baseball)</option>
-                           <option value="/audio/Confirmação.mp3">Confirmação</option>
+                           <option value="/audio/ConfirmaÃ§Ã£o.mp3">ConfirmaÃ§Ã£o</option>
                            <option value="/audio/Corda Solta.mp3">Guitarra (Corda Solta)</option>
                            <option value="/audio/Formiguinha.mp3">Formiguinha</option>
-                           <option value="/audio/Nokia.mp3">Clássico (Nokia)</option>
-                           <option value="/audio/Notificação de Mensagem.mp3">Mensagem WhatsApp</option>
+                           <option value="/audio/Nokia.mp3">ClÃ¡ssico (Nokia)</option>
+                           <option value="/audio/NotificaÃ§Ã£o de Mensagem.mp3">Mensagem WhatsApp</option>
                         </select>
                         <button 
                           onClick={() => playSound('system')}
@@ -58,14 +58,14 @@ export function NotificationSettingsContent() {
                           onChange={(e) => updateNotificationSettings({ chatSound: e.target.value })}
                           className="flex-1 bg-white border border-slate-200 rounded-xl px-3 py-2 text-xs font-bold outline-none focus:border-indigo-500"
                         >
-                           <option value="/audio/Notificação de Mensagem.mp3">Mensagem WhatsApp (Padrão)</option>
+                           <option value="/audio/NotificaÃ§Ã£o de Mensagem.mp3">Mensagem WhatsApp (PadrÃ£o)</option>
                            <option value="/audio/Alerta.mp3">Alerta</option>
                            <option value="/audio/Baseball.mp3">Whistle (Baseball)</option>
-                           <option value="/audio/Confirmação.mp3">Confirmação</option>
+                           <option value="/audio/ConfirmaÃ§Ã£o.mp3">ConfirmaÃ§Ã£o</option>
                            <option value="/audio/Corda Solta.mp3">Guitarra (Corda Solta)</option>
                            <option value="/audio/Formiguinha.mp3">Formiguinha</option>
-                           <option value="/audio/Nokia.mp3">Clássico (Nokia)</option>
-                           <option value="/audio/notificação1.mp3">Notificação 1 (Curta)</option>
+                           <option value="/audio/Nokia.mp3">ClÃ¡ssico (Nokia)</option>
+                           <option value="/audio/notificaÃ§Ã£o1.mp3">NotificaÃ§Ã£o 1 (Curta)</option>
                         </select>
                         <button 
                           onClick={() => playSound('chat')}
@@ -79,9 +79,9 @@ export function NotificationSettingsContent() {
             </div>
           </div>
 
-          {/* Gatilhos de Notificação */}
+          {/* Gatilhos de NotificaÃ§Ã£o */}
           <div className="space-y-4">
-             <h4 className="text-[10px] font-black uppercase text-slate-800 tracking-widest px-2">Notificações Ativas</h4>
+             <h4 className="text-[10px] font-black uppercase text-slate-800 tracking-widest px-2">NotificaÃ§Ãµes Ativas</h4>
              <div className="bg-white border border-slate-100 rounded-2xl shadow-sm divide-y divide-slate-100">
                 <NotificationToggle 
                   label="Novos Chamados" 
@@ -89,12 +89,12 @@ export function NotificationSettingsContent() {
                   onChange={(v) => updateNotificationSettings({ ticket_new: v })} 
                 />
                 <NotificationToggle 
-                  label="Chamados Atribuídos" 
+                  label="Chamados AtribuÃ­dos" 
                   active={notificationSettings.ticket_assigned} 
                   onChange={(v) => updateNotificationSettings({ ticket_assigned: v })} 
                 />
                 <NotificationToggle 
-                  label="Atualização de Chamado" 
+                  label="AtualizaÃ§Ã£o de Chamado" 
                   active={notificationSettings.ticket_update} 
                   onChange={(v) => updateNotificationSettings({ ticket_update: v })} 
                 />

@@ -1,8 +1,8 @@
-'use client';
+﻿'use client';
 
 import React, { useState, useEffect, useMemo } from 'react';
 import { getUsers, getCompanies, deleteCompany } from '@/app/actions';
-import { Company, User, MockDB, ChatSession, UserRole } from '@/lib/mock-db';
+import { Company, User, ChatSession, UserRole } from '@/lib/types';
 import { Building2, User as UserIcon, Mail, Phone, Plus, MessageCircle, Ticket, ShieldCheck, Search, X, Check } from 'lucide-react';
 import { cn, normalizeString, maskPhone } from '@/lib/utils';
 import { NewEmployeeModal } from '@/components/new-employee-modal';
@@ -11,6 +11,7 @@ import { NewCompanyModal } from '@/components/new-company-modal';
 import { ConfirmModal } from '@/components/confirm-modal';
 import { useApp } from '@/app/app-context';
 import { motion, AnimatePresence } from 'motion/react';
+import { supabase } from '@/lib/supabase';
 
 function WhatsAppNumberModal({ 
   isOpen, 
@@ -53,42 +54,36 @@ function WhatsAppNumberModal({
             
             <div className="space-y-2">
               {phones.length > 0 ? phones.map((n, idx) => (
-                <button
-                  key={idx}
-                  onClick={() => {
-                    const cleanPhone = n.replace(/\D/g, '');
-                    
-                    const existingSessions = MockDB.getChatSessions();
-                    const existing = existingSessions.find(s => s.customerPhone === cleanPhone && s.status !== 'closed');
-                    
-                    let sessionId: string;
-                    if (existing) {
-                      sessionId = existing.id;
-                      // Re-assign if current user is analyst and it's unassigned
-                      if (!existing.assigneeId && currentUser && currentUser.role !== UserRole.CUSTOMER) {
-                        existing.assigneeId = currentUser.id;
-                        existing.status = 'active';
-                        MockDB.saveChatSession(existing);
-                      }
-                    } else {
-                      const newSession: ChatSession = {
-                        id: `S-${Math.random().toString(36).substr(2, 9).toUpperCase()}`,
-                        customerId: user.id,
-                        customerName: user.name,
-                        customerPhone: cleanPhone,
-                        status: currentUser?.role !== UserRole.CUSTOMER ? 'active' : 'pending',
-                        assigneeId: currentUser?.role !== UserRole.CUSTOMER ? currentUser?.id : undefined,
-                        messages: [],
-                        startedAt: new Date().toISOString(),
-                        lastMessageAt: new Date().toISOString()
-                      };
-                      MockDB.saveChatSession(newSession);
-                      sessionId = newSession.id;
-                      
-                      // If it's still pending (started by customer or no assignee), try distribution
-                      if (newSession.status === 'pending') {
-                        MockDB.distributeChat(sessionId);
-                      }
+<button
+                   key={idx}
+                   onClick={async () => {
+                     const cleanPhone = n.replace(/\D/g, '');
+                     
+                     const { data: existingSessions } = await supabase.from('chat_sessions').select('*').eq('customer_phone', cleanPhone);
+                     const existing = existingSessions?.find(s => !['closed'].includes(s.status));
+                     
+                     let sessionId: string;
+                     if (existing) {
+                       sessionId = existing.id;
+                       // Re-assign if current user is analyst and it's unassigned
+                       if (!existing.assigneeId && currentUser && currentUser.role !== UserRole.CUSTOMER) {
+                         await supabase.from('chat_sessions').update({
+                           assignee_id: currentUser.id,
+                           status: 'active'
+                         }).eq('id', sessionId);
+                       }
+                     } else {
+                       const { data: newSession } = await supabase.from('chat_sessions').insert({
+                         customer_id: user.id,
+                         customer_name: user.name,
+                         customer_phone: cleanPhone,
+                         status: currentUser?.role !== UserRole.CUSTOMER ? 'active' : 'pending',
+                         assignee_id: currentUser?.role !== UserRole.CUSTOMER ? currentUser?.id : null,
+                         messages: [],
+                         started_at: new Date().toISOString(),
+                         last_message_at: new Date().toISOString()
+                      }).select('id').single();
+                      sessionId = newSession?.id || '';
                     }
                     
                     setActiveOmniChatId(sessionId);
@@ -106,7 +101,7 @@ function WhatsAppNumberModal({
                   <Check size={16} className="text-indigo-500 opacity-0 group-hover:opacity-100 transition-all" />
                 </button>
               )) : (
-                <p className="text-sm text-slate-500 italic text-center py-4">Nenhum número cadastrado.</p>
+                <p className="text-sm text-slate-500 italic text-center py-4">Nenhum nÃºmero cadastrado.</p>
               )}
             </div>
           </motion.div>
@@ -146,10 +141,10 @@ export default function CustomersPage() {
   const loadData = async () => {
     setIsLoading(true);
     try {
-        console.log('🔄 Clientes: Carregando dados...');
+        console.log('ðŸ”„ Clientes: Carregando dados...');
         const loadedCompanies = await getCompanies();
         const loadedUsers = await getUsers();
-        console.log(`✅ Clientes: getCompanies=${loadedCompanies.length}, getUsers=${loadedUsers.length}`);
+        console.log(`âœ… Clientes: getCompanies=${loadedCompanies.length}, getUsers=${loadedUsers.length}`);
 
         // Filtering logic still applies
         let filteredUsers = loadedUsers;
@@ -157,10 +152,10 @@ export default function CustomersPage() {
 
         if (currentUser?.role === UserRole.CUSTOMER) {
           filteredCompanies = loadedCompanies.filter(c => c.id === currentUser.companyId);
-          filteredUsers = loadedUsers.filter(u => u.role === 'Funcionário' && u.companyId === currentUser.companyId);
+          filteredUsers = loadedUsers.filter(u => u.role === 'FuncionÃ¡rio' && u.companyId === currentUser.companyId);
         } else {
-            // Admin/internal team: Only show users with 'Funcionário' role and associated company
-            filteredUsers = loadedUsers.filter(u => u.role === 'Funcionário' && !!u.companyId);
+            // Admin/internal team: Only show users with 'FuncionÃ¡rio' role and associated company
+            filteredUsers = loadedUsers.filter(u => u.role === 'FuncionÃ¡rio' && !!u.companyId);
         }
 
         setCompanies(filteredCompanies);
@@ -215,7 +210,7 @@ export default function CustomersPage() {
             <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400 group-focus-within:text-indigo-500 transition-colors" size={16} />
             <input 
               type="text"
-              placeholder="Buscar por empresa ou funcionário..."
+              placeholder="Buscar por empresa ou funcionÃ¡rio..."
               value={searchQuery}
               onChange={(e) => setSearchQuery(e.target.value)}
               className="w-full bg-white border border-slate-200 rounded-xl pl-10 pr-4 py-2.5 text-sm font-medium outline-none focus:ring-2 focus:ring-indigo-500/10 focus:border-indigo-500 transition-all"
@@ -263,7 +258,7 @@ export default function CustomersPage() {
       
       <div className="flex-1 overflow-y-auto space-y-8 pr-4 scrollbar-thin scrollbar-thumb-slate-200">
         {isLoading ? (
-          <div className="flex items-center justify-center h-64 text-sm text-slate-500 font-medium">Carregando quadro de funcionários...</div>
+          <div className="flex items-center justify-center h-64 text-sm text-slate-500 font-medium">Carregando quadro de funcionÃ¡rios...</div>
         ) : selectedCompany ? (
           <>
             <div className="bg-white p-8 rounded-2xl border border-slate-200 shadow-sm flex justify-between items-start">
@@ -273,7 +268,7 @@ export default function CustomersPage() {
                 </div>
                 <div>
                   <h1 className="text-3xl font-black text-slate-800 tracking-tight">{selectedCompany.name}</h1>
-                  <p className="text-slate-400 text-sm font-medium">{selectedCompany.industry} • {selectedCompany.phone || 'Sem telefone'}</p>
+                  <p className="text-slate-400 text-sm font-medium">{selectedCompany.industry} â€¢ {selectedCompany.phone || 'Sem telefone'}</p>
                 </div>
               </div>
               <div className="flex gap-2">
@@ -287,7 +282,7 @@ export default function CustomersPage() {
                   onClick={() => setIsEmployeeModalOpen(true)}
                   className="bg-indigo-600 text-white px-6 py-2.5 rounded-lg text-sm font-bold shadow-md hover:bg-indigo-700 transition-all"
                 >
-                  Novo Funcionário
+                  Novo FuncionÃ¡rio
                 </button>
               </div>
             </div>
@@ -295,7 +290,7 @@ export default function CustomersPage() {
             <div className="space-y-4">
               <div className="flex justify-between items-end">
                 <div>
-                  <h3 className="text-[10px] font-black uppercase tracking-[0.2em] text-slate-400">Quadro de Funcionários</h3>
+                  <h3 className="text-[10px] font-black uppercase tracking-[0.2em] text-slate-400">Quadro de FuncionÃ¡rios</h3>
                   <p className="text-xs text-slate-500 font-medium">Colaboradores com acesso ao suporte</p>
                 </div>
                 <div className="flex gap-4">
@@ -394,7 +389,7 @@ export default function CustomersPage() {
       <ConfirmModal
         isOpen={!!companyToDelete}
         title="Excluir Empresa"
-        message={`Tem certeza que deseja excluir a empresa ${companyToDelete?.name}? Isso não poderá ser desfeito.`}
+        message={`Tem certeza que deseja excluir a empresa ${companyToDelete?.name}? Isso nÃ£o poderÃ¡ ser desfeito.`}
         error={deleteError}
         onCancel={() => { setCompanyToDelete(null); setDeleteError(''); }}
         onConfirm={async () => {

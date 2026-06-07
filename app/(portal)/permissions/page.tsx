@@ -1,7 +1,7 @@
-'use client';
+﻿'use client';
 
 import React, { useState, useEffect, useMemo } from 'react';
-import { MockDB, Permission, RolePermission } from '@/lib/mock-db';
+import { Permission, RolePermission } from '@/lib/types';
 import { 
   ShieldCheck, 
   Lock, 
@@ -21,6 +21,48 @@ import {
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { motion, AnimatePresence } from 'motion/react';
+import { getRolePermissions, saveRolePermissions } from '@/app/actions';
+
+const permissionGroups = [
+  {
+    id: 'tickets',
+    title: 'Chamados',
+    permissions: [
+      { id: Permission.TICKETS_READ, label: 'Visualizar chamados', desc: 'Permite ver a lista e detalhes de chamados' },
+      { id: Permission.TICKETS_WRITE, label: 'Criar/Editar chamados', desc: 'Permite criar novos chamados ou editar os existentes' },
+      { id: Permission.TICKETS_ASSIGN, label: 'Atribuir analistas', desc: 'Permite mudar o analista responsÃ¡vel' },
+      { id: Permission.TICKETS_DELETE, label: 'Excluir chamados', desc: 'Permite remover chamados permanentemente' },
+      { id: Permission.INTERNAL_TICKETS_VIEW, label: 'Visualizar ticket interno', desc: 'Permite ver tickets de operaÃ§Ã£o interna' },
+      { id: Permission.OUTSIDE_QUEUE_VIEW, label: 'Visualizar tickets fora da prÃ³pria fila', desc: 'Permite ver todos os tickets sem restriÃ§Ã£o de grupo' },
+    ]
+  },
+  {
+    id: 'customers',
+    title: 'Clientes',
+    permissions: [
+      { id: Permission.CUSTOMERS_READ, label: 'Visualizar clientes', desc: 'Permite ver a lista de empresas e contatos' },
+      { id: Permission.CUSTOMERS_WRITE, label: 'Gerenciar clientes', desc: 'Permite criar, editar e remover clientes' },
+    ]
+  },
+  {
+    id: 'admin',
+    title: 'Equipe & AdministraÃ§Ã£o',
+    permissions: [
+      { id: Permission.TEAM_READ, label: 'Visualizar equipe', desc: 'Permite ver a lista de analistas' },
+      { id: Permission.TEAM_WRITE, label: 'Gerenciar equipe', desc: 'Permite criar e gerenciar analistas' },
+      { id: Permission.SETTINGS_READ, label: 'Visualizar configuraÃ§Ãµes', desc: 'Permite acessar o menu de configuraÃ§Ãµes' },
+      { id: Permission.SETTINGS_WRITE, label: 'Alterar configuraÃ§Ãµes', desc: 'Permite modificar parÃ¢metros do sistema' },
+    ]
+  },
+  {
+    id: 'stats',
+    title: 'AnÃ¡lise & Dados',
+    permissions: [
+      { id: Permission.DASHBOARD_VIEW, label: 'Visualizar dashboard principal', desc: 'Permite acessar a tela inicial com indicadores gerais' },
+      { id: Permission.REPORTS_READ, label: 'Visualizar relatÃ³rios', desc: 'Permite acessar dashboards e dados estatÃ­sticos' },
+    ]
+  }
+];
 
 export default function PermissionsManagementPage() {
   const [rolePermissions, setRolePermissions] = useState<RolePermission[]>([]);
@@ -32,9 +74,13 @@ export default function PermissionsManagementPage() {
   const [newRoleName, setNewRoleName] = useState('');
   const [roleToDelete, setRoleToDelete] = useState<RolePermission | null>(null);
 
-  // Sincroniza com o MockDB no carregamento
+  // Sincroniza com o Supabase no carregamento
   useEffect(() => {
-    setRolePermissions(MockDB.getRolePermissions());
+    const loadPermissions = async () => {
+      const perms = await getRolePermissions();
+      setRolePermissions(perms);
+    };
+    loadPermissions();
   }, []);
 
   const currentRole = useMemo(() => 
@@ -42,48 +88,7 @@ export default function PermissionsManagementPage() {
     [rolePermissions, selectedRoleId]
   );
 
-  const permissionGroups = [
-    {
-      id: 'tickets',
-      title: 'Chamados',
-      permissions: [
-        { id: Permission.TICKETS_READ, label: 'Visualizar chamados', desc: 'Permite ver a lista e detalhes de chamados' },
-        { id: Permission.TICKETS_WRITE, label: 'Criar/Editar chamados', desc: 'Permite criar novos chamados ou editar os existentes' },
-        { id: Permission.TICKETS_ASSIGN, label: 'Atribuir analistas', desc: 'Permite mudar o analista responsável' },
-        { id: Permission.TICKETS_DELETE, label: 'Excluir chamados', desc: 'Permite remover chamados permanentemente' },
-        { id: Permission.INTERNAL_TICKETS_VIEW, label: 'Visualizar ticket interno', desc: 'Permite ver tickets de operação interna' },
-        { id: Permission.OUTSIDE_QUEUE_VIEW, label: 'Visualizar tickets fora da própria fila', desc: 'Permite ver todos os tickets sem restrição de grupo' },
-      ]
-    },
-    {
-      id: 'customers',
-      title: 'Clientes',
-      permissions: [
-        { id: Permission.CUSTOMERS_READ, label: 'Visualizar clientes', desc: 'Permite ver a lista de empresas e contatos' },
-        { id: Permission.CUSTOMERS_WRITE, label: 'Gerenciar clientes', desc: 'Permite criar, editar e remover clientes' },
-      ]
-    },
-    {
-      id: 'admin',
-      title: 'Equipe & Administração',
-      permissions: [
-        { id: Permission.TEAM_READ, label: 'Visualizar equipe', desc: 'Permite ver a lista de analistas' },
-        { id: Permission.TEAM_WRITE, label: 'Gerenciar equipe', desc: 'Permite criar e gerenciar analistas' },
-        { id: Permission.SETTINGS_READ, label: 'Visualizar configurações', desc: 'Permite acessar o menu de configurações' },
-        { id: Permission.SETTINGS_WRITE, label: 'Alterar configurações', desc: 'Permite modificar parâmetros do sistema' },
-      ]
-    },
-    {
-      id: 'stats',
-      title: 'Análise & Dados',
-      permissions: [
-        { id: Permission.DASHBOARD_VIEW, label: 'Visualizar dashboard principal', desc: 'Permite acessar a tela inicial com indicadores gerais' },
-        { id: Permission.REPORTS_READ, label: 'Visualizar relatórios', desc: 'Permite acessar dashboards e dados estatísticos' },
-      ]
-    }
-  ];
-
-  // Filtro de permissões baseado na busca
+  // Filtro de permissÃµes baseado na busca
   const filteredGroups = useMemo(() => {
     if (!searchQuery) return permissionGroups;
     
@@ -138,21 +143,26 @@ export default function PermissionsManagementPage() {
     setHasChanges(true);
   };
 
-  const handleSave = () => {
+  const handleSave = async () => {
     setIsSaving(true);
-    setTimeout(() => {
-      MockDB.saveRolePermissions(rolePermissions);
+    try {
+      await saveRolePermissions(selectedRoleId, rolePermissions.find(rp => rp.id === selectedRoleId)?.permissions || []);
       setHasChanges(false);
+    } finally {
       setIsSaving(false);
-    }, 1000);
+    }
   };
 
   const handleReset = () => {
-    setRolePermissions(MockDB.getRolePermissions());
+    const loadPermissions = async () => {
+      const perms = await getRolePermissions();
+      setRolePermissions(perms);
+    };
+    loadPermissions();
     setHasChanges(false);
   };
 
-  const handleAddRole = () => {
+  const handleAddRole = async () => {
     if (!newRoleName.trim()) return;
     const newRole: RolePermission = {
       id: Math.random().toString(36).substr(2, 9),
@@ -161,17 +171,17 @@ export default function PermissionsManagementPage() {
     };
     const updated = [...rolePermissions, newRole];
     setRolePermissions(updated);
-    MockDB.saveRolePermissions(updated);
+    await saveRolePermissions(newRole.id, []);
     setSelectedRoleId(newRole.id);
     setNewRoleName('');
     setIsAddingRole(false);
   };
 
-  const handleDeleteRole = (id: string) => {
+  const handleDeleteRole = async (id: string) => {
     if (id === 'admin') return;
     const updated = rolePermissions.filter(rp => rp.id !== id);
     setRolePermissions(updated);
-    MockDB.saveRolePermissions(updated);
+    // TODO: Add deleteRolePermission action
     if (selectedRoleId === id) {
       setSelectedRoleId('admin');
     }
@@ -191,7 +201,7 @@ export default function PermissionsManagementPage() {
             <div className="w-10 h-10 bg-indigo-50 rounded-2xl flex items-center justify-center text-indigo-600">
               <ShieldCheck size={24} />
             </div>
-            <h2 className="text-2xl font-black text-slate-800 tracking-tight">Níveis de Acesso</h2>
+            <h2 className="text-2xl font-black text-slate-800 tracking-tight">NÃ­veis de Acesso</h2>
           </div>
           <p className="text-slate-500 font-medium text-sm ml-13">Configure o que cada perfil pode ver e fazer na plataforma</p>
         </div>
@@ -223,7 +233,7 @@ export default function PermissionsManagementPage() {
               </>
             ) : (
               <>
-                <Save size={16} /> Salvar Alterações
+                <Save size={16} /> Salvar AlteraÃ§Ãµes
               </>
             )}
           </button>
@@ -294,7 +304,7 @@ export default function PermissionsManagementPage() {
                           "text-[10px] font-medium",
                           selectedRoleId === rp.id ? "text-indigo-100" : "text-slate-400"
                         )}>
-                          {rp.permissions.length} permissões
+                          {rp.permissions.length} permissÃµes
                         </span>
                       </div>
                     </div>
@@ -330,9 +340,9 @@ export default function PermissionsManagementPage() {
                   <Info size={24} />
                 </div>
                 <div>
-                  <h4 className="text-sm font-black uppercase tracking-widest mb-1">Dica de Segurança</h4>
+                  <h4 className="text-sm font-black uppercase tracking-widest mb-1">Dica de SeguranÃ§a</h4>
                   <p className="text-xs text-slate-400 font-medium leading-relaxed">
-                    Evite conceder permissões de &quot;Excluir&quot; para perfis que não sejam de gestão técnica.
+                    Evite conceder permissÃµes de &quot;Excluir&quot; para perfis que nÃ£o sejam de gestÃ£o tÃ©cnica.
                   </p>
                 </div>
              </div>
@@ -348,7 +358,7 @@ export default function PermissionsManagementPage() {
                   <ShieldCheck size={48} />
                </div>
                <h3 className="text-xl font-black text-slate-800">Selecione um Perfil</h3>
-               <p className="text-slate-400 max-w-xs">Escolha um perfil na lateral para gerenciar suas permissões de acesso.</p>
+               <p className="text-slate-400 max-w-xs">Escolha um perfil na lateral para gerenciar suas permissÃµes de acesso.</p>
             </div>
           ) : (
             <div className="space-y-6">
@@ -385,7 +395,7 @@ export default function PermissionsManagementPage() {
                   <Search size={16} className="absolute left-4 top-1/2 -translate-y-1/2 text-slate-400" />
                   <input 
                     type="text"
-                    placeholder="Buscar permissão..."
+                    placeholder="Buscar permissÃ£o..."
                     value={searchQuery}
                     onChange={e => setSearchQuery(e.target.value)}
                     className="bg-slate-50 border border-slate-200 rounded-2xl pl-12 pr-6 py-3 text-xs font-bold w-full md:w-64 focus:ring-4 focus:ring-indigo-100 outline-none transition-all placeholder:text-slate-400"
@@ -478,7 +488,7 @@ export default function PermissionsManagementPage() {
                     <div className="w-16 h-16 bg-slate-50 rounded-2xl flex items-center justify-center text-slate-200 mx-auto">
                       <Search size={32} />
                     </div>
-                    <p className="text-slate-400 font-medium">Nenhuma permissão encontrada para sua busca.</p>
+                    <p className="text-slate-400 font-medium">Nenhuma permissÃ£o encontrada para sua busca.</p>
                     <button onClick={() => setSearchQuery('')} className="text-indigo-600 text-xs font-black uppercase tracking-widest">Limpar busca</button>
                   </div>
                 )}
@@ -511,8 +521,8 @@ export default function PermissionsManagementPage() {
                 <div className="space-y-2">
                   <h3 className="text-xl font-black text-slate-800 uppercase tracking-tight">Excluir Perfil?</h3>
                   <p className="text-slate-500 font-medium text-sm leading-relaxed">
-                    Você está prestes a excluir o perfil <span className="font-bold text-slate-800">&quot;{roleToDelete.name}&quot;</span>. 
-                    Esta ação é irreversível e usuários vinculados a este perfil perderão o acesso a estas permissões.
+                    VocÃª estÃ¡ prestes a excluir o perfil <span className="font-bold text-slate-800">&quot;{roleToDelete.name}&quot;</span>. 
+                    Esta aÃ§Ã£o Ã© irreversÃ­vel e usuÃ¡rios vinculados a este perfil perderÃ£o o acesso a estas permissÃµes.
                   </p>
                 </div>
                 <div className="flex gap-4 pt-2">

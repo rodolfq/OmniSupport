@@ -1,9 +1,9 @@
-'use client';
+﻿'use client';
 
 import React, { useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { useApp } from '@/app/app-context';
-import { MockDB } from '@/lib/mock-db';
+
 import { supabase } from '@/lib/supabase';
 import { Headset, Mail, Lock, ArrowRight } from 'lucide-react';
 import Link from 'next/link';
@@ -41,9 +41,10 @@ export default function LoginPage() {
         let errorMessage = 'Erro ao entrar. Por favor, tente novamente.';
         
         if (error.status === 400 || error.status === 422) {
-          if (error.message.includes('Invalid login credentials')) {
+          const msg = String(error.message ?? '');
+          if (msg.includes('Invalid login credentials')) {
             errorMessage = 'Senha incorreta ou email não cadastrado. Verifique suas credenciais.';
-          } else if (error.message.includes('Email not confirmed')) {
+          } else if (msg.includes('Email not confirmed')) {
             errorMessage = 'Este email ainda não foi confirmado. Verifique sua caixa de entrada.';
           } else if (error.status === 422) {
              errorMessage = 'Dados inválidos. Verifique se o e-mail está completo e tente novamente.';
@@ -63,12 +64,16 @@ export default function LoginPage() {
       if (data.user) {
         toast.success('Login realizado com sucesso!');
         localStorage.setItem('omni_session_active', 'true');
-        // currentUser will be set by the auth listener in app-context.tsx
-        router.push('/dashboard');
+        setIsLoading(false);
+        // Esperar um momento para cookies serem estabelecidos
+        setTimeout(() => {
+          // Forçar refresh para garantir que middleware vê a sessão
+          window.location.href = '/dashboard';
+        }, 500);
       }
     } catch (err: any) {
       setIsLoading(false);
-      toast.error('Erro inesperado: ' + err.message);
+      toast.error('Erro inesperado: ' + (err?.message ?? 'Erro desconhecido'));
     }
   };
 
@@ -109,7 +114,7 @@ export default function LoginPage() {
                   type="password" 
                   value={password}
                   onChange={(e) => setPassword(e.target.value)}
-                  placeholder="••••••••"
+                  placeholder="â€¢â€¢â€¢â€¢â€¢â€¢â€¢â€¢"
                   className="w-full bg-slate-50 border border-slate-200 rounded-xl py-3 pl-12 pr-4 focus:outline-none focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-500 transition-all font-medium"
                   required
                   disabled={isLoading}
@@ -158,3 +163,4 @@ export default function LoginPage() {
     </div>
   );
 }
+
