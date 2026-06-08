@@ -16,6 +16,7 @@ export default function LoginPage() {
   const [isLoading, setIsLoading] = useState(false);
   const { currentUser, setCurrentUser, authInitialized } = useApp();
   const router = useRouter();
+  const isSubmittingRef = React.useRef(false);
 
   React.useEffect(() => {
     // Só redireciona se auth já foi inicializado E tem usuário
@@ -26,11 +27,11 @@ export default function LoginPage() {
 
   const handleLogin = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!supabase) {
-      alert('Supabase not configured');
+    // Prevent double submit
+    if (isSubmittingRef.current || !supabase || isLoading) {
       return;
     }
-
+    isSubmittingRef.current = true;
     setIsLoading(true);
     try {
       const { data, error } = await supabase.auth.signInWithPassword({
@@ -39,6 +40,7 @@ export default function LoginPage() {
       });
 
       if (error) {
+        isSubmittingRef.current = false;
         setIsLoading(false);
         let errorMessage = 'Erro ao entrar. Por favor, tente novamente.';
         
@@ -63,7 +65,7 @@ export default function LoginPage() {
         return;
       }
 
-if (data.user) {
+      if (data.user) {
         toast.success('Login realizado com sucesso!');
         localStorage.setItem('omni_session_active', 'true');
         // Store session data for backup (Vercel preview URLs fix)
@@ -85,10 +87,12 @@ if (data.user) {
           role: data.user.user_metadata?.role || 'Funcionário'
         });
         setIsLoading(false);
+        isSubmittingRef.current = false;
         router.replace('/dashboard');
       }
     } catch (err: any) {
       setIsLoading(false);
+      isSubmittingRef.current = false;
       toast.error('Erro inesperado: ' + (err?.message ?? 'Erro desconhecido'));
     }
   };
