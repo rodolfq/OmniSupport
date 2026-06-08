@@ -29,7 +29,7 @@ export function ForcePasswordChange() {
       }
 
       if (newPassword !== confirmPassword) {
-        throw new Error('As senhas nÃ£o coincidem.');
+        throw new Error('As senhas não coincidem.');
       }
 
       const updatedUser = { 
@@ -61,8 +61,8 @@ export function ForcePasswordChange() {
           <div className="w-16 h-16 bg-white/20 rounded-2xl flex items-center justify-center mx-auto mb-4 backdrop-blur-sm">
             <Lock size={32} />
           </div>
-          <h2 className="text-2xl font-black uppercase tracking-tight">AlteraÃ§Ã£o ObrigatÃ³ria</h2>
-          <p className="text-indigo-100 text-sm mt-2 font-medium opacity-80">Por seguranÃ§a, vocÃª deve definir uma nova senha no seu primeiro acesso.</p>
+          <h2 className="text-2xl font-black uppercase tracking-tight">Alteração Obrigatória</h2>
+          <p className="text-indigo-100 text-sm mt-2 font-medium opacity-80">Por segurança, você deve definir uma nova senha no seu primeiro acesso.</p>
         </div>
 
         <div className="p-10">
@@ -72,12 +72,12 @@ export function ForcePasswordChange() {
                 <CheckCircle2 size={40} />
               </div>
               <h3 className="text-xl font-bold text-slate-800 mb-2">Senha alterada!</h3>
-              <p className="text-slate-500 text-sm mb-8">Agora vocÃª jÃ¡ pode acessar todos os recursos do portal.</p>
+              <p className="text-slate-500 text-sm mb-8">Agora você já pode acessar todos os recursos do portal.</p>
               <button 
                 onClick={() => window.location.reload()}
                 className="w-full bg-slate-900 text-white py-4 rounded-2xl text-xs font-black uppercase tracking-widest shadow-xl shadow-slate-100 hover:bg-slate-800 transition-all"
               >
-                ComeÃ§ar agora
+                Começar agora
               </button>
             </div>
           ) : (

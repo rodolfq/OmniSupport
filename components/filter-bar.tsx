@@ -250,7 +250,7 @@ export function FilterBar({ onFilterChange, originalTickets }: FilterBarProps) {
                     </div>
 
                     <div className="space-y-1.5">
-                      <label className="text-[10px] font-black uppercase text-slate-400 tracking-widest ml-1">Analista ResponsÃ¡vel</label>
+                      <label className="text-[10px] font-black uppercase text-slate-400 tracking-widest ml-1">Analista Responsável</label>
                       <select 
                         value={assigneeId}
                         onChange={(e) => setAssigneeId(e.target.value)}
@@ -264,7 +264,7 @@ export function FilterBar({ onFilterChange, originalTickets }: FilterBarProps) {
                 )}
 
                 <div className="space-y-1.5">
-                  <label className="text-[10px] font-black uppercase text-slate-400 tracking-widest ml-1">Criado (InÃ­cio)</label>
+                  <label className="text-[10px] font-black uppercase text-slate-400 tracking-widest ml-1">Criado (Início)</label>
                   <input 
                     type="date" 
                     value={startDate}
@@ -284,7 +284,7 @@ export function FilterBar({ onFilterChange, originalTickets }: FilterBarProps) {
                 </div>
 
                 <div className="space-y-1.5">
-                  <label className="text-[10px] font-black uppercase text-slate-400 tracking-widest ml-1">Finalizado (InÃ­cio)</label>
+                  <label className="text-[10px] font-black uppercase text-slate-400 tracking-widest ml-1">Finalizado (Início)</label>
                   <input 
                     type="date" 
                     value={compStartDate}

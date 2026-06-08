@@ -178,7 +178,7 @@ useEffect(() => {
     const distributeInterval = setInterval(() => {
       const pendingSessions = sessions.filter(s => s.status === 'pending' && !s.assigneeId);
       if (pendingSessions.length > 0) {
-        // TODO: Implementar distribuiÃ§Ã£o automÃ¡tica via Supabase
+        // TODO: Implementar distribuição automática via Supabase
         refreshData();
       }
     }, 5000);
@@ -192,7 +192,7 @@ useEffect(() => {
   };
 
   const handleDisconnect = async (userId: string) => {
-    if (confirm('Desconectar este analista forÃ§adamente?')) {
+    if (confirm('Desconectar este analista forçadamente?')) {
       await updateUserStatus(userId, false);
       refreshData();
     }
@@ -206,7 +206,7 @@ useEffect(() => {
   };
 
   const handleDeleteNote = async (id: string) => {
-    if (confirm('Excluir esta nota rÃ¡pida?')) {
+    if (confirm('Excluir esta nota rápida?')) {
       await deleteQuickNote(id);
       refreshData();
     }
@@ -245,7 +245,7 @@ useEffect(() => {
       <div className="flex flex-col md:flex-row md:items-end justify-between gap-4">
         <div>
           <h2 className="text-3xl font-black text-slate-800 tracking-tight">Canais de Atendimento</h2>
-          <p className="text-slate-500 font-medium">Controle de atendimento via WhatsApp e notas rÃ¡pidas</p>
+          <p className="text-slate-500 font-medium">Controle de atendimento via WhatsApp e notas rápidas</p>
         </div>
       </div>
 
@@ -278,7 +278,7 @@ useEffect(() => {
             activeTab === 'notes' ? "bg-white text-indigo-600 shadow-lg" : "text-slate-500 hover:text-slate-700"
           )}
         >
-          <Zap size={14} /> Notas RÃ¡pidas
+          <Zap size={14} /> Notas Rápidas
         </button>
         <button 
           onClick={() => setActiveTab('history')}
@@ -287,7 +287,7 @@ useEffect(() => {
             activeTab === 'history' ? "bg-white text-indigo-600 shadow-lg" : "text-slate-500 hover:text-slate-700"
           )}
         >
-          <History size={14} /> HistÃ³rico
+          <History size={14} /> Histórico
         </button>
       </div>
 
@@ -298,7 +298,7 @@ useEffect(() => {
                  <div className="p-8 border-b border-slate-100 flex flex-col md:flex-row md:items-center justify-between gap-4">
                     <div>
                        <h3 className="text-sm font-black uppercase text-slate-800 tracking-widest">Controle de Atendimentos</h3>
-                       <p className="text-[10px] text-slate-400 font-bold uppercase tracking-widest mt-1">SessÃµes pendentes e em curso</p>
+                       <p className="text-[10px] text-slate-400 font-bold uppercase tracking-widest mt-1">Sessões pendentes e em curso</p>
                     </div>
                     <div className="flex bg-slate-100 p-1 rounded-2xl gap-1">
                        {[
@@ -435,7 +435,7 @@ useEffect(() => {
           
           <div className="space-y-6">
              <div className="bg-white border border-slate-200 rounded-[2.5rem] shadow-sm p-8">
-                <h3 className="text-sm font-black uppercase text-slate-800 tracking-widest mb-6">DistribuiÃ§Ã£o AutomÃ¡tica</h3>
+                <h3 className="text-sm font-black uppercase text-slate-800 tracking-widest mb-6">Distribuição Automática</h3>
                 <div className="space-y-4">
                    <div className="flex items-center justify-between p-4 bg-emerald-50 border border-emerald-100 rounded-2xl">
                       <div className="flex items-center gap-3">
@@ -447,7 +447,7 @@ useEffect(() => {
                       </div>
                    </div>
                    <p className="text-[10px] text-slate-400 font-medium leading-relaxed">
-                      A distribuiÃ§Ã£o justa estÃ¡ ativa. Novos atendimentos sÃ£o alocados automaticamente para analistas com menor carga de trabalho.
+                      A distribuição justa está ativa. Novos atendimentos são alocados automaticamente para analistas com menor carga de trabalho.
                    </p>
                 </div>
              </div>
@@ -463,7 +463,7 @@ useEffect(() => {
                     <th className="px-8 py-5 text-[10px] font-black uppercase text-slate-400 tracking-widest">Analista</th>
                     <th className="px-8 py-5 text-[10px] font-black uppercase text-slate-400 tracking-widest">Carga Atual</th>
                     <th className="px-8 py-5 text-[10px] font-black uppercase text-slate-400 tracking-widest">Status</th>
-                    <th className="px-8 py-5 text-[10px] font-black uppercase text-slate-400 tracking-widest text-right">AÃ§Ã£o</th>
+                    <th className="px-8 py-5 text-[10px] font-black uppercase text-slate-400 tracking-widest text-right">Ação</th>
                  </tr>
               </thead>
               <tbody className="divide-y divide-slate-50">
@@ -534,7 +534,7 @@ useEffect(() => {
               </div>
               
               <div className="space-y-1.5">
-                <label className="text-[9px] font-black uppercase text-slate-400 tracking-widest ml-1">AtÃ©</label>
+                <label className="text-[9px] font-black uppercase text-slate-400 tracking-widest ml-1">Até</label>
                 <div className="relative">
                   <Calendar size={14} className="absolute left-4 top-1/2 -translate-y-1/2 text-slate-400" />
                   <input 
@@ -569,10 +569,10 @@ useEffect(() => {
               </div>
 
               <div className="space-y-1.5">
-                <label className="text-[9px] font-black uppercase text-slate-400 tracking-widest ml-1">FuncionÃ¡rio</label>
+                <label className="text-[9px] font-black uppercase text-slate-400 tracking-widest ml-1">Funcionário</label>
                 <input 
                   type="text" 
-                  placeholder="Nome do funcionÃ¡rio..."
+                  placeholder="Nome do funcionário..."
                   value={filterEmployee}
                   onChange={(e) => setFilterEmployee(e.target.value)}
                   className="w-full bg-slate-50 border border-slate-200 rounded-xl px-4 py-2.5 text-xs font-bold focus:ring-4 focus:ring-indigo-500/10 outline-none transition-all"
@@ -585,7 +585,7 @@ useEffect(() => {
                   <Search size={14} className="absolute left-4 top-1/2 -translate-y-1/2 text-slate-400" />
                   <input 
                     type="text" 
-                    placeholder="Buscar conteÃºdo..."
+                    placeholder="Buscar conteúdo..."
                     value={filterText}
                     onChange={(e) => setFilterText(e.target.value)}
                     className="w-full bg-slate-50 border border-slate-200 rounded-xl pl-10 pr-4 py-2.5 text-xs font-bold focus:ring-4 focus:ring-indigo-500/10 outline-none transition-all"
@@ -625,7 +625,7 @@ useEffect(() => {
                     <th className="px-8 py-4 text-[9px] font-black uppercase text-slate-400 tracking-widest">Cliente</th>
                     <th className="px-8 py-4 text-[9px] font-black uppercase text-slate-400 tracking-widest">Analista</th>
                     <th className="px-8 py-4 text-[9px] font-black uppercase text-slate-400 tracking-widest">Ãšltima Mensagem</th>
-                    <th className="px-8 py-4 text-[9px] font-black uppercase text-slate-400 tracking-widest text-right">AÃ§Ãµes</th>
+                    <th className="px-8 py-4 text-[9px] font-black uppercase text-slate-400 tracking-widest text-right">Ações</th>
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-slate-50">
@@ -679,7 +679,7 @@ useEffect(() => {
                                 <span className="text-xs font-medium text-slate-600">{analyst.name}</span>
                               </div>
                             ) : (
-                              <span className="text-[10px] uppercase text-slate-300 font-black tracking-widest italic">NÃ£o AtribuÃ­do</span>
+                              <span className="text-[10px] uppercase text-slate-300 font-black tracking-widest italic">Não Atribuído</span>
                             )}
                           </td>
                           <td className="px-8 py-5">
@@ -703,7 +703,7 @@ useEffect(() => {
               {sessions.filter(s => s.status === 'closed').length === 0 && (
                 <div className="p-20 text-center text-slate-400">
                   <History size={48} className="mx-auto mb-4 opacity-20" />
-                  <p className="text-sm font-bold">Nenhum atendimento encerrado atÃ© o momento</p>
+                  <p className="text-sm font-bold">Nenhum atendimento encerrado até o momento</p>
                 </div>
               )}
             </div>
@@ -718,7 +718,7 @@ useEffect(() => {
                 onClick={() => handleOpenNoteModal()}
                 className="bg-indigo-600 text-white px-6 py-3 rounded-2xl text-[10px] font-black uppercase tracking-widest shadow-lg shadow-indigo-100 flex items-center gap-2 hover:bg-indigo-700 transition-all"
               >
-                 <Plus size={16} /> Nova Nota RÃ¡pida
+                 <Plus size={16} /> Nova Nota Rápida
               </button>
            </div>
            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
@@ -785,17 +785,17 @@ useEffect(() => {
                        type="text" 
                        value={noteCategory}
                        onChange={(e) => setNoteCategory(e.target.value)}
-                       placeholder="Geral, SaudaÃ§Ã£o, Encerramento..."
+                       placeholder="Geral, Saudação, Encerramento..."
                        className="w-full bg-slate-50 border border-slate-200 rounded-2xl px-4 py-3 text-sm font-bold focus:ring-4 focus:ring-indigo-500/10 outline-none transition-all"
                      />
                   </div>
                   <div className="space-y-1.5">
-                     <label className="text-[10px] font-black uppercase text-slate-400 tracking-widest ml-1">ConteÃºdo da Resposta</label>
+                     <label className="text-[10px] font-black uppercase text-slate-400 tracking-widest ml-1">Conteúdo da Resposta</label>
                      <textarea 
                        value={noteContent}
                        onChange={(e) => setNoteContent(e.target.value)}
                        rows={4}
-                       placeholder="Digite o texto que serÃ¡ inserido automaticamente..."
+                       placeholder="Digite o texto que será inserido automaticamente..."
                        className="w-full bg-slate-50 border border-slate-200 rounded-2xl px-4 py-3 text-sm font-bold focus:ring-4 focus:ring-indigo-500/10 outline-none transition-all resize-none"
                      />
                   </div>

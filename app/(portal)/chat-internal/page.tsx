@@ -315,7 +315,7 @@ export default function ChatInternalPage() {
     setCurrentUser(updatedUser); // Update context
     setBubbleColor(updatedUser.chatPreferences?.bubbleColor || 'indigo');
     setAvatarSize(updatedUser.chatPreferences?.avatarSize || 'md');
-    toast.success('PreferÃªncias de chat atualizadas!');
+    toast.success('Preferências de chat atualizadas!');
   };
 
   const handleUpdateGroup = (updates: Partial<InternalGroup>) => {
@@ -391,7 +391,7 @@ export default function ChatInternalPage() {
     const updatedRoom = { ...room, mutedBy: updatedMutedBy };
     MockDB.saveInternalChat(updatedRoom);
     loadRooms();
-    toast.success(isMuted ? 'NotificaÃ§Ãµes reativadas' : 'Chat silenciado');
+    toast.success(isMuted ? 'Notificações reativadas' : 'Chat silenciado');
   };
 
   const togglePinMessage = (messageId: string) => {
@@ -440,7 +440,7 @@ export default function ChatInternalPage() {
     MockDB.saveInternalChat(updatedRoom);
     loadRooms();
     if (selectedRoomId === roomId) setSelectedRoomId(null);
-    toast.success(isHidden ? 'Conversa visÃ­vel' : 'Conversa arquivada');
+    toast.success(isHidden ? 'Conversa visível' : 'Conversa arquivada');
   };
 
   const handleContextMenu = (e: React.MouseEvent, roomId: string) => {
@@ -579,7 +579,7 @@ export default function ChatInternalPage() {
               <div className="flex items-center gap-2">
                  <SearchIcon size={14} className="text-indigo-600" />
                  <span className="text-[10px] font-black text-indigo-600 uppercase tracking-widest">
-                   Filtrando por usuÃ¡rio
+                   Filtrando por usuário
                  </span>
               </div>
               <button 
@@ -717,7 +717,7 @@ export default function ChatInternalPage() {
                   <button 
                     onClick={() => setShowGroupSettings(true)}
                     className="p-3 text-slate-400 hover:text-indigo-600 hover:bg-indigo-50 rounded-2xl transition-all"
-                    title="ConfiguraÃ§Ãµes do Grupo"
+                    title="Configurações do Grupo"
                   >
                       <Users size={20} />
                   </button>
@@ -725,7 +725,7 @@ export default function ChatInternalPage() {
                 <button 
                   onClick={() => setShowSettings(true)}
                   className="p-3 text-slate-400 hover:text-indigo-600 hover:bg-indigo-50 rounded-2xl transition-all"
-                  title="Minhas PreferÃªncias"
+                  title="Minhas Preferências"
                 >
                     <Settings size={20} />
                 </button>
@@ -858,7 +858,7 @@ export default function ChatInternalPage() {
                                {repliedMessage.senderName}
                              </span>
                              <p className="text-[11px] line-clamp-1 opacity-80">
-                               {repliedMessage.text || (repliedMessage.type === 'file' ? 'Arquivo' : 'MÃ­dia')}
+                               {repliedMessage.text || (repliedMessage.type === 'file' ? 'Arquivo' : 'Mídia')}
                              </p>
                            </div>
                         )}
@@ -965,10 +965,10 @@ export default function ChatInternalPage() {
                    <div className="mb-4 bg-slate-50 border border-slate-200 rounded-2xl p-4 flex items-center justify-between animate-in slide-in-from-bottom-2">
                       <div className="flex-1 min-w-0 border-l-4 border-indigo-600 pl-4">
                          <p className="text-[10px] font-black uppercase text-indigo-600 truncate">
-                            Respondendo para {selectedRoom.messages.find(m => m.id === replyingToId)?.senderId === currentUser?.id ? 'vocÃª' : selectedRoom.messages.find(m => m.id === replyingToId)?.senderName}
+                            Respondendo para {selectedRoom.messages.find(m => m.id === replyingToId)?.senderId === currentUser?.id ? 'você' : selectedRoom.messages.find(m => m.id === replyingToId)?.senderName}
                          </p>
                          <p className="text-xs text-slate-500 truncate mt-0.5">
-                            {selectedRoom.messages.find(m => m.id === replyingToId)?.text || 'MÃ­dia'}
+                            {selectedRoom.messages.find(m => m.id === replyingToId)?.text || 'Mídia'}
                          </p>
                       </div>
                       <button 
@@ -1054,7 +1054,7 @@ export default function ChatInternalPage() {
                            </div>
                          )}
 
-                           <p className="text-[8px] font-black text-slate-300 uppercase mb-3 tracking-widest">PadrÃ£o</p>
+                           <p className="text-[8px] font-black text-slate-300 uppercase mb-3 tracking-widest">Padrão</p>
                            <div className="grid grid-cols-3 gap-3">
                               {STICKERS.map((s, idx) => (
                                 <button 
@@ -1183,7 +1183,7 @@ export default function ChatInternalPage() {
             </div>
             <h3 className="text-2xl font-black text-slate-800 tracking-tight mb-3">Bem-vindo ao Chat Interno</h3>
             <p className="text-slate-500 font-medium max-w-sm leading-relaxed">
-              Selecione uma conversa ao lado ou crie um novo grupo para comeÃ§ar a colaborar com sua equipe em tempo real.
+              Selecione uma conversa ao lado ou crie um novo grupo para começar a colaborar com sua equipe em tempo real.
             </p>
           </div>
         )}
@@ -1318,7 +1318,7 @@ export default function ChatInternalPage() {
                    <div className="p-2 bg-indigo-50 rounded-xl text-indigo-600">
                       <Users size={20} />
                    </div>
-                   <h3 className="text-xl font-black text-slate-800 tracking-tight">ConfiguraÃ§Ãµes do Grupo</h3>
+                   <h3 className="text-xl font-black text-slate-800 tracking-tight">Configurações do Grupo</h3>
                 </div>
                 <button onClick={() => setShowGroupSettings(false)} className="p-2 hover:bg-slate-100 rounded-xl transition-all">
                   <X size={20} className="text-slate-400" />
@@ -1384,7 +1384,7 @@ export default function ChatInternalPage() {
                       animate={{ opacity: 1, y: 0 }}
                       className="p-4 bg-slate-50 rounded-3xl border border-slate-200 animate-in fade-in slide-in-from-top-2"
                     >
-                       <p className="text-[10px] font-black text-slate-400 uppercase mb-3 px-2">Selecionar UsuÃ¡rio</p>
+                       <p className="text-[10px] font-black text-slate-400 uppercase mb-3 px-2">Selecionar Usuário</p>
                        <div className="max-h-[200px] overflow-y-auto space-y-1">
                           {allUsers.filter(u => !selectedRoom.memberIds?.includes(u.id)).map((user, idx) => (
                             <button 
@@ -1482,7 +1482,7 @@ export default function ChatInternalPage() {
                    <div className="p-2 bg-indigo-50 rounded-xl text-indigo-600">
                       <Settings size={20} />
                    </div>
-                   <h3 className="text-xl font-black text-slate-800 tracking-tight">PersonalizaÃ§Ã£o</h3>
+                   <h3 className="text-xl font-black text-slate-800 tracking-tight">Personalização</h3>
                 </div>
                 <button onClick={() => setShowSettings(false)} className="p-2 hover:bg-slate-100 rounded-xl transition-all">
                   <X size={20} className="text-slate-400" />
@@ -1542,7 +1542,7 @@ export default function ChatInternalPage() {
                 </div>
 
                 <div className="p-4 bg-slate-50 rounded-2xl border border-slate-100">
-                   <p className="text-[10px] font-black uppercase text-slate-400 mb-3 tracking-widest">PrÃ©via</p>
+                   <p className="text-[10px] font-black uppercase text-slate-400 mb-3 tracking-widest">Prévia</p>
                    <div className="flex items-end gap-2">
                       {avatarSize !== 'none' && (
                         <div className={cn("rounded-lg bg-slate-200 shrink-0", 
@@ -1562,7 +1562,7 @@ export default function ChatInternalPage() {
                   onClick={() => setShowSettings(false)}
                   className="w-full bg-slate-900 text-white rounded-2xl py-4 font-black transition-all hover:bg-slate-800 shadow-xl shadow-slate-100"
                 >
-                  Confirmar AlteraÃ§Ãµes
+                  Confirmar Alterações
                 </button>
               </div>
             </motion.div>
@@ -1612,7 +1612,7 @@ export default function ChatInternalPage() {
                   {isTempStickerGif || (tempStickerUrl && tempStickerUrl.startsWith('data:image/gif')) ? (
                     <div className="absolute bottom-6 left-1/2 -translate-x-1/2 z-20">
                       <div className="bg-amber-100/90 backdrop-blur-md px-4 py-2 rounded-xl border border-amber-200 flex items-center gap-3 shadow-lg">
-                        <span className="text-[10px] font-black text-amber-800 uppercase tracking-widest">Aviso: Recortar removerÃ¡ a animaÃ§Ã£o</span>
+                        <span className="text-[10px] font-black text-amber-800 uppercase tracking-widest">Aviso: Recortar removerá a animação</span>
                         <button 
                           onClick={() => {
                             const updatedStickers = [...(currentUser?.chatPreferences?.personalStickers || []), tempStickerUrl];
@@ -1785,7 +1785,7 @@ export default function ChatInternalPage() {
                      className="w-full flex items-center gap-3 px-4 py-3 hover:bg-slate-50 text-slate-700 transition-colors text-sm font-bold"
                    >
                       {isMuted ? <Bell size={16} className="text-slate-400" /> : <BellOff size={16} className="text-slate-400" />}
-                      {isMuted ? 'Ativar notificaÃ§Ãµes' : 'Silenciar'}
+                      {isMuted ? 'Ativar notificações' : 'Silenciar'}
                    </button>
 
                    <div className="h-px bg-slate-100 my-1 mx-2" />

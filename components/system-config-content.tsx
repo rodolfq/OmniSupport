@@ -65,7 +65,7 @@ export function SystemConfigContent({ categories, priorities, setCategories, set
     }
   };
 
-  const priorityLabels = ['Baixa', 'MÃ©dia', 'Alta', 'Urgente'];
+  const priorityLabels = ['Baixa', 'Média', 'Alta', 'Urgente'];
 
   return (
     <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-8 border-t border-slate-200 pt-8 mt-8">
@@ -136,7 +136,7 @@ export function SystemConfigContent({ categories, priorities, setCategories, set
           })}
         </div>
         <p className="text-[10px] text-slate-400 font-medium px-2 italic">
-          * O SLA define o tempo mÃ¡ximo para atendimento em dias inteiros.
+          * O SLA define o tempo máximo para atendimento em dias inteiros.
         </p>
       </div>
     </div>

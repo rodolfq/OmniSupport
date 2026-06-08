@@ -101,7 +101,7 @@ function WhatsAppNumberModal({
                   <Check size={16} className="text-indigo-500 opacity-0 group-hover:opacity-100 transition-all" />
                 </button>
               )) : (
-                <p className="text-sm text-slate-500 italic text-center py-4">Nenhum nÃºmero cadastrado.</p>
+                <p className="text-sm text-slate-500 italic text-center py-4">Nenhum número cadastrado.</p>
               )}
             </div>
           </motion.div>
@@ -150,13 +150,13 @@ export default function CustomersPage() {
         let filteredUsers = loadedUsers;
         let filteredCompanies = loadedCompanies;
 
-        if (currentUser?.role === UserRole.CUSTOMER) {
-          filteredCompanies = loadedCompanies.filter(c => c.id === currentUser.companyId);
-          filteredUsers = loadedUsers.filter(u => u.role === 'FuncionÃ¡rio' && u.companyId === currentUser.companyId);
-        } else {
-            // Admin/internal team: Only show users with 'FuncionÃ¡rio' role and associated company
-            filteredUsers = loadedUsers.filter(u => u.role === 'FuncionÃ¡rio' && !!u.companyId);
-        }
+if (currentUser?.role === UserRole.CUSTOMER) {
+           filteredCompanies = loadedCompanies.filter(c => c.id === currentUser.companyId);
+           filteredUsers = loadedUsers.filter(u => u.role === 'Funcionário' && u.companyId === currentUser.companyId);
+         } else {
+             // Admin/internal team: Only show users with 'Funcionário' role and associated company
+             filteredUsers = loadedUsers.filter(u => u.role === 'Funcionário' && !!u.companyId);
+         }
 
         setCompanies(filteredCompanies);
         setUsers(filteredUsers);
@@ -210,7 +210,7 @@ export default function CustomersPage() {
             <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400 group-focus-within:text-indigo-500 transition-colors" size={16} />
             <input 
               type="text"
-              placeholder="Buscar por empresa ou funcionÃ¡rio..."
+              placeholder="Buscar por empresa ou funcionário..."
               value={searchQuery}
               onChange={(e) => setSearchQuery(e.target.value)}
               className="w-full bg-white border border-slate-200 rounded-xl pl-10 pr-4 py-2.5 text-sm font-medium outline-none focus:ring-2 focus:ring-indigo-500/10 focus:border-indigo-500 transition-all"
@@ -258,7 +258,7 @@ export default function CustomersPage() {
       
       <div className="flex-1 overflow-y-auto space-y-8 pr-4 scrollbar-thin scrollbar-thumb-slate-200">
         {isLoading ? (
-          <div className="flex items-center justify-center h-64 text-sm text-slate-500 font-medium">Carregando quadro de funcionÃ¡rios...</div>
+          <div className="flex items-center justify-center h-64 text-sm text-slate-500 font-medium">Carregando quadro de funcionários...</div>
         ) : selectedCompany ? (
           <>
             <div className="bg-white p-8 rounded-2xl border border-slate-200 shadow-sm flex justify-between items-start">
@@ -282,7 +282,7 @@ export default function CustomersPage() {
                   onClick={() => setIsEmployeeModalOpen(true)}
                   className="bg-indigo-600 text-white px-6 py-2.5 rounded-lg text-sm font-bold shadow-md hover:bg-indigo-700 transition-all"
                 >
-                  Novo FuncionÃ¡rio
+                  Novo Funcionário
                 </button>
               </div>
             </div>
@@ -290,7 +290,7 @@ export default function CustomersPage() {
             <div className="space-y-4">
               <div className="flex justify-between items-end">
                 <div>
-                  <h3 className="text-[10px] font-black uppercase tracking-[0.2em] text-slate-400">Quadro de FuncionÃ¡rios</h3>
+                  <h3 className="text-[10px] font-black uppercase tracking-[0.2em] text-slate-400">Quadro de Funcionários</h3>
                   <p className="text-xs text-slate-500 font-medium">Colaboradores com acesso ao suporte</p>
                 </div>
                 <div className="flex gap-4">
@@ -389,7 +389,7 @@ export default function CustomersPage() {
       <ConfirmModal
         isOpen={!!companyToDelete}
         title="Excluir Empresa"
-        message={`Tem certeza que deseja excluir a empresa ${companyToDelete?.name}? Isso nÃ£o poderÃ¡ ser desfeito.`}
+        message={`Tem certeza que deseja excluir a empresa ${companyToDelete?.name}? Isso não poderá ser desfeito.`}
         error={deleteError}
         onCancel={() => { setCompanyToDelete(null); setDeleteError(''); }}
         onConfirm={async () => {

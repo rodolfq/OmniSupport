@@ -9,7 +9,7 @@ const inter = Inter({ subsets: ["latin"] });
 
 export const metadata: Metadata = {
   title: "OmniSupport - Redefinindo o Atendimento",
-  description: "Plataforma avanÃ§ada de suporte ao cliente com IA",
+  description: "Plataforma avançada de suporte ao cliente com IA",
   icons: {
     icon: "/favicon.svg",
   }

@@ -265,7 +265,7 @@ export function NewTicketModal() {
             <div className="bg-slate-900 px-8 py-6 text-white flex items-center justify-between">
               <div>
                 <h3 className="text-xl font-black tracking-tight m-0">Novo Chamado</h3>
-                <p className="text-[10px] text-slate-400 font-bold uppercase tracking-widest mt-1">Descreva sua solicitaÃ§Ã£o com detalhes</p>
+                <p className="text-[10px] text-slate-400 font-bold uppercase tracking-widest mt-1">Descreva sua solicitação com detalhes</p>
               </div>
               <button onClick={() => setIsNewTicketModalOpen(false)} className="p-2 hover:bg-white/10 rounded-xl transition-colors text-slate-400 hover:text-white">
                 <X size={20} />
@@ -273,7 +273,7 @@ export function NewTicketModal() {
             </div>
 
             <form onSubmit={handleSubmit} className="p-8 space-y-5 max-h-[80vh] overflow-y-auto">
-              {/* InformaÃ§Ãµes BÃ¡sicas */}
+              {/* Informações Básicas */}
               {!isCustomer && (
                 <div className="grid grid-cols-2 gap-4">
                   <div className="space-y-1">
@@ -308,10 +308,10 @@ export function NewTicketModal() {
                 </div>
               )}
 
-              {/* FuncionÃ¡rios com Acesso */}
+              {/* Funcionários com Acesso */}
               {!isCustomer && (
                 <div className="space-y-1">
-                  <label className="text-[10px] font-black uppercase tracking-widest text-slate-400 ml-1">FuncionÃ¡rios com Acesso (Recebem atualizaÃ§Ãµes)</label>
+                  <label className="text-[10px] font-black uppercase tracking-widest text-slate-400 ml-1">Funcionários com Acesso (Recebem atualizações)</label>
                   <div className="flex flex-wrap gap-2 p-3 bg-slate-50 border border-slate-200 rounded-xl min-h-[46px]">
                     {filteredUsers.length === 0 && <p className="text-xs text-slate-400 italic">Selecione uma empresa primeiro</p>}
                     {filteredUsers.map(u => (
@@ -339,7 +339,7 @@ export function NewTicketModal() {
                   type="text" 
                   value={title}
                   onChange={(e) => setTitle(e.target.value)}
-                  placeholder="Ex: Erro ao gerar relatÃ³rio mensal"
+                  placeholder="Ex: Erro ao gerar relatório mensal"
                   className="w-full bg-slate-50 border border-slate-200 rounded-xl px-4 py-2.5 text-sm font-medium focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-500 outline-none transition-all"
                   required
                 />
@@ -372,13 +372,13 @@ export function NewTicketModal() {
 
               {!isCustomer && (
                 <div className="space-y-1">
-                  <label className="text-[10px] font-black uppercase tracking-widest text-slate-400 ml-1">Analista ResponsÃ¡vel (Opcional)</label>
+                  <label className="text-[10px] font-black uppercase tracking-widest text-slate-400 ml-1">Analista Responsável (Opcional)</label>
                   <select 
                     value={assigneeId}
                     onChange={(e) => setAssigneeId(e.target.value)}
                     className="w-full bg-slate-50 border border-slate-200 rounded-xl px-4 py-2.5 text-sm font-medium focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-500 outline-none transition-all appearance-none"
                   >
-                    <option value="">Aguardando AtribuiÃ§Ã£o</option>
+                    <option value="">Aguardando Atribuição</option>
                     {analysts.map(a => <option key={a.id} value={a.id}>{a.name} ({a.role})</option>)}
                   </select>
                 </div>
@@ -389,7 +389,7 @@ export function NewTicketModal() {
                 <RichEditor 
                   content={description}
                   onChange={setDescription}
-                  placeholder="Explique o que aconteceu, passos para reproduzir, insira imagens ou vÃ­deos..."
+                  placeholder="Explique o que aconteceu, passos para reproduzir, insira imagens ou vídeos..."
                   minHeight="200px"
                 />
               </div>
@@ -409,7 +409,7 @@ export function NewTicketModal() {
                 >
                   <Paperclip className="text-slate-400" size={24} />
                   <p className="text-xs font-bold text-slate-500">Clique ou arraste arquivos aqui</p>
-                  <p className="text-[10px] text-slate-400">Suporta mÃºltiplos arquivos e imagens do clipboard</p>
+                  <p className="text-[10px] text-slate-400">Suporta múltiplos arquivos e imagens do clipboard</p>
                   <input 
                     type="file" 
                     multiple 
@@ -441,7 +441,7 @@ export function NewTicketModal() {
               <div className="bg-amber-50 border border-amber-200 p-4 rounded-2xl flex gap-3 text-amber-800">
                 <AlertCircle size={20} className="shrink-0 mt-0.5" />
                 <p className="text-xs font-medium leading-relaxed">
-                  Ao enviar, sua solicitaÃ§Ã£o passarÃ¡ pela triagem inteligente da IA OmniSupport para direcionamento imediato ao departamento correto.
+                  Ao enviar, sua solicitação passará pela triagem inteligente da IA OmniSupport para direcionamento imediato ao departamento correto.
                 </p>
               </div>
 

@@ -91,7 +91,7 @@ useEffect(() => {
       await AbsenceReasonService.save({ label: newReason.trim() });
       await refreshAbsenceReasons();
       setNewReason('');
-      toast.success('Motivo de ausÃªncia adicionado com sucesso!');
+      toast.success('Motivo de ausência adicionado com sucesso!');
     } catch {
       toast.error('Erro ao adicionar motivo.');
     }
@@ -126,8 +126,8 @@ useEffect(() => {
     if (status === 'online') return <CheckCircle2 className="text-emerald-500" size={16} />;
     if (status === 'offline') return <AlertCircle className="text-slate-400" size={16} />;
     
-    if (reason === 'AlmoÃ§o') return <Coffee className="text-amber-500" size={16} />;
-    if (reason === 'ReuniÃ£o') return <Users className="text-amber-500" size={16} />;
+    if (reason === 'Almoço') return <Coffee className="text-amber-500" size={16} />;
+    if (reason === 'Reunião') return <Users className="text-amber-500" size={16} />;
     return <Info className="text-amber-500" size={16} />;
   };
 
@@ -136,7 +136,7 @@ useEffect(() => {
       {/* Header com Filtro para Admin */}
       <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 bg-white p-6 border border-slate-200 rounded-[2rem] shadow-sm">
         <div>
-          <h2 className="text-xl font-black text-slate-800 uppercase tracking-tight">Análise de Tempo e PresenÃ§a</h2>
+          <h2 className="text-xl font-black text-slate-800 uppercase tracking-tight">Análise de Tempo e Presença</h2>
           <p className="text-[10px] text-slate-500 font-bold uppercase tracking-widest">
             {isAdmin ? 'Gestão completa de disponibilidade e motivos' : 'Seu Histórico pessoal de disponibilidade'}
           </p>
@@ -164,11 +164,11 @@ useEffect(() => {
                 onChange={(e: any) => setPeriodFilter(e.target.value)}
                 className="bg-slate-50 border border-slate-200 rounded-xl px-4 py-2 text-xs font-bold text-slate-700 focus:outline-none focus:ring-2 focus:ring-indigo-500/20 transition-all"
               >
-                <option value="all">Todo o PerÃ­odo</option>
+                <option value="all">Todo o Período</option>
                 <option value="today">Hoje</option>
-                <option value="month">Este MÃªs</option>
+                <option value="month">Este Mês</option>
                 <option value="year">Este Ano</option>
-                <option value="specific">Data EspecÃ­fica</option>
+                <option value="specific">Data Específica</option>
               </select>
 
               {periodFilter === 'specific' && (
@@ -186,7 +186,7 @@ useEffect(() => {
 
       <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
         <StatCard label="Tempo Online" value={formatDuration(stats.online)} color="emerald" icon={<CheckCircle2 size={20} />} />
-        <StatCard label="Tempo em AusÃªncia" value={formatDuration(stats.away)} color="amber" icon={<Clock size={20} />} />
+        <StatCard label="Tempo em Ausência" value={formatDuration(stats.away)} color="amber" icon={<Clock size={20} />} />
         <StatCard label="Tempo Offline" value={formatDuration(stats.offline)} color="slate" icon={<AlertCircle size={20} />} />
       </div>
 
@@ -196,7 +196,7 @@ useEffect(() => {
           <div className="lg:col-span-1 space-y-4">
              <div className="bg-white border border-slate-200 rounded-[2rem] overflow-hidden shadow-sm h-full">
                 <div className="px-6 py-4 border-b border-slate-100 bg-slate-50/50">
-                  <h3 className="text-sm font-black text-slate-800 uppercase tracking-tight">Motivos de AusÃªncia</h3>
+                  <h3 className="text-sm font-black text-slate-800 uppercase tracking-tight">Motivos de Ausência</h3>
                 </div>
                 <div className="p-6 space-y-4">
                   <form onSubmit={handleAddReason} className="flex gap-2">
@@ -310,7 +310,7 @@ function HistoryList({ history, isAdmin, getUserName, getStatusIcon, formatDurat
                       entry.status === 'away' ? "text-amber-600" :
                       "text-slate-500"
                     )}>
-                      {entry.status === 'online' ? 'DisponÃ­vel' : 
+                      {entry.status === 'online' ? 'Disponível' : 
                        entry.status === 'away' ? 'Ausente' : 'Offline'}
                     </span>
                     {entry.reason && (

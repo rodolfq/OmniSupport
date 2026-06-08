@@ -81,7 +81,7 @@ export default function QueuesManagementPage() {
   };
 
   const handleDelete = (id: string) => {
-    if (confirm('Tem certeza que deseja remover esta fila? Todos os atendimentos vinculados continuarÃ£o no sistema.')) {
+    if (confirm('Tem certeza que deseja remover esta fila? Todos os atendimentos vinculados continuarão no sistema.')) {
       MockDB.deleteQueue(id);
       loadData();
     }
@@ -114,9 +114,9 @@ export default function QueuesManagementPage() {
         <div>
           <h2 className="text-3xl font-black text-slate-800 tracking-tight flex items-center gap-3">
             <Library className="text-indigo-600" size={32} />
-            GestÃ£o de Filas
+            Gestão de Filas
           </h2>
-          <p className="text-slate-500 font-medium">Configure departamentos e vincule instÃ¢ncias de WhatsApp</p>
+          <p className="text-slate-500 font-medium">Configure departamentos e vincule instâncias de WhatsApp</p>
         </div>
         <button 
           onClick={() => handleOpenModal()}
@@ -143,7 +143,7 @@ export default function QueuesManagementPage() {
                  <div className="flex items-center justify-between p-4 bg-slate-50 rounded-2xl border border-slate-100">
                     <div className="flex items-center gap-3">
                        <Smartphone size={18} className="text-emerald-600" />
-                       <span className="text-sm font-bold text-slate-700">ConexÃµes WhatsApp</span>
+                       <span className="text-sm font-bold text-slate-700">Conexões WhatsApp</span>
                     </div>
                     <span className="text-xl font-black text-slate-900">{whatsappInstances.length}</span>
                  </div>
@@ -163,7 +163,7 @@ export default function QueuesManagementPage() {
               <div className="relative z-10">
                  <h3 className="text-lg font-black uppercase tracking-tight mb-2">Multi-Instance</h3>
                  <p className="text-xs text-indigo-100 font-medium leading-relaxed mb-6 opacity-80">
-                    Cada fila pode ter sua prÃ³pria conexÃ£o WhatsApp independente, permitindo segregar atendimentos por DDD ou departamento.
+                    Cada fila pode ter sua própria conexão WhatsApp independente, permitindo segregar atendimentos por DDD ou departamento.
                  </p>
                  <button className="w-full py-4 bg-white/20 hover:bg-white/30 rounded-2xl text-[10px] font-black uppercase tracking-widest transition-all backdrop-blur-md">
                     Ver logs de roteamento
@@ -181,7 +181,7 @@ export default function QueuesManagementPage() {
                   <Search className="absolute left-4 top-1/2 -translate-y-1/2 text-slate-400" size={18} />
                   <input 
                     type="text" 
-                    placeholder="Filtrar filas por nome ou descriÃ§Ã£o..." 
+                    placeholder="Filtrar filas por nome ou descrição..." 
                     value={search}
                     onChange={(e) => setSearch(e.target.value)}
                     className="w-full bg-white border border-slate-200 rounded-2xl pl-12 pr-4 py-3 text-sm font-medium focus:ring-4 focus:ring-indigo-500/10 outline-none transition-all"
@@ -293,7 +293,7 @@ export default function QueuesManagementPage() {
                  </p>
                  <div className="mt-8 space-y-4">
                     <div className="flex items-center gap-3 text-xs font-black uppercase text-indigo-600">
-                       <CheckCircle2 size={16} /> IdentificaÃ§Ã£o
+                       <CheckCircle2 size={16} /> Identificação
                     </div>
                     <div className={cn("flex items-center gap-3 text-xs font-black uppercase", selectedWhatsappId ? "text-indigo-600" : "text-slate-400")}>
                        <Smartphone size={16} /> WhatsApp
@@ -309,7 +309,7 @@ export default function QueuesManagementPage() {
                 <div className="space-y-8 flex-1">
                    {/* Geral */}
                    <section className="space-y-4">
-                      <h4 className="text-[10px] font-black uppercase tracking-widest text-slate-400 border-b border-slate-100 pb-2">InformaÃ§Ãµes Gerais</h4>
+                      <h4 className="text-[10px] font-black uppercase tracking-widest text-slate-400 border-b border-slate-100 pb-2">Informações Gerais</h4>
                       <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
                          <div className="space-y-1.5">
                             <label className="text-[10px] font-black uppercase text-slate-500 tracking-widest ml-1">Nome da Fila</label>
@@ -322,7 +322,7 @@ export default function QueuesManagementPage() {
                             />
                          </div>
                          <div className="space-y-1.5">
-                            <label className="text-[10px] font-black uppercase text-slate-500 tracking-widest ml-1">InstÃ¢ncia WhatsApp</label>
+                            <label className="text-[10px] font-black uppercase text-slate-500 tracking-widest ml-1">Instância WhatsApp</label>
                             <select 
                               value={selectedWhatsappId}
                               onChange={(e) => setSelectedWhatsappId(e.target.value)}
@@ -336,7 +336,7 @@ export default function QueuesManagementPage() {
                          </div>
                       </div>
                       <div className="space-y-1.5">
-                         <label className="text-[10px] font-black uppercase text-slate-500 tracking-widest ml-1">DescriÃ§Ã£o / Notas Internas</label>
+                         <label className="text-[10px] font-black uppercase text-slate-500 tracking-widest ml-1">Descrição / Notas Internas</label>
                          <textarea 
                            value={description}
                            onChange={(e) => setDescription(e.target.value)}
@@ -350,7 +350,7 @@ export default function QueuesManagementPage() {
                    <section className="space-y-4">
                       <div className="flex items-center justify-between border-b border-slate-100 pb-2">
                         <h4 className="text-[10px] font-black uppercase tracking-widest text-slate-400">Escala da Equipe ({selectedMemberIds.length})</h4>
-                        <p className="text-[10px] text-slate-400 font-bold italic">Selecione quem farÃ¡ parte desta fila</p>
+                        <p className="text-[10px] text-slate-400 font-bold italic">Selecione quem fará parte desta fila</p>
                       </div>
                       <div className="grid grid-cols-2 md:grid-cols-3 gap-3">
                          {users.map(user => (

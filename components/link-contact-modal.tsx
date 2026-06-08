@@ -134,7 +134,7 @@ export function LinkContactModal({
               <div>
                 <h3 className="text-xl font-black tracking-tight">Vincular Contato</h3>
                 <p className="text-[10px] text-slate-400 font-bold uppercase tracking-widest mt-1">
-                  NÃºmero: {maskPhone(session?.customerPhone || '')}
+                  Número: {maskPhone(session?.customerPhone || '')}
                 </p>
               </div>
               <button onClick={onClose} className="p-2 hover:bg-white/10 rounded-xl transition-colors text-slate-400">

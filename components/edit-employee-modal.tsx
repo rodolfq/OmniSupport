@@ -68,7 +68,7 @@ export function EditEmployeeModal({ isOpen, onClose, user, onSuccess }: { isOpen
       }, 1500);
     } catch (error) {
       console.error(error);
-      alert('Erro ao atualizar usuÃ¡rio.');
+      alert('Erro ao atualizar usuário.');
     } finally {
       setLoading(false);
     }
@@ -117,7 +117,7 @@ export function EditEmployeeModal({ isOpen, onClose, user, onSuccess }: { isOpen
       onClose();
     } catch (error: any) {
       console.error(error);
-      alert(error.message || 'Erro ao excluir usuÃ¡rio.');
+      alert(error.message || 'Erro ao excluir usuário.');
     } finally {
       setDeleteLoading(false);
       setShowDeleteConfirm(false);
@@ -144,7 +144,7 @@ export function EditEmployeeModal({ isOpen, onClose, user, onSuccess }: { isOpen
             <div className="bg-slate-900 px-8 py-6 text-white flex items-center justify-between">
               <div>
                 <h3 className="text-xl font-black tracking-tight text-white m-0">Editar Colaborador</h3>
-                <p className="text-[10px] text-slate-400 font-bold uppercase tracking-widest mt-1">Configure as permissÃµes de {user.name}</p>
+                <p className="text-[10px] text-slate-400 font-bold uppercase tracking-widest mt-1">Configure as permissões de {user.name}</p>
               </div>
               <button onClick={onClose} className="p-2 hover:bg-white/10 rounded-xl transition-colors text-slate-400 hover:text-white">
                 <X size={20} />
@@ -242,7 +242,7 @@ export function EditEmployeeModal({ isOpen, onClose, user, onSuccess }: { isOpen
                   onClick={() => setPhones([...phones, ''])}
                   className="w-full py-2.5 border-2 border-dashed border-slate-200 rounded-xl text-[10px] font-black uppercase tracking-widest text-slate-400 hover:border-indigo-300 hover:text-indigo-600 transition-all flex items-center justify-center gap-2"
                 >
-                  <Plus size={14} /> Adicionar outro nÃºmero
+                  <Plus size={14} /> Adicionar outro número
                 </button>
               </div>
 
@@ -255,7 +255,7 @@ export function EditEmployeeModal({ isOpen, onClose, user, onSuccess }: { isOpen
                       </div>
                       <div>
                         <p className="text-[11px] font-black text-slate-800 uppercase tracking-wider">Acesso ao Login</p>
-                        <p className="text-[10px] text-slate-400 font-bold uppercase tracking-widest">SeguranÃ§a da conta</p>
+                        <p className="text-[10px] text-slate-400 font-bold uppercase tracking-widest">Segurança da conta</p>
                       </div>
                     </div>
                     <button 
@@ -295,7 +295,7 @@ export function EditEmployeeModal({ isOpen, onClose, user, onSuccess }: { isOpen
                 <p className="text-[9px] text-slate-400 font-bold uppercase leading-relaxed">
                   {viewAllCompanyTickets 
                     ? "Visualizar todos os chamados da empresa." 
-                    : "Apenas visualizar os prÃ³prios chamados."}
+                    : "Apenas visualizar os próprios chamados."}
                 </p>
               </div>
 
@@ -359,9 +359,9 @@ export function EditEmployeeModal({ isOpen, onClose, user, onSuccess }: { isOpen
                   <div className="w-16 h-16 bg-rose-100 rounded-2xl flex items-center justify-center text-rose-500 mx-auto mb-6">
                     <AlertTriangle size={32} />
                   </div>
-                  <h4 className="text-xl font-black text-slate-900 text-center mb-2">Excluir FuncionÃ¡rio?</h4>
+                  <h4 className="text-xl font-black text-slate-900 text-center mb-2">Excluir Funcionário?</h4>
                   <p className="text-sm text-slate-500 text-center mb-8 font-medium">
-                    Esta aÃ§Ã£o nÃ£o pode ser desfeita. O colaborador <span className="font-bold text-slate-900">{user.name}</span> perderÃ¡ acesso imediato ao sistema.
+                    Esta ação não pode ser desfeita. O colaborador <span className="font-bold text-slate-900">{user.name}</span> perderá acesso imediato ao sistema.
                   </p>
                   
                   <div className="space-y-3">

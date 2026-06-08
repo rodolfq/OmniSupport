@@ -145,7 +145,7 @@ export function TagManager() {
         <div className="grid grid-cols-2 md:grid-cols-4 lg:grid-cols-5 gap-3">
           {filteredTags.length === 0 ? (
             <div className="col-span-full py-12 text-center">
-              <p className="text-slate-400 text-xs font-bold uppercase tracking-widest italic">Nenhuma tag cadastrada para este domÃ­nio.</p>
+              <p className="text-slate-400 text-xs font-bold uppercase tracking-widest italic">Nenhuma tag cadastrada para este domínio.</p>
             </div>
           ) : (
             filteredTags.map((tag) => (
@@ -190,7 +190,7 @@ export function TagManager() {
         <div className="space-y-1">
            <h4 className="text-sm font-black text-indigo-900 uppercase tracking-tight">Para que servem as tags?</h4>
            <p className="text-[10px] text-indigo-700 font-medium leading-relaxed uppercase tracking-widest">
-             Tags ajudam na categorizaÃ§Ã£o rÃ¡pida, filtragem em relatÃ³rios e identificaÃ§Ã£o visual instantÃ¢nea do tipo de atendimento que estÃ¡ sendo realizado.
+             Tags ajudam na categorização rápida, filtragem em relatórios e identificação visual instantânea do tipo de atendimento que está sendo realizado.
            </p>
         </div>
       </div>

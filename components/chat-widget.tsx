@@ -306,7 +306,7 @@ export function ChatWidget() {
         messagesChannelRef.current = null;
       }
 
-      console.log(`“¡ InscriÃ§Ã£o realtime p/ sessÃ£o: ${selectedChatId}`);
+      console.log(`“¡ Inscrição realtime p/ sessão: ${selectedChatId}`);
       isSubscribedRef.current = selectedChatId;
       
       // 3. Define channel and event listeners BEFORE subscribe
@@ -355,7 +355,7 @@ export function ChatWidget() {
 
     return () => {
       if (messagesChannelRef.current && supabase) {
-        console.log(`š« Desconectando realtime sessÃ£o: ${isSubscribedRef.current}`);
+        console.log(`š« Desconectando realtime sessão: ${isSubscribedRef.current}`);
         supabase.removeChannel(messagesChannelRef.current);
         messagesChannelRef.current = null;
         isSubscribedRef.current = null;
@@ -759,7 +759,7 @@ export function ChatWidget() {
                         {(() => {
                            if (isCustomer) return (
                              <span className="text-[10px] text-emerald-500 font-black uppercase tracking-tighter">
-                               Sempre disponÃ­vel
+                               Sempre disponível
                              </span>
                            );
                            
@@ -866,7 +866,7 @@ export function ChatWidget() {
                           exit={{ opacity: 0, y: 10 }}
                           className="absolute bottom-full left-6 right-6 mb-4 bg-white border border-slate-200 rounded-[2rem] shadow-2xl p-3 max-h-64 overflow-y-auto z-10"
                         >
-                          <p className="p-3 text-[10px] font-black uppercase text-slate-400 tracking-widest border-b border-slate-50 mb-2">Comandos RÃ¡pidos</p>
+                          <p className="p-3 text-[10px] font-black uppercase text-slate-400 tracking-widest border-b border-slate-50 mb-2">Comandos Rápidos</p>
                           {quickNotes.filter(n => n.shortcut.includes(message.slice(1))).map(note => (
                             <button 
                               key={note.id}
@@ -889,7 +889,7 @@ export function ChatWidget() {
                          value={message}
                          onChange={handleInputChange}
                          onKeyDown={(e) => e.key === 'Enter' && handleSendMessage()}
-                         placeholder="Resposta padrÃ£o '/' para atalhos..." 
+                         placeholder="Resposta padrão '/' para atalhos..." 
                          className="flex-1 bg-slate-50 border border-slate-200 rounded-2xl px-5 py-4 text-sm font-bold focus:ring-4 focus:ring-indigo-500/10 outline-none transition-all"
                        />
                        <button 
@@ -926,7 +926,7 @@ export function ChatWidget() {
 
                 <div className="space-y-4">
                    <div className="space-y-1.5 relative">
-                      <label className="text-[10px] font-black uppercase text-slate-400 tracking-widest ml-1">Buscar Cliente ou FuncionÃ¡rio</label>
+                      <label className="text-[10px] font-black uppercase text-slate-400 tracking-widest ml-1">Buscar Cliente ou Funcionário</label>
                       <div className="relative">
                         <Search className="absolute left-4 top-1/2 -translate-y-1/2 text-slate-400" size={16} />
                         <input 
@@ -982,7 +982,7 @@ export function ChatWidget() {
 
                    <div className="grid grid-cols-2 gap-4">
                      <div className="space-y-1.5">
-                        <label className="text-[10px] font-black uppercase text-slate-400 tracking-widest ml-1">NÃºmero</label>
+                        <label className="text-[10px] font-black uppercase text-slate-400 tracking-widest ml-1">Número</label>
                         <input 
                           type="tel" 
                           value={newChatNumber} 
@@ -997,7 +997,7 @@ export function ChatWidget() {
                           type="text" 
                           value={newChatName} 
                           onChange={e => setNewChatName(e.target.value)} 
-                          placeholder="IdentificaÃ§Ã£o" 
+                          placeholder="Identificação" 
                           className="w-full bg-slate-50 border border-slate-200 rounded-2xl px-4 py-3 text-sm font-bold focus:ring-4 focus:ring-indigo-500/10 outline-none" 
                         />
                      </div>
@@ -1031,7 +1031,7 @@ export function ChatWidget() {
                         type="text" 
                         value={ticketTitle} 
                         onChange={e => setTicketTitle(e.target.value)} 
-                        placeholder="Ex: Suporte tÃ©cnico - Erro no login" 
+                        placeholder="Ex: Suporte técnico - Erro no login" 
                         className="w-full bg-slate-50 border border-slate-200 rounded-2xl px-4 py-3 text-sm font-bold focus:ring-4 focus:ring-indigo-500/10 outline-none" 
                       />
                    </div>
@@ -1045,7 +1045,7 @@ export function ChatWidget() {
                       />
                       <div className="flex flex-col">
                          <span className="text-xs font-black uppercase text-slate-700 tracking-tight">Fechar Imediatamente</span>
-                         <span className="text-[9px] text-slate-400 font-medium">O chamado serÃ¡ criado com status &quot;ConcluÃ­do&quot;</span>
+                         <span className="text-[9px] text-slate-400 font-medium">O chamado será criado com status &quot;Concluído&quot;</span>
                       </div>
                    </label>
 

@@ -103,11 +103,11 @@ export default function TicketsPage() {
     { id: 'id', label: 'ID', sortable: true },
     { id: 'title', label: 'Assunto', sortable: true },
     { id: 'company', label: 'Cliente', sortable: true },
-    { id: 'assignee', label: 'ResponsÃ¡vel', sortable: true },
+    { id: 'assignee', label: 'Responsável', sortable: true },
     { id: 'status', label: 'Status', sortable: true },
     { id: 'priority', label: 'Prioridade', sortable: true },
     { id: 'sla', label: 'Vencimento', sortable: true },
-    { id: 'action', label: 'AÃ§Ã£o', sortable: false },
+    { id: 'action', label: 'Ação', sortable: false },
   ]);
 
   const [loading, setLoading] = useState(true);
@@ -237,7 +237,7 @@ export default function TicketsPage() {
           bValue = b.status;
           break;
         case 'priority':
-          const priorityOrder = ['Baixa', 'MÃ©dia', 'Alta', 'Urgente'];
+          const priorityOrder = ['Baixa', 'Média', 'Alta', 'Urgente'];
           aValue = priorityOrder.indexOf(a.priority as string);
           bValue = priorityOrder.indexOf(b.priority as string);
           break;
@@ -343,7 +343,7 @@ export default function TicketsPage() {
                   <span className="text-sm font-medium text-slate-600">{assignee.name}</span>
                 </>
               ) : (
-                <span className="text-xs text-slate-300 italic">DÃ­sponivel</span>
+                <span className="text-xs text-slate-300 italic">Dísponivel</span>
               )}
             </div>
           </td>
@@ -367,7 +367,7 @@ export default function TicketsPage() {
           <td key="priority" className="px-6 py-5">
             <div className="flex items-center gap-0.5">
               {[1, 2, 3, 4].map((star) => {
-                const priorityLabels = ['Baixa', 'MÃ©dia', 'Alta', 'Urgente'];
+                const priorityLabels = ['Baixa', 'Média', 'Alta', 'Urgente'];
                 const currentPriority = priorityLabels.indexOf(ticket.priority as string) + 1;
                 return (
                   <Star 
@@ -412,7 +412,7 @@ export default function TicketsPage() {
       <div className="flex justify-between items-end">
         <div>
           <h2 className="text-3xl font-black text-slate-800 tracking-tight">Chamados</h2>
-          <p className="text-slate-500 font-medium">Gerenciamento completo de solicitaÃ§Ãµes</p>
+          <p className="text-slate-500 font-medium">Gerenciamento completo de solicitações</p>
         </div>
       </div>
 

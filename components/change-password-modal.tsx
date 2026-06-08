@@ -26,7 +26,7 @@ export function ChangePasswordModal({ isOpen, onClose }: { isOpen: boolean, onCl
     }
 
     if (newPassword !== confirmPassword) {
-      setError('As senhas nÃ£o coincidem.');
+      setError('As senhas não coincidem.');
       return;
     }
 
@@ -35,7 +35,7 @@ export function ChangePasswordModal({ isOpen, onClose }: { isOpen: boolean, onCl
     setIsLoading(true);
     // First, update Auth password
     if (!supabase) {
-      setError('Erro de configuraÃ§Ã£o: Supabase nÃ£o inicializado.');
+      setError('Erro de configuração: Supabase não inicializado.');
       setIsLoading(false);
       return;
     }
@@ -105,7 +105,7 @@ export function ChangePasswordModal({ isOpen, onClose }: { isOpen: boolean, onCl
                   value={newPassword}
                   onChange={e => setNewPassword(e.target.value)}
                   className="w-full bg-slate-50 border border-slate-200 rounded-2xl px-4 py-3 text-sm font-bold focus:ring-4 focus:ring-indigo-500/10 outline-none transition-all"
-                  placeholder="MÃ­nimo 6 caracteres"
+                  placeholder="Mínimo 6 caracteres"
                 />
                 <button type="button" onClick={() => setShowPassword(!showPassword)} className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-400">
                   {showPassword ? <EyeOff size={16} /> : <Eye size={16} />}

@@ -26,12 +26,12 @@ export default function ReportsPage() {
   return (
     <div className="space-y-8">
       <div className="flex justify-between items-center">
-        <h1 className="text-3xl font-black text-slate-800 tracking-tight">Performance AnalÃ­tica</h1>
+        <h1 className="text-3xl font-black text-slate-800 tracking-tight">Performance Analítica</h1>
         <button className="bg-indigo-600 hover:bg-indigo-700 text-white px-6 py-2 rounded-lg font-bold shadow-md transition-colors">Exportar PDF</button>
       </div>
       <div className="grid grid-cols-1 md:grid-cols-4 gap-6">
-        <MetricCard label="SatisfaÃ§Ã£o" value="4.7" icon={<TrendingUp size={24} className="text-white" />} accent />
-        <MetricCard label="Tempo MÃ©dio" value="2.4h" icon={<Clock className="text-indigo-600" />} />
+        <MetricCard label="Satisfação" value="4.7" icon={<TrendingUp size={24} className="text-white" />} accent />
+        <MetricCard label="Tempo Médio" value="2.4h" icon={<Clock className="text-indigo-600" />} />
         <MetricCard label="SLA" value="98.2%" icon={<Calendar className="text-indigo-600" />} />
         <MetricCard label="Analistas" value="12" icon={<Users className="text-indigo-600" />} />
       </div>
@@ -50,7 +50,7 @@ export default function ReportsPage() {
           </div>
         </div>
         <div className="bg-white p-8 rounded-2xl border border-slate-200 shadow-sm">
-          <h3 className="font-bold mb-8 uppercase text-[10px] tracking-[0.2em] text-slate-400">DistribuiÃ§Ã£o</h3>
+          <h3 className="font-bold mb-8 uppercase text-[10px] tracking-[0.2em] text-slate-400">Distribuição</h3>
           <div className="h-64">
             <ResponsiveContainer width="100%" height="100%">
               <PieChart>

@@ -61,7 +61,7 @@ export function TicketDetailModal({ ticket, onClose }: TicketDetailModalProps) {
   const [ticketStatus, setTicketStatus] = useState(ticket?.status || TicketStatus.NEW);
   const [ticketDescription, setTicketDescription] = useState(ticket?.description || '');
   const [mainTeam, setMainTeam] = useState(ticket?.category || 'Suporte');
-  const [mainPriority, setMainPriority] = useState(ticket?.priority || 'MÃ©dia');
+  const [mainPriority, setMainPriority] = useState(ticket?.priority || 'Média');
   const [mainTags, setMainTags] = useState(ticket?.tags || []);
   const [customerId, setCustomerId] = useState(ticket?.customerId || '');
   const [companyId, setCompanyId] = useState(ticket?.companyId || '');
@@ -546,7 +546,7 @@ const handleSendMessage = async (isInternal: boolean) => {
                           <div className="flex items-center gap-0.5 pt-0.5">
                              {[1, 2, 3, 4].map((star) => {
                                // Priority mapping
-                               const priorityLabels = ['Baixa', 'MÃ©dia', 'Alta', 'Urgente'];
+                               const priorityLabels = ['Baixa', 'Média', 'Alta', 'Urgente'];
                                const currentStars = priorityLabels.indexOf(mainPriority) + 1;
                                
                                return (
@@ -735,7 +735,7 @@ const handleSendMessage = async (isInternal: boolean) => {
                           "px-4 py-3 border-b-2 transition-all flex items-center justify-center",
                           activeTab === 'history' ? "border-slate-500 text-slate-600 bg-slate-50/50" : "border-transparent text-slate-400 hover:text-slate-600"
                         )}
-                        title="Histórico de alteraÃ§Ãµes"
+                        title="Histórico de alterações"
                       >
                         <History size={16} />
                       </button>
@@ -890,12 +890,12 @@ const handleSendMessage = async (isInternal: boolean) => {
                                   </div>
 
                                   <div className="col-span-2 space-y-2">
-                                     <label className="text-[10px] font-black uppercase text-slate-400">Descrição TÃ©cnica / Notas do Desenvolvedor</label>
+                                     <label className="text-[10px] font-black uppercase text-slate-400">Descrição Técnica / Notas do Desenvolvedor</label>
                                      <textarea 
                                        value={itDescription}
                                        onChange={(e) => setItDescription(e.target.value)}
                                        onBlur={handleUpdateInternalTicket}
-                                       placeholder="Adicione detalhes tÃ©cnicos, bugs reportados ou requisitos..."
+                                       placeholder="Adicione detalhes técnicos, bugs reportados ou requisitos..."
                                        className="w-full min-h-[120px] bg-white border border-slate-200 rounded-xl p-4 text-sm font-medium outline-none focus:border-amber-400 shadow-sm"
                                      />
                                   </div>
@@ -905,7 +905,7 @@ const handleSendMessage = async (isInternal: boolean) => {
                             <div className="text-center py-20 border-2 border-dashed border-slate-200 rounded-3xl group hover:border-amber-300 transition-all">
                                <Lock className="mx-auto text-slate-200 mb-4 group-hover:text-amber-400 transition-all" size={48} />
                                <h3 className="text-lg font-black text-slate-800 uppercase tracking-tight">Criar Ticket Interno</h3>
-                               <p className="text-sm font-medium text-slate-400 mt-2 mb-6 max-w-sm mx-auto uppercase">Vincule um ticket de desenvolvimento ou manutenção tÃ©cnica a este chamado do cliente.</p>
+                               <p className="text-sm font-medium text-slate-400 mt-2 mb-6 max-w-sm mx-auto uppercase">Vincule um ticket de desenvolvimento ou manutenção técnica a este chamado do cliente.</p>
                                <button 
                                  onClick={handleCreateInternalTicket}
                                  className="px-6 py-3 bg-amber-500 text-white rounded-2xl text-xs font-black uppercase tracking-widest hover:bg-amber-600 transition-all shadow-lg shadow-amber-100"

@@ -145,7 +145,7 @@ export function RichEditor({ content, onChange, placeholder = 'Comece a digitar.
           type="button"
           onClick={() => editor.chain().focus().toggleItalic().run()}
           className={cn("p-1.5 rounded-lg transition-all hover:bg-white hover:shadow-sm", editor.isActive('italic') ? "bg-white shadow-sm text-indigo-600" : "text-slate-400")}
-          title="ItÃ¡lico"
+          title="Itálico"
         >
           <Italic size={16} />
         </button>
@@ -187,7 +187,7 @@ export function RichEditor({ content, onChange, placeholder = 'Comece a digitar.
           type="button"
           onClick={() => editor.chain().focus().toggleBlockquote().run()}
           className={cn("p-1.5 rounded-lg transition-all hover:bg-white hover:shadow-sm", editor.isActive('blockquote') ? "bg-white shadow-sm text-indigo-600" : "text-slate-400")}
-          title="CitaÃ§Ã£o"
+          title="Citação"
         >
           <Quote size={16} />
         </button>
@@ -212,7 +212,7 @@ export function RichEditor({ content, onChange, placeholder = 'Comece a digitar.
           type="button"
           onClick={() => openUrlModal('youtube')}
           className="p-1.5 rounded-lg transition-all hover:bg-white hover:shadow-sm text-slate-400"
-          title="VÃ­deo do YouTube"
+          title="Vídeo do YouTube"
         >
           <YoutubeIcon size={16} />
         </button>
@@ -247,7 +247,7 @@ export function RichEditor({ content, onChange, placeholder = 'Comece a digitar.
               placeholder={
                 isUrlModalOpen === 'link' ? "Digite a URL do link..." :
                 isUrlModalOpen === 'image' ? "Cole a URL da imagem..." :
-                "Cole a URL do vÃ­deo do YouTube..."
+                "Cole a URL do vídeo do YouTube..."
               }
               className="flex-1 px-3 py-1.5 text-sm border border-slate-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-500"
             />
@@ -305,7 +305,7 @@ export function RichEditor({ content, onChange, placeholder = 'Comece a digitar.
         </BubbleMenu>
       )}
 
-      {/* Custom Paste handling for images/mÃ­dia */}
+      {/* Custom Paste handling for images/mídia */}
       <div className="hidden">
         <input 
           type="file" 

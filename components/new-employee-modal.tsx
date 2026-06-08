@@ -25,13 +25,13 @@ export function NewEmployeeModal({ isOpen, onClose, companyId, onSuccess }: { is
     setError(null);
     
     try {
-      // Adjust role: if companyId is present, it's a employee (FuncionÃ¡rio), otherwise it's support (Equipe)
+      // Adjust role: if companyId is present, it's a employee (Funcionário), otherwise it's support (Equipe)
       const role = companyId ? UserRole.EMPLOYEE : UserRole.SUPPORT;
       const result = await createUser(email, name, role, companyId || null, phones, viewAllCompanyTickets);
       
       if (result.error) {
         if (result.error.includes('Email already exists')) {
-          setError('Este email jÃ¡ estÃ¡ em uso.');
+          setError('Este email já está em uso.');
         } else {
           setError(result.error);
         }
@@ -53,8 +53,8 @@ export function NewEmployeeModal({ isOpen, onClose, companyId, onSuccess }: { is
         setPhones(['']);
       }, 1500);
     } catch (error: any) {
-      console.error('Erro ao criar funcionÃ¡rio:', error);
-      setError('Erro ao criar funcionÃ¡rio. Por favor, tente novamente.');
+      console.error('Erro ao criar funcionário:', error);
+      setError('Erro ao criar funcionário. Por favor, tente novamente.');
     } finally {
       setLoading(false);
     }
@@ -79,8 +79,8 @@ export function NewEmployeeModal({ isOpen, onClose, companyId, onSuccess }: { is
           >
             <div className="bg-slate-900 px-8 py-6 text-white flex items-center justify-between">
               <div>
-                <h3 className="text-xl font-black tracking-tight text-white m-0">Novo FuncionÃ¡rio</h3>
-                <p className="text-[10px] text-slate-400 font-bold uppercase tracking-widest mt-1">Adicione um novo usuÃ¡rio do cliente para abrir chamados</p>
+                <h3 className="text-xl font-black tracking-tight text-white m-0">Novo Funcionário</h3>
+                <p className="text-[10px] text-slate-400 font-bold uppercase tracking-widest mt-1">Adicione um novo usuário do cliente para abrir chamados</p>
               </div>
               <button onClick={onClose} className="p-2 hover:bg-white/10 rounded-xl transition-colors text-slate-400 hover:text-white">
                 <X size={20} />
@@ -94,7 +94,7 @@ export function NewEmployeeModal({ isOpen, onClose, companyId, onSuccess }: { is
                   type="text" 
                   value={name}
                   onChange={(e) => setName(e.target.value)}
-                  placeholder="Nome do funcionÃ¡rio"
+                  placeholder="Nome do funcionário"
                   className="w-full bg-slate-50 border border-slate-200 rounded-xl px-4 py-3 text-sm font-medium focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-500 outline-none transition-all"
                   required
                 />
@@ -150,7 +150,7 @@ export function NewEmployeeModal({ isOpen, onClose, companyId, onSuccess }: { is
                   onClick={() => setPhones([...phones, ''])}
                   className="w-full py-2.5 border-2 border-dashed border-slate-200 rounded-xl text-[10px] font-black uppercase tracking-widest text-slate-400 hover:border-indigo-300 hover:text-indigo-600 transition-all flex items-center justify-center gap-2"
                 >
-                  <Plus size={14} /> Adicionar outro nÃºmero
+                  <Plus size={14} /> Adicionar outro número
                 </button>
               </div>
 

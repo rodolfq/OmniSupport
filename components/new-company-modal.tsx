@@ -77,7 +77,7 @@ export function NewCompanyModal({ isOpen, onClose, onSuccess, company }: { isOpe
             <div className="bg-slate-900 px-8 py-6 text-white flex items-center justify-between">
               <div>
                 <h3 className="text-xl font-black tracking-tight text-white m-0">{company ? 'Editar Empresa' : 'Nova Empresa'}</h3>
-                <p className="text-[10px] text-slate-400 font-bold uppercase tracking-widest mt-1">{company ? 'Atualize os dados da organizaÃ§Ã£o' : 'Cadastre uma nova organizaÃ§Ã£o parceira'}</p>
+                <p className="text-[10px] text-slate-400 font-bold uppercase tracking-widest mt-1">{company ? 'Atualize os dados da organização' : 'Cadastre uma nova organização parceira'}</p>
               </div>
               <button onClick={onClose} className="p-2 hover:bg-white/10 rounded-xl transition-colors text-slate-400 hover:text-white">
                 <X size={20} />
@@ -98,7 +98,7 @@ export function NewCompanyModal({ isOpen, onClose, onSuccess, company }: { isOpe
                     type="text" 
                     value={name}
                     onChange={(e) => setName(e.target.value)}
-                    placeholder="RazÃ£o social ou nome fantasia"
+                    placeholder="Razão social ou nome fantasia"
                     className="w-full bg-slate-50 border border-slate-200 rounded-xl pl-12 pr-4 py-3 text-sm font-medium focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-500 outline-none transition-all"
                     required
                   />
@@ -107,7 +107,7 @@ export function NewCompanyModal({ isOpen, onClose, onSuccess, company }: { isOpe
 
               <div className="grid grid-cols-2 gap-4">
                 <div className="space-y-2">
-                  <label className="text-[10px] font-black uppercase tracking-widest text-slate-400 ml-1">Setor / IndÃºstria</label>
+                  <label className="text-[10px] font-black uppercase tracking-widest text-slate-400 ml-1">Setor / Indústria</label>
                   <div className="relative">
                     <Briefcase className="absolute left-4 top-1/2 -translate-y-1/2 text-slate-400" size={16} />
                     <input 

@@ -69,7 +69,7 @@ const AppContext = createContext<AppContextType | undefined>(undefined);
 
 const DEFAULT_SETTINGS: NotificationSettings = {
   systemSound: '/audio/Alerta.mp3',
-  chatSound: '/audio/notificaÃ§Ã£o1.mp3',
+  chatSound: '/audio/notificação1.mp3',
   ticket_new: true,
   ticket_assigned: true,
   ticket_update: true,

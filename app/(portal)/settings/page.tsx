@@ -158,20 +158,20 @@ export default function SettingsPage() {
       
       if (!res.ok) {
         const data = await res.json();
-        throw new Error(data.error || 'Erro ao iniciar conexÃ£o');
+        throw new Error(data.error || 'Erro ao iniciar conexão');
       }
 
-      toast.info(force ? 'Reiniciando conexÃ£o do zero...' : 'Iniciando pareamento... Aguarde o QR Code.');
+      toast.info(force ? 'Reiniciando conexão do zero...' : 'Iniciando pareamento... Aguarde o QR Code.');
     } catch (error: any) {
       console.error('Error starting connection:', error);
       setQrStatus('idle');
-      toast.error(error.message || 'Erro de conexÃ£o com o servidor.');
+      toast.error(error.message || 'Erro de conexão com o servidor.');
     }
   };
 
   const handleDisconnect = async () => {
     if (!selectedInstance) return;
-    const confirm = window.confirm('Deseja realmente desconectar e limpar esta sessÃ£o?');
+    const confirm = window.confirm('Deseja realmente desconectar e limpar esta sessão?');
     if (!confirm) return;
 
     try {
@@ -225,16 +225,16 @@ export default function SettingsPage() {
   return (
     <div className="space-y-8 px-6 lg:px-10 max-w-[1600px] mx-auto">
       <div>
-        <h2 className="text-3xl font-black text-slate-800 tracking-tight">ConfiguraÃ§Ãµes</h2>
-        <p className="text-slate-500 font-medium">Personalize sua experiÃªncia e gerencie parÃ¢metros do sistema</p>
+        <h2 className="text-3xl font-black text-slate-800 tracking-tight">Configurações</h2>
+        <p className="text-slate-500 font-medium">Personalize sua experiência e gerencie parâmetros do sistema</p>
       </div>
 
       <div className="grid grid-cols-1 md:grid-cols-12 gap-8">
         <aside className="md:col-span-3 lg:col-span-2 space-y-1">
           <SettingsNavLink icon={<User size={18} />} label="Perfil" active={activeTab === 'profile'} onClick={() => setActiveTab('profile')} />
-          <SettingsNavLink icon={<Bell size={18} />} label="NotificaÃ§Ãµes" active={activeTab === 'notifications'} onClick={() => setActiveTab('notifications')} />
-          <SettingsNavLink icon={<Shield size={18} />} label="SeguranÃ§a" active={activeTab === 'security'} onClick={() => setActiveTab('security')} />
-          <SettingsNavLink icon={<Clock size={18} />} label="AusÃªncia / HistÃ³rico" active={activeTab === 'history'} onClick={() => setActiveTab('history')} />
+          <SettingsNavLink icon={<Bell size={18} />} label="Notificações" active={activeTab === 'notifications'} onClick={() => setActiveTab('notifications')} />
+          <SettingsNavLink icon={<Shield size={18} />} label="Segurança" active={activeTab === 'security'} onClick={() => setActiveTab('security')} />
+          <SettingsNavLink icon={<Clock size={18} />} label="Ausência / Histórico" active={activeTab === 'history'} onClick={() => setActiveTab('history')} />
           {currentUser?.role === UserRole.ADMIN && (
             <>
               <SettingsNavLink icon={<Globe size={18} />} label="WhatsApp" active={activeTab === 'whatsapp'} onClick={() => setActiveTab('whatsapp')} />
@@ -310,7 +310,7 @@ export default function SettingsPage() {
                     <div className="p-6 bg-slate-50 rounded-3xl border border-slate-100">
                       <h4 className="text-xs font-black uppercase text-slate-800 mb-4 flex items-center gap-2">
                         <Globe size={14} className="text-indigo-600" />
-                        InstruÃ§Ãµes para {selectedInstance?.name}
+                        Instruções para {selectedInstance?.name}
                       </h4>
                       <ul className="text-xs text-slate-500 space-y-3 font-medium">
                         <li className="flex gap-3">
@@ -333,9 +333,9 @@ export default function SettingsPage() {
                               <Shield size={10} />
                            </div>
                            <div className="space-y-1">
-                              <p className="text-[10px] font-black text-indigo-800 uppercase tracking-tight">ConexÃ£o Segura</p>
+                              <p className="text-[10px] font-black text-indigo-800 uppercase tracking-tight">Conexão Segura</p>
                               <p className="text-[10px] text-indigo-700 font-medium leading-relaxed">
-                                Use o WhatsApp oficial no seu celular para escanear o cÃ³digo. A conexÃ£o Ã© criptografada de ponta a ponta.
+                                Use o WhatsApp oficial no seu celular para escanear o código. A conexão é criptografada de ponta a ponta.
                               </p>
                            </div>
                         </div>
@@ -348,7 +348,7 @@ export default function SettingsPage() {
                           onClick={() => startLinking()}
                           className="w-full py-4 bg-emerald-600 text-white rounded-2xl text-xs font-black uppercase tracking-widest shadow-xl shadow-emerald-100 hover:bg-emerald-700 transition-all flex items-center justify-center gap-2"
                         >
-                          Gerar AutenticaÃ§Ã£o
+                          Gerar Autenticação
                         </button>
                         <button 
                           onClick={() => startLinking(true)}
@@ -369,7 +369,7 @@ export default function SettingsPage() {
                             onClick={() => startLinking(true)}
                             className="flex-1 py-2 bg-slate-100 hover:bg-slate-200 text-slate-600 rounded-xl text-[10px] font-black uppercase tracking-widest transition-all"
                           >
-                            ForÃ§ar Novo QR
+                            Forçar Novo QR
                           </button>
                           <button 
                             onClick={handleDisconnect}
@@ -458,15 +458,15 @@ export default function SettingsPage() {
             <div className="bg-white border border-slate-200 rounded-[2rem] p-10 shadow-sm space-y-8 animate-in fade-in slide-in-from-bottom-4 duration-300">
                <div>
                   <h3 className="text-xl font-black text-slate-800 uppercase tracking-tight flex items-center gap-2">
-                    <Bell className="text-indigo-600" size={24} /> ConfiguraÃ§Ãµes de Alerta
+                    <Bell className="text-indigo-600" size={24} /> Configurações de Alerta
                   </h3>
-                  <p className="text-xs text-slate-400 font-bold uppercase tracking-widest mt-1">Gerencie como vocÃª recebe as notificaÃ§Ãµes</p>
+                  <p className="text-xs text-slate-400 font-bold uppercase tracking-widest mt-1">Gerencie como você recebe as notificações</p>
                </div>
 
                <div className="flex gap-4 p-6 bg-slate-50 rounded-3xl border border-slate-100">
                   <div className="flex-1">
                     <p className="text-sm font-black text-slate-800 uppercase tracking-tight">Teste de Som</p>
-                    <p className="text-xs text-slate-500 font-medium leading-relaxed">Clique para testar os sons e desbloquear o Ã¡udio no seu navegador.</p>
+                    <p className="text-xs text-slate-500 font-medium leading-relaxed">Clique para testar os sons e desbloquear o áudio no seu navegador.</p>
                   </div>
                   <div className="flex gap-2">
                     <button 
@@ -489,7 +489,7 @@ export default function SettingsPage() {
           )}
           {activeTab === 'profile' && currentUser && (
             <div className="bg-white border border-slate-200 rounded-2xl p-8 shadow-sm">
-              <h3 className="font-bold text-slate-800 mb-6 flex items-center gap-2"><User size={20} className="text-indigo-600" /> InformaÃ§Ãµes do Perfil</h3>
+              <h3 className="font-bold text-slate-800 mb-6 flex items-center gap-2"><User size={20} className="text-indigo-600" /> Informações do Perfil</h3>
               
               <div className="flex flex-col md:flex-row gap-8 mb-8 items-start">
                 <div className="relative group">
@@ -574,7 +574,7 @@ export default function SettingsPage() {
                     <label className="text-[10px] font-black uppercase text-slate-400 tracking-widest">Bio</label>
                     <textarea 
                       className="w-full bg-slate-50 border border-slate-200 rounded-xl px-4 py-2.5 text-sm min-h-[100px]" 
-                      defaultValue={currentUser.role === 'Administrador' ? "Lead Product Designer focado em experiÃªncias escalÃ¡veis." : "Colaborador da equipe OmniSupport."} 
+                      defaultValue={currentUser.role === 'Administrador' ? "Lead Product Designer focado em experiências escaláveis." : "Colaborador da equipe OmniSupport."} 
                     />
                   </div>
                 </div>
@@ -598,12 +598,12 @@ export default function SettingsPage() {
             <div className="space-y-6">
               <div className="bg-white border border-slate-200 rounded-2xl p-8 shadow-sm">
                 <h3 className="font-bold text-slate-800 mb-6 flex items-center gap-2"><Lock size={20} className="text-indigo-600" /> Alterar Senha</h3>
-                <p className="text-sm text-slate-500 mb-6">Para sua seguranÃ§a, recomendamos alterar sua senha periodicamente.</p>
+                <p className="text-sm text-slate-500 mb-6">Para sua segurança, recomendamos alterar sua senha periodicamente.</p>
                 <button 
                   onClick={() => setIsPasswordModalOpen(true)}
                   className="bg-slate-900 text-white px-6 py-2.5 rounded-xl text-sm font-bold shadow-md hover:bg-slate-800 transition-all flex items-center gap-2"
                 >
-                  <Key size={16} /> Abrir AlteraÃ§Ã£o de Senha
+                  <Key size={16} /> Abrir Alteração de Senha
                 </button>
               </div>
             </div>
@@ -622,13 +622,13 @@ export default function SettingsPage() {
                </div>
                <div>
                   <h3 className="text-xl font-black text-slate-800 tracking-tight uppercase leading-none mb-1">Editar Canal</h3>
-                  <p className="text-[10px] text-slate-400 font-bold uppercase tracking-widest leading-none">Alterar Nome da ConexÃ£o</p>
+                  <p className="text-[10px] text-slate-400 font-bold uppercase tracking-widest leading-none">Alterar Nome da Conexão</p>
                </div>
             </div>
 
             <div className="space-y-4">
                <div className="space-y-1">
-                  <label className="text-[10px] font-black uppercase text-slate-400 tracking-widest ml-1">Nome da ConexÃ£o</label>
+                  <label className="text-[10px] font-black uppercase text-slate-400 tracking-widest ml-1">Nome da Conexão</label>
                   <input 
                     type="text" 
                     value={editInstanceName}
@@ -649,7 +649,7 @@ export default function SettingsPage() {
                  onClick={handleUpdateInstanceName}
                  className="flex-1 py-4 bg-indigo-600 text-white rounded-2xl text-[10px] font-black uppercase tracking-widest hover:bg-indigo-700 transition-all shadow-xl shadow-indigo-100"
                >
-                 Salvar AlteraÃ§Ãµes
+                 Salvar Alterações
                </button>
             </div>
           </div>
@@ -666,13 +666,13 @@ export default function SettingsPage() {
                </div>
                <div>
                   <h3 className="text-xl font-black text-slate-800 tracking-tight uppercase leading-none mb-1">Novo Canal</h3>
-                  <p className="text-[10px] text-slate-400 font-bold uppercase tracking-widest leading-none">Criar InstÃ¢ncia WhatsApp</p>
+                  <p className="text-[10px] text-slate-400 font-bold uppercase tracking-widest leading-none">Criar Instância WhatsApp</p>
                </div>
             </div>
 
             <div className="space-y-4">
                <div className="space-y-1">
-                  <label className="text-[10px] font-black uppercase text-slate-400 tracking-widest ml-1">Nome da ConexÃ£o</label>
+                  <label className="text-[10px] font-black uppercase text-slate-400 tracking-widest ml-1">Nome da Conexão</label>
                   <input 
                     type="text" 
                     value={newInstanceName}
@@ -682,7 +682,7 @@ export default function SettingsPage() {
                   />
                </div>
                <div className="space-y-1">
-                  <label className="text-[10px] font-black uppercase text-slate-400 tracking-widest ml-1">NÃºmero (com DDD)</label>
+                  <label className="text-[10px] font-black uppercase text-slate-400 tracking-widest ml-1">Número (com DDD)</label>
                   <input 
                     type="text" 
                     value={newInstancePhone}

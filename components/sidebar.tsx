@@ -63,7 +63,7 @@ export function Sidebar() {
           ]
         },
         { 
-          name: 'ConfiguraÃ§Ãµes', 
+          name: 'Configurações', 
           icon: Settings, 
           href: '/settings',
           subItems: [
@@ -81,7 +81,7 @@ export function Sidebar() {
         permission: Permission.DASHBOARD_VIEW,
         subItems: [
           { name: 'Geral', icon: LayoutDashboard, href: '/dashboard', permission: Permission.DASHBOARD_VIEW },
-          { name: 'RelatÃ³rios', icon: PieChart, href: '/reports', permission: Permission.REPORTS_READ },
+          { name: 'Relatórios', icon: PieChart, href: '/reports', permission: Permission.REPORTS_READ },
         ]
       },
 { 
@@ -97,7 +97,7 @@ export function Sidebar() {
       { name: 'Chat Interno', icon: MessageCircle, href: '/chat-internal', permission: Permission.CHAT_INTERNAL_VIEW },
       { name: 'Clientes', icon: Users, href: '/customers', permission: Permission.CUSTOMERS_READ },
       { 
-        name: 'ConfiguraÃ§Ãµes', 
+        name: 'Configurações', 
         icon: Settings, 
         href: '/settings',
         subItems: [
