@@ -8,19 +8,21 @@ import { supabase } from '@/lib/supabase';
 import { Headset, Mail, Lock, ArrowRight } from 'lucide-react';
 import Link from 'next/link';
 import { toast } from 'sonner';
+import { UserRole } from '@/lib/types';
 
 export default function LoginPage() {
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [isLoading, setIsLoading] = useState(false);
-  const { currentUser, setCurrentUser } = useApp();
+  const { currentUser, setCurrentUser, authInitialized } = useApp();
   const router = useRouter();
 
   React.useEffect(() => {
-    if (currentUser) {
-      router.push('/dashboard');
+    // Só redireciona se auth já foi inicializado E tem usuário
+    if (authInitialized && currentUser) {
+      router.replace('/dashboard');
     }
-  }, [currentUser, router]);
+  }, [authInitialized, currentUser, router]);
 
   const handleLogin = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -61,15 +63,29 @@ export default function LoginPage() {
         return;
       }
 
-      if (data.user) {
+if (data.user) {
         toast.success('Login realizado com sucesso!');
         localStorage.setItem('omni_session_active', 'true');
+        // Store session data for backup (Vercel preview URLs fix)
+        localStorage.setItem('omni_user_backup', JSON.stringify({
+          id: data.user.id,
+          email: data.user.email,
+          name: data.user.user_metadata?.name,
+          role: data.user.user_metadata?.role,
+        }));
+        // Store the access token for API calls (Vercel preview fix)
+        if (data.session?.access_token) {
+          localStorage.setItem('supabase-auth-token', data.session.access_token);
+        }
+        // Force setCurrentUser for Vercel preview (onAuthStateChange may not fire)
+        setCurrentUser({
+          id: data.user.id,
+          email: data.user.email || '',
+          name: data.user.user_metadata?.name || data.user.email?.split('@')[0] || 'Usuário',
+          role: data.user.user_metadata?.role || 'Funcionário'
+        });
         setIsLoading(false);
-        // Esperar um momento para cookies serem estabelecidos
-        setTimeout(() => {
-          // Forçar refresh para garantir que middleware vê a sessão
-          window.location.href = '/dashboard';
-        }, 500);
+        router.replace('/dashboard');
       }
     } catch (err: any) {
       setIsLoading(false);

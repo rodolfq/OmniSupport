@@ -18,7 +18,8 @@ export const supabase = (() => {
         persistSession: true,
         autoRefreshToken: true,
         detectSessionInUrl: true,
-        storageKey: 'sb-auth-v5-token', 
+        storageKey: 'sb-auth-v5-token',
+        flowType: 'pkce'
       }
     })
     console.log('⚡ Supabase Client: Inicializado com persistência v5')
@@ -28,4 +29,19 @@ export const supabase = (() => {
 
 export function getSupabase() {
   return supabase
+}
+
+// Função para verificar se há sessão no localStorage
+export function hasStoredSession(): boolean {
+  if (typeof window === 'undefined') return false;
+  try {
+    const stored = localStorage.getItem('sb-auth-v5-token');
+    if (stored) {
+      const parsed = JSON.parse(stored);
+      return !!parsed?.access_token && !!parsed?.user;
+    }
+  } catch {
+    return false;
+  }
+  return false;
 }

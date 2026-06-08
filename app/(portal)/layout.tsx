@@ -10,12 +10,13 @@ import { ChatWidget } from '@/components/chat-widget';
 import { ForcePasswordChange } from '@/components/force-password-change';
 import { cn } from '@/lib/utils';
 import Link from 'next/link';
-import { UserRole } from '@/lib/mock-db';
+import { UserRole } from '@/lib/types';
 
 export default function PortalLayout({ children }: { children: React.ReactNode }) {
   const router = useRouter();
   const { 
-    currentUser, 
+    currentUser,
+    authInitialized,
     setIsNewTicketModalOpen, 
     notifications, 
     markNotificationRead, 
@@ -38,8 +39,13 @@ export default function PortalLayout({ children }: { children: React.ReactNode }
     return <div className="min-h-screen bg-slate-50 flex items-center justify-center font-bold text-slate-400">Carregando...</div>;
   }
 
+  if (!authInitialized) {
+    return <div className="min-h-screen bg-slate-50 flex items-center justify-center font-bold text-slate-400">Verificando sessão...</div>;
+  }
+
   if (!currentUser) {
-    return <div className="min-h-screen bg-slate-50 flex items-center justify-center font-bold text-slate-400">Verificando sessÃ£o...</div>;
+    router.push('/login');
+    return <div className="min-h-screen bg-slate-50 flex items-center justify-center font-bold text-slate-400">Redirecionando para login...</div>;
   }
 
   const unreadCount = notifications.filter(n => !n.read && !n.type.startsWith('chat_')).length;

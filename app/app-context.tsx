@@ -31,9 +31,10 @@ export interface NotificationSettings {
 }
 
 interface AppContextType {
-  currentUser: User | null;
-  setCurrentUser: (user: User | null) => void;
-  hasPermission: (permission: Permission) => boolean;
+   currentUser: User | null;
+   setCurrentUser: (user: User | null) => void;
+   authInitialized: boolean;
+   hasPermission: (permission: Permission) => boolean;
   isNewTicketModalOpen: boolean;
   setIsNewTicketModalOpen: (open: boolean) => void;
   preselectedUserId: string | null;
@@ -219,7 +220,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     return () => clearInterval(interval);
   }, [refreshAbsenceReasons]);
 
-  useEffect(() => {
+useEffect(() => {
     let isMounted = true;
     const initAuth = async () => {
       if (!supabase) {
@@ -227,17 +228,19 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
         return;
       }
 
-      console.log('ðŸ” AppContext: Inicializando Auth...');
+      console.log('🔐 AppContext: Inicializando Auth...');
       try {
         const { data: { session } } = await supabase.auth.getSession();
+        console.log('🔐 AppContext: getSession result:', { hasSession: !!session, userId: session?.user?.id });
         
         if (!isMounted) return;
 
         if (session?.user) {
-          console.log('ðŸ‘¤ AppContext: UsuÃ¡rio autenticado:', session.user.email);
+          console.log('👤 AppContext: Usuário autenticado:', session.user.email);
           
           try {
             const profile = await UserService.getCurrentProfile();
+            console.log('👤 AppContext: getCurrentProfile result:', { profile });
             
             if (!isMounted) return;
 
@@ -246,31 +249,83 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
             } else {
               const newUser: User = {
                 id: session.user.id,
-                name: session.user.user_metadata?.name || session.user.email?.split('@')[0] || 'UsuÃ¡rio',
+                name: session.user.user_metadata?.name || session.user.email?.split('@')[0] || 'Usuário',
                 email: session.user.email || '',
                 role: UserRole.EMPLOYEE
               };
+              console.log('👤 AppContext: Using fallback user:', newUser);
               setCurrentUser(newUser);
             }
           } catch (e) {
-            console.error('âŒ initAuth profile error:', e);
+            console.error('❌ initAuth profile error:', e);
             if (!isMounted) return;
             setCurrentUser({
               id: session.user.id,
-              name: session.user.user_metadata?.name || session.user.email?.split('@')[0] || 'UsuÃ¡rio',
+              name: session.user.user_metadata?.name || session.user.email?.split('@')[0] || 'Usuário',
               email: session.user.email || '',
               role: UserRole.EMPLOYEE
             });
           }
         } else {
-          setCurrentUser(null);
+          console.log('👤 AppContext: No session found, checking localStorage backup');
+          
+          // Fallback: check localStorage backup for Vercel preview URLs
+          const backupStr = localStorage.getItem('omni_user_backup');
+          let foundBackup = false;
+          
+          if (backupStr) {
+            try {
+              const backup = JSON.parse(backupStr);
+              console.log('👤 AppContext: Found backup user:', backup);
+              setCurrentUser({
+                id: backup.id,
+                name: backup.name || backup.email?.split('@')[0] || 'Usuário',
+                email: backup.email,
+                role: UserRole.EMPLOYEE
+              });
+              foundBackup = true;
+            } catch (e) {
+              console.error('👤 AppContext: Failed to parse backup', e);
+            }
+          }
+          
+          // If no backup, try API (server reads cookies properly in Vercel)
+          if (!foundBackup) {
+            try {
+              const res = await fetch('/api/auth/me', { credentials: 'include' });
+              if (res.ok) {
+                const data = await res.json();
+                if (data.user) {
+                  console.log('👤 AppContext: Found session via API:', data.user);
+                  setCurrentUser({
+                    id: data.user.id,
+                    name: data.user.name || data.user.email?.split('@')[0],
+                    email: data.user.email,
+                    role: data.user.role,
+                    companyId: data.user.companyId,
+                    phone: data.user.phone,
+                    viewAllCompanyTickets: data.user.viewAllCompanyTickets,
+                    mustChangePassword: data.user.mustChangePassword,
+                    isAdmin: data.user.isAdmin
+                  });
+                } else {
+                  setCurrentUser(null);
+                }
+              } else {
+                setCurrentUser(null);
+              }
+            } catch (e) {
+              console.error('👤 AppContext: API fallback failed:', e);
+              setCurrentUser(null);
+            }
+          }
         }
 
-        console.log('ðŸ” AppContext: Auth state listener configurado');
+        console.log('🔐 AppContext: Auth state listener configurado');
         
         const { data: { subscription } } = supabase.auth.onAuthStateChange(async (event, session) => {
           if (!isMounted) return;
-          console.log(`ðŸ” AppContext: Evento Auth [${event}]`);
+          console.log(`🔐 AppContext: Evento Auth [${event}]`);
 
           try {
             if (session?.user) {
@@ -282,21 +337,25 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
               } else {
                 setCurrentUser({
                   id: session.user.id,
-                  name: session.user.user_metadata?.name || session.user.email?.split('@')[0] || 'UsuÃ¡rio',
+                  name: session.user.user_metadata?.name || session.user.email?.split('@')[0] || 'Usuário',
                   email: session.user.email || '',
                   role: UserRole.EMPLOYEE
                 });
               }
             } else {
-              setCurrentUser(null);
+              // User signed out - check if we have backup for Vercel preview
+              const backupStr = localStorage.getItem('omni_user_backup');
+              if (!backupStr) {
+                setCurrentUser(null);
+              }
+              // If backup exists, keep user (don't set null)
             }
           } catch (e) {
-            console.error('âŒ onAuthStateChange error:', e);
-            // Fallback - set user from session anyway
+            console.error('❌ onAuthStateChange error:', e);
             if (session?.user && isMounted) {
               setCurrentUser({
                 id: session.user.id,
-                name: session.user.user_metadata?.name || session.user.email?.split('@')[0] || 'UsuÃ¡rio',
+                name: session.user.user_metadata?.name || session.user.email?.split('@')[0] || 'Usuário',
                 email: session.user.email || '',
                 role: UserRole.EMPLOYEE
               });
@@ -305,7 +364,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
         });
 
       } catch (err) {
-        console.error('âŒ AppContext: Erro na inicializaÃ§Ã£o do Auth:', err);
+        console.error('❌ AppContext: Erro na inicialização do Auth:', err);
       } finally {
         if (isMounted) setAuthInitialized(true);
       }
@@ -481,10 +540,11 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     notifications.filter(n => n.recipientId === currentUser?.id),
   [notifications, currentUser?.id]);
 
-  return (
+return (
     <AppContext.Provider value={{ 
       currentUser, 
-      setCurrentUser, 
+      setCurrentUser,
+      authInitialized,
       hasPermission,
       isNewTicketModalOpen, 
       setIsNewTicketModalOpen,
