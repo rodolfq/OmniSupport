@@ -27,9 +27,22 @@ export async function createUser(email: string, name: string, role: string, comp
       .single();
 
     if (existingUser) {
-      // Usuário já existe - retornar o ID existente
-      console.log('Usuário já existe:', { id: existingUser.id, email });
-      return { id: existingUser.id };
+      // Usuário já existe - atualizar profile com os novos dados
+      const { error: updateError } = await supabaseAdmin.from('profiles').update({
+        name,
+        role,
+        company_id: companyId || existingUser.company_id || '11111111-1111-4111-8111-111111111111',
+        phone: phones?.[0] || existingUser.phone,
+        view_all_company_tickets: viewAllCompanyTickets ?? false,
+      }).eq('id', existingUser.id);
+
+      if (updateError) {
+        console.error('Erro ao atualizar usuário existente:', updateError);
+        return { error: updateError.message };
+      }
+      
+      console.log('Usuário atualizado com sucesso:', { id: existingUser.id, email });
+      return { id: existingUser.id, updated: true };
     }
 
     // Gerar UUID para novo usuário

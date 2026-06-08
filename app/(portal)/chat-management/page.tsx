@@ -157,7 +157,7 @@ export default function ChatManagementPage() {
       // 3. Subscribe
       channel.subscribe((status: string) => {
         if (status === 'SUBSCRIBED') {
-          console.log(`âœ… Realtime Gerenciamento conectado: ${channelName}`);
+          console.log(`✅ Realtime Gerenciamento conectado: ${channelName}`);
         }
       });
       channelRef.current = channel;

@@ -36,7 +36,7 @@ export function SystemConfigContent({ categories, priorities, setCategories, set
     const hours = days * 24;
     const priority = priorities.find((p: any) => p.label === label);
 
-    console.log(`’¾ Salvando SLA para ${label}: ${days} dias (${hours} horas)`);
+    console.log(`💾 Salvando SLA para ${label}: ${days} dias (${hours} horas)`);
 
     if (priority) {
       const { error } = await supabase.from('config_priorities').update({ sla_hours: hours }).eq('id', priority.id);
@@ -45,7 +45,7 @@ export function SystemConfigContent({ categories, priorities, setCategories, set
         console.error('Update error:', error);
       }
       else {
-        console.log(`âœ… SLA de ${label} atualizado com sucesso no Supabase`);
+        console.log(`✅ SLA de ${label} atualizado com sucesso no Supabase`);
         setPriorities(priorities.map((p: any) => p.id === priority.id ? { ...p, sla_hours: hours } : p));
         // Update MockDB cache immediately
         await MockDB.syncFromSupabase();

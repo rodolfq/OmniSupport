@@ -346,7 +346,7 @@ export function ChatWidget() {
       // 4. Finally subscribe
       channel.subscribe((status: string) => {
         if (status === 'SUBSCRIBED') {
-          console.log(`âœ… Conectado ao chat realtime: ${channelName}`);
+          console.log(`✅ Conectado ao chat realtime: ${channelName}`);
         }
       });
 

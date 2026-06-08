@@ -144,7 +144,7 @@ export default function CustomersPage() {
         console.log('📋 Clientes: Carregando dados...');
         const loadedCompanies = await getCompanies();
         const loadedUsers = await getUsers();
-        console.log(`âœ… Clientes: getCompanies=${loadedCompanies.length}, getUsers=${loadedUsers.length}`);
+        console.log(`✅ Clientes: getCompanies=${loadedCompanies.length}, getUsers=${loadedUsers.length}`);
 
         // Filtering logic still applies
         let filteredUsers = loadedUsers;
