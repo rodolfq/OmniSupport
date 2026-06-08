@@ -380,11 +380,11 @@ useEffect(() => {
   useEffect(() => {
     if (!authInitialized || !supabase || !currentUser) return;
 
-    console.log('ðŸ“¡ Realtime: Iniciando canais de escuta...');
+    console.log('📡 Realtime: Iniciando canais de escuta...');
 
     const ticketsChannel = supabase.channel('tickets-changes')
       .on('postgres_changes', { event: '*', schema: 'public', table: 'tickets' }, async (payload) => {
-        console.log('ðŸ“¡ Realtime: MudanÃ§a detectada em tickets', payload);
+        console.log('📡 Realtime: Mudança detectada em tickets', payload);
         triggerRefresh();
         
         if (payload.eventType === 'INSERT' && currentUser.role !== UserRole.CUSTOMER) {
@@ -398,18 +398,18 @@ useEffect(() => {
         }
       })
       .on('postgres_changes', { event: '*', schema: 'public', table: 'ticket_messages' }, async (payload) => {
-        console.log('ðŸ“¡ Realtime: Nova mensagem de ticket', payload);
+        console.log('📡 Realtime: Nova mensagem de ticket', payload);
         triggerRefresh();
       })
       .subscribe();
 
     const chatChannel = supabase.channel('chats-changes')
       .on('postgres_changes', { event: '*', schema: 'public', table: 'chat_sessions' }, async (payload) => {
-        console.log('ðŸ“¡ Realtime: MudanÃ§a em sessÃµes de chat', payload);
+        console.log('📡 Realtime: Mudança em sessões de chat', payload);
         triggerRefresh();
       })
       .on('postgres_changes', { event: '*', schema: 'public', table: 'chat_messages' }, async (payload) => {
-        console.log('ðŸ“¡ Realtime: Nova mensagem de chat', payload);
+        console.log('📡 Realtime: Nova mensagem de chat', payload);
         triggerRefresh();
         
         if (payload.eventType === 'INSERT' && payload.new.sender_id !== currentUser.id) {
@@ -423,13 +423,13 @@ useEffect(() => {
 
     const statusChannel = supabase.channel('status-changes')
       .on('postgres_changes', { event: '*', schema: 'public', table: 'analyst_status' }, async (payload) => {
-        console.log('ðŸ“¡ Realtime: MudanÃ§a de status de analista', payload);
+        console.log('📡 Realtime: Mudança de status de analista', payload);
         triggerRefresh();
       })
       .subscribe();
 
     return () => {
-      console.log('ðŸ“¡ Realtime: Encerrando canais...');
+      console.log('📡 Realtime: Encerrando canais...');
       supabase.removeChannel(ticketsChannel);
       supabase.removeChannel(chatChannel);
       supabase.removeChannel(statusChannel);

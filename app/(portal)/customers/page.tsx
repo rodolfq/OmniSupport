@@ -141,7 +141,7 @@ export default function CustomersPage() {
   const loadData = async () => {
     setIsLoading(true);
     try {
-        console.log('ðŸ”„ Clientes: Carregando dados...');
+        console.log('📋 Clientes: Carregando dados...');
         const loadedCompanies = await getCompanies();
         const loadedUsers = await getUsers();
         console.log(`âœ… Clientes: getCompanies=${loadedCompanies.length}, getUsers=${loadedUsers.length}`);
@@ -268,7 +268,7 @@ export default function CustomersPage() {
                 </div>
                 <div>
                   <h1 className="text-3xl font-black text-slate-800 tracking-tight">{selectedCompany.name}</h1>
-                  <p className="text-slate-400 text-sm font-medium">{selectedCompany.industry} â€¢ {selectedCompany.phone || 'Sem telefone'}</p>
+                  <p className="text-slate-400 text-sm font-medium">{selectedCompany.industry} • {selectedCompany.phone || 'Sem telefone'}</p>
                 </div>
               </div>
               <div className="flex gap-2">

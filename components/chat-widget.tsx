@@ -835,7 +835,7 @@ export function ChatWidget() {
                           {m.text}
                         </div>
                         <span className="text-[9px] text-slate-400 font-black uppercase mt-1.5 px-1 tracking-widest">
-                          {m.senderId === currentUser.id ? 'VocÃª' : m.senderName} â€¢ {new Date(m.timestamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+                          {m.senderId === currentUser.id ? 'Você' : m.senderName} • {new Date(m.timestamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
                         </span>
                       </div>
                     ))}
@@ -957,7 +957,7 @@ export function ChatWidget() {
                                   <p className="text-[11px] font-black uppercase text-slate-800 leading-none mb-1 truncate">{res.name}</p>
                                   <div className="flex items-center gap-2">
                                     <p className="text-[9px] text-slate-400 font-bold uppercase whitespace-nowrap">
-                                      {res.type === 'company' ? 'Empresa' : `FuncionÃ¡rio â€¢ ${res.companyName || 'S/ Empresa'}`}
+                                      {res.type === 'company' ? 'Empresa' : `Funcionário • ${res.companyName || 'S/ Empresa'}`}
                                     </p>
                                   </div>
                                 </div>

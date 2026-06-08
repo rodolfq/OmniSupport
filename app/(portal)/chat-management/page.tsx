@@ -132,7 +132,7 @@ export default function ChatManagementPage() {
       }
 
       const channelName = `chat-management-sync-${Date.now()}`;
-      console.log(`ðŸ“¡ Realtime ativo: ${channelName}`);
+      console.log(`📡 Realtime ativo: ${channelName}`);
       isSubscribedRef.current = true;
       
       // 2. Define channel and event listeners BEFORE subscribe
@@ -141,7 +141,7 @@ export default function ChatManagementPage() {
           'postgres_changes',
           { event: '*', schema: 'public', table: 'chat_sessions' },
           async () => {
-            console.log('ðŸ”„ Atualizando fila via Realtime');
+            console.log('📋 Atualizando fila via Realtime');
             refreshData();
           }
         )
@@ -149,7 +149,7 @@ export default function ChatManagementPage() {
           'postgres_changes',
           { event: '*', schema: 'public', table: 'analyst_status' },
           async () => {
-            console.log('ðŸ”„ Atualizando status via Realtime');
+            console.log('📋 Atualizando status via Realtime');
             refreshData();
           }
         );
@@ -165,7 +165,7 @@ export default function ChatManagementPage() {
 
     return () => {
       if (channelRef.current && supabase) {
-        console.log('ðŸš« Desconectando Realtime Gerenciamento');
+        console.log('🔌 Desconectando Realtime Gerenciamento');
         supabase.removeChannel(channelRef.current);
         channelRef.current = null;
         isSubscribedRef.current = false;
