@@ -106,7 +106,8 @@ export enum TicketPriority {
 }
 
 export interface InternalTicket {
-  id?: string;
+  id?: string; // Formatted ID like "int-0001"
+  uuid?: string; // Real UUID from database
   parentTicketId?: string;
   parentTicketIds?: string[];
   internalTicketNumber?: number;
@@ -121,6 +122,7 @@ export interface InternalTicket {
   createdAt?: string;
   updatedAt?: string;
   slaLimit?: string | null;
+  status?: "Novo" | "Em Andamento" | "Em Espera" | "Concluído" | "Cancelado";
 }
 
 export interface Ticket {

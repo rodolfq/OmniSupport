@@ -211,7 +211,8 @@ export class InternalTicketService {
     if (!data) return null;
 
     return {
-      id: data.id,
+      uuid: data.id,
+      id: `int-${data.internal_ticket_number?.toString().padStart(4, '0') || data.id}`,
       internalTicketNumber: data.internal_ticket_number,
       parentTicketIds: [parentTicketId],
       title: data.title,
@@ -253,7 +254,8 @@ export class InternalTicketService {
     }
 
     return (data || []).map((it: any) => ({
-      id: it.id,
+      uuid: it.id,
+      id: `int-${it.internal_ticket_number?.toString().padStart(4, '0') || it.id}`,
       internalTicketNumber: it.internal_ticket_number,
       title: it.title,
       teamId: it.team_id,
@@ -268,9 +270,17 @@ export class InternalTicketService {
     }));
   }
 
-  static async save(ticket: InternalTicket, parentTicketId?: string): Promise<void> {
-    console.log('InternalTicketService.save called with:', {
+  static async save(ticket: InternalTicket, parentTicketId?: string, parentTicketNumber?: number): Promise<string> {
+    // Internal method - delegates to saveWithDetails
+    const result = await InternalTicketService.saveWithDetails(ticket, parentTicketId, parentTicketNumber);
+    return result.id;
+  }
+  
+  static async saveWithDetails(ticket: InternalTicket, parentTicketId?: string, parentTicketNumber?: number): Promise<{ uuid: string; id: string }> {
+    console.log('InternalTicketService.saveWithDetails called with:', {
+      uuid: ticket.uuid,
       parentTicketId: parentTicketId || ticket.parentTicketId,
+      parentTicketNumber,
       title: ticket.title,
       creatorId: ticket.creatorId
     });
@@ -298,43 +308,87 @@ export class InternalTicketService {
       description: ticket.description || '',
     };
     
-    // For updates (when id exists), use upsert
-    if (ticket.id && ticket.id.includes('-')) {
-      payload.id = ticket.id;
+    // If parent ticket number provided, use it as internal_ticket_number
+    if (parentTicketNumber) {
+      payload.internal_ticket_number = parentTicketNumber;
     }
     
-    console.log('InternalTicketService.save payload:', payload);
+    console.log('InternalTicketService.saveWithDetails payload:', payload);
     
     try {
-      // Use upsert to handle both insert and update cases
-      const { data, error } = await supabase.from('internal_tickets').upsert(payload).select('id');
+      let savedUuid: string;
+      let savedNumber: number;
       
-      if (error) {
-        console.error('InternalTicketService.save upsert error:', error);
-        throw new Error(JSON.stringify(error, Object.getOwnPropertyNames(error)));
-      }
-      
-      const savedId = data?.[0]?.id;
-      console.log('InternalTicketService.save created id:', savedId);
-      
-      // Create N:N link only for new records
-      if (parentTicketId && savedId && !ticket.id) {
-        const { error: linkError } = await supabase.from('ticket_internal_links').insert({
-          ticket_id: parentTicketId,
-          internal_ticket_id: savedId
-        }).select();
+      if (ticket.uuid) {
+        // Update existing record
+        console.log('Updating existing internal ticket with UUID:', ticket.uuid);
+        const { data, error } = await supabase.from('internal_tickets')
+          .update(payload)
+          .eq('id', ticket.uuid)
+          .select('id, internal_ticket_number')
+          .single();
         
-        if (linkError) {
-          // If duplicate key error, ignore (already linked)
-          if (!linkError.message?.includes('duplicate')) {
-            console.error('Error creating link:', JSON.stringify(linkError, Object.getOwnPropertyNames(linkError)));
+        if (error) {
+          console.error('InternalTicketService.saveWithDetails update error:', error);
+          throw new Error(JSON.stringify(error, Object.getOwnPropertyNames(error)));
+        }
+        savedUuid = data?.id;
+        savedNumber = data?.internal_ticket_number;
+      } else {
+        // Get next internal ticket number if not provided
+        if (!parentTicketNumber) {
+          console.log('Getting next internal ticket number');
+          const { data: existing } = await supabase
+            .from('internal_tickets')
+            .select('internal_ticket_number')
+            .not('internal_ticket_number', 'is', null)
+            .order('internal_ticket_number', { ascending: false })
+            .limit(1);
+          
+          const maxUsed = existing?.[0]?.internal_ticket_number || 0;
+          payload.internal_ticket_number = maxUsed + 1;
+          console.log('Calculated next internal ticket number:', payload.internal_ticket_number);
+        }
+        
+        // Insert new record
+        console.log('Inserting new internal ticket');
+        const { data, error } = await supabase.from('internal_tickets')
+          .insert(payload)
+          .select('id, internal_ticket_number')
+          .single();
+        
+        if (error) {
+          console.error('InternalTicketService.saveWithDetails insert error:', error);
+          throw new Error(JSON.stringify(error, Object.getOwnPropertyNames(error)));
+        }
+        savedUuid = data?.id;
+        savedNumber = data?.internal_ticket_number;
+        
+        // Create N:N link for new records
+        if (parentTicketId && savedUuid) {
+          const { error: linkError } = await supabase.from('ticket_internal_links').insert({
+            ticket_id: parentTicketId,
+            internal_ticket_id: savedUuid
+          }).select();
+          
+          if (linkError) {
+            // If duplicate key error, ignore (already linked)
+            if (!linkError.message?.includes('duplicate')) {
+              console.error('Error creating link:', JSON.stringify(linkError, Object.getOwnPropertyNames(linkError)));
+            }
+          } else {
+            console.log('Link created successfully');
           }
-        } else {
-          console.log('Link created successfully');
         }
       }
+      
+      console.log('InternalTicketService.saveWithDetails created:', { savedUuid, savedNumber });
+      
+      // Return formatted internal ticket ID
+      const formattedId = `int-${savedNumber?.toString().padStart(4, '0') || savedUuid}`;
+      return { uuid: savedUuid, id: formattedId };
     } catch (e: any) {
-      console.error('InternalTicketService.save exception:', e?.message || e);
+      console.error('InternalTicketService.saveWithDetails exception:', e?.message || e);
       throw e;
     }
   }

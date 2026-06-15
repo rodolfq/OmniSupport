@@ -197,8 +197,9 @@ const it = await InternalTicketService.getByParent(ticket.id);
    };
 
 const handleCreateInternalTicket = async () => {
-     if (!currentUser || !ticket) return;
-const team = internalTeams.find(t => t.name === itTeam);
+      if (!currentUser || !ticket) return;
+      const team = internalTeams.find(t => t.name === itTeam);
+      const ticketNumber = ticket?.ticketNumber;
       const newIT: InternalTicket = {
         id: undefined,
         parentTicketId: ticket.id,
@@ -215,21 +216,23 @@ const team = internalTeams.find(t => t.name === itTeam);
         updatedAt: new Date().toISOString(),
         slaLimit: itSla || undefined
       };
-     await InternalTicketService.save(newIT);
-     setInternalTicket(newIT);
+      const savedInternalTicketId = await InternalTicketService.save(newIT, ticket.id, ticketNumber);
+      // Fetch the created ticket to get its UUID
+      const created = await InternalTicketService.getByParent(ticket.id);
+      setInternalTicket(created || { ...newIT, id: savedInternalTicketId });
 
-     const msg: Message = {
-       id: Math.random().toString(36).substr(2, 9),
-       ticketId: ticket.id,
-       senderId: currentUser.id,
-       text: `Criou o ticket interno ${newIT.id}`,
-       timestamp: new Date().toISOString(),
-       isVisibleToCustomer: false,
-       type: 'internal'
-     };
-     await MessageService.create(msg);
-     loadMessages();
-   };
+      const msg: Message = {
+        id: Math.random().toString(36).substr(2, 9),
+        ticketId: ticket.id,
+        senderId: currentUser.id,
+        text: `Criou o ticket interno ${savedInternalTicketId}`,
+        timestamp: new Date().toISOString(),
+        isVisibleToCustomer: false,
+        type: 'internal'
+      };
+      await MessageService.create(msg);
+      loadMessages();
+    };
 
 const handleUpdateInternalTicket = async () => {
       if (!internalTicket) return;
@@ -240,6 +243,7 @@ const handleUpdateInternalTicket = async () => {
       
       const updatedIT: InternalTicket = {
         ...internalTicket,
+        uuid: internalTicket.uuid, // Keep UUID for update
         title: itTitle,
         teamId: itTeam,
         internalTeamId: internalTeamId,
@@ -252,7 +256,7 @@ const handleUpdateInternalTicket = async () => {
       };
       await InternalTicketService.save(updatedIT);
       setInternalTicket(updatedIT);
-   };
+    };
 
     const handleLinkInternalTicket = async (internalTicketId: string) => {
       if (!ticket || !currentUser) return;
