@@ -126,6 +126,7 @@ export async function fetchAllTickets(signal?: AbortSignal): Promise<Ticket[]> {
                 remoteTickets = data.map((t: any) => ({
                     ...t,
                     ticketId: t.number, // Map 'number' to ticketId for compatibility
+                    ticketNumber: t.public_ticket_number,
                     companyId: t.company_id,
                     customerId: t.customer_id,
                     customerName: customerMap.get(t.customer_id),
@@ -169,7 +170,8 @@ export async function getTicketById(id: string, signal?: AbortSignal): Promise<T
     
     return {
         ...data,
-        ticketNumber: data.number,
+        ticketId: data.number,
+        ticketNumber: data.public_ticket_number,
         companyId: data.company_id,
         customerId: data.customer_id,
         createdAt: data.created_at,
@@ -218,22 +220,26 @@ export async function createTicket(ticket: Ticket): Promise<void> {
         throw new Error("ID do usuário inválido. Por favor, faça login novamente.");
     }
 
-    // Ensure profile exists for this user (auto-create fallback)
-    const { data: existingProfile } = await supabase
+// Ensure profile exists for this user (auto-create fallback)
+    const { data: existingProfile, error: profileError } = await supabase
         .from('profiles')
-        .select('id')
+        .select('id, role')
         .eq('id', validatedCustomerId)
         .maybeSingle();
     
+    let userRole = 'Cliente';
     if (!existingProfile) {
         console.log("🎟️ createTicket: Profile não existe, criando...");
+        userRole = 'Cliente';
         await supabase.from('profiles').insert({
             id: validatedCustomerId,
             email: authUser?.email || 'auto-created@ticket.com',
             name: authUser?.user_metadata?.name || authUser?.email?.split('@')[0] || 'Usuário Auto-criado',
-            role: 'Cliente',
+            role: userRole,
             company_id: validatedCompanyId || '11111111-1111-4111-8111-111111111111'
         });
+    } else {
+        userRole = existingProfile.role || 'Cliente';
     }
 
     const payload = {
@@ -246,7 +252,7 @@ export async function createTicket(ticket: Ticket): Promise<void> {
         customer_id: validatedCustomerId,
     };
 
-console.log("📤 createTicket - Payload Simplificado:", payload);
+    console.log("📤 createTicket - Payload Simplificado:", payload, { userRole });
 
     try {
         const { data, error } = await supabase
@@ -266,6 +272,26 @@ console.log("📤 createTicket - Payload Simplificado:", payload);
         }
         
         console.log("✅ Ticket criado com sucesso!", data);
+        
+        // If user is "Time Interno", create internal ticket automatically
+        if (userRole === 'Time Interno' && data && data[0]) {
+            const newTicket = data[0];
+            const internalUuid = 'xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx'.replace(/[x]/g, () => Math.floor(Math.random() * 16).toString(16));
+            const { error: internalError } = await supabase.from('internal_tickets').insert({
+                id: internalUuid,
+                parent_ticket_id: newTicket.id,
+                title: ticket.title || 'Ticket Interno',
+                description: ticket.description || '',
+                team_id: ticket.category || 'Desenvolvimento',
+                creator_id: validatedCustomerId,
+                priority: 1,
+            });
+            if (internalError) {
+                console.error("🚫 Erro ao criar ticket interno automático:", internalError);
+            } else {
+                console.log("✅ Ticket interno criado automaticamente para Time Interno");
+            }
+        }
     } catch (err: any) {
         console.error("🚫 EXCEÇÃO AO CRIAR TICKET:", {
             name: err?.name,

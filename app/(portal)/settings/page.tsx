@@ -2,7 +2,7 @@
 
 import React, { useState, useEffect } from 'react';
 import { 
-  Shield, User, Lock, Save, Plus, Key, Globe, Edit2, Bell, Database, Loader2, Clock
+  Shield, User, Lock, Save, Plus, Key, Globe, Edit2, Bell, Database, Loader2, Clock, Users
 } from 'lucide-react';
 import { cn, maskPhone, safeJsonStringify } from '@/lib/utils';
 import { supabase } from '@/lib/supabase';
@@ -16,8 +16,10 @@ import { ChangePasswordModal } from '@/components/change-password-modal';
 import { fileToBase64, isValidImageUrl } from '@/lib/image-utils';
 import { toast } from 'sonner';
 import { getWhatsappInstances, saveWhatsappInstance } from '@/app/actions';
+import { InternalTeamsContent } from '@/components/internal-teams-content';
+import { ConfirmDialog } from '@/components/confirm-dialog';
 
-type Tab = 'profile' | 'security' | 'whatsapp' | 'notifications' | 'system' | 'history';
+type Tab = 'profile' | 'security' | 'whatsapp' | 'notifications' | 'system' | 'history' | 'teams';
 
 
 export default function SettingsPage() {
@@ -52,6 +54,7 @@ export default function SettingsPage() {
   const [newInstanceName, setNewInstanceName] = useState('');
   const [newInstancePhone, setNewInstancePhone] = useState('');
   const [editInstanceName, setEditInstanceName] = useState('');
+  const [confirmingDisconnect, setConfirmingDisconnect] = useState(false);
   const [categories, setCategories] = useState<any[]>([]);
   const [priorities, setPriorities] = useState<any[]>([]);
 
@@ -167,13 +170,11 @@ export default function SettingsPage() {
       setQrStatus('idle');
       toast.error(error.message || 'Erro de conexão com o servidor.');
     }
-  };
+};
 
-  const handleDisconnect = async () => {
+   const performDisconnect = async () => {
     if (!selectedInstance) return;
-    const confirm = window.confirm('Deseja realmente desconectar e limpar esta sessão?');
-    if (!confirm) return;
-
+    
     try {
       await fetch('/api/whatsapp/logout', {
         method: 'POST',
@@ -191,6 +192,13 @@ export default function SettingsPage() {
     } catch (error) {
       console.error('Error disconnecting:', error);
     }
+  };
+
+  const runDisconnect = () => {
+    if (selectedInstance) {
+      performDisconnect();
+    }
+    setConfirmingDisconnect(false);
   };
 
   const handleUpdateInstanceName = async () => {
@@ -235,12 +243,13 @@ export default function SettingsPage() {
           <SettingsNavLink icon={<Bell size={18} />} label="Notificações" active={activeTab === 'notifications'} onClick={() => setActiveTab('notifications')} />
           <SettingsNavLink icon={<Shield size={18} />} label="Segurança" active={activeTab === 'security'} onClick={() => setActiveTab('security')} />
           <SettingsNavLink icon={<Clock size={18} />} label="Ausência / Histórico" active={activeTab === 'history'} onClick={() => setActiveTab('history')} />
-          {currentUser?.role === UserRole.ADMIN && (
-            <>
-              <SettingsNavLink icon={<Globe size={18} />} label="WhatsApp" active={activeTab === 'whatsapp'} onClick={() => setActiveTab('whatsapp')} />
-              <SettingsNavLink icon={<Database size={18} />} label="Geral" active={activeTab === 'system'} onClick={() => setActiveTab('system')} />
-            </>
-          )}
+{currentUser?.role === UserRole.ADMIN && (
+             <>
+               <SettingsNavLink icon={<Globe size={18} />} label="WhatsApp" active={activeTab === 'whatsapp'} onClick={() => setActiveTab('whatsapp')} />
+               <SettingsNavLink icon={<Database size={18} />} label="Geral" active={activeTab === 'system'} onClick={() => setActiveTab('system')} />
+               <SettingsNavLink icon={<Users size={18} />} label="Equipes Internas" active={activeTab === 'teams'} onClick={() => setActiveTab('teams')} />
+             </>
+           )}
         </aside>
 
         <div className="md:col-span-9 lg:col-span-10 space-y-6">
@@ -248,17 +257,22 @@ export default function SettingsPage() {
             <StatusHistoryPanel userId={currentUser.id} />
           )}
 
-          {activeTab === 'system' && currentUser?.role === UserRole.ADMIN && (
-            <div className="space-y-6 animate-in fade-in slide-in-from-bottom-4 duration-300">
-               <SystemConfigContent 
-                 categories={categories} 
-                 priorities={priorities} 
-                 setCategories={setCategories} 
-                 setPriorities={setPriorities} 
-               />
-               <TagManager />
-            </div>
-          )}
+{activeTab === 'system' && currentUser?.role === UserRole.ADMIN && (
+             <div className="space-y-6 animate-in fade-in slide-in-from-bottom-4 duration-300">
+                <SystemConfigContent 
+                  categories={categories} 
+                  priorities={priorities} 
+                  setCategories={setCategories} 
+                  setPriorities={setPriorities} 
+                />
+                <TagManager />
+             </div>
+           )}
+           {activeTab === 'teams' && currentUser?.role === UserRole.ADMIN && (
+             <div className="animate-in fade-in slide-in-from-bottom-4 duration-300">
+                <InternalTeamsContent />
+             </div>
+           )}
           {activeTab === 'whatsapp' && currentUser?.role === UserRole.ADMIN && (
             <div className="bg-white border border-slate-200 rounded-[2.5rem] p-12 shadow-sm">
                <div className="flex items-center justify-between mb-8">
@@ -371,12 +385,12 @@ export default function SettingsPage() {
                           >
                             Forçar Novo QR
                           </button>
-                          <button 
-                            onClick={handleDisconnect}
-                            className="flex-1 py-2 bg-slate-50 hover:bg-red-50 text-red-500 rounded-xl text-[10px] font-black uppercase tracking-widest transition-all"
-                          >
-                            Encerrar
-                          </button>
+<button 
+                             onClick={() => setConfirmingDisconnect(true)}
+                             className="flex-1 py-2 bg-slate-50 hover:bg-red-50 text-red-500 rounded-xl text-[10px] font-black uppercase tracking-widest transition-all"
+                           >
+                             Encerrar
+                           </button>
                         </div>
                       </div>
                     )}
@@ -406,7 +420,7 @@ export default function SettingsPage() {
                          <div>
                             <p className="text-xs font-black text-emerald-800 uppercase tracking-tight">Conectado com sucesso!</p>
                          </div>
-                         <button onClick={handleDisconnect} className="ml-auto text-[10px] font-black uppercase text-red-500 hover:underline">Desconectar</button>
+                         <button onClick={() => setConfirmingDisconnect(true)} className="ml-auto text-[10px] font-black uppercase text-red-500 hover:underline">Desconectar</button>
                       </div>
                     )}
                   </div>
@@ -656,60 +670,70 @@ export default function SettingsPage() {
         </div>
       )}
 
-      {isNewInstanceModalOpen && (
-        <div className="fixed inset-0 z-[110] flex items-center justify-center p-4">
-          <div className="absolute inset-0 bg-slate-900/60 backdrop-blur-sm" onClick={() => setIsNewInstanceModalOpen(false)} />
-          <div className="relative bg-white w-full max-w-md rounded-[2.5rem] shadow-2xl p-8 flex flex-col gap-6 animate-in zoom-in-95 duration-200">
-            <div className="flex items-center gap-4">
-               <div className="w-12 h-12 bg-indigo-600 rounded-2xl flex items-center justify-center text-white shadow-lg shadow-indigo-100">
-                  <Plus size={24} />
-               </div>
-               <div>
-                  <h3 className="text-xl font-black text-slate-800 tracking-tight uppercase leading-none mb-1">Novo Canal</h3>
-                  <p className="text-[10px] text-slate-400 font-bold uppercase tracking-widest leading-none">Criar Instância WhatsApp</p>
-               </div>
-            </div>
+{isNewInstanceModalOpen && (
+         <div className="fixed inset-0 z-[110] flex items-center justify-center p-4">
+           <div className="absolute inset-0 bg-slate-900/60 backdrop-blur-sm" onClick={() => setIsNewInstanceModalOpen(false)} />
+           <div className="relative bg-white w-full max-w-md rounded-[2.5rem] shadow-2xl p-8 flex flex-col gap-6 animate-in zoom-in-95 duration-200">
+             <div className="flex items-center gap-4">
+                <div className="w-12 h-12 bg-indigo-600 rounded-2xl flex items-center justify-center text-white shadow-lg shadow-indigo-100">
+                   <Plus size={24} />
+                </div>
+                <div>
+                   <h3 className="text-xl font-black text-slate-800 tracking-tight uppercase leading-none mb-1">Novo Canal</h3>
+                   <p className="text-[10px] text-slate-400 font-bold uppercase tracking-widest leading-none">Criar Instância WhatsApp</p>
+                </div>
+             </div>
+ 
+             <div className="space-y-4">
+                <div className="space-y-1">
+                   <label className="text-[10px] font-black uppercase text-slate-400 tracking-widest ml-1">Nome da Conexão</label>
+                   <input 
+                     type="text" 
+                     value={newInstanceName}
+                     onChange={(e) => setNewInstanceName(e.target.value)}
+                     placeholder="Ex: Comercial SP"
+                     className="w-full bg-slate-50 border border-slate-200 rounded-2xl px-4 py-3 text-sm font-bold focus:ring-4 focus:ring-indigo-500/10 outline-none"
+                   />
+                </div>
+                <div className="space-y-1">
+                   <label className="text-[10px] font-black uppercase text-slate-400 tracking-widest ml-1">Número (com DDD)</label>
+                   <input 
+                     type="text" 
+                     value={newInstancePhone}
+                     onChange={(e) => setNewInstancePhone(e.target.value)}
+                     placeholder="5511988880000"
+                     className="w-full bg-slate-50 border border-slate-200 rounded-2xl px-4 py-3 text-sm font-bold focus:ring-4 focus:ring-indigo-500/10 outline-none"
+                   />
+                </div>
+             </div>
+ 
+             <div className="flex gap-3">
+                <button 
+                  onClick={() => setIsNewInstanceModalOpen(false)}
+                  className="flex-1 py-4 text-[10px] font-black uppercase tracking-widest text-slate-400 hover:bg-slate-50 rounded-2xl transition-all"
+                >
+                  Cancelar
+                </button>
+                <button 
+                  onClick={handleCreateInstance}
+                  className="flex-1 py-4 bg-indigo-600 text-white rounded-2xl text-[10px] font-black uppercase tracking-widest hover:bg-indigo-700 transition-all shadow-xl shadow-indigo-100"
+                >
+                  Cadastrar Canal
+                </button>
+             </div>
+           </div>
+         </div>
+       )}
 
-            <div className="space-y-4">
-               <div className="space-y-1">
-                  <label className="text-[10px] font-black uppercase text-slate-400 tracking-widest ml-1">Nome da Conexão</label>
-                  <input 
-                    type="text" 
-                    value={newInstanceName}
-                    onChange={(e) => setNewInstanceName(e.target.value)}
-                    placeholder="Ex: Comercial SP"
-                    className="w-full bg-slate-50 border border-slate-200 rounded-2xl px-4 py-3 text-sm font-bold focus:ring-4 focus:ring-indigo-500/10 outline-none"
-                  />
-               </div>
-               <div className="space-y-1">
-                  <label className="text-[10px] font-black uppercase text-slate-400 tracking-widest ml-1">Número (com DDD)</label>
-                  <input 
-                    type="text" 
-                    value={newInstancePhone}
-                    onChange={(e) => setNewInstancePhone(e.target.value)}
-                    placeholder="5511988880000"
-                    className="w-full bg-slate-50 border border-slate-200 rounded-2xl px-4 py-3 text-sm font-bold focus:ring-4 focus:ring-indigo-500/10 outline-none"
-                  />
-               </div>
-            </div>
-
-            <div className="flex gap-3">
-               <button 
-                 onClick={() => setIsNewInstanceModalOpen(false)}
-                 className="flex-1 py-4 text-[10px] font-black uppercase tracking-widest text-slate-400 hover:bg-slate-50 rounded-2xl transition-all"
-               >
-                 Cancelar
-               </button>
-               <button 
-                 onClick={handleCreateInstance}
-                 className="flex-1 py-4 bg-indigo-600 text-white rounded-2xl text-[10px] font-black uppercase tracking-widest hover:bg-indigo-700 transition-all shadow-xl shadow-indigo-100"
-               >
-                 Cadastrar Canal
-               </button>
-            </div>
-          </div>
-        </div>
-      )}
+      <ConfirmDialog
+        isOpen={confirmingDisconnect}
+        onClose={() => setConfirmingDisconnect(false)}
+        onConfirm={runDisconnect}
+        title="Desconectar Sessão"
+        description={`Deseja realmente desconectar e limpar a sessão de ${selectedInstance?.name || 'WhatsApp'}?`}
+        confirmLabel="Desconectar"
+        variant="danger"
+      />
     </div>
   );
 }

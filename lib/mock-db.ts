@@ -38,7 +38,42 @@ export class MockDB {
   static getAbsenceReasons(): AbsenceReason[] { return []; }
   static getQueues(): Queue[] { return []; }
   static calculateSLA(_ticketId?: any, _priority?: any): string | undefined { return undefined; }
-  static getInternalTickets(): InternalTicket[] { return []; }
+  static async getInternalTickets(): Promise<InternalTicket[]> {
+    const { data, error } = await supabase.from('internal_tickets').select('*');
+    if (error) {
+      console.error('getInternalTickets error:', error);
+      return [];
+    }
+    
+    const internalTickets = (data || []).map((it: any) => ({
+      id: it.id,
+      title: it.title,
+      teamId: it.team_id,
+      assigneeId: it.assignee_id,
+      priority: it.priority,
+      tags: it.tags || [],
+      creatorId: it.creator_id,
+      description: it.description,
+      createdAt: it.created_at,
+      updatedAt: it.updated_at,
+      slaLimit: it.sla_limit
+    }));
+    
+    // Fetch N:N links
+    const { data: links } = await supabase.from('ticket_internal_links').select('ticket_id, internal_ticket_id');
+    const linksMap = new Map<string, string[]>();
+    (links || []).forEach((link: any) => {
+      const existing = linksMap.get(link.internal_ticket_id) || [];
+      existing.push(link.ticket_id);
+      linksMap.set(link.internal_ticket_id, existing);
+    });
+    
+    // Add parentTicketIds to each internal ticket
+    return internalTickets.map(t => ({
+      ...t,
+      parentTicketIds: linksMap.get(t.id) || []
+    }));
+  }
   static getWhatsappInstances(): WhatsappInstance[] { return []; }
   static getSavedFilters(): SavedFilter[] { return []; }
   static getAnalysts(): User[] { return []; }

@@ -4,6 +4,7 @@ import React, { useState, useEffect } from 'react';
 import { 
   Search, Mail, Shield, Key, Trash2, Edit2, CheckCircle2, XCircle, Bell, UserPlus
 } from 'lucide-react';
+import { ConfirmDialog } from '@/components/confirm-dialog';
 import { cn } from '@/lib/utils';
 import { motion, AnimatePresence } from 'motion/react';
 import { useApp } from '@/app/app-context';
@@ -165,18 +166,23 @@ export default function TeamManagementPage() {
     setPassword('');
   };
 
+  const [deletingUserId, setDeletingUserId] = useState<string | null>(null);
+
   const handleDelete = async (id: string) => {
-    if (confirm('Tem certeza que deseja remover este colaborador?')) {
-      try {
-        await deleteUser(id);
-        
-        // Refresh local state based on current view
-        await fetchUsers();
-        setIsModalOpen(false);
-      } catch (error) {
-        console.error('Erro ao excluir usuário:', error);
-        alert('Não foi possível excluir o usuário. Verifique suas permissões no sistema.');
-      }
+    setDeletingUserId(id);
+  };
+
+  const confirmDelete = async () => {
+    const id = deletingUserId;
+    if (!id) return;
+    setDeletingUserId(null);
+    try {
+      await deleteUser(id);
+      await fetchUsers();
+      setIsModalOpen(false);
+    } catch (error) {
+      console.error('Erro ao excluir usuário:', error);
+      alert('Não foi possível excluir o usuário. Verifique suas permissões no sistema.');
     }
   };
 
@@ -244,8 +250,12 @@ export default function TeamManagementPage() {
                   </td>
                   <td className="px-8 py-5">
                     <div className="flex items-center gap-4">
-                      <div className="w-12 h-12 rounded-2xl bg-indigo-50 border border-indigo-100 flex items-center justify-center text-indigo-600 font-black text-lg">
-                        {user.name.charAt(0)}
+                      <div className="w-12 h-12 rounded-2xl bg-indigo-50 border border-indigo-100 flex items-center justify-center text-indigo-600 font-black text-lg overflow-hidden">
+                        {user.avatarUrl ? (
+                          <img src={user.avatarUrl} alt={user.name} className="w-full h-full object-cover" />
+                        ) : (
+                          user.name.charAt(0)
+                        )}
                       </div>
                       <div className="flex flex-col">
                         <span className="font-bold text-slate-800">{user.name}</span>
@@ -528,6 +538,17 @@ export default function TeamManagementPage() {
           </div>
         )}
       </AnimatePresence>
+
+      {/* Delete Confirmation Dialog */}
+      <ConfirmDialog
+        isOpen={!!deletingUserId}
+        onClose={() => setDeletingUserId(null)}
+        onConfirm={confirmDelete}
+        title="Remover Colaborador"
+        description="Tem certeza que deseja remover este colaborador? Esta ação não pode ser desfeita."
+        confirmLabel="Remover"
+        variant="danger"
+      />
     </div>
   );
 }

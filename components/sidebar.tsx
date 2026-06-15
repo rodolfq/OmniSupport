@@ -21,7 +21,8 @@ import {
   Key,
   MessageCircle,
   Library,
-  Database
+  Database,
+  FileText
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { useApp } from '@/app/app-context';
@@ -92,6 +93,7 @@ export function Sidebar() {
           { name: 'Todos os Chamados', icon: Ticket, href: '/tickets', permission: Permission.TICKETS_READ },
           { name: 'Meus Chamados', icon: UserCircle, href: '/my-tickets' },
           { name: 'Painel Chat', icon: MessageSquare, href: '/chat-management', permission: Permission.OUTSIDE_QUEUE_VIEW },
+          { name: 'Tickets Internos', icon: FileText, href: '/internal-tickets', permission: Permission.INTERNAL_TICKETS_VIEW },
         ]
       },
       { name: 'Chat Interno', icon: MessageCircle, href: '/chat-internal', permission: Permission.CHAT_INTERNAL_VIEW },
@@ -257,7 +259,11 @@ export function Sidebar() {
           userStatus === 'online' ? "border-emerald-500" : 
           userStatus === 'away' ? "border-amber-500" : "border-slate-500"
         )} title={`${currentUser?.name} (${userStatus})`}>
-          {(currentUser?.name || 'U').charAt(0)}
+          {currentUser?.avatarUrl ? (
+            <img src={currentUser.avatarUrl} alt={currentUser.name} className="w-full h-full object-cover" />
+          ) : (
+            (currentUser?.name || 'U').charAt(0)
+          )}
         </div>
         <button 
           onClick={handleLogout}

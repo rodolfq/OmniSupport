@@ -168,7 +168,7 @@ export default function MyTicketsPage() {
                     view === 'list' && "flex items-center gap-8 flex-1"
                   )}>
                     <div className="flex items-center justify-between mb-4">
-                      <span className="text-[10px] font-black uppercase tracking-widest text-slate-400">#{ticket.ticketNumber || ticket.id.slice(0, 8)}</span>
+                      <span className="text-[10px] font-black uppercase tracking-widest text-slate-400">#{ticket.ticketNumber ? String(ticket.ticketNumber).padStart(4, '0') : ticket.id.slice(0, 8)}</span>
                       <span className={cn("px-4 py-1.5 rounded-full text-[9px] font-black uppercase tracking-widest", getStatusColor(ticket.status))}>
                         {ticket.status}
                       </span>

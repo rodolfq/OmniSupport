@@ -38,6 +38,7 @@ DROP TABLE IF EXISTS public.internal_chats CASCADE;
 
 -- Drop sequence if exists to start fresh
 DROP SEQUENCE IF EXISTS public.ticket_seq CASCADE;
+DROP SEQUENCE IF EXISTS public.internal_ticket_seq CASCADE;
 
 -- Enable UUID extension
 CREATE EXTENSION IF NOT EXISTS "uuid-ossp";
@@ -45,6 +46,7 @@ CREATE EXTENSION IF NOT EXISTS pgcrypto;
 
 -- 1. Create Public Sequences
 CREATE SEQUENCE IF NOT EXISTS public.ticket_seq START 1000;
+CREATE SEQUENCE IF NOT EXISTS public.internal_ticket_seq START 1;
 
 -- 2. Companies Table
 CREATE TABLE public.companies (
@@ -60,16 +62,76 @@ CREATE TABLE public.profiles (
   id UUID PRIMARY KEY REFERENCES auth.users(id) ON DELETE CASCADE,
   company_id UUID REFERENCES public.companies(id) ON DELETE SET NULL,
   name TEXT NOT NULL,
-  email TEXT NOT NULL UNIQUE,
-  role TEXT NOT NULL DEFAULT 'Funcionário', -- 'Funcionário', 'Equipe', 'Administrador'
-  is_admin BOOLEAN DEFAULT FALSE,
-  lives_in_squad BOOLEAN DEFAULT FALSE,
-  phone TEXT,
-  password TEXT,
-  must_change_password BOOLEAN DEFAULT TRUE,
-  view_all_company_tickets BOOLEAN DEFAULT FALSE,
+email TEXT NOT NULL UNIQUE,
+   role TEXT NOT NULL DEFAULT 'Funcionário', -- 'Funcionário', 'Equipe', 'Administrador'
+   is_admin BOOLEAN DEFAULT FALSE,
+   lives_in_squad BOOLEAN DEFAULT FALSE,
+   internal_team_ids UUID[] DEFAULT '{}', -- Array of internal team IDs this user belongs to
+   avatar_url TEXT, -- Base64 avatar image
+   phone TEXT,
+   password TEXT,
+   must_change_password BOOLEAN DEFAULT TRUE,
+   view_all_company_tickets BOOLEAN DEFAULT FALSE,
+   created_at TIMESTAMP WITH TIME ZONE DEFAULT timezone('utc'::text, now()) NOT NULL
+);
+
+-- Internal Teams Table for better organization
+CREATE TABLE IF NOT EXISTS public.internal_teams (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  name TEXT NOT NULL UNIQUE,
+  description TEXT,
   created_at TIMESTAMP WITH TIME ZONE DEFAULT timezone('utc'::text, now()) NOT NULL
 );
+
+-- Index for performance
+CREATE INDEX IF NOT EXISTS idx_profiles_internal_teams ON public.profiles USING gin (internal_team_ids);
+
+-- Seed default teams
+INSERT INTO public.internal_teams (name, description) VALUES
+  ('Desenvolvimento', 'Equipe responsável por desenvolvimento e manutenção de código'),
+  ('Infraestrutura', 'Equipe de infraestrutura e operações'),
+  ('QA', 'Equipe de testes e qualidade'),
+  ('Produto', 'Equipe de produto e experiência do usuário')
+ON CONFLICT (name) DO NOTHING;
+
+-- 3.5 Role Permissions Table (Custom roles with granular permissions)
+CREATE TABLE IF NOT EXISTS public.role_permissions (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  name TEXT NOT NULL UNIQUE, -- e.g., 'admin', 'Equipe', 'Funcionário'
+  role TEXT NOT NULL, -- matches profile role value
+  permissions TEXT[] DEFAULT '{}',
+  created_at TIMESTAMP WITH TIME ZONE DEFAULT timezone('utc'::text, now())
+);
+
+-- Seed default role permissions
+INSERT INTO public.role_permissions (name, role, permissions) VALUES
+  ('Administrador', 'Administrador', ARRAY[
+    'tickets:read', 'tickets:write', 'tickets:delete', 'tickets:assign',
+    'customers:read', 'customers:write',
+    'team:read', 'team:write',
+    'settings:read', 'settings:write',
+    'reports:read',
+    'internal:view', 'internal:edit',
+    'tickets:outside_queue',
+    'dashboard:view'
+  ]::TEXT[]),
+  ('Equipe', 'Equipe', ARRAY[
+    'tickets:read', 'tickets:write', 'tickets:assign',
+    'customers:read',
+    'team:read',
+    'reports:read',
+    'internal:view', 'internal:edit',
+    'tickets:outside_queue',
+    'dashboard:view'
+  ]::TEXT[]),
+  ('Cliente', 'Cliente', ARRAY[
+    'tickets:read', 'tickets:write'
+  ]::TEXT[]),
+  ('Funcionário', 'Funcionário', ARRAY[]::TEXT[]),
+  ('Time Interno', 'Time Interno', ARRAY[
+    'internal:view', 'internal:edit'
+  ]::TEXT[])
+ON CONFLICT (name) DO NOTHING;
 
 -- 4. Analyst Status (For tracking support agents capacity and reasons)
 CREATE TABLE public.analyst_status (
@@ -149,6 +211,21 @@ CREATE TABLE public.tickets (
 
 -- Index for Ticket Sequentials
 CREATE INDEX IF NOT EXISTS idx_tickets_public_number ON public.tickets(public_ticket_number);
+CREATE INDEX IF NOT EXISTS idx_internal_tickets_number ON public.internal_tickets(internal_ticket_number);
+
+-- Search and filter indexes
+CREATE INDEX IF NOT EXISTS idx_tickets_status ON public.tickets(status);
+CREATE INDEX IF NOT EXISTS idx_tickets_priority ON public.tickets(priority);
+CREATE INDEX IF NOT EXISTS idx_tickets_assignee_id ON public.tickets(assignee_id);
+CREATE INDEX IF NOT EXISTS idx_tickets_company_id ON public.tickets(company_id);
+CREATE INDEX IF NOT EXISTS idx_tickets_customer_id ON public.tickets(customer_id);
+CREATE INDEX IF NOT EXISTS idx_tickets_created_at ON public.tickets(created_at DESC);
+CREATE INDEX IF NOT EXISTS idx_tickets_title_gin ON public.tickets USING gin (title gin_trgm_ops);
+CREATE INDEX IF NOT EXISTS idx_tickets_description_gin ON public.tickets USING gin (description gin_trgm_ops);
+
+-- For internal_tickets
+CREATE INDEX IF NOT EXISTS idx_internal_tickets_team_id ON public.internal_tickets(team_id);
+CREATE INDEX IF NOT EXISTS idx_internal_tickets_title_gin ON public.internal_tickets USING gin (title gin_trgm_ops);
 
 -- 9. Ticket Messages Table (With attachments payload inside JSONB)
 CREATE TABLE public.ticket_messages (
@@ -218,10 +295,11 @@ CREATE TABLE public.queues (
 -- 14.5 Internal Tickets Table (Internal tracking for complex issues)
 CREATE TABLE public.internal_tickets (
   id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-  parent_ticket_id TEXT REFERENCES public.tickets(id) ON DELETE CASCADE,
+  internal_ticket_number BIGINT DEFAULT nextval('public.internal_ticket_seq') NOT NULL UNIQUE,
   title TEXT NOT NULL,
   description TEXT NOT NULL,
   team_id TEXT,
+  internal_team_id UUID REFERENCES public.internal_teams(id) ON DELETE SET NULL,
   assignee_id UUID REFERENCES public.profiles(id) ON DELETE SET NULL,
   priority INTEGER DEFAULT 1,
   tags TEXT[] DEFAULT '{}',
@@ -229,6 +307,14 @@ CREATE TABLE public.internal_tickets (
   created_at TIMESTAMP WITH TIME ZONE DEFAULT timezone('utc'::text, now()) NOT NULL,
   updated_at TIMESTAMP WITH TIME ZONE DEFAULT timezone('utc'::text, now()) NOT NULL,
   sla_limit TIMESTAMP WITH TIME ZONE
+);
+
+-- N:N relationship between tickets and internal_tickets
+CREATE TABLE public.ticket_internal_links (
+  ticket_id TEXT REFERENCES public.tickets(id) ON DELETE CASCADE,
+  internal_ticket_id UUID REFERENCES public.internal_tickets(id) ON DELETE CASCADE,
+  created_at TIMESTAMP WITH TIME ZONE DEFAULT timezone('utc'::text, now()) NOT NULL,
+  PRIMARY KEY (ticket_id, internal_ticket_id)
 );
 
 -- 15. WhatsApp Sessions Tables (Baileys credentials)
@@ -266,6 +352,29 @@ CREATE TABLE public.internal_chats (
   created_at TIMESTAMP WITH TIME ZONE DEFAULT timezone('utc'::text, now())
 );
 
+
+-- User search history for suggestions
+CREATE TABLE public.user_search_history (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  user_id UUID REFERENCES public.profiles(id) ON DELETE CASCADE,
+  query TEXT NOT NULL,
+  created_at TIMESTAMP WITH TIME ZONE DEFAULT timezone('utc'::text, now()) NOT NULL
+);
+
+-- Saved custom views/filters
+CREATE TABLE public.saved_views (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  user_id UUID REFERENCES public.profiles(id) ON DELETE CASCADE,
+  name TEXT NOT NULL,
+  filters JSONB NOT NULL,
+  created_at TIMESTAMP WITH TIME ZONE DEFAULT timezone('utc'::text, now()) NOT NULL
+);
+
+CREATE INDEX idx_user_search_history_user_id ON public.user_search_history(user_id);
+CREATE INDEX idx_saved_views_user_id ON public.saved_views(user_id);
+
+ALTER TABLE public.user_search_history DISABLE ROW LEVEL SECURITY;
+ALTER TABLE public.saved_views DISABLE ROW LEVEL SECURITY;
 
 -- =========================================================================
 -- SEED DATA SETUP
@@ -340,6 +449,7 @@ ON CONFLICT (id) DO UPDATE SET
 -- Disable RLS on all tables to ensure absolute ease of use and zero access blockages
 ALTER TABLE public.companies DISABLE ROW LEVEL SECURITY;
 ALTER TABLE public.profiles DISABLE ROW LEVEL SECURITY;
+ALTER TABLE public.role_permissions DISABLE ROW LEVEL SECURITY;
 ALTER TABLE public.analyst_status DISABLE ROW LEVEL SECURITY;
 ALTER TABLE public.user_status_history DISABLE ROW LEVEL SECURITY;
 ALTER TABLE public.absence_reasons DISABLE ROW LEVEL SECURITY;
@@ -356,6 +466,8 @@ ALTER TABLE public.quick_notes DISABLE ROW LEVEL SECURITY;
 ALTER TABLE public.queues DISABLE ROW LEVEL SECURITY;
 ALTER TABLE public.whatsapp_sessions DISABLE ROW LEVEL SECURITY;
 ALTER TABLE public.internal_tickets DISABLE ROW LEVEL SECURITY;
+ALTER TABLE public.internal_teams DISABLE ROW LEVEL SECURITY;
+ALTER TABLE public.ticket_internal_links DISABLE ROW LEVEL SECURITY;
 
 -- Auxiliary trigger/function structure to automatically create permissive fallback policies
 CREATE OR REPLACE FUNCTION public.create_permissive_policy(table_name TEXT) RETURNS VOID AS $$
@@ -370,6 +482,7 @@ $$ LANGUAGE plpgsql;
 -- Apply permissive fallback policies (in case RLS is manually enabled later)
 SELECT public.create_permissive_policy('companies');
 SELECT public.create_permissive_policy('profiles');
+SELECT public.create_permissive_policy('role_permissions');
 SELECT public.create_permissive_policy('analyst_status');
 SELECT public.create_permissive_policy('user_status_history');
 SELECT public.create_permissive_policy('absence_reasons');
@@ -386,6 +499,8 @@ SELECT public.create_permissive_policy('quick_notes');
 SELECT public.create_permissive_policy('queues');
 SELECT public.create_permissive_policy('whatsapp_sessions');
 SELECT public.create_permissive_policy('internal_tickets');
+SELECT public.create_permissive_policy('internal_teams');
+SELECT public.create_permissive_policy('ticket_internal_links');
 
 -- Drop the helper function
 DROP FUNCTION IF EXISTS public.create_permissive_policy(TEXT);

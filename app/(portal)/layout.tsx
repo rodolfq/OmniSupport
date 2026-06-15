@@ -10,7 +10,8 @@ import { ChatWidget } from '@/components/chat-widget';
 import { ForcePasswordChange } from '@/components/force-password-change';
 import { cn } from '@/lib/utils';
 import Link from 'next/link';
-import { UserRole } from '@/lib/types';
+import { UserRole, Permission } from '@/lib/types';
+import { UserService } from '@/lib/services/user-service';
 
 export default function PortalLayout({ children }: { children: React.ReactNode }) {
   const router = useRouter();
@@ -35,6 +36,24 @@ export default function PortalLayout({ children }: { children: React.ReactNode }
     setMounted(true);
   }, []);
 
+  React.useEffect(() => {
+    if (!currentUser && authInitialized) {
+      router.replace('/login');
+    }
+  }, [currentUser, authInitialized, router]);
+
+  // Redirect users without dashboard permission to their default screen
+  React.useEffect(() => {
+    if (currentUser && authInitialized) {
+      const hasDashboardPerm = [UserRole.ADMIN, UserRole.SUPPORT, UserRole.INTERNAL].includes(currentUser.role as UserRole);
+      if (!hasDashboardPerm) {
+        router.replace('/my-tickets');
+      } else if (currentUser.role === UserRole.INTERNAL) {
+        router.replace('/internal-tickets');
+      }
+    }
+  }, [currentUser, authInitialized, router]);
+
   if (!mounted) {
     return <div className="min-h-screen bg-slate-50 flex items-center justify-center font-bold text-slate-400">Carregando...</div>;
   }
@@ -44,19 +63,20 @@ export default function PortalLayout({ children }: { children: React.ReactNode }
   }
 
   if (!currentUser) {
-    router.push('/login');
-    return <div className="min-h-screen bg-slate-50 flex items-center justify-center font-bold text-slate-400">Redirecionando para login...</div>;
+    return null;
   }
 
   const unreadCount = notifications.filter(n => !n.read && !n.type.startsWith('chat_')).length;
-  const isTeam = currentUser.role !== UserRole.CUSTOMER;
+  const isTeam = [UserRole.ADMIN, UserRole.SUPPORT, UserRole.INTERNAL].includes(currentUser.role as UserRole);
+  const userPermissions = UserService.getPermissionsByRole(currentUser.role);
+  const canCreateTickets = userPermissions.includes(Permission.TICKETS_READ) && userPermissions.includes(Permission.TICKETS_WRITE);
 
   return (
     <div className="flex bg-gray-50 min-h-screen">
       <Sidebar />
       <div className="flex-1 flex flex-col min-w-0 overflow-hidden">
         <header className="h-16 bg-white border-b border-slate-200 flex items-center justify-between px-8 shadow-sm sticky top-0 z-10">
-          <div className="flex items-center gap-4">
+<div className="flex items-center gap-4">
             <h1 className="text-xl font-bold text-slate-800 tracking-tight">Portal OmniSupport</h1>
             <div className="h-4 w-px bg-slate-300"></div>
             <span className="text-sm text-slate-500 font-medium">Logado como: {currentUser?.name}</span>
@@ -70,13 +90,15 @@ export default function PortalLayout({ children }: { children: React.ReactNode }
                 className="bg-slate-50 border border-slate-200 rounded-full py-2 px-10 text-sm w-80 focus:outline-none focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-500 transition-all"
               />
             </div>
-            <button 
-              onClick={() => setIsNewTicketModalOpen(true)}
-              className="flex items-center gap-2 bg-indigo-600 hover:bg-indigo-700 text-white px-4 py-2 rounded-lg text-sm font-semibold shadow-sm transition-colors cursor-pointer"
-            >
-              <Plus size={16} />
-              Novo Chamado
-            </button>
+            {canCreateTickets && (
+              <button 
+                onClick={() => setIsNewTicketModalOpen(true)}
+                className="flex items-center gap-2 bg-indigo-600 hover:bg-indigo-700 text-white px-4 py-2 rounded-lg text-sm font-semibold shadow-sm transition-colors cursor-pointer"
+              >
+                <Plus size={16} />
+                Novo Chamado
+              </button>
+            )}
             <div className="flex items-center gap-4 text-slate-400 border-l pl-6 ml-2">
               {isTeam && (
                 <div className="relative">

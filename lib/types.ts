@@ -11,7 +11,8 @@ export enum UserRole {
   ADMIN = 'Administrador',
   SUPPORT = 'Equipe', 
   CUSTOMER = 'Cliente',
-  EMPLOYEE = 'Funcionário'
+  EMPLOYEE = 'Funcionário',
+  INTERNAL = 'Time Interno'
 }
 
 export enum Permission {
@@ -27,6 +28,7 @@ export enum Permission {
   SETTINGS_WRITE = 'settings:write',
   REPORTS_READ = 'reports:read',
   INTERNAL_TICKETS_VIEW = 'internal:view',
+  INTERNAL_TICKETS_EDIT = 'internal:edit',
   OUTSIDE_QUEUE_VIEW = 'tickets:outside_queue',
   DASHBOARD_VIEW = 'dashboard:view',
   CHAT_INTERNAL_VIEW = 'chat:internal'
@@ -41,6 +43,7 @@ export interface StatusConfig {
 export interface RolePermission {
   id: string;
   name: string;
+  role: string;
   permissions: Permission[];
 }
 
@@ -56,6 +59,7 @@ export interface User {
   password?: string;
   mustChangePassword?: boolean;
   viewAllCompanyTickets?: boolean;
+  internalTeamIds?: string[];
   status?: 'online' | 'away' | 'offline';
   statusReason?: string;
   isAdmin?: boolean;
@@ -102,18 +106,21 @@ export enum TicketPriority {
 }
 
 export interface InternalTicket {
-  id: string;
-  parentTicketId: string;
+  id?: string;
+  parentTicketId?: string;
+  parentTicketIds?: string[];
+  internalTicketNumber?: number;
   title: string;
-  teamId: string;
+  teamId?: string;
+  internalTeamId?: string;
   assigneeId?: string;
   priority: number;
   tags: string[];
-  creatorId: string;
+  creatorId?: string;
   description: string;
-  createdAt: string;
-  updatedAt: string;
-  slaLimit?: string;
+  createdAt?: string;
+  updatedAt?: string;
+  slaLimit?: string | null;
 }
 
 export interface Ticket {

@@ -21,7 +21,7 @@ import {
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { motion, AnimatePresence } from 'motion/react';
-import { getRolePermissions, saveRolePermissions } from '@/app/actions';
+import { getRolePermissions, saveRolePermissions, deleteRolePermission } from '@/app/actions';
 
 const permissionGroups = [
   {
@@ -33,7 +33,7 @@ const permissionGroups = [
       { id: Permission.TICKETS_ASSIGN, label: 'Atribuir analistas', desc: 'Permite mudar o analista responsável' },
       { id: Permission.TICKETS_DELETE, label: 'Excluir chamados', desc: 'Permite remover chamados permanentemente' },
       { id: Permission.INTERNAL_TICKETS_VIEW, label: 'Visualizar ticket interno', desc: 'Permite ver tickets de operação interna' },
-      { id: Permission.OUTSIDE_QUEUE_VIEW, label: 'Visualizar tickets fora da própria fila', desc: 'Permite ver todos os tickets sem restrição de grupo' },
+      { id: Permission.OUTSIDE_QUEUE_VIEW, label: 'Chat Central de Atendimento', desc: 'Permite visualizar e atender chats da central de atendimento (WhatsApp Omni)' },
     ]
   },
   {
@@ -66,7 +66,7 @@ const permissionGroups = [
 
 export default function PermissionsManagementPage() {
   const [rolePermissions, setRolePermissions] = useState<RolePermission[]>([]);
-  const [selectedRoleId, setSelectedRoleId] = useState<string>('admin');
+  const [selectedRoleId, setSelectedRoleId] = useState<string>('Administrador');
   const [isSaving, setIsSaving] = useState(false);
   const [hasChanges, setHasChanges] = useState(false);
   const [searchQuery, setSearchQuery] = useState('');
@@ -84,14 +84,14 @@ export default function PermissionsManagementPage() {
   }, []);
 
   const currentRole = useMemo(() => 
-    rolePermissions.find(rp => rp.id === selectedRoleId), 
+    rolePermissions.find(rp => rp.name === selectedRoleId), 
     [rolePermissions, selectedRoleId]
   );
 
   // Filtro de permissões baseado na busca
   const filteredGroups = useMemo(() => {
     if (!searchQuery) return permissionGroups;
-    
+
     return permissionGroups.map(group => ({
       ...group,
       permissions: group.permissions.filter(p => 
@@ -102,10 +102,10 @@ export default function PermissionsManagementPage() {
   }, [searchQuery, permissionGroups]);
 
   const togglePermission = (permissionId: Permission) => {
-    if (selectedRoleId === 'admin') return; 
+    if (selectedRoleId === 'Administrador') return; 
 
     setRolePermissions(prev => prev.map(rp => {
-      if (rp.id === selectedRoleId) {
+      if (rp.name === selectedRoleId) {
         const hasPerm = rp.permissions.includes(permissionId);
         const newPerms = hasPerm 
           ? rp.permissions.filter(p => p !== permissionId)
@@ -118,7 +118,7 @@ export default function PermissionsManagementPage() {
   };
 
   const toggleGroup = (groupId: string) => {
-    if (selectedRoleId === 'admin') return;
+    if (selectedRoleId === 'Administrador') return;
     const group = permissionGroups.find(g => g.id === groupId);
     if (!group || !currentRole) return;
 
@@ -126,7 +126,7 @@ export default function PermissionsManagementPage() {
     const allEnabled = groupPermIds.every(id => currentRole.permissions.includes(id));
 
     setRolePermissions(prev => prev.map(rp => {
-      if (rp.id === selectedRoleId) {
+      if (rp.name === selectedRoleId) {
         let newPerms: Permission[];
         if (allEnabled) {
           // Remove all from this group
@@ -146,8 +146,13 @@ export default function PermissionsManagementPage() {
   const handleSave = async () => {
     setIsSaving(true);
     try {
-      await saveRolePermissions(selectedRoleId, rolePermissions.find(rp => rp.id === selectedRoleId)?.permissions || []);
+      const permsToSave = rolePermissions.find(rp => rp.name === selectedRoleId)?.permissions || [];
+      console.log('Saving permissions for role:', selectedRoleId, 'perms:', permsToSave);
+      const result = await saveRolePermissions(selectedRoleId, permsToSave);
+      console.log('Save result:', result);
       setHasChanges(false);
+    } catch (error) {
+      console.error('Error saving permissions:', error);
     } finally {
       setIsSaving(false);
     }
@@ -165,25 +170,33 @@ export default function PermissionsManagementPage() {
   const handleAddRole = async () => {
     if (!newRoleName.trim()) return;
     const newRole: RolePermission = {
-      id: Math.random().toString(36).substr(2, 9),
+      id: newRoleName.trim(),
       name: newRoleName.trim(),
+      role: newRoleName.trim(),
       permissions: []
     };
     const updated = [...rolePermissions, newRole];
     setRolePermissions(updated);
-    await saveRolePermissions(newRole.id, []);
-    setSelectedRoleId(newRole.id);
+    const result = await saveRolePermissions(newRole.name, []);
+    console.log('saveRolePermissions result for new role:', result);
+    setSelectedRoleId(newRole.name);
     setNewRoleName('');
     setIsAddingRole(false);
   };
 
   const handleDeleteRole = async (id: string) => {
-    if (id === 'admin') return;
-    const updated = rolePermissions.filter(rp => rp.id !== id);
+    if (id === 'Administrador') return;
+    const roleToDelete = rolePermissions.find(rp => rp.name === id);
+    if (!roleToDelete) return;
+    
+    // Delete from Supabase
+    await deleteRolePermission(id);
+    
+    // Update local state
+    const updated = rolePermissions.filter(rp => rp.id !== roleToDelete.id);
     setRolePermissions(updated);
-    // TODO: Add deleteRolePermission action
     if (selectedRoleId === id) {
-      setSelectedRoleId('admin');
+      setSelectedRoleId('Administrador');
     }
   };
 
@@ -245,7 +258,7 @@ export default function PermissionsManagementPage() {
         <div className="lg:col-span-3 space-y-6">
           <div className="bg-white p-6 rounded-[2.5rem] border border-slate-200 shadow-sm space-y-6">
             <div className="flex items-center justify-between">
-              <span className="text-[10px] font-black uppercase text-slate-400 tracking-widest">Cargos & Perfis</span>
+              <span className="text-[10px] font-black uppercase text-slate-400 tracking-widest">Perfis & Permissões</span>
               <button 
                 onClick={() => setIsAddingRole(true)}
                 className="w-8 h-8 bg-indigo-50 text-indigo-600 rounded-xl flex items-center justify-center hover:bg-indigo-100 transition-all"
@@ -283,10 +296,10 @@ export default function PermissionsManagementPage() {
               {rolePermissions.map(rp => (
                 <div key={rp.id} className="relative group/role">
                   <button
-                    onClick={() => setSelectedRoleId(rp.id)}
+                    onClick={() => setSelectedRoleId(rp.name)}
                     className={cn(
                       "w-full flex items-center justify-between p-4 rounded-2xl border transition-all text-left",
-                      selectedRoleId === rp.id 
+                      selectedRoleId === rp.name 
                         ? "bg-indigo-600 border-indigo-600 text-white shadow-lg shadow-indigo-100" 
                         : "bg-white border-transparent hover:bg-slate-50 text-slate-600"
                     )}
@@ -294,26 +307,26 @@ export default function PermissionsManagementPage() {
                     <div className="flex items-center gap-3">
                       <div className={cn(
                         "w-8 h-8 rounded-lg flex items-center justify-center transition-all",
-                        selectedRoleId === rp.id ? "bg-white/20 text-white" : "bg-slate-100 text-slate-400"
+                        selectedRoleId === rp.name ? "bg-white/20 text-white" : "bg-slate-100 text-slate-400"
                       )}>
-                        {rp.id === 'admin' ? <Shield size={16} /> : <div className="text-[10px] font-black">{(rp.name || 'P')[0]}</div>}
+                        {rp.name === 'Administrador' ? <Shield size={16} /> : <div className="text-[10px] font-black">{(rp.name || 'P')[0]}</div>}
                       </div>
                       <div className="flex flex-col">
                         <span className="text-xs font-black uppercase tracking-tight">{rp.name || 'Perfil sem nome'}</span>
                         <span className={cn(
                           "text-[10px] font-medium",
-                          selectedRoleId === rp.id ? "text-indigo-100" : "text-slate-400"
+                          selectedRoleId === rp.name ? "text-indigo-100" : "text-slate-400"
                         )}>
                           {rp.permissions.length} permissões
                         </span>
                       </div>
                     </div>
-                    {selectedRoleId === rp.id && (
+                    {selectedRoleId === rp.name && (
                       <ChevronRight size={16} className="transition-all" />
                     )}
                   </button>
 
-                  {rp.id !== 'admin' && (
+                  {rp.name !== 'Administrador' && (
                     <button 
                       onClick={(e) => {
                         e.stopPropagation();
@@ -321,7 +334,7 @@ export default function PermissionsManagementPage() {
                       }}
                       className={cn(
                         "absolute right-4 top-1/2 -translate-y-1/2 p-2 rounded-xl transition-all opacity-0 group-hover/role:opacity-100",
-                        selectedRoleId === rp.id 
+                        selectedRoleId === rp.name 
                           ? "text-white/40 hover:text-white hover:bg-white/10" 
                           : "text-slate-300 hover:text-red-500 hover:bg-red-50"
                       )}
@@ -365,7 +378,7 @@ export default function PermissionsManagementPage() {
               {/* Internal Toolbar */}
               <div className="bg-white p-6 rounded-[2.5rem] border border-slate-200 shadow-sm flex flex-col md:flex-row md:items-center gap-6">
                 <div className="flex-1 space-y-1">
-                  {selectedRoleId === 'admin' ? (
+                  {selectedRoleId === 'Administrador' ? (
                     <div className="flex items-center gap-3">
                        <h3 className="text-lg font-black text-slate-800 uppercase tracking-tight">{currentRole.name}</h3>
                        <span className="px-3 py-1 bg-amber-100 text-amber-700 text-[10px] font-black uppercase tracking-widest rounded-full flex items-center gap-1">
@@ -421,7 +434,7 @@ export default function PermissionsManagementPage() {
                       >
                         <div className="p-6 bg-slate-50/50 border-b border-slate-100 flex items-center justify-between">
                           <h3 className="text-[10px] font-black uppercase text-slate-800 tracking-widest">{group.title}</h3>
-                          {selectedRoleId !== 'admin' && (
+                          {selectedRoleId !== 'Administrador' && (
                             <button 
                               onClick={() => toggleGroup(group.id)}
                               className={cn(
@@ -437,12 +450,12 @@ export default function PermissionsManagementPage() {
                         <div className="p-6 space-y-3">
                           {group.permissions.map((perm) => {
                             const isEnabled = currentRole.permissions.includes(perm.id);
-                            const isAdmin = selectedRoleId === 'admin';
+                            const isProtected = selectedRoleId === 'Administrador';
 
                             return (
                               <button
                                 key={perm.id}
-                                disabled={isAdmin}
+                                disabled={isProtected}
                                 onClick={() => togglePermission(perm.id)}
                                 className={cn(
                                   "w-full text-left p-4 rounded-3xl border transition-all flex items-start gap-4 group relative",
@@ -469,7 +482,7 @@ export default function PermissionsManagementPage() {
                                   </p>
                                 </div>
 
-                                {isAdmin && (
+                                {isProtected && (
                                   <div className="absolute top-4 right-4 text-amber-500 opacity-30">
                                     <Lock size={12} />
                                   </div>
@@ -534,7 +547,7 @@ export default function PermissionsManagementPage() {
                   </button>
                   <button 
                     onClick={() => {
-                      handleDeleteRole(roleToDelete.id);
+                      handleDeleteRole(roleToDelete.name);
                       setRoleToDelete(null);
                     }}
                     className="flex-1 px-6 py-4 rounded-2xl text-[10px] font-black uppercase tracking-widest bg-red-600 text-white shadow-xl shadow-red-100 hover:bg-red-700 transition-all"

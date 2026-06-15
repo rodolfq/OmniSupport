@@ -37,6 +37,7 @@ import { cn, normalizeString, maskPhone, matchPhones } from '@/lib/utils';
 import { motion, AnimatePresence } from 'motion/react';
 import { useApp } from '@/app/app-context';
 import { LinkContactModal } from '@/components/link-contact-modal';
+import { ConfirmDialog } from '@/components/confirm-dialog';
 import { supabase } from '@/lib/supabase';
 import { getQuickNotes, saveQuickNote as saveQuickNoteAction, deleteQuickNote, getAnalysts, getCompanies, updateUserStatus } from '@/app/actions';
 
@@ -78,6 +79,8 @@ export default function ChatManagementPage() {
   const [noteShortcut, setNoteShortcut] = useState('');
   const [noteContent, setNoteContent] = useState('');
   const [noteCategory, setNoteCategory] = useState('');
+  const [disconnectingUser, setDisconnectingUser] = useState<User | null>(null);
+  const [deletingNote, setDeletingNote] = useState<QuickNote | null>(null);
 
   const refreshData = React.useCallback(async (sync = false) => {
     // Get chat sessions from Supabase
@@ -191,11 +194,16 @@ useEffect(() => {
     refreshData();
   };
 
-  const handleDisconnect = async (userId: string) => {
-    if (confirm('Desconectar este analista forçadamente?')) {
-      await updateUserStatus(userId, false);
-      refreshData();
-    }
+const handleDisconnect = async (userId: string) => {
+    await updateUserStatus(userId, false);
+    refreshData();
+  };
+
+const handleDeleteNote = async () => {
+    if (!deletingNote) return;
+    await deleteQuickNote(deletingNote.id);
+    setDeletingNote(null);
+    refreshData();
   };
 
   const handleSaveNote = async () => {
@@ -203,13 +211,6 @@ useEffect(() => {
     await saveQuickNoteAction(selectedNote?.id || null, noteShortcut.replace('/', ''), noteContent, noteCategory || 'Geral');
     setIsNoteModalOpen(false);
     refreshData();
-  };
-
-  const handleDeleteNote = async (id: string) => {
-    if (confirm('Excluir esta nota rápida?')) {
-      await deleteQuickNote(id);
-      refreshData();
-    }
   };
 
   const handleOpenNoteModal = (note?: QuickNote) => {
@@ -495,7 +496,7 @@ useEffect(() => {
                         </td>
                         <td className="px-8 py-5 text-right">
                            <button 
-                             onClick={() => handleDisconnect(s.userId)}
+                             onClick={() => setDisconnectingUser(analyst)}
                              className="p-2 text-slate-400 hover:text-red-600 transition-all"
                              title="Desconectar Analista"
                            >
@@ -737,7 +738,7 @@ useEffect(() => {
                    </div>
                    <div className="mt-8 flex justify-end gap-2 opacity-0 group-hover:opacity-100 transition-all">
                       <button onClick={() => handleOpenNoteModal(note)} className="p-3 bg-slate-50 text-slate-500 rounded-xl hover:text-indigo-600 hover:bg-indigo-50 transition-all"><Edit2 size={16} /></button>
-                      <button onClick={() => handleDeleteNote(note.id)} className="p-3 bg-slate-50 text-slate-400 rounded-xl hover:text-red-600 hover:bg-red-50 transition-all"><Trash2 size={16} /></button>
+                      <button onClick={() => setDeletingNote(note)} className="p-3 bg-slate-50 text-slate-400 rounded-xl hover:text-red-600 hover:bg-red-50 transition-all"><Trash2 size={16} /></button>
                    </div>
                 </div>
               ))}
@@ -814,6 +815,30 @@ useEffect(() => {
         onClose={() => { setIsLinkModalOpen(false); setSelectedSessionForLink(null); }}
         session={selectedSessionForLink}
         onSuccess={refreshData}
+      />
+
+      <ConfirmDialog
+        isOpen={!!disconnectingUser}
+        onClose={() => setDisconnectingUser(null)}
+        onConfirm={() => {
+          if (disconnectingUser) {
+            handleDisconnect(disconnectingUser.id);
+          }
+        }}
+        title="Desconectar Analista"
+        description={`Deseja desconectar ${disconnectingUser?.name || 'este analista'}? Ele será marcado como ausente.`}
+        confirmLabel="Desconectar"
+        variant="danger"
+      />
+
+      <ConfirmDialog
+        isOpen={!!deletingNote}
+        onClose={() => setDeletingNote(null)}
+        onConfirm={handleDeleteNote}
+        title="Excluir Nota Rápida"
+        description="Deseja excluir esta nota rápida? Esta ação não pode ser desfeita."
+        confirmLabel="Excluir"
+        variant="danger"
       />
     </div>
   );

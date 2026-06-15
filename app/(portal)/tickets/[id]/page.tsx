@@ -115,7 +115,7 @@ export default function TicketDetailPage() {
                 <span className="text-[10px] font-bold text-slate-500 ml-1 uppercase">Prioridade</span>
               </div>
             </div>
-            <p className="text-xs text-slate-400 font-bold uppercase tracking-widest mt-1">Ticket: #{ticket.ticketNumber || ticket.id.slice(0, 8)} • Criado em {formatDate(ticket.createdAt)}</p>
+            <p className="text-xs text-slate-400 font-bold uppercase tracking-widest mt-1">Ticket: #{ticket.ticketNumber ? String(ticket.ticketNumber).padStart(4, '0') : ticket.id.slice(0, 8)} • Criado em {formatDate(ticket.createdAt)}</p>
           </div>
         </div>
         <div className="flex gap-2">

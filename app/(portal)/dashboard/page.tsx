@@ -350,7 +350,7 @@ function PriorityList({ title, tickets, color, onSelect, priorities }: {
                   {t.title}
                 </h5>
                 <div className="flex items-center gap-2 mt-1">
-                  <span className="text-[9px] font-black text-slate-400 uppercase tracking-tighter">#{t.ticketNumber || t.id.slice(0, 8)}</span>
+                  <span className="text-[9px] font-black text-slate-400 uppercase tracking-tighter">#{t.ticketNumber ? String(t.ticketNumber).padStart(4, '0') : t.id.slice(0, 8)}</span>
                   <span className="text-[9px] text-slate-400">•</span>
                   {assignee ? (
                     <div className="flex items-center gap-1">
@@ -473,7 +473,7 @@ function TicketCard({ ticket, availablePriorities, onClick }: { ticket: TicketTy
         <span className={cn("text-[10px] font-black px-2 py-0.5 rounded-md uppercase", priorityConfig?.color || 'bg-slate-100 text-slate-600')}>
           {ticket.priority}
         </span>
-        <span className="text-[10px] text-slate-400 font-bold uppercase tracking-wider">#{ticket.ticketNumber || ticket.id.slice(0, 8)}</span>
+        <span className="text-[10px] text-slate-400 font-bold uppercase tracking-wider">#{ticket.ticketNumber ? String(ticket.ticketNumber).padStart(4, '0') : ticket.id.slice(0, 8)}</span>
       </div>
       <h3 className="font-bold text-sm text-slate-800 mb-1 line-clamp-2 leading-tight">{ticket.title}</h3>
       

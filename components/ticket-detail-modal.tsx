@@ -11,6 +11,7 @@ import { Star } from 'lucide-react';
 import { toast } from 'sonner';
 import { RichEditor } from './rich-editor';
 import { AttachmentGallery } from './attachment-gallery';
+import { LinkInternalTicketModal } from './link-internal-ticket-modal';
 import { TicketService, MessageService, InternalTicketService } from '@/lib/services/ticket-service';
 import { UserService } from '@/lib/services/user-service';
 import { CompanyService } from '@/lib/services/company-service';
@@ -67,6 +68,7 @@ export function TicketDetailModal({ ticket, onClose }: TicketDetailModalProps) {
   const [companyId, setCompanyId] = useState(ticket?.companyId || '');
   const [isEditingDescription, setIsEditingDescription] = useState(false);
   const [companies, setCompanies] = useState<any[]>([]);
+  const [internalTeams, setInternalTeams] = useState<Array<{id: string, name: string}>>([]);
 
   // Internal Ticket States
   const [internalTicket, setInternalTicket] = useState<InternalTicket | null>(null);
@@ -77,25 +79,42 @@ export function TicketDetailModal({ ticket, onClose }: TicketDetailModalProps) {
   const [itTags, setItTags] = useState<string[]>([]);
   const [itDescription, setItDescription] = useState('');
   const [itSla, setItSla] = useState('');
+  const [showLinkModal, setShowLinkModal] = useState(false);
 
   useEffect(() => {
     if (!ticket) return;
     
     async function fetchConfigs() {
-      const { data: profiles } = await supabase.from('profiles').select('*');
+      const { data: profiles } = await supabase.from('profiles').select('*, internal_team_ids');
       const { data: statusList } = await supabase.from('config_statuses').select('*');
       const { data: categoryList } = await supabase.from('config_categories').select('*');
       const { data: priorityList } = await supabase.from('config_priorities').select('*');
       const { data: compList } = await supabase.from('companies').select('*');
+      const { data: teamList } = await supabase.from('internal_teams').select('*');
 
       if (profiles) {
-        setAllUsers(profiles.map(u => ({ ...u, companyId: u.company_id })) as any);
-        setAnalysts(profiles.filter(u => u.role === 'Equipe' || u.is_admin) as any);
+        setAllUsers(profiles.map(u => ({ 
+          ...u, 
+          companyId: u.company_id, 
+          internalTeamIds: u.internal_team_ids,
+          avatarUrl: u.avatar_url 
+        })) as any);
+        // Equipe: show all support team
+        // Time Interno: show only members of their internal teams
+        if (currentUser?.role === 'Time Interno' && currentUser?.internalTeamIds) {
+          const userTeams = currentUser.internalTeamIds;
+          setAnalysts(profiles.filter((u: any) => 
+            u.role === 'Equipe' || u.is_admin || (userTeams && u.internal_team_ids?.some((t: string) => userTeams.includes(t)))
+          ) as any);
+        } else {
+          setAnalysts(profiles.filter(u => u.role === 'Equipe' || u.is_admin) as any);
+        }
       }
       if (statusList) setStatuses(statusList as any);
       if (categoryList) setCategories(categoryList as any);
       if (priorityList) setPriorities(priorityList as any);
       if (compList) setCompanies(compList as any);
+      if (teamList) setInternalTeams(teamList as any);
     }
 
     fetchConfigs();
@@ -155,12 +174,12 @@ const loadMessages = async () => {
 
    const loadInternalTicket = async () => {
      if (!ticket) return;
-     const it = await InternalTicketService.getByParent(ticket.id);
-     if (it) {
-       setInternalTicket(it);
-       setItTitle(it.title);
-       setItTeam(it.teamId);
-       setItAssignee(it.assigneeId || '');
+const it = await InternalTicketService.getByParent(ticket.id);
+      if (it) {
+        setInternalTicket(it);
+        setItTitle(it.title);
+        setItTeam(it.teamId || 'Desenvolvimento');
+        setItAssignee(it.assigneeId || '');
        setItPriority(it.priority);
        setItTags(it.tags);
        setItDescription(it.description);
@@ -179,20 +198,23 @@ const loadMessages = async () => {
 
 const handleCreateInternalTicket = async () => {
      if (!currentUser || !ticket) return;
-     const newIT: InternalTicket = {
-       id: `IT-${Math.random().toString(36).substr(2, 5).toUpperCase()}`,
-       parentTicketId: ticket.id,
-       title: itTitle,
-       teamId: itTeam,
-       assigneeId: itAssignee || undefined,
-       priority: itPriority,
-       tags: itTags,
-       creatorId: currentUser.id,
-       description: itDescription,
-       createdAt: new Date().toISOString(),
-       updatedAt: new Date().toISOString(),
-       slaLimit: itSla || undefined
-     };
+const team = internalTeams.find(t => t.name === itTeam);
+      const newIT: InternalTicket = {
+        id: undefined,
+        parentTicketId: ticket.id,
+        parentTicketIds: [ticket.id],
+        title: itTitle,
+        teamId: itTeam,
+        internalTeamId: team ? team.id : undefined,
+        assigneeId: itAssignee || undefined,
+        priority: itPriority,
+        tags: itTags,
+        creatorId: currentUser.id,
+        description: itDescription,
+        createdAt: new Date().toISOString(),
+        updatedAt: new Date().toISOString(),
+        slaLimit: itSla || undefined
+      };
      await InternalTicketService.save(newIT);
      setInternalTicket(newIT);
 
@@ -209,22 +231,57 @@ const handleCreateInternalTicket = async () => {
      loadMessages();
    };
 
-   const handleUpdateInternalTicket = async () => {
-     if (!internalTicket) return;
-     const updatedIT: InternalTicket = {
-       ...internalTicket,
-       title: itTitle,
-       teamId: itTeam,
-       assigneeId: itAssignee,
-       priority: itPriority,
-       tags: itTags,
-       description: itDescription,
-       updatedAt: new Date().toISOString(),
-       slaLimit: itSla || undefined
-     };
-     await InternalTicketService.save(updatedIT);
-     setInternalTicket(updatedIT);
+const handleUpdateInternalTicket = async () => {
+      if (!internalTicket) return;
+      
+      // Find internal team ID by name
+      const team = internalTeams.find(t => t.name === itTeam);
+      const internalTeamId = team ? team.id : internalTicket.internalTeamId;
+      
+      const updatedIT: InternalTicket = {
+        ...internalTicket,
+        title: itTitle,
+        teamId: itTeam,
+        internalTeamId: internalTeamId,
+        assigneeId: itAssignee,
+        priority: itPriority,
+        tags: itTags,
+        description: itDescription,
+        updatedAt: new Date().toISOString(),
+        slaLimit: itSla || undefined
+      };
+      await InternalTicketService.save(updatedIT);
+      setInternalTicket(updatedIT);
    };
+
+    const handleLinkInternalTicket = async (internalTicketId: string) => {
+      if (!ticket || !currentUser) return;
+
+      const { error } = await supabase.from('ticket_internal_links').insert({
+        ticket_id: ticket.id,
+        internal_ticket_id: internalTicketId
+      });
+
+      if (error && !error.message?.includes('duplicate')) {
+        toast.error('Erro ao vincular ticket interno');
+        return;
+      }
+
+      const msg: Message = {
+        id: Math.random().toString(36).substr(2, 9),
+        ticketId: ticket.id,
+        senderId: currentUser.id,
+        text: `Vinculou ao ticket interno ${internalTicketId}`,
+        timestamp: new Date().toISOString(),
+        isVisibleToCustomer: false,
+        type: 'internal'
+      };
+      await MessageService.create(msg);
+      loadMessages();
+      loadInternalTicket();
+      setShowLinkModal(false);
+      toast.success('Ticket interno vinculado com sucesso');
+    };
 
 const handleSendMessage = async (isInternal: boolean) => {
       if (!message.trim() || !currentUser || !ticket) return;
@@ -386,7 +443,8 @@ const handleSendMessage = async (isInternal: boolean) => {
   };
 
   return (
-    <div className="fixed inset-0 z-[110] flex items-center justify-end">
+    <>
+      <div className="fixed inset-0 z-[110] flex items-center justify-end">
       <motion.div 
         initial={{ opacity: 0 }}
         animate={{ opacity: 1 }}
@@ -409,7 +467,7 @@ const handleSendMessage = async (isInternal: boolean) => {
           {/* Header Bar */}
           <div className="px-8 py-4 border-b border-slate-100 flex items-center justify-between bg-slate-50/50">
             <div className="flex items-center gap-3">
-              <span className="text-xs font-black text-indigo-600 bg-indigo-50 px-2 py-0.5 rounded tracking-widest">#{ticket.ticketNumber || ticket.id.slice(0, 8)}</span>
+              <span className="text-xs font-black text-indigo-600 bg-indigo-50 px-2 py-0.5 rounded tracking-widest">#{ticket.ticketNumber ? String(ticket.ticketNumber).padStart(4, '0') : ticket.id.slice(0, 8)}</span>
               <span className="text-slate-400 font-bold">/</span>
               <span className="text-sm font-bold text-slate-800 truncate max-w-md">{ticket.title}</span>
             </div>
@@ -688,7 +746,7 @@ const handleSendMessage = async (isInternal: boolean) => {
                         </div>
                         <div className="flex items-start gap-4">
                            <span className="text-[11px] font-black uppercase text-slate-400 w-24 pt-0.5">Identificado</span>
-                           <span className="text-sm font-bold text-slate-700">#{ticket.ticketNumber || ticket.id.slice(0, 8)}</span>
+                           <span className="text-sm font-bold text-slate-700">#{ticket.ticketNumber ? String(ticket.ticketNumber).padStart(4, '0') : ticket.id.slice(0, 8)}</span>
                         </div>
                      </div>
                      <div className="space-y-3">
@@ -801,68 +859,76 @@ const handleSendMessage = async (isInternal: boolean) => {
 
                                {/* Internal Ticket Fields */}
                                <div className="grid grid-cols-2 gap-x-12 gap-y-6 p-6 bg-slate-50 border border-slate-100 rounded-2xl shadow-inner">
-                                  <div className="space-y-4">
-                                     <div className="flex flex-col gap-1.5">
-                                        <label className="text-[10px] font-black uppercase text-slate-400">Título Interno</label>
-                                        <input 
+<div className="space-y-4">
+                                      <div className="flex flex-col gap-1.5">
+                                         <label className="text-[10px] font-black uppercase text-slate-400">Ticket Interno #</label>
+                                         <div className="text-sm font-black text-amber-600">#{internalTicket?.internalTicketNumber?.toString().padStart(4, '0') || '----'}</div>
+                                      </div>
+                                      <div className="flex flex-col gap-1.5">
+                                         <label className="text-[10px] font-black uppercase text-slate-400">Título Interno</label>
+                                         <input
                                           value={itTitle}
                                           onChange={(e) => setItTitle(e.target.value)}
                                           onBlur={handleUpdateInternalTicket}
                                           className="bg-white border border-slate-200 rounded-lg px-3 py-2 text-sm font-bold text-slate-700 focus:border-amber-400 outline-none"
                                         />
                                      </div>
-                                     <div className="flex flex-col gap-1.5">
-                                        <label className="text-[10px] font-black uppercase text-slate-400">Equipe Responsável</label>
-                                        <select 
-                                          value={itTeam}
-                                          onChange={(e) => {
-                                            setItTeam(e.target.value);
-                                            setTimeout(handleUpdateInternalTicket, 0);
-                                          }}
-                                          className="bg-white border border-slate-200 rounded-lg px-3 py-2 text-xs font-bold text-slate-700 focus:border-amber-400 outline-none"
-                                        >
-                                          <option value="Desenvolvimento">Desenvolvimento</option>
-                                          <option value="Infraestrutura">Infraestrutura</option>
-                                          <option value="QA">QA / Testes</option>
-                                          <option value="Produto">Produto</option>
-                                        </select>
-                                     </div>
-                                     <div className="flex flex-col gap-1.5">
-                                        <label className="text-[10px] font-black uppercase text-slate-400">Vencimento SLA</label>
-                                        <input 
-                                          type="datetime-local"
-                                          value={itSla}
-                                          onChange={(e) => {
-                                            setItSla(e.target.value);
-                                            setTimeout(handleUpdateInternalTicket, 0);
-                                          }}
-                                          className="bg-white border border-slate-200 rounded-lg px-3 py-2 text-xs font-bold text-slate-700 focus:border-amber-400 outline-none"
-                                        />
-                                     </div>
-                                  </div>
+<div className="flex flex-col gap-1.5">
+                                         <label className="text-[10px] font-black uppercase text-slate-400">Equipe Responsável</label>
+                                         <select 
+                                           value={itTeam}
+                                           onChange={(e) => {
+                                             setItTeam(e.target.value);
+                                             setTimeout(handleUpdateInternalTicket, 0);
+                                           }}
+                                           className="bg-white border border-slate-200 rounded-lg px-3 py-2 text-xs font-bold text-slate-700 focus:border-amber-400 outline-none"
+                                         >
+                                           {internalTeams.map(t => (
+                                             <option key={t.id} value={t.name}>{t.name}</option>
+                                           ))}
+                                           <option value="">Sem equipe</option>
+                                         </select>
+                                      </div>
+                                      <div className="flex flex-col gap-1.5">
+                                         <label className="text-[10px] font-black uppercase text-slate-400">Vencimento SLA</label>
+                                         <input 
+                                           type="datetime-local"
+                                           value={itSla}
+                                           onChange={(e) => {
+                                             setItSla(e.target.value);
+                                             setTimeout(handleUpdateInternalTicket, 0);
+                                           }}
+                                           className="bg-white border border-slate-200 rounded-lg px-3 py-2 text-xs font-bold text-slate-700 focus:border-amber-400 outline-none"
+                                         />
+                                      </div>
+                                   </div>
 
-                                  <div className="space-y-4">
-                                     <div className="flex flex-col gap-1.5">
-                                        <label className="text-[10px] font-black uppercase text-slate-400">Criado por</label>
-                                        <div className="flex items-center gap-2 py-2">
-                                           <div className="w-5 h-5 rounded-full bg-slate-400 text-[8px] flex items-center justify-center font-black text-white">{itCreator?.name.charAt(0)}</div>
-                                           <span className="text-xs font-bold text-slate-600">{itCreator?.name}</span>
-                                        </div>
-                                     </div>
-                                     <div className="flex flex-col gap-1.5">
-                                        <label className="text-[10px] font-black uppercase text-slate-400">Responsável Interno</label>
-                                        <select 
-                                          value={itAssignee}
-                                          onChange={(e) => {
-                                            setItAssignee(e.target.value);
-                                            setTimeout(handleUpdateInternalTicket, 0);
-                                          }}
-                                          className="bg-white border border-slate-200 rounded-lg px-3 py-2 text-xs font-bold text-slate-700 focus:border-amber-400 outline-none"
-                                        >
-                                          <option value="">Nenhum</option>
-                                          {analysts.map(a => <option key={a.id} value={a.id}>{a.name}</option>)}
-                                        </select>
-                                     </div>
+                                   <div className="space-y-4">
+                                      <div className="flex flex-col gap-1.5">
+                                         <label className="text-[10px] font-black uppercase text-slate-400">Criado por</label>
+                                         <div className="flex items-center gap-2 py-2">
+                                            <div className="w-5 h-5 rounded-full bg-slate-400 text-[8px] flex items-center justify-center font-black text-white">{itCreator?.name.charAt(0)}</div>
+                                            <span className="text-xs font-bold text-slate-600">{itCreator?.name}</span>
+                                         </div>
+                                      </div>
+                                      <div className="flex flex-col gap-1.5">
+                                         <label className="text-[10px] font-black uppercase text-slate-400">Responsável Interno</label>
+                                         <select 
+                                           value={itAssignee}
+                                           onChange={(e) => {
+                                             setItAssignee(e.target.value);
+                                             setTimeout(handleUpdateInternalTicket, 0);
+                                           }}
+                                           className="bg-white border border-slate-200 rounded-lg px-3 py-2 text-xs font-bold text-slate-700 focus:border-amber-400 outline-none"
+                                         >
+                                           <option value="">Nenhum</option>
+{analysts
+                                              .filter(a => !itTeam || (a as any).internal_team_ids?.includes(
+                                                internalTeams.find(t => t.name === itTeam)?.id || ''
+                                              ))
+                                              .map(a => <option key={a.id} value={a.id}>{a.name}</option>)}
+                                         </select>
+                                      </div>
                                      <div className="flex flex-col gap-1.5 font-sans">
                                         <label className="text-[10px] font-black uppercase text-slate-400">Prioridade</label>
                                         <div className="flex items-center gap-1 py-1">
@@ -905,15 +971,21 @@ const handleSendMessage = async (isInternal: boolean) => {
                             <div className="text-center py-20 border-2 border-dashed border-slate-200 rounded-3xl group hover:border-amber-300 transition-all">
                                <Lock className="mx-auto text-slate-200 mb-4 group-hover:text-amber-400 transition-all" size={48} />
                                <h3 className="text-lg font-black text-slate-800 uppercase tracking-tight">Criar Ticket Interno</h3>
-                               <p className="text-sm font-medium text-slate-400 mt-2 mb-6 max-w-sm mx-auto uppercase">Vincule um ticket de desenvolvimento ou manutenção técnica a este chamado do cliente.</p>
-                               <button 
-                                 onClick={handleCreateInternalTicket}
-                                 className="px-6 py-3 bg-amber-500 text-white rounded-2xl text-xs font-black uppercase tracking-widest hover:bg-amber-600 transition-all shadow-lg shadow-amber-100"
-                               >
-                                 Iniciar Fluxo Interno
-                               </button>
-                            </div>
-                          )}
+<p className="text-sm font-medium text-slate-400 mt-2 mb-6 max-w-sm mx-auto uppercase">Vincule um ticket de desenvolvimento ou manutenção técnica a este chamado do cliente.</p>
+                                <button 
+                                  onClick={handleCreateInternalTicket}
+                                  className="px-6 py-3 bg-amber-500 text-white rounded-2xl text-xs font-black uppercase tracking-widest hover:bg-amber-600 transition-all shadow-lg shadow-amber-100"
+                                >
+                                  Iniciar Fluxo Interno
+                                </button>
+                                <button 
+                                  onClick={() => setShowLinkModal(true)}
+                                  className="px-6 py-3 bg-slate-200 text-slate-700 rounded-2xl text-xs font-black uppercase tracking-widest hover:bg-slate-300 transition-all shadow-lg ml-2"
+                                >
+                                  Vincular Existente
+                                </button>
+                             </div>
+                           )}
                        </div>
                      )}
 
@@ -1113,6 +1185,12 @@ const handleSendMessage = async (isInternal: boolean) => {
         </div>
       </motion.div>
     </div>
+    <LinkInternalTicketModal
+      isOpen={showLinkModal}
+      onClose={() => setShowLinkModal(false)}
+      onLink={handleLinkInternalTicket}
+    />
+  </>
   );
 }
 

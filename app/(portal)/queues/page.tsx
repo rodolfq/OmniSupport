@@ -18,6 +18,7 @@ import {
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { motion, AnimatePresence } from 'motion/react';
+import { ConfirmDialog } from '@/components/confirm-dialog';
 import { useApp } from '@/app/app-context';
 
 export default function QueuesManagementPage() {
@@ -33,6 +34,7 @@ export default function QueuesManagementPage() {
   const [description, setDescription] = useState('');
   const [selectedWhatsappId, setSelectedWhatsappId] = useState('');
   const [selectedMemberIds, setSelectedMemberIds] = useState<string[]>([]);
+  const [deletingQueue, setDeletingQueue] = useState<Queue | null>(null);
 
   const { currentUser } = useApp();
 
@@ -78,13 +80,6 @@ export default function QueuesManagementPage() {
     MockDB.saveQueue(queueData);
     loadData();
     setIsModalOpen(false);
-  };
-
-  const handleDelete = (id: string) => {
-    if (confirm('Tem certeza que deseja remover esta fila? Todos os atendimentos vinculados continuarão no sistema.')) {
-      MockDB.deleteQueue(id);
-      loadData();
-    }
   };
 
   const toggleMember = (userId: string) => {
@@ -231,13 +226,13 @@ export default function QueuesManagementPage() {
                            >
                              <Edit2 size={20} />
                            </button>
-                           <button 
-                             onClick={() => handleDelete(queue.id)}
-                             className="p-3 text-slate-400 hover:text-red-600 hover:bg-red-50 rounded-2xl transition-all"
-                             title="Excluir Fila"
-                           >
-                             <Trash2 size={20} />
-                           </button>
+<button 
+                              onClick={() => setDeletingQueue(queue)}
+                              className="p-3 text-slate-400 hover:text-red-600 hover:bg-red-50 rounded-2xl transition-all"
+                              title="Excluir Fila"
+                            >
+                              <Trash2 size={20} />
+                            </button>
                         </div>
                       </div>
 
@@ -404,6 +399,22 @@ export default function QueuesManagementPage() {
           </div>
         )}
       </AnimatePresence>
+
+      <ConfirmDialog
+        isOpen={!!deletingQueue}
+        onClose={() => setDeletingQueue(null)}
+        onConfirm={() => {
+          if (deletingQueue) {
+            MockDB.deleteQueue(deletingQueue.id);
+            loadData();
+            setDeletingQueue(null);
+          }
+        }}
+        title="Excluir Fila"
+        description={`Tem certeza que deseja remover a fila "${deletingQueue?.name}"? Todos os atendimentos vinculados continuarão no sistema.`}
+        confirmLabel="Excluir"
+        variant="danger"
+      />
     </div>
   );
 }

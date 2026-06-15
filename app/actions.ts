@@ -191,7 +191,7 @@ export async function getUsers() {
   const supabase = await createServerClient();
   try {
     console.log('🔄 Server Action: getUsers iniciado');
-    const { data: rows, error } = await supabase.from('profiles').select('id, name, email, role, company_id, phone, view_all_company_tickets, must_change_password');
+    const { data: rows, error } = await supabase.from('profiles').select('id, name, email, role, company_id, phone, view_all_company_tickets, must_change_password, avatar_url, internal_team_ids');
     
     if (error) throw error;
 
@@ -208,7 +208,9 @@ export async function getUsers() {
         companyId: row.company_id,
         phone: row.phone,
         viewAllCompanyTickets: !!row.view_all_company_tickets,
-        mustChangePassword: !!row.must_change_password
+        mustChangePassword: !!row.must_change_password,
+        avatarUrl: row.avatar_url,
+        internalTeamIds: row.internal_team_ids,
       };
     });
   } catch (err) {
@@ -254,16 +256,16 @@ export async function updateUser(id: string, name: string, email: string, role: 
 
 // Função para retornar analistas (Equipe)
 export async function getAnalysts() {
-  const supabase = await createServerClient();
-  try {
-    const { data, error } = await supabase.from('profiles').select('id, name, email, role, company_id, phone').eq('role', 'Equipe');
-    if (error) throw error;
-    return data || [];
-  } catch (err) {
-    console.error("Erro ao buscar analistas:", err);
-    return [];
-  }
-}
+   const supabase = await createServerClient();
+   try {
+     const { data, error } = await supabase.from('profiles').select('id, name, email, role, company_id, phone, avatar_url, internal_team_ids').eq('role', 'Equipe');
+     if (error) throw error;
+     return data || [];
+   } catch (err) {
+     console.error("Erro ao buscar analistas:", err);
+     return [];
+   }
+ }
 
 // Função para retornar clientes
 export async function getCustomers() {
@@ -454,6 +456,19 @@ export async function saveRolePermissions(roleId: string, permissions: string[])
   } catch (err) {
     console.error("Erro ao salvar permissões:", err);
     return { error: 'Erro ao salvar permissões.' };
+  }
+}
+
+// Função para excluir permissões de role
+export async function deleteRolePermission(roleId: string) {
+  const supabase = await createServerClient();
+  try {
+    const { error } = await supabase.from('role_permissions').delete().eq('id', roleId);
+    if (error) throw error;
+    return { success: true };
+  } catch (err) {
+    console.error("Erro ao excluir permissões:", err);
+    return { error: 'Erro ao excluir permissões.' };
   }
 }
 

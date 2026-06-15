@@ -183,10 +183,24 @@ export class MessageService {
 
 export class InternalTicketService {
   static async getByParent(parentTicketId: string): Promise<InternalTicket | null> {
+    // Query N:N relationship
+    const { data: linkData, error: linkError } = await supabase
+      .from('ticket_internal_links')
+      .select('internal_ticket_id')
+      .eq('ticket_id', parentTicketId)
+      .maybeSingle();
+
+    if (linkError) {
+      console.error('Error fetching link:', linkError);
+      return null;
+    }
+
+    if (!linkData?.internal_ticket_id) return null;
+
     const { data, error } = await supabase
       .from('internal_tickets')
       .select('*')
-      .eq('parent_ticket_id', parentTicketId)
+      .eq('id', linkData.internal_ticket_id)
       .maybeSingle();
 
     if (error) {
@@ -198,7 +212,8 @@ export class InternalTicketService {
 
     return {
       id: data.id,
-      parentTicketId: data.parent_ticket_id,
+      internalTicketNumber: data.internal_ticket_number,
+      parentTicketIds: [parentTicketId],
       title: data.title,
       teamId: data.team_id,
       assigneeId: data.assignee_id,
@@ -212,22 +227,115 @@ export class InternalTicketService {
     };
   }
 
-  static async save(ticket: InternalTicket): Promise<void> {
-    const { error } = await supabase.from('internal_tickets').upsert({
-      id: ticket.id,
-      parent_ticket_id: ticket.parentTicketId,
-      title: ticket.title,
-      team_id: ticket.teamId,
-      assignee_id: ticket.assigneeId,
-      priority: ticket.priority,
-      tags: ticket.tags,
-      creator_id: ticket.creatorId,
-      description: ticket.description,
-      created_at: ticket.createdAt,
-      updated_at: ticket.updatedAt,
-      sla_limit: ticket.slaLimit
-    });
+  static async getByParentAll(parentTicketId: string): Promise<InternalTicket[]> {
+    // Get ALL linked internal tickets for a ticket (N:N support)
+    const { data: links, error: linksError } = await supabase
+      .from('ticket_internal_links')
+      .select('internal_ticket_id')
+      .eq('ticket_id', parentTicketId);
 
-    if (error) throw error;
+    if (linksError) {
+      console.error('Error fetching links:', linksError);
+      return [];
+    }
+
+    const internalIds = (links || []).map(l => l.internal_ticket_id);
+    if (internalIds.length === 0) return [];
+
+    const { data, error } = await supabase
+      .from('internal_tickets')
+      .select('*')
+      .in('id', internalIds);
+
+    if (error) {
+      console.error('Error fetching internal tickets:', error);
+      return [];
+    }
+
+    return (data || []).map((it: any) => ({
+      id: it.id,
+      internalTicketNumber: it.internal_ticket_number,
+      title: it.title,
+      teamId: it.team_id,
+      assigneeId: it.assignee_id,
+      priority: it.priority,
+      tags: it.tags || [],
+      creatorId: it.creator_id,
+      description: it.description,
+      createdAt: it.created_at,
+      updatedAt: it.updated_at,
+      slaLimit: it.sla_limit
+    }));
+  }
+
+  static async save(ticket: InternalTicket, parentTicketId?: string): Promise<void> {
+    console.log('InternalTicketService.save called with:', {
+      parentTicketId: parentTicketId || ticket.parentTicketId,
+      title: ticket.title,
+      creatorId: ticket.creatorId
+    });
+    
+    if (!supabase) {
+      throw new Error('Supabase client not available');
+    }
+    
+    // Validate required fields
+    if (!ticket.title) {
+      throw new Error('title is required');
+    }
+    if (!ticket.creatorId) {
+      throw new Error('creatorId is required');
+    }
+    
+    const payload: any = {
+      title: ticket.title,
+      team_id: ticket.teamId || null,
+      internal_team_id: ticket.internalTeamId || null,
+      assignee_id: ticket.assigneeId || null,
+      priority: ticket.priority || 1,
+      tags: ticket.tags || [],
+      creator_id: ticket.creatorId,
+      description: ticket.description || '',
+    };
+    
+    // For updates (when id exists), use upsert
+    if (ticket.id && ticket.id.includes('-')) {
+      payload.id = ticket.id;
+    }
+    
+    console.log('InternalTicketService.save payload:', payload);
+    
+    try {
+      // Use upsert to handle both insert and update cases
+      const { data, error } = await supabase.from('internal_tickets').upsert(payload).select('id');
+      
+      if (error) {
+        console.error('InternalTicketService.save upsert error:', error);
+        throw new Error(JSON.stringify(error, Object.getOwnPropertyNames(error)));
+      }
+      
+      const savedId = data?.[0]?.id;
+      console.log('InternalTicketService.save created id:', savedId);
+      
+      // Create N:N link only for new records
+      if (parentTicketId && savedId && !ticket.id) {
+        const { error: linkError } = await supabase.from('ticket_internal_links').insert({
+          ticket_id: parentTicketId,
+          internal_ticket_id: savedId
+        }).select();
+        
+        if (linkError) {
+          // If duplicate key error, ignore (already linked)
+          if (!linkError.message?.includes('duplicate')) {
+            console.error('Error creating link:', JSON.stringify(linkError, Object.getOwnPropertyNames(linkError)));
+          }
+        } else {
+          console.log('Link created successfully');
+        }
+      }
+    } catch (e: any) {
+      console.error('InternalTicketService.save exception:', e?.message || e);
+      throw e;
+    }
   }
 }
