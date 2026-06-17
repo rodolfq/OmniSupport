@@ -179,6 +179,43 @@ export class MessageService {
       throw error;
     }
   }
+
+  static async getByInternalTicket(internalTicketId: string, signal?: AbortSignal): Promise<Message[]> {
+    const { data, error } = await supabase
+      .from('internal_ticket_messages')
+      .select('*')
+      .eq('internal_ticket_id', internalTicketId)
+      .abortSignal(signal as any)
+      .order('created_at', { ascending: true });
+
+    if (error) {
+      if (error.message === 'FetchIsAborted' || error.code === '20' || error.message?.includes('aborted')) return [];
+      throw error;
+    }
+
+    return (data || []).map(m => ({
+      id: m.id,
+      ticketId: m.internal_ticket_id,
+      senderId: m.author_id,
+      text: m.content,
+      timestamp: m.created_at,
+      isVisibleToCustomer: false,
+      type: m.type as 'text' | 'system' | 'internal',
+      attachments: m.attachments_data || []
+    })) as Message[];
+  }
+
+  static async createInternal(message: Message, internalTicketId: string): Promise<void> {
+    const { error } = await supabase.from('internal_ticket_messages').insert({
+      internal_ticket_id: internalTicketId,
+      author_id: message.senderId,
+      content: message.text,
+      type: message.type,
+      attachments_data: message.attachments || []
+    });
+
+    if (error) throw error;
+  }
 }
 
 export class InternalTicketService {
@@ -385,7 +422,11 @@ export class InternalTicketService {
       console.log('InternalTicketService.saveWithDetails created:', { savedUuid, savedNumber });
       
       // Return formatted internal ticket ID
-      const formattedId = `int-${savedNumber?.toString().padStart(4, '0') || savedUuid}`;
+      // If created from parent ticket, return just the number (no prefix)
+      // If standalone, return "int-XXXX"
+      const formattedId = parentTicketNumber 
+        ? savedNumber?.toString().padStart(4, '0') || savedUuid
+        : `int-${savedNumber?.toString().padStart(4, '0') || savedUuid}`;
       return { uuid: savedUuid, id: formattedId };
     } catch (e: any) {
       console.error('InternalTicketService.saveWithDetails exception:', e?.message || e);

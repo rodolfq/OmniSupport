@@ -226,6 +226,8 @@ CREATE INDEX IF NOT EXISTS idx_tickets_description_gin ON public.tickets USING g
 -- For internal_tickets
 CREATE INDEX IF NOT EXISTS idx_internal_tickets_team_id ON public.internal_tickets(team_id);
 CREATE INDEX IF NOT EXISTS idx_internal_tickets_title_gin ON public.internal_tickets USING gin (title gin_trgm_ops);
+CREATE INDEX IF NOT EXISTS idx_internal_ticket_messages_ticket_id ON public.internal_ticket_messages(internal_ticket_id);
+CREATE INDEX IF NOT EXISTS idx_internal_ticket_messages_created_at ON public.internal_ticket_messages(created_at);
 
 -- 9. Ticket Messages Table (With attachments payload inside JSONB)
 CREATE TABLE public.ticket_messages (
@@ -337,19 +339,30 @@ CREATE TABLE public.whatsapp_instances (
 
 -- internal_chats for internal messaging
 CREATE TABLE public.internal_chats (
-  id TEXT PRIMARY KEY,
-  name TEXT,
-  image_url TEXT,
-  type TEXT DEFAULT 'direct',
-  member_ids UUID[] DEFAULT '{}',
-  messages JSONB DEFAULT '[]',
-  last_message_at TIMESTAMP WITH TIME ZONE,
-  pinned_by UUID[] DEFAULT '{}',
-  pinned_message_ids TEXT[] DEFAULT '{}',
-  muted_by UUID[] DEFAULT '{}',
-  read_later_by UUID[] DEFAULT '{}',
-  hidden_by UUID[] DEFAULT '{}',
-  created_at TIMESTAMP WITH TIME ZONE DEFAULT timezone('utc'::text, now())
+    id TEXT PRIMARY KEY,
+    name TEXT,
+    image_url TEXT,
+    type TEXT DEFAULT 'direct',
+    member_ids UUID[] DEFAULT '{}',
+    messages JSONB DEFAULT '[]',
+    last_message_at TIMESTAMP WITH TIME ZONE,
+    pinned_by UUID[] DEFAULT '{}',
+    pinned_message_ids TEXT[] DEFAULT '{}',
+    muted_by UUID[] DEFAULT '{}',
+    read_later_by UUID[] DEFAULT '{}',
+    hidden_by UUID[] DEFAULT '{}',
+    created_at TIMESTAMP WITH TIME ZONE DEFAULT timezone('utc'::text, now())
+);
+
+-- Internal ticket messages table (for internal ticket conversation history)
+CREATE TABLE IF NOT EXISTS public.internal_ticket_messages (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    internal_ticket_id UUID REFERENCES public.internal_tickets(id) ON DELETE CASCADE,
+    author_id UUID REFERENCES public.profiles(id) ON DELETE SET NULL,
+    content TEXT NOT NULL,
+    type TEXT NOT NULL DEFAULT 'text',
+    attachments_data JSONB DEFAULT '[]'::jsonb,
+    created_at TIMESTAMP WITH TIME ZONE DEFAULT timezone('utc'::text, now()) NOT NULL
 );
 
 
@@ -468,6 +481,7 @@ ALTER TABLE public.whatsapp_sessions DISABLE ROW LEVEL SECURITY;
 ALTER TABLE public.internal_tickets DISABLE ROW LEVEL SECURITY;
 ALTER TABLE public.internal_teams DISABLE ROW LEVEL SECURITY;
 ALTER TABLE public.ticket_internal_links DISABLE ROW LEVEL SECURITY;
+ALTER TABLE public.internal_ticket_messages DISABLE ROW LEVEL SECURITY;
 
 -- Auxiliary trigger/function structure to automatically create permissive fallback policies
 CREATE OR REPLACE FUNCTION public.create_permissive_policy(table_name TEXT) RETURNS VOID AS $$
@@ -501,6 +515,7 @@ SELECT public.create_permissive_policy('whatsapp_sessions');
 SELECT public.create_permissive_policy('internal_tickets');
 SELECT public.create_permissive_policy('internal_teams');
 SELECT public.create_permissive_policy('ticket_internal_links');
+SELECT public.create_permissive_policy('internal_ticket_messages');
 
 -- Drop the helper function
 DROP FUNCTION IF EXISTS public.create_permissive_policy(TEXT);

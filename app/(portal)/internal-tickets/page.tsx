@@ -7,7 +7,9 @@ import { motion, AnimatePresence } from "motion/react";
 import { useApp } from "@/app/app-context";
 import { InternalTicket, Permission, User } from "@/lib/types";
 import { InternalTicketService } from "@/lib/services/ticket-service";
-import { Plus, Search, Filter, Tag, Clock, Edit3, Lock, Loader2, Grid3X3, List, LayoutDashboard } from "lucide-react";
+import { Plus, Search, Filter, Tag, Clock, Edit3, Lock, Loader2, Grid3X3, List, LayoutDashboard, ChevronRight } from "lucide-react";
+import Link from "next/link";
+import { useRouter } from "next/navigation";
 
 interface InternalTicketItem extends InternalTicket {
   linkedTicketTitles?: string[];
@@ -18,20 +20,29 @@ interface InternalTicketItem extends InternalTicket {
 
 const ITEMS_PER_PAGE = 20;
 
-const TEAM_OPTIONS = [
-  { value: "Desenvolvimento", label: "Desenvolvimento", color: "bg-indigo-100 text-indigo-700" },
-  { value: "Infraestrutura", label: "Infraestrutura", color: "bg-emerald-100 text-emerald-700" },
-  { value: "QA / Testes", label: "QA / Testes", color: "bg-amber-100 text-amber-700" },
-  { value: "Produto", label: "Produto", color: "bg-purple-100 text-purple-700" },
-];
-
 const priorityConfig = {
   1: { label: "Baixa", color: "bg-slate-100 text-slate-700", icon: "●" },
   2: { label: "Média", color: "bg-amber-100 text-amber-700", icon: "●●" },
   3: { label: "Alta", color: "bg-red-100 text-red-700", icon: "●●●" },
 };
 
+const KANBAN_STATUSES = [
+  { value: "Novo", label: "Novo", color: "bg-blue-100 text-blue-700", icon: "●" },
+  { value: "Em Andamento", label: "Em Andamento", color: "bg-amber-100 text-amber-700", icon: "●●" },
+  { value: "Em Espera", label: "Em Espera", color: "bg-slate-100 text-slate-700", icon: "●●●" },
+  { value: "Concluído", label: "Concluído", color: "bg-emerald-100 text-emerald-700", icon: "✓" },
+];
+
+// Default team options (will be replaced by DB values)
+const DEFAULT_TEAM_OPTIONS = [
+  { value: "Desenvolvimento", label: "Desenvolvimento", color: "bg-indigo-100 text-indigo-700" },
+  { value: "Infraestrutura", label: "Infraestrutura", color: "bg-emerald-100 text-emerald-700" },
+  { value: "QA / Testes", label: "QA / Testes", color: "bg-amber-100 text-amber-700" },
+  { value: "Produto", label: "Produto", color: "bg-purple-100 text-purple-700" },
+];
+
 export default function InternalTicketsPage() {
+  const router = useRouter();
   const { currentUser, hasPermission, triggerRefresh } = useApp();
   const [tickets, setTickets] = useState<InternalTicketItem[]>([]);
   const [analysts, setAnalysts] = useState<User[]>([]);
@@ -40,7 +51,7 @@ export default function InternalTicketsPage() {
   const [currentPage, setCurrentPage] = useState(1);
   const [totalPages, setTotalPages] = useState(1);
   
-  // Filters
+// Filters
   const [searchTerm, setSearchTerm] = useState("");
   const [filterTeam, setFilterTeam] = useState("");
   const [filterAssignee, setFilterAssignee] = useState("");
@@ -49,20 +60,22 @@ export default function InternalTicketsPage() {
   const [dateFrom, setDateFrom] = useState("");
   const [dateTo, setDateTo] = useState("");
   const [showFilters, setShowFilters] = useState(false);
-
-  // View mode state
-  const [viewMode, setViewMode] = useState<"cards" | "table" | "kanban">("cards");
-
-  // Modal states
+  
+  // Teams state (fetched from DB)
+  const [teams, setTeams] = useState(DEFAULT_TEAM_OPTIONS);
+  
+// Modal states
   const [showNewModal, setShowNewModal] = useState(false);
-  const [editingTicket, setEditingTicket] = useState<InternalTicketItem | null>(null);
-
+ 
   // Form state
   const [formTitle, setFormTitle] = useState("");
   const [formDescription, setFormDescription] = useState("");
   const [formTeam, setFormTeam] = useState("Desenvolvimento");
   const [formPriority, setFormPriority] = useState(1);
   const [formAssignee, setFormAssignee] = useState("");
+
+  // View mode state
+  const [viewMode, setViewMode] = useState<"cards" | "table" | "kanban">("cards");
 
   const fetchTickets = useCallback(async (page = 1, isLoadMore = false) => {
     if (!currentUser) return;
@@ -82,10 +95,11 @@ export default function InternalTicketsPage() {
 
       if (searchTerm) query = query.ilike("title", `%${searchTerm}%`);
       if (filterTeam) query = query.eq("team_id", filterTeam);
-      if (filterAssignee) query = query.eq("assignee_id", filterAssignee);
-      if (filterPriority) query = query.eq("priority", parseInt(filterPriority));
-      if (dateFrom) query = query.gte("created_at", `${dateFrom}T00:00:00`);
-      if (dateTo) query = query.lte("created_at", `${dateTo}T23:59:59`);
+if (filterAssignee) query = query.eq("assignee_id", filterAssignee);
+       if (filterStatus) query = query.eq("status", filterStatus);
+       if (filterPriority) query = query.eq("priority", parseInt(filterPriority));
+       if (dateFrom) query = query.gte("created_at", `${dateFrom}T00:00:00`);
+       if (dateTo) query = query.lte("created_at", `${dateTo}T23:59:59`);
 
       const { data: internalData, error, count } = await query;
 
@@ -133,11 +147,19 @@ export default function InternalTicketsPage() {
             slaRemaining = "Expirado";
           }
         }
+        
+        // Determine if this is a linked internal ticket (created from parent ticket)
+        const isLinkedToParent = linkedIds.length > 0;
+        
+        // ID format: "int-XXXX" for standalone, "XXXX" for linked
+        const formattedId = isLinkedToParent
+          ? it.internal_ticket_number?.toString().padStart(4, '0') || it.id.slice(0, 8)
+          : `int-${it.internal_ticket_number?.toString().padStart(4, '0') || it.id.slice(0, 8)}`;
 
         return {
           ...it,
           uuid: it.id,
-          id: `int-${it.internal_ticket_number?.toString().padStart(4, '0') || it.id.slice(0, 8)}`,
+          id: formattedId,
           internalTicketNumber: it.internal_ticket_number,
           parentTicketIds: linkedIds,
           linkedTicketTitles: linkedIds.map((id: string) => ticketMap.get(id) || "Ticket removido").filter(Boolean),
@@ -167,6 +189,25 @@ export default function InternalTicketsPage() {
     }
   }, []);
 
+  const fetchTeams = useCallback(async () => {
+    try {
+      const { data, error } = await supabase
+        .from("internal_teams")
+        .select("id, name, description")
+        .order("name");
+      if (error) throw error;
+      if (data && data.length > 0) {
+        setTeams(data.map((t: any) => ({ 
+          value: t.name, 
+          label: t.name, 
+          color: "bg-indigo-100 text-indigo-700" 
+        })));
+      }
+    } catch (error) {
+      console.error("Error loading teams:", error);
+    }
+  }, []);
+
   useEffect(() => {
     fetchTickets(1);
   }, [fetchTickets, triggerRefresh]);
@@ -174,6 +215,10 @@ export default function InternalTicketsPage() {
   useEffect(() => {
     fetchAnalysts();
   }, [fetchAnalysts]);
+
+  useEffect(() => {
+    fetchTeams();
+  }, [fetchTeams]);
 
   const resetFilters = () => {
     setSearchTerm("");
@@ -200,7 +245,6 @@ export default function InternalTicketsPage() {
 
     try {
       const ticketData = {
-        uuid: editingTicket?.uuid, // Use UUID for updates
         title: formTitle,
         description: formDescription,
         teamId: formTeam,
@@ -214,34 +258,13 @@ export default function InternalTicketsPage() {
       const savedId = await InternalTicketService.save(ticketData);
       console.log("Internal ticket saved with ID:", savedId);
       setShowNewModal(false);
-      setEditingTicket(null);
       resetForm();
       fetchTickets(1);
     } catch (error) {
       console.error("Error saving ticket:", error);
       alert("Erro ao salvar: " + (error as any)?.message || "Unknown error");
     }
-  };
-  
-  const handleStatusChange = async (ticketUuid: string, newStatus: string) => {
-    if (!ticketUuid) return;
-    
-    try {
-      const { error } = await supabase
-        .from("internal_tickets")
-        .update({ status: newStatus })
-        .eq("id", ticketUuid);
-      
-      if (error) throw error;
-      
-      // Update local state
-      setTickets(prev => prev.map(t => 
-        t.uuid === ticketUuid ? { ...t, status: newStatus as any } : t
-      ));
-    } catch (error) {
-      console.error("Error updating status:", error);
-    }
-  };
+};
 
   const resetForm = () => {
     setFormTitle("");
@@ -251,15 +274,22 @@ export default function InternalTicketsPage() {
     setFormAssignee("");
   };
 
-  const openEditModal = (ticket: InternalTicketItem) => {
-    setEditingTicket(ticket);
-    setFormTitle(ticket.title);
-    setFormDescription(ticket.description || "");
-    setFormTeam(ticket.teamId || "Desenvolvimento");
-    setFormPriority(ticket.priority || 1);
-    setFormAssignee(ticket.assigneeId || "");
-    setShowNewModal(true);
-  };
+const openEditModal = (ticket: InternalTicketItem) => {
+     router.push(`/internal-tickets/${ticket.id}`);
+   };
+   
+   const handleStatusChange = async (ticketUuid: string, newStatus: string) => {
+     try {
+       const { error } = await supabase
+         .from('internal_tickets')
+         .update({ status: newStatus, updated_at: new Date().toISOString() })
+         .eq('id', ticketUuid);
+       if (error) throw error;
+       fetchTickets(1);
+     } catch (error) {
+       console.error('Error updating status:', error);
+     }
+   };
 
   if (!hasPermission(Permission.INTERNAL_TICKETS_VIEW)) {
     return (
@@ -366,14 +396,14 @@ export default function InternalTicketsPage() {
               exit={{ opacity: 0, height: 0 }}
               className="overflow-hidden"
             >
-              <div className="grid grid-cols-2 md:grid-cols-5 gap-3 pt-3 border-t border-slate-100">
+              <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-3 pt-3 border-t border-slate-100">
                 <select
                   value={filterTeam}
                   onChange={(e) => setFilterTeam(e.target.value)}
                   className="px-3 py-2 rounded-lg border border-slate-200 text-sm font-medium bg-white"
                 >
                   <option value="">Todas Equipes</option>
-                  {TEAM_OPTIONS.map((t) => (
+                  {teams.map((t) => (
                     <option key={t.value} value={t.value}>{t.label}</option>
                   ))}
                 </select>
@@ -389,18 +419,29 @@ export default function InternalTicketsPage() {
                   ))}
                 </select>
 
-                <select
-                  value={filterPriority}
-                  onChange={(e) => setFilterPriority(e.target.value)}
-                  className="px-3 py-2 rounded-lg border border-slate-200 text-sm font-medium bg-white"
-                >
-                  <option value="">Todas Prioridades</option>
-                  <option value="3">Alta</option>
-                  <option value="2">Média</option>
-                  <option value="1">Baixa</option>
-                </select>
+<select
+                   value={filterPriority}
+                   onChange={(e) => setFilterPriority(e.target.value)}
+                   className="px-3 py-2 rounded-lg border border-slate-200 text-sm font-medium bg-white"
+                 >
+                   <option value="">Todas Prioridades</option>
+                   <option value="3">Alta</option>
+                   <option value="2">Média</option>
+                   <option value="1">Baixa</option>
+                 </select>
 
-                <input
+                 <select
+                   value={filterStatus}
+                   onChange={(e) => setFilterStatus(e.target.value)}
+                   className="px-3 py-2 rounded-lg border border-slate-200 text-sm font-medium bg-white"
+                 >
+                   <option value="">Todos Status</option>
+                   {KANBAN_STATUSES.map((s) => (
+                     <option key={s.value} value={s.value}>{s.label}</option>
+                   ))}
+                 </select>
+
+                 <input
                   type="date"
                   value={dateFrom}
                   onChange={(e) => setDateFrom(e.target.value)}
@@ -424,61 +465,61 @@ export default function InternalTicketsPage() {
       {/* Content */}
       <div className="flex-1 overflow-y-auto p-6">
 {loading ? (
-            <div className="flex items-center justify-center py-20">
-              <Loader2 className="w-8 h-8 text-amber-500 animate-spin" />
-            </div>
-          ) : tickets.length === 0 ? (
-            <div className="text-center py-20 bg-white rounded-2xl border border-slate-200">
-              <Lock size={48} className="mx-auto text-slate-300 mb-4" />
-              <h3 className="text-lg font-bold text-slate-700 mb-2">Nenhum ticket interno encontrado</h3>
-              <p className="text-slate-500 text-sm">Crie um novo ticket ou ajuste os filtros.</p>
-            </div>
-          ) : viewMode === "cards" ? (
-            <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-3">
-              {tickets.map((it) => (
-                <TicketCard key={it.id} ticket={it} onEdit={() => openEditModal(it)} />
-              ))}
-            </div>
-          ) : viewMode === "table" ? (
-            <TicketTable tickets={tickets} onEdit={openEditModal} />
-          ) : (
-            <KanbanBoard tickets={tickets} onEdit={openEditModal} onStatusChange={handleStatusChange} />
-          )}
-      </div>
+              <div className="flex items-center justify-center py-20">
+                <Loader2 className="w-8 h-8 text-amber-500 animate-spin" />
+              </div>
+            ) : tickets.length === 0 ? (
+              <div className="text-center py-20 bg-white rounded-2xl border border-slate-200">
+                <Lock size={48} className="mx-auto text-slate-300 mb-4" />
+                <h3 className="text-lg font-bold text-slate-700 mb-2">Nenhum ticket interno encontrado</h3>
+                <p className="text-slate-500 text-sm">Crie um novo ticket ou ajuste os filtros.</p>
+              </div>
+            ) : viewMode === "cards" ? (
+              <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-3">
+                {tickets.map((it) => (
+                  <TicketCard key={it.id} ticket={it} onEdit={() => openEditModal(it)} teams={teams} />
+                ))}
+              </div>
+            ) : viewMode === "table" ? (
+              <TicketTable tickets={tickets} onEdit={openEditModal} teams={teams} />
+            ) : (
+              <KanbanBoard tickets={tickets} onEdit={openEditModal} onStatusChange={handleStatusChange} />
+            )}
+          </div>
 
-      {/* Modal */}
-      <AnimatePresence>
-        {showNewModal && (
-          <TicketModal
-            isOpen={showNewModal}
-            onClose={() => {
-              setShowNewModal(false);
-              setEditingTicket(null);
-              resetForm();
-            }}
-            onSubmit={handleCreateOrUpdate}
-            formTitle={formTitle}
-            setFormTitle={setFormTitle}
-            formDescription={formDescription}
-            setFormDescription={setFormDescription}
-            formTeam={formTeam}
-            setFormTeam={setFormTeam}
-            formPriority={formPriority}
-            setFormPriority={setFormPriority}
-            formAssignee={formAssignee}
-            setFormAssignee={setFormAssignee}
-            analysts={analysts}
-            isEdit={!!editingTicket}
-          />
-        )}
-      </AnimatePresence>
-    </div>
-  );
-}
+          {/* Modal - Only for creating new tickets */}
+          <AnimatePresence>
+            {showNewModal && (
+<TicketModal
+                 isOpen={showNewModal}
+                 onClose={() => {
+                   setShowNewModal(false);
+                   resetForm();
+                 }}
+                 onSubmit={handleCreateOrUpdate}
+                 formTitle={formTitle}
+                 setFormTitle={setFormTitle}
+                 formDescription={formDescription}
+                 setFormDescription={setFormDescription}
+                 formTeam={formTeam}
+                 setFormTeam={setFormTeam}
+                 formPriority={formPriority}
+                 setFormPriority={setFormPriority}
+                 formAssignee={formAssignee}
+                 setFormAssignee={setFormAssignee}
+                 analysts={analysts}
+                 teams={teams}
+                 isEdit={false}
+               />
+            )}
+          </AnimatePresence>
+        </div>
+      );
+    }
 
 // Ticket Card Component
-function TicketCard({ ticket, onEdit }: { ticket: InternalTicketItem; onEdit: () => void }) {
-  const teamOption = TEAM_OPTIONS.find((t) => t.value === ticket.teamId) || TEAM_OPTIONS[0];
+function TicketCard({ ticket, onEdit, teams = DEFAULT_TEAM_OPTIONS }: { ticket: InternalTicketItem; onEdit: () => void; teams?: typeof DEFAULT_TEAM_OPTIONS }) {
+  const teamOption = teams.find((t) => t.value === ticket.teamId) || teams[0];
   const priorityInfo = priorityConfig[ticket.priority as keyof typeof priorityConfig] || priorityConfig[1];
 
   return (
@@ -489,19 +530,20 @@ function TicketCard({ ticket, onEdit }: { ticket: InternalTicketItem; onEdit: ()
       onClick={onEdit}
     >
       <div className="flex items-start justify-between mb-3">
-        <div className="flex items-center gap-2">
-          <span className="text-[10px] font-black text-amber-600 uppercase">#{ticket.internalTicketNumber?.toString().padStart(4, "0")}</span>
-          <span className={cn("text-[10px] font-black px-2 py-1 rounded-full", priorityInfo.color)}>
-            {priorityInfo.icon}
-          </span>
-        </div>
-        <button
-          onClick={(e) => {
-            e.stopPropagation();
-          }}
-          className="opacity-0 group-hover:opacity-100 p-1.5 rounded-lg hover:bg-slate-100 transition-all"
-        >
-          <Edit3 size={14} className="text-slate-500" />
+<div className="flex items-center gap-2">
+           <span className="text-[10px] font-black text-amber-600 uppercase">{ticket.id?.startsWith("int-") ? ticket.id : `#${ticket.internalTicketNumber?.toString().padStart(4, "0")}`}</span>
+           <span className={cn("text-[10px] font-black px-2 py-1 rounded-full", priorityInfo.color)}>
+             {priorityInfo.icon}
+           </span>
+         </div>
+<button
+           onClick={(e) => {
+             e.stopPropagation();
+             onEdit();
+           }}
+           className="opacity-0 group-hover:opacity-100 p-1.5 rounded-lg hover:bg-slate-100 transition-all"
+         >
+           <Edit3 size={14} className="text-slate-500" />
         </button>
       </div>
 
@@ -546,9 +588,8 @@ function TicketCard({ ticket, onEdit }: { ticket: InternalTicketItem; onEdit: ()
 }
 
 // Ticket Table Component
-function TicketTable({ tickets, onEdit }: { tickets: InternalTicketItem[]; onEdit: (t: InternalTicketItem) => void }) {
-  const teamOption = TEAM_OPTIONS.find((t) => t.value === "Desenvolvimento") || TEAM_OPTIONS[0];
-  const priorityInfo = priorityConfig[1];
+function TicketTable({ tickets, onEdit, teams = DEFAULT_TEAM_OPTIONS }: { tickets: InternalTicketItem[]; onEdit: (t: InternalTicketItem) => void; teams?: typeof DEFAULT_TEAM_OPTIONS }) {
+   const priorityInfo = priorityConfig[1];
 
   return (
     <div className="bg-white rounded-2xl border border-slate-200 overflow-hidden">
@@ -565,12 +606,12 @@ function TicketTable({ tickets, onEdit }: { tickets: InternalTicketItem[]; onEdi
           </tr>
         </thead>
         <tbody className="divide-y divide-slate-50">
-          {tickets.map((it) => {
-            const teamOpt = TEAM_OPTIONS.find((t) => t.value === it.teamId) || TEAM_OPTIONS[0];
-            const prio = priorityConfig[it.priority as keyof typeof priorityConfig] || priorityConfig[1];
+{tickets.map((it) => {
+             const teamOpt = teams.find((t) => t.value === it.teamId) || teams[0];
+             const prio = priorityConfig[it.priority as keyof typeof priorityConfig] || priorityConfig[1];
             return (
               <tr key={it.id} className="hover:bg-slate-50/50 transition-colors cursor-pointer" onClick={() => onEdit(it)}>
-                <td className="px-4 py-3 text-[10px] font-black text-amber-600">#{it.internalTicketNumber?.toString().padStart(4, "0")}</td>
+                <td className="px-4 py-3 text-[10px] font-black text-amber-600">{it.id?.startsWith("int-") ? it.id : `#${it.internalTicketNumber?.toString().padStart(4, "0")}`}</td>
                 <td className="px-4 py-3 text-sm font-bold text-slate-800">{it.title}</td>
                 <td className="px-4 py-3">
                   <span className={cn("text-[10px] font-black px-2 py-1 rounded-full uppercase", teamOpt.color)}>
@@ -615,6 +656,7 @@ function TicketModal({
   formAssignee,
   setFormAssignee,
   analysts,
+  teams = DEFAULT_TEAM_OPTIONS,
   isEdit,
 }: {
   isOpen: boolean;
@@ -631,8 +673,11 @@ function TicketModal({
   formAssignee: string;
   setFormAssignee: (v: string) => void;
   analysts: User[];
+  teams?: typeof DEFAULT_TEAM_OPTIONS;
   isEdit: boolean;
 }) {
+  if (!isOpen) return null;
+  
   return (
     <motion.div
       initial={{ opacity: 0 }}
@@ -676,15 +721,15 @@ function TicketModal({
           <div className="grid grid-cols-2 gap-4">
             <div>
               <label className="text-[10px] font-black text-slate-600 uppercase mb-1 block">Equipe</label>
-              <select
-                value={formTeam}
-                onChange={(e) => setFormTeam(e.target.value)}
-                className="w-full px-3 py-2 rounded-lg border border-slate-200 text-sm font-medium bg-white"
-              >
-                {TEAM_OPTIONS.map((t) => (
-                  <option key={t.value} value={t.value}>{t.label}</option>
-                ))}
-              </select>
+<select
+                 value={formTeam}
+                 onChange={(e) => setFormTeam(e.target.value)}
+                 className="w-full px-3 py-2 rounded-lg border border-slate-200 text-sm font-medium bg-white"
+               >
+                 {teams.map((t) => (
+                   <option key={t.value} value={t.value}>{t.label}</option>
+                 ))}
+               </select>
             </div>
 
             <div>
@@ -737,22 +782,20 @@ function TicketModal({
 }
 
 // Kanban Board Component
-const KANBAN_STATUSES = [
-  { value: "Novo", label: "Novo", color: "bg-blue-100 text-blue-700", icon: "●" },
-  { value: "Em Andamento", label: "Em Andamento", color: "bg-amber-100 text-amber-700", icon: "●●" },
-  { value: "Em Espera", label: "Em Espera", color: "bg-slate-100 text-slate-700", icon: "●●●" },
-  { value: "Concluído", label: "Concluído", color: "bg-emerald-100 text-emerald-700", icon: "✓" },
-];
-
 function KanbanBoard({ 
   tickets, 
-  onEdit, 
-  onStatusChange 
+  onEdit,
+  onStatusChange
 }: { 
   tickets: InternalTicketItem[]; 
   onEdit: (t: InternalTicketItem) => void;
-  onStatusChange: (uuid: string, status: string) => void;
+  onStatusChange?: (ticketId: string, newStatus: string) => void;
 }) {
+  const handleStatusChange = async (ticketUuid: string, newStatus: string) => {
+    if (!onStatusChange) return;
+    onStatusChange(ticketUuid, newStatus);
+  };
+
   const columns = KANBAN_STATUSES.map(status => ({
     ...status,
     tickets: tickets.filter(t => (t.status || "Novo") === status.value)
@@ -781,7 +824,7 @@ function KanbanBoard({
                   key={ticket.id} 
                   ticket={ticket} 
                   onEdit={onEdit}
-                  onStatusChange={onStatusChange}
+                  onStatusChange={handleStatusChange}
                 />
               ))
             )}
@@ -790,28 +833,28 @@ function KanbanBoard({
       ))}
     </div>
   );
-}
+  }
 
-// Kanban Card Component
-function KanbanCard({ 
+  // KanbanCard Component
+  function KanbanCard({
   ticket, 
   onEdit,
-  onStatusChange 
+  onStatusChange
 }: { 
   ticket: InternalTicketItem; 
   onEdit: (t: InternalTicketItem) => void;
-  onStatusChange: (uuid: string, status: string) => void;
+  onStatusChange?: (ticketUuid: string, newStatus: string) => void;
 }) {
   const priorityInfo = priorityConfig[ticket.priority as keyof typeof priorityConfig] || priorityConfig[1];
 
   return (
     <div 
-      className="bg-white rounded-xl p-4 border border-slate-200 hover:shadow-md transition-all cursor-pointer group"
+      className="bg-white rounded-xl p-4 border border-slate-200 hover:shadow-md hover:border-amber-300 transition-all cursor-pointer group"
       onClick={() => onEdit(ticket)}
     >
       <div className="flex items-start justify-between mb-2">
         <span className="text-[10px] font-black text-amber-600">
-          #{ticket.internalTicketNumber?.toString().padStart(4, "0")}
+          {ticket.id?.startsWith("int-") ? ticket.id : `#${ticket.internalTicketNumber?.toString().padStart(4, "0")}`}
         </span>
         <button 
           onClick={(e) => {
@@ -820,7 +863,7 @@ function KanbanCard({
           }}
           className="opacity-0 group-hover:opacity-100 p-1 rounded hover:bg-slate-100 transition-all"
         >
-          <Edit3 size={14} className="text-slate-500" />
+          <ChevronRight size={14} className="text-slate-500" />
         </button>
       </div>
       
@@ -839,6 +882,23 @@ function KanbanCard({
           </span>
         )}
       </div>
+      
+      {/* Status dropdown for quick change */}
+      {onStatusChange && (
+        <select
+          value={ticket.status || 'Novo'}
+          onChange={(e) => {
+            e.stopPropagation();
+            onStatusChange(ticket.uuid || '', e.target.value);
+          }}
+          onClick={(e) => e.stopPropagation()}
+          className="w-full mt-2 text-[10px] border border-slate-200 rounded px-2 py-1 bg-slate-50"
+        >
+          {KANBAN_STATUSES.map(s => (
+            <option key={s.value} value={s.value}>{s.label}</option>
+          ))}
+        </select>
+      )}
       
       {ticket.linkedTicketTitles && ticket.linkedTicketTitles.length > 0 && (
         <div className="mt-2 pt-2 border-t border-slate-100">
