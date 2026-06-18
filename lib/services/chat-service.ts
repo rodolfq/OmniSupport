@@ -1,5 +1,5 @@
 import { supabase } from '../supabase';
-import { ChatSession, ChatMessage, AnalystStatus, UserStatusHistory, AbsenceReason, User } from '../types';
+import { ChatSession, ChatMessage, AnalystStatus, UserStatusHistory, AbsenceReason, User, InternalGroup } from '../types';
 
 export class ChatService {
   static async getSessions(): Promise<ChatSession[]> {
@@ -174,5 +174,81 @@ export class AbsenceReasonService {
   static async delete(id: string): Promise<void> {
     const { error } = await supabase.from('absence_reasons').delete().eq('id', id);
     if (error) throw error;
+  }
+}
+
+// Internal Chat Service - for internal team messaging
+export class InternalChatService {
+  static async getChats(): Promise<InternalGroup[]> {
+    const { data, error } = await supabase
+      .from('internal_chats')
+      .select('*')
+      .order('last_message_at', { ascending: false });
+
+    if (error) throw error;
+    return (data || []).map(c => ({
+      id: c.id,
+      name: c.name,
+      imageUrl: c.image_url,
+      type: c.type,
+      memberIds: c.member_ids || [],
+      messages: [],
+      lastMessageAt: c.last_message_at || c.created_at
+    })) as InternalGroup[];
+  }
+
+  static async getMessages(chatId: string): Promise<ChatMessage[]> {
+    const { data, error } = await supabase
+      .from('internal_chat_messages')
+      .select('*')
+      .eq('chat_id', chatId)
+      .order('created_at', { ascending: true });
+
+    if (error) throw error;
+    return (data || []).map(m => ({
+      id: m.id,
+      senderId: m.sender_id,
+      senderName: m.sender_name,
+      text: m.text,
+      timestamp: m.created_at,
+      type: m.type,
+      metadata: m.metadata,
+      readBy: [],
+      attachments: m.metadata?.attachments || []
+    })) as ChatMessage[];
+  }
+
+  static async saveChat(chat: InternalGroup): Promise<void> {
+    const { error } = await supabase.from('internal_chats').upsert({
+      id: chat.id,
+      name: chat.name,
+      image_url: chat.imageUrl,
+      type: chat.type,
+      member_ids: chat.memberIds || [],
+      last_message_at: chat.lastMessageAt
+    });
+
+    if (error) throw error;
+  }
+
+  static async saveMessage(chatId: string, message: ChatMessage): Promise<void> {
+    const { error } = await supabase.from('internal_chat_messages').insert({
+      chat_id: chatId,
+      sender_id: message.senderId,
+      sender_name: message.senderName,
+      text: message.text,
+      type: message.type,
+      metadata: { ...message.metadata, attachments: message.attachments || [] }
+    });
+
+    if (error) throw error;
+
+    // Update chat last_message_at
+    const { error: updateError } = await supabase
+      .from('internal_chats')
+      .update({ last_message_at: message.timestamp })
+      .eq('id', chatId);
+
+    if (updateError) throw updateError;
   }
 }

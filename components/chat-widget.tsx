@@ -37,7 +37,7 @@ import {
   Company,
   MockDB
 } from '@/lib/mock-db';
-import { fetchChatSessions, pushChatMessage } from '@/lib/services/chat.service';
+import { fetchChatSessions, pushChatMessage, createChatSession } from '@/lib/services/chat.service';
 import { fetchQuickNotes, fetchAnalystStatuses, fetchCompanies, fetchUsers, fetchQueues } from '@/lib/services/config.service';
 import { cn, maskPhone, matchPhones, safeJsonStringify } from '@/lib/utils';
 import { useApp } from '@/app/app-context';
@@ -69,7 +69,8 @@ export function ChatWidget() {
     setIsOmniChatOpen,
     activeOmniChatId,
     setActiveOmniChatId,
-    refreshTrigger
+    refreshTrigger,
+    triggerRefresh
   } = useApp();
   const searchParams = useSearchParams();
   
@@ -101,7 +102,7 @@ export function ChatWidget() {
   const setSelectedChatId = setActiveOmniChatId;
   const selectedChat = customerSessions.find(s => s.id === selectedChatId);
   const unreadCount = notifications.filter(n => !n.read && n.type.startsWith('chat_')).length;
-  const isCustomer = currentUser?.role === UserRole.EMPLOYEE;
+  const isCustomer = [UserRole.CUSTOMER, UserRole.EMPLOYEE].includes(currentUser?.role as UserRole);
   const [lastViewedAt, setLastViewedAt] = useState<Record<string, string>>({});
   const [message, setMessage] = useState('');
   const [quickNotes, setQuickNotes] = useState<QuickNote[]>([]);
@@ -338,8 +339,10 @@ export function ChatWidget() {
               }, currentUser!.id);
             }
 
-            await MockDB.syncFromSupabase();
-            setCustomerSessions(MockDB.getChatSessions());
+            // Refresh sessions from Supabase
+            await triggerRefresh();
+            const refreshedSessions = await fetchChatSessions();
+            setCustomerSessions(refreshedSessions);
           }
         );
 
@@ -396,32 +399,47 @@ export function ChatWidget() {
     prevMessageCountRef.current = currentCount;
   }, [selectedChat?.messages?.length, shouldAutoScroll, selectedChatId]);
 
-  useEffect(() => {
-    if (isCustomer && !isMinimized) {
-       // Ensure there's a session for this customer
-       const sessions = MockDB.getChatSessions();
-       let mySession = sessions.find(s => s.customerId === currentUser.id && s.status !== 'closed');
-       
-        if (!mySession) {
-          mySession = {
-            id: crypto.randomUUID(),
-            customerId: currentUser.id,
-           customerName: currentUser.name,
-           status: 'pending',
-           messages: [],
-           startedAt: new Date().toISOString(),
-           lastMessageAt: new Date().toISOString()
-         };
-         MockDB.saveChatSession(mySession);
-         MockDB.distributeChat(mySession.id);
-         setCustomerSessions(MockDB.getChatSessions());
-       }
-       setSelectedChatId(mySession.id);
+useEffect(() => {
+    if (isCustomer && !isMinimized && currentUser) {
+       // Ensure there's a session for this customer via Supabase
+       const loadOrCreateSession = async () => {
+         try {
+           // Check existing session in Supabase
+           const { data: existing } = await supabase
+             .from('chat_sessions')
+             .select('id')
+             .eq('customer_id', currentUser.id)
+             .neq('status', 'closed')
+             .maybeSingle();
+           
+           if (existing?.id) {
+             setSelectedChatId(existing.id);
+             const sessions = await fetchChatSessions();
+             setCustomerSessions(sessions);
+           } else {
+             // Create new session
+             const newSession = {
+               customerId: currentUser.id,
+               customerName: currentUser.name,
+               status: 'pending',
+                startedAt: new Date().toISOString()
+              };
+              const sessionId = await createChatSession(newSession as any);
+              setSelectedChatId(sessionId);
+              const sessions = await fetchChatSessions();
+              setCustomerSessions(sessions);
+            }
+          } catch (error) {
+            console.error('Error creating customer chat session:', error);
+          }
+        };
+        loadOrCreateSession();
     }
   }, [isCustomer, isMinimized, currentUser, setSelectedChatId]);
 
-  const handleSendMessage = async () => {
-    if (!message || !selectedChatId || !currentUser) return;
+   const handleSendMessage = async () => {
+    console.log('[DEBUG] handleSendMessage called', { message, selectedChatId, hasCurrentUser: !!currentUser });
+    if (!message?.trim() || !selectedChatId || !currentUser) return;
 
     const newMessage: ChatMessage = {
       id: crypto.randomUUID(),
@@ -448,18 +466,8 @@ export function ChatWidget() {
         });
         setCustomerSessions(updatedSessions);
         setShouldAutoScroll(true);
-        setMessage('');
 
-        // Real saving
-        await MockDB.pushChatMessage(selectedChatId, newMessage);
-        
-        // Clear notifications for this session on respond
-        markNotificationsAsReadByTarget(selectedChatId);
-
-        // Force refresh session state after save
-        setCustomerSessions(MockDB.getChatSessions());
-
-        // WhatsApp integration stays the same
+        // WhatsApp integration happens before clearing message
         if (session.customerPhone) {
           const queue = MockDB.getQueues().find(q => q.id === session.queueId);
           const instanceId = queue?.whatsappInstanceId || 'wa1';
@@ -474,8 +482,46 @@ export function ChatWidget() {
             })
           }).catch(error => console.error('Failed to send real WhatsApp message:', error));
         }
+
+        setMessage('');
+
+        // Save via Supabase
+        await pushChatMessage(selectedChatId, newMessage);
+        
+        // Refresh sessions from Supabase
+        const refreshedSessions = await fetchChatSessions();
+        setCustomerSessions(refreshedSessions);
+        
+        // Clear notifications for this session on respond
+        markNotificationsAsReadByTarget(selectedChatId);
       } catch (error) {
         console.error('Failed to send message:', error);
+        toast.error('Erro ao enviar mensagem.');
+      }
+    } else {
+      // Session might not be loaded yet - try to save anyway
+      console.log('[DEBUG] Session not in state, sending directly to Supabase');
+      try {
+        setShouldAutoScroll(true);
+        
+        // Optimistic update
+        const optimisticSession: ChatSession = {
+          id: selectedChatId,
+          customerId: currentUser.id,
+          customerName: currentUser.name,
+          status: 'pending',
+          messages: [newMessage],
+          startedAt: new Date().toISOString(),
+          lastMessageAt: newMessage.timestamp
+        };
+        setCustomerSessions(prev => [optimisticSession, ...prev.filter(s => s.id !== selectedChatId)]);
+        setMessage('');
+        
+        await pushChatMessage(selectedChatId, newMessage);
+        const refreshedSessions = await fetchChatSessions();
+        setCustomerSessions(refreshedSessions);
+      } catch (error) {
+        console.error('Failed to send message (no session fallback):', error);
         toast.error('Erro ao enviar mensagem.');
       }
     }
@@ -483,68 +529,75 @@ export function ChatWidget() {
     setShowQuickNoteSearch(false);
   };
 
-  const handleStartNewChat = () => {
+  const handleStartNewChat = async () => {
     if (!newChatNumber) return;
     
-    const newSession: ChatSession = {
-      id: crypto.randomUUID(),
-      customerId: crypto.randomUUID(),
-      customerName: newChatName || newChatNumber,
-      status: 'active',
-      messages: [],
-      startedAt: new Date().toISOString(),
-      lastMessageAt: new Date().toISOString(),
-      assigneeId: currentUser?.id
-    };
-
-    MockDB.saveChatSession(newSession);
-    setCustomerSessions(MockDB.getChatSessions());
-    setSelectedChatId(newSession.id);
-    setIsNewChatModalOpen(false);
-    setNewChatNumber('');
-    setNewChatName('');
-    toast.success('Conversa WhatsApp iniciada!');
+    try {
+      const sessionId = await createChatSession({
+        customerId: crypto.randomUUID(),
+        customerName: newChatName || newChatNumber,
+        customerPhone: newChatNumber,
+        status: 'active',
+        startedAt: new Date().toISOString()
+      } as any);
+      
+      setSelectedChatId(sessionId);
+      const sessions = await fetchChatSessions();
+      setCustomerSessions(sessions);
+      setIsNewChatModalOpen(false);
+      setNewChatNumber('');
+      setNewChatName('');
+      toast.success('Conversa WhatsApp iniciada!');
+    } catch (error) {
+      console.error('Error starting chat:', error);
+      toast.error('Erro ao iniciar conversa.');
+    }
   };
 
-  const handleFinishChat = () => {
-    if (!selectedChat || !ticketTitle) return;
+  const handleFinishChat = async () => {
+    if (!selectedChat || !ticketTitle || !currentUser) return;
 
-    // Create Ticket
-    const formattedChatLog = selectedChat.messages?.map(m => {
-      const time = new Date(m.timestamp).toLocaleTimeString();
-      return `[${time}] ${m.senderName}: ${m.text}`;
-    }).join('\n') || '';
+    try {
+      // Create Ticket via Supabase
+      const formattedChatLog = selectedChat.messages?.map(m => {
+        const time = new Date(m.timestamp).toLocaleTimeString();
+        return `[${time}] ${m.senderName}: ${m.text}`;
+      }).join('\n') || '';
 
-    const newTicket: Ticket = {
-      id: crypto.randomUUID(),
-      title: ticketTitle,
-      description: `HISTÃ“RICO DO CHAT:\n------------------\n${formattedChatLog}\n------------------\nChat Finalizado em: ${new Date().toLocaleString()}`,
-      status: closeTicketImmediately ? TicketStatus.CLOSED : TicketStatus.NEW,
-      priority: TicketPriority.MEDIUM,
-      category: 'Atendimento Chat',
-      customerId: selectedChat.customerId,
-      customerName: selectedChat.customerName,
-      assigneeId: currentUser?.id,
-      createdAt: new Date().toISOString(),
-      updatedAt: new Date().toISOString(),
-      tags: ['atendimento-chat'],
-      history: []
-    };
+      await supabase.from('tickets').insert({
+        title: ticketTitle,
+        description: `HISTÓRICO DO CHAT:\n------------------\n${formattedChatLog}\n------------------\nChat Finalizado em: ${new Date().toLocaleString()}`,
+        status: closeTicketImmediately ? TicketStatus.CLOSED : TicketStatus.NEW,
+        priority: TicketPriority.MEDIUM,
+        category: 'Atendimento Chat',
+        customer_id: selectedChat.customerId,
+        assignee_id: currentUser.id,
+        created_at: new Date().toISOString(),
+        updated_at: new Date().toISOString()
+      });
 
-    MockDB.saveTicket(newTicket);
+      // Close Session via Supabase
+      const { error: closeError } = await supabase
+        .from('chat_sessions')
+        .update({ status: 'closed' })
+        .eq('id', selectedChat.id);
 
-    // Close Session
-    const updatedSession: ChatSession = {
-      ...selectedChat,
-      status: 'closed'
-    };
-    MockDB.saveChatSession(updatedSession);
-    
-    setIsFinishModalOpen(false);
-    setSelectedChatId(null);
-    setCustomerSessions(MockDB.getChatSessions());
-    setTicketTitle('');
-    toast.success(`Chamado ${newTicket.id} criado com sucesso!`);
+      if (closeError) {
+        console.error('Error closing session:', closeError);
+        toast.error('Erro ao fechar conversa.');
+        return;
+      }
+
+      setIsFinishModalOpen(false);
+      setSelectedChatId(null);
+      const sessions = await fetchChatSessions();
+      setCustomerSessions(sessions);
+      setTicketTitle('');
+      toast.success('Chamado criado com sucesso!');
+    } catch (error) {
+      console.error('Failed to finish chat:', error);
+      toast.error('Erro ao criar chamado.');
+    }
   };
 
   const handleInputChange = (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -883,22 +936,21 @@ export function ChatWidget() {
                         </motion.div>
                       )}
                     </AnimatePresence>
-                    <div className="flex items-center gap-3">
-                       <input 
-                         type="text" 
-                         value={message}
-                         onChange={handleInputChange}
-                         onKeyDown={(e) => e.key === 'Enter' && handleSendMessage()}
-                         placeholder="Resposta padrão '/' para atalhos..." 
-                         className="flex-1 bg-slate-50 border border-slate-200 rounded-2xl px-5 py-4 text-sm font-bold focus:ring-4 focus:ring-indigo-500/10 outline-none transition-all"
-                       />
-                       <button 
-                        onClick={handleSendMessage}
+<form onSubmit={(e) => { e.preventDefault(); handleSendMessage(); }} className="flex items-center gap-3">
+                      <input 
+                        type="text" 
+                        value={message}
+                        onChange={handleInputChange}
+                        placeholder="Resposta padrão '/' para atalhos..." 
+                        className="flex-1 bg-slate-50 border border-slate-200 rounded-2xl px-5 py-4 text-sm font-bold focus:ring-4 focus:ring-indigo-500/10 outline-none transition-all"
+                      />
+                      <button 
+                        type="submit"
                         className="w-14 h-14 bg-indigo-600 text-white rounded-2xl hover:bg-indigo-700 transition-all shadow-xl shadow-indigo-100 flex items-center justify-center"
-                       >
-                         <Send size={20} />
-                       </button>
-                    </div>
+                      >
+                        <Send size={20} />
+                      </button>
+                    </form>
                   </div>
                 </div>
               ) : (

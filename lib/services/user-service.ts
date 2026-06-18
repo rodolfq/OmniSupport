@@ -202,9 +202,32 @@ export class UserService {
       [UserRole.INTERNAL]: [
         Permission.INTERNAL_TICKETS_VIEW,
         Permission.INTERNAL_TICKETS_EDIT,
+        Permission.CHAT_INTERNAL_VIEW,
       ],
     };
     return permissions[roleName] || [];
+  }
+
+  static async save(user: Partial<User>): Promise<void> {
+    if (!user.id) return;
+    
+    const { error } = await supabase
+      .from("profiles")
+      .update({
+        name: user.name,
+        email: user.email,
+        role: user.role,
+        company_id: user.companyId,
+        phone: user.phone,
+        must_change_password: user.mustChangePassword,
+        view_all_company_tickets: user.viewAllCompanyTickets,
+        is_admin: user.isAdmin,
+        avatar_url: user.avatarUrl,
+        internal_team_ids: user.internalTeamIds,
+      })
+      .eq("id", user.id);
+
+    if (error) throw error;
   }
 }
 

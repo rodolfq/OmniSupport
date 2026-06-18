@@ -210,6 +210,7 @@ export interface ChatMessage {
     gifUrl?: string;
     stickerUrl?: string;
   };
+  attachments?: Attachment[];
 }
 
 export interface ChatSession {

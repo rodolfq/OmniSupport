@@ -421,6 +421,18 @@ useEffect(() => {
       })
       .subscribe();
 
+    // Internal chat channel for team messaging
+    const internalChatChannel = supabase.channel('internal-chats-changes')
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'internal_chats' }, async () => {
+        console.log('📡 Realtime: Mudança em chats internos');
+        triggerRefresh();
+      })
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'internal_chat_messages' }, async () => {
+        console.log('📡 Realtime: Nova mensagem de chat interno');
+        triggerRefresh();
+      })
+      .subscribe();
+
     const statusChannel = supabase.channel('status-changes')
       .on('postgres_changes', { event: '*', schema: 'public', table: 'analyst_status' }, async (payload) => {
         console.log('📡 Realtime: Mudança de status de analista', payload);
@@ -432,6 +444,7 @@ useEffect(() => {
       console.log('📡 Realtime: Encerrando canais...');
       supabase.removeChannel(ticketsChannel);
       supabase.removeChannel(chatChannel);
+      supabase.removeChannel(internalChatChannel);
       supabase.removeChannel(statusChannel);
     };
   }, [authInitialized, currentUser?.id, triggerRefresh, addNotification, playSound]);

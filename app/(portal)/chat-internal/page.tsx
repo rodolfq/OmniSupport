@@ -1,6 +1,6 @@
 ﻿'use client';
 
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { 
   Search, 
   Plus, 
@@ -35,8 +35,12 @@ import {
   Eye
 } from 'lucide-react';
 import { cn, normalizeString } from '@/lib/utils';
-import { MockDB, User, InternalGroup, ChatMessage, UserRole } from '@/lib/mock-db';
 import { useApp } from '@/app/app-context';
+import { InternalGroup, ChatMessage, User, UserRole, Permission } from '@/lib/types';
+import { supabase } from '@/lib/supabase';
+import { InternalChatService } from '@/lib/services/chat-service';
+import { UserService } from '@/lib/services/user-service';
+import { useRouter } from 'next/navigation';
 import { motion, AnimatePresence } from 'motion/react';
 import EmojiPicker, { Theme as EmojiTheme } from 'emoji-picker-react';
 import Cropper, { Area } from 'react-easy-crop';
@@ -91,7 +95,8 @@ const getCroppedImg = (imageSrc: string, pixelCrop: Area): Promise<string> => {
 };
 
 export default function ChatInternalPage() {
-  const { currentUser, setCurrentUser } = useApp();
+   const { currentUser, setCurrentUser, hasPermission } = useApp();
+   const router = useRouter();
   const [rooms, setRooms] = useState<InternalGroup[]>([]);
   const [selectedRoomId, setSelectedRoomId] = useState<string | null>(null);
   const [searchTerm, setSearchTerm] = useState('');
@@ -130,14 +135,21 @@ export default function ChatInternalPage() {
   const messagesEndRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
-    if (currentUser?.role === UserRole.CUSTOMER) {
-      window.location.href = '/my-tickets';
+    // Check permission - Time Interno (INTERNAL) e Equipe/Administrador devem ter acesso
+    if (!hasPermission(Permission.CHAT_INTERNAL_VIEW)) {
+      router.push('/internal-tickets');
       return;
     }
     loadRooms();
-    const users = MockDB.getUsers();
-    setAllUsers(users.filter(u => u.id !== currentUser?.id && u.role !== UserRole.CUSTOMER));
-  }, [currentUser]);
+    const loadUsers = async () => {
+      const { data } = await supabase
+        .from('profiles')
+        .select('id, name, email, avatar_url, role, status, status_reason')
+        .or('role.eq.Equipe,role.eq.Administrador,role.eq.Time Interno');
+      setAllUsers(data || []);
+    };
+    loadUsers();
+  }, [currentUser, hasPermission]);
 
   const selectedRoom = rooms.find(r => r.id === selectedRoomId);
 
@@ -145,10 +157,25 @@ export default function ChatInternalPage() {
     scrollToBottom();
   }, [selectedRoom?.messages.length, selectedRoomId]);
 
-  const loadRooms = () => {
-    const loadedRooms = MockDB.getInternalChats();
-    setRooms(loadedRooms);
-  };
+  const loadRooms = useCallback(async () => {
+    try {
+      const loadedRooms = await InternalChatService.getChats();
+      setRooms(loadedRooms);
+    } catch (error) {
+      console.error('Error loading chats:', error);
+    }
+  }, []);
+
+  // Load messages when room is selected
+  useEffect(() => {
+    if (selectedRoomId) {
+      InternalChatService.getMessages(selectedRoomId)
+        .then(messages => {
+          setRooms(prev => prev.map(r => r.id === selectedRoomId ? { ...r, messages } : r));
+        })
+        .catch(err => console.error('Error loading messages:', err));
+    }
+  }, [selectedRoomId]);
 
   const scrollToBottom = (instant = false) => {
     if (messagesEndRef.current) {
@@ -174,7 +201,7 @@ export default function ChatInternalPage() {
 
         if (modified) {
           const updatedRoom = { ...room, messages: updatedMessages };
-          MockDB.saveInternalChat(updatedRoom);
+          InternalChatService.saveChat(updatedRoom);
           loadRooms();
         }
       }
@@ -198,16 +225,30 @@ export default function ChatInternalPage() {
         messages: [],
         lastMessageAt: new Date().toISOString()
       };
-      MockDB.saveInternalChat(newRoom);
-      loadRooms();
-      setSelectedRoomId(newRoom.id);
+      InternalChatService.saveChat(newRoom)
+        .then(() => {
+          loadRooms();
+          setSelectedRoomId(newRoom.id);
+        });
     }
     setSearchTerm('');
   };
 
   const handleSendMessage = (type: ChatMessage['type'] = 'text', content?: string, metadata?: any) => {
-    if (!selectedRoomId || !currentUser) return;
-    if (type === 'text' && !message.trim()) return;
+    console.log('handleSendMessage:', { selectedRoomId, hasUser: !!currentUser, message, type });
+    
+    if (!selectedRoomId) {
+      console.error('No selected room');
+      return;
+    }
+    if (!currentUser) {
+      console.error('No current user');
+      return;
+    }
+    if (type === 'text' && !message.trim()) {
+      console.error('Empty message');
+      return;
+    }
 
     const newMessage: ChatMessage = {
       id: generateId(),
@@ -227,15 +268,21 @@ export default function ChatInternalPage() {
         newMessage.metadata = { stickerUrl: content };
     }
 
-    const room = rooms.find(r => r.id === selectedRoomId);
-    if (!room) return;
+    // Persist message to Supabase
+    InternalChatService.saveMessage(selectedRoomId, newMessage)
+      .then(() => {
+        console.log('Message saved successfully');
+        // Reload messages to show latest
+        InternalChatService.getMessages(selectedRoomId)
+          .then(messages => {
+            setRooms(prev => prev.map(r => r.id === selectedRoomId ? { ...r, messages } : r));
+          });
+      })
+      .catch(err => {
+        console.error('Error sending message:', err);
+        toast.error('Erro ao enviar mensagem: ' + (err.message || 'Unknown error'));
+      });
 
-    const updatedRoom = { ...room };
-    updatedRoom.messages = [...updatedRoom.messages, newMessage];
-    updatedRoom.lastMessageAt = newMessage.timestamp;
-
-    MockDB.saveInternalChat(updatedRoom);
-    loadRooms();
     setMessage('');
     setReplyingToId(null);
     setShowEmojiPicker(false);
@@ -281,7 +328,7 @@ export default function ChatInternalPage() {
     });
 
     const updatedRoom = { ...room, messages: updatedMessages };
-    MockDB.saveInternalChat(updatedRoom);
+    InternalChatService.saveChat(updatedRoom);
     loadRooms();
   };
 
@@ -300,7 +347,7 @@ export default function ChatInternalPage() {
       : [...pinnedBy, currentUser.id];
 
     const updatedRoom = { ...room, pinnedBy: updatedPinnedBy };
-    MockDB.saveInternalChat(updatedRoom);
+    InternalChatService.saveChat(updatedRoom);
     loadRooms();
     toast.success(isPinned ? 'Chat desafixado' : 'Chat fixado no topo');
   };
@@ -311,7 +358,7 @@ export default function ChatInternalPage() {
       ...currentUser, 
       chatPreferences: { ...(currentUser.chatPreferences || {}), ...prefs } 
     };
-    MockDB.saveUser(updatedUser);
+    UserService.save(updatedUser);
     setCurrentUser(updatedUser); // Update context
     setBubbleColor(updatedUser.chatPreferences?.bubbleColor || 'indigo');
     setAvatarSize(updatedUser.chatPreferences?.avatarSize || 'md');
@@ -321,7 +368,7 @@ export default function ChatInternalPage() {
   const handleUpdateGroup = (updates: Partial<InternalGroup>) => {
     if (!selectedRoomId || selectedRoom?.type !== 'group') return;
     const updatedRoom = { ...selectedRoom, ...updates };
-    MockDB.saveInternalChat(updatedRoom);
+    InternalChatService.saveChat(updatedRoom);
     loadRooms();
     toast.success('Grupo atualizado com sucesso!');
   };
@@ -345,7 +392,7 @@ export default function ChatInternalPage() {
         }
       ]
     };
-    MockDB.saveInternalChat(updatedRoom);
+    InternalChatService.saveChat(updatedRoom);
     loadRooms();
     setIsAddingMember(false);
     toast.success('Membro adicionado ao grupo');
@@ -373,7 +420,7 @@ export default function ChatInternalPage() {
     if (userId === currentUser?.id) {
       setSelectedRoomId(null);
     }
-    MockDB.saveInternalChat(updatedRoom);
+    InternalChatService.saveChat(updatedRoom);
     loadRooms();
   };
 
@@ -389,7 +436,7 @@ export default function ChatInternalPage() {
       : [...mutedBy, currentUser.id];
     
     const updatedRoom = { ...room, mutedBy: updatedMutedBy };
-    MockDB.saveInternalChat(updatedRoom);
+    InternalChatService.saveChat(updatedRoom);
     loadRooms();
     toast.success(isMuted ? 'Notificações reativadas' : 'Chat silenciado');
   };
@@ -404,7 +451,7 @@ export default function ChatInternalPage() {
       : [...pinnedMessageIds, messageId];
     
     const updatedRoom = { ...selectedRoom, pinnedMessageIds: updatedPinned };
-    MockDB.saveInternalChat(updatedRoom);
+    InternalChatService.saveChat(updatedRoom);
     loadRooms();
   };
 
@@ -420,7 +467,7 @@ export default function ChatInternalPage() {
       : [...readLaterBy, currentUser.id];
     
     const updatedRoom = { ...room, readLaterBy: updatedReadLaterBy };
-    MockDB.saveInternalChat(updatedRoom);
+    InternalChatService.saveChat(updatedRoom);
     loadRooms();
     toast.success(isReadLater ? 'Removido de ler depois' : 'Marcado para ler depois');
   };
@@ -437,7 +484,7 @@ export default function ChatInternalPage() {
       : [...hiddenBy, currentUser.id];
     
     const updatedRoom = { ...room, hiddenBy: updatedHiddenBy };
-    MockDB.saveInternalChat(updatedRoom);
+    InternalChatService.saveChat(updatedRoom);
     loadRooms();
     if (selectedRoomId === roomId) setSelectedRoomId(null);
     toast.success(isHidden ? 'Conversa visível' : 'Conversa arquivada');
@@ -494,9 +541,15 @@ export default function ChatInternalPage() {
       lastMessageAt: new Date().toISOString()
     };
 
-    MockDB.saveInternalChat(newRoom);
-    loadRooms();
-    setSelectedRoomId(newRoom.id);
+    InternalChatService.saveChat(newRoom)
+      .then(() => {
+        loadRooms();
+        setSelectedRoomId(newRoom.id);
+      })
+      .catch(err => {
+        console.error('Error creating room:', err);
+        toast.error('Erro ao criar grupo');
+      });
     setIsCreatingGroup(false);
     setNewGroupName('');
     setNewGroupImage('');
@@ -1152,27 +1205,30 @@ export default function ChatInternalPage() {
                       ref={fileInputRef} 
                       onChange={handleFileUpload}
                     />
-                  </div>
-                  
-                  <input 
-                    type="text"
-                    value={message}
-                    onChange={(e) => setMessage(e.target.value)}
-                    onKeyDown={(e) => {
-                      if (e.key === 'Enter') handleSendMessage();
-                    }}
-                    placeholder="Escreva sua mensagem..."
-                    className="flex-1 bg-transparent border-none outline-none text-sm font-bold text-slate-700 mx-4"
-                  />
+</div>
+                   
+                   <input 
+                     type="text"
+                     value={message}
+                     onChange={(e) => setMessage(e.target.value)}
+                     onKeyDown={(e) => {
+                       if (e.key === 'Enter' && !e.shiftKey) {
+                         e.preventDefault();
+                         handleSendMessage();
+                       }
+                     }}
+                     placeholder="Escreva sua mensagem..."
+                     className="flex-1 bg-transparent border-none outline-none text-sm font-bold text-slate-700 mx-4"
+                   />
 
-                  <button 
-                    onClick={() => handleSendMessage()}
-                    disabled={!message.trim()}
-                    className="w-12 h-12 bg-indigo-600 text-white rounded-full flex items-center justify-center hover:bg-indigo-700 transition-all shadow-lg shadow-indigo-200 disabled:opacity-50"
-                  >
-                    <Send size={20} />
-                  </button>
-                </div>
+                   <button 
+                     onClick={() => handleSendMessage()}
+                     disabled={!message.trim()}
+                     className="w-12 h-12 bg-indigo-600 text-white rounded-full flex items-center justify-center hover:bg-indigo-700 transition-all shadow-lg shadow-indigo-200 disabled:opacity-50"
+                   >
+                     <Send size={20} />
+                   </button>
+                 </div>
               </div>
             </div>
           </>

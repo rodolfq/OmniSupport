@@ -52,7 +52,7 @@ export async function fetchChatSessions(signal?: AbortSignal): Promise<ChatSessi
         metadata: m.metadata
       })),
       startedAt: s.created_at,
-      lastMessageAt: s.created_at
+      lastMessageAt: s.last_message_at || s.created_at
     })) as ChatSession[];
 }
 
@@ -77,4 +77,40 @@ export async function pushChatMessage(sessionId: string, message: ChatMessage): 
         console.error("Error creating chat message:", error);
         throw error;
     }
+    
+    // Update last_message_at on session
+    const { error: sessionError } = await supabase
+        .from('chat_sessions')
+        .update({ last_message_at: message.timestamp })
+        .eq('id', sessionId);
+        
+    if (sessionError) {
+        console.error("Error updating session last_message_at:", sessionError);
+    }
+}
+
+export async function createChatSession(session: ChatSession): Promise<string> {
+    if (!supabase) {
+        throw new Error('Supabase not initialized');
+    }
+    
+    const { data, error } = await supabase
+        .from('chat_sessions')
+        .insert({
+          customer_id: session.customerId,
+          customer_name: session.customerName,
+          customer_phone: session.customerPhone,
+          status: session.status,
+          created_at: session.startedAt,
+          updated_at: new Date().toISOString()
+        })
+        .select('id')
+        .single();
+        
+    if (error) {
+        console.error("Error creating chat session:", error);
+        throw error;
+    }
+    
+    return data?.id || session.id;
 }
