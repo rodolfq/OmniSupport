@@ -37,7 +37,7 @@ import {
   Company,
   MockDB
 } from '@/lib/mock-db';
-import { fetchChatSessions, pushChatMessage, createChatSession } from '@/lib/services/chat.service';
+import { fetchChatSessions, pushChatMessage, createChatSession, saveChatHistory } from '@/lib/services/chat.service';
 import { fetchQuickNotes, fetchAnalystStatuses, fetchCompanies, fetchUsers, fetchQueues } from '@/lib/services/config.service';
 import { cn, maskPhone, matchPhones, safeJsonStringify } from '@/lib/utils';
 import { useApp } from '@/app/app-context';
@@ -558,15 +558,25 @@ useEffect(() => {
     if (!selectedChat || !ticketTitle || !currentUser) return;
 
     try {
-      // Create Ticket via Supabase
+      // Create Ticket via Supabase - format chat history
       const formattedChatLog = selectedChat.messages?.map(m => {
-        const time = new Date(m.timestamp).toLocaleTimeString();
+        const time = new Date(m.timestamp).toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' });
         return `[${time}] ${m.senderName}: ${m.text}`;
       }).join('\n') || '';
+      
+      // Convert newlines to <br> for HTML display, while keeping plain text readable
+      const chatHistoryText = `===== HISTÓRICO DO CHAT =====\n${formattedChatLog}\n===== FIM DO HISTÓRICO =====\n\nChat finalizado em: ${new Date().toLocaleString('pt-BR')}`;
+      
+      // Create HTML version for display (with <br> tags)
+      const chatHistoryHtml = chatHistoryText
+        .replace(/&/g, '&amp;')
+        .replace(/</g, '&lt;')
+        .replace(/>/g, '&gt;')
+        .replace(/\n/g, '<br>');
 
       await supabase.from('tickets').insert({
         title: ticketTitle,
-        description: `HISTÓRICO DO CHAT:\n------------------\n${formattedChatLog}\n------------------\nChat Finalizado em: ${new Date().toLocaleString()}`,
+        description: chatHistoryHtml,
         status: closeTicketImmediately ? TicketStatus.CLOSED : TicketStatus.NEW,
         priority: TicketPriority.MEDIUM,
         category: 'Atendimento Chat',
@@ -574,6 +584,42 @@ useEffect(() => {
         assignee_id: currentUser.id,
         created_at: new Date().toISOString(),
         updated_at: new Date().toISOString()
+      });
+
+      // Calculate timing metrics
+      const startedAt = selectedChat.startedAt ? new Date(selectedChat.startedAt) : new Date();
+      const finishedAt = new Date();
+      const durationSeconds = Math.floor((finishedAt.getTime() - startedAt.getTime()) / 1000);
+      
+      // Find first response time (first non-system, non-same-user message)
+      let firstResponseSeconds: number | undefined;
+      if (selectedChat.messages && selectedChat.messages.length > 0) {
+        const firstAnalystMsg = selectedChat.messages.find(m => 
+          m.senderId !== selectedChat.customerId && 
+          m.text && 
+          !m.text.includes('criou o grupo')
+        );
+        if (firstAnalystMsg?.timestamp) {
+          const firstMsgTime = new Date(firstAnalystMsg.timestamp);
+          firstResponseSeconds = Math.floor((firstMsgTime.getTime() - startedAt.getTime()) / 1000);
+        }
+      }
+
+// Save chat history for internal team access (non-blocking - continue even if fails)
+      saveChatHistory({
+        sessionId: selectedChat.id,
+        customerId: selectedChat.customerId,
+        customerName: selectedChat.customerName,
+        customerPhone: selectedChat.customerPhone,
+        assigneeId: currentUser.id,
+        startedAt: startedAt.toISOString(),
+        finishedAt: finishedAt.toISOString(),
+        durationSeconds,
+        firstResponseSeconds,
+        transcript: chatHistoryText
+      }).catch(historyErr => {
+        console.error('Non-critical error saving chat history:', historyErr);
+        // Don't block the ticket creation
       });
 
       // Close Session via Supabase

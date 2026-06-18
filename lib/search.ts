@@ -14,6 +14,7 @@ export interface SearchFilters {
   slaOverdue?: boolean;
   tags?: string[];
   customerId?: string;
+  includeClosed?: boolean;
 }
 
 export interface SearchResult {
@@ -46,8 +47,13 @@ export async function searchTickets(
       query = query.ilike('title', `%${filters.query}%`);
     }
 
+    // Only filter by status if explicitly provided - otherwise exclude closed tickets by default
+    // Include closed filter allows viewing closed tickets when explicitly set
     if (filters.status) {
       query = query.eq('status', filters.status);
+    } else if (!filters.includeClosed) {
+      // Default: exclude closed and completed tickets (Fechado, Concluído, Encerrado)
+      query = query.not('status', 'in', '("Fechado","Concluído","Encerrado")');
     }
 
     if (filters.priority) {

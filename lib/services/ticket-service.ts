@@ -11,6 +11,7 @@ export class TicketService {
         customer:profiles!tickets_customer_id_fkey(name),
         assignee:profiles!tickets_assignee_id_fkey(name)
       `)
+      .not('status', 'in', '("Fechado","Concluído","Encerrado")')
       .abortSignal(signal as any);
 
     if (error) throw error;

@@ -1,16 +1,31 @@
-import { NextResponse } from 'next/server';
-import { whatsappManager } from '@/lib/whatsapp-manager';
+import { NextRequest, NextResponse } from 'next/server';
+import { WhatsAppService } from '@/lib/services/whatsapp-service';
 
-export const runtime = 'nodejs';
+// GET /api/whatsapp/status?instanceId=xyz
+export async function GET(request: NextRequest) {
+  const searchParams = request.nextUrl.searchParams;
+  const instanceId = searchParams.get('instanceId') || 'default';
+  
+  const sock = (WhatsAppService as any).instances?.get(instanceId);
+  const isConnected = !!sock;
+  const qr = await WhatsAppService.getQR(instanceId);
+  
+  return NextResponse.json({ 
+    connected: isConnected, 
+    qr,
+    status: isConnected ? 'connected' : qr ? 'connecting' : 'disconnected'
+  });
+}
 
-export async function GET(req: Request) {
-  const { searchParams } = new URL(req.url);
-  const sessionId = searchParams.get('sessionId');
-
-  if (!sessionId) {
-    return NextResponse.json({ error: 'Session ID is required' }, { status: 400 });
+// POST /api/whatsapp/connect
+export async function POST(request: NextRequest) {
+  const { instanceId } = await request.json();
+  const id = instanceId || 'default';
+  
+  try {
+    await WhatsAppService.connect(id);
+    return NextResponse.json({ success: true });
+  } catch (error: any) {
+    return NextResponse.json({ error: error.message }, { status: 500 });
   }
-
-  const status = whatsappManager.getStatus(sessionId);
-  return NextResponse.json(status);
 }

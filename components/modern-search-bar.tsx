@@ -1,11 +1,12 @@
 "use client";
 
 import React, { useState, useEffect, useRef, useMemo } from "react";
-import { Search, X, Filter, ChevronDown, Star, Clock, Tag, Users, Building2, Calendar, Save, Bookmark, Trash2 } from "lucide-react";
+import { Search, X, Filter, ChevronDown, Star, Clock, Tag, Users, Building2, Calendar, Save, Bookmark, Trash2, Check } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { motion, AnimatePresence } from "motion/react";
 import { TicketStatus, SavedFilter, UserRole } from "@/lib/types";
 import { useApp } from "@/app/app-context";
+import { supabase } from "@/lib/supabase";
 import { searchTickets, SearchFilters, getSavedViews, saveCustomView, saveSearchHistory } from "@/lib/search";
 
 interface ModernSearchBarProps {
@@ -33,8 +34,17 @@ export function ModernSearchBar({ onSearch, onFilterChange, loading }: ModernSea
   const [startDate, setStartDate] = useState<string>("");
   const [endDate, setEndDate] = useState<string>("");
   const [slaOverdue, setSlaOverdue] = useState(false);
+  const [includeClosed, setIncludeClosed] = useState(false);
+  const [companies, setCompanies] = useState<any[]>([]);
+  const [users, setUsers] = useState<any[]>([]);
 
   const inputRef = useRef<HTMLInputElement>(null);
+
+  // Load companies and users for filter dropdowns
+  useEffect(() => {
+    supabase.from('companies').select('id, name').then(({ data }) => setCompanies(data || []));
+    supabase.from('profiles').select('id, name').then(({ data }) => setUsers(data || []));
+  }, []);
 
   // Debounce search
   useEffect(() => {
@@ -77,11 +87,12 @@ export function ModernSearchBar({ onSearch, onFilterChange, loading }: ModernSea
       startDate: startDate || undefined,
       endDate: endDate || undefined,
       slaOverdue: slaOverdue || undefined,
+      includeClosed: includeClosed || undefined,
     };
     setActiveFilters(newFilters);
     onFilterChange(newFilters);
     onSearch(newFilters, 1);
-  }, [status, priority, company, assignee, startDate, endDate, slaOverdue]);
+  }, [status, priority, company, assignee, startDate, endDate, slaOverdue, includeClosed]);
 
   const hasActiveFilters = Object.values(activeFilters).some(v => v !== undefined && v !== "");
 
@@ -99,6 +110,7 @@ export function ModernSearchBar({ onSearch, onFilterChange, loading }: ModernSea
       case "startDate": setStartDate(""); break;
       case "endDate": setEndDate(""); break;
       case "slaOverdue": setSlaOverdue(false); break;
+      case "includeClosed": setIncludeClosed(false); break;
     }
   };
 
@@ -111,6 +123,7 @@ export function ModernSearchBar({ onSearch, onFilterChange, loading }: ModernSea
     setStartDate("");
     setEndDate("");
     setSlaOverdue(false);
+    setIncludeClosed(false);
     setActiveFilters({});
     onFilterChange({});
     onSearch({}, 1);
@@ -144,6 +157,7 @@ export function ModernSearchBar({ onSearch, onFilterChange, loading }: ModernSea
     setStartDate(filters.startDate || "");
     setEndDate(filters.endDate || "");
     setSlaOverdue(filters.slaOverdue || false);
+    setIncludeClosed(filters.includeClosed || false);
     setActiveFilters(filters);
     onFilterChange(filters);
     onSearch(filters, 1);
@@ -315,13 +329,13 @@ export function ModernSearchBar({ onSearch, onFilterChange, loading }: ModernSea
             )}
             {activeFilters.companyId && (
               <span className="inline-flex items-center gap-1.5 px-3 py-1.5 bg-emerald-50 text-emerald-700 rounded-full text-xs font-bold">
-                Empresa
+                Cliente: {companies.find(c => c.id === activeFilters.companyId)?.name || activeFilters.companyId}
                 <button onClick={() => removeFilter("companyId")}><X size={12} /></button>
               </span>
             )}
             {activeFilters.assigneeId && (
               <span className="inline-flex items-center gap-1.5 px-3 py-1.5 bg-purple-50 text-purple-700 rounded-full text-xs font-bold">
-                Responsável
+                Responsável: {users.find(u => u.id === activeFilters.assigneeId)?.name || activeFilters.assigneeId}
                 <button onClick={() => removeFilter("assigneeId")}><X size={12} /></button>
               </span>
             )}
@@ -335,6 +349,12 @@ export function ModernSearchBar({ onSearch, onFilterChange, loading }: ModernSea
               <span className="inline-flex items-center gap-1.5 px-3 py-1.5 bg-blue-50 text-blue-700 rounded-full text-xs font-bold">
                 Até: {new Date(activeFilters.endDate!).toLocaleDateString()}
                 <button onClick={() => removeFilter("endDate")}><X size={12} /></button>
+              </span>
+            )}
+            {activeFilters.includeClosed && (
+              <span className="inline-flex items-center gap-1.5 px-3 py-1.5 bg-emerald-50 text-emerald-700 rounded-full text-xs font-bold">
+                Mostrando encerrados
+                <button onClick={() => removeFilter("includeClosed")}><X size={12} /></button>
               </span>
             )}
           </motion.div>
@@ -387,6 +407,40 @@ export function ModernSearchBar({ onSearch, onFilterChange, loading }: ModernSea
                   </select>
                 </div>
 
+                {/* Company (Cliente) */}
+                <div className="space-y-1.5">
+                  <label className="text-[10px] font-black uppercase text-slate-400 flex items-center gap-1">
+                    <Building2 size={12} /> Cliente
+                  </label>
+                  <select
+                    value={company}
+                    onChange={(e) => setCompany(e.target.value)}
+                    className="w-full px-3 py-2 rounded-lg border border-slate-200 text-xs font-bold bg-slate-50 focus:border-indigo-400 outline-none"
+                  >
+                    <option value="">Qualquer Cliente</option>
+                    {companies.map(c => (
+                      <option key={c.id} value={c.id}>{c.name}</option>
+                    ))}
+                  </select>
+                </div>
+
+                {/* Assignee (Responsável) */}
+                <div className="space-y-1.5">
+                  <label className="text-[10px] font-black uppercase text-slate-400 flex items-center gap-1">
+                    <Users size={12} /> Responsável
+                  </label>
+                  <select
+                    value={assignee}
+                    onChange={(e) => setAssignee(e.target.value)}
+                    className="w-full px-3 py-2 rounded-lg border border-slate-200 text-xs font-bold bg-slate-50 focus:border-indigo-400 outline-none"
+                  >
+                    <option value="">Qualquer Responsável</option>
+                    {users.map(u => (
+                      <option key={u.id} value={u.id}>{u.name}</option>
+                    ))}
+                  </select>
+                </div>
+
                 {/* Date Range */}
                 <div className="space-y-1.5">
                   <label className="text-[10px] font-black uppercase text-slate-400 flex items-center gap-1">
@@ -423,6 +477,20 @@ export function ModernSearchBar({ onSearch, onFilterChange, loading }: ModernSea
                   />
                   <label htmlFor="slaOverdue" className="text-xs font-bold text-slate-600 flex items-center gap-1">
                     <Clock size={12} /> SLA Vencido
+                  </label>
+                </div>
+
+                {/* Include Closed Tickets */}
+                <div className="flex items-center gap-2 pt-6">
+                  <input
+                    type="checkbox"
+                    id="includeClosed"
+                    checked={includeClosed}
+                    onChange={(e) => setIncludeClosed(e.target.checked)}
+                    className="w-4 h-4 rounded border-slate-300"
+                  />
+                  <label htmlFor="includeClosed" className="text-xs font-bold text-slate-600 flex items-center gap-1">
+                    <Check size={12} /> Mostrar chamados encerrados
                   </label>
                 </div>
               </div>

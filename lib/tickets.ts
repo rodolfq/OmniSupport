@@ -110,6 +110,7 @@ export async function fetchAllTickets(signal?: AbortSignal): Promise<Ticket[]> {
             const { data, error } = await supabase
                 .from('tickets')
                 .select('*')
+                .not('status', 'in', '("Fechado","Concluído","Encerrado")')
                 .abortSignal(signal as any);
                 
             if (!error && data) {

@@ -6,24 +6,25 @@ import { usePathname, useRouter } from 'next/navigation';
 import { Permission, UserRole } from '@/lib/types';
 import { UserService } from '@/lib/services/user-service';
 import { 
-  LayoutDashboard, 
-  Ticket, 
-  Users, 
-  PieChart, 
-  Settings, 
-  LogOut, 
-  Headset,
-  ChevronRight,
-  UserCog,
-  Shield,
-  MessageSquare,
-  UserCircle,
-  Key,
-  MessageCircle,
-  Library,
-  Database,
-  FileText
-} from 'lucide-react';
+   LayoutDashboard, 
+   Ticket, 
+   Users, 
+   PieChart, 
+   Settings, 
+   LogOut, 
+   Headset,
+   ChevronRight,
+   UserCog,
+   Shield,
+   MessageSquare,
+   UserCircle,
+   Key,
+   MessageCircle,
+   Library,
+   Database,
+   FileText,
+   History
+ } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { useApp } from '@/app/app-context';
 
@@ -93,10 +94,12 @@ export function Sidebar() {
           { name: 'Todos os Chamados', icon: Ticket, href: '/tickets', permission: Permission.TICKETS_READ },
           { name: 'Meus Chamados', icon: UserCircle, href: '/my-tickets' },
           { name: 'Painel Chat', icon: MessageSquare, href: '/chat-management', permission: Permission.OUTSIDE_QUEUE_VIEW },
+          { name: 'Histórico de Conversas', icon: History, href: '/chat-history', permission: Permission.TICKETS_READ },
           { name: 'Tickets Internos', icon: FileText, href: '/internal-tickets', permission: Permission.INTERNAL_TICKETS_VIEW },
         ]
       },
       { name: 'Chat Interno', icon: MessageCircle, href: '/chat-internal', permission: Permission.CHAT_INTERNAL_VIEW },
+      { name: 'WhatsApp', icon: MessageSquare, href: '/whatsapp', permission: Permission.OUTSIDE_QUEUE_VIEW },
       { name: 'Clientes', icon: Users, href: '/customers', permission: Permission.CUSTOMERS_READ },
       { 
         name: 'Configurações', 

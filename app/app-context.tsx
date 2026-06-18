@@ -401,25 +401,25 @@ useEffect(() => {
         console.log('📡 Realtime: Nova mensagem de ticket', payload);
         triggerRefresh();
       })
-      .subscribe();
+.subscribe();
 
-    const chatChannel = supabase.channel('chats-changes')
-      .on('postgres_changes', { event: '*', schema: 'public', table: 'chat_sessions' }, async (payload) => {
-        console.log('📡 Realtime: Mudança em sessões de chat', payload);
-        triggerRefresh();
-      })
-      .on('postgres_changes', { event: '*', schema: 'public', table: 'chat_messages' }, async (payload) => {
-        console.log('📡 Realtime: Nova mensagem de chat', payload);
-        triggerRefresh();
-        
-        if (payload.eventType === 'INSERT' && payload.new.sender_id !== currentUser.id) {
-          const isCurrentChat = activeChatRef.current === payload.new.session_id;
-          if (!isCurrentChat || !chatOpenRef.current) {
-            playSound('chat');
+      const chatChannel = supabase.channel('chats-changes')
+        .on('postgres_changes', { event: '*', schema: 'public', table: 'chat_sessions' }, async (payload) => {
+          console.log('📡 Realtime: Mudança em sessões de chat', payload);
+          triggerRefresh();
+        })
+        .on('postgres_changes', { event: '*', schema: 'public', table: 'chat_messages' }, async (payload) => {
+          console.log('📡 Realtime: Nova mensagem de chat', payload);
+          triggerRefresh();
+          
+          if (payload.eventType === 'INSERT' && payload.new.sender_id !== currentUser.id) {
+            const isCurrentChat = activeChatRef.current === payload.new.session_id;
+            if (!isCurrentChat || !chatOpenRef.current) {
+              playSound('chat');
+            }
           }
-        }
-      })
-      .subscribe();
+        })
+        .subscribe();
 
     // Internal chat channel for team messaging
     const internalChatChannel = supabase.channel('internal-chats-changes')

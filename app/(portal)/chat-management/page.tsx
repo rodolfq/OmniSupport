@@ -85,10 +85,16 @@ export default function ChatManagementPage() {
   const refreshData = React.useCallback(async (sync = false) => {
     // Get chat sessions from Supabase
     const { data: chatData, error: chatError } = await supabase.from('chat_sessions').select('*');
+    if (chatError) {
+      console.error('Error fetching chat sessions:', chatError);
+    }
     setSessions(chatData || []);
     
     // Get analyst statuses
-    const { data: statusData } = await supabase.from('analyst_status').select('*');
+    const { data: statusData, error: statusError } = await supabase.from('analyst_status').select('*');
+    if (statusError) {
+      console.error('Error fetching analyst statuses:', statusError);
+    }
     setStatuses(statusData || []);
     
     // Get quick notes via action
