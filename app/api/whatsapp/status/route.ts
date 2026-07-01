@@ -5,16 +5,10 @@ import { WhatsAppService } from '@/lib/services/whatsapp-service';
 export async function GET(request: NextRequest) {
   const searchParams = request.nextUrl.searchParams;
   const instanceId = searchParams.get('instanceId') || 'default';
-  
-  const sock = (WhatsAppService as any).instances?.get(instanceId);
-  const isConnected = !!sock;
-  const qr = await WhatsAppService.getQR(instanceId);
-  
-  return NextResponse.json({ 
-    connected: isConnected, 
-    qr,
-    status: isConnected ? 'connected' : qr ? 'connecting' : 'disconnected'
-  });
+
+  const { connected, status, qr } = WhatsAppService.getStatus(instanceId);
+
+  return NextResponse.json({ connected, qr, status });
 }
 
 // POST /api/whatsapp/connect
