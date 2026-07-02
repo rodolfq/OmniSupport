@@ -1,5 +1,43 @@
 import { supabase } from '../supabase';
 import { ChatSession, ChatMessage } from '../types';
+import { normalizePhone } from '../utils';
+
+function phoneSessionLookupVariants(phone: string): string[] {
+    const digits = normalizePhone(phone);
+    if (!digits) return [];
+    const variants = new Set<string>([digits]);
+    if (digits.startsWith('55') && digits.length > 11) {
+        variants.add(digits.slice(2));
+    } else if (digits.length <= 11) {
+        variants.add(`55${digits}`);
+    }
+    return [...variants];
+}
+
+function isLikelyDialablePhone(digits: string): boolean {
+    return digits.startsWith('55') && digits.length >= 12 && digits.length <= 13;
+}
+
+export async function findExistingChatSessionByPhone(phone: string): Promise<string | null> {
+    if (!supabase) return null;
+
+    const variants = phoneSessionLookupVariants(phone);
+    if (!variants.length) return null;
+
+    const { data, error } = await supabase
+        .from('chat_sessions')
+        .select('id, customer_phone, updated_at')
+        .in('customer_phone', variants)
+        .order('updated_at', { ascending: false });
+
+    if (error || !data?.length) return null;
+
+    const dialable = data.find((session) =>
+        isLikelyDialablePhone(normalizePhone(session.customer_phone || ''))
+    );
+
+    return (dialable || data[0]).id;
+}
 
 function mapChatSession(s: any): ChatSession {
     const messages = (s.messages || [])
@@ -56,7 +94,9 @@ export async function fetchChatSessions(signal?: AbortSignal): Promise<ChatSessi
             error.code === '20' ||
             error.message?.toLowerCase().includes('aborted') ||
             error.message?.toLowerCase().includes('lock broken');
-        if (isAbortError) return [];
+        if (isAbortError) {
+            throw new DOMException('Fetch aborted', 'AbortError');
+        }
         console.error("Error fetching chat sessions:", error);
         return [];
     }
@@ -102,16 +142,21 @@ export async function createChatSession(session: ChatSession): Promise<string> {
         throw new Error('Supabase not initialized');
     }
     
-    const { data, error } = await supabase
-        .from('chat_sessions')
-        .insert({
-          customer_id: session.customerId,
+    const payload: Record<string, unknown> = {
           customer_name: session.customerName,
           customer_phone: session.customerPhone,
           status: session.status,
           created_at: session.startedAt,
           updated_at: new Date().toISOString()
-        })
+        };
+
+    if (session.customerId) {
+        payload.customer_id = session.customerId;
+    }
+
+    const { data, error } = await supabase
+        .from('chat_sessions')
+        .insert(payload)
         .select('id')
         .single();
         

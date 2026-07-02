@@ -6,6 +6,8 @@ export async function GET(request: NextRequest) {
   const searchParams = request.nextUrl.searchParams;
   const instanceId = searchParams.get('instanceId') || 'default';
 
+  await WhatsAppService.ensureConnection(instanceId);
+
   const { connected, status, qr } = WhatsAppService.getStatus(instanceId);
 
   return NextResponse.json({ connected, qr, status });
@@ -17,7 +19,7 @@ export async function POST(request: NextRequest) {
   const id = instanceId || 'default';
   
   try {
-    await WhatsAppService.connect(id);
+    await WhatsAppService.connect(id, { manual: true });
     return NextResponse.json({ success: true });
   } catch (error: any) {
     return NextResponse.json({ error: error.message }, { status: 500 });

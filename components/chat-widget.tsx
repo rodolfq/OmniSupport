@@ -37,7 +37,7 @@ import {
   Company,
   MockDB
 } from '@/lib/mock-db';
-import { fetchChatSessions, pushChatMessage, createChatSession, saveChatHistory } from '@/lib/services/chat.service';
+import { fetchChatSessions, pushChatMessage, createChatSession, saveChatHistory, findExistingChatSessionByPhone } from '@/lib/services/chat.service';
 import { fetchQuickNotes, fetchAnalystStatuses, fetchCompanies, fetchUsers, fetchQueues } from '@/lib/services/config.service';
 import { cn, maskPhone, matchPhones, safeJsonStringify } from '@/lib/utils';
 import { useApp } from '@/app/app-context';
@@ -250,34 +250,30 @@ export function ChatWidget() {
     return notifications.filter(n => !n.read && n.targetId === sessionId).length;
   };
 
-  const isFetchingSessionsRef = useRef(false);
   const abortControllerRef = useRef<AbortController | null>(null);
 
   useEffect(() => {
     async function loadSessions() {
-      if (isFetchingSessionsRef.current) return;
-      
-      // Abort previous request
       if (abortControllerRef.current) {
         abortControllerRef.current.abort();
       }
-      
+
       const controller = new AbortController();
       abortControllerRef.current = controller;
-      isFetchingSessionsRef.current = true;
 
       try {
         const sessions = await fetchChatSessions(controller.signal);
+        if (controller.signal.aborted || abortControllerRef.current !== controller) {
+          return;
+        }
         setCustomerSessions(sessions);
       } catch (err: any) {
         const errMsg = String(err?.message ?? '');
         if (err?.name === 'AbortError' || errMsg.includes('aborted')) {
-          // Ignore
-        } else {
-          console.error("Failed to load sessions in widget:", err);
+          return;
         }
+        console.error("Failed to load sessions in widget:", err);
       } finally {
-        isFetchingSessionsRef.current = false;
         if (abortControllerRef.current === controller) {
           abortControllerRef.current = null;
         }
@@ -480,19 +476,21 @@ useEffect(() => {
           const phone = session.customerPhone.replace(/\D/g, '');
 
           if (phone) {
-            fetch('/api/whatsapp/send', {
-              method: 'POST',
-              headers: { 'Content-Type': 'application/json' },
-              body: safeJsonStringify({ instanceId, to: phone, message: newMessage.text }),
-            })
-              .then(async (res) => {
-                if (!res.ok) {
-                  const body = await res.json().catch(() => ({}));
-                  console.error('WhatsApp send failed:', body.error || res.statusText);
-                  toast.warning('Mensagem salva, mas não foi enviada no WhatsApp.');
-                }
-              })
-              .catch(error => console.error('Failed to send real WhatsApp message:', error));
+            try {
+              const res = await fetch('/api/whatsapp/send', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: safeJsonStringify({ instanceId, to: phone, message: newMessage.text }),
+              });
+              if (!res.ok) {
+                const body = await res.json().catch(() => ({}));
+                console.error('WhatsApp send failed:', body.error || res.statusText);
+                toast.warning('Mensagem salva, mas não foi enviada no WhatsApp.');
+              }
+            } catch (error) {
+              console.error('Failed to send real WhatsApp message:', error);
+              toast.warning('Mensagem salva, mas não foi enviada no WhatsApp.');
+            }
           }
         }
         
@@ -541,10 +539,28 @@ useEffect(() => {
     if (!newChatNumber) return;
     
     try {
+      const digits = newChatNumber.replace(/\D/g, '');
+      if (digits.length >= 14) {
+        toast.error('Use o número de telefone (ex: 21991778567), não o ID interno do WhatsApp.');
+        return;
+      }
+      const phone = digits.length <= 11 && !digits.startsWith('55') ? `55${digits}` : digits;
+
+      const existingSessionId = await findExistingChatSessionByPhone(phone);
+      if (existingSessionId) {
+        setSelectedChatId(existingSessionId);
+        const sessions = await fetchChatSessions();
+        setCustomerSessions(sessions);
+        setIsNewChatModalOpen(false);
+        setNewChatNumber('');
+        setNewChatName('');
+        toast.info('Conversa existente aberta.');
+        return;
+      }
+
       const sessionId = await createChatSession({
-        customerId: crypto.randomUUID(),
-        customerName: newChatName || newChatNumber,
-        customerPhone: newChatNumber,
+        customerName: newChatName || phone,
+        customerPhone: phone,
         status: 'active',
         startedAt: new Date().toISOString()
       } as any);

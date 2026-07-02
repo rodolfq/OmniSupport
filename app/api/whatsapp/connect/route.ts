@@ -5,7 +5,7 @@ export async function POST(request: NextRequest) {
   const { instanceId } = await request.json();
   
   try {
-    await WhatsAppService.connect(instanceId);
+    await WhatsAppService.connect(instanceId || 'default', { manual: true });
     return NextResponse.json({ success: true });
   } catch (error: any) {
     return NextResponse.json({ error: error.message }, { status: 500 });

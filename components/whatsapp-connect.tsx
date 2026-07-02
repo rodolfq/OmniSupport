@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { QrCode, Power, RefreshCw } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import { cn } from '@/lib/utils';
@@ -9,32 +9,93 @@ interface WhatsAppConnectProps {
   instanceId?: string;
 }
 
+const DISCONNECTED_CONFIRM_POLLS = 3;
+
 export function WhatsAppConnect({ instanceId = 'default' }: WhatsAppConnectProps) {
   const [qr, setQr] = useState<string | null>(null);
   const [status, setStatus] = useState<'disconnected' | 'connecting' | 'connected'>('disconnected');
   const [loading, setLoading] = useState(false);
+  const statusRef = useRef(status);
+  const disconnectedPollsRef = useRef(0);
+  const pollInFlightRef = useRef(false);
+
+  useEffect(() => {
+    statusRef.current = status;
+  }, [status]);
   
   const fetchQR = async () => {
-    const res = await fetch(`/api/whatsapp/status?instanceId=${instanceId}`);
-    const data = await res.json();
-    if (data.qr) {
-      setQr(data.qr);
-      setStatus(data.status === 'connected' ? 'connected' : 'connecting');
-    } else {
+    if (pollInFlightRef.current) return;
+    pollInFlightRef.current = true;
+
+    try {
+      const res = await fetch(`/api/whatsapp/status?instanceId=${instanceId}`);
+      const data = await res.json();
+
+      if (data.connected || data.status === 'connected') {
+        disconnectedPollsRef.current = 0;
+        setQr(null);
+        setStatus('connected');
+        return;
+      }
+      if (data.qr) {
+        disconnectedPollsRef.current = 0;
+        setQr(data.qr);
+        setStatus('connecting');
+        return;
+      }
+      if (data.status === 'connecting') {
+        disconnectedPollsRef.current = 0;
+        setQr(null);
+        if (statusRef.current !== 'connected') {
+          setStatus('connecting');
+        }
+        return;
+      }
+
+      disconnectedPollsRef.current += 1;
+      if (
+        statusRef.current === 'connected' &&
+        disconnectedPollsRef.current < DISCONNECTED_CONFIRM_POLLS
+      ) {
+        return;
+      }
+
       setQr(null);
-      setStatus(data.status || 'disconnected');
+      setStatus('disconnected');
+    } finally {
+      pollInFlightRef.current = false;
     }
   };
   
   const connect = async () => {
     setLoading(true);
     setStatus('connecting');
+    disconnectedPollsRef.current = 0;
     await fetch('/api/whatsapp/connect', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ instanceId })
     });
-    fetchQR();
+
+    for (let i = 0; i < 30; i++) {
+      await new Promise((resolve) => setTimeout(resolve, 1000));
+      const res = await fetch(`/api/whatsapp/status?instanceId=${instanceId}`);
+      const data = await res.json();
+      if (data.qr) {
+        setQr(data.qr);
+        setStatus('connecting');
+        setLoading(false);
+        return;
+      }
+      if (data.connected || data.status === 'connected') {
+        setQr(null);
+        setStatus('connected');
+        disconnectedPollsRef.current = 0;
+        setLoading(false);
+        return;
+      }
+    }
+
     setLoading(false);
   };
   
@@ -44,15 +105,16 @@ export function WhatsAppConnect({ instanceId = 'default' }: WhatsAppConnectProps
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ instanceId })
     });
+    disconnectedPollsRef.current = 0;
     setQr(null);
     setStatus('disconnected');
   };
   
   useEffect(() => {
     fetchQR();
-    const interval = setInterval(fetchQR, 5000);
+    const interval = setInterval(fetchQR, 10000);
     return () => clearInterval(interval);
-  }, []);
+  }, [instanceId]);
   
   return (
     <div className="bg-white border border-slate-200 rounded-3xl p-6">
@@ -92,6 +154,12 @@ export function WhatsAppConnect({ instanceId = 'default' }: WhatsAppConnectProps
           <p className="text-sm text-emerald-600 font-bold">WhatsApp conectado!</p>
         )}
         
+        {!qr && status === 'connecting' && (
+          <p className="text-sm text-amber-600 font-bold">
+            {loading ? 'Gerando QR Code...' : 'Conectando...'}
+          </p>
+        )}
+
         {!qr && status === 'disconnected' && (
           <p className="text-sm text-slate-500">Clique para conectar o WhatsApp</p>
         )}
