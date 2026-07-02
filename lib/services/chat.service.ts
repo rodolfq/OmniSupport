@@ -1,64 +1,10 @@
 import { supabase } from '../supabase';
 import { ChatSession, ChatMessage } from '../types';
 
-export async function fetchChatSessions(signal?: AbortSignal): Promise<ChatSession[]> {
-    if (!supabase) {
-        console.warn("Supabase not initialized");
-        return [];
-    }
-    
-    console.log('[DEBUG] fetchChatSessions: Starting query...');
-    
-    // Try to get sessions first (without abort signal which may be causing issues)
-    const { data, error } = await supabase
-        .from('chat_sessions')
-        .select('*')
-        .order('created_at', { ascending: false });
-        
-    console.log('[DEBUG] fetchChatSessions: Query result', { 
-        dataLength: data?.length, 
-        error: error ? {
-            code: error.code,
-            message: error.message,
-            details: error.details,
-            hint: error.hint
-        } : null 
-    });
-        
-    if (error) {
-        console.error("Error fetching chat sessions:", {
-          code: error.code,
-          message: error.message,
-          details: error.details,
-          hint: error.hint
-        });
-        
-        // Don't throw - return empty array to prevent blocking UI
-        // This handles RLS issues gracefully
-        return [];
-    }
-    
-    // Then fetch messages for each session
-    const sessionsWithMessages = await Promise.all((data || []).map(async (s: any) => {
-        const { data: messages, error: msgError } = await supabase
-            .from('chat_messages')
-            .select('*')
-            .eq('session_id', s.id)
-            .order('created_at', { ascending: true });
-            
-        if (msgError) {
-            console.error(`Error fetching messages for session ${s.id}:`, msgError);
-        }
-        
-        return {
-          id: s.id,
-          customerId: s.customer_id,
-          customerName: s.customer_name,
-          customerPhone: s.customer_phone,
-          assigneeId: s.assignee_id,
-          queueId: s.queue_id,
-          status: s.status,
-          messages: (messages || []).map((m: any) => ({
+function mapChatSession(s: any): ChatSession {
+    const messages = (s.messages || [])
+        .sort((a: any, b: any) => new Date(a.created_at).getTime() - new Date(b.created_at).getTime())
+        .map((m: any) => ({
             id: m.id,
             senderId: m.sender_id,
             senderName: m.sender_name,
@@ -66,13 +12,56 @@ export async function fetchChatSessions(signal?: AbortSignal): Promise<ChatSessi
             timestamp: m.created_at,
             type: m.type,
             metadata: m.metadata
-          })),
-          startedAt: s.created_at,
-          lastMessageAt: s.last_message_at || s.created_at
-        };
-    }));
-    
-    return sessionsWithMessages as ChatSession[];
+        }));
+
+    return {
+        id: s.id,
+        customerId: s.customer_id,
+        customerName: s.customer_name,
+        customerPhone: s.customer_phone,
+        assigneeId: s.assignee_id,
+        queueId: s.queue_id,
+        status: s.status,
+        messages,
+        startedAt: s.created_at,
+        lastMessageAt: s.last_message_at || s.created_at
+    };
+}
+
+export async function fetchChatSessions(signal?: AbortSignal): Promise<ChatSession[]> {
+    if (!supabase) {
+        console.warn("Supabase not initialized");
+        return [];
+    }
+
+    let query = supabase
+        .from('chat_sessions')
+        .select(`
+            *,
+            messages:chat_messages!chat_messages_session_id_fkey(
+              id, sender_id, sender_name, text, type, metadata, created_at
+            )
+        `)
+        .order('created_at', { ascending: false });
+
+    if (signal) {
+        query = query.abortSignal(signal as any);
+    }
+
+    const { data, error } = await query;
+
+    if (error) {
+        const isAbortError =
+            error.message === 'FetchIsAborted' ||
+            error.code === '20' ||
+            error.message?.toLowerCase().includes('aborted') ||
+            error.message?.toLowerCase().includes('lock broken');
+        if (isAbortError) return [];
+        console.error("Error fetching chat sessions:", error);
+        return [];
+    }
+
+    return (data || []).map(mapChatSession) as ChatSession[];
 }
 
 export async function pushChatMessage(sessionId: string, message: ChatMessage): Promise<void> {

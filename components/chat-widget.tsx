@@ -148,6 +148,7 @@ export function ChatWidget() {
 
   const [chatFilter, setChatFilter] = useState<'all' | 'me' | 'queue'>('all');
   const [userQueues, setUserQueues] = useState<string[]>([]);
+  const [allQueues, setAllQueues] = useState<any[]>([]);
 
   useEffect(() => {
     const controller = new AbortController();
@@ -176,9 +177,10 @@ export function ChatWidget() {
         setCompanies(comp);
         setAllUsers(users);
         
+        let queues = await fetchQueues(controller.signal).catch(e => { console.error('queues fetch error:', e); return [] as any; });
+        setAllQueues(queues || []);
         if (currentUser) {
-            let allQueues = await fetchQueues(controller.signal).catch(e => { console.error('queues fetch error:', e); return [] as any; });
-            const myQueues = allQueues.filter((q: any) => q.memberIds?.includes?.(currentUser.id)).map((q: any) => q.id);
+            const myQueues = queues.filter((q: any) => q.member_ids?.includes?.(currentUser.id) || q.memberIds?.includes?.(currentUser.id)).map((q: any) => q.id);
             setUserQueues(myQueues || []);
         }
       } catch (err: any) {
@@ -467,26 +469,32 @@ useEffect(() => {
         setCustomerSessions(updatedSessions);
         setShouldAutoScroll(true);
 
-        // WhatsApp integration happens before clearing message
-        if (session.customerPhone) {
-          const queue = MockDB.getQueues().find(q => q.id === session.queueId);
-          const instanceId = queue?.whatsappInstanceId || 'wa1';
-          
-          fetch('/api/whatsapp/send', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: safeJsonStringify({ 
-              sessionId: instanceId, 
-              to: session.customerPhone, 
-              text: message 
-            })
-          }).catch(error => console.error('Failed to send real WhatsApp message:', error));
-        }
-
         setMessage('');
 
-        // Save via Supabase
+        // Save via Supabase first, then attempt WhatsApp delivery
         await pushChatMessage(selectedChatId, newMessage);
+
+        if (session.customerPhone) {
+          const queue = allQueues.find((q: any) => q.id === session.queueId);
+          const instanceId = queue?.whatsapp_instance_id || queue?.whatsappInstanceId || 'default';
+          const phone = session.customerPhone.replace(/\D/g, '');
+
+          if (phone) {
+            fetch('/api/whatsapp/send', {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: safeJsonStringify({ instanceId, to: phone, message: newMessage.text }),
+            })
+              .then(async (res) => {
+                if (!res.ok) {
+                  const body = await res.json().catch(() => ({}));
+                  console.error('WhatsApp send failed:', body.error || res.statusText);
+                  toast.warning('Mensagem salva, mas não foi enviada no WhatsApp.');
+                }
+              })
+              .catch(error => console.error('Failed to send real WhatsApp message:', error));
+          }
+        }
         
         // Refresh sessions from Supabase
         const refreshedSessions = await fetchChatSessions();
