@@ -109,7 +109,13 @@ export async function POST(request: Request) {
       for (const record of records) {
         const columns = Object.keys(record);
         const placeholders = columns.map((_, i) => `$${paramIndex + i}`).join(',');
-        const recordParams = columns.map(col => record[col]);
+        const recordParams = columns.map(col => {
+          const val = record[col];
+          if (val !== null && typeof val === 'object' && !(val instanceof Date)) {
+            return JSON.stringify(val);
+          }
+          return val;
+        });
 
         let upsertClause = '';
         if (action === 'upsert') {
@@ -139,7 +145,13 @@ export async function POST(request: Request) {
       if (columns.length === 0) return NextResponse.json([]);
 
       const setAssignments = columns.map((col, idx) => `${col} = $${paramIndex + idx}`).join(', ');
-      const updateParams = columns.map(col => payload[col]);
+      const updateParams = columns.map(col => {
+        const val = payload[col];
+        if (val !== null && typeof val === 'object' && !(val instanceof Date)) {
+          return JSON.stringify(val);
+        }
+        return val;
+      });
       
       params.unshift(...updateParams); // Put updates first in params array
       paramIndex += columns.length;

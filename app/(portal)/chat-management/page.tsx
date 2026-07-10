@@ -1,4 +1,4 @@
-﻿'use client';
+'use client';
 
 import React, { useState, useEffect, useRef } from 'react';
 import { toast } from 'sonner';
@@ -42,7 +42,7 @@ import { supabase } from '@/lib/supabase';
 import { getQuickNotes, saveQuickNote as saveQuickNoteAction, deleteQuickNote, getAnalysts, getCompanies, updateUserStatus } from '@/app/actions';
 
 export default function ChatManagementPage() {
-  const { currentUser, setActiveOmniChatId, setIsOmniChatOpen, refreshTrigger } = useApp();
+  const { currentUser, setActiveOmniChatId, setIsOmniChatOpen, refreshTrigger, userStatus } = useApp();
   const [sessions, setSessions] = useState<ChatSession[]>([]);
   const [statuses, setStatuses] = useState<AnalystStatus[]>([]);
   const [notes, setNotes] = useState<QuickNote[]>([]);
@@ -236,6 +236,10 @@ const handleDeleteNote = async () => {
 
   const handleAssignAnalyst = async (sessionId: string) => {
     if (!currentUser) return;
+    if (userStatus !== 'online') {
+      toast.error('Você precisa estar Online para assumir atendimentos!');
+      return;
+    }
     const { error } = await supabase.from('chat_sessions').update({
       assignee_id: currentUser.id,
       status: 'active'

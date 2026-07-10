@@ -1,4 +1,4 @@
-﻿'use client';
+'use client';
 
 import React from 'react';
 import { Download, File, Image as ImageIcon, Film, Music, ExternalLink } from 'lucide-react';
@@ -21,6 +21,7 @@ export function AttachmentGallery({ attachments, title = "Todos os Anexos" }: At
   }
 
   const getIcon = (type: string) => {
+    if (!type) return <File size={20} className="text-slate-500" />;
     if (type.startsWith('image/')) return <ImageIcon size={20} className="text-indigo-500" />;
     if (type.startsWith('video/')) return <Film size={20} className="text-amber-500" />;
     if (type.startsWith('audio/')) return <Music size={20} className="text-emerald-500" />;
@@ -28,7 +29,7 @@ export function AttachmentGallery({ attachments, title = "Todos os Anexos" }: At
   };
 
   const formatSize = (bytes: number) => {
-    if (bytes === 0) return '0 B';
+    if (!bytes || bytes === 0) return '0 B';
     const k = 1024;
     const sizes = ['B', 'KB', 'MB', 'GB'];
     const i = Math.floor(Math.log(bytes) / Math.log(k));
@@ -44,7 +45,7 @@ export function AttachmentGallery({ attachments, title = "Todos os Anexos" }: At
 
       <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
         {attachments.map((file) => {
-          const isImage = file.type.startsWith('image/');
+          const isImage = file.type && file.type.startsWith('image/');
           
           return (
             <div 
@@ -82,7 +83,7 @@ export function AttachmentGallery({ attachments, title = "Todos os Anexos" }: At
                   <div className="min-w-0">
                     <p className="text-xs font-black text-slate-800 truncate" title={file.name}>{file.name}</p>
                     <p className="text-[10px] font-bold text-slate-400 mt-0.5 uppercase tracking-tighter">
-                      {file.type.split('/')[1] || 'FILE'} • {formatSize(file.size)}
+                      {(file.type && file.type.includes('/')) ? (file.type.split('/')[1] || 'FILE') : (file.type || 'FILE')} • {formatSize(file.size)}
                     </p>
                   </div>
                   <a 

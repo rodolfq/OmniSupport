@@ -104,7 +104,7 @@ export function NewTicketModal() {
         const { data: loadedUsers, error: usersError } = await supabase
           .from("profiles")
           .select("*");
-        
+
         let mappedUsers: User[] = [];
         if (usersError) {
           console.error("DEBUG usersError:", usersError);
@@ -231,7 +231,7 @@ export function NewTicketModal() {
       customerId: selectedCustomerId || currentUser.id,
       category: category || "Geral",
       tags: [],
-      // Note: employeeIds, assigneeId, attachments not in current schema - ignored for DB
+      attachments: attachments,
       createdAt: new Date().toISOString(),
       updatedAt: new Date().toISOString(),
     };
@@ -487,7 +487,7 @@ export function NewTicketModal() {
               {/* Anexos */}
               <div className="space-y-2">
                 <label className="text-[10px] font-black uppercase tracking-widest text-slate-400 ml-1">
-                  Anexos (Imagem, Ãudio, Docs)
+                  Anexos (Imagem, Áudio, Docs)
                 </label>
                 <div
                   onDragOver={(e) => {

@@ -16,6 +16,7 @@ import {
 } from 'lucide-react';
 import { RichEditor } from '@/components/rich-editor';
 import { toast } from 'sonner';
+import { ClientTime } from '@/components/client-time';
 
 interface Attachment {
   id: string;
@@ -239,7 +240,7 @@ export default function InternalTicketDetailPage() {
                       <div key={msg.id} className="bg-slate-50 rounded-lg p-3 border border-slate-200">
                         <div className="flex items-center gap-2 mb-1">
                           <span className="text-[10px] font-bold text-amber-600">
-                            {formatDate(msg.timestamp)}
+                            <ClientTime date={msg.timestamp} showDate={true} />
                           </span>
                         </div>
                         <p className="text-sm text-slate-700">{msg.text}</p>
@@ -295,7 +296,7 @@ export default function InternalTicketDetailPage() {
                   <div key={msg.id} className="bg-white rounded-lg p-3 border border-slate-200">
                     <div className="flex items-center gap-2 mb-1">
                       <span className="text-[10px] font-bold text-amber-600">
-                        {formatDate(msg.timestamp)}
+                        <ClientTime date={msg.timestamp} showDate={true} />
                       </span>
                     </div>
                     <p className="text-sm text-slate-700">{msg.text}</p>

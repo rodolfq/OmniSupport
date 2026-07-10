@@ -549,7 +549,12 @@ function TicketCard({ ticket, onEdit, teams = DEFAULT_TEAM_OPTIONS }: { ticket: 
 
       <h3 className="text-sm font-black text-slate-800 mb-2 line-clamp-2">{ticket.title}</h3>
       
-      <p className="text-xs text-slate-500 mb-3 line-clamp-2">{ticket.description}</p>
+      <p className="text-xs text-slate-500 mb-3 line-clamp-2">
+        {(() => {
+          const html = ticket.description || '';
+          return html.replace(/<[^>]*>/g, '').replace(/&nbsp;/g, ' ').trim();
+        })()}
+      </p>
 
       {/* Meta row */}
       <div className="flex items-center justify-between text-[10px] font-medium">

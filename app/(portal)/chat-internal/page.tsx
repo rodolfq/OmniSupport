@@ -1,4 +1,4 @@
-﻿'use client';
+'use client';
 
 import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { 
@@ -38,6 +38,7 @@ import { cn, normalizeString } from '@/lib/utils';
 import { useApp } from '@/app/app-context';
 import { InternalGroup, ChatMessage, User, UserRole, Permission } from '@/lib/types';
 import { supabase } from '@/lib/supabase';
+import { ClientTime } from '@/components/client-time';
 import { InternalChatService } from '@/lib/services/chat-service';
 import { UserService } from '@/lib/services/user-service';
 import { useRouter } from 'next/navigation';
@@ -993,7 +994,7 @@ export default function ChatInternalPage() {
                              </>
                           )}
                           <span className="text-[9px] font-bold text-slate-400">
-                            {new Date(msg.timestamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+                            <ClientTime date={msg.timestamp} />
                           </span>
                           {isMine && (
                             msg.readBy && msg.readBy.length > (selectedRoom.type === 'group' ? 1 : 1) ? (

@@ -1,4 +1,4 @@
-﻿'use client';
+'use client';
 
 import React, { useState, useEffect, useMemo } from 'react';
 import { getUsers, getCompanies, deleteCompany } from '@/app/actions';
@@ -22,7 +22,7 @@ function WhatsAppNumberModal({
   onClose: () => void, 
   user: User | null 
 }) {
-  const { currentUser, setIsOmniChatOpen, setActiveOmniChatId } = useApp();
+  const { currentUser, setIsOmniChatOpen, setActiveOmniChatId, userStatus } = useApp();
   if (!user) return null;
   const phones = user.phones || (user.phone ? [user.phone] : []);
 
@@ -54,7 +54,7 @@ function WhatsAppNumberModal({
             
             <div className="space-y-2">
               {phones.length > 0 ? phones.map((n, idx) => (
-<button
+                <button
                    key={idx}
                    onClick={async () => {
                      const cleanPhone = n.replace(/\D/g, '');
@@ -67,24 +67,29 @@ function WhatsAppNumberModal({
                        sessionId = existing.id;
                        // Re-assign if current user is analyst and it's unassigned
                        if (!existing.assigneeId && currentUser && currentUser.role !== UserRole.CUSTOMER) {
+                         if (userStatus !== 'online') {
+                           alert('Você precisa estar Online para assumir atendimentos!');
+                           return;
+                         }
                          await supabase.from('chat_sessions').update({
                            assignee_id: currentUser.id,
                            status: 'active'
                          }).eq('id', sessionId);
                        }
                      } else {
+                       const isOnlineAnalyst = currentUser?.role !== UserRole.CUSTOMER && userStatus === 'online';
                        const { data: newSession } = await supabase.from('chat_sessions').insert({
                          customer_id: user.id,
                          customer_name: user.name,
                          customer_phone: cleanPhone,
-                         status: currentUser?.role !== UserRole.CUSTOMER ? 'active' : 'pending',
-                         assignee_id: currentUser?.role !== UserRole.CUSTOMER ? currentUser?.id : null,
+                         status: isOnlineAnalyst ? 'active' : 'pending',
+                         assignee_id: isOnlineAnalyst ? currentUser?.id : null,
                          messages: [],
                          started_at: new Date().toISOString(),
                          last_message_at: new Date().toISOString()
-                      }).select('id').single();
-                      sessionId = newSession?.id || '';
-                    }
+                       }).select('id').single();
+                       sessionId = newSession?.id || '';
+                     }
                     
                     setActiveOmniChatId(sessionId);
                     setIsOmniChatOpen(true);

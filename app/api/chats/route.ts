@@ -173,7 +173,7 @@ export async function POST(request: Request) {
 
     if (action === 'create-session') {
       const { session } = body;
-      const id = session.id;
+      const id = session.id || crypto.randomUUID();
       await query(
         `INSERT INTO public.chat_sessions (id, customer_id, customer_name, customer_phone, status, created_at, updated_at)
          VALUES ($1, $2, $3, $4, $5, $6, NOW())`,
@@ -229,12 +229,14 @@ export async function POST(request: Request) {
     if (action === 'log-status-change') {
       const { userId, status, reason } = body;
       await query(
-        `UPDATE public.analyst_status
-         SET current_reason = $1,
-             is_online = $2,
-             last_active = NOW()
-         WHERE user_id = $3`,
-        [reason || null, status === 'online', userId]
+        `INSERT INTO public.analyst_status (user_id, is_online, last_active, current_reason, status)
+         VALUES ($1, $2, NOW(), $3, $4)
+         ON CONFLICT (user_id) DO UPDATE SET
+           is_online = EXCLUDED.is_online,
+           last_active = NOW(),
+           current_reason = EXCLUDED.current_reason,
+           status = EXCLUDED.status`,
+        [userId, status === 'online', reason || null, status]
       );
       await query(
         `INSERT INTO public.user_status_history (user_id, status, reason, timestamp)

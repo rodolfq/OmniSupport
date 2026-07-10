@@ -28,6 +28,14 @@ export async function GET(request: NextRequest) {
 
     const profile = result.rows[0];
 
+    // Buscar status de analista
+    const statusResult = await query(
+      'SELECT status, current_reason FROM public.analyst_status WHERE user_id = $1',
+      [decoded.id]
+    );
+    const dbStatus = statusResult.rowCount > 0 ? statusResult.rows[0] : null;
+    const status = dbStatus?.status || 'online';
+
     return NextResponse.json({
       user: {
         id: profile.id,
@@ -39,7 +47,9 @@ export async function GET(request: NextRequest) {
         viewAllCompanyTickets: profile.view_all_company_tickets,
         mustChangePassword: profile.must_change_password,
         isAdmin: profile.is_admin,
-        livesInSquad: profile.lives_in_squad
+        livesInSquad: profile.lives_in_squad,
+        status: status,
+        statusReason: dbStatus?.current_reason || null
       }
     });
   } catch (error: any) {

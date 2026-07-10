@@ -90,6 +90,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
   const userRef = useRef<User | null>(null);
   const activeChatRef = useRef<string | null>(null);
   const chatOpenRef = useRef<boolean>(false);
+  const initialStatusLoadedRef = useRef<boolean>(false);
 
   const [notificationSettings, setNotificationSettings] = useState<NotificationSettings>(DEFAULT_SETTINGS);
   const settingsRef = useRef<NotificationSettings>(DEFAULT_SETTINGS);
@@ -216,6 +217,11 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
           const data = await res.json();
           if (data.user) {
             console.log('👤 AppContext: Usuário autenticado via API:', data.user);
+            if (data.user.status) {
+              setUserStatusState(data.user.status);
+              setUserStatusReason(data.user.statusReason || null);
+            }
+            initialStatusLoadedRef.current = true;
             setCurrentUser({
               id: data.user.id,
               name: data.user.name,
@@ -226,7 +232,9 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
               viewAllCompanyTickets: data.user.viewAllCompanyTickets,
               mustChangePassword: data.user.mustChangePassword,
               isAdmin: data.user.isAdmin,
-              livesInSquad: data.user.livesInSquad
+              livesInSquad: data.user.livesInSquad,
+              status: data.user.status,
+              statusReason: data.user.statusReason
             });
           } else {
             setCurrentUser(null);
@@ -265,6 +273,10 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
 
   useEffect(() => {
     if (currentUser) {
+      if (!initialStatusLoadedRef.current) {
+        initialStatusLoadedRef.current = true;
+        return;
+      }
       const updateStatus = async () => {
         if (currentUser.role !== UserRole.CUSTOMER) {
           await AnalystService.logStatusChange(currentUser.id, userStatus, userStatusReason || undefined);

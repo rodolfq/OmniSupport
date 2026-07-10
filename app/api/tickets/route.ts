@@ -22,7 +22,8 @@ export async function GET(request: Request) {
         text: m.content,
         timestamp: m.created_at,
         isVisibleToCustomer: m.is_visible_to_customer,
-        type: m.type
+        type: m.type,
+        attachments: m.attachments_data || []
       })));
     }
 
@@ -55,6 +56,7 @@ export async function GET(request: Request) {
         ticketNumber: data.public_ticket_number,
         companyId: data.company_id,
         customerId: data.customer_id,
+        attachments: data.attachments_data || [],
         createdAt: data.created_at,
         updatedAt: data.updated_at
       });
@@ -83,6 +85,7 @@ export async function GET(request: Request) {
         companyId: t.company_id,
         customerId: t.customer_id,
         customerName: customerMap.get(t.customer_id),
+        attachments: t.attachments_data || [],
         createdAt: t.created_at,
         updatedAt: t.updated_at
       }));
@@ -131,8 +134,8 @@ export async function POST(request: Request) {
       }
 
       const res = await query(
-        `INSERT INTO public.tickets (title, description, status, priority, category, company_id, customer_id, created_by)
-         VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
+        `INSERT INTO public.tickets (title, description, status, priority, category, company_id, customer_id, created_by, attachments_data)
+         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
          RETURNING *`,
         [
           ticket.title,
@@ -142,7 +145,8 @@ export async function POST(request: Request) {
           ticket.category || 'Geral',
           companyId,
           userId,
-          userId
+          userId,
+          JSON.stringify(ticket.attachments || [])
         ]
       );
 
@@ -170,8 +174,8 @@ export async function POST(request: Request) {
       const { message } = body;
       
       const res = await query(
-        `INSERT INTO public.ticket_messages (id, ticket_id, author_id, content, created_at, is_visible_to_customer, type)
-         VALUES ($1, $2, $3, $4, $5, $6, $7)
+        `INSERT INTO public.ticket_messages (id, ticket_id, author_id, content, created_at, is_visible_to_customer, type, attachments_data)
+         VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
          RETURNING *`,
         [
           message.id || crypto.randomUUID(),
@@ -180,7 +184,8 @@ export async function POST(request: Request) {
           message.text,
           message.timestamp || new Date().toISOString(),
           message.isVisibleToCustomer !== false,
-          message.type || 'text'
+          message.type || 'text',
+          JSON.stringify(message.attachments || [])
         ]
       );
       

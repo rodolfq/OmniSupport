@@ -195,10 +195,14 @@ export async function updateUserStatus(userId: string, isOnline: boolean, reason
   try {
     const status = isOnline ? 'online' : 'offline';
     await query(
-      `INSERT INTO public.analyst_status (user_id, status, last_seen)
-       VALUES ($1, $2, NOW())
-       ON CONFLICT (user_id) DO UPDATE SET status = EXCLUDED.status, last_seen = NOW()`,
-      [userId, status]
+      `INSERT INTO public.analyst_status (user_id, is_online, last_active, current_reason, status)
+       VALUES ($1, $2, NOW(), $3, $4)
+       ON CONFLICT (user_id) DO UPDATE SET
+         is_online = EXCLUDED.is_online,
+         last_active = NOW(),
+         current_reason = EXCLUDED.current_reason,
+         status = EXCLUDED.status`,
+      [userId, isOnline, reason || null, status]
     );
     await query(
       `INSERT INTO public.user_status_history (user_id, status, reason)

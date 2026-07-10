@@ -43,6 +43,7 @@ import { useApp } from '@/app/app-context';
 import { supabase } from '@/lib/supabase';
 import { useSearchParams } from 'next/navigation';
 import { LinkContactModal } from '@/components/link-contact-modal';
+import { ClientTime } from '@/components/client-time';
 import { toast } from 'sonner';
 
 export function ChatWidget() {
@@ -970,7 +971,7 @@ useEffect(() => {
                           {m.text}
                         </div>
                         <span className="text-[9px] text-slate-400 font-black uppercase mt-1.5 px-1 tracking-widest">
-                          {m.senderId === currentUser.id ? 'Você' : m.senderName} • {new Date(m.timestamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+                          {m.senderId === currentUser.id ? 'Você' : m.senderName} • <ClientTime date={m.timestamp} />
                         </span>
                       </div>
                     ))}

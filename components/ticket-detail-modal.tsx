@@ -1,4 +1,4 @@
-﻿'use client';
+'use client';
 
 import React, { useState, useEffect, useRef } from 'react';
 import { X, User, MessageCircle, Clock, Link2, Paperclip, Save, Maximize2, Minimize2, Send, Lock, History, Download, File, Image as ImageIcon, Film } from 'lucide-react';
@@ -12,6 +12,7 @@ import { toast } from 'sonner';
 import { RichEditor } from './rich-editor';
 import { AttachmentGallery } from './attachment-gallery';
 import { LinkInternalTicketModal } from './link-internal-ticket-modal';
+import { ClientTime } from './client-time';
 import { TicketService, MessageService, InternalTicketService } from '@/lib/services/ticket-service';
 import { UserService } from '@/lib/services/user-service';
 import { CompanyService } from '@/lib/services/company-service';
@@ -45,12 +46,13 @@ export function TicketDetailModal({ ticket, onClose }: TicketDetailModalProps) {
   // ... (rest of memos)
   const allAttachments = React.useMemo(() => {
     if (!ticket) return [];
-    const fromTicket = ticket.attachments || [];
-    const fromMessages = messages.flatMap(m => m.attachments || []);
+    const fromTicket = Array.isArray(ticket.attachments) ? ticket.attachments : [];
+    const fromMessages = messages.flatMap(m => Array.isArray(m.attachments) ? m.attachments : []);
     
-    // De-duplicate by ID or URL
+    // De-duplicate by ID or URL and skip empty objects
     const seen = new Set();
     return [...fromTicket, ...fromMessages].filter(att => {
+      if (!att || typeof att !== 'object' || (!att.id && !att.url)) return false;
       const key = att.id || att.url;
       if (seen.has(key)) return false;
       seen.add(key);
@@ -1008,7 +1010,7 @@ const handleSendMessage = async (isInternal: boolean) => {
                                  <div className="flex-1 min-w-0">
                                     <div className="flex items-center justify-between gap-4 mb-1">
                                       <span className="text-xs font-bold text-slate-800 truncate">{entry.author}</span>
-                                      <span className="text-[10px] font-medium text-slate-400 shrink-0">{new Date(entry.timestamp).toLocaleString()}</span>
+                                      <span className="text-[10px] font-medium text-slate-400 shrink-0"><ClientTime date={entry.timestamp} showDate={true} /></span>
                                     </div>
                                     <p className="text-xs text-slate-600 leading-relaxed">{entry.description}</p>
                                  </div>
@@ -1079,7 +1081,7 @@ const handleSendMessage = async (isInternal: boolean) => {
                         <div className="flex-1 min-w-0">
                           <div className="flex items-center gap-2 mb-1">
                             <span className="text-xs font-black text-slate-800">{sender?.name}</span>
-                            <span className="text-[9px] font-bold text-slate-400">{new Date(m.timestamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}</span>
+                            <span className="text-[9px] font-bold text-slate-400"><ClientTime date={m.timestamp} /></span>
                             {isInternal && (
                               <span className="text-[8px] font-black px-1 py-0.5 bg-amber-100 text-amber-600 rounded uppercase tracking-tighter">Interno</span>
                             )}

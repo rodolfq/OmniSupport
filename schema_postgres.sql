@@ -46,7 +46,7 @@ CREATE TABLE public.companies (
   name TEXT NOT NULL,
   industry TEXT,
   phone TEXT,
-  created_at TIMESTAMP WITH TIME ZONE DEFAULT timezone('utc'::text, now()) NOT NULL
+  created_at TIMESTAMP WITH TIME ZONE DEFAULT now() NOT NULL
 );
 
 -- Profiles (Users) Table (Pure PostgreSQL)
@@ -64,7 +64,7 @@ CREATE TABLE public.profiles (
   password TEXT, -- PBKDF2 hashed password
   must_change_password BOOLEAN DEFAULT TRUE,
   view_all_company_tickets BOOLEAN DEFAULT FALSE,
-  created_at TIMESTAMP WITH TIME ZONE DEFAULT timezone('utc'::text, now()) NOT NULL
+  created_at TIMESTAMP WITH TIME ZONE DEFAULT now() NOT NULL
 );
 
 -- Internal Teams Table
@@ -72,7 +72,7 @@ CREATE TABLE public.internal_teams (
   id UUID PRIMARY KEY DEFAULT (md5(random()::text || clock_timestamp()::text)::uuid),
   name TEXT NOT NULL UNIQUE,
   description TEXT,
-  created_at TIMESTAMP WITH TIME ZONE DEFAULT timezone('utc'::text, now()) NOT NULL
+  created_at TIMESTAMP WITH TIME ZONE DEFAULT now() NOT NULL
 );
 
 CREATE INDEX IF NOT EXISTS idx_profiles_internal_teams ON public.profiles USING gin (internal_team_ids);
@@ -83,14 +83,14 @@ CREATE TABLE public.role_permissions (
   name TEXT NOT NULL UNIQUE,
   role TEXT NOT NULL,
   permissions TEXT[] DEFAULT '{}',
-  created_at TIMESTAMP WITH TIME ZONE DEFAULT timezone('utc'::text, now())
+  created_at TIMESTAMP WITH TIME ZONE DEFAULT now()
 );
 
 -- Analyst Status
 CREATE TABLE public.analyst_status (
   user_id UUID PRIMARY KEY REFERENCES public.profiles(id) ON DELETE CASCADE,
   is_online BOOLEAN DEFAULT FALSE,
-  last_active TIMESTAMP WITH TIME ZONE DEFAULT timezone('utc'::text, now()),
+  last_active TIMESTAMP WITH TIME ZONE DEFAULT now(),
   current_load INTEGER DEFAULT 0,
   current_reason TEXT
 );
@@ -102,8 +102,8 @@ CREATE TABLE public.user_status_history (
   status TEXT NOT NULL,
   reason TEXT,
   duration INTEGER DEFAULT 0,
-  timestamp TIMESTAMP WITH TIME ZONE DEFAULT timezone('utc'::text, now()) NOT NULL,
-  created_at TIMESTAMP WITH TIME ZONE DEFAULT timezone('utc'::text, now()) NOT NULL
+  timestamp TIMESTAMP WITH TIME ZONE DEFAULT now() NOT NULL,
+  created_at TIMESTAMP WITH TIME ZONE DEFAULT now() NOT NULL
 );
 
 -- Absence Reasons
@@ -111,7 +111,7 @@ CREATE TABLE public.absence_reasons (
   id UUID PRIMARY KEY DEFAULT (md5(random()::text || clock_timestamp()::text)::uuid),
   label TEXT NOT NULL UNIQUE,
   is_active BOOLEAN DEFAULT true,
-  created_at TIMESTAMP WITH TIME ZONE DEFAULT timezone('utc'::text, now()) NOT NULL
+  created_at TIMESTAMP WITH TIME ZONE DEFAULT now() NOT NULL
 );
 
 -- Config Statuses
@@ -119,14 +119,14 @@ CREATE TABLE public.config_statuses (
   id UUID PRIMARY KEY DEFAULT (md5(random()::text || clock_timestamp()::text)::uuid),
   label TEXT NOT NULL UNIQUE,
   color TEXT,
-  created_at TIMESTAMP WITH TIME ZONE DEFAULT timezone('utc'::text, now()) NOT NULL
+  created_at TIMESTAMP WITH TIME ZONE DEFAULT now() NOT NULL
 );
 
 -- Config Categories
 CREATE TABLE public.config_categories (
   id UUID PRIMARY KEY DEFAULT (md5(random()::text || clock_timestamp()::text)::uuid),
   label TEXT NOT NULL UNIQUE,
-  created_at TIMESTAMP WITH TIME ZONE DEFAULT timezone('utc'::text, now()) NOT NULL
+  created_at TIMESTAMP WITH TIME ZONE DEFAULT now() NOT NULL
 );
 
 -- Config Priorities
@@ -135,7 +135,7 @@ CREATE TABLE public.config_priorities (
   label TEXT NOT NULL UNIQUE,
   sla_hours INTEGER NOT NULL,
   color TEXT NOT NULL,
-  created_at TIMESTAMP WITH TIME ZONE DEFAULT timezone('utc'::text, now()) NOT NULL
+  created_at TIMESTAMP WITH TIME ZONE DEFAULT now() NOT NULL
 );
 
 -- Config Tags
@@ -144,7 +144,7 @@ CREATE TABLE public.config_tags (
   label TEXT NOT NULL UNIQUE,
   color TEXT NOT NULL,
   domain TEXT DEFAULT 'ticket',
-  created_at TIMESTAMP WITH TIME ZONE DEFAULT timezone('utc'::text, now()) NOT NULL
+  created_at TIMESTAMP WITH TIME ZONE DEFAULT now() NOT NULL
 );
 
 -- Tickets Table
@@ -161,8 +161,8 @@ CREATE TABLE public.tickets (
   assignee_id UUID REFERENCES public.profiles(id) ON DELETE SET NULL,
   created_by UUID REFERENCES public.profiles(id) ON DELETE SET NULL,
   employee_ids UUID[] DEFAULT '{}',
-  created_at TIMESTAMP WITH TIME ZONE DEFAULT timezone('utc'::text, now()) NOT NULL,
-  updated_at TIMESTAMP WITH TIME ZONE DEFAULT timezone('utc'::text, now()) NOT NULL
+  created_at TIMESTAMP WITH TIME ZONE DEFAULT now() NOT NULL,
+  updated_at TIMESTAMP WITH TIME ZONE DEFAULT now() NOT NULL
 );
 
 CREATE INDEX IF NOT EXISTS idx_tickets_public_number ON public.tickets(public_ticket_number);
@@ -176,7 +176,7 @@ CREATE TABLE public.ticket_messages (
   type TEXT NOT NULL DEFAULT 'text',
   is_visible_to_customer BOOLEAN DEFAULT TRUE,
   attachments_data JSONB DEFAULT '[]'::jsonb,
-  created_at TIMESTAMP WITH TIME ZONE DEFAULT timezone('utc'::text, now()) NOT NULL
+  created_at TIMESTAMP WITH TIME ZONE DEFAULT now() NOT NULL
 );
 
 -- Chat Sessions
@@ -189,8 +189,8 @@ CREATE TABLE public.chat_sessions (
   assignee_id UUID REFERENCES public.profiles(id) ON DELETE SET NULL,
   queue_id TEXT,
   status TEXT DEFAULT 'waiting',
-  created_at TIMESTAMP WITH TIME ZONE DEFAULT timezone('utc'::text, now()) NOT NULL,
-  updated_at TIMESTAMP WITH TIME ZONE DEFAULT timezone('utc'::text, now()) NOT NULL,
+  created_at TIMESTAMP WITH TIME ZONE DEFAULT now() NOT NULL,
+  updated_at TIMESTAMP WITH TIME ZONE DEFAULT now() NOT NULL,
   last_message_at TIMESTAMP WITH TIME ZONE
 );
 
@@ -210,7 +210,7 @@ CREATE TABLE public.chat_messages (
   text TEXT,
   type TEXT DEFAULT 'text',
   metadata JSONB DEFAULT '{}'::jsonb,
-  created_at TIMESTAMP WITH TIME ZONE DEFAULT timezone('utc'::text, now()) NOT NULL
+  created_at TIMESTAMP WITH TIME ZONE DEFAULT now() NOT NULL
 );
 
 -- Chat Histories Table
@@ -227,7 +227,7 @@ CREATE TABLE public.chat_histories (
     first_response_seconds INTEGER,
     rating INTEGER CHECK (rating IN (-1, 0, 1)),
     transcript TEXT,
-    created_at TIMESTAMP WITH TIME ZONE DEFAULT timezone('utc'::text, now()) NOT NULL
+    created_at TIMESTAMP WITH TIME ZONE DEFAULT now() NOT NULL
 );
 
 CREATE INDEX IF NOT EXISTS idx_chat_histories_finished_at ON public.chat_histories(finished_at DESC);
@@ -241,7 +241,7 @@ CREATE TABLE public.quick_notes (
   shortcut TEXT NOT NULL UNIQUE,
   content TEXT NOT NULL,
   category TEXT,
-  created_at TIMESTAMP WITH TIME ZONE DEFAULT timezone('utc'::text, now()) NOT NULL
+  created_at TIMESTAMP WITH TIME ZONE DEFAULT now() NOT NULL
 );
 
 -- Queues Table
@@ -251,7 +251,7 @@ CREATE TABLE public.queues (
   description TEXT,
   whatsapp_instance_id TEXT,
   member_ids UUID[] DEFAULT '{}',
-  created_at TIMESTAMP WITH TIME ZONE DEFAULT timezone('utc'::text, now()) NOT NULL
+  created_at TIMESTAMP WITH TIME ZONE DEFAULT now() NOT NULL
 );
 
 -- Internal Tickets Table
@@ -267,8 +267,8 @@ CREATE TABLE public.internal_tickets (
   tags TEXT[] DEFAULT '{}',
   creator_id UUID REFERENCES public.profiles(id) ON DELETE SET NULL,
   status TEXT DEFAULT 'Novo',
-  created_at TIMESTAMP WITH TIME ZONE DEFAULT timezone('utc'::text, now()) NOT NULL,
-  updated_at TIMESTAMP WITH TIME ZONE DEFAULT timezone('utc'::text, now()) NOT NULL,
+  created_at TIMESTAMP WITH TIME ZONE DEFAULT now() NOT NULL,
+  updated_at TIMESTAMP WITH TIME ZONE DEFAULT now() NOT NULL,
   sla_limit TIMESTAMP WITH TIME ZONE
 );
 
@@ -279,7 +279,7 @@ CREATE INDEX IF NOT EXISTS idx_internal_tickets_status ON public.internal_ticket
 CREATE TABLE public.ticket_internal_links (
   ticket_id TEXT REFERENCES public.tickets(id) ON DELETE CASCADE,
   internal_ticket_id TEXT REFERENCES public.internal_tickets(id) ON DELETE CASCADE,
-  created_at TIMESTAMP WITH TIME ZONE DEFAULT timezone('utc'::text, now()) NOT NULL,
+  created_at TIMESTAMP WITH TIME ZONE DEFAULT now() NOT NULL,
   PRIMARY KEY (ticket_id, internal_ticket_id)
 );
 
@@ -287,8 +287,8 @@ CREATE TABLE public.ticket_internal_links (
 CREATE TABLE public.whatsapp_sessions (
   id TEXT PRIMARY KEY,
   data JSONB NOT NULL,
-  created_at TIMESTAMP WITH TIME ZONE DEFAULT timezone('utc'::text, now()) NOT NULL,
-  updated_at TIMESTAMP WITH TIME ZONE DEFAULT timezone('utc'::text, now()) NOT NULL
+  created_at TIMESTAMP WITH TIME ZONE DEFAULT now() NOT NULL,
+  updated_at TIMESTAMP WITH TIME ZONE DEFAULT now() NOT NULL
 );
 
 -- WhatsApp Instances Table (for UI management)
@@ -297,8 +297,8 @@ CREATE TABLE public.whatsapp_instances (
   name TEXT,
   phone TEXT,
   status TEXT DEFAULT 'disconnected',
-  created_at TIMESTAMP WITH TIME ZONE DEFAULT timezone('utc'::text, now()) NOT NULL,
-  updated_at TIMESTAMP WITH TIME ZONE DEFAULT timezone('utc'::text, now()) NOT NULL
+  created_at TIMESTAMP WITH TIME ZONE DEFAULT now() NOT NULL,
+  updated_at TIMESTAMP WITH TIME ZONE DEFAULT now() NOT NULL
 );
 
 -- Internal Chats for messaging
@@ -315,7 +315,7 @@ CREATE TABLE public.internal_chats (
     muted_by UUID[] DEFAULT '{}',
     read_later_by UUID[] DEFAULT '{}',
     hidden_by UUID[] DEFAULT '{}',
-    created_at TIMESTAMP WITH TIME ZONE DEFAULT timezone('utc'::text, now())
+    created_at TIMESTAMP WITH TIME ZONE DEFAULT now()
 );
 
 -- Internal chat messages table
@@ -327,7 +327,7 @@ CREATE TABLE public.internal_chat_messages (
   text TEXT,
   type TEXT DEFAULT 'text',
   metadata JSONB DEFAULT '{}',
-  created_at TIMESTAMP WITH TIME ZONE DEFAULT timezone('utc'::text, now()) NOT NULL
+  created_at TIMESTAMP WITH TIME ZONE DEFAULT now() NOT NULL
 );
 
 CREATE INDEX IF NOT EXISTS idx_internal_chat_messages_chat_id ON public.internal_chat_messages(chat_id);
@@ -341,7 +341,7 @@ CREATE TABLE public.internal_ticket_messages (
     content TEXT NOT NULL,
     type TEXT NOT NULL DEFAULT 'text',
     attachments_data JSONB DEFAULT '[]'::jsonb,
-    created_at TIMESTAMP WITH TIME ZONE DEFAULT timezone('utc'::text, now()) NOT NULL
+    created_at TIMESTAMP WITH TIME ZONE DEFAULT now() NOT NULL
 );
 
 -- User search history
@@ -349,7 +349,7 @@ CREATE TABLE public.user_search_history (
   id UUID PRIMARY KEY DEFAULT (md5(random()::text || clock_timestamp()::text)::uuid),
   user_id UUID REFERENCES public.profiles(id) ON DELETE CASCADE,
   query TEXT NOT NULL,
-  created_at TIMESTAMP WITH TIME ZONE DEFAULT timezone('utc'::text, now()) NOT NULL
+  created_at TIMESTAMP WITH TIME ZONE DEFAULT now() NOT NULL
 );
 
 -- Saved custom views/filters
@@ -358,7 +358,7 @@ CREATE TABLE public.saved_views (
   user_id UUID REFERENCES public.profiles(id) ON DELETE CASCADE,
   name TEXT NOT NULL,
   filters JSONB NOT NULL,
-  created_at TIMESTAMP WITH TIME ZONE DEFAULT timezone('utc'::text, now()) NOT NULL
+  created_at TIMESTAMP WITH TIME ZONE DEFAULT now() NOT NULL
 );
 
 CREATE INDEX idx_user_search_history_user_id ON public.user_search_history(user_id);

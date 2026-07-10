@@ -1,4 +1,4 @@
-﻿'use client';
+'use client';
 
 import React, { useState, useEffect, useMemo } from 'react';
 import { useApp } from '@/app/app-context';
@@ -179,7 +179,10 @@ export default function MyTicketsPage() {
                     </h3>
                     
                     <p className="text-sm text-slate-500 font-medium line-clamp-2 mb-6">
-                      {ticket.description}
+                      {(() => {
+                        const html = ticket.description || '';
+                        return html.replace(/<[^>]*>/g, '').replace(/&nbsp;/g, ' ').trim();
+                      })()}
                     </p>
 
                     <div className="flex flex-wrap gap-2 mb-6">
