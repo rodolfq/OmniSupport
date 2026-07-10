@@ -88,6 +88,21 @@ function phoneLookupVariants(jid: string, instanceId = 'default'): string[] {
   } else if (digits.length <= 11) {
     variants.add(`55${digits}`);
   }
+
+  // Robust 9th digit matching for Brazilian numbers
+  const baseVariants = [...variants];
+  baseVariants.forEach(v => {
+    if (v.startsWith('55') && v.length === 13 && v[4] === '9') {
+      variants.add(v.slice(0, 4) + v.slice(5));
+    } else if (v.startsWith('55') && v.length === 12) {
+      variants.add(v.slice(0, 4) + '9' + v.slice(4));
+    } else if (v.length === 11 && v[2] === '9') {
+      variants.add(v.slice(0, 2) + v.slice(3));
+    } else if (v.length === 10) {
+      variants.add(v.slice(0, 2) + '9' + v.slice(2));
+    }
+  });
+
   return [...variants];
 }
 

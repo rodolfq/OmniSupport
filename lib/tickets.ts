@@ -114,10 +114,6 @@ export async function fetchAllTickets(signal?: AbortSignal): Promise<Ticket[]> {
     console.warn("Error fetching tickets on client:", e);
   }
   
-  const hasExample = remoteTickets.some(t => t.id === MOCK_EXAMPLE_TICKET.id);
-  if (!hasExample) {
-    return [MOCK_EXAMPLE_TICKET, ...remoteTickets];
-  }
   return remoteTickets;
 }
 

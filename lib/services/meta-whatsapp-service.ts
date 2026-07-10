@@ -1,5 +1,5 @@
-import { supabase } from '../supabase';
 import axios from 'axios';
+import { query } from '../db';
 
 interface MetaWebhookPayload {
   object: string;
@@ -7,14 +7,17 @@ interface MetaWebhookPayload {
     id: string;
     changes: Array<{
       value: {
-        messaging: Array<{
-          sender: { id: string };
-          recipient: { id: string };
-          timestamp: number;
-          message: {
-            text?: { body: string };
-            type?: string;
-          };
+        messaging_product: string;
+        metadata: {
+          display_phone_number: string;
+          phone_number_id: string;
+        };
+        messages?: Array<{
+          from: string;
+          id: string;
+          timestamp: string;
+          text?: { body: string };
+          type: string;
         }>;
         contacts?: Array<{
           profile?: { name: string };
@@ -28,11 +31,12 @@ interface MetaWebhookPayload {
 export class MetaWhatsAppService {
   private static baseUrl = 'https://graph.facebook.com/v19.0';
   
-  static getTokens(instanceId: string) {
-    return supabase.from('whatsapp_instances')
-      .select('access_token, phone_number_id, verify_token')
-      .eq('id', instanceId)
-      .single();
+  static async getTokens(instanceId: string) {
+    const res = await query(
+      'SELECT access_token, phone_number_id, verify_token FROM public.whatsapp_instances WHERE id = $1',
+      [instanceId]
+    );
+    return { data: res.rows[0] || null };
   }
   
   static async setupWebhook(instanceId: string, verifyToken: string, callbackUrl: string) {
@@ -49,56 +53,87 @@ export class MetaWhatsAppService {
     });
   }
   
-  static async handleWebhook(payload: MetaWebhookPayload) {
-    for (const entry of payload.entry) {
-      for (const change of entry.changes) {
-        const { value } = change;
-        
-        for (const msg of value.messaging || []) {
-          if (msg.message?.type === 'text') {
-            await this.processIncomingMessage(msg, value.contacts);
-          }
+  static async handleWebhook(payload: any) {
+    const entry = payload.entry?.[0];
+    const change = entry?.changes?.[0];
+    const value = change?.value;
+    
+    if (value?.messages) {
+      for (const msg of value.messages) {
+        if (msg.type === 'text') {
+          await this.processIncomingMessage(msg, value.contacts);
         }
       }
     }
   }
   
   private static async processIncomingMessage(message: any, contacts?: any[]) {
-    const phone = message.sender.id;
+    const phone = message.from;
     const contact = contacts?.find(c => c.wa_id === phone);
     const name = contact?.profile?.name || 'Contato WhatsApp';
     
-    let { data: session } = await supabase
-      .from('chat_sessions')
-      .select('id')
-      .eq('customer_phone', phone)
-      .maybeSingle();
+    // Normalize phone
+    const digits = phone.replace(/\D/g, '');
+    
+    // Robust 9th digit matching for Brazilian numbers
+    const variants = [digits];
+    if (digits.startsWith('55') && digits.length > 11) {
+      variants.push(digits.slice(2)); // without country code
+    } else if (digits.length <= 11) {
+      variants.push(`55${digits}`); // with country code
+    }
+    
+    const newVariants = new Set(variants);
+    variants.forEach(v => {
+      if (v.startsWith('55') && v.length === 13 && v[4] === '9') {
+        newVariants.add(v.slice(0, 4) + v.slice(5));
+      } else if (v.startsWith('55') && v.length === 12) {
+        newVariants.add(v.slice(0, 4) + '9' + v.slice(4));
+      } else if (v.length === 11 && v[2] === '9') {
+        newVariants.add(v.slice(0, 2) + v.slice(3));
+      } else if (v.length === 10) {
+        newVariants.add(v.slice(0, 2) + '9' + v.slice(2));
+      }
+    });
+
+    const finalVariants = [...newVariants];
+    const placeHolders = finalVariants.map((_, i) => `$${i + 1}`).join(',');
+    
+    const sessionRes = await query(
+      `SELECT id, customer_phone FROM public.chat_sessions WHERE customer_phone IN (${placeHolders}) ORDER BY updated_at DESC LIMIT 1`,
+      finalVariants
+    );
+    
+    let session = sessionRes.rows[0];
     
     if (!session) {
-      const { data: newSession } = await supabase
-        .from('chat_sessions')
-        .insert({
-          customer_phone: phone,
-          customer_name: name,
-          status: 'active',
-          created_at: new Date().toISOString(),
-          updated_at: new Date().toISOString()
-        })
-        .select('id')
-        .single();
-      session = newSession;
+      const insertRes = await query(
+        `INSERT INTO public.chat_sessions (customer_phone, customer_name, status, created_at, updated_at)
+         VALUES ($1, $2, 'active', NOW(), NOW())
+         RETURNING id`,
+        [digits, name]
+      );
+      session = insertRes.rows[0];
     }
     
     if (!session) return;
     
-    await supabase.from('chat_messages').insert({
-      session_id: session.id,
-      sender_id: phone,
-      sender_name: name,
-      text: message.message.text?.body || '',
-      type: 'text',
-      created_at: new Date().toISOString()
-    });
+    await query(
+      `INSERT INTO public.chat_messages (session_id, sender_id, sender_name, text, type, metadata, created_at)
+       VALUES ($1, $2, $3, $4, 'text', $5, NOW())`,
+      [
+        session.id,
+        null,
+        name,
+        message.text?.body || '',
+        JSON.stringify({ whatsapp_jid: phone, source: 'whatsapp' })
+      ]
+    );
+    
+    await query(
+      `UPDATE public.chat_sessions SET last_message_at = NOW(), updated_at = NOW() WHERE id = $1`,
+      [session.id]
+    );
   }
   
   static async sendMessage(instanceId: string, to: string, message: string) {

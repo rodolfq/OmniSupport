@@ -227,13 +227,13 @@ export async function PUT(request: Request) {
            updated_at = NOW()
        WHERE id = $8`,
       [
-        ticket.title,
-        ticket.description,
-        ticket.status,
-        ticket.priority,
-        ticket.companyId,
-        ticket.customerId,
-        ticket.assigneeId || null,
+        ticket.title || null,
+        ticket.description || null,
+        ticket.status || null,
+        ticket.priority || null,
+        ticket.companyId === '' ? null : (ticket.companyId || null),
+        ticket.customerId === '' ? null : (ticket.customerId || null),
+        ticket.assigneeId === '' ? null : (ticket.assigneeId || null),
         id
       ]
     );

@@ -4,6 +4,13 @@ import { query } from '@/lib/db';
 export async function POST(request: Request) {
   try {
     const body = await request.json();
+    try {
+      const fs = require('fs');
+      const path = require('path');
+      const logPath = path.resolve(process.cwd(), 'scripts/diagnostics/api_errors.log');
+      fs.mkdirSync(path.dirname(logPath), { recursive: true });
+      fs.appendFileSync(logPath, `[${new Date().toISOString()}] REQUEST: ${JSON.stringify(body)}\n`);
+    } catch (logErr) {}
     const {
       table,
       action,
@@ -110,7 +117,12 @@ export async function POST(request: Request) {
         const columns = Object.keys(record);
         const placeholders = columns.map((_, i) => `$${paramIndex + i}`).join(',');
         const recordParams = columns.map(col => {
-          const val = record[col];
+          let val = record[col];
+          if (val === '') {
+            if (col === 'id' || col.endsWith('_id')) {
+              val = null;
+            }
+          }
           if (val !== null && typeof val === 'object' && !(val instanceof Date)) {
             return JSON.stringify(val);
           }
@@ -146,7 +158,12 @@ export async function POST(request: Request) {
 
       const setAssignments = columns.map((col, idx) => `${col} = $${paramIndex + idx}`).join(', ');
       const updateParams = columns.map(col => {
-        const val = payload[col];
+        let val = payload[col];
+        if (val === '') {
+          if (col === 'id' || col.endsWith('_id')) {
+            val = null;
+          }
+        }
         if (val !== null && typeof val === 'object' && !(val instanceof Date)) {
           return JSON.stringify(val);
         }
@@ -180,6 +197,12 @@ export async function POST(request: Request) {
     return NextResponse.json({ error: 'Action não suportada.' }, { status: 400 });
   } catch (error: any) {
     console.error('Error in Supabase compatibility route:', error);
+    try {
+      const fs = require('fs');
+      const path = require('path');
+      const logPath = path.resolve(process.cwd(), 'scripts/diagnostics/api_errors.log');
+      fs.appendFileSync(logPath, `[${new Date().toISOString()}] ERROR: ${error.message}\nSTACK: ${error.stack}\n\n`);
+    } catch (logErr) {}
     return NextResponse.json({ error: error.message }, { status: 500 });
   }
 }
