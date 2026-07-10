@@ -1,117 +1,157 @@
-import { supabase } from '../supabase';
 import { CategoryConfig, PriorityConfig, StatusConfig, TagConfig, QuickNote } from '../types';
 
 export class ConfigService {
   static async getCategories(): Promise<CategoryConfig[]> {
-    const { data, error } = await supabase
-      .from('config_categories')
-      .select('id, label');
-
-    if (error) throw error;
-    return (data || []).map(c => ({ id: c.id, label: c.label })) as CategoryConfig[];
+    const res = await fetch('/api/config?type=categories');
+    return res.json();
   }
 
   static async saveCategory(category: CategoryConfig): Promise<void> {
-    const { error } = await supabase.from('config_categories').upsert({
-      id: category.id,
-      label: category.label
+    const res = await fetch('/api/config', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ type: 'categories', category })
     });
-
-    if (error) throw error;
+    if (!res.ok) throw new Error('Error saving category via API');
   }
 
   static async getPriorities(): Promise<PriorityConfig[]> {
-    const { data, error } = await supabase
-      .from('config_priorities')
-      .select('id, label, sla_hours, color');
-
-    if (error) throw error;
-    return (data || []).map(p => ({
-      id: p.id,
-      label: p.label,
-      slaHours: p.sla_hours,
-      slaDays: p.sla_hours ? p.sla_hours / 24 : undefined,
-      color: p.color
-    })) as PriorityConfig[];
+    const res = await fetch('/api/config?type=priorities');
+    return res.json();
   }
 
   static async savePriority(priority: PriorityConfig): Promise<void> {
-    const { error } = await supabase.from('config_priorities').upsert({
-      id: priority.id,
-      label: priority.label,
-      sla_hours: priority.slaHours,
-      color: priority.color
+    const res = await fetch('/api/config', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ type: 'priorities', priority })
     });
-
-    if (error) throw error;
+    if (!res.ok) throw new Error('Error saving priority via API');
   }
 
   static async getStatuses(): Promise<StatusConfig[]> {
-    const { data, error } = await supabase
-      .from('config_statuses')
-      .select('id, label, color');
-
-    if (error) throw error;
-    return (data || []).map(s => ({ id: s.id, label: s.label, color: s.color })) as StatusConfig[];
+    const res = await fetch('/api/config?type=statuses');
+    return res.json();
   }
 
   static async getTags(): Promise<TagConfig[]> {
-    const { data, error } = await supabase
-      .from('config_tags')
-      .select('id, label, color, domain');
-
-    if (error) throw error;
-    return (data || []).map(t => ({
-      id: t.id,
-      label: t.label,
-      color: t.color,
-      domain: t.domain as 'chat' | 'ticket'
-    })) as TagConfig[];
+    const res = await fetch('/api/config?type=tags');
+    return res.json();
   }
 
-  static async saveTag(tag: TagConfig): Promise<void> {
-    const { error } = await supabase.from('config_tags').upsert({
-      id: tag.id,
-      label: tag.label,
-      color: tag.color,
-      domain: tag.domain
+  static async saveTag(tag: TagConfig): Promise<TagConfig> {
+    const res = await fetch('/api/config', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ type: 'tags', action: 'save', tag })
     });
-
-    if (error) throw error;
+    if (!res.ok) throw new Error('Error saving tag via API');
+    return res.json();
   }
 
   static async deleteTag(id: string): Promise<void> {
-    const { error } = await supabase.from('config_tags').delete().eq('id', id);
-    if (error) throw error;
+    const res = await fetch('/api/config', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ type: 'tags', action: 'delete', tag: { id } })
+    });
+    if (!res.ok) throw new Error('Error deleting tag via API');
   }
 
   static async getQuickNotes(): Promise<QuickNote[]> {
-    const { data, error } = await supabase
-      .from('quick_notes')
-      .select('id, shortcut, content, category');
-
-    if (error) throw error;
-    return (data || []).map(n => ({
-      id: n.id,
-      shortcut: n.shortcut,
-      content: n.content,
-      category: n.category
-    })) as QuickNote[];
+    const res = await fetch('/api/config?type=quick-notes');
+    return res.json();
   }
 
   static async saveQuickNote(note: QuickNote): Promise<void> {
-    const { error } = await supabase.from('quick_notes').upsert({
-      id: note.id,
-      shortcut: note.shortcut,
-      content: note.content,
-      category: note.category
+    const res = await fetch('/api/config', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ type: 'quick-notes', action: 'save', note })
     });
-
-    if (error) throw error;
+    if (!res.ok) throw new Error('Error saving quick note via API');
   }
 
   static async deleteQuickNote(id: string): Promise<void> {
-    const { error } = await supabase.from('quick_notes').delete().eq('id', id);
-    if (error) throw error;
+    const res = await fetch('/api/config', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ type: 'quick-notes', action: 'delete', note: { id } })
+    });
+    if (!res.ok) throw new Error('Error deleting quick note via API');
+  }
+}
+
+// Migrated compatibility functions for app/actions and components
+
+export async function fetchPriorities(signal?: AbortSignal): Promise<any[]> {
+  try {
+    const data = await ConfigService.getPriorities();
+    return data.map(p => ({
+      ...p,
+      sla_hours: p.slaHours
+    }));
+  } catch (err) {
+    console.error("Error fetching priorities:", err);
+    return [];
+  }
+}
+
+export async function fetchQuickNotes(signal?: AbortSignal): Promise<any[]> {
+  try {
+    return await ConfigService.getQuickNotes();
+  } catch (err) {
+    console.error("Error fetching quick notes:", err);
+    return [];
+  }
+}
+
+export async function fetchAnalystStatuses(signal?: AbortSignal): Promise<any[]> {
+  try {
+    const res = await fetch('/api/config?type=analyst-statuses');
+    return res.json();
+  } catch (err) {
+    console.error("Error fetching analyst statuses:", err);
+    return [];
+  }
+}
+
+export async function fetchCompanies(signal?: AbortSignal): Promise<any[]> {
+  try {
+    const { CompanyService } = await import('./company-service');
+    const data = await CompanyService.getAll();
+    return data;
+  } catch (err) {
+    console.error("Error fetching companies:", err);
+    return [];
+  }
+}
+
+export async function fetchUsers(signal?: AbortSignal): Promise<any[]> {
+  try {
+    const { UserService } = await import('./user-service');
+    return await UserService.getAllUsers();
+  } catch (err) {
+    console.error("Error fetching users:", err);
+    return [];
+  }
+}
+
+export async function fetchQueues(signal?: AbortSignal): Promise<any[]> {
+  try {
+    const res = await fetch('/api/config?type=queues');
+    return res.json();
+  } catch (err) {
+    console.error("Error fetching queues:", err);
+    return [];
+  }
+}
+
+export async function fetchStatuses(signal?: AbortSignal): Promise<any[]> {
+  try {
+    return await ConfigService.getStatuses();
+  } catch (err) {
+    console.error("Error fetching statuses:", err);
+    return [];
   }
 }

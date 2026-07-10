@@ -1,13 +1,15 @@
-﻿'use client';
+'use client';
 
 import React, { useState, useEffect } from 'react';
 import { 
-  MockDB, 
   ChatSession, 
   User, 
   UserRole,
   Company
-} from '@/lib/mock-db';
+} from '@/lib/types';
+import { UserService, createUser } from '@/lib/services/user-service';
+import { CompanyService } from '@/lib/services/company-service';
+import { supabase } from '@/lib/supabase';
 import { 
   Search, 
   X,
@@ -38,8 +40,17 @@ export function LinkContactModal({
 
   useEffect(() => {
     if (isOpen) {
-      setUsers(MockDB.getUsers().filter(u => u.role === UserRole.EMPLOYEE));
-      setCompanies(MockDB.getCompanies());
+      async function loadData() {
+        try {
+          const emps = await UserService.getEmployees();
+          setUsers(emps);
+          const comps = await CompanyService.getAll();
+          setCompanies(comps);
+        } catch (e) {
+          console.error("Error loading LinkContactModal data:", e);
+        }
+      }
+      loadData();
       setNewName(session?.customerName || '');
     }
   }, [isOpen, session]);
@@ -50,31 +61,41 @@ export function LinkContactModal({
     (u.phones && u.phones.some(p => p.includes(searchTerm)))
   );
 
-  const handleLink = (userId: string) => {
+  const handleLink = async (userId: string) => {
     if (!session) return;
     const user = users.find(u => u.id === userId);
     if (!user) return;
 
-    // Add phone to user if it's new
-    if (session.customerPhone) {
-      const currentPhones = user.phones || (user.phone ? [user.phone] : []);
-      if (!currentPhones.includes(session.customerPhone)) {
-        MockDB.saveUser({
-          ...user,
-          phones: [...currentPhones, session.customerPhone],
-          phone: user.phone || session.customerPhone
-        });
+    try {
+      // Add phone to user if it's new
+      if (session.customerPhone) {
+        const currentPhones = user.phones || (user.phone ? [user.phone] : []);
+        if (!currentPhones.includes(session.customerPhone)) {
+          await UserService.save({
+            ...user,
+            phones: [...currentPhones, session.customerPhone],
+            phone: user.phone || session.customerPhone
+          });
+        }
       }
-    }
 
-    const updatedSession: ChatSession = {
-      ...session,
-      customerId: userId,
-      customerName: user.name
-    };
-    MockDB.saveChatSession(updatedSession);
-    onSuccess();
-    onClose();
+      // Update chat session
+      const { error } = await supabase
+        .from('chat_sessions')
+        .update({
+          customer_id: userId,
+          customer_name: user.name
+        })
+        .eq('id', session.id);
+
+      if (error) throw error;
+
+      onSuccess();
+      onClose();
+    } catch (e) {
+      console.error(e);
+      alert('Erro ao associar contato.');
+    }
   };
 
   const handleCreateAndLink = async () => {
@@ -82,34 +103,44 @@ export function LinkContactModal({
     
     let finalCompanyId = newCompanyId;
     
-    if (isCreatingNewCompany && newCompanyName) {
-      const newCompany: Company = {
-        id: `comp-${Math.random().toString(36).substr(2, 9)}`,
-        name: newCompanyName
-      };
-      MockDB.saveCompany(newCompany);
-      finalCompanyId = newCompany.id;
-    }
+    try {
+      if (isCreatingNewCompany && newCompanyName) {
+        const newCompany = await CompanyService.create({
+          id: crypto.randomUUID(),
+          name: newCompanyName,
+          industry: '',
+          phone: ''
+        });
+        finalCompanyId = newCompany.id;
+      }
 
-    if (!finalCompanyId) return;
+      if (!finalCompanyId) {
+        alert("Selecione ou crie uma empresa.");
+        return;
+      }
 
-    const newUser = await MockDB.inviteUser(
-      `contact_${Date.now()}@placeholder.com`, 
-      newName, 
-      UserRole.EMPLOYEE, 
-      finalCompanyId
-    );
+      const { id: newUserId, error } = await createUser(
+        `contact_${Date.now()}@placeholder.com`, 
+        newName, 
+        UserRole.EMPLOYEE, 
+        finalCompanyId,
+        session.customerPhone ? [session.customerPhone] : [],
+        false
+      );
 
-    if (newUser && session.customerPhone) {
-      MockDB.saveUser({
-        ...newUser,
-        phones: [session.customerPhone],
-        phone: session.customerPhone
-      });
-    }
+      if (error) {
+        throw new Error(error);
+      }
 
-    if (newUser) {
-      handleLink(newUser.id);
+      if (newUserId) {
+        // Re-load employees list to allow handleLink to find the new user
+        const emps = await UserService.getEmployees();
+        setUsers(emps);
+        await handleLink(newUserId);
+      }
+    } catch (e: any) {
+      console.error(e);
+      alert('Erro ao criar e associar contato: ' + e.message);
     }
   };
 

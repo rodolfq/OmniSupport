@@ -1,538 +1,465 @@
 'use server';
 
-import { createClient } from '@supabase/supabase-js';
-import { createClient as createServerClient } from '@/lib/supabase/server';
+import { query } from '@/lib/db';
 
-// Criar cliente admin com service role key
-const supabaseAdmin = createClient(
-  process.env.NEXT_PUBLIC_SUPABASE_URL!,
-  process.env.SUPABASE_SERVICE_ROLE_KEY!,
-  {
-    auth: {
-      autoRefreshToken: false,
-      persistSession: false
-    }
-  }
-);
-
-export async function createUser(email: string, name: string, role: string, companyId: string | null, phones: string[], viewAllCompanyTickets: boolean) {
-  console.log('Iniciando createUser:', { email, name, role, companyId });
-  
+export async function createUser(
+  email: string,
+  name: string,
+  role: string,
+  companyId: string | null,
+  phones: string[],
+  viewAllCompanyTickets: boolean
+) {
   try {
-    // Primeiro verifica se já existe um usuário com esse email
-    const { data: existingUser, error: checkError } = await supabaseAdmin
-      .from('profiles')
-      .select('id, email, name, role, company_id, phone, must_change_password')
-      .eq('email', email)
-      .single();
-
-    if (existingUser) {
-      // Usuário já existe - atualizar profile com os novos dados
-      const { error: updateError } = await supabaseAdmin.from('profiles').update({
+    const checkRes = await query('SELECT id FROM public.profiles WHERE email = $1', [email]);
+    if (checkRes.rowCount > 0) {
+      return { error: 'Usuário com este e-mail já existe.' };
+    }
+    
+    const newId = crypto.randomUUID();
+    const { hashPassword } = await import('@/lib/auth-utils');
+    const defaultPass = await hashPassword('Mudar@123');
+    
+    await query(
+      `INSERT INTO public.profiles (id, email, name, role, company_id, phone, view_all_company_tickets, password)
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $8)`,
+      [
+        newId,
+        email,
         name,
         role,
-        company_id: companyId || existingUser.company_id || '11111111-1111-4111-8111-111111111111',
-        phone: phones?.[0] || existingUser.phone,
-        view_all_company_tickets: viewAllCompanyTickets ?? false,
-      }).eq('id', existingUser.id);
-
-      if (updateError) {
-        console.error('Erro ao atualizar usuário existente:', updateError);
-        return { error: updateError.message };
-      }
-      
-      console.log('Usuário atualizado com sucesso:', { id: existingUser.id, email });
-      return { id: existingUser.id, updated: true };
-    }
-
-    // Gerar UUID para novo usuário
-    const { randomUUID } = await import('crypto');
-    const userId = randomUUID();
-    
-    // Inserir profile - o trigger on_auth_user_created deve criar o auth.users automaticamente
-    // Se o trigger não funcionar, tenta criar auth user primeiro
-    const { error: profileError } = await supabaseAdmin.from('profiles').upsert({
-      id: userId,
-      email,
-      name,
-      role,
-      company_id: companyId || '11111111-1111-4111-8111-111111111111',
-      phone: phones?.[0] || null,
-      view_all_company_tickets: viewAllCompanyTickets ?? false,
-      must_change_password: true,
-      is_admin: role === 'Administrador',
-      lives_in_squad: role === 'Equipe' || role === 'Administrador'
-    });
-
-    if (profileError) {
-      console.error('Profile error:', profileError);
-      
-      // Se for erro de FK, tenta criar auth user via signup (ignora email confirmation)
-      if (profileError.code === '23503' || profileError.message?.includes('violates foreign key')) {
-        try {
-          const { data: authData, error: authError } = await supabaseAdmin.auth.admin.createUser({
-            email,
-            password: Math.random().toString(36).slice(-8),
-            email_confirm: true,
-            user_metadata: { name, role }
-          });
-
-          if (authError) {
-            console.error('Auth signup error:', authError);
-            return { error: authError.message };
-          }
-
-          // Agora tenta inserir o profile novamente
-          const { error: retryError } = await supabaseAdmin.from('profiles').upsert({
-            id: authData.user.id,
-            email,
-            name,
-            role,
-            company_id: companyId || '11111111-1111-4111-8111-111111111111',
-            phone: phones?.[0] || null,
-            view_all_company_tickets: viewAllCompanyTickets ?? false,
-            must_change_password: true,
-            is_admin: role === 'Administrador',
-            lives_in_squad: role === 'Equipe' || role === 'Administrador'
-          });
-
-          if (retryError) {
-            console.error('Retry profile error:', retryError);
-            return { error: retryError.message };
-          }
-
-          console.log('Usuário criado com sucesso (via admin API):', { id: authData.user.id, email });
-          return { id: authData.user.id };
-        } catch (authErr: any) {
-          console.error("Erro ao criar auth user:", authErr);
-          return { error: authErr.message || 'Erro ao criar usuário no Supabase Auth.' };
-        }
-      }
-      
-      return { error: profileError.message };
-    }
-
-    console.log('Profile criado com sucesso:', { id: userId, email });
-    return { id: userId };
+        companyId || null,
+        phones[0] || null,
+        !!viewAllCompanyTickets,
+        defaultPass
+      ]
+    );
+    return { id: newId };
   } catch (err: any) {
-    console.error("Erro inesperado ao criar usuário:", err);
-    return { error: err.message || 'Erro inesperado ao criar usuário no servidor.' };
+    console.error("Error in server action createUser:", err);
+    return { error: err.message || 'Erro inesperado no servidor.' };
   }
 }
 
 export async function saveCompany(id: string | null, name: string, industry: string, phone: string) {
-  const supabase = await createServerClient();
   try {
-    // Check for duplicate name
-    let query = supabase.from('companies').select('id').ilike('name', name);
+    let checkQuery;
+    let params;
     if (id) {
-       query = query.neq('id', id);
+      checkQuery = 'SELECT id FROM public.companies WHERE name = $1 AND id != $2';
+      params = [name, id];
+    } else {
+      checkQuery = 'SELECT id FROM public.companies WHERE name = $1';
+      params = [name];
     }
-    
-    const { data: checkResult } = await query;
-    
-    if (checkResult && checkResult.length > 0) {
-        return { error: 'Empresa com este nome já existe.' };
+    const checkResult = await query(checkQuery, params);
+    if (checkResult.rowCount > 0) {
+      return { error: 'Empresa com este nome já existe.' };
     }
-    
-    const payload: any = { name, phone };
-    // Only include industry if needed (avoids schema cache errors)
-    if (industry) payload.industry = industry;
 
     if (id) {
-       const { error } = await supabase.from('companies').update(payload).eq('id', id);
-       if (error) throw error;
-       return { id };
+      await query(
+        'UPDATE public.companies SET name=$1, industry=$2, phone=$3, updated_at=NOW() WHERE id=$4',
+        [name, industry, phone, id]
+      );
+      return { id };
     } else {
-       const { data, error } = await supabase.from('companies').insert([payload]).select('id').single();
-       if (error) throw error;
-       return { id: data.id };
+      const newId = crypto.randomUUID();
+      await query(
+        'INSERT INTO public.companies (id, name, industry, phone) VALUES ($1, $2, $3, $4)',
+        [newId, name, industry, phone]
+      );
+      return { id: newId };
     }
   } catch (err: any) {
-    console.error("Erro ao salvar empresa:", err);
+    console.error("Error saving company in actions:", err);
     return { error: err.message || 'Erro ao salvar empresa no servidor.' };
   }
 }
 
 export async function deleteCompany(id: string) {
-  const supabase = await createServerClient();
   try {
-    const { error } = await supabase.from('companies').delete().eq('id', id);
-    if (error) throw error;
+    await query('DELETE FROM public.companies WHERE id = $1', [id]);
     return { success: true };
-  } catch (err) {
-    console.error("Erro ao excluir empresa:", err);
-    return { error: 'Erro ao excluir empresa no servidor.' };
+  } catch (err: any) {
+    console.error("Error deleting company in actions:", err);
+    return { error: err.message || 'Erro ao excluir empresa no servidor.' };
   }
 }
 
 export async function getCompanies() {
-  const supabase = await createServerClient();
   try {
-    console.log('🔄 Server Action: getCompanies iniciado');
-    const { data: rows, error } = await supabase.from('companies').select('id, name, industry, phone').order('name', { ascending: true });
-    
-    if (error) throw error;
-
-    console.log(`📊 getCompanies: ${rows?.length || 0} empresas encontradas`);
-    return (rows || []).map(row => ({
-      id: row.id,
-      name: row.name,
-      industry: row.industry || '',
-      phone: row.phone || ''
+    const res = await query('SELECT * FROM public.companies ORDER BY name ASC');
+    return res.rows.map(c => ({
+      id: c.id,
+      name: c.name,
+      industry: c.industry || '',
+      phone: c.phone || '',
+      createdAt: c.created_at
     }));
   } catch (err) {
-    console.error("❌ Erro ao buscar empresas (actions.ts):", err);
+    console.error("Error getting companies in actions:", err);
     return [];
   }
 }
 
 export async function getUsers() {
-  const supabase = await createServerClient();
   try {
-    console.log('🔄 Server Action: getUsers iniciado');
-    const { data: rows, error } = await supabase.from('profiles').select('id, name, email, role, company_id, phone, view_all_company_tickets, must_change_password, avatar_url, internal_team_ids');
-    
-    if (error) throw error;
-
-    console.log(`📊 getUsers: ${rows?.length || 0} usuários encontrados`);
-    return (rows || []).map(row => {
-      // Normalizar role para bater com o enum UserRole
-      // BD: 'Administrador', 'Equipe', 'Cliente', 'Funcionário'
-      // Enum: ADMIN='Administrador', SUPPORT='Equipe', CUSTOMER='Cliente', EMPLOYEE='Funcionário'
-      return {
-        id: row.id,
-        name: row.name,
-        email: row.email,
-        role: row.role, // Já é o valor correto do BD
-        companyId: row.company_id,
-        phone: row.phone,
-        viewAllCompanyTickets: !!row.view_all_company_tickets,
-        mustChangePassword: !!row.must_change_password,
-        avatarUrl: row.avatar_url,
-        internalTeamIds: row.internal_team_ids,
-      };
-    });
+    const res = await query('SELECT * FROM public.profiles ORDER BY name ASC');
+    return res.rows.map(u => ({
+      id: u.id,
+      name: u.name,
+      email: u.email,
+      role: u.role,
+      companyId: u.company_id,
+      phone: u.phone || undefined,
+      viewAllCompanyTickets: u.view_all_company_tickets
+    }));
   } catch (err) {
-    console.error("❌ Erro ao buscar usuários (actions.ts):", err);
+    console.error("Error getting users in actions:", err);
     return [];
   }
 }
 
 export async function deleteUser(id: string) {
-  const supabase = await createServerClient();
   try {
-    // Deletar do auth.users também
-    const { data: profile } = await supabase.from('profiles').select('email').eq('id', id).single();
-    if (profile?.email) {
-      await supabaseAdmin.auth.admin.deleteUser(id);
-    }
-    await supabase.from('profiles').delete().eq('id', id);
-  } catch (err) {
-    console.error("Erro ao excluir usuário:", err);
-  }
-}
-
-export async function updateUser(id: string, name: string, email: string, role: string, companyId?: string | null, viewAllCompanyTickets?: boolean) {
-  const supabase = await createServerClient();
-  const sanitizedCompanyId = (companyId === 'platform-company-id' || companyId === 'company-id' || !companyId) ? null : companyId;
-
-  try {
-    const { error } = await supabase.from('profiles').update({
-      name,
-      email,
-      role,
-      company_id: sanitizedCompanyId,
-      view_all_company_tickets: viewAllCompanyTickets ?? false
-    }).eq('id', id);
-    
-    if (error) throw error;
+    await query('DELETE FROM public.profiles WHERE id = $1', [id]);
     return { success: true };
   } catch (err) {
-    console.error("Erro ao atualizar usuário:", err);
-    return { error: 'Erro ao atualizar usuário no servidor.' };
+    console.error("Error deleting user in actions:", err);
+    return { error: 'Erro ao excluir usuário no servidor.' };
   }
 }
 
-// Função para retornar analistas (Equipe)
-export async function getAnalysts() {
-   const supabase = await createServerClient();
-   try {
-     const { data, error } = await supabase.from('profiles').select('id, name, email, role, company_id, phone, avatar_url, internal_team_ids').eq('role', 'Equipe');
-     if (error) throw error;
-     return data || [];
-   } catch (err) {
-     console.error("Erro ao buscar analistas:", err);
-     return [];
-   }
- }
-
-// Função para retornar clientes
-export async function getCustomers() {
-  const supabase = await createServerClient();
+export async function updateUser(
+  id: string,
+  name: string,
+  email: string,
+  role: string,
+  companyId?: string | null,
+  viewAllCompanyTickets?: boolean
+) {
   try {
-    const { data, error } = await supabase.from('profiles').select('id, name, email, role, company_id, phone').eq('role', 'Cliente');
-    if (error) throw error;
-    return data || [];
+    await query(
+      `UPDATE public.profiles
+       SET name = $1, email = $2, role = $3, company_id = $4, view_all_company_tickets = $5, updated_at = NOW()
+       WHERE id = $6`,
+      [name, email, role, companyId || null, !!viewAllCompanyTickets, id]
+    );
+    return { success: true };
+  } catch (err: any) {
+    console.error("Error updating user in actions:", err);
+    return { error: err.message || 'Erro ao atualizar usuário no servidor.' };
+  }
+}
+
+export async function getAnalysts() {
+  try {
+    const res = await query(
+      "SELECT * FROM public.profiles WHERE role IN ('Administrador', 'Analista', 'Suporte', 'Time Interno') ORDER BY name ASC"
+    );
+    return res.rows.map(u => ({
+      id: u.id,
+      name: u.name,
+      email: u.email,
+      role: u.role,
+      companyId: u.company_id,
+      phone: u.phone || undefined
+    }));
   } catch (err) {
-    console.error("Erro ao buscar clientes:", err);
+    console.error("Error getting analysts in actions:", err);
     return [];
   }
 }
 
-// Função para atualizar status do analista
-export async function updateUserStatus(userId: string, isOnline: boolean, reason?: string) {
-  const supabase = await createServerClient();
+export async function getCustomers() {
   try {
-    const { error } = await supabase.from('analyst_status').upsert({
-      user_id: userId,
-      is_online: isOnline,
-      last_active: new Date().toISOString(),
-      current_reason: reason || null
-    });
-    if (error) throw error;
+    const res = await query(
+      "SELECT * FROM public.profiles WHERE role IN ('Cliente', 'Funcionário') ORDER BY name ASC"
+    );
+    return res.rows.map(u => ({
+      id: u.id,
+      name: u.name,
+      email: u.email,
+      role: u.role,
+      companyId: u.company_id,
+      phone: u.phone || undefined
+    }));
+  } catch (err) {
+    console.error("Error getting customers in actions:", err);
+    return [];
+  }
+}
+
+export async function updateUserStatus(userId: string, isOnline: boolean, reason?: string) {
+  try {
+    const status = isOnline ? 'online' : 'offline';
+    await query(
+      `INSERT INTO public.analyst_status (user_id, status, last_seen)
+       VALUES ($1, $2, NOW())
+       ON CONFLICT (user_id) DO UPDATE SET status = EXCLUDED.status, last_seen = NOW()`,
+      [userId, status]
+    );
+    await query(
+      `INSERT INTO public.user_status_history (user_id, status, reason)
+       VALUES ($1, $2, $3)`,
+      [userId, status, reason || null]
+    );
     return { success: true };
   } catch (err) {
-    console.error("Erro ao atualizar status:", err);
+    console.error("Error updating user status in actions:", err);
     return { error: 'Erro ao atualizar status.' };
   }
 }
 
-// Função para obter filas
 export async function getQueues() {
-  const supabase = await createServerClient();
   try {
-    const { data, error } = await supabase.from('queues').select('*');
-    if (error) throw error;
-    return data || [];
+    const res = await query('SELECT * FROM public.queues');
+    return res.rows.map(q => ({
+      id: q.id,
+      name: q.name,
+      description: q.description,
+      whatsappInstanceId: q.whatsapp_instance_id,
+      memberIds: q.member_ids || []
+    }));
   } catch (err) {
-    console.error("Erro ao buscar filas:", err);
+    console.error("Error getting queues in actions:", err);
     return [];
   }
 }
 
-// Função para salvar fila
-export async function saveQueue(id: string | null, name: string, description: string | null, whatsappInstanceId: string | null, memberIds: string[]) {
-  const supabase = await createServerClient();
+export async function saveQueue(
+  id: string | null,
+  name: string,
+  description: string | null,
+  whatsappInstanceId: string | null,
+  memberIds: string[]
+) {
   try {
     if (id) {
-      const { error } = await supabase.from('queues').update({ name, description, whatsapp_instance_id: whatsappInstanceId, member_ids: memberIds }).eq('id', id);
-      if (error) throw error;
+      await query(
+        `UPDATE public.queues
+         SET name = $1, description = $2, whatsapp_instance_id = $3, member_ids = $4, updated_at = NOW()
+         WHERE id = $5`,
+        [name, description, whatsappInstanceId, memberIds, id]
+      );
       return { id };
     } else {
-      const { data, error } = await supabase.from('queues').insert([{ name, description, whatsapp_instance_id: whatsappInstanceId, member_ids: memberIds }]).select('id').single();
-      if (error) throw error;
-      return { id: data.id };
+      const res = await query(
+        `INSERT INTO public.queues (name, description, whatsapp_instance_id, member_ids)
+         VALUES ($1, $2, $3, $4)
+         RETURNING id`,
+        [name, description, whatsappInstanceId, memberIds]
+      );
+      return { id: res.rows[0].id };
     }
   } catch (err) {
-    console.error("Erro ao salvar fila:", err);
+    console.error("Error saving queue in actions:", err);
     return { error: 'Erro ao salvar fila.' };
   }
 }
 
-// Função para excluir fila
 export async function deleteQueue(id: string) {
-  const supabase = await createServerClient();
   try {
-    const { error } = await supabase.from('queues').delete().eq('id', id);
-    if (error) throw error;
+    await query('DELETE FROM public.queues WHERE id = $1', [id]);
     return { success: true };
   } catch (err) {
-    console.error("Erro ao excluir fila:", err);
+    console.error("Error deleting queue in actions:", err);
     return { error: 'Erro ao excluir fila.' };
   }
 }
 
-// Função para obter instâncias WhatsApp
 export async function getWhatsappInstances() {
-  const supabase = await createServerClient();
   try {
-    const { data, error } = await supabase.from('whatsapp_instances').select('*');
-    if (error) throw error;
-    return data || [];
+    const res = await query('SELECT * FROM public.whatsapp_instances');
+    return res.rows;
   } catch (err) {
-    console.error("Erro ao buscar instâncias:", err);
+    console.error("Error getting WhatsApp instances in actions:", err);
     return [];
   }
 }
 
-// Função para salvar instância WhatsApp
 export async function saveWhatsappInstance(id: string | null, name: string, phone: string, status: string) {
-  const supabase = await createServerClient();
   try {
     if (id) {
-      const { error } = await supabase.from('whatsapp_instances').update({ name, phone, status }).eq('id', id);
-      if (error) throw error;
+      await query(
+        `UPDATE public.whatsapp_instances
+         SET name = $1, phone = $2, status = $3, updated_at = NOW()
+         WHERE id = $4`,
+        [name, phone, status, id]
+      );
       return { id };
     } else {
-      const { data, error } = await supabase.from('whatsapp_instances').insert([{ name, phone, status }]).select('id').single();
-      if (error) throw error;
-      return { id: data.id };
+      const res = await query(
+        `INSERT INTO public.whatsapp_instances (name, phone, status)
+         VALUES ($1, $2, $3)
+         RETURNING id`,
+        [name, phone, status]
+      );
+      return { id: res.rows[0].id };
     }
   } catch (err) {
-    console.error("Erro ao salvar instância:", err);
+    console.error("Error saving WhatsApp instance in actions:", err);
     return { error: 'Erro ao salvar instância.' };
   }
 }
 
-// Função para obter quick notes
 export async function getQuickNotes() {
-  const supabase = await createServerClient();
   try {
-    const { data, error } = await supabase.from('quick_notes').select('*');
-    if (error) throw error;
-    return data || [];
+    const res = await query('SELECT * FROM public.quick_notes ORDER BY shortcut ASC');
+    return res.rows;
   } catch (err) {
-    console.error("Erro ao buscar quick notes:", err);
+    console.error("Error getting quick notes in actions:", err);
     return [];
   }
 }
 
-// Função para salvar quick note
 export async function saveQuickNote(id: string | null, shortcut: string, content: string, category: string) {
-  const supabase = await createServerClient();
   try {
     if (id) {
-      const { error } = await supabase.from('quick_notes').update({ shortcut, content, category }).eq('id', id);
-      if (error) throw error;
+      await query(
+        `UPDATE public.quick_notes
+         SET shortcut = $1, content = $2, category = $3, updated_at = NOW()
+         WHERE id = $4`,
+        [shortcut, content, category, id]
+      );
       return { id };
     } else {
-      const { data, error } = await supabase.from('quick_notes').insert([{ shortcut, content, category }]).select('id').single();
-      if (error) throw error;
-      return { id: data.id };
+      const res = await query(
+        `INSERT INTO public.quick_notes (shortcut, content, category)
+         VALUES ($1, $2, $3)
+         RETURNING id`,
+        [shortcut, content, category]
+      );
+      return { id: res.rows[0].id };
     }
   } catch (err) {
-    console.error("Erro ao salvar quick note:", err);
+    console.error("Error saving quick note in actions:", err);
     return { error: 'Erro ao salvar quick note.' };
   }
 }
 
-// Função para excluir quick note
 export async function deleteQuickNote(id: string) {
-  const supabase = await createServerClient();
   try {
-    const { error } = await supabase.from('quick_notes').delete().eq('id', id);
-    if (error) throw error;
+    await query('DELETE FROM public.quick_notes WHERE id = $1', [id]);
     return { success: true };
   } catch (err) {
-    console.error("Erro ao excluir quick note:", err);
+    console.error("Error deleting quick note in actions:", err);
     return { error: 'Erro ao excluir quick note.' };
   }
 }
 
-// Função para obter tickets internos
 export async function getInternalTickets() {
-  const supabase = await createServerClient();
   try {
-    const { data, error } = await supabase.from('internal_tickets').select('*');
-    if (error) throw error;
-    return data || [];
+    const res = await query('SELECT * FROM public.internal_tickets');
+    return res.rows;
   } catch (err) {
-    console.error("Erro ao buscar tickets internos:", err);
+    console.error("Error getting internal tickets in actions:", err);
     return [];
   }
 }
 
-// Função para obter permissões de roles
 export async function getRolePermissions() {
-  const supabase = await createServerClient();
   try {
-    const { data, error } = await supabase.from('role_permissions').select('*');
-    if (error) throw error;
-    return data || [];
+    const res = await query('SELECT * FROM public.role_permissions');
+    return res.rows;
   } catch (err) {
-    console.error("Erro ao buscar permissões:", err);
+    console.error("Error getting role permissions in actions:", err);
     return [];
   }
 }
 
-// Função para salvar permissões de roles
 export async function saveRolePermissions(roleId: string, permissions: string[]) {
-  const supabase = await createServerClient();
   try {
-    const { error } = await supabase.from('role_permissions').upsert({ id: roleId, permissions });
-    if (error) throw error;
+    await query(
+      `INSERT INTO public.role_permissions (id, permissions)
+       VALUES ($1, $2)
+       ON CONFLICT (id) DO UPDATE SET permissions = EXCLUDED.permissions`,
+      [roleId, permissions]
+    );
     return { success: true };
   } catch (err) {
-    console.error("Erro ao salvar permissões:", err);
+    console.error("Error saving role permissions in actions:", err);
     return { error: 'Erro ao salvar permissões.' };
   }
 }
 
-// Função para excluir permissões de role
 export async function deleteRolePermission(roleId: string) {
-  const supabase = await createServerClient();
   try {
-    const { error } = await supabase.from('role_permissions').delete().eq('id', roleId);
-    if (error) throw error;
+    await query('DELETE FROM public.role_permissions WHERE id = $1', [roleId]);
     return { success: true };
   } catch (err) {
-    console.error("Erro ao excluir permissões:", err);
+    console.error("Error deleting role permission in actions:", err);
     return { error: 'Erro ao excluir permissões.' };
   }
 }
 
-// Função para calcular SLA
 export async function calculateSLA(ticketId: string, priority: string) {
-  const supabase = await createServerClient();
   try {
-    const { data: priorityConfig, error } = await supabase.from('priorities').select('slaHours').eq('label', priority).single();
-    if (error) return undefined;
-    
-    const slaHours = priorityConfig?.slaHours || 24;
+    const res = await query('SELECT sla_hours FROM public.config_priorities WHERE label = $1', [priority]);
+    if (res.rowCount === 0) return undefined;
+    const slaHours = res.rows[0].sla_hours || 24;
     return new Date(Date.now() + slaHours * 60 * 60 * 1000).toISOString();
   } catch (err) {
     return undefined;
   }
 }
 
-// Função para upload de arquivos
 export async function uploadFile(ticketId: string, fileName: string, fileData: string) {
-  const supabase = await createServerClient();
   try {
-    const { data, error } = await supabase.from('attachments').insert([{
-      ticket_id: ticketId,
-      name: fileName,
-      type: 'file',
-      url: fileData
-    }]).select('id').single();
-    
-    if (error) throw error;
-    return { id: data.id };
+    const res = await query(
+      `INSERT INTO public.attachments (ticket_id, name, type, url)
+       VALUES ($1, $2, 'file', $3)
+       RETURNING id`,
+      [ticketId, fileName, fileData]
+    );
+    return { id: res.rows[0].id };
   } catch (err) {
-    console.error("Erro ao fazer upload:", err);
+    console.error("Error uploading file in actions:", err);
     return { error: 'Erro ao fazer upload do arquivo.' };
   }
 }
 
-// Função para obter chats internos
 export async function getInternalChats() {
-  const supabase = await createServerClient();
   try {
-    const { data, error } = await supabase.from('internal_chats').select('*');
-    if (error) throw error;
-    return data || [];
+    const res = await query('SELECT * FROM public.internal_chats ORDER BY created_at DESC');
+    return res.rows.map(c => ({
+      id: c.id,
+      name: c.name,
+      imageUrl: c.image_url,
+      type: c.type,
+      memberIds: c.member_ids || []
+    }));
   } catch (err) {
-    console.error("Erro ao buscar chats internos:", err);
+    console.error("Error getting internal chats in actions:", err);
     return [];
   }
 }
 
-// Função para salvar chat interno
 export async function saveInternalChat(id: string | null, data: any) {
-  const supabase = await createServerClient();
   try {
     if (id) {
-      const { error } = await supabase.from('internal_chats').update(data).eq('id', id);
-      if (error) throw error;
+      await query(
+        `UPDATE public.internal_chats
+         SET name = COALESCE($1, name),
+             image_url = COALESCE($2, image_url),
+             type = COALESCE($3, type),
+             member_ids = COALESCE($4, member_ids)
+         WHERE id = $5`,
+        [data.name, data.imageUrl, data.type, data.memberIds, id]
+      );
       return { id };
     } else {
-      const { data: result, error } = await supabase.from('internal_chats').insert([data]).select('id').single();
-      if (error) throw error;
-      return { id: result.id };
+      const res = await query(
+        `INSERT INTO public.internal_chats (name, image_url, type, member_ids)
+         VALUES ($1, $2, $3, $4)
+         RETURNING id`,
+        [data.name, data.imageUrl, data.type, data.memberIds]
+      );
+      return { id: res.rows[0].id };
     }
   } catch (err) {
-    console.error("Erro ao salvar chat interno:", err);
+    console.error("Error saving internal chat in actions:", err);
     return { error: 'Erro ao salvar chat interno.' };
   }
 }

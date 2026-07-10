@@ -1,4 +1,4 @@
-﻿"use client";
+"use client";
 
 import React, { useState, useRef, useEffect } from "react";
 import {
@@ -14,7 +14,6 @@ import {
 import { motion, AnimatePresence } from "motion/react";
 import { useApp } from "@/app/app-context";
 import {
-  MockDB,
   TicketStatus,
   Ticket,
   Attachment,
@@ -23,7 +22,7 @@ import {
   CategoryConfig,
   PriorityConfig,
   UserRole,
-} from "@/lib/mock-db";
+} from "@/lib/types";
 import { cn } from "@/lib/utils";
 import { fileToBase64 } from "@/lib/image-utils";
 import { toast } from "sonner";
@@ -96,36 +95,29 @@ export function NewTicketModal() {
         console.log("DEBUG loadedCompanies:", loadedCompanies);
         if (companiesError) {
           console.error("DEBUG companiesError:", companiesError);
-          // Fallback to MockDB if Supabase fails
-          setCompanies(MockDB.getCompanies());
+          setCompanies([]);
         } else {
-          // If Supabase is empty, check if we have local companies, otherwise use MockDB as source
-          if (!loadedCompanies || loadedCompanies.length === 0) {
-            console.warn(
-              "âš ï¸ NewTicketModal: Supabase retornou 0 empresas. Usando MockDB.",
-            );
-            setCompanies(MockDB.getCompanies());
-          } else {
-            setCompanies(loadedCompanies as any[]);
-          }
+          setCompanies(loadedCompanies || []);
         }
 
         // Fetch users
         const { data: loadedUsers, error: usersError } = await supabase
           .from("profiles")
           .select("*");
+        
+        let mappedUsers: User[] = [];
         if (usersError) {
           console.error("DEBUG usersError:", usersError);
-          setUsers(MockDB.getUsers());
+          setUsers([]);
         } else {
-          const mappedUsers = (loadedUsers || []).map((u) => ({
+          mappedUsers = (loadedUsers || []).map((u) => ({
             ...u,
             companyId: u.company_id,
           })) as User[];
-          setUsers(mappedUsers.length > 0 ? mappedUsers : MockDB.getUsers());
+          setUsers(mappedUsers);
         }
 
-        const currentUsers = users.length > 0 ? users : MockDB.getUsers();
+        const currentUsers = mappedUsers;
         // Fetch analysts (filtering by role/is_admin)
         const analystsList = currentUsers.filter(
           (u) =>
@@ -143,24 +135,15 @@ export function NewTicketModal() {
           supabase.from("config_statuses").select("*"),
         ]);
 
-        if (catRes.data) setAvailableCategories(catRes.data);
-        else setAvailableCategories(MockDB.getCategories());
+        setAvailableCategories(catRes.data || []);
+        setAvailablePriorities(priRes.data || []);
+        setAvailableStatuses(staRes.data || []);
 
-        if (priRes.data) setAvailablePriorities(priRes.data);
-        else setAvailablePriorities(MockDB.getPriorities());
-
-        if (staRes.data) setAvailableStatuses(staRes.data);
-        else setAvailableStatuses(MockDB.getStatuses());
-
-        if (!category && (catRes.data?.[0] || MockDB.getCategories()[0])) {
-          setCategory(
-            catRes.data?.[0]?.label || MockDB.getCategories()[0]?.label,
-          );
+        if (!category && catRes.data?.[0]) {
+          setCategory(catRes.data[0].label);
         }
-        if (!priority && (priRes.data?.[0] || MockDB.getPriorities()[0])) {
-          setPriority(
-            priRes.data?.[0]?.label || MockDB.getPriorities()[0]?.label,
-          );
+        if (!priority && priRes.data?.[0]) {
+          setPriority(priRes.data[0].label);
         }
 
         if (currentUser && currentUser.companyId) {

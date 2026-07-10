@@ -9,10 +9,10 @@ import pino from 'pino';
 import { supabase } from './supabase';
 import { v4 as uuidv4 } from 'uuid';
 import { Attachment } from './types';
+import { query } from './db';
 
-// Use a more robust pino configuration to avoid EPIPE on closed stdout
 const logger = pino({
-  level: 'error', // Reduce noise to prevent stream overload
+  level: 'error',
   timestamp: pino.stdTimeFunctions.isoTime,
 });
 
@@ -38,34 +38,16 @@ class WhatsAppManager {
 
   // Custom DB Auth State implementation for Baileys
   private async getAuthState(sessionId: string) {
-    const { useMultiFileAuthState, initAuthCreds, BufferJSON } = await import('@whiskeysockets/baileys');
-    
-    // If Supabase is missing, use a memory-only auth state (won't persist but works for demo)
-    if (!supabase) {
-      console.warn(`[WhatsApp:${sessionId}] Supabase not configured. Using local file auth state.`);
-      // eslint-disable-next-line react-hooks/rules-of-hooks
-      const { state, saveCreds } = await useMultiFileAuthState(`/tmp/auth_info_${sessionId}`);
-      return { state, saveCreds };
-    }
+    const { initAuthCreds, BufferJSON } = await import('@whiskeysockets/baileys');
 
     const readData = async (type: string, id: string) => {
-      if (!supabase) return null;
       const key = `${sessionId}:${type}:${id}`;
       try {
-        const { data, error } = await supabase
-          .from('whatsapp_sessions')
-          .select('data')
-          .eq('id', key)
-          .maybeSingle();
+        const res = await query('SELECT data FROM public.whatsapp_sessions WHERE id = $1', [key]);
         
-        if (error) {
-          console.error(`[WhatsApp:Auth:${sessionId}] Error reading ${type}:${id}:`, error);
-          return null;
-        }
-        if (!data || !data.data) return null;
+        if (res.rowCount === 0 || !res.rows[0].data) return null;
         
-        // Handle cases where data might be a string due to DB driver or manually inserted
-        const rawData = typeof data.data === 'string' ? JSON.parse(data.data) : data.data;
+        const rawData = typeof res.rows[0].data === 'string' ? JSON.parse(res.rows[0].data) : res.rows[0].data;
         return JSON.parse(JSON.stringify(rawData), BufferJSON.reviver);
       } catch (err) {
         console.error(`[WhatsApp:Auth:${sessionId}] Exception reading ${type}:${id}:`, err);
@@ -74,36 +56,31 @@ class WhatsAppManager {
     };
 
     const writeData = async (data: any, type: string, id: string) => {
-      if (!supabase) return;
       const key = `${sessionId}:${type}:${id}`;
       try {
         const serialized = JSON.parse(JSON.stringify(data, BufferJSON.replacer));
-        const { error } = await supabase
-          .from('whatsapp_sessions')
-          .upsert({ id: key, data: serialized });
-        
-        if (error) {
-          console.error(`[WhatsApp:Auth:${sessionId}] Error writing ${type}:${id}:`, error);
-        }
+        await query(
+          `INSERT INTO public.whatsapp_sessions (id, data, updated_at)
+           VALUES ($1, $2, NOW())
+           ON CONFLICT (id) DO UPDATE SET
+             data = EXCLUDED.data,
+             updated_at = NOW()`,
+          [key, serialized]
+        );
       } catch (err) {
         console.error(`[WhatsApp:Auth:${sessionId}] Exception writing ${type}:${id}:`, err);
       }
     };
 
     const removeData = async (type: string, id: string) => {
-      if (!supabase) return;
       const key = `${sessionId}:${type}:${id}`;
       try {
-        await supabase
-          .from('whatsapp_sessions')
-          .delete()
-          .eq('id', key);
+        await query('DELETE FROM public.whatsapp_sessions WHERE id = $1', [key]);
       } catch (err) {
         console.error(`[WhatsApp:Auth:${sessionId}] Exception removing ${type}:${id}:`, err);
       }
     };
 
-    // Initial creds
     let creds = await readData('creds', 'main');
     if (!creds) {
       console.log(`[WhatsApp:${sessionId}] Initializing new auth credentials`);
@@ -134,7 +111,7 @@ class WhatsAppManager {
                 } else {
                   tasks.push(removeData(type, id));
                 }
-              }
+               }
             }
             await Promise.all(tasks);
           }
@@ -149,7 +126,6 @@ class WhatsAppManager {
   private retryCount: Map<string, number> = new Map();
 
   public async connect(sessionId: string, name: string, force = false) {
-    // Dynamic import to avoid bundling issues
     const { Browsers, fetchLatestBaileysVersion, makeWASocket, DisconnectReason } = await import('@whiskeysockets/baileys');
 
     const currentRetry = this.retryCount.get(sessionId) || 0;
@@ -158,7 +134,6 @@ class WhatsAppManager {
       const inst = this.instances.get(sessionId);
       if (inst?.status === 'connected' && !force) return inst;
       
-      // If it's already connecting and we have a QR, don't restart unless it's a manual retry after failure OR force
       if (inst?.status === 'connecting' && inst.qr && currentRetry === 0 && !force) {
         console.log(`[WhatsApp:${sessionId}] Already connecting and has QR, skipping restart.`);
         return inst;
@@ -172,35 +147,26 @@ class WhatsAppManager {
           inst.socket.end(undefined);
         }
       } catch (e) {
-        // Silently handle cleanup errors
+        // ignore
       }
       this.instances.delete(sessionId);
     }
 
     if (currentRetry > 3 || force) {
       console.error(`[WhatsApp:${sessionId}] Resetting state (retryCount: ${currentRetry}, force: ${force}).`);
-      if (supabase) {
-        // Hard delete session from DB to ensure fresh QR
-        const { error: delError } = await supabase.from('whatsapp_sessions').delete().eq('id', sessionId);
-        if (delError) console.error(`[WhatsApp:${sessionId}] Error deleting session:`, delError.message);
-        
-        // Also clear any other derived keys if they exist with prefix
-        const { error: delError2 } = await supabase.from('whatsapp_sessions').delete().like('id', `${sessionId}:%`);
-        if (delError2) console.error(`[WhatsApp:${sessionId}] Error deleting derived sessions:`, delError2.message);
-      }
+      await query('DELETE FROM public.whatsapp_sessions WHERE id = $1', [sessionId]);
+      await query('DELETE FROM public.whatsapp_sessions WHERE id LIKE $1', [`${sessionId}:%`]);
       this.retryCount.set(sessionId, 0); 
     }
 
     console.log(`[WhatsApp:${sessionId}] Starting connection (Attempt ${currentRetry + 1})...`);
     try {
-      // Use a more recent version fallback if fetch fails
       let version: [number, number, number] = [2, 3000, 1017531287]; 
       try {
-        const { version: latestVersion, isLatest } = await fetchLatestBaileysVersion();
+        const { version: latestVersion } = await fetchLatestBaileysVersion();
         version = latestVersion;
-        console.log(`[WhatsApp] Baileys latest version: ${version.join('.')} (isLatest: ${isLatest})`);
       } catch (error) {
-        console.warn('[WhatsApp] Version fetch failed, using updated fallback:', version.join('.'));
+        console.warn('[WhatsApp] Version fetch failed, using fallback:', version.join('.'));
       }
 
       console.log(`[WhatsApp:${sessionId}] Initializing socket...`);
@@ -211,7 +177,7 @@ class WhatsAppManager {
         printQRInTerminal: false,
         auth: state,
         logger: logger as any,
-        browser: Browsers.ubuntu('Chrome'), // Ubuntu Chrome often works better for server-side generation
+        browser: Browsers.ubuntu('Chrome'),
         connectTimeoutMs: 60000,
         defaultQueryTimeoutMs: 60000,
         keepAliveIntervalMs: 30000, 
@@ -221,7 +187,7 @@ class WhatsAppManager {
         linkPreviewImageThumbnailWidth: 100,
         shouldIgnoreJid: (jid) => jid.includes('broadcast') || jid.includes('newsletter'),
         markOnlineOnConnect: true,
-        generateHighQualityLinkPreview: false, // Reduce load
+        generateHighQualityLinkPreview: false,
       });
 
       this.instances.set(sessionId, {
@@ -232,7 +198,6 @@ class WhatsAppManager {
 
       sock.ev.on('creds.update', saveCreds);
 
-      // Listen for incoming messages
       sock.ev.on('messages.upsert', async ({ messages, type }) => {
         if (type !== 'notify') return;
         
@@ -252,7 +217,6 @@ class WhatsAppManager {
           
           const pushName = msg.pushName || phone;
 
-          // Check for media
           let mediaData = null;
           const messageType = Object.keys(msg.message)[0];
           
@@ -267,23 +231,30 @@ class WhatsAppManager {
             }
           }
 
-          // Process if there's content or media
           if (text || mediaData) {
             await this.processIncomingMessage(sessionId, phone, text, pushName, msg, mediaData);
           }
         }
       });
 
-      sock.ev.on('connection.update', (update) => {
+      sock.ev.on('connection.update', async (update) => {
         const { connection, lastDisconnect, qr } = update;
         const inst = this.instances.get(sessionId);
         
         if (qr) {
-          console.log(`[WhatsApp:${sessionId}] QR Code generated successfully.`);
+          console.log(`[WhatsApp:${sessionId}] QR Code generated.`);
           if (inst) {
             inst.qr = qr;
             inst.status = 'connecting';
           }
+          await query(
+            `INSERT INTO public.whatsapp_sessions (id, data, updated_at)
+             VALUES ($1, $2, NOW())
+             ON CONFLICT (id) DO UPDATE SET
+               data = EXCLUDED.data,
+               updated_at = NOW()`,
+            [sessionId, { qr }]
+          );
           this.retryCount.set(sessionId, 0); 
         }
 
@@ -291,11 +262,10 @@ class WhatsAppManager {
           const statusCode = (lastDisconnect?.error as Boom)?.output?.statusCode;
           const errorMsg = (lastDisconnect?.error as Boom)?.message || 'Unknown error';
           
-          // Special handling for 515 (Stream Errored / Restart Required)
           const isRestartRequired = statusCode === 515 || errorMsg.includes('515') || errorMsg.includes('Restart Required');
           const shouldReconnect = statusCode !== DisconnectReason.loggedOut;
           
-          console.log(`[WhatsApp:${sessionId}] Connection closed. Reason: ${errorMsg} (${statusCode})${isRestartRequired ? ' - Restarting...' : ''}`);
+          console.log(`[WhatsApp:${sessionId}] Connection closed: ${errorMsg}`);
 
           if (inst) {
             inst.status = 'disconnected';
@@ -305,10 +275,8 @@ class WhatsAppManager {
           if (shouldReconnect) {
             const nextRetry = (this.retryCount.get(sessionId) || 0) + 1;
             
-            // If it's a 515, don't count it as a "failed" retry that leads to session deletion, 
-            // just restart. But we still increment count to avoid infinite loops if the server is down.
             if (isRestartRequired && nextRetry > 5) {
-               console.error(`[WhatsApp:${sessionId}] Repeated 515 errors. Giving up.`);
+               console.error(`[WhatsApp:${sessionId}] Repeated 515 errors. Restarting WhatsApp connection.`);
                this.instances.delete(sessionId);
                return;
             }
@@ -317,19 +285,16 @@ class WhatsAppManager {
             
             if (nextRetry <= 5) {
               const delay = isRestartRequired ? 1000 : Math.min(2000 * Math.pow(2, nextRetry - 1), 10000);
-              console.log(`[WhatsApp:${sessionId}] Reconnecting in ${delay}ms... (Attempt ${nextRetry})`);
               setTimeout(() => this.connect(sessionId, name), delay);
             } else {
-              console.error(`[WhatsApp:${sessionId}] Max retries reached after sudden close.`);
               this.instances.delete(sessionId);
             }
           } else {
-            console.log(`[WhatsApp:${sessionId}] Logged out or manual disconnect.`);
             this.instances.delete(sessionId);
             this.retryCount.delete(sessionId);
           }
         } else if (connection === 'open') {
-          console.log(`[WhatsApp:${sessionId}] Connected successfully!`);
+          console.log(`[WhatsApp:${sessionId}] Connected!`);
           if (inst) {
             inst.status = 'connected';
             inst.qr = undefined;
@@ -340,7 +305,7 @@ class WhatsAppManager {
 
       return this.instances.get(sessionId);
     } catch (err: any) {
-      console.error(`[WhatsApp:${sessionId}] Socket initialization failed:`, err.message);
+      console.error(`[WhatsApp:${sessionId}] Connect failed:`, err.message);
       this.retryCount.set(sessionId, (this.retryCount.get(sessionId) || 0) + 1);
       throw err;
     }
@@ -349,10 +314,8 @@ class WhatsAppManager {
   public getStatus(sessionId: string) {
     const inst = this.instances.get(sessionId);
     if (!inst) {
-       console.log(`[WhatsApp] Instance ${sessionId} not found in memory`);
        return { status: 'disconnected' };
     }
-    console.log(`[WhatsApp] Instance ${sessionId} status: ${inst.status}, hasQR: ${!!inst.qr}`);
     return { status: inst.status, qr: inst.qr };
   }
 
@@ -362,7 +325,6 @@ class WhatsAppManager {
       throw new Error('WhatsApp not connected');
     }
     
-    // Ensure jid format
     const formattedJid = jid.includes('@s.whatsapp.net') ? jid : `${jid.replace(/\D/g, '')}@s.whatsapp.net`;
     
     if (options?.mediaUrl) {
@@ -388,20 +350,11 @@ class WhatsAppManager {
     if (inst) {
       await inst.socket.logout();
       this.instances.delete(sessionId);
-      
-      // Clear from DB
-      if (supabase) {
-        await supabase
-          .from('whatsapp_sessions')
-          .delete()
-          .like('id', `${sessionId}:%`);
-      }
+      await query('DELETE FROM public.whatsapp_sessions WHERE id LIKE $1', [`${sessionId}:%`]);
     }
   }
 
   private async downloadAndUploadMedia(message: any, type: string): Promise<Attachment | null> {
-    if (!supabase) return null;
-
     const mediaMessage = message[type];
     const stream = await downloadContentFromMessage(mediaMessage, type.replace('Message', '') as any);
     let buffer = Buffer.from([]);
@@ -412,7 +365,7 @@ class WhatsAppManager {
     const fileName = mediaMessage.fileName || `${uuidv4()}.${mediaMessage.mimetype?.split('/')[1] || 'bin'}`;
     const filePath = `whatsapp/${fileName}`;
 
-    console.log(`[WhatsApp:Media] Subindo arquivo do WhatsApp: ${fileName}...`);
+    console.log(`[WhatsApp:Media] Uploading file to Supabase storage...`);
 
     const { error: uploadError } = await supabase.storage
       .from('attachments')
@@ -422,7 +375,7 @@ class WhatsAppManager {
       });
 
     if (uploadError) {
-      console.error('[WhatsApp:Media] Erro no upload Supabase:', uploadError.message);
+      console.error('[WhatsApp:Media] Supabase Storage Upload Error:', uploadError.message);
       return null;
     }
 
@@ -440,83 +393,77 @@ class WhatsAppManager {
   }
 
   private async processIncomingMessage(sessionId: string, phone: string, text: string, pushName: string, _msg: any, mediaData?: Attachment | null) {
-    if (!supabase) return;
+    console.log(`[WhatsApp:Incoming] From: ${phone}`);
 
-    console.log(`[WhatsApp:Incoming] From: ${phone}, Text: ${text.substring(0, 20)}... Media: ${!!mediaData}`);
-
-    // 1. Identify User/Employee
     let customerId = phone;
     let customerName = pushName || phone;
     const customerPhone = phone;
     
-    // Try to find user by phone in profiles
-    const { data: profile } = await supabase
-      .from('profiles')
-      .select('id, name, phone, company_id')
-      .or(`phone.eq.${phone},phone.eq.+${phone},phone.eq.55${phone}`)
-      .maybeSingle();
+    // Identificar perfil
+    const profileRes = await query(
+      "SELECT id, name, phone, company_id FROM public.profiles WHERE phone = $1 OR phone = $2 OR phone = $3",
+      [phone, `+${phone}`, `55${phone}`]
+    );
 
+    const profile = profileRes.rows[0];
     if (profile) {
       customerId = profile.id;
       customerName = profile.name;
-      console.log(`[WhatsApp:Incoming] Identified as Employee/Contact: ${customerName} (${customerId})`);
     }
 
-    // 2. Find or Create Session
-    const { data: session } = await supabase
-      .from('chat_sessions')
-      .select('*')
-      .eq('customer_phone', phone)
-      .neq('status', 'closed')
-      .order('created_at', { ascending: false })
-      .limit(1)
-      .maybeSingle();
+    // Buscar ou criar sessão
+    const sessionRes = await query(
+      `SELECT * FROM public.chat_sessions 
+       WHERE customer_phone = $1 AND status != 'closed' 
+       ORDER BY created_at DESC LIMIT 1`,
+      [phone]
+    );
 
+    const session = sessionRes.rows[0];
     let activeSessionId;
     if (session) {
       activeSessionId = session.id;
-      const updates: any = {};
       if (profile && session.customer_id !== profile.id) {
-        updates.customer_id = profile.id;
-        updates.customer_name = profile.name;
+        await query(
+          'UPDATE public.chat_sessions SET customer_id = $1, customer_name = $2, updated_at = NOW() WHERE id = $3',
+          [profile.id, profile.name, activeSessionId]
+        );
       }
-      await supabase.from('chat_sessions').update(updates).eq('id', activeSessionId);
     } else {
       activeSessionId = uuidv4();
-      await supabase.from('chat_sessions').insert({
-        id: activeSessionId,
-        customer_id: customerId,
-        customer_name: customerName,
-        customer_phone: customerPhone,
-        status: 'pending',
-        created_at: new Date().toISOString()
-      });
-      console.log(`[WhatsApp:Incoming] Created new session: ${activeSessionId}`);
+      await query(
+        `INSERT INTO public.chat_sessions (id, customer_id, customer_name, customer_phone, status, created_at, updated_at)
+         VALUES ($1, $2, $3, $4, 'pending', NOW(), NOW())`,
+        [activeSessionId, customerId, customerName, customerPhone]
+      );
     }
 
-    // 3. Insert Message
+    // Inserir mensagem
     const messageId = uuidv4();
-    const payload: any = {
-      id: messageId,
-      session_id: activeSessionId,
-      sender_id: customerId,
-      sender_name: customerName,
-      text: text,
-      type: mediaData ? 'file' : 'text',
-      created_at: new Date().toISOString()
-    };
+    const metadata = mediaData ? {
+      fileUrl: mediaData.url,
+      fileName: mediaData.name,
+      fileSize: mediaData.size
+    } : { whatsapp_jid: `${phone}@s.whatsapp.net`, source: 'whatsapp' };
 
-    if (mediaData) {
-      payload.metadata = {
-        fileUrl: mediaData.url,
-        fileName: mediaData.name,
-        fileSize: mediaData.size
-      };
-    }
+    await query(
+      `INSERT INTO public.chat_messages (id, session_id, sender_id, sender_name, text, type, metadata, created_at)
+       VALUES ($1, $2, $3, $4, $5, $6, $7, NOW())`,
+      [
+        messageId,
+        activeSessionId,
+        customerId,
+        customerName,
+        text,
+        mediaData ? 'file' : 'text',
+        metadata
+      ]
+    );
 
-    await supabase.from('chat_messages').insert(payload);
-
-    console.log(`[WhatsApp:Incoming] Message processed for session ${activeSessionId}`);
+    await query(
+      'UPDATE public.chat_sessions SET last_message_at = NOW(), updated_at = NOW() WHERE id = $1',
+      [activeSessionId]
+    );
   }
 }
 
@@ -530,11 +477,10 @@ if (process.env.NODE_ENV !== 'production') {
   global.whatsappManager = whatsappManager;
 }
 
-// Global handler to catch EPIPE and other stream errors that bubble up
 if (typeof process !== 'undefined') {
   process.on('uncaughtException', (err) => {
     if (err.message.includes('EPIPE')) {
-      console.warn('[WhatsApp:System] Caught EPIPE error, ignoring to prevent crash.');
+      console.warn('[WhatsApp:System] Ignoring EPIPE stream error.');
     } else {
       console.error('[WhatsApp:System] Uncaught Exception:', err);
     }

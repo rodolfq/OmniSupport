@@ -1,9 +1,10 @@
-﻿'use client';
+'use client';
 
 import React, { useState, useEffect } from 'react';
 import { X, Save, Mail, Phone, Shield, Lock, Eye, EyeOff, Plus, Trash2, AlertTriangle } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
-import { MockDB, UserRole, type User, type Company } from '@/lib/mock-db';
+import { UserRole, type User, type Company } from '@/lib/types';
+import { UserService } from '@/lib/services/user-service';
 import { maskPhone } from '@/lib/utils';
 import { Globe } from 'lucide-react';
 import { supabase } from '@/lib/supabase';
@@ -58,7 +59,7 @@ export function EditEmployeeModal({ isOpen, onClose, user, onSuccess }: { isOpen
         companyId,
         viewAllCompanyTickets
       };
-      await MockDB.saveUser(updatedUser);
+      await UserService.save(updatedUser);
       setSaveSuccess(true);
       if (onSuccess) onSuccess();
       
@@ -96,7 +97,7 @@ export function EditEmployeeModal({ isOpen, onClose, user, onSuccess }: { isOpen
         ...user,
         mustChangePassword: true
       };
-      await MockDB.saveUser(updatedUser);
+      await UserService.save(updatedUser);
       
       console.log('Password reset successful. Generated:', newPassword);
       setGeneratedPassword(newPassword);
@@ -112,7 +113,7 @@ export function EditEmployeeModal({ isOpen, onClose, user, onSuccess }: { isOpen
     if (!user) return;
     setDeleteLoading(true);
     try {
-      await MockDB.deleteUser(user.id);
+      await UserService.delete(user.id);
       if (onSuccess) onSuccess();
       onClose();
     } catch (error: any) {

@@ -1,10 +1,9 @@
-﻿'use client';
+'use client';
 
 import React from 'react';
 import { Plus, Trash2, Star } from 'lucide-react';
 import { supabase } from '@/lib/supabase';
 import { toast } from 'sonner';
-import { MockDB } from '@/lib/mock-db';
 
 export function SystemConfigContent({ categories, priorities, setCategories, setPriorities }: any) {
   const [newCatLabel, setNewCatLabel] = React.useState('');
@@ -47,8 +46,6 @@ export function SystemConfigContent({ categories, priorities, setCategories, set
       else {
         console.log(`✅ SLA de ${label} atualizado com sucesso no Supabase`);
         setPriorities(priorities.map((p: any) => p.id === priority.id ? { ...p, sla_hours: hours } : p));
-        // Update MockDB cache immediately
-        await MockDB.syncFromSupabase();
         toast.success(`SLA de ${label} atualizado para ${days} dias`);
       }
     } else {
@@ -59,7 +56,6 @@ export function SystemConfigContent({ categories, priorities, setCategories, set
       }
       else if (data) {
         setPriorities([...priorities, data[0]]);
-        await MockDB.syncFromSupabase();
         toast.success(`${label} ativado com ${days} dias`);
       }
     }

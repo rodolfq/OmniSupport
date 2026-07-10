@@ -3,8 +3,8 @@
 import React, { useState, useEffect, useMemo } from 'react';
 import { useApp } from '@/app/app-context';
 import { UserRole, Permission } from '@/lib/types';
-import { getChatHistories } from '@/lib/services/chat.service';
-import { fetchUsers } from '@/lib/services/config.service';
+import { getChatHistories } from '@/lib/services/chat-service';
+import { fetchUsers } from '@/lib/services/config-service';
 import { Search, Calendar, Clock, User, MessageSquare, ThumbsUp, ThumbsDown, Filter, History, Users, ChevronDown } from 'lucide-react';
 import { cn } from '@/lib/utils';
 

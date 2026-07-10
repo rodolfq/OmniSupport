@@ -3,7 +3,7 @@
 import React, { useState, useEffect, useMemo } from 'react';
 import { Ticket as TicketType, TicketStatus, UserRole, TicketPriority } from '@/lib/types';
 import { fetchAllTickets } from '@/lib/tickets';
-import { fetchPriorities, fetchStatuses } from '@/lib/services/config.service';
+import { fetchPriorities, fetchStatuses, fetchUsers } from '@/lib/services/config-service';
 import { useApp } from '@/app/app-context';
 import { Plus, Clock, AlertCircle, User } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
@@ -11,7 +11,6 @@ import { cn } from '@/lib/utils';
 import { TicketDetailModal } from '@/components/ticket-detail-modal';
 import { FilterBar } from '@/components/filter-bar';
 import { useSearchParams, useRouter } from 'next/navigation';
-import { MockDB } from '@/lib/mock-db';
 
 export default function DashboardPage() {
   const router = useRouter();
@@ -23,6 +22,7 @@ export default function DashboardPage() {
 
   const [priorities, setPriorities] = useState<any[]>([]);
   const [statuses, setStatuses] = useState<any[]>([]);
+  const [users, setUsers] = useState<any[]>([]);
   const [selectedTicket, setSelectedTicket] = useState<TicketType | null>(null);
 
   useEffect(() => {
@@ -40,10 +40,11 @@ export default function DashboardPage() {
         
         if (controller.signal.aborted) return;
 
-        const [loadedTickets, loadedPriorities, loadedStatuses] = await Promise.all([
+        const [loadedTickets, loadedPriorities, loadedStatuses, loadedUsers] = await Promise.all([
           fetchAllTickets(controller.signal),
           fetchPriorities(controller.signal),
-          fetchStatuses(controller.signal)
+          fetchStatuses(controller.signal),
+          fetchUsers(controller.signal)
         ]);
         
         let tickets = loadedTickets;
@@ -56,6 +57,7 @@ export default function DashboardPage() {
         setFilteredTickets(tickets);
         setPriorities(loadedPriorities || []);
         setStatuses(loadedStatuses || []);
+        setUsers(loadedUsers || []);
         setLoading(false);
     
         // Auto-open ticket from URL param
@@ -215,6 +217,7 @@ export default function DashboardPage() {
               color="rose"
               onSelect={setSelectedTicket}
               priorities={priorities}
+              users={users}
             />
             
             {/* Lista de Próximos do Vencimento */}
@@ -230,6 +233,7 @@ export default function DashboardPage() {
               color="orange"
               onSelect={setSelectedTicket}
               priorities={priorities}
+              users={users}
             />
 
             {/* Novos Sem Analista */}
@@ -239,6 +243,7 @@ export default function DashboardPage() {
               color="amber"
               onSelect={setSelectedTicket}
               priorities={priorities}
+              users={users}
             />
           </div>
         </div>
@@ -267,6 +272,7 @@ export default function DashboardPage() {
                     key={ticket.id} 
                     ticket={ticket} 
                     availablePriorities={priorities} 
+                    users={users}
                     onClick={() => setSelectedTicket(ticket)}
                   />
                 ))}
@@ -301,12 +307,13 @@ export default function DashboardPage() {
   );
 }
 
-function PriorityList({ title, tickets, color, onSelect, priorities }: { 
+function PriorityList({ title, tickets, color, onSelect, priorities, users }: { 
   title: string, 
   tickets: TicketType[], 
   color: 'rose' | 'orange' | 'amber',
   onSelect: (t: TicketType) => void,
-  priorities: any[]
+  priorities: any[],
+  users: any[]
 }) {
   if (tickets.length === 0) return null;
 
@@ -338,7 +345,7 @@ function PriorityList({ title, tickets, color, onSelect, priorities }: {
       </div>
       <div className="space-y-2 max-h-[160px] overflow-y-auto scrollbar-thin pr-1">
         {tickets.slice(0, 5).map(t => {
-          const assignee = t.assigneeId ? MockDB.getUsers().find(u => u.id === t.assigneeId) : null;
+          const assignee = t.assigneeId ? users.find(u => u.id === t.assigneeId) : null;
           return (
             <div 
               key={t.id} 
@@ -421,12 +428,12 @@ function StatCard({ label, value, color, textColor, icon, highlight, pulse }: {
   );
 }
 
-function TicketCard({ ticket, availablePriorities, onClick }: { ticket: TicketType, availablePriorities: any[], onClick: () => void }) {
+function TicketCard({ ticket, availablePriorities, users, onClick }: { ticket: TicketType, availablePriorities: any[], users: any[], onClick: () => void }) {
   const priorityConfig = availablePriorities.find(p => p.label === ticket.priority) || 
                        availablePriorities.find(p => p.label === 'Baixa') || 
                        availablePriorities[0];
 
-  const assignee = ticket.assigneeId ? MockDB.getUsers().find(u => u.id === ticket.assigneeId) : null;
+  const assignee = ticket.assigneeId ? users.find(u => u.id === ticket.assigneeId) : null;
   const isUnassignedNew = ticket.status === TicketStatus.NEW && !ticket.assigneeId;
 
   const now = new Date();

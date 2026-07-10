@@ -1,10 +1,10 @@
-﻿'use client';
+'use client';
 
 import React, { useState } from 'react';
 import { X, UserPlus, Mail, Phone, Shield, Plus } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import { createUser } from '@/app/actions';
-import { UserRole } from '@/lib/mock-db';
+import { UserRole } from '@/lib/types';
 import { maskPhone } from '@/lib/utils';
 
 export function NewEmployeeModal({ isOpen, onClose, companyId, onSuccess }: { isOpen: boolean, onClose: () => void, companyId?: string, onSuccess?: () => void }) {

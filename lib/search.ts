@@ -1,4 +1,3 @@
-import { supabase } from './supabase';
 import type { Ticket, SavedFilter } from './types';
 import { TicketStatus } from './types';
 
@@ -25,147 +24,64 @@ export interface SearchResult {
   hasMore: boolean;
 }
 
-// Search tickets with server-side pagination and filtering
 export async function searchTickets(
   filters: SearchFilters,
   page: number = 1,
   pageSize: number = 25,
   signal?: AbortSignal
 ): Promise<SearchResult> {
-  // Fallback to fetchAllTickets if supabase not available
-  if (!supabase) {
-    return { tickets: [], total: 0, page, pageSize, hasMore: false };
-  }
-
-  try {
-    const from = (page - 1) * pageSize;
-    const to = from + pageSize - 1;
-
-    let query: any = supabase.from('tickets').select('*');
-
-    if (filters.query) {
-      query = query.ilike('title', `%${filters.query}%`);
-    }
-
-    // Only filter by status if explicitly provided - otherwise exclude closed tickets by default
-    // Include closed filter allows viewing closed tickets when explicitly set
-    if (filters.status) {
-      query = query.eq('status', filters.status);
-    } else if (!filters.includeClosed) {
-      // Default: exclude closed and completed tickets (Fechado, Concluído, Encerrado)
-      query = query.not('status', 'in', '("Fechado","Concluído","Encerrado")');
-    }
-
-    if (filters.priority) {
-      query = query.eq('priority', filters.priority);
-    }
-
-    query = query.order('created_at', { ascending: false }).range(from, to);
-
-    const { data, error } = await query;
-
-    if (error) {
-      console.error('Supabase query error:', { message: error?.message, details: error?.details, hint: error?.hint, code: error?.code });
-      return { tickets: [], total: 0, page, pageSize, hasMore: false };
-    }
-
-    const tickets = (data || []).map((t: any) => ({
-      ...t,
-      ticketNumber: t.public_ticket_number,
-      companyId: t.company_id,
-      customerId: t.customer_id,
-      createdAt: t.created_at,
-      updatedAt: t.updated_at,
-    })) as Ticket[];
-
-    return {
-      tickets,
-      total: tickets.length,
-      page,
-      pageSize,
-      hasMore: false,
-    };
-  } catch (err: any) {
-    console.error('Unexpected error in searchTickets:', err);
-    return { tickets: [], total: 0, page, pageSize, hasMore: false };
-  }
+  const qParams = new URLSearchParams({
+    action: 'tickets',
+    query: filters.query || '',
+    status: filters.status || '',
+    priority: filters.priority || '',
+    includeClosed: String(filters.includeClosed || false),
+    page: String(page),
+    pageSize: String(pageSize)
+  });
+  
+  const res = await fetch(`/api/search?${qParams.toString()}`);
+  return res.json();
 }
 
-// Get search suggestions (recent searches)
 export async function getSearchSuggestions(
   userId: string,
   limit: number = 5
 ): Promise<string[]> {
-  if (!supabase) return [];
-
-  const { data } = await supabase
-    .from('user_search_history')
-    .select('query')
-    .eq('user_id', userId)
-    .order('created_at', { ascending: false })
-    .limit(limit);
-
-  return (data || []).map((h: any) => h.query);
+  const res = await fetch(`/api/search?action=suggestions&userId=${userId}&limit=${limit}`);
+  return res.json();
 }
 
-// Save search to history
 export async function saveSearchHistory(
   userId: string,
-  query: string
+  q: string
 ): Promise<void> {
-  if (!supabase) return;
-
-  // Remove duplicates first
-  await supabase
-    .from('user_search_history')
-    .delete()
-    .eq('user_id', userId)
-    .eq('query', query);
-
-  // Add new search
-  await supabase.from('user_search_history').insert({
-    user_id: userId,
-    query,
-    created_at: new Date().toISOString(),
+  const res = await fetch('/api/search', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ action: 'save-history', userId, query: q })
   });
+  if (!res.ok) throw new Error('Error saving search history via API');
 }
 
-// Save a custom view/filter
 export async function saveCustomView(
   userId: string,
   name: string,
   filters: SearchFilters
 ): Promise<void> {
-  if (!supabase) return;
-
-  const { error } = await supabase.from('saved_views').insert({
-    user_id: userId,
-    name,
-    filters: filters as any,
-    created_at: new Date().toISOString(),
+  const res = await fetch('/api/search', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ action: 'save-view', userId, name, filters })
   });
-
-  if (error) throw error;
+  if (!res.ok) throw new Error('Error saving custom view via API');
 }
 
-// Get saved views
 export async function getSavedViews(userId: string): Promise<SavedFilter[]> {
-  if (!supabase) return [];
-
-  const { data } = await supabase
-    .from('saved_views')
-    .select('*')
-    .eq('user_id', userId)
-    .order('created_at', { ascending: false });
-
-  return (data || []).map((v: any) => ({
-    id: v.id,
-    name: v.name,
-    filters: v.filters,
-  }));
+  const res = await fetch(`/api/search?action=views&userId=${userId}`);
+  return res.json();
 }
 
-// Get quick stats for counters
 export async function getTicketStats(filters: Partial<SearchFilters> = {}): Promise<{
   total: number;
   open: number;
@@ -173,36 +89,6 @@ export async function getTicketStats(filters: Partial<SearchFilters> = {}): Prom
   closed: number;
   overdue: number;
 }> {
-  if (!supabase) {
-    return { total: 0, open: 0, inProgress: 0, closed: 0, overdue: 0 };
-  }
-
-  // Total count
-  let totalQuery = supabase.from('tickets').select('*', { count: 'exact', head: true });
-  
-  // Open count
-  let openQuery = supabase.from('tickets').select('*', { count: 'exact', head: true })
-    .eq('status', TicketStatus.NEW);
-
-  // In progress count
-  let inProgressQuery = supabase.from('tickets').select('*', { count: 'exact', head: true })
-    .eq('status', TicketStatus.IN_PROGRESS);
-
-  // Closed count
-  let closedQuery = supabase.from('tickets').select('*', { count: 'exact', head: true })
-    .eq('status', TicketStatus.CLOSED);
-
-  const [{ count: total }, { count: open }, { count: inProgress }, { count: closed }] = 
-    await Promise.all([totalQuery, openQuery, inProgressQuery, closedQuery]);
-
-  // Overdue would need join with priorities
-  const overdue = 0;
-
-  return {
-    total: total || 0,
-    open: open || 0,
-    inProgress: inProgress || 0,
-    closed: closed || 0,
-    overdue,
-  };
+  const res = await fetch('/api/search?action=stats');
+  return res.json();
 }

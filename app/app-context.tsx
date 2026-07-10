@@ -1,9 +1,8 @@
-﻿'use client';
+'use client';
 
 import React, { createContext, useContext, useState, useEffect, useRef, useCallback, useMemo } from 'react';
 import { User, UserRole, Permission, AbsenceReason } from '@/lib/types';
 import { safeJsonStringify } from '@/lib/utils';
-import { supabase } from '@/lib/supabase';
 import { toast } from 'sonner';
 import { UserService } from '@/lib/services/user-service';
 import { ChatService, AbsenceReasonService, UserStatusHistoryService, AnalystService } from '@/lib/services/chat-service';
@@ -186,31 +185,16 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
 
   useEffect(() => {
     const checkDb = async () => {
-      if (!supabase) {
-        setDbStatus('disconnected');
-        return;
-      }
       try {
-        const { error } = await supabase.from('config_priorities').select('label').limit(1);
-        if (error) {
-          const isDbAlive = !!(
-            error.code || 
-            (error as any).status || 
-            error.message?.toLowerCase().includes('permission') || 
-            error.message?.toLowerCase().includes('security') || 
-            error.message?.toLowerCase().includes('jwt') ||
-            error.message?.toLowerCase().includes('row-level')
-          );
-          if (isDbAlive) {
-            setDbStatus('connected');
-          } else {
-            console.error('Database connection error:', error.message);
-            setDbStatus('error');
-          }
-        } else {
+        const res = await fetch('/api/config?type=priorities');
+        if (res.ok) {
           setDbStatus('connected');
+        } else {
+          console.error('Database connection error: Status', res.status);
+          setDbStatus('error');
         }
-      } catch (e) {
+      } catch (e: any) {
+        console.error('Database connection error:', e?.message || e);
         setDbStatus('error');
       }
     };
@@ -220,151 +204,39 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     return () => clearInterval(interval);
   }, [refreshAbsenceReasons]);
 
-useEffect(() => {
+  useEffect(() => {
     let isMounted = true;
     const initAuth = async () => {
-      if (!supabase) {
-        setAuthInitialized(true);
-        return;
-      }
-
-      console.log('🔐 AppContext: Inicializando Auth...');
+      console.log('🔐 AppContext: Inicializando Auth Nativo...');
       try {
-        const { data: { session } } = await supabase.auth.getSession();
-        console.log('🔐 AppContext: getSession result:', { hasSession: !!session, userId: session?.user?.id });
-        
+        const res = await fetch('/api/auth/me', { credentials: 'include' });
         if (!isMounted) return;
 
-        if (session?.user) {
-          console.log('👤 AppContext: Usuário autenticado:', session.user.email);
-          
-          try {
-            const profile = await UserService.getCurrentProfile();
-            console.log('👤 AppContext: getCurrentProfile result:', { profile });
-            
-            if (!isMounted) return;
-
-            if (profile) {
-              setCurrentUser(profile);
-            } else {
-              const newUser: User = {
-                id: session.user.id,
-                name: session.user.user_metadata?.name || session.user.email?.split('@')[0] || 'Usuário',
-                email: session.user.email || '',
-                role: UserRole.EMPLOYEE
-              };
-              console.log('👤 AppContext: Using fallback user:', newUser);
-              setCurrentUser(newUser);
-            }
-          } catch (e) {
-            console.error('❌ initAuth profile error:', e);
-            if (!isMounted) return;
+        if (res.ok) {
+          const data = await res.json();
+          if (data.user) {
+            console.log('👤 AppContext: Usuário autenticado via API:', data.user);
             setCurrentUser({
-              id: session.user.id,
-              name: session.user.user_metadata?.name || session.user.email?.split('@')[0] || 'Usuário',
-              email: session.user.email || '',
-              role: UserRole.EMPLOYEE
+              id: data.user.id,
+              name: data.user.name,
+              email: data.user.email,
+              role: data.user.role,
+              companyId: data.user.companyId,
+              phone: data.user.phone,
+              viewAllCompanyTickets: data.user.viewAllCompanyTickets,
+              mustChangePassword: data.user.mustChangePassword,
+              isAdmin: data.user.isAdmin,
+              livesInSquad: data.user.livesInSquad
             });
+          } else {
+            setCurrentUser(null);
           }
         } else {
-          console.log('👤 AppContext: No session found, checking localStorage backup');
-          
-          // Fallback: check localStorage backup for Vercel preview URLs
-          const backupStr = localStorage.getItem('omni_user_backup');
-          let foundBackup = false;
-          
-          if (backupStr) {
-            try {
-              const backup = JSON.parse(backupStr);
-              console.log('👤 AppContext: Found backup user:', backup);
-              setCurrentUser({
-                id: backup.id,
-                name: backup.name || backup.email?.split('@')[0] || 'Usuário',
-                email: backup.email,
-                role: UserRole.EMPLOYEE
-              });
-              foundBackup = true;
-            } catch (e) {
-              console.error('👤 AppContext: Failed to parse backup', e);
-            }
-          }
-          
-          // If no backup, try API (server reads cookies properly in Vercel)
-          if (!foundBackup) {
-            try {
-              const res = await fetch('/api/auth/me', { credentials: 'include' });
-              if (res.ok) {
-                const data = await res.json();
-                if (data.user) {
-                  console.log('👤 AppContext: Found session via API:', data.user);
-                  setCurrentUser({
-                    id: data.user.id,
-                    name: data.user.name || data.user.email?.split('@')[0],
-                    email: data.user.email,
-                    role: data.user.role,
-                    companyId: data.user.companyId,
-                    phone: data.user.phone,
-                    viewAllCompanyTickets: data.user.viewAllCompanyTickets,
-                    mustChangePassword: data.user.mustChangePassword,
-                    isAdmin: data.user.isAdmin
-                  });
-                } else {
-                  setCurrentUser(null);
-                }
-              } else {
-                setCurrentUser(null);
-              }
-            } catch (e) {
-              console.error('👤 AppContext: API fallback failed:', e);
-              setCurrentUser(null);
-            }
-          }
+          setCurrentUser(null);
         }
-
-        console.log('🔐 AppContext: Auth state listener configurado');
-        
-        const { data: { subscription } } = supabase.auth.onAuthStateChange(async (event, session) => {
-          if (!isMounted) return;
-          console.log(`🔐 AppContext: Evento Auth [${event}]`);
-
-          try {
-            if (session?.user) {
-              const profile = await UserService.getCurrentProfile();
-              if (!isMounted) return;
-
-              if (profile) {
-                setCurrentUser(profile);
-              } else {
-                setCurrentUser({
-                  id: session.user.id,
-                  name: session.user.user_metadata?.name || session.user.email?.split('@')[0] || 'Usuário',
-                  email: session.user.email || '',
-                  role: UserRole.EMPLOYEE
-                });
-              }
-            } else {
-              // User signed out - check if we have backup for Vercel preview
-              const backupStr = localStorage.getItem('omni_user_backup');
-              if (!backupStr) {
-                setCurrentUser(null);
-              }
-              // If backup exists, keep user (don't set null)
-            }
-          } catch (e) {
-            console.error('❌ onAuthStateChange error:', e);
-            if (session?.user && isMounted) {
-              setCurrentUser({
-                id: session.user.id,
-                name: session.user.user_metadata?.name || session.user.email?.split('@')[0] || 'Usuário',
-                email: session.user.email || '',
-                role: UserRole.EMPLOYEE
-              });
-            }
-          }
-        });
-
       } catch (err) {
-        console.error('❌ AppContext: Erro na inicialização do Auth:', err);
+        console.error('❌ AppContext: Erro na inicialização do Auth Nativo:', err);
+        if (isMounted) setCurrentUser(null);
       } finally {
         if (isMounted) setAuthInitialized(true);
       }
@@ -378,76 +250,18 @@ useEffect(() => {
   }, []);
 
   useEffect(() => {
-    if (!authInitialized || !supabase || !currentUser) return;
+    if (!authInitialized || !currentUser) return;
 
-    console.log('📡 Realtime: Iniciando canais de escuta...');
-
-    const ticketsChannel = supabase.channel('tickets-changes')
-      .on('postgres_changes', { event: '*', schema: 'public', table: 'tickets' }, async (payload) => {
-        console.log('📡 Realtime: Mudança detectada em tickets', payload);
-        triggerRefresh();
-        
-        if (payload.eventType === 'INSERT' && currentUser.role !== UserRole.CUSTOMER) {
-          const newTicket = payload.new;
-          addNotification({
-            title: 'Novo Chamado',
-            message: `Um novo chamado "${newTicket.title}" foi criado.`,
-            type: 'ticket_new',
-            targetId: newTicket.id
-          }, currentUser.id);
-        }
-      })
-      .on('postgres_changes', { event: '*', schema: 'public', table: 'ticket_messages' }, async (payload) => {
-        console.log('📡 Realtime: Nova mensagem de ticket', payload);
-        triggerRefresh();
-      })
-.subscribe();
-
-      const chatChannel = supabase.channel('chats-changes')
-        .on('postgres_changes', { event: '*', schema: 'public', table: 'chat_sessions' }, async (payload) => {
-          console.log('📡 Realtime: Mudança em sessões de chat', payload);
-          triggerRefresh();
-        })
-        .on('postgres_changes', { event: '*', schema: 'public', table: 'chat_messages' }, async (payload) => {
-          console.log('📡 Realtime: Nova mensagem de chat', payload);
-          triggerRefresh();
-          
-          if (payload.eventType === 'INSERT' && payload.new.sender_id !== currentUser.id) {
-            const isCurrentChat = activeChatRef.current === payload.new.session_id;
-            if (!isCurrentChat || !chatOpenRef.current) {
-              playSound('chat');
-            }
-          }
-        })
-        .subscribe();
-
-    // Internal chat channel for team messaging
-    const internalChatChannel = supabase.channel('internal-chats-changes')
-      .on('postgres_changes', { event: '*', schema: 'public', table: 'internal_chats' }, async () => {
-        console.log('📡 Realtime: Mudança em chats internos');
-        triggerRefresh();
-      })
-      .on('postgres_changes', { event: '*', schema: 'public', table: 'internal_chat_messages' }, async () => {
-        console.log('📡 Realtime: Nova mensagem de chat interno');
-        triggerRefresh();
-      })
-      .subscribe();
-
-    const statusChannel = supabase.channel('status-changes')
-      .on('postgres_changes', { event: '*', schema: 'public', table: 'analyst_status' }, async (payload) => {
-        console.log('📡 Realtime: Mudança de status de analista', payload);
-        triggerRefresh();
-      })
-      .subscribe();
+    console.log('📡 Realtime: Iniciando intervalo de atualização periódica...');
+    const interval = setInterval(() => {
+      triggerRefresh();
+    }, 15000);
 
     return () => {
-      console.log('📡 Realtime: Encerrando canais...');
-      supabase.removeChannel(ticketsChannel);
-      supabase.removeChannel(chatChannel);
-      supabase.removeChannel(internalChatChannel);
-      supabase.removeChannel(statusChannel);
+      console.log('📡 Realtime: Limpando intervalo de atualização...');
+      clearInterval(interval);
     };
-  }, [authInitialized, currentUser?.id, triggerRefresh, addNotification, playSound]);
+  }, [authInitialized, currentUser?.id, triggerRefresh]);
 
   useEffect(() => {
     if (currentUser) {

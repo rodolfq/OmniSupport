@@ -1,15 +1,16 @@
 import 'dotenv/config';
-import { makeWASocket, useMultiFileAuthState, fetchLatestBaileysVersion, DisconnectReason } from '@whiskeysockets/baileys';
+import { makeWASocket, fetchLatestBaileysVersion, DisconnectReason } from '@whiskeysockets/baileys';
 import pino from 'pino';
 import { Boom } from '@hapi/boom';
 import QRCode from 'qrcode';
 import { createClient } from '@supabase/supabase-js';
 import WebSocket from 'ws';
+import { useSupabaseAuthState } from '../lib/supabase-auth';
 
 const log = pino({ level: 'info' });
 const supabase = createClient(
-  process.env.NEXT_PUBLIC_SUPABASE_URL!,
-  process.env.SUPABASE_SERVICE_ROLE_KEY!,
+  process.env.NEXT_PUBLIC_SUPABASE_URL || 'https://placeholder-url.supabase.co',
+  process.env.SUPABASE_SERVICE_ROLE_KEY || 'placeholder-service-role-key',
   {
     realtime: {
       transport: WebSocket as any
@@ -18,11 +19,10 @@ const supabase = createClient(
 );
 
 const instanceId = 'default';
-const authPath = './whatsapp_auth';
 
 async function start() {
   const { version } = await fetchLatestBaileysVersion();
-  const { state, saveCreds } = await useMultiFileAuthState(authPath);
+  const { state, saveCreds } = await useSupabaseAuthState(supabase, instanceId);
   
   const sock = makeWASocket({
     version,

@@ -1,4 +1,4 @@
-﻿'use client';
+'use client';
 
 import React, { useState, useMemo } from 'react';
 import Link from 'next/link';
@@ -43,7 +43,12 @@ export function Sidebar() {
   const router = useRouter();
   const { currentUser, setCurrentUser, userStatus, dbStatus } = useApp();
 
-  const handleLogout = () => {
+  const handleLogout = async () => {
+    try {
+      await fetch('/api/auth/logout', { method: 'POST' });
+    } catch (e) {
+      console.error('Erro ao efetuar logout no servidor:', e);
+    }
     localStorage.setItem('omni_session_active', 'false');
     setCurrentUser(null);
     router.push('/login');

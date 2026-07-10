@@ -1,12 +1,10 @@
-import { existsSync, readFileSync, readdirSync, rmSync } from 'fs';
-import { join } from 'path';
-import { createClient, type SupabaseClient } from '@supabase/supabase-js';
-import { supabase } from '../supabase';
-import { makeWASocket, useMultiFileAuthState, fetchLatestBaileysVersion, DisconnectReason } from '@whiskeysockets/baileys';
+import { makeWASocket, fetchLatestBaileysVersion, DisconnectReason, BufferJSON } from '@whiskeysockets/baileys';
 import pino from 'pino';
 import { Boom } from '@hapi/boom';
 import QRCode from 'qrcode';
 import { normalizePhone } from '../utils';
+import { useSupabaseAuthState, sessionDataCache } from '../supabase-auth';
+import { query } from '../db';
 
 const log = pino({ level: 'silent' });
 
@@ -53,20 +51,11 @@ function clearReconnectTimer(instanceId: string): void {
   }
 }
 
-function getAdminSupabase(): SupabaseClient {
-  return createClient(
-    process.env.NEXT_PUBLIC_SUPABASE_URL!,
-    process.env.SUPABASE_SERVICE_ROLE_KEY!,
-    { auth: { autoRefreshToken: false, persistSession: false } }
-  );
-}
-
 function buildRecipientJid(to: string): string {
   if (to.includes('@')) return to;
   const digits = normalizePhone(to);
   if (!digits) throw new Error('Invalid recipient');
 
-  // WhatsApp LID (linked ID) — not a dialable phone number
   if (digits.length >= 14 || (digits.length === 13 && !digits.startsWith('55'))) {
     return `${digits}@lid`;
   }
@@ -74,15 +63,11 @@ function buildRecipientJid(to: string): string {
 }
 
 function resolvePhoneFromLid(instanceId: string, lidDigits: string): string | null {
-  const reversePath = join(process.cwd(), `whatsapp_auth_${instanceId}`, `lid-mapping-${lidDigits}_reverse.json`);
-  if (!existsSync(reversePath)) return null;
-  try {
-    const mapped = JSON.parse(readFileSync(reversePath, 'utf-8'));
-    const phone = typeof mapped === 'string' ? mapped : mapped?.phone || mapped?.pn;
-    return phone ? normalizePhone(String(phone)) : null;
-  } catch {
-    return null;
-  }
+  const sessionData = sessionDataCache.get(instanceId);
+  if (!sessionData) return null;
+  const mapped = sessionData.keys[`lid-mapping:${lidDigits}`];
+  const phone = typeof mapped === 'string' ? mapped : mapped?.phone || mapped?.pn;
+  return phone ? normalizePhone(String(phone)) : null;
 }
 
 function phoneLookupVariants(jid: string, instanceId = 'default'): string[] {
@@ -111,31 +96,24 @@ function isLikelyDialablePhone(digits: string): boolean {
 }
 
 function resolveLidFromPhone(instanceId: string, phoneDigits: string): string | null {
-  const authDir = join(process.cwd(), `whatsapp_auth_${instanceId}`);
-  if (!existsSync(authDir)) return null;
+  const sessionData = sessionDataCache.get(instanceId);
+  if (!sessionData) return null;
 
-  try {
-    const reverseFiles = readdirSync(authDir).filter(
-      (file) => file.startsWith('lid-mapping-') && file.endsWith('_reverse.json')
-    );
-
-    for (const file of reverseFiles) {
-      const mapped = JSON.parse(readFileSync(join(authDir, file), 'utf-8'));
+  for (const key in sessionData.keys) {
+    if (key.startsWith('lid-mapping:')) {
+      const mapped = sessionData.keys[key];
       const phone = normalizePhone(typeof mapped === 'string' ? mapped : String(mapped?.phone || mapped?.pn || ''));
-      if (!phone) continue;
+      if (phone) {
+        const phoneVariants = new Set([phone]);
+        if (phone.startsWith('55') && phone.length > 11) phoneVariants.add(phone.slice(2));
+        else if (phone.length <= 11) phoneVariants.add(`55${phone}`);
 
-      const phoneVariants = new Set([phone]);
-      if (phone.startsWith('55') && phone.length > 11) phoneVariants.add(phone.slice(2));
-      else if (phone.length <= 11) phoneVariants.add(`55${phone}`);
-
-      if (phoneVariants.has(phoneDigits)) {
-        return file.replace('lid-mapping-', '').replace('_reverse.json', '');
+        if (phoneVariants.has(phoneDigits)) {
+          return key.replace('lid-mapping:', '');
+        }
       }
     }
-  } catch {
-    return null;
   }
-
   return null;
 }
 
@@ -153,27 +131,26 @@ function expandContactLookupVariants(jid: string, instanceId = 'default'): strin
   return [...variants];
 }
 
-async function findChatSessionByPhone(admin: SupabaseClient, jid: string, instanceId = 'default') {
+async function findChatSessionByPhone(jid: string, instanceId = 'default') {
   const variants = expandContactLookupVariants(jid, instanceId);
   if (!variants.length) return null;
 
-  const { data, error } = await admin
-    .from('chat_sessions')
-    .select('id, customer_phone, updated_at')
-    .in('customer_phone', variants)
-    .order('updated_at', { ascending: false });
+  const placeHolders = variants.map((_, i) => `$${i + 1}`).join(',');
+  const res = await query(
+    `SELECT id, customer_phone, updated_at 
+     FROM public.chat_sessions 
+     WHERE customer_phone IN (${placeHolders}) 
+     ORDER BY updated_at DESC`,
+    variants
+  );
 
-  if (error) {
-    console.error('[WhatsApp:Incoming] Session lookup error:', error);
-    return null;
-  }
-  if (!data?.length) return null;
+  if (res.rowCount === 0) return null;
 
-  const dialable = data.find((session) =>
+  const dialable = res.rows.find((session) =>
     isLikelyDialablePhone(normalizePhone(session.customer_phone || ''))
   );
 
-  return dialable || data[0];
+  return dialable || res.rows[0];
 }
 
 export class WhatsAppService {
@@ -195,7 +172,7 @@ export class WhatsAppService {
     try {
       inst.sock?.end?.(undefined);
     } catch {
-      // ignore stale socket cleanup errors
+      // ignore
     }
     state.instances.delete(instanceId);
   }
@@ -237,30 +214,30 @@ export class WhatsAppService {
     throw new Error('WhatsApp instance not connected');
   }
 
-  static hasSavedCredentials(instanceId: string): boolean {
-    const credsPath = join(process.cwd(), `whatsapp_auth_${instanceId}`, 'creds.json');
-    return existsSync(credsPath);
+  static async hasSavedCredentials(instanceId: string): Promise<boolean> {
+    if (sessionDataCache.has(instanceId)) {
+      const sessionData = sessionDataCache.get(instanceId);
+      return !!sessionData?.creds?.noiseKey;
+    }
+    const res = await query('SELECT data FROM public.whatsapp_sessions WHERE id = $1', [instanceId]);
+    return !!res.rows[0]?.data?.creds?.noiseKey;
   }
 
-  private static hasInvalidCredentials(instanceId: string): boolean {
-    const credsPath = join(process.cwd(), `whatsapp_auth_${instanceId}`, 'creds.json');
-    if (!existsSync(credsPath)) return false;
-    try {
-      const creds = JSON.parse(readFileSync(credsPath, 'utf-8'));
-      return creds.registered === false && !!creds.me;
-    } catch {
-      return true;
+  private static async hasInvalidCredentials(instanceId: string): Promise<boolean> {
+    let sessionData = sessionDataCache.get(instanceId);
+    if (!sessionData) {
+      const res = await query('SELECT data FROM public.whatsapp_sessions WHERE id = $1', [instanceId]);
+      if (res.rows[0]?.data) {
+        sessionData = JSON.parse(JSON.stringify(res.rows[0].data), BufferJSON.reviver);
+      }
     }
+    if (!sessionData) return false;
+    return sessionData.creds?.registered === false && !!sessionData.creds?.me;
   }
 
-  private static clearLocalAuth(instanceId: string): void {
-    const authPath = join(process.cwd(), `whatsapp_auth_${instanceId}`);
-    if (!existsSync(authPath)) return;
-    try {
-      rmSync(authPath, { recursive: true, force: true });
-    } catch (e) {
-      console.error(`[WhatsApp:${instanceId}] Failed to clear local auth:`, e);
-    }
+  private static async clearLocalAuth(instanceId: string): Promise<void> {
+    sessionDataCache.delete(instanceId);
+    await query('DELETE FROM public.whatsapp_sessions WHERE id = $1', [instanceId]);
   }
 
   static async ensureConnection(instanceId: string): Promise<void> {
@@ -287,7 +264,7 @@ export class WhatsAppService {
       this.forceDropInstance(instanceId);
     }
 
-    if (!this.hasSavedCredentials(instanceId)) {
+    if (!await this.hasSavedCredentials(instanceId)) {
       return;
     }
 
@@ -313,8 +290,8 @@ export class WhatsAppService {
       if (options?.manual) {
         state.retryCount.set(instanceId, 0);
         this.forceDropInstance(instanceId);
-        if (this.hasInvalidCredentials(instanceId)) {
-          this.clearLocalAuth(instanceId);
+        if (await this.hasInvalidCredentials(instanceId)) {
+          await this.clearLocalAuth(instanceId);
         }
       } else {
         const existing = state.instances.get(instanceId);
@@ -330,8 +307,7 @@ export class WhatsAppService {
       }
 
       const { version } = await fetchLatestBaileysVersion();
-      const authPath = `./whatsapp_auth_${instanceId}`;
-      const { state: authState, saveCreds } = await useMultiFileAuthState(authPath);
+      const { state: authState, saveCreds } = await useSupabaseAuthState(null, instanceId);
 
       const sock = makeWASocket({
         version,
@@ -362,11 +338,14 @@ export class WhatsAppService {
               inst.status = 'connecting';
               inst.qr = qrDataUrl;
             }
-            await supabase.from('whatsapp_sessions').upsert({
-              id: instanceId,
-              data: { qr: qrDataUrl },
-              updated_at: new Date().toISOString()
-            });
+            await query(
+              `INSERT INTO public.whatsapp_sessions (id, data, updated_at)
+               VALUES ($1, $2, NOW())
+               ON CONFLICT (id) DO UPDATE SET
+                 data = EXCLUDED.data,
+                 updated_at = NOW()`,
+              [instanceId, { qr: qrDataUrl }]
+            );
           } catch (e) {
             console.error('QR generation error:', e);
           }
@@ -465,7 +444,7 @@ export class WhatsAppService {
 
   private static async clearStoredSession(instanceId: string): Promise<void> {
     try {
-      await supabase.from('whatsapp_sessions').delete().eq('id', instanceId);
+      await query('DELETE FROM public.whatsapp_sessions WHERE id = $1', [instanceId]);
     } catch (e) {
       console.error(`[WhatsApp:${instanceId}] Error clearing stored session:`, e);
     }
@@ -517,7 +496,6 @@ export class WhatsAppService {
     const remoteJid = msg.key.remoteJid;
     if (!remoteJid) return;
 
-    const admin = getAdminSupabase();
     const text =
       msg.message?.conversation ||
       msg.message?.extendedTextMessage?.text ||
@@ -526,33 +504,30 @@ export class WhatsAppService {
 
     if (!text) return;
 
-    const session = await findChatSessionByPhone(admin, remoteJid, instanceId);
+    const session = await findChatSessionByPhone(remoteJid, instanceId);
 
-    // Só importa respostas de conversas já abertas no app — não espelha todo o WhatsApp pessoal
     if (!session?.id) return;
 
-    const { error: messageError } = await admin.from('chat_messages').insert({
-      session_id: session.id,
-      sender_id: null,
-      sender_name: msg.pushName || 'Contato',
-      text,
-      type: 'text',
-      metadata: { whatsapp_jid: remoteJid, source: 'whatsapp' },
-      created_at: new Date().toISOString()
-    });
+    try {
+      await query(
+        `INSERT INTO public.chat_messages (session_id, sender_id, sender_name, text, type, metadata, created_at)
+         VALUES ($1, $2, $3, $4, $5, $6, NOW())`,
+        [
+          session.id,
+          null,
+          msg.pushName || 'Contato',
+          text,
+          'text',
+          JSON.stringify({ whatsapp_jid: remoteJid, source: 'whatsapp' })
+        ]
+      );
 
-    if (messageError) {
-      console.error('[WhatsApp:Incoming] Message insert error:', messageError);
-      return;
-    }
-
-    const { error: updateError } = await admin
-      .from('chat_sessions')
-      .update({ last_message_at: new Date().toISOString() })
-      .eq('id', session.id);
-
-    if (updateError) {
-      console.error('[WhatsApp:Incoming] Session update error:', updateError);
+      await query(
+        'UPDATE public.chat_sessions SET last_message_at = NOW(), updated_at = NOW() WHERE id = $1',
+        [session.id]
+      );
+    } catch (e) {
+      console.error('[WhatsApp:Incoming] Error inserting message in Postgres:', e);
     }
   }
 }

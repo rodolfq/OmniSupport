@@ -1,16 +1,16 @@
-﻿'use client';
+'use client';
 
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { Plus, Trash2, Tag, Hash } from 'lucide-react';
-import { MockDB, TagConfig } from '@/lib/mock-db';
-import { UserRole } from '@/lib/types';
+import { TagConfig, UserRole } from '@/lib/types';
+import { ConfigService } from '@/lib/services/config-service';
 import { useApp } from '@/app/app-context';
 import { cn } from '@/lib/utils';
 import { toast } from 'sonner';
 
 const TAG_COLORS = [
   { bg: 'bg-slate-100', text: 'text-slate-700', label: 'Cinza' },
-  { bg: 'bg-indigo-100', text: 'text-indigo-700', label: 'Ãndigo' },
+  { bg: 'bg-indigo-100', text: 'text-indigo-700', label: 'Ã ndigo' },
   { bg: 'bg-emerald-100', text: 'text-emerald-700', label: 'Esmeralda' },
   { bg: 'bg-amber-100', text: 'text-amber-700', label: 'Ã‚mbar' },
   { bg: 'bg-rose-100', text: 'text-rose-700', label: 'Rosa' },
@@ -22,10 +22,25 @@ export function TagManager() {
   const { currentUser } = useApp();
   const isAdmin = currentUser?.role === UserRole.ADMIN;
 
-  const [tags, setTags] = useState<TagConfig[]>(MockDB.getTags());
+  const [tags, setTags] = useState<TagConfig[]>([]);
+  const [loading, setLoading] = useState(true);
   const [newTagLabel, setNewTagLabel] = useState('');
   const [selectedColor, setSelectedColor] = useState(TAG_COLORS[0]);
   const [domainFilter, setDomainFilter] = useState<'all' | 'chat' | 'ticket'>('all');
+
+  useEffect(() => {
+    async function loadTags() {
+      try {
+        const data = await ConfigService.getTags();
+        setTags(data);
+      } catch {
+        toast.error('Erro ao carregar tags.');
+      } finally {
+        setLoading(false);
+      }
+    }
+    loadTags();
+  }, []);
 
   const handleAddTag = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -37,11 +52,11 @@ export function TagManager() {
 
     try {
       const domain = domainFilter === 'all' ? 'ticket' : domainFilter;
-      const newTag = await MockDB.saveTag({
+      const newTag = await ConfigService.saveTag({
         label: newTagLabel.trim(),
         color: `${selectedColor.bg} ${selectedColor.text}`,
         domain
-      });
+      } as TagConfig);
       setTags([...tags, newTag]);
       setNewTagLabel('');
       toast.success('Tag personalizada criada!');
@@ -53,7 +68,7 @@ export function TagManager() {
   const handleDeleteTag = async (id: string) => {
     if (!isAdmin) return;
     try {
-      await MockDB.deleteTag(id);
+      await ConfigService.deleteTag(id);
       setTags(tags.filter(t => t.id !== id));
       toast.success('Tag removida.');
     } catch {

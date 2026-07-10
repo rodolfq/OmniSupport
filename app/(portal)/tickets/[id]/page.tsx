@@ -2,10 +2,13 @@
 
 import React, { useState, useEffect } from 'react';
 import { useParams, useRouter } from 'next/navigation';
-import { Ticket, Message, MockDB } from '@/lib/mock-db';
+import { Ticket, Message } from '@/lib/types';
+import { getTicketById, updateTicket, fetchMessages, createMessage } from '@/lib/tickets';
 import { useApp } from '@/app/app-context';
 import { Send, ChevronLeft, Lock, Paperclip, Eye, Star } from 'lucide-react';
 import { cn } from '@/lib/utils';
+import { supabase } from '@/lib/supabase';
+import { toast } from 'sonner';
 
 export default function TicketDetailPage() {
   const params = useParams();
@@ -21,34 +24,62 @@ export default function TicketDetailPage() {
 
   useEffect(() => {
     if (!params.id) return;
-    const t = MockDB.getTickets().find(x => x.id === params.id);
-    if (t) {
-      setTicket(t);
-      setMessages(MockDB.getMessages(t.id));
+    async function loadTicket() {
+      try {
+        const t = await getTicketById(params.id as string);
+        if (t) {
+          setTicket(t);
+          const msgs = await fetchMessages(t.id);
+          setMessages(msgs);
+        }
+      } catch (e) {
+        console.error("Error loading ticket detail:", e);
+      }
     }
+    loadTicket();
   }, [params.id]);
 
   const handleFileSelect = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const files = e.target.files;
-    if (!files || files.length === 0) return;
+    if (!files || files.length === 0 || !ticket) return;
 
     setIsInternalUploading(true);
     try {
       const file = files[0];
-      const attachment = await MockDB.uploadFile(file);
+      const fileExt = file.name.split('.').pop();
+      const fileName = `${ticket.id}/${crypto.randomUUID()}.${fileExt}`;
+      const { data: uploadData, error: uploadError } = await supabase.storage
+        .from('attachments')
+        .upload(fileName, file);
+
+      if (uploadError) throw uploadError;
+
+      const { data: publicUrlData } = supabase.storage
+        .from('attachments')
+        .getPublicUrl(fileName);
+
+      const attachment = {
+        id: crypto.randomUUID(),
+        name: file.name,
+        type: file.type,
+        url: publicUrlData.publicUrl,
+        size: file.size
+      };
+
       setPreviewAttachments([...previewAttachments, attachment]);
+      toast.success('Arquivo anexado com sucesso!');
     } catch (error) {
       console.error('Falha no upload:', error);
-      alert('Erro ao subir arquivo. Verifique sua conexão.');
+      toast.error('Erro ao subir arquivo. Verifique sua conexão.');
     } finally {
       setIsInternalUploading(false);
     }
   };
 
-  const handleSendMessage = () => {
+  const handleSendMessage = async () => {
     if ((!input.trim() && previewAttachments.length === 0) || !ticket || !currentUser) return;
     const newMessage: Message = {
-      id: Math.random().toString(36).substr(2, 9),
+      id: crypto.randomUUID(),
       ticketId: ticket.id,
       senderId: currentUser.id,
       text: input,
@@ -57,21 +88,33 @@ export default function TicketDetailPage() {
       type: isInternal ? 'internal' : 'text',
       attachments: previewAttachments
     };
-    MockDB.saveMessage(newMessage);
-    setMessages([...messages, newMessage]);
-    setInput('');
-    setPreviewAttachments([]);
+    try {
+      await createMessage(newMessage);
+      setMessages([...messages, newMessage]);
+      setInput('');
+      setPreviewAttachments([]);
+      toast.success('Mensagem enviada!');
+    } catch (error) {
+      console.error(error);
+      toast.error('Erro ao enviar mensagem.');
+    }
   };
 
-  const handlePriorityUpdate = (newPriority: number) => {
+  const handlePriorityUpdate = async (newPriority: number) => {
     if (!ticket) return;
-    const updatedTicket: Ticket = {
-      ...ticket,
-      priority: newPriority.toString(),
-      updatedAt: new Date().toISOString()
-    };
-    MockDB.saveTicket(updatedTicket);
-    setTicket(updatedTicket);
+    try {
+      const updatedTicket: Ticket = {
+        ...ticket,
+        priority: newPriority.toString(),
+        updatedAt: new Date().toISOString()
+      };
+      await updateTicket(updatedTicket);
+      setTicket(updatedTicket);
+      toast.success('Prioridade atualizada!');
+    } catch (e) {
+      console.error(e);
+      toast.error('Erro ao atualizar prioridade.');
+    }
   };
 
   const formatDate = (dateStr: string) => {

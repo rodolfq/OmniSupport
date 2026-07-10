@@ -3,8 +3,8 @@ import { v4 as uuidv4 } from 'uuid';
 import { NextRequest, NextResponse } from 'next/server';
 
 const supabaseAdmin = createClient(
-  process.env.NEXT_PUBLIC_SUPABASE_URL!,
-  process.env.SUPABASE_SERVICE_ROLE_KEY!,
+  process.env.NEXT_PUBLIC_SUPABASE_URL || 'https://placeholder-url.supabase.co',
+  process.env.SUPABASE_SERVICE_ROLE_KEY || 'placeholder-service-role-key',
   {
     auth: {
       autoRefreshToken: false,

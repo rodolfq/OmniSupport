@@ -1,4 +1,4 @@
-﻿'use client';
+'use client';
 
 import React, { useState, useEffect, useRef, Suspense } from 'react';
 import { 
@@ -34,11 +34,10 @@ import {
   TicketStatus,
   TicketPriority,
   Ticket,
-  Company,
-  MockDB
-} from '@/lib/mock-db';
-import { fetchChatSessions, pushChatMessage, createChatSession, saveChatHistory, findExistingChatSessionByPhone } from '@/lib/services/chat.service';
-import { fetchQuickNotes, fetchAnalystStatuses, fetchCompanies, fetchUsers, fetchQueues } from '@/lib/services/config.service';
+  Company
+} from '@/lib/types';
+import { fetchChatSessions, pushChatMessage, createChatSession, saveChatHistory, findExistingChatSessionByPhone } from '@/lib/services/chat-service';
+import { fetchQuickNotes, fetchAnalystStatuses, fetchCompanies, fetchUsers, fetchQueues } from '@/lib/services/config-service';
 import { cn, maskPhone, matchPhones, safeJsonStringify } from '@/lib/utils';
 import { useApp } from '@/app/app-context';
 import { supabase } from '@/lib/supabase';
@@ -375,10 +374,23 @@ export function ChatWidget() {
 
   useEffect(() => {
     if (!isMinimized) {
-      setQuickNotes(MockDB.getQuickNotes());
-      setAnalystStatuses(MockDB.getAnalystStatuses());
-      setCompanies(MockDB.getCompanies());
-      setAllUsers(MockDB.getUsers());
+      async function loadData() {
+        try {
+          const [notes, statuses, comps, usrs] = await Promise.all([
+            fetchQuickNotes(),
+            fetchAnalystStatuses(),
+            fetchCompanies(),
+            fetchUsers()
+          ]);
+          setQuickNotes(notes);
+          setAnalystStatuses(statuses);
+          setCompanies(comps);
+          setAllUsers(usrs);
+        } catch (e) {
+          console.error("Error loading chat widget data:", e);
+        }
+      }
+      loadData();
     }
   }, [isMinimized]);
 
@@ -1188,8 +1200,8 @@ useEffect(() => {
         onClose={() => setIsLinkModalOpen(false)} 
         session={selectedChat || null} 
         onSuccess={() => {
-          setAllUsers(MockDB.getUsers());
-          setCustomerSessions(MockDB.getChatSessions());
+          fetchUsers().then(setAllUsers);
+          fetchChatSessions().then(setCustomerSessions);
         }}
       />
 

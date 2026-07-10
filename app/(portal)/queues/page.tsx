@@ -1,7 +1,9 @@
-﻿'use client';
+'use client';
 
 import React, { useState, useEffect } from 'react';
-import { MockDB, User, UserRole, Queue, WhatsappInstance } from '@/lib/mock-db';
+import { User, UserRole, Queue, WhatsappInstance } from '@/lib/types';
+import { UserService } from '@/lib/services/user-service';
+import { getQueues, saveQueue, deleteQueue, getWhatsappInstances } from '@/app/actions';
 import { 
   Library, 
   Plus, 
@@ -42,10 +44,35 @@ export default function QueuesManagementPage() {
     loadData();
   }, []);
 
-  const loadData = () => {
-    setQueues(MockDB.getQueues());
-    setUsers(MockDB.getAnalysts());
-    setWhatsappInstances(MockDB.getWhatsappInstances());
+  const loadData = async () => {
+    try {
+      const dbQueues = await getQueues();
+      const emps = await UserService.getAnalysts();
+      const dbInstances = await getWhatsappInstances();
+
+      if (dbQueues) {
+        setQueues(dbQueues.map(q => ({
+          id: q.id,
+          name: q.name,
+          description: q.description || '',
+          whatsappInstanceId: q.whatsappInstanceId || '',
+          memberIds: q.memberIds || [],
+          createdAt: (q as any).createdAt
+        })));
+      }
+      setUsers(emps);
+      if (dbInstances) {
+        setWhatsappInstances(dbInstances.map(i => ({
+          id: i.id,
+          name: i.name,
+          phone: i.phone || '',
+          status: i.status || 'disconnected',
+          createdAt: i.created_at
+        })));
+      }
+    } catch (e) {
+      console.error("Error loading queues management data:", e);
+    }
   };
 
   const handleOpenModal = (queue?: Queue) => {
@@ -65,19 +92,24 @@ export default function QueuesManagementPage() {
     setIsModalOpen(true);
   };
 
-  const handleSave = () => {
+  const handleSave = async () => {
     if (!name) return;
 
-    const queueData: Queue = {
-      id: selectedQueue?.id || Math.random().toString(36).substr(2, 9),
+    const id = selectedQueue?.id || null;
+    const res = await saveQueue(
+      id,
       name,
       description,
-      whatsappInstanceId: selectedWhatsappId,
-      memberIds: selectedMemberIds,
-      createdAt: selectedQueue?.createdAt || new Date().toISOString()
-    };
+      selectedWhatsappId || null,
+      selectedMemberIds
+    );
 
-    MockDB.saveQueue(queueData);
+    if (res && (res as any).error) {
+      console.error("Error saving queue:", (res as any).error);
+      alert("Erro ao salvar fila.");
+      return;
+    }
+
     loadData();
     setIsModalOpen(false);
   };
@@ -403,9 +435,16 @@ export default function QueuesManagementPage() {
       <ConfirmDialog
         isOpen={!!deletingQueue}
         onClose={() => setDeletingQueue(null)}
-        onConfirm={() => {
+        onConfirm={async () => {
           if (deletingQueue) {
-            MockDB.deleteQueue(deletingQueue.id);
+            const res = await deleteQueue(deletingQueue.id);
+
+            if (res && res.error) {
+              console.error("Error deleting queue:", res.error);
+              alert("Erro ao excluir fila.");
+              return;
+            }
+
             loadData();
             setDeletingQueue(null);
           }

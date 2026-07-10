@@ -1,4 +1,4 @@
-﻿"use client";
+"use client";
 
 import React, { useState, useEffect, useMemo } from "react";
 import {
@@ -7,7 +7,7 @@ import {
   Permission,
   UserRole,
 } from "@/lib/types";
-import { supabase } from "@/lib/supabase";
+
 import { SearchFilters, searchTickets } from "@/lib/search";
 import {
   FileText,
@@ -205,10 +205,9 @@ export default function TicketsPage() {
       const hasInternalView = hasPermission(Permission.INTERNAL_TICKETS_VIEW);
 
       if (hasInternalView && !hasFullRead) {
-        const internalTickets = await (await import("@/lib/mock-db")).MockDB.getInternalTickets();
-        const ticketsWithInternal = new Set(
-          internalTickets.flatMap((it) => it.parentTicketIds || []),
-        );
+        const res = await fetch('/api/tickets?action=internal-links');
+        const links = res.ok ? await res.json() : [];
+        const ticketsWithInternal = new Set((links || []).map((l: any) => l.ticket_id));
         filtered = filtered.filter((t) => ticketsWithInternal.has(t.id));
       } else if (!canViewOutsideQueue) {
         filtered = filtered.filter(
@@ -223,19 +222,31 @@ export default function TicketsPage() {
     return filtered;
   };
 
+  const bulkUpdateTickets = async (ids: string[], updates: any) => {
+    const res = await fetch('/api/tickets', {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ ids, updates })
+    });
+    if (!res.ok) {
+      const err = await res.json();
+      throw new Error(err.error || 'Erro na atualização em lote');
+    }
+  };
+
   const loadTickets = async () => {
     if (!currentUser) return;
     setLoading(true);
     try {
       const [pRes, cRes, uRes] = await Promise.all([
-        supabase.from("config_priorities").select("*"),
-        supabase.from("companies").select("*"),
-        supabase.from("profiles").select("*"),
+        fetch('/api/config?type=priorities').then(r => r.json()),
+        fetch('/api/companies').then(r => r.json()),
+        fetch('/api/users?type=all').then(r => r.json()),
       ]);
 
-      if (pRes.data) setPriorities(pRes.data);
-      if (cRes.data) setCompanies(cRes.data);
-      if (uRes.data) setUsers(uRes.data);
+      setPriorities(pRes);
+      setCompanies(cRes);
+      setUsers(uRes);
 
       const result = await searchTickets(searchFilters, currentPage, pageSize);
       const roleFilteredTickets = await applyRoleBasedFilters(result.tickets);
@@ -284,12 +295,7 @@ export default function TicketsPage() {
     if (!selectedAssigneeId || selectedTickets.length === 0) return;
     
     try {
-      const { error } = await supabase
-        .from('tickets')
-        .update({ assignee_id: selectedAssigneeId })
-        .in('id', selectedTickets);
-        
-      if (error) throw error;
+      await bulkUpdateTickets(selectedTickets, { assigneeId: selectedAssigneeId });
       
       toast.success(`${selectedTickets.length} chamado(s) transferido(s) com sucesso!`);
       setSelectedTickets([]);
@@ -304,12 +310,7 @@ export default function TicketsPage() {
     if (selectedTickets.length === 0) return;
     
     try {
-      const { error } = await supabase
-        .from('tickets')
-        .update({ status: newStatus, updated_at: new Date().toISOString() })
-        .in('id', selectedTickets);
-        
-      if (error) throw error;
+      await bulkUpdateTickets(selectedTickets, { status: newStatus });
       
       toast.success(`${selectedTickets.length} chamado(s) atualizado(s) para "${newStatus}"`);
       setSelectedTickets([]);
@@ -332,16 +333,7 @@ export default function TicketsPage() {
     }
     
     try {
-      // Close the merged tickets (just change status, no parent_ticket_id)
-      const { error } = await supabase
-        .from('tickets')
-        .update({ 
-          status: TicketStatus.CLOSED,
-          updated_at: new Date().toISOString()
-        })
-        .in('id', ticketsToMerge);
-        
-      if (error) throw error;
+      await bulkUpdateTickets(ticketsToMerge, { status: TicketStatus.CLOSED });
       
       toast.success(`${ticketsToMerge.length} chamado(s) mesclado(s) ao chamado #${masterTicket.ticketNumber || masterTicket.id.slice(0, 8)}`);
       setSelectedTickets([]);
@@ -356,12 +348,7 @@ export default function TicketsPage() {
     if (!newBulkTitle.trim() || selectedTickets.length === 0) return;
     
     try {
-      const { error } = await supabase
-        .from('tickets')
-        .update({ title: newBulkTitle, updated_at: new Date().toISOString() })
-        .in('id', selectedTickets);
-        
-      if (error) throw error;
+      await bulkUpdateTickets(selectedTickets, { title: newBulkTitle });
       
       toast.success(`${selectedTickets.length} título(s) atualizado(s)`);
       setSelectedTickets([]);
@@ -377,23 +364,10 @@ export default function TicketsPage() {
     if (selectedTickets.length === 0) return;
     
     try {
-      // Get current tags and merge
-      const { data: currentTags, error: fetchError } = await supabase
-        .from('tickets')
-        .select('tags')
-        .in('id', selectedTickets);
-        
-      if (fetchError) throw fetchError;
-      
-      const existingTags = [...new Set(currentTags?.flatMap(t => t.tags || []))];
+      const existingTags = [...new Set(filteredTickets.filter(t => selectedTickets.includes(t.id)).flatMap(t => t.tags || []))];
       const allTags = [...new Set([...existingTags, ...selectedTags])];
       
-      const { error } = await supabase
-        .from('tickets')
-        .update({ tags: allTags, updated_at: new Date().toISOString() })
-        .in('id', selectedTickets);
-        
-      if (error) throw error;
+      await bulkUpdateTickets(selectedTickets, { tags: allTags });
       
       toast.success(`${selectedTickets.length} marcador(es) atualizado(s)`);
       setSelectedTickets([]);
@@ -409,12 +383,7 @@ export default function TicketsPage() {
     if (!priority || selectedTickets.length === 0) return;
     
     try {
-      const { error } = await supabase
-        .from('tickets')
-        .update({ priority, updated_at: new Date().toISOString() })
-        .in('id', selectedTickets);
-        
-      if (error) throw error;
+      await bulkUpdateTickets(selectedTickets, { priority });
       
       toast.success(`${selectedTickets.length} prioridade(s) atualizada(s)`);
       setSelectedTickets([]);
@@ -430,10 +399,9 @@ export default function TicketsPage() {
     if (!isTransferModalOpen) return;
     
     const loadTeams = async () => {
-      const { data } = await supabase
-        .from('internal_teams')
-        .select('id, name, member_ids');
-      setTeams(data || []);
+      const res = await fetch('/api/tickets?action=teams');
+      const data = res.ok ? await res.json() : [];
+      setTeams(data);
     };
     loadTeams();
   }, [isTransferModalOpen]);
@@ -447,11 +415,10 @@ export default function TicketsPage() {
     const loadMembers = async () => {
       const team = teams.find(t => t.id === selectedTeamId);
       if (team?.member_ids) {
-        const { data } = await supabase
-          .from('profiles')
-          .select('id, name, email')
-          .in('id', team.member_ids);
-        setTeamMembers(data || []);
+        const res = await fetch(`/api/users?type=all`);
+        const allUsers = res.ok ? await res.json() : [];
+        const members = allUsers.filter((u: any) => team.member_ids.includes(u.id));
+        setTeamMembers(members);
       }
     };
     loadMembers();
@@ -462,10 +429,9 @@ export default function TicketsPage() {
   }, [selectedTickets]);
 
   const loadTags = async () => {
-    const { data } = await supabase
-      .from('config_tags')
-      .select('*');
-    setTags(data || []);
+    const res = await fetch('/api/config?type=tags');
+    const data = res.ok ? await res.json() : [];
+    setTags(data);
   };
 
   const handleSort = (key: string) => {

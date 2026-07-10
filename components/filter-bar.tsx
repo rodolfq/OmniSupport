@@ -1,12 +1,13 @@
-﻿'use client';
+'use client';
 
 import React, { useState, useEffect } from 'react';
 import { Search, Filter, X, ChevronDown, Save, Bookmark, Trash2 } from 'lucide-react';
-import { MockDB, TicketStatus, User, Company, SavedFilter, UserRole } from '@/lib/mock-db';
+import { TicketStatus, User, Company, SavedFilter, UserRole } from '@/lib/types';
 import { cn, normalizeString } from '@/lib/utils';
 import { motion, AnimatePresence } from 'motion/react';
 import { useApp } from '@/app/app-context';
 import { supabase } from '@/lib/supabase';
+import { toast } from 'sonner';
 
 interface FilterBarProps {
   onFilterChange: (filteredTickets: any[]) => void;
@@ -41,11 +42,28 @@ export function FilterBar({ onFilterChange, originalTickets }: FilterBarProps) {
       
       if (compList) setCompanies(compList);
       if (profiles) setAnalysts(profiles.filter(u => u.role === 'Equipe' || u.is_admin) as any);
-      
-      setSavedFilters(MockDB.getSavedFilters());
     }
     fetchData();
   }, []);
+
+  useEffect(() => {
+    async function fetchSavedFilters() {
+      if (!currentUser?.id) return;
+      const { data: savedViews } = await supabase
+        .from('saved_views')
+        .select('id, name, filters')
+        .eq('user_id', currentUser.id);
+      
+      if (savedViews) {
+        setSavedFilters(savedViews.map(sv => ({
+          id: sv.id,
+          name: sv.name,
+          filters: sv.filters as any
+        })));
+      }
+    }
+    fetchSavedFilters();
+  }, [currentUser?.id]);
 
   useEffect(() => {
     applyFilters();
@@ -108,15 +126,39 @@ export function FilterBar({ onFilterChange, originalTickets }: FilterBarProps) {
     onFilterChange(filtered);
   };
 
-  const handleSaveFilter = () => {
+  const handleSaveFilter = async () => {
     if (!newFilterName) return;
-    const filter: SavedFilter = {
-      id: Math.random().toString(36).substr(2, 9),
-      name: newFilterName,
-      filters: { search, status, priority, companyId, assigneeId, startDate, endDate, contentSearch, ticketId }
-    };
-    MockDB.saveFilter(filter);
-    setSavedFilters(MockDB.getSavedFilters());
+    if (!currentUser?.id) {
+      toast.error("Você precisa estar logado para salvar buscas.");
+      return;
+    }
+    
+    const filterData = { search, status, priority, companyId, assigneeId, startDate, endDate, contentSearch, ticketId };
+    
+    const { data, error } = await supabase
+      .from('saved_views')
+      .insert({
+        user_id: currentUser.id,
+        name: newFilterName,
+        filters: filterData
+      })
+      .select('id, name, filters')
+      .single();
+
+    if (error) {
+      console.error("Error saving view:", error);
+      toast.error("Erro ao salvar busca.");
+      return;
+    }
+
+    if (data) {
+      setSavedFilters(prev => [...prev, {
+        id: data.id,
+        name: data.name,
+        filters: data.filters as any
+      }]);
+      toast.success("Busca salva com sucesso!");
+    }
     setNewFilterName('');
     setIsSaving(false);
   };

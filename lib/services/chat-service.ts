@@ -1,254 +1,190 @@
-import { supabase } from '../supabase';
 import { ChatSession, ChatMessage, AnalystStatus, UserStatusHistory, AbsenceReason, User, InternalGroup } from '../types';
+import { normalizePhone } from '../utils';
 
 export class ChatService {
   static async getSessions(): Promise<ChatSession[]> {
-    const { data, error } = await supabase
-      .from('chat_sessions')
-      .select(`
-        *,
-        messages:chat_messages!chat_messages_session_id_fkey(
-          id, sender_id, sender_name, text, type, metadata, created_at
-        )
-      `);
-
-    if (error) throw error;
-
-    return (data || []).map(s => ({
-      id: s.id,
-      customerId: s.customer_id,
-      customerName: s.customer_name,
-      customerPhone: s.customer_phone,
-      assigneeId: s.assignee_id,
-      queueId: s.queue_id,
-      status: s.status,
-      messages: (s.messages || []).map((m: any) => ({
-        id: m.id,
-        senderId: m.sender_id,
-        senderName: m.sender_name,
-        text: m.text,
-        timestamp: m.created_at,
-        type: m.type,
-        metadata: m.metadata
-      })),
-      startedAt: s.created_at,
-      lastMessageAt: s.last_message_at || s.created_at || new Date().toISOString()
-    })) as ChatSession[];
+    const res = await fetch('/api/chats?action=sessions');
+    return res.json();
   }
 
   static async save(session: ChatSession): Promise<void> {
-    const { error } = await supabase.from('chat_sessions').upsert({
-      id: session.id,
-      customer_id: session.customerId,
-      customer_name: session.customerName,
-      customer_phone: session.customerPhone,
-      assignee_id: session.assigneeId,
-      queue_id: session.queueId,
-      status: session.status,
-      created_at: session.startedAt,
-      last_message_at: session.lastMessageAt
+    const res = await fetch('/api/chats', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ action: 'save-session', session })
     });
-
-    if (error) throw error;
+    if (!res.ok) throw new Error('Error saving chat session via API');
   }
 
   static async pushMessage(sessionId: string, message: ChatMessage): Promise<void> {
-    const { error } = await supabase.from('chat_messages').upsert({
-      id: message.id,
-      session_id: sessionId,
-      sender_id: message.senderId,
-      sender_name: message.senderName,
-      text: message.text,
-      type: message.type,
-      metadata: message.metadata,
-      created_at: message.timestamp
+    const res = await fetch('/api/chats', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ action: 'push-message', sessionId, message })
     });
-
-    if (error) throw error;
-
-    // Update last_message_at on session
-    const { error: sessionError } = await supabase
-      .from('chat_sessions')
-      .update({ last_message_at: message.timestamp })
-      .eq('id', sessionId);
-
-    if (sessionError) throw sessionError;
+    if (!res.ok) throw new Error('Error pushing message via API');
   }
 }
 
 export class AnalystService {
   static async getStatus(): Promise<AnalystStatus[]> {
-    const { data, error } = await supabase
-      .from('analyst_status')
-      .select('*');
-
-    if (error) throw error;
-    return (data || []).map(s => ({
-      userId: s.user_id,
-      isOnline: s.is_online,
-      lastActive: s.last_active,
-      currentLoad: s.current_load,
-      currentReason: s.current_reason
-    })) as AnalystStatus[];
+    const res = await fetch('/api/chats?action=analyst-status');
+    return res.json();
   }
 
   static async saveStatus(status: AnalystStatus): Promise<void> {
-    const { data: { user } } = await supabase.auth.getUser();
-    if (!user || status.userId !== user.id) return;
-
-    const { error } = await supabase.from('analyst_status').upsert({
-      user_id: status.userId,
-      is_online: status.isOnline,
-      last_active: status.lastActive,
-      current_load: status.currentLoad
+    const res = await fetch('/api/chats', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ action: 'save-status', status })
     });
-
-    if (error) throw error;
+    if (!res.ok) throw new Error('Error saving status via API');
   }
 
   static async logStatusChange(userId: string, status: 'online' | 'away' | 'offline', reason?: string): Promise<void> {
-    // Update current status
-    const { error: statusError } = await supabase
-      .from('analyst_status')
-      .update({
-        current_reason: reason || null,
-        is_online: status === 'online',
-        last_active: new Date().toISOString()
-      })
-      .eq('user_id', userId);
-
-    if (statusError) throw statusError;
-
-    // Insert history
-    const { error: historyError } = await supabase
-      .from('user_status_history')
-      .insert({
-        user_id: userId,
-        status: status,
-        reason: reason || null,
-        timestamp: new Date().toISOString()
-      });
-
-    if (historyError) throw historyError;
+    const res = await fetch('/api/chats', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ action: 'log-status-change', userId, status, reason })
+    });
+    if (!res.ok) throw new Error('Error logging status change via API');
   }
 }
 
 export class UserStatusHistoryService {
   static async getAll(): Promise<UserStatusHistory[]> {
-    const { data, error } = await supabase
-      .from('user_status_history')
-      .select('*')
-      .order('timestamp', { ascending: false })
-      .limit(500);
-
-    if (error) throw error;
-    return (data || []).map(h => ({
-      id: h.id,
-      userId: h.user_id,
-      status: h.status,
-      reason: h.reason,
-      timestamp: h.timestamp,
-      duration: h.duration
-    })) as UserStatusHistory[];
+    const res = await fetch('/api/chats?action=status-history');
+    return res.json();
   }
 }
 
 export class AbsenceReasonService {
   static async getAll(): Promise<AbsenceReason[]> {
-    const { data, error } = await supabase
-      .from('absence_reasons')
-      .select('*');
-
-    if (error) throw error;
-    return (data || []).map(r => ({ id: r.id, label: r.label })) as AbsenceReason[];
+    const res = await fetch('/api/chats?action=absence-reasons');
+    return res.json();
   }
 
   static async save(reason: { label: string }): Promise<void> {
-    const { error } = await supabase.from('absence_reasons').insert({
-      label: reason.label
+    const res = await fetch('/api/chats', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ action: 'save-absence-reason', reason })
     });
-
-    if (error) throw error;
+    if (!res.ok) throw new Error('Error saving absence reason via API');
   }
 
   static async delete(id: string): Promise<void> {
-    const { error } = await supabase.from('absence_reasons').delete().eq('id', id);
-    if (error) throw error;
+    const res = await fetch('/api/chats', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ action: 'delete-absence-reason', id })
+    });
+    if (!res.ok) throw new Error('Error deleting absence reason via API');
   }
 }
 
-// Internal Chat Service - for internal team messaging
 export class InternalChatService {
   static async getChats(): Promise<InternalGroup[]> {
-    const { data, error } = await supabase
-      .from('internal_chats')
-      .select('*')
-      .order('last_message_at', { ascending: false });
-
-    if (error) throw error;
-    return (data || []).map(c => ({
-      id: c.id,
-      name: c.name,
-      imageUrl: c.image_url,
-      type: c.type,
-      memberIds: c.member_ids || [],
-      messages: [],
-      lastMessageAt: c.last_message_at || c.created_at
-    })) as InternalGroup[];
+    const res = await fetch('/api/chats?action=internal-chats');
+    return res.json();
   }
 
   static async getMessages(chatId: string): Promise<ChatMessage[]> {
-    const { data, error } = await supabase
-      .from('internal_chat_messages')
-      .select('*')
-      .eq('chat_id', chatId)
-      .order('created_at', { ascending: true });
-
-    if (error) throw error;
-    return (data || []).map(m => ({
-      id: m.id,
-      senderId: m.sender_id,
-      senderName: m.sender_name,
-      text: m.text,
-      timestamp: m.created_at,
-      type: m.type,
-      metadata: m.metadata,
-      readBy: [],
-      attachments: m.metadata?.attachments || []
-    })) as ChatMessage[];
+    const res = await fetch(`/api/chats?action=internal-messages&chatId=${chatId}`);
+    return res.json();
   }
 
   static async saveChat(chat: InternalGroup): Promise<void> {
-    const { error } = await supabase.from('internal_chats').upsert({
-      id: chat.id,
-      name: chat.name,
-      image_url: chat.imageUrl,
-      type: chat.type,
-      member_ids: chat.memberIds || [],
-      last_message_at: chat.lastMessageAt
+    const res = await fetch('/api/chats', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ action: 'save-internal-chat', chat })
     });
-
-    if (error) throw error;
+    if (!res.ok) throw new Error('Error saving internal chat via API');
   }
 
   static async saveMessage(chatId: string, message: ChatMessage): Promise<void> {
-    const { error } = await supabase.from('internal_chat_messages').insert({
-      chat_id: chatId,
-      sender_id: message.senderId,
-      sender_name: message.senderName,
-      text: message.text,
-      type: message.type,
-      metadata: { ...message.metadata, attachments: message.attachments || [] }
+    const res = await fetch('/api/chats', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ action: 'save-internal-message', chatId, message })
     });
+    if (!res.ok) throw new Error('Error saving internal message via API');
+  }
+}
 
-    if (error) throw error;
+// Compatibility helper functions
 
-    // Update chat last_message_at
-    const { error: updateError } = await supabase
-      .from('internal_chats')
-      .update({ last_message_at: message.timestamp })
-      .eq('id', chatId);
+function phoneSessionLookupVariants(phone: string): string[] {
+  const digits = normalizePhone(phone);
+  if (!digits) return [];
+  const variants = new Set<string>([digits]);
+  if (digits.startsWith('55') && digits.length > 11) {
+    variants.add(digits.slice(2));
+  } else if (digits.length <= 11) {
+    variants.add(`55${digits}`);
+  }
+  return [...variants];
+}
 
-    if (updateError) throw updateError;
+function isLikelyDialablePhone(digits: string): boolean {
+  return digits.startsWith('55') && digits.length >= 12 && digits.length <= 13;
+}
+
+export async function findExistingChatSessionByPhone(phone: string): Promise<string | null> {
+  const sessions = await ChatService.getSessions();
+  const variants = phoneSessionLookupVariants(phone);
+  if (!variants.length) return null;
+
+  const match = sessions
+    .filter(s => variants.includes(normalizePhone(s.customerPhone || '')))
+    .sort((a, b) => new Date(b.lastMessageAt).getTime() - new Date(a.lastMessageAt).getTime());
+
+  if (!match.length) return null;
+
+  const dialable = match.find(s => isLikelyDialablePhone(normalizePhone(s.customerPhone || '')));
+  return (dialable || match[0]).id;
+}
+
+export async function fetchChatSessions(signal?: AbortSignal): Promise<ChatSession[]> {
+  try {
+    return await ChatService.getSessions();
+  } catch (err) {
+    console.error("Error fetching chat sessions:", err);
+    return [];
+  }
+}
+
+export async function pushChatMessage(sessionId: string, message: ChatMessage): Promise<void> {
+  await ChatService.pushMessage(sessionId, message);
+}
+
+export async function createChatSession(session: ChatSession): Promise<string> {
+  const res = await fetch('/api/chats', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ action: 'create-session', session })
+  });
+  if (!res.ok) throw new Error('Error creating session via API');
+  const data = await res.json();
+  return data.id;
+}
+
+export async function saveChatHistory(history: any): Promise<void> {
+  const res = await fetch('/api/chats', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ action: 'save-history', history })
+  });
+  if (!res.ok) throw new Error('Error saving chat history via API');
+}
+
+export async function getChatHistories(signal?: AbortSignal): Promise<any[]> {
+  try {
+    const res = await fetch('/api/chats?action=histories');
+    return res.json();
+  } catch (err) {
+    console.error("Error fetching chat histories:", err);
+    return [];
   }
 }

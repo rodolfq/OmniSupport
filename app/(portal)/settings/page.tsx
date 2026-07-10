@@ -1,4 +1,4 @@
-﻿'use client';
+'use client';
 
 import React, { useState, useEffect } from 'react';
 import { 
@@ -6,7 +6,8 @@ import {
 } from 'lucide-react';
 import { cn, maskPhone, safeJsonStringify } from '@/lib/utils';
 import { supabase } from '@/lib/supabase';
-import { UserRole, type WhatsappInstance, MockDB } from '@/lib/mock-db';
+import { UserRole, type WhatsappInstance } from '@/lib/types';
+import { UserService } from '@/lib/services/user-service';
 import { useApp } from '@/app/app-context';
 import { NotificationSettingsContent } from '@/components/notification-settings';
 import { SystemConfigContent } from '@/components/system-config-content';
@@ -549,11 +550,9 @@ export default function SettingsPage() {
                       <label className="text-[10px] font-black uppercase text-slate-400 tracking-widest">Nome Completo</label>
                       <input 
                         type="text" 
-                        defaultValue={currentUser.name} 
+                        defaultValue={currentUser.name}
                         onChange={(e) => {
-                          const updatedUser = { ...currentUser, name: e.target.value };
-                          MockDB.saveUser(updatedUser);
-                          setCurrentUser(updatedUser);
+                          setCurrentUser(prev => prev ? { ...prev, name: e.target.value } : null);
                         }}
                         className="w-full bg-slate-50 border border-slate-200 rounded-xl px-4 py-2.5 text-sm font-medium" 
                       />
@@ -574,9 +573,7 @@ export default function SettingsPage() {
                         type="text" 
                         value={maskPhone(currentUser.phone || "")} 
                         onChange={(e) => {
-                          const updatedUser = { ...currentUser, phone: e.target.value };
-                          MockDB.saveUser(updatedUser);
-                          setCurrentUser(updatedUser);
+                          setCurrentUser(prev => prev ? { ...prev, phone: e.target.value } : null);
                         }}
                         placeholder="(xx) xxxxx-xxxx"
                         maxLength={15}
@@ -593,12 +590,17 @@ export default function SettingsPage() {
                   </div>
                 </div>
               </div>
-
+ 
               <div className="mt-8 flex justify-end">
                 <button 
-                  onClick={() => {
-                    MockDB.saveUser(currentUser);
-                    toast.success('Perfil salvo com sucesso!');
+                  onClick={async () => {
+                    try {
+                      await UserService.save(currentUser);
+                      toast.success('Perfil salvo com sucesso!');
+                    } catch (err: any) {
+                      console.error("Erro ao salvar perfil:", err);
+                      toast.error("Erro ao salvar perfil.");
+                    }
                   }}
                   className="bg-indigo-600 text-white px-6 py-2.5 rounded-xl text-sm font-bold shadow-md hover:bg-indigo-700 transition-all flex items-center gap-2"
                 >

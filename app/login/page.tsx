@@ -1,10 +1,9 @@
-﻿'use client';
+'use client';
 
 import React, { useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { useApp } from '@/app/app-context';
 
-import { supabase } from '@/lib/supabase';
 import { Headset, Mail, Lock, ArrowRight } from 'lucide-react';
 import Link from 'next/link';
 import { toast } from 'sonner';
@@ -28,64 +27,43 @@ export default function LoginPage() {
   const handleLogin = async (e: React.FormEvent) => {
     e.preventDefault();
     // Prevent double submit
-    if (isSubmittingRef.current || !supabase || isLoading) {
+    if (isSubmittingRef.current || isLoading) {
       return;
     }
     isSubmittingRef.current = true;
     setIsLoading(true);
     try {
-      const { data, error } = await supabase.auth.signInWithPassword({
-        email,
-        password
+      const res = await fetch('/api/auth/login', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ email, password })
       });
 
-      if (error) {
-        isSubmittingRef.current = false;
+      const data = await res.json();
+
+      if (!res.ok) {
         setIsLoading(false);
-        let errorMessage = 'Erro ao entrar. Por favor, tente novamente.';
-        
-        if (error.status === 400 || error.status === 422) {
-          const msg = String(error.message ?? '');
-          if (msg.includes('Invalid login credentials')) {
-            errorMessage = 'Senha incorreta ou email não cadastrado. Verifique suas credenciais.';
-          } else if (msg.includes('Email not confirmed')) {
-            errorMessage = 'Este email ainda não foi confirmado. Verifique sua caixa de entrada.';
-          } else if (error.status === 422) {
-             errorMessage = 'Dados inválidos. Verifique se o e-mail está completo e tente novamente.';
-          } else {
-            errorMessage = 'Credenciais inválidas ou usuário não encontrado no sistema.';
-          }
-        } else if (error.status === 429) {
-          errorMessage = 'Muitas tentativas de login. Por favor, aguarde um momento.';
-        } else {
-          errorMessage = error.message;
-        }
-        
-        toast.error(errorMessage);
+        isSubmittingRef.current = false;
+        toast.error(data.error || 'Erro ao entrar. Por favor, tente novamente.');
         return;
       }
 
       if (data.user) {
         toast.success('Login realizado com sucesso!');
         localStorage.setItem('omni_session_active', 'true');
-        // Store session data for backup (Vercel preview URLs fix)
-        localStorage.setItem('omni_user_backup', JSON.stringify({
-          id: data.user.id,
-          email: data.user.email,
-          name: data.user.user_metadata?.name,
-          role: data.user.user_metadata?.role,
-        }));
-        // Store the access token for API calls (Vercel preview fix)
-        if (data.session?.access_token) {
-          localStorage.setItem('supabase-auth-token', data.session.access_token);
-        }
-        // Force setCurrentUser for Vercel preview (onAuthStateChange may not fire)
+        
         setCurrentUser({
           id: data.user.id,
-          email: data.user.email || '',
-          name: data.user.user_metadata?.name || data.user.email?.split('@')[0] || 'Usuário',
-          role: data.user.user_metadata?.role || 'Funcionário'
+          email: data.user.email,
+          name: data.user.name,
+          role: data.user.role,
+          companyId: data.user.companyId,
+          phone: data.user.phone,
+          viewAllCompanyTickets: data.user.viewAllCompanyTickets,
+          mustChangePassword: data.user.mustChangePassword,
+          isAdmin: data.user.isAdmin
         });
+
         setIsLoading(false);
         isSubmittingRef.current = false;
         router.replace('/dashboard');
