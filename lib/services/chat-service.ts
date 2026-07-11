@@ -111,6 +111,18 @@ export class InternalChatService {
     });
     if (!res.ok) throw new Error('Error saving internal message via API');
   }
+
+  static async deleteMessage(chatId: string, messageId: string, userId: string): Promise<void> {
+    const res = await fetch('/api/chats', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ action: 'delete-internal-message', chatId, messageId, userId })
+    });
+    if (!res.ok) {
+      const data = await res.json().catch(() => ({}));
+      throw new Error(data.error || 'Error deleting internal message via API');
+    }
+  }
 }
 
 // Compatibility helper functions

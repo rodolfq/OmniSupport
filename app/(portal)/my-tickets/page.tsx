@@ -88,7 +88,7 @@ export default function MyTicketsPage() {
         }
     }
     loadData();
-  }, [currentUser, refreshTrigger, hasPermission, searchParams]);
+  }, [currentUser?.id, currentUser?.companyId, currentUser?.viewAllCompanyTickets, currentUser?.role, refreshTrigger, hasPermission, searchParams]);
 
   const filteredTickets = useMemo(() => {
     const normalQuery = normalizeString(search);

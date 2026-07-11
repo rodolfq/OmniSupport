@@ -96,7 +96,7 @@ const getCroppedImg = (imageSrc: string, pixelCrop: Area): Promise<string> => {
 };
 
 export default function ChatInternalPage() {
-   const { currentUser, setCurrentUser, hasPermission } = useApp();
+   const { currentUser, setCurrentUser } = useApp();
    const router = useRouter();
   const [rooms, setRooms] = useState<InternalGroup[]>([]);
   const [selectedRoomId, setSelectedRoomId] = useState<string | null>(null);
@@ -136,8 +136,10 @@ export default function ChatInternalPage() {
   const messagesEndRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
-    // Check permission - Time Interno (INTERNAL) e Equipe/Administrador devem ter acesso
-    if (!hasPermission(Permission.CHAT_INTERNAL_VIEW)) {
+    if (!currentUser) return;
+    const canViewInternalChat = currentUser.role === UserRole.ADMIN ||
+      UserService.getPermissionsByRole(currentUser.role).includes(Permission.CHAT_INTERNAL_VIEW);
+    if (!canViewInternalChat) {
       router.push('/internal-tickets');
       return;
     }
@@ -147,10 +149,14 @@ export default function ChatInternalPage() {
         .from('profiles')
         .select('id, name, email, avatar_url, role, status, status_reason')
         .or('role.eq.Equipe,role.eq.Administrador,role.eq.Time Interno');
-      setAllUsers(data || []);
+      setAllUsers((data || []).map((user: any) => ({
+        ...user,
+        avatarUrl: user.avatar_url,
+        statusReason: user.status_reason
+      })));
     };
     loadUsers();
-  }, [currentUser, hasPermission]);
+  }, [currentUser?.id, currentUser?.role, router]);
 
   const selectedRoom = rooms.find(r => r.id === selectedRoomId);
 
@@ -161,7 +167,13 @@ export default function ChatInternalPage() {
   const loadRooms = useCallback(async () => {
     try {
       const loadedRooms = await InternalChatService.getChats();
-      setRooms(loadedRooms);
+      setRooms(previousRooms => loadedRooms.map(loadedRoom => {
+        const existingRoom = previousRooms.find(room => room.id === loadedRoom.id);
+        return {
+          ...loadedRoom,
+          messages: existingRoom?.messages || loadedRoom.messages || []
+        };
+      }));
     } catch (error) {
       console.error('Error loading chats:', error);
     }
@@ -202,8 +214,7 @@ export default function ChatInternalPage() {
 
         if (modified) {
           const updatedRoom = { ...room, messages: updatedMessages };
-          InternalChatService.saveChat(updatedRoom);
-          loadRooms();
+          setRooms(prev => prev.map(currentRoom => currentRoom.id === selectedRoomId ? updatedRoom : currentRoom));
         }
       }
     }
@@ -306,34 +317,29 @@ export default function ChatInternalPage() {
     handleSendMessage('file', undefined, metadata);
   };
 
-  const handleDeleteMessage = (messageId: string) => {
+  const handleDeleteMessage = async (messageId: string) => {
     if (!selectedRoomId || !currentUser) return;
     
     const room = rooms.find(r => r.id === selectedRoomId);
     if (!room) return;
 
-    const updatedMessages = room.messages.map(m => {
-      if (m.id === messageId && m.senderId === currentUser.id) {
-        // If message was read by others, show "Mensagem Apagada"
-        // In groups, check if readBy has more than just the sender
-        const wasReadByOthers = (m.readBy?.filter(id => id !== currentUser.id).length || 0) > 0;
-        
-        return { 
-          ...m, 
-          isDeleted: true, 
-          text: wasReadByOthers ? 'Mensagem Apagada' : '',
-          type: wasReadByOthers ? m.type : 'system' as any // If not read, effectively hide it
-        };
-      }
-      return m;
-    });
+    const targetMessage = room.messages.find(m => m.id === messageId);
+    if (!targetMessage || targetMessage.senderId !== currentUser.id) return;
 
-    const updatedRoom = { ...room, messages: updatedMessages };
-    InternalChatService.saveChat(updatedRoom);
-    loadRooms();
+    try {
+      await InternalChatService.deleteMessage(selectedRoomId, messageId, currentUser.id);
+      setRooms(prev => prev.map(currentRoom =>
+        currentRoom.id === selectedRoomId
+          ? { ...currentRoom, messages: currentRoom.messages.filter(m => m.id !== messageId) }
+          : currentRoom
+      ));
+      toast.success('Mensagem excluída');
+    } catch (error: any) {
+      toast.error(error.message || 'Erro ao excluir mensagem');
+    }
   };
 
-  const togglePin = (e: React.MouseEvent, roomId: string) => {
+  const togglePin = async (e: React.MouseEvent, roomId: string) => {
     e.stopPropagation();
     if (!currentUser) return;
 
@@ -348,9 +354,14 @@ export default function ChatInternalPage() {
       : [...pinnedBy, currentUser.id];
 
     const updatedRoom = { ...room, pinnedBy: updatedPinnedBy };
-    InternalChatService.saveChat(updatedRoom);
-    loadRooms();
-    toast.success(isPinned ? 'Chat desafixado' : 'Chat fixado no topo');
+    setRooms(prev => prev.map(currentRoom => currentRoom.id === roomId ? updatedRoom : currentRoom));
+    try {
+      await InternalChatService.saveChat(updatedRoom);
+      toast.success(isPinned ? 'Chat desafixado' : 'Chat fixado no topo');
+    } catch (error: any) {
+      setRooms(prev => prev.map(currentRoom => currentRoom.id === roomId ? room : currentRoom));
+      toast.error(error.message || 'Erro ao alterar fixação');
+    }
   };
 
   const updatePreferences = (prefs: Partial<User['chatPreferences']>) => {
@@ -425,7 +436,7 @@ export default function ChatInternalPage() {
     loadRooms();
   };
 
-  const toggleMute = (roomId: string) => {
+  const toggleMute = async (roomId: string) => {
     if (!currentUser) return;
     const room = rooms.find(r => r.id === roomId);
     if (!room) return;
@@ -437,12 +448,18 @@ export default function ChatInternalPage() {
       : [...mutedBy, currentUser.id];
     
     const updatedRoom = { ...room, mutedBy: updatedMutedBy };
-    InternalChatService.saveChat(updatedRoom);
-    loadRooms();
-    toast.success(isMuted ? 'Notificações reativadas' : 'Chat silenciado');
+    setRooms(prev => prev.map(currentRoom => currentRoom.id === roomId ? updatedRoom : currentRoom));
+
+    try {
+      await InternalChatService.saveChat(updatedRoom);
+      toast.success(isMuted ? 'Notificações reativadas' : 'Chat silenciado');
+    } catch (error: any) {
+      setRooms(prev => prev.map(currentRoom => currentRoom.id === roomId ? room : currentRoom));
+      toast.error(error.message || 'Erro ao alterar silenciamento');
+    }
   };
 
-  const togglePinMessage = (messageId: string) => {
+  const togglePinMessage = async (messageId: string) => {
     if (!selectedRoomId || !selectedRoom) return;
     const pinnedMessageIds = selectedRoom.pinnedMessageIds || [];
     const isPinned = pinnedMessageIds.includes(messageId);
@@ -452,8 +469,13 @@ export default function ChatInternalPage() {
       : [...pinnedMessageIds, messageId];
     
     const updatedRoom = { ...selectedRoom, pinnedMessageIds: updatedPinned };
-    InternalChatService.saveChat(updatedRoom);
-    loadRooms();
+    setRooms(prev => prev.map(room => room.id === selectedRoomId ? updatedRoom : room));
+    try {
+      await InternalChatService.saveChat(updatedRoom);
+    } catch (error: any) {
+      setRooms(prev => prev.map(room => room.id === selectedRoomId ? selectedRoom : room));
+      toast.error(error.message || 'Erro ao fixar mensagem');
+    }
   };
 
   const toggleReadLater = (roomId: string) => {
@@ -473,7 +495,7 @@ export default function ChatInternalPage() {
     toast.success(isReadLater ? 'Removido de ler depois' : 'Marcado para ler depois');
   };
 
-  const toggleHideRoom = (roomId: string) => {
+  const toggleHideRoom = async (roomId: string) => {
     if (!currentUser) return;
     const room = rooms.find(r => r.id === roomId);
     if (!room) return;
@@ -485,10 +507,18 @@ export default function ChatInternalPage() {
       : [...hiddenBy, currentUser.id];
     
     const updatedRoom = { ...room, hiddenBy: updatedHiddenBy };
-    InternalChatService.saveChat(updatedRoom);
-    loadRooms();
-    if (selectedRoomId === roomId) setSelectedRoomId(null);
-    toast.success(isHidden ? 'Conversa visível' : 'Conversa arquivada');
+    const wasSelected = selectedRoomId === roomId;
+    setRooms(prev => prev.map(currentRoom => currentRoom.id === roomId ? updatedRoom : currentRoom));
+    if (!isHidden && wasSelected) setSelectedRoomId(null);
+
+    try {
+      await InternalChatService.saveChat(updatedRoom);
+      toast.success(isHidden ? 'Conversa visível' : 'Conversa arquivada');
+    } catch (error: any) {
+      setRooms(prev => prev.map(currentRoom => currentRoom.id === roomId ? room : currentRoom));
+      if (!isHidden && wasSelected) setSelectedRoomId(roomId);
+      toast.error(error.message || 'Erro ao arquivar conversa');
+    }
   };
 
   const handleContextMenu = (e: React.MouseEvent, roomId: string) => {
@@ -581,6 +611,13 @@ export default function ChatInternalPage() {
       return new Date(b.lastMessageAt).getTime() - new Date(a.lastMessageAt).getTime();
     });
 
+  const getDirectChatUser = (room: InternalGroup) => {
+    if (room.type !== 'direct') return undefined;
+    const participantId = room.memberIds.find(id => id !== currentUser?.id) || room.memberIds[0];
+    return allUsers.find(user => user.id === participantId) ||
+      (participantId === currentUser?.id ? currentUser : undefined);
+  };
+
   const filteredUsers = allUsers.filter(u => 
     normalizeString(u.name).includes(normalizeString(searchTerm)) &&
     !rooms.some(r => r.type === 'direct' && r.memberIds.includes(u.id))
@@ -654,8 +691,7 @@ export default function ChatInternalPage() {
                 const isActive = selectedRoomId === room.id;
                 
                 // For direct chats, find the other user's info
-                const otherUserId = room.memberIds.find(id => id !== currentUser?.id);
-                const otherUser = allUsers.find(u => u.id === otherUserId);
+                const otherUser = getDirectChatUser(room);
                 const avatar = room.type === 'group' ? room.imageUrl : (otherUser?.avatarUrl || null);
                 const isPinned = room.pinnedBy?.includes(currentUser?.id || '');
 
@@ -754,8 +790,8 @@ export default function ChatInternalPage() {
                   {selectedRoom.type === 'group' ? (
                     selectedRoom.imageUrl ? <img src={selectedRoom.imageUrl} className="w-full h-full object-cover" /> : <Users size={20} />
                   ) : (
-                    allUsers.find(u => (selectedRoom.memberIds || []).includes(u.id) && u.id !== currentUser?.id)?.avatarUrl ? (
-                      <img src={allUsers.find(u => (selectedRoom.memberIds || []).includes(u.id) && u.id !== currentUser?.id)?.avatarUrl} className="w-full h-full object-cover" />
+                    getDirectChatUser(selectedRoom)?.avatarUrl ? (
+                      <img src={getDirectChatUser(selectedRoom)?.avatarUrl} alt={getDirectChatUser(selectedRoom)?.name || selectedRoom.name} className="w-full h-full object-cover" />
                     ) : selectedRoom.name.charAt(0)
                   )}
                 </div>
@@ -799,10 +835,10 @@ export default function ChatInternalPage() {
                   <button className="p-3 text-slate-400 hover:text-indigo-600 hover:bg-indigo-50 rounded-2xl transition-all">
                     <MoreVertical size={20} />
                   </button>
-                  <div className="absolute right-0 top-full mt-2 w-48 bg-white border border-slate-100 rounded-2xl shadow-xl opacity-0 group-hover/menu:opacity-100 pointer-events-none group-hover/menu:pointer-events-auto transition-all z-50 overflow-hidden">
+                  <div className="absolute right-0 top-full mt-2 w-48 bg-white border border-slate-100 rounded-2xl shadow-xl opacity-0 group-hover/menu:opacity-100 pointer-events-none group-hover/menu:pointer-events-auto transition-all z-50 before:absolute before:-top-4 before:-left-4 before:h-4 before:w-[calc(100%+2rem)] before:content-['']">
                     <button 
                       onClick={() => setShowPinnedOnly(!showPinnedOnly)}
-                      className="w-full px-4 py-3 text-left text-xs font-bold text-slate-600 hover:bg-slate-50 flex items-center gap-2"
+                      className="w-full rounded-2xl px-4 py-3 text-left text-xs font-bold text-slate-600 hover:bg-slate-50 flex items-center gap-2"
                     >
                       <Pin size={14} className="text-indigo-500" />
                       {showPinnedOnly ? 'Ver todas as msgs' : 'Mensagens fixadas'}

@@ -108,7 +108,7 @@ INSERT INTO public.role_permissions (name, role, permissions) VALUES
   ('Administrador', 'Administrador', ARRAY[
     'tickets:read', 'tickets:write', 'tickets:delete', 'tickets:assign',
     'customers:read', 'customers:write',
-    'team:read', 'team:write',
+    'team:read', 'team:write', 'settings:system',
     'settings:read', 'settings:write',
     'reports:read',
     'internal:view', 'internal:edit',

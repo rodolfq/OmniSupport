@@ -99,7 +99,7 @@ export default function PortalLayout({ children }: { children: React.ReactNode }
     <div className="flex bg-gray-50 min-h-screen">
       <Sidebar />
       <div className="flex-1 flex flex-col min-w-0 overflow-hidden">
-        <header className="h-16 bg-white border-b border-slate-200 flex items-center justify-between px-8 shadow-sm sticky top-0 z-10">
+        <header className="h-16 bg-white border-b border-slate-200 flex items-center justify-between px-8 shadow-sm sticky top-0 z-[100]">
 <div className="flex items-center gap-4">
             <h1 className="text-xl font-bold text-slate-800 tracking-tight">Portal OmniSupport</h1>
             <div className="h-4 w-px bg-slate-300"></div>
@@ -213,10 +213,10 @@ export default function PortalLayout({ children }: { children: React.ReactNode }
                 {isNotificationsOpen && (
                   <>
                     <div 
-                      className="fixed inset-0 z-40" 
+                      className="fixed inset-0 z-[110]"
                       onClick={() => setIsNotificationsOpen(false)} 
                     />
-                    <div className="absolute right-0 mt-2 w-80 bg-white border border-slate-200 rounded-2xl shadow-2xl z-50 overflow-hidden transform origin-top-right transition-all animate-in fade-in zoom-in-95 duration-200">
+                    <div className="absolute right-0 mt-2 w-80 bg-white border border-slate-200 rounded-2xl shadow-2xl z-[120] overflow-hidden transform origin-top-right transition-all animate-in fade-in zoom-in-95 duration-200">
                       <div className="p-4 border-b border-slate-100 flex items-center justify-between bg-slate-50/50">
                         <h3 className="text-[10px] font-black uppercase tracking-widest text-slate-800">Notificações</h3>
                         <button 

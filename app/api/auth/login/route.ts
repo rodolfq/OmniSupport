@@ -13,7 +13,13 @@ export async function POST(request: Request) {
 
     // Buscar perfil no banco Postgres próprio
     const result = await query(
-      'SELECT id, name, email, role, password, must_change_password, company_id, phone, avatar_url, view_all_company_tickets, is_admin, lives_in_squad FROM public.profiles WHERE email = $1',
+      `SELECT p.id, p.name, p.email, p.role, p.password, p.must_change_password,
+              p.company_id, p.phone, p.avatar_url, p.view_all_company_tickets,
+              p.is_admin, p.lives_in_squad,
+              COALESCE(rp.permissions, '{}'::text[]) AS permissions
+       FROM public.profiles p
+       LEFT JOIN public.role_permissions rp ON rp.role = p.role
+       WHERE p.email = $1`,
       [email]
     );
 
@@ -43,6 +49,7 @@ export async function POST(request: Request) {
         name: user.name,
         email: user.email,
         role: user.role,
+        permissions: user.permissions || [],
         companyId: user.company_id,
         phone: user.phone,
         avatarUrl: user.avatar_url,

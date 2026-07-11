@@ -143,7 +143,6 @@ export function ChatWidget() {
     setIsOmniChatExpanded,
     activeOmniChatId,
     setActiveOmniChatId,
-    refreshTrigger,
     triggerRefresh
   } = useApp();
   const searchParams = useSearchParams();
@@ -327,7 +326,7 @@ export function ChatWidget() {
     loadData();
 
     return () => controller.abort();
-  }, [refreshTrigger, currentUser]);
+  }, [currentUser?.id]);
 
 
   useEffect(() => {
@@ -386,6 +385,8 @@ export function ChatWidget() {
   const abortControllerRef = useRef<AbortController | null>(null);
 
   useEffect(() => {
+    if (!currentUser?.id || !isOmniChatOpen) return;
+
     async function loadSessions() {
       if (abortControllerRef.current) {
         abortControllerRef.current.abort();
@@ -412,17 +413,21 @@ export function ChatWidget() {
         }
       }
     }
-    loadSessions();
-    
-    const interval = setInterval(loadSessions, 15000); // Poll even less frequently
+    const loadWhenVisible = () => {
+      if (document.visibilityState === 'visible') loadSessions();
+    };
+    loadWhenVisible();
+    const interval = setInterval(loadWhenVisible, 30000);
+    document.addEventListener('visibilitychange', loadWhenVisible);
     
     return () => {
       clearInterval(interval);
+      document.removeEventListener('visibilitychange', loadWhenVisible);
       if (abortControllerRef.current) {
         abortControllerRef.current.abort();
       }
     };
-  }, [refreshTrigger]);
+  }, [currentUser?.id, isOmniChatOpen]);
 
   const isSubscribedRef = useRef<string | null>(null);
 

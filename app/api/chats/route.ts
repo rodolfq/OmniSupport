@@ -124,7 +124,12 @@ export async function GET(request: Request) {
         type: c.type,
         memberIds: c.member_ids || [],
         messages: [],
-        lastMessageAt: c.last_message_at || c.created_at
+        lastMessageAt: c.last_message_at || c.created_at,
+        pinnedBy: c.pinned_by || [],
+        pinnedMessageIds: c.pinned_message_ids || [],
+        mutedBy: c.muted_by || [],
+        readLaterBy: c.read_later_by || [],
+        hiddenBy: c.hidden_by || []
       })));
     }
 
@@ -334,16 +339,47 @@ export async function POST(request: Request) {
     if (action === 'save-internal-chat') {
       const { chat } = body;
       await query(
-        `INSERT INTO public.internal_chats (id, name, image_url, type, member_ids, last_message_at)
-         VALUES ($1, $2, $3, $4, $5, $6)
+        `INSERT INTO public.internal_chats (
+           id, name, image_url, type, member_ids, last_message_at,
+           pinned_by, pinned_message_ids, muted_by, read_later_by, hidden_by
+         )
+         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)
          ON CONFLICT (id) DO UPDATE SET
            name = EXCLUDED.name,
            image_url = EXCLUDED.image_url,
            type = EXCLUDED.type,
            member_ids = EXCLUDED.member_ids,
-           last_message_at = EXCLUDED.last_message_at`,
-        [chat.id, chat.name, chat.imageUrl, chat.type, chat.memberIds, chat.lastMessageAt]
+           last_message_at = EXCLUDED.last_message_at,
+           pinned_by = EXCLUDED.pinned_by,
+           pinned_message_ids = EXCLUDED.pinned_message_ids,
+           muted_by = EXCLUDED.muted_by,
+           read_later_by = EXCLUDED.read_later_by,
+           hidden_by = EXCLUDED.hidden_by`,
+        [
+          chat.id, chat.name, chat.imageUrl || null, chat.type, chat.memberIds || [],
+          chat.lastMessageAt || null, chat.pinnedBy || [], chat.pinnedMessageIds || [],
+          chat.mutedBy || [], chat.readLaterBy || [], chat.hiddenBy || []
+        ]
       );
+      return NextResponse.json({ success: true });
+    }
+
+    if (action === 'delete-internal-message') {
+      const { chatId, messageId, userId } = body;
+      if (!chatId || !messageId || !userId) {
+        return NextResponse.json({ error: 'Dados incompletos para excluir a mensagem.' }, { status: 400 });
+      }
+
+      const deleted = await query(
+        `DELETE FROM public.internal_chat_messages
+         WHERE id = $1 AND chat_id = $2 AND sender_id = $3
+         RETURNING id`,
+        [messageId, chatId, userId]
+      );
+
+      if (deleted.rowCount === 0) {
+        return NextResponse.json({ error: 'Mensagem não encontrada ou sem permissão para excluir.' }, { status: 404 });
+      }
       return NextResponse.json({ success: true });
     }
 

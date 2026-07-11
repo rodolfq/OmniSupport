@@ -27,7 +27,7 @@ export default function ChatHistoryPage() {
       .catch(err => console.error('Error loading chat histories:', err));
       
     fetchUsers().then(setUsers).catch(() => {});
-  }, [currentUser, refreshTrigger]);
+  }, [currentUser?.id, refreshTrigger]);
 
   const filteredHistories = useMemo(() => {
     return histories.filter(h => {

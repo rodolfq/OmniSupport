@@ -66,6 +66,7 @@ export class UserService {
         Permission.TEAM_WRITE,
         Permission.SETTINGS_READ,
         Permission.SETTINGS_WRITE,
+        Permission.SETTINGS_SYSTEM,
         Permission.REPORTS_READ,
         Permission.INTERNAL_TICKETS_VIEW,
         Permission.INTERNAL_TICKETS_EDIT,

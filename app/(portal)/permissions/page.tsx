@@ -52,6 +52,7 @@ const permissionGroups = [
       { id: Permission.TEAM_WRITE, label: 'Gerenciar equipe', desc: 'Permite criar e gerenciar analistas' },
       { id: Permission.SETTINGS_READ, label: 'Visualizar configurações', desc: 'Permite acessar o menu de configurações' },
       { id: Permission.SETTINGS_WRITE, label: 'Alterar configurações', desc: 'Permite modificar parâmetros do sistema' },
+      { id: Permission.SETTINGS_SYSTEM, label: 'Configurações gerais do sistema', desc: 'Permite alterar categorias, prioridades, SLAs e marcadores globais' },
     ]
   },
   {
@@ -186,7 +187,7 @@ export default function PermissionsManagementPage() {
 
   const handleDeleteRole = async (id: string) => {
     if (id === 'Administrador') return;
-    const roleToDelete = rolePermissions.find(rp => rp.name === id);
+    const roleToDelete = rolePermissions.find(rp => rp.id === id || rp.name === id);
     if (!roleToDelete) return;
     
     // Delete from Supabase

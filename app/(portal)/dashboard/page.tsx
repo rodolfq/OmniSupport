@@ -78,7 +78,7 @@ export default function DashboardPage() {
     loadData();
 
     return () => controller.abort();
-  }, [searchParams, currentUser, refreshTrigger, router]);
+  }, [searchParams, currentUser?.id, currentUser?.role, refreshTrigger, router]);
 
   const columns = useMemo(() => statuses
     .filter(s => !isClosedTicketStatus(s.label))

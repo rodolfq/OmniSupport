@@ -253,24 +253,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
   }, []);
 
   useEffect(() => {
-    const checkDb = async () => {
-      try {
-        const res = await fetch('/api/config?type=priorities');
-        if (res.ok) {
-          setDbStatus('connected');
-        } else {
-          console.error('Database connection error: Status', res.status);
-          setDbStatus('error');
-        }
-      } catch (e: any) {
-        console.error('Database connection error:', e?.message || e);
-        setDbStatus('error');
-      }
-    };
-    checkDb();
     refreshAbsenceReasons();
-    const interval = setInterval(checkDb, 60000);
-    return () => clearInterval(interval);
   }, [refreshAbsenceReasons]);
 
   useEffect(() => {
@@ -284,6 +267,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
         if (res.ok) {
           const data = await res.json();
           if (data.user) {
+            setDbStatus('connected');
             console.log('👤 AppContext: Usuário autenticado via API:', data.user);
             if (data.user.status) {
               setUserStatusState(data.user.status);
@@ -295,6 +279,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
               name: data.user.name,
               email: data.user.email,
               role: data.user.role,
+              permissions: data.user.permissions,
               companyId: data.user.companyId,
               phone: data.user.phone,
               avatarUrl: data.user.avatarUrl,
@@ -312,6 +297,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
           setCurrentUser(null);
         }
       } catch (err) {
+        setDbStatus('error');
         console.error('❌ AppContext: Erro na inicialização do Auth Nativo:', err);
         if (isMounted) setCurrentUser(null);
       } finally {
@@ -327,24 +313,17 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
   }, []);
 
   useEffect(() => {
-    if (!authInitialized || !currentUser) return;
-
-    console.log('📡 Realtime: Iniciando intervalo de atualização periódica...');
-    const interval = setInterval(() => {
-      triggerRefresh();
-    }, 15000);
-
-    return () => {
-      console.log('📡 Realtime: Limpando intervalo de atualização...');
-      clearInterval(interval);
-    };
-  }, [authInitialized, currentUser?.id, triggerRefresh]);
-
-  useEffect(() => {
     if (!authInitialized || !currentUser?.id) return;
 
-    const interval = setInterval(checkNotifications, 10000);
-    return () => clearInterval(interval);
+    const checkWhenVisible = () => {
+      if (document.visibilityState === 'visible') checkNotifications();
+    };
+    const interval = setInterval(checkWhenVisible, 10000);
+    document.addEventListener('visibilitychange', checkWhenVisible);
+    return () => {
+      clearInterval(interval);
+      document.removeEventListener('visibilitychange', checkWhenVisible);
+    };
   }, [authInitialized, currentUser?.id, checkNotifications]);
 
   useEffect(() => {
@@ -361,13 +340,6 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       updateStatus();
     }
   }, [userStatus, userStatusReason, currentUser?.id]);
-
-  useEffect(() => {
-    if (!authInitialized) return;
-    
-    refreshAbsenceReasons();
-    triggerRefresh();
-  }, [authInitialized, triggerRefresh, refreshAbsenceReasons]);
 
   useEffect(() => {
     const savedSettings = localStorage.getItem('omni_notif_settings');
@@ -460,6 +432,10 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
 
   const hasPermission = React.useCallback((permission: Permission) => {
     if (!userRef.current) return false;
+    if (userRef.current.role === UserRole.ADMIN) return true;
+    if (Array.isArray(userRef.current.permissions)) {
+      return userRef.current.permissions.includes(permission);
+    }
     const roleName = userRef.current.role.toString();
     const perms = UserService.getPermissionsByRole(roleName);
     return perms.includes(permission);

@@ -18,7 +18,12 @@ export async function GET(request: NextRequest) {
 
     // Buscar perfil no Postgres próprio
     const result = await query(
-      'SELECT id, name, email, role, company_id, phone, avatar_url, view_all_company_tickets, must_change_password, is_admin, lives_in_squad FROM public.profiles WHERE id = $1',
+      `SELECT p.id, p.name, p.email, p.role, p.company_id, p.phone, p.avatar_url,
+              p.view_all_company_tickets, p.must_change_password, p.is_admin, p.lives_in_squad,
+              COALESCE(rp.permissions, '{}'::text[]) AS permissions
+       FROM public.profiles p
+       LEFT JOIN public.role_permissions rp ON rp.role = p.role
+       WHERE p.id = $1`,
       [decoded.id]
     );
 
@@ -42,6 +47,7 @@ export async function GET(request: NextRequest) {
         email: profile.email,
         name: profile.name,
         role: profile.role,
+        permissions: profile.permissions || [],
         companyId: profile.company_id,
         phone: profile.phone,
         avatarUrl: profile.avatar_url,

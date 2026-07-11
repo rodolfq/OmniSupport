@@ -26,6 +26,7 @@ export enum Permission {
   TEAM_WRITE = 'team:write',
   SETTINGS_READ = 'settings:read',
   SETTINGS_WRITE = 'settings:write',
+  SETTINGS_SYSTEM = 'settings:system',
   REPORTS_READ = 'reports:read',
   INTERNAL_TICKETS_VIEW = 'internal:view',
   INTERNAL_TICKETS_EDIT = 'internal:edit',
@@ -52,6 +53,7 @@ export interface User {
   name: string;
   email: string;
   role: string;
+  permissions?: Permission[];
   companyId?: string;
   avatarUrl?: string;
   phone?: string;

@@ -3,7 +3,7 @@
 import React, { useState, useEffect } from 'react';
 import { StyledSelect } from '@/components/styled-select';
 import { 
-  Search, Mail, Shield, Key, Trash2, Edit2, CheckCircle2, XCircle, Bell, UserPlus
+  Search, Mail, Shield, Key, Trash2, Edit2, CheckCircle2, XCircle, Bell, UserPlus, Eye, EyeOff
 } from 'lucide-react';
 import { ConfirmDialog } from '@/components/confirm-dialog';
 import { cn } from '@/lib/utils';
@@ -28,7 +28,9 @@ export default function TeamManagementPage() {
   const [companyId, setCompanyId] = useState<string | undefined>();
   const [viewAllCompanyTickets, setViewAllCompanyTickets] = useState(false);
   const [password, setPassword] = useState('');
+  const [showPassword, setShowPassword] = useState(false);
   const [isChangingPassword, setIsChangingPassword] = useState(false);
+  const [isSavingPassword, setIsSavingPassword] = useState(false);
   const [companies, setCompanies] = useState<any[]>([]);
   const [isSaving, setIsSaving] = useState(false);
   
@@ -80,6 +82,7 @@ export default function TeamManagementPage() {
       setViewAllCompanyTickets(false);
     }
     setPassword('');
+    setShowPassword(false);
     setIsChangingPassword(false);
     setIsModalOpen(true);
   };
@@ -160,17 +163,39 @@ export default function TeamManagementPage() {
     setCompanyId(undefined);
     setViewAllCompanyTickets(false);
     setPassword('');
+    setShowPassword(false);
     setIsChangingPassword(false);
   };
 
-  const handlePasswordChange = () => {
+  const handlePasswordChange = async () => {
     if (!password || !selectedUser) return;
-    
-    // TODO: Implementar reset de senha via RPC admin_update_user_password
-    // Por enquanto, apenas desabilitar a mudança de senha
-    alert(`Funcionalidade de alteração de senha em desenvolvimento.`);
-    setIsChangingPassword(false);
-    setPassword('');
+    if (password.length < 6) {
+      toast.error('A nova senha deve ter pelo menos 6 caracteres.');
+      return;
+    }
+
+    setIsSavingPassword(true);
+    try {
+      const response = await fetch('/api/users/reset-password', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        credentials: 'include',
+        body: JSON.stringify({ userId: selectedUser.id, password })
+      });
+      const result = await response.json().catch(() => ({}));
+      if (!response.ok) throw new Error(result.error || 'Erro ao alterar senha.');
+
+      setIsChangingPassword(false);
+      setPassword('');
+      setShowPassword(false);
+      toast.success('Senha alterada com sucesso!', {
+        description: `A nova senha de ${selectedUser.name} já está ativa.`
+      });
+    } catch (error: any) {
+      toast.error('Erro ao alterar senha', { description: error.message });
+    } finally {
+      setIsSavingPassword(false);
+    }
   };
 
   const [deletingUserId, setDeletingUserId] = useState<string | null>(null);
@@ -440,18 +465,30 @@ export default function TeamManagementPage() {
                       <div className="space-y-3">
                         <label className="text-[10px] font-black uppercase text-slate-400 tracking-widest ml-1">Nova Senha</label>
                         <div className="flex gap-2">
-                          <input 
-                            type="password" 
-                            value={password || ''}
-                            onChange={(e) => setPassword(e.target.value)}
-                            className="flex-1 bg-slate-50 border border-slate-200 rounded-xl px-4 py-2 text-sm font-bold focus:ring-2 focus:ring-indigo-500/20 outline-none"
-                            placeholder="********"
-                          />
+                          <div className="relative flex-1">
+                            <input
+                              type={showPassword ? 'text' : 'password'}
+                              value={password || ''}
+                              onChange={(e) => setPassword(e.target.value)}
+                              className="w-full bg-slate-50 border border-slate-200 rounded-xl pl-4 pr-11 py-2 text-sm font-bold focus:ring-2 focus:ring-indigo-500/20 outline-none"
+                              placeholder="********"
+                              minLength={6}
+                            />
+                            <button
+                              type="button"
+                              onClick={() => setShowPassword(value => !value)}
+                              className="absolute right-3 top-1/2 -translate-y-1/2 p-1 text-slate-400 hover:text-indigo-600"
+                              title={showPassword ? 'Ocultar senha' : 'Mostrar senha'}
+                            >
+                              {showPassword ? <EyeOff size={16} /> : <Eye size={16} />}
+                            </button>
+                          </div>
                           <button 
                             onClick={handlePasswordChange}
-                            className="bg-slate-900 text-white px-4 py-2 rounded-xl text-[10px] font-black uppercase"
+                            disabled={isSavingPassword}
+                            className="bg-slate-900 text-white px-4 py-2 rounded-xl text-[10px] font-black uppercase disabled:opacity-60"
                           >
-                            Salvar
+                            {isSavingPassword ? 'Salvando...' : 'Salvar'}
                           </button>
                         </div>
                       </div>

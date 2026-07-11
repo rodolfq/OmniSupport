@@ -118,7 +118,7 @@ export default function ChatManagementPage() {
       const myQueues = queuesData?.filter(q => q.member_ids?.includes(currentUser.id)).map(q => q.id) || [];
       setUserQueues(myQueues);
     }
-  }, [currentUser]);
+  }, [currentUser?.id]);
 
   useEffect(() => {
     if (currentUser?.role === UserRole.CUSTOMER) {
@@ -126,7 +126,7 @@ export default function ChatManagementPage() {
       return;
     }
     refreshData(true);
-  }, [refreshTrigger, currentUser, refreshData]);
+  }, [refreshTrigger, currentUser?.id, refreshData]);
 
   const isSubscribedRef = useRef(false);
 
@@ -181,19 +181,6 @@ export default function ChatManagementPage() {
       }
     };
   }, [currentUser, refreshData]);
-
-useEffect(() => {
-    // Auto distribution trigger for pending sessions
-    const distributeInterval = setInterval(() => {
-      const pendingSessions = sessions.filter(s => s.status === 'pending' && !s.assigneeId);
-      if (pendingSessions.length > 0) {
-        // TODO: Implementar distribuição automática via Supabase
-        refreshData();
-      }
-    }, 5000);
-
-    return () => clearInterval(distributeInterval);
-  }, [sessions, refreshData]);
 
   const handleToggleOnline = async (userId: string, current: boolean) => {
     await updateUserStatus(userId, !current);

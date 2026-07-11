@@ -2,7 +2,7 @@
 
 import React, { useState, useMemo } from 'react';
 import Link from 'next/link';
-import { usePathname, useRouter } from 'next/navigation';
+import { usePathname, useRouter, useSearchParams } from 'next/navigation';
 import { Permission, UserRole } from '@/lib/types';
 import { UserService } from '@/lib/services/user-service';
 import { 
@@ -40,6 +40,7 @@ import { ChangePasswordModal } from './change-password-modal';
 
 export function Sidebar() {
   const pathname = usePathname();
+  const searchParams = useSearchParams();
   const router = useRouter();
   const { currentUser, setCurrentUser, userStatus, dbStatus } = useApp();
 
@@ -114,7 +115,8 @@ export function Sidebar() {
         icon: Settings, 
         href: '/settings',
         subItems: [
-          { name: 'Geral', icon: Settings, href: '/settings', permission: Permission.SETTINGS_READ },
+          { name: 'Meu Perfil', icon: Settings, href: '/settings' },
+          { name: 'Geral do Sistema', icon: Database, href: '/settings?tab=system', permission: Permission.SETTINGS_SYSTEM },
           { name: 'Equipe', icon: UserCog, href: '/team', permission: Permission.TEAM_READ },
           { name: 'Perfil de Acesso', icon: Shield, href: '/permissions', permission: Permission.SETTINGS_WRITE },
           { name: 'Filas', icon: Library, href: '/queues', permission: Permission.SETTINGS_WRITE },
@@ -130,7 +132,7 @@ export function Sidebar() {
     if (currentUser.role === UserRole.ADMIN) {
       return Object.values(Permission);
     }
-    return UserService.getPermissionsByRole(currentUser.role);
+    return currentUser.permissions || UserService.getPermissionsByRole(currentUser.role);
   }, [currentUser]);
 
   return (
@@ -196,7 +198,7 @@ export function Sidebar() {
               {/* Submenu Flyout */}
               {hasSubItems && (
                 <div className={cn(
-                  "absolute left-full ml-2 top-0 bg-slate-900 border border-slate-800 rounded-2xl p-2 min-w-[180px] shadow-2xl transition-all scale-95 opacity-0 pointer-events-none group-hover/main:scale-100 group-hover/main:opacity-100 group-hover/main:pointer-events-auto z-50",
+                  "absolute left-full ml-2 top-0 bg-slate-900 border border-slate-800 rounded-2xl p-2 min-w-[180px] shadow-2xl transition-all scale-95 opacity-0 pointer-events-none group-hover/main:scale-100 group-hover/main:opacity-100 group-hover/main:pointer-events-auto z-50 before:absolute before:-left-2 before:top-0 before:h-full before:w-2 before:content-['']",
                   openSubmenu === item.name && "scale-100 opacity-100 pointer-events-auto"
                 )}>
                   <div className="px-4 py-2 border-b border-slate-800 mb-2">
@@ -206,7 +208,10 @@ export function Sidebar() {
                     // Check sub-item permission
                     if (sub.permission && !userPermissions.includes(sub.permission as Permission)) return null;
 
-                    const isSubActive = sub.href ? pathname === sub.href : false;
+                    const [subPath, subQuery] = sub.href?.split('?') || [];
+                    const isSubActive = sub.href
+                      ? pathname === subPath && (subQuery ? searchParams.toString() === subQuery : !searchParams.get('tab'))
+                      : false;
 
                     if (sub.action) {
                       return (

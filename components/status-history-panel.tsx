@@ -80,8 +80,6 @@ useEffect(() => {
     };
 
     loadHistory();
-    const interval = setInterval(loadHistory, 5000);
-    return () => clearInterval(interval);
   }, [selectedUserId, isAdmin, periodFilter, selectedDate]);
 
   const handleAddReason = async (e: React.FormEvent) => {

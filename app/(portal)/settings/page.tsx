@@ -6,7 +6,7 @@ import {
 } from 'lucide-react';
 import { cn, maskPhone, safeJsonStringify } from '@/lib/utils';
 import { supabase } from '@/lib/supabase';
-import { UserRole, type WhatsappInstance } from '@/lib/types';
+import { Permission, UserRole, type WhatsappInstance } from '@/lib/types';
 import { UserService } from '@/lib/services/user-service';
 import { useApp } from '@/app/app-context';
 import { NotificationSettingsContent } from '@/components/notification-settings';
@@ -19,6 +19,7 @@ import { toast } from 'sonner';
 import { getWhatsappInstances, saveWhatsappInstance } from '@/app/actions';
 import { InternalTeamsContent } from '@/components/internal-teams-content';
 import { ConfirmDialog } from '@/components/confirm-dialog';
+import { useSearchParams } from 'next/navigation';
 
 type Tab = 'profile' | 'security' | 'whatsapp' | 'notifications' | 'system' | 'history' | 'teams';
 
@@ -28,13 +29,24 @@ export default function SettingsPage() {
     currentUser, 
     setCurrentUser, 
     setWhatsappStatus,
-    playSound
+    playSound,
+    hasPermission
   } = useApp();
+  const searchParams = useSearchParams();
   const [activeTab, setActiveTab] = useState<Tab>('profile');
   const [isPasswordModalOpen, setIsPasswordModalOpen] = useState(false);
   
   const [previewUrl, setPreviewUrl] = useState<string | null>(null);
   const [isUploading, setIsUploading] = useState(false);
+
+  useEffect(() => {
+    const requestedTab = searchParams.get('tab');
+    if (requestedTab === 'system' && hasPermission(Permission.SETTINGS_SYSTEM)) {
+      setActiveTab('system');
+    } else if (requestedTab === 'system') {
+      setActiveTab('profile');
+    }
+  }, [searchParams, hasPermission, currentUser?.permissions]);
   
   const [whatsappInstances, setWhatsappInstances] = useState<WhatsappInstance[]>([]);
   
@@ -256,9 +268,11 @@ export default function SettingsPage() {
 {currentUser?.role === UserRole.ADMIN && (
              <>
                <SettingsNavLink icon={<Globe size={18} />} label="WhatsApp" active={activeTab === 'whatsapp'} onClick={() => setActiveTab('whatsapp')} />
-               <SettingsNavLink icon={<Database size={18} />} label="Geral" active={activeTab === 'system'} onClick={() => setActiveTab('system')} />
                <SettingsNavLink icon={<Users size={18} />} label="Equipes Internas" active={activeTab === 'teams'} onClick={() => setActiveTab('teams')} />
              </>
+           )}
+           {hasPermission(Permission.SETTINGS_SYSTEM) && (
+             <SettingsNavLink icon={<Database size={18} />} label="Geral do Sistema" active={activeTab === 'system'} onClick={() => setActiveTab('system')} />
            )}
         </aside>
 
@@ -267,7 +281,7 @@ export default function SettingsPage() {
             <StatusHistoryPanel userId={currentUser.id} />
           )}
 
-{activeTab === 'system' && currentUser?.role === UserRole.ADMIN && (
+{activeTab === 'system' && hasPermission(Permission.SETTINGS_SYSTEM) && (
              <div className="space-y-6 animate-in fade-in slide-in-from-bottom-4 duration-300">
                 <SystemConfigContent 
                   categories={categories} 

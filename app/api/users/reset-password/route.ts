@@ -37,22 +37,27 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: 'Voce nao tem permissao para reiniciar senhas.' }, { status: 403 });
     }
 
-    const { userId } = await request.json();
+    const { userId, password } = await request.json();
 
     if (!userId || typeof userId !== 'string') {
       return NextResponse.json({ error: 'ID do usuario e obrigatorio.' }, { status: 400 });
     }
 
-    const temporaryPassword = generateTemporaryPassword();
-    const hashedPassword = hashPassword(temporaryPassword);
+    if (password !== undefined && (typeof password !== 'string' || password.length < 6)) {
+      return NextResponse.json({ error: 'A nova senha deve ter pelo menos 6 caracteres.' }, { status: 400 });
+    }
+
+    const passwordToSave = password || generateTemporaryPassword();
+    const isTemporaryPassword = !password;
+    const hashedPassword = hashPassword(passwordToSave);
 
     const result = await query(
       `UPDATE public.profiles
        SET password = $1,
-           must_change_password = true
-       WHERE id = $2
+           must_change_password = $2
+       WHERE id = $3
        RETURNING id`,
-      [hashedPassword, userId]
+      [hashedPassword, isTemporaryPassword, userId]
     );
 
     if (result.rowCount === 0) {
@@ -61,7 +66,7 @@ export async function POST(request: NextRequest) {
 
     return NextResponse.json({
       success: true,
-      password: temporaryPassword
+      password: isTemporaryPassword ? passwordToSave : undefined
     });
   } catch (error) {
     console.error('Erro ao reiniciar senha:', error);

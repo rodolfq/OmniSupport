@@ -481,9 +481,9 @@ export async function getRolePermissions() {
 export async function saveRolePermissions(roleId: string, permissions: string[]) {
   try {
     await query(
-      `INSERT INTO public.role_permissions (id, permissions)
-       VALUES ($1, $2)
-       ON CONFLICT (id) DO UPDATE SET permissions = EXCLUDED.permissions`,
+      `INSERT INTO public.role_permissions (name, role, permissions)
+       VALUES ($1, $1, $2)
+       ON CONFLICT (name) DO UPDATE SET permissions = EXCLUDED.permissions`,
       [roleId, permissions]
     );
     return { success: true };
@@ -495,7 +495,7 @@ export async function saveRolePermissions(roleId: string, permissions: string[])
 
 export async function deleteRolePermission(roleId: string) {
   try {
-    await query('DELETE FROM public.role_permissions WHERE id = $1', [roleId]);
+    await query('DELETE FROM public.role_permissions WHERE id::text = $1 OR name = $1', [roleId]);
     return { success: true };
   } catch (err) {
     console.error("Error deleting role permission in actions:", err);

@@ -1,7 +1,7 @@
 ﻿'use client';
 
 import React, { useState } from 'react';
-import { X, Building2, Phone, Briefcase, Mail, Lock, UserPlus, RefreshCw } from 'lucide-react';
+import { X, Building2, Phone, Briefcase, Mail, Lock, UserPlus, RefreshCw, Eye, EyeOff } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import { saveCompany } from '@/app/actions';
 import { Company } from '@/lib/types';
@@ -19,6 +19,7 @@ export function NewCompanyModal({ isOpen, onClose, onSuccess, company }: { isOpe
   const [adminName, setAdminName] = useState('');
   const [adminEmail, setAdminEmail] = useState('');
   const [adminPassword, setAdminPassword] = useState('');
+  const [showAdminPassword, setShowAdminPassword] = useState(false);
   const [adminPhone, setAdminPhone] = useState('');
   const [errorMsg, setErrorMsg] = useState('');
   const [isLoading, setIsLoading] = useState(false);
@@ -224,14 +225,22 @@ export function NewCompanyModal({ isOpen, onClose, onSuccess, company }: { isOpe
                       <div className="relative flex-1">
                         <Lock className="absolute left-4 top-1/2 -translate-y-1/2 text-slate-400" size={16} />
                         <input
-                          type="text"
+                          type={showAdminPassword ? 'text' : 'password'}
                           value={adminPassword}
                           onChange={(e) => setAdminPassword(e.target.value)}
                           placeholder="Senha de acesso"
                           minLength={6}
-                          className="w-full bg-white border border-slate-200 rounded-xl pl-12 pr-4 py-3 text-sm font-mono font-bold focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-500 outline-none transition-all"
+                          className="w-full bg-white border border-slate-200 rounded-xl pl-12 pr-11 py-3 text-sm font-mono font-bold focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-500 outline-none transition-all"
                           required
                         />
+                        <button
+                          type="button"
+                          onClick={() => setShowAdminPassword(value => !value)}
+                          className="absolute right-3 top-1/2 -translate-y-1/2 p-1 text-slate-400 hover:text-indigo-600"
+                          title={showAdminPassword ? 'Ocultar senha' : 'Mostrar senha'}
+                        >
+                          {showAdminPassword ? <EyeOff size={16} /> : <Eye size={16} />}
+                        </button>
                       </div>
                       <button
                         type="button"
