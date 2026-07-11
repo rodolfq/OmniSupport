@@ -1,6 +1,7 @@
 "use client";
 
 import React, { useState, useEffect, useRef, useMemo } from "react";
+import { StyledSelect } from '@/components/styled-select';
 import { Search, X, Filter, ChevronDown, Star, Clock, Tag, Users, Building2, Calendar, Save, Bookmark, Trash2, Check } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { motion, AnimatePresence } from "motion/react";
@@ -11,11 +12,10 @@ import { searchTickets, SearchFilters, getSavedViews, saveCustomView, saveSearch
 
 interface ModernSearchBarProps {
   onSearch: (filters: SearchFilters, page: number) => void;
-  onFilterChange: (filters: SearchFilters) => void;
   loading?: boolean;
 }
 
-export function ModernSearchBar({ onSearch, onFilterChange, loading }: ModernSearchBarProps) {
+export function ModernSearchBar({ onSearch, loading }: ModernSearchBarProps) {
   const { currentUser } = useApp();
   const [query, setQuery] = useState("");
   const [showSuggestions, setShowSuggestions] = useState(false);
@@ -39,6 +39,7 @@ export function ModernSearchBar({ onSearch, onFilterChange, loading }: ModernSea
   const [users, setUsers] = useState<any[]>([]);
 
   const inputRef = useRef<HTMLInputElement>(null);
+  const lastSubmittedFiltersRef = useRef(JSON.stringify({}));
 
   // Load companies and users for filter dropdowns
   useEffect(() => {
@@ -46,14 +47,25 @@ export function ModernSearchBar({ onSearch, onFilterChange, loading }: ModernSea
     supabase.from('profiles').select('id, name').then(({ data }) => setUsers(data || []));
   }, []);
 
-  // Debounce search
+  // Consolidate search and filter changes into a single request.
   useEffect(() => {
+    const newFilters: SearchFilters = {
+      query: query || undefined,
+      status: status || undefined,
+      priority: priority || undefined,
+      companyId: company || undefined,
+      assigneeId: assignee || undefined,
+      startDate: startDate || undefined,
+      endDate: endDate || undefined,
+      slaOverdue: slaOverdue || undefined,
+      includeClosed: includeClosed || undefined,
+    };
+    const serializedFilters = JSON.stringify(newFilters);
+    if (serializedFilters === lastSubmittedFiltersRef.current) return;
+    lastSubmittedFiltersRef.current = serializedFilters;
+
     const handler = setTimeout(() => {
-      const newFilters: SearchFilters = {
-        ...activeFilters,
-        query: query || undefined,
-      };
-      onFilterChange(newFilters);
+      setActiveFilters(newFilters);
       onSearch(newFilters, 1);
 
       // Save to history if user is logged in and query exists
@@ -65,7 +77,7 @@ export function ModernSearchBar({ onSearch, onFilterChange, loading }: ModernSea
     }, 300);
 
     return () => clearTimeout(handler);
-  }, [query, activeFilters]);
+  }, [query, status, priority, company, assignee, startDate, endDate, slaOverdue, includeClosed]);
 
 // Load saved views on mount
   useEffect(() => {
@@ -75,24 +87,6 @@ export function ModernSearchBar({ onSearch, onFilterChange, loading }: ModernSea
       });
     }
   }, [currentUser?.id]);
-
-  // Update active filters when local states change
-  useEffect(() => {
-    const newFilters: SearchFilters = {
-      ...activeFilters,
-      status: status || undefined,
-      priority: priority || undefined,
-      companyId: company || undefined,
-      assigneeId: assignee || undefined,
-      startDate: startDate || undefined,
-      endDate: endDate || undefined,
-      slaOverdue: slaOverdue || undefined,
-      includeClosed: includeClosed || undefined,
-    };
-    setActiveFilters(newFilters);
-    onFilterChange(newFilters);
-    onSearch(newFilters, 1);
-  }, [status, priority, company, assignee, startDate, endDate, slaOverdue, includeClosed]);
 
   const hasActiveFilters = Object.values(activeFilters).some(v => v !== undefined && v !== "");
 
@@ -125,8 +119,6 @@ export function ModernSearchBar({ onSearch, onFilterChange, loading }: ModernSea
     setSlaOverdue(false);
     setIncludeClosed(false);
     setActiveFilters({});
-    onFilterChange({});
-    onSearch({}, 1);
   };
 
   const saveCurrentView = async () => {
@@ -159,8 +151,6 @@ export function ModernSearchBar({ onSearch, onFilterChange, loading }: ModernSea
     setSlaOverdue(filters.slaOverdue || false);
     setIncludeClosed(filters.includeClosed || false);
     setActiveFilters(filters);
-    onFilterChange(filters);
-    onSearch(filters, 1);
     setShowFilterPanel(false);
   };
 
@@ -377,7 +367,7 @@ export function ModernSearchBar({ onSearch, onFilterChange, loading }: ModernSea
                   <label className="text-[10px] font-black uppercase text-slate-400 flex items-center gap-1">
                     <Tag size={12} /> Status
                   </label>
-                  <select
+                  <StyledSelect
                     value={status}
                     onChange={(e) => setStatus(e.target.value as TicketStatus)}
                     className="w-full px-3 py-2 rounded-lg border border-slate-200 text-xs font-bold bg-slate-50 focus:border-indigo-400 outline-none"
@@ -386,7 +376,7 @@ export function ModernSearchBar({ onSearch, onFilterChange, loading }: ModernSea
                     {Object.values(TicketStatus).map(s => (
                       <option key={s} value={s}>{s}</option>
                     ))}
-                  </select>
+                  </StyledSelect>
                 </div>
 
                 {/* Priority */}
@@ -394,7 +384,7 @@ export function ModernSearchBar({ onSearch, onFilterChange, loading }: ModernSea
                   <label className="text-[10px] font-black uppercase text-slate-400 flex items-center gap-1">
                     <Star size={12} /> Prioridade
                   </label>
-                  <select
+                  <StyledSelect
                     value={priority}
                     onChange={(e) => setPriority(e.target.value)}
                     className="w-full px-3 py-2 rounded-lg border border-slate-200 text-xs font-bold bg-slate-50 focus:border-indigo-400 outline-none"
@@ -404,7 +394,7 @@ export function ModernSearchBar({ onSearch, onFilterChange, loading }: ModernSea
                     <option>Média</option>
                     <option>Alta</option>
                     <option>Urgente</option>
-                  </select>
+                  </StyledSelect>
                 </div>
 
                 {/* Company (Cliente) */}
@@ -412,7 +402,7 @@ export function ModernSearchBar({ onSearch, onFilterChange, loading }: ModernSea
                   <label className="text-[10px] font-black uppercase text-slate-400 flex items-center gap-1">
                     <Building2 size={12} /> Cliente
                   </label>
-                  <select
+                  <StyledSelect
                     value={company}
                     onChange={(e) => setCompany(e.target.value)}
                     className="w-full px-3 py-2 rounded-lg border border-slate-200 text-xs font-bold bg-slate-50 focus:border-indigo-400 outline-none"
@@ -421,7 +411,7 @@ export function ModernSearchBar({ onSearch, onFilterChange, loading }: ModernSea
                     {companies.map(c => (
                       <option key={c.id} value={c.id}>{c.name}</option>
                     ))}
-                  </select>
+                  </StyledSelect>
                 </div>
 
                 {/* Assignee (Responsável) */}
@@ -429,7 +419,7 @@ export function ModernSearchBar({ onSearch, onFilterChange, loading }: ModernSea
                   <label className="text-[10px] font-black uppercase text-slate-400 flex items-center gap-1">
                     <Users size={12} /> Responsável
                   </label>
-                  <select
+                  <StyledSelect
                     value={assignee}
                     onChange={(e) => setAssignee(e.target.value)}
                     className="w-full px-3 py-2 rounded-lg border border-slate-200 text-xs font-bold bg-slate-50 focus:border-indigo-400 outline-none"
@@ -438,7 +428,7 @@ export function ModernSearchBar({ onSearch, onFilterChange, loading }: ModernSea
                     {users.map(u => (
                       <option key={u.id} value={u.id}>{u.name}</option>
                     ))}
-                  </select>
+                  </StyledSelect>
                 </div>
 
                 {/* Date Range */}

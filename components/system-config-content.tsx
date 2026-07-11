@@ -38,14 +38,23 @@ export function SystemConfigContent({ categories, priorities, setCategories, set
     console.log(`💾 Salvando SLA para ${label}: ${days} dias (${hours} horas)`);
 
     if (priority) {
-      const { error } = await supabase.from('config_priorities').update({ sla_hours: hours }).eq('id', priority.id);
+      const { data, error } = await supabase
+        .from('config_priorities')
+        .update({ sla_hours: hours })
+        .eq('id', priority.id)
+        .single();
       if (error) { 
         toast.error('Erro ao atualizar SLA'); 
         console.error('Update error:', error);
       }
       else {
         console.log(`✅ SLA de ${label} atualizado com sucesso no Supabase`);
-        setPriorities(priorities.map((p: any) => p.id === priority.id ? { ...p, sla_hours: hours } : p));
+        const persistedHours = Number(data?.sla_hours);
+        if (persistedHours !== hours) {
+          toast.error('O SLA não foi confirmado no banco. Tente novamente.');
+          return;
+        }
+        setPriorities(priorities.map((p: any) => p.id === priority.id ? { ...p, sla_hours: persistedHours } : p));
         toast.success(`SLA de ${label} atualizado para ${days} dias`);
       }
     } else {

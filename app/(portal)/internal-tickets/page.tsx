@@ -1,6 +1,7 @@
 "use client";
 
 import React, { useState, useEffect, useCallback } from "react";
+import { StyledSelect } from '@/components/styled-select';
 import { supabase } from "@/lib/supabase";
 import { cn } from "@/lib/utils";
 import { motion, AnimatePresence } from "motion/react";
@@ -397,7 +398,7 @@ const openEditModal = (ticket: InternalTicketItem) => {
               className="overflow-hidden"
             >
               <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-3 pt-3 border-t border-slate-100">
-                <select
+                <StyledSelect
                   value={filterTeam}
                   onChange={(e) => setFilterTeam(e.target.value)}
                   className="px-3 py-2 rounded-lg border border-slate-200 text-sm font-medium bg-white"
@@ -406,9 +407,9 @@ const openEditModal = (ticket: InternalTicketItem) => {
                   {teams.map((t) => (
                     <option key={t.value} value={t.value}>{t.label}</option>
                   ))}
-                </select>
+                </StyledSelect>
 
-                <select
+                <StyledSelect
                   value={filterAssignee}
                   onChange={(e) => setFilterAssignee(e.target.value)}
                   className="px-3 py-2 rounded-lg border border-slate-200 text-sm font-medium bg-white"
@@ -417,9 +418,9 @@ const openEditModal = (ticket: InternalTicketItem) => {
                   {analysts.map((a) => (
                     <option key={a.id} value={a.id}>{a.name}</option>
                   ))}
-                </select>
+                </StyledSelect>
 
-<select
+<StyledSelect
                    value={filterPriority}
                    onChange={(e) => setFilterPriority(e.target.value)}
                    className="px-3 py-2 rounded-lg border border-slate-200 text-sm font-medium bg-white"
@@ -428,9 +429,9 @@ const openEditModal = (ticket: InternalTicketItem) => {
                    <option value="3">Alta</option>
                    <option value="2">Média</option>
                    <option value="1">Baixa</option>
-                 </select>
+                 </StyledSelect>
 
-                 <select
+                 <StyledSelect
                    value={filterStatus}
                    onChange={(e) => setFilterStatus(e.target.value)}
                    className="px-3 py-2 rounded-lg border border-slate-200 text-sm font-medium bg-white"
@@ -439,7 +440,7 @@ const openEditModal = (ticket: InternalTicketItem) => {
                    {KANBAN_STATUSES.map((s) => (
                      <option key={s.value} value={s.value}>{s.label}</option>
                    ))}
-                 </select>
+                 </StyledSelect>
 
                  <input
                   type="date"
@@ -726,7 +727,7 @@ function TicketModal({
           <div className="grid grid-cols-2 gap-4">
             <div>
               <label className="text-[10px] font-black text-slate-600 uppercase mb-1 block">Equipe</label>
-<select
+<StyledSelect
                  value={formTeam}
                  onChange={(e) => setFormTeam(e.target.value)}
                  className="w-full px-3 py-2 rounded-lg border border-slate-200 text-sm font-medium bg-white"
@@ -734,12 +735,12 @@ function TicketModal({
                  {teams.map((t) => (
                    <option key={t.value} value={t.value}>{t.label}</option>
                  ))}
-               </select>
+               </StyledSelect>
             </div>
 
             <div>
               <label className="text-[10px] font-black text-slate-600 uppercase mb-1 block">Prioridade</label>
-              <select
+              <StyledSelect
                 value={formPriority}
                 onChange={(e) => setFormPriority(Number(e.target.value))}
                 className="w-full px-3 py-2 rounded-lg border border-slate-200 text-sm font-medium bg-white"
@@ -747,13 +748,13 @@ function TicketModal({
                 <option value={1}>Baixa</option>
                 <option value={2}>Média</option>
                 <option value={3}>Alta</option>
-              </select>
+              </StyledSelect>
             </div>
           </div>
 
           <div>
             <label className="text-[10px] font-black text-slate-600 uppercase mb-1 block">Responsável</label>
-            <select
+            <StyledSelect
               value={formAssignee}
               onChange={(e) => setFormAssignee(e.target.value)}
               className="w-full px-3 py-2 rounded-lg border border-slate-200 text-sm font-medium bg-white"
@@ -762,7 +763,7 @@ function TicketModal({
               {analysts.map((a) => (
                 <option key={a.id} value={a.id}>{a.name}</option>
               ))}
-            </select>
+            </StyledSelect>
           </div>
         </div>
 
@@ -890,7 +891,7 @@ function KanbanBoard({
       
       {/* Status dropdown for quick change */}
       {onStatusChange && (
-        <select
+        <StyledSelect
           value={ticket.status || 'Novo'}
           onChange={(e) => {
             e.stopPropagation();
@@ -902,7 +903,7 @@ function KanbanBoard({
           {KANBAN_STATUSES.map(s => (
             <option key={s.value} value={s.value}>{s.label}</option>
           ))}
-        </select>
+        </StyledSelect>
       )}
       
       {ticket.linkedTicketTitles && ticket.linkedTicketTitles.length > 0 && (

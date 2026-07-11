@@ -1,6 +1,7 @@
 ﻿'use client';
 
 import React, { useState, useEffect } from 'react';
+import { StyledSelect } from '@/components/styled-select';
 import { 
   Search, Mail, Shield, Key, Trash2, Edit2, CheckCircle2, XCircle, Bell, UserPlus
 } from 'lucide-react';
@@ -11,6 +12,7 @@ import { useApp } from '@/app/app-context';
 import { NotificationSettingsContent } from '@/components/notification-settings';
 import { getUsers, createUser, updateUser, deleteUser, getCompanies } from '@/app/actions';
 import { UserRole, type User } from '@/lib/types';
+import { toast } from 'sonner';
 
 export default function TeamManagementPage() {
   const [analysts, setAnalysts] = useState<any[]>([]);
@@ -50,8 +52,7 @@ export default function TeamManagementPage() {
   }, []);
 
   const filteredAnalysts = analysts.filter(a => 
-    // Filter logic: Internal team are those who are NOT 'Funcionário'
-    (a.role !== 'Funcionário') &&
+    [UserRole.ADMIN, UserRole.SUPPORT, UserRole.INTERNAL, 'Gestor'].includes(a.role) &&
     (a.name.toLowerCase().includes(search.toLowerCase()) || 
     a.email.toLowerCase().includes(search.toLowerCase()))
   );
@@ -87,17 +88,17 @@ export default function TeamManagementPage() {
     console.log('Iniciando salvamento:', { name, email, role, companyId, selectedUser: !!selectedUser });
     
     if (!name || name.trim() === '') {
-      alert('Por favor, preencha o nome completo.');
+      toast.error('Por favor, preencha o nome completo.');
       return;
     }
     if (!email || email.trim() === '') {
-      alert('Por favor, preencha o e-mail corporativo.');
+      toast.error('Por favor, preencha o e-mail corporativo.');
       return;
     }
 
     const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
     if (!emailRegex.test(email.trim())) {
-      alert('Por favor, insira um e-mail válido.');
+      toast.error('Por favor, insira um e-mail válido.');
       return;
     }
 
@@ -111,12 +112,14 @@ export default function TeamManagementPage() {
         
         if (result && result.error) {
           console.error('Erro retornado de updateUser:', result.error);
-          alert('Erro ao atualizar usuário: ' + result.error);
+          toast.error('Erro ao atualizar usuário', {
+            description: result.error
+          });
           setIsSaving(false);
           return;
         }
         
-        alert('Usuário atualizado com sucesso!');
+        toast.success('Usuário atualizado com sucesso!');
       } else {
         // Create mode
         console.log('Modo criação para:', email);
@@ -124,12 +127,16 @@ export default function TeamManagementPage() {
         
         if (result && result.error) {
           console.error('Erro retornado de createUser:', result.error);
-          alert('Erro ao criar usuário: ' + result.error);
+          toast.error('Erro ao criar usuário', {
+            description: result.error
+          });
           setIsSaving(false);
           return;
         }
         
-        alert('Usuário criado com sucesso!');
+        toast.success('Usuário criado com sucesso!', {
+          description: `${name.trim()} foi adicionado à equipe.`
+        });
       }
 
       // Refresh list immediately
@@ -139,7 +146,7 @@ export default function TeamManagementPage() {
       resetForm();
     } catch (error) {
       console.error('Erro crítico ao salvar usuário:', error);
-      alert('Erro inesperado ao salvar usuário. Verifique sua conexão e tente novamente.');
+      toast.error('Erro inesperado ao salvar usuário. Verifique sua conexão e tente novamente.');
     } finally {
       setIsSaving(false);
     }
@@ -369,7 +376,7 @@ export default function TeamManagementPage() {
                 {role === UserRole.CUSTOMER && (
                   <div className="space-y-1.5">
                     <label className="text-[10px] font-black uppercase text-slate-400 tracking-widest ml-1">Empresa</label>
-                    <select 
+                    <StyledSelect 
                       value={companyId || ''}
                       onChange={(e) => setCompanyId(e.target.value)}
                       className="w-full bg-slate-50 border border-slate-200 rounded-2xl px-4 py-3 text-sm font-bold focus:ring-4 focus:ring-indigo-500/10 outline-none transition-all appearance-none"
@@ -378,7 +385,7 @@ export default function TeamManagementPage() {
                       {companies.map(c => (
                         <option key={c.id} value={c.id}>{c.name}</option>
                       ))}
-                    </select>
+                    </StyledSelect>
                   </div>
                 )}
 

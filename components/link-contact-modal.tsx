@@ -1,6 +1,7 @@
 'use client';
 
 import React, { useState, useEffect } from 'react';
+import { StyledSelect } from '@/components/styled-select';
 import { 
   ChatSession, 
   User, 
@@ -226,14 +227,14 @@ export function LinkContactModal({
                         className="w-full bg-slate-50 border border-slate-200 rounded-2xl px-4 py-3 text-sm font-bold focus:ring-4 focus:ring-indigo-500/10 outline-none transition-all"
                       />
                     ) : (
-                      <select 
+                      <StyledSelect 
                         value={newCompanyId}
                         onChange={(e) => setNewCompanyId(e.target.value)}
                         className="w-full bg-slate-50 border border-slate-200 rounded-2xl px-4 py-3 text-sm font-bold focus:ring-4 focus:ring-indigo-500/10 outline-none transition-all appearance-none"
                       >
                         <option value="">Selecione uma empresa</option>
                         {companies.map(c => <option key={c.id} value={c.id}>{c.name}</option>)}
-                      </select>
+                      </StyledSelect>
                     )}
                   </div>
                   <button 

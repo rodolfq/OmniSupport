@@ -27,7 +27,7 @@ export interface SearchResult {
 export async function searchTickets(
   filters: SearchFilters,
   page: number = 1,
-  pageSize: number = 25,
+  pageSize: number = 10,
   signal?: AbortSignal
 ): Promise<SearchResult> {
   const qParams = new URLSearchParams({
@@ -35,12 +35,13 @@ export async function searchTickets(
     query: filters.query || '',
     status: filters.status || '',
     priority: filters.priority || '',
+    slaOverdue: String(filters.slaOverdue || false),
     includeClosed: String(filters.includeClosed || false),
     page: String(page),
     pageSize: String(pageSize)
   });
   
-  const res = await fetch(`/api/search?${qParams.toString()}`);
+  const res = await fetch(`/api/search?${qParams.toString()}`, { signal });
   return res.json();
 }
 

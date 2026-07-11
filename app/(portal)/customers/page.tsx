@@ -2,7 +2,7 @@
 
 import React, { useState, useEffect, useMemo } from 'react';
 import { getUsers, getCompanies, deleteCompany } from '@/app/actions';
-import { Company, User, ChatSession, UserRole } from '@/lib/types';
+import { Company, User, UserRole } from '@/lib/types';
 import { Building2, User as UserIcon, Mail, Phone, Plus, MessageCircle, Ticket, ShieldCheck, Search, X, Check } from 'lucide-react';
 import { cn, normalizeString, maskPhone } from '@/lib/utils';
 import { NewEmployeeModal } from '@/components/new-employee-modal';
@@ -131,6 +131,11 @@ export default function CustomersPage() {
   const [companyToDelete, setCompanyToDelete] = useState<Company | null>(null);
   const [deleteError, setDeleteError] = useState<string>('');
   const [searchQuery, setSearchQuery] = useState('');
+  const isCompanyPortalUser = [UserRole.CUSTOMER, UserRole.EMPLOYEE].includes(currentUser?.role as UserRole);
+  const isCustomerAdmin = currentUser?.role === UserRole.CUSTOMER;
+  const canManageCompanies = currentUser?.role === UserRole.ADMIN;
+  const canCreateEmployees = canManageCompanies || isCustomerAdmin;
+  const canEditEmployees = canManageCompanies;
 
   const handleOpenTicket = (user: User) => {
     setPreselectedUserId(user.id);
@@ -151,16 +156,16 @@ export default function CustomersPage() {
         const loadedUsers = await getUsers();
         console.log(`✅ Clientes: getCompanies=${loadedCompanies.length}, getUsers=${loadedUsers.length}`);
 
-        // Filtering logic still applies
         let filteredUsers = loadedUsers;
         let filteredCompanies = loadedCompanies;
+        const companyProfileRoles = [UserRole.CUSTOMER, UserRole.EMPLOYEE] as string[];
+        const currentCompanyId = currentUser?.companyId || null;
 
-if (currentUser?.role === UserRole.CUSTOMER) {
-           filteredCompanies = loadedCompanies.filter(c => c.id === currentUser.companyId);
-           filteredUsers = loadedUsers.filter(u => u.role === 'Funcionário' && u.companyId === currentUser.companyId);
+if (isCompanyPortalUser) {
+           filteredCompanies = loadedCompanies.filter(c => c.id === currentCompanyId);
+           filteredUsers = loadedUsers.filter(u => companyProfileRoles.includes(u.role) && u.companyId === currentCompanyId);
          } else {
-             // Admin/internal team: Only show users with 'Funcionário' role and associated company
-             filteredUsers = loadedUsers.filter(u => u.role === 'Funcionário' && !!u.companyId);
+             filteredUsers = loadedUsers.filter(u => companyProfileRoles.includes(u.role) && !!u.companyId);
          }
 
         setCompanies(filteredCompanies);
@@ -175,8 +180,8 @@ if (currentUser?.role === UserRole.CUSTOMER) {
   };
 
   useEffect(() => {
-    loadData();
-  }, []);
+    if (currentUser) loadData();
+  }, [currentUser?.id]);
 
   const filteredCompanies = useMemo(() => {
     if (!searchQuery.trim()) return companies;
@@ -200,7 +205,9 @@ if (currentUser?.role === UserRole.CUSTOMER) {
   [companies, selectedCompanyId]);
 
   const companyEmployees = useMemo(() => 
-    users.filter(u => u.companyId === selectedCompanyId),
+    users
+      .filter(u => u.companyId === selectedCompanyId)
+      .sort((a, b) => Number(b.isAdmin || b.role === UserRole.CUSTOMER) - Number(a.isAdmin || a.role === UserRole.CUSTOMER)),
   [users, selectedCompanyId]);
 
   return (
@@ -208,7 +215,10 @@ if (currentUser?.role === UserRole.CUSTOMER) {
       <div className="w-80 flex flex-col gap-4">
         <div className="space-y-4">
           <h2 className="font-black text-xs uppercase tracking-[0.2em] text-slate-400 mb-2 flex justify-between items-center">
-            Empresas <Plus size={16} onClick={() => setIsCompanyModalOpen(true)} className="text-indigo-600 cursor-pointer hover:scale-125 transition-transform" />
+            Empresas
+            {canManageCompanies && (
+              <Plus size={16} onClick={() => setIsCompanyModalOpen(true)} className="text-indigo-600 cursor-pointer hover:scale-125 transition-transform" />
+            )}
           </h2>
           
           <div className="relative group">
@@ -277,26 +287,32 @@ if (currentUser?.role === UserRole.CUSTOMER) {
                 </div>
               </div>
               <div className="flex gap-2">
+                {canManageCompanies && (
+                  <>
                 <button 
                   onClick={() => { setCompanyToEdit(selectedCompany); setIsCompanyModalOpen(true); }}
                   className="bg-indigo-50 text-indigo-600 px-4 py-2.5 rounded-lg text-sm font-bold hover:bg-indigo-100 transition-all">Editar Empresa</button>
                 <button 
                   onClick={() => setCompanyToDelete(selectedCompany)}
                   className="bg-red-50 text-red-600 px-4 py-2.5 rounded-lg text-sm font-bold hover:bg-red-100 transition-all">Excluir Empresa</button>
+                  </>
+                )}
+                {canCreateEmployees && (
                 <button 
                   onClick={() => setIsEmployeeModalOpen(true)}
                   className="bg-indigo-600 text-white px-6 py-2.5 rounded-lg text-sm font-bold shadow-md hover:bg-indigo-700 transition-all"
                 >
                   Novo Funcionário
                 </button>
+                )}
               </div>
             </div>
             
             <div className="space-y-4">
               <div className="flex justify-between items-end">
                 <div>
-                  <h3 className="text-[10px] font-black uppercase tracking-[0.2em] text-slate-400">Quadro de Funcionários</h3>
-                  <p className="text-xs text-slate-500 font-medium">Colaboradores com acesso ao suporte</p>
+                  <h3 className="text-[10px] font-black uppercase tracking-[0.2em] text-slate-400">Usuários da Empresa</h3>
+                  <p className="text-xs text-slate-500 font-medium">Admin cliente e funcionários com acesso ao suporte</p>
                 </div>
                 <div className="flex gap-4">
                    <div className="flex items-center gap-2 text-[10px] font-bold text-slate-400 uppercase">
@@ -309,12 +325,19 @@ if (currentUser?.role === UserRole.CUSTOMER) {
                 {companyEmployees.map(employee => (
                   <div key={employee.id} className="bg-white p-6 rounded-2xl border border-slate-200 shadow-sm hover:border-indigo-300 transition-all group relative overflow-hidden">
                     <div className="absolute top-0 right-0 p-4 flex gap-2">
+                      {canEditEmployees && (
                       <button 
                          onClick={() => { setSelectedEmployee(employee); setIsEditEmployeeModalOpen(true); }}
                          className="flex items-center gap-1 text-[9px] font-black uppercase text-indigo-600 bg-indigo-50 px-2 py-0.5 rounded-full border border-indigo-100 hover:bg-indigo-600 hover:text-white transition-all"
                       >
                          Editar
                       </button>
+                      )}
+                      {(employee.isAdmin || employee.role === UserRole.CUSTOMER) && (
+                        <div className="flex items-center gap-1 text-[9px] font-black uppercase text-indigo-600 bg-indigo-50 px-2 py-0.5 rounded-full border border-indigo-100">
+                          <ShieldCheck size={10} /> Admin Cliente
+                        </div>
+                      )}
                       <div className="flex items-center gap-1 text-[9px] font-black uppercase text-green-600 bg-green-50 px-2 py-0.5 rounded-full border border-green-100">
                         <ShieldCheck size={10} /> Login Autorizado
                       </div>
@@ -339,6 +362,7 @@ if (currentUser?.role === UserRole.CUSTOMER) {
                       </div>
                     </div>
 
+                    {!isCompanyPortalUser && (
                     <div className="grid grid-cols-2 gap-3">
                       <button 
                         title="Abrir Chamado"
@@ -357,6 +381,7 @@ if (currentUser?.role === UserRole.CUSTOMER) {
                         <span className="text-[9px] font-black uppercase tracking-widest">WhatsApp</span>
                       </button>
                     </div>
+                    )}
                   </div>
                 ))}
               </div>

@@ -6,8 +6,10 @@ import { motion, AnimatePresence } from 'motion/react';
 import { createUser } from '@/app/actions';
 import { UserRole } from '@/lib/types';
 import { maskPhone } from '@/lib/utils';
+import { useApp } from '@/app/app-context';
 
 export function NewEmployeeModal({ isOpen, onClose, companyId, onSuccess }: { isOpen: boolean, onClose: () => void, companyId?: string, onSuccess?: () => void }) {
+  const { currentUser } = useApp();
   const [name, setName] = useState('');
   const [email, setEmail] = useState('');
   const [phones, setPhones] = useState<string[]>(['']);
@@ -27,7 +29,14 @@ export function NewEmployeeModal({ isOpen, onClose, companyId, onSuccess }: { is
     try {
       // Adjust role: if companyId is present, it's a employee (Funcionário), otherwise it's support (Equipe)
       const role = companyId ? UserRole.EMPLOYEE : UserRole.SUPPORT;
-      const result = await createUser(email, name, role, companyId || null, phones, viewAllCompanyTickets);
+      const result = await createUser(
+        email,
+        name,
+        role,
+        companyId || null,
+        phones,
+        currentUser?.role === UserRole.CUSTOMER ? false : viewAllCompanyTickets
+      );
       
       if (result.error) {
         if (result.error.includes('Email already exists')) {
@@ -154,6 +163,7 @@ export function NewEmployeeModal({ isOpen, onClose, companyId, onSuccess }: { is
                 </button>
               </div>
 
+              {currentUser?.role !== UserRole.CUSTOMER && (
               <div className="p-4 bg-indigo-50/50 rounded-2xl border border-indigo-100 flex items-center justify-between">
                 <div className="flex items-center gap-3">
                   <div className="w-8 h-8 rounded-lg bg-white border border-indigo-100 flex items-center justify-center text-indigo-600 shadow-sm transition-transform group-hover:scale-110">
@@ -170,6 +180,7 @@ export function NewEmployeeModal({ isOpen, onClose, companyId, onSuccess }: { is
                   <div className={`w-4 h-4 rounded-full bg-white shadow-sm transition-transform ${viewAllCompanyTickets ? 'translate-x-6' : 'translate-x-0'}`} />
                 </div>
               </div>
+              )}
 
               {error && (
                 <div className="p-3 bg-rose-50 text-rose-600 text-xs font-bold rounded-xl border border-rose-100">

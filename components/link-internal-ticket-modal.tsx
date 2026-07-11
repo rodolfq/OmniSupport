@@ -1,6 +1,7 @@
 "use client";
 
 import React, { useState, useEffect } from 'react';
+import { StyledSelect } from '@/components/styled-select';
 import { motion, AnimatePresence } from 'motion/react';
 import { Search } from 'lucide-react';
 import { supabase } from '@/lib/supabase';
@@ -119,7 +120,7 @@ export function LinkInternalTicketModal({ isOpen, onClose, onLink }: LinkInterna
                   className="w-full pl-9 pr-3 py-2 rounded-lg border border-slate-200 text-sm focus:border-amber-400 outline-none"
                 />
               </div>
-<select
+<StyledSelect
                value={teamFilter}
                onChange={(e) => setTeamFilter(e.target.value)}
                className="px-3 py-2 rounded-lg border border-slate-200 text-xs font-bold uppercase"
@@ -128,7 +129,7 @@ export function LinkInternalTicketModal({ isOpen, onClose, onLink }: LinkInterna
                {teams.map(team => (
                  <option key={team.id} value={team.name}>{team.name}</option>
                ))}
-             </select>
+             </StyledSelect>
             </div>
 
             <div className="flex-1 overflow-y-auto -mx-2 px-2">

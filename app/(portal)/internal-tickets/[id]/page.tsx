@@ -1,6 +1,7 @@
 'use client';
 
 import React, { useState, useEffect, useRef, useCallback } from 'react';
+import { StyledSelect } from '@/components/styled-select';
 import { useParams, useRouter } from 'next/navigation';
 import { supabase } from '@/lib/supabase';
 import { useApp } from '@/app/app-context';
@@ -179,14 +180,14 @@ export default function InternalTicketDetailPage() {
           <div className="grid grid-cols-2 gap-6 mb-4">
             <div className="space-y-3">
               <div><p className="text-[10px] text-slate-400 font-bold uppercase mb-1">Equipe</p>
-                <select value={formTeam} onChange={(e) => setFormTeam(e.target.value)} className="w-full bg-slate-50 border border-slate-200 rounded-lg px-3 py-2 text-xs font-bold text-slate-800">
+                <StyledSelect value={formTeam} onChange={(e) => setFormTeam(e.target.value)} className="w-full bg-slate-50 border border-slate-200 rounded-lg px-3 py-2 text-xs font-bold text-slate-800">
                   {TEAM_OPTIONS.map(t => <option key={t.value} value={t.value}>{t.label}</option>)}
-                </select></div>
+                </StyledSelect></div>
               <div><p className="text-[10px] text-slate-400 font-bold uppercase mb-1">Responsável</p>
-                <select value={formAssignee} onChange={(e) => setFormAssignee(e.target.value)} className="w-full bg-slate-50 border border-slate-200 rounded-lg px-3 py-2 text-xs font-bold text-slate-800">
+                <StyledSelect value={formAssignee} onChange={(e) => setFormAssignee(e.target.value)} className="w-full bg-slate-50 border border-slate-200 rounded-lg px-3 py-2 text-xs font-bold text-slate-800">
                   <option value="">Não atribuído</option>
                   {analysts.map(a => <option key={a.id} value={a.id}>{a.name}</option>)}
-                </select></div>
+                </StyledSelect></div>
               <div><p className="text-[10px] text-slate-400 font-bold uppercase mb-1">Vencimento</p><p className="text-xs font-bold text-slate-800">---</p></div>
               <div><p className="text-[10px] text-slate-400 font-bold uppercase mb-1">Prioridade</p>
                 <div className="flex items-center gap-1">{[1, 2, 3, 4].map(star => (
@@ -195,9 +196,9 @@ export default function InternalTicketDetailPage() {
             </div>
             <div className="space-y-3">
               <div><p className="text-[10px] text-slate-400 font-bold uppercase mb-1">Cliente</p>
-                <select className="w-full bg-slate-50 border border-slate-200 rounded-lg px-3 py-2 text-xs font-bold text-slate-800"><option value="">Selecione uma empresa</option></select></div>
+                <StyledSelect className="w-full bg-slate-50 border border-slate-200 rounded-lg px-3 py-2 text-xs font-bold text-slate-800"><option value="">Selecione uma empresa</option></StyledSelect></div>
               <div><p className="text-[10px] text-slate-400 font-bold uppercase mb-1">Contato</p>
-                <select className="w-full bg-slate-50 border border-slate-200 rounded-lg px-3 py-2 text-xs font-bold text-slate-800"><option value="">Selecione um contato</option></select></div>
+                <StyledSelect className="w-full bg-slate-50 border border-slate-200 rounded-lg px-3 py-2 text-xs font-bold text-slate-800"><option value="">Selecione um contato</option></StyledSelect></div>
               <div><p className="text-[10px] text-slate-400 font-bold uppercase mb-1">Telefone</p><p className="text-xs font-bold text-slate-800">Não informado</p></div>
               <div><p className="text-[10px] text-slate-400 font-bold uppercase mb-1">Colaboradores</p><button className="px-3 py-1 rounded-lg text-xs font-bold border border-slate-200 text-slate-600">+ ADICIONAR</button></div>
               <div><p className="text-[10px] text-slate-400 font-bold uppercase mb-1">Marcadores</p><p className="text-xs font-bold text-slate-800">tags...</p></div>

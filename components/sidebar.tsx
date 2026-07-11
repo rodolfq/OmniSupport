@@ -69,6 +69,9 @@ export function Sidebar() {
             { name: 'Meus Chamados', icon: UserCircle, href: '/my-tickets' },
           ]
         },
+        ...(currentUser?.role === UserRole.CUSTOMER ? [
+          { name: 'Empresa', icon: Users, href: '/customers' },
+        ] : []),
         { 
           name: 'Configurações', 
           icon: Settings, 

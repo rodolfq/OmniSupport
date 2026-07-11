@@ -18,7 +18,7 @@ export async function GET(request: NextRequest) {
 
     // Buscar perfil no Postgres próprio
     const result = await query(
-      'SELECT id, name, email, role, company_id, phone, view_all_company_tickets, must_change_password, is_admin, lives_in_squad FROM public.profiles WHERE id = $1',
+      'SELECT id, name, email, role, company_id, phone, avatar_url, view_all_company_tickets, must_change_password, is_admin, lives_in_squad FROM public.profiles WHERE id = $1',
       [decoded.id]
     );
 
@@ -44,6 +44,7 @@ export async function GET(request: NextRequest) {
         role: profile.role,
         companyId: profile.company_id,
         phone: profile.phone,
+        avatarUrl: profile.avatar_url,
         viewAllCompanyTickets: profile.view_all_company_tickets,
         mustChangePassword: profile.must_change_password,
         isAdmin: profile.is_admin,

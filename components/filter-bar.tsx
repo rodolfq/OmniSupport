@@ -1,6 +1,7 @@
 'use client';
 
 import React, { useState, useEffect } from 'react';
+import { StyledSelect } from '@/components/styled-select';
 import { Search, Filter, X, ChevronDown, Save, Bookmark, Trash2 } from 'lucide-react';
 import { TicketStatus, User, Company, SavedFilter, UserRole } from '@/lib/types';
 import { cn, normalizeString } from '@/lib/utils';
@@ -267,40 +268,40 @@ export function FilterBar({ onFilterChange, originalTickets }: FilterBarProps) {
 
                 <div className="space-y-1.5">
                   <label className="text-[10px] font-black uppercase text-slate-400 tracking-widest ml-1">Status</label>
-                  <select 
+                  <StyledSelect 
                     value={status}
                     onChange={(e) => setStatus(e.target.value)}
                     className="w-full bg-slate-50 border border-slate-200 rounded-xl px-4 py-2.5 text-sm font-bold focus:ring-2 focus:ring-indigo-500/20 outline-none appearance-none"
                   >
                     <option value="">Qualquer Status</option>
                     {Object.values(TicketStatus).map(s => <option key={s} value={s}>{s}</option>)}
-                  </select>
+                  </StyledSelect>
                 </div>
 
                 {currentUser?.role !== UserRole.CUSTOMER && (
                   <>
                     <div className="space-y-1.5">
                       <label className="text-[10px] font-black uppercase text-slate-400 tracking-widest ml-1">Cliente / Empresa</label>
-                      <select 
+                      <StyledSelect 
                         value={companyId}
                         onChange={(e) => setCompanyId(e.target.value)}
                         className="w-full bg-slate-50 border border-slate-200 rounded-xl px-4 py-2.5 text-sm font-bold focus:ring-2 focus:ring-indigo-500/20 outline-none appearance-none"
                       >
                         <option value="">Qualquer Empresa</option>
                         {companies.map(c => <option key={c.id} value={c.id}>{c.name}</option>)}
-                      </select>
+                      </StyledSelect>
                     </div>
 
                     <div className="space-y-1.5">
                       <label className="text-[10px] font-black uppercase text-slate-400 tracking-widest ml-1">Analista Responsável</label>
-                      <select 
+                      <StyledSelect 
                         value={assigneeId}
                         onChange={(e) => setAssigneeId(e.target.value)}
                         className="w-full bg-slate-50 border border-slate-200 rounded-xl px-4 py-2.5 text-sm font-bold focus:ring-2 focus:ring-indigo-500/20 outline-none appearance-none"
                       >
                         <option value="">Qualquer Analista</option>
                         {analysts.map(a => <option key={a.id} value={a.id}>{a.name}</option>)}
-                      </select>
+                      </StyledSelect>
                     </div>
                   </>
                 )}

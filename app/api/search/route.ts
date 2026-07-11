@@ -11,9 +11,11 @@ export async function GET(request: Request) {
       const q = searchParams.get('query') || '';
       const status = searchParams.get('status') || '';
       const priority = searchParams.get('priority') || '';
+      const slaOverdue = searchParams.get('slaOverdue') === 'true';
       const includeClosed = searchParams.get('includeClosed') === 'true';
-      const page = parseInt(searchParams.get('page') || '1', 10);
-      const pageSize = parseInt(searchParams.get('pageSize') || '25', 10);
+      const page = Math.max(1, parseInt(searchParams.get('page') || '1', 10));
+      const requestedPageSize = parseInt(searchParams.get('pageSize') || '10', 10);
+      const pageSize = Math.min(10, Math.max(1, requestedPageSize));
       
       const offset = (page - 1) * pageSize;
       
@@ -44,10 +46,27 @@ export async function GET(request: Request) {
         paramCount++;
       }
 
+      if (slaOverdue) {
+        sql += ` AND EXISTS (
+          SELECT 1
+          FROM public.config_priorities cp
+          WHERE cp.label = public.tickets.priority
+            AND cp.sla_hours > 0
+            AND public.tickets.created_at + make_interval(hours => cp.sla_hours) < NOW()
+        )`;
+      }
+
+      const countSql = sql.replace('SELECT *', 'SELECT COUNT(*) AS total');
+      const countParams = [...params];
+
       sql += ` ORDER BY created_at DESC LIMIT $${paramCount} OFFSET $${paramCount + 1}`;
       params.push(pageSize, offset);
 
-      const res = await query(sql, params);
+      const [res, countRes] = await Promise.all([
+        query(sql, params),
+        query(countSql, countParams)
+      ]);
+      const total = parseInt(countRes.rows[0]?.total || '0', 10);
 
       // Map tickets
       const tickets = res.rows.map(t => ({
@@ -55,16 +74,17 @@ export async function GET(request: Request) {
         ticketNumber: t.public_ticket_number,
         companyId: t.company_id,
         customerId: t.customer_id,
+        attachments: t.attachments_data || [],
         createdAt: t.created_at,
         updatedAt: t.updated_at
       }));
 
       return NextResponse.json({
         tickets,
-        total: tickets.length,
+        total,
         page,
         pageSize,
-        hasMore: tickets.length === pageSize
+        hasMore: offset + tickets.length < total
       });
     }
 

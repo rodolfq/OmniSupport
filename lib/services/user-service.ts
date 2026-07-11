@@ -85,6 +85,7 @@ export class UserService {
       [UserRole.CUSTOMER]: [
         Permission.TICKETS_READ,
         Permission.TICKETS_WRITE,
+        Permission.CUSTOMERS_READ,
       ],
       [UserRole.EMPLOYEE]: [
         Permission.TICKETS_READ,

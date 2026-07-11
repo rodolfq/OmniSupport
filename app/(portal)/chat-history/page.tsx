@@ -1,6 +1,7 @@
 'use client';
 
 import React, { useState, useEffect, useMemo } from 'react';
+import { StyledSelect } from '@/components/styled-select';
 import { useApp } from '@/app/app-context';
 import { UserRole, Permission } from '@/lib/types';
 import { getChatHistories } from '@/lib/services/chat-service';
@@ -104,7 +105,7 @@ export default function ChatHistoryPage() {
          {/* Handler Filter (Agent/Employee) */}
          <div className="relative">
            <Users size={16} className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" />
-           <select 
+           <StyledSelect 
              value={agentFilter}
              onChange={e => setAgentFilter(e.target.value)}
              className="pl-9 pr-8 py-2 bg-white border border-slate-200 rounded-xl text-xs font-bold outline-none focus:ring-4 focus:ring-indigo-500/10 appearance-none cursor-pointer"
@@ -120,14 +121,14 @@ export default function ChatHistoryPage() {
                  <option key={u.id} value={u.id}>{u.name || u.email}</option>
                ))}
              </optgroup>
-           </select>
+           </StyledSelect>
            <ChevronDown size={14} className="absolute right-2 top-1/2 -translate-y-1/2 text-slate-400" />
          </div>
 
          {/* Customer Filter */}
          <div className="relative">
            <User size={16} className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" />
-           <select 
+           <StyledSelect 
              value={customerFilter}
              onChange={e => setCustomerFilter(e.target.value)}
              className="pl-9 pr-8 py-2 bg-white border border-slate-200 rounded-xl text-xs font-bold outline-none focus:ring-4 focus:ring-indigo-500/10 appearance-none cursor-pointer"
@@ -136,7 +137,7 @@ export default function ChatHistoryPage() {
              {users.filter(u => u.role === UserRole.CUSTOMER).map(u => (
                <option key={u.id} value={u.id}>{u.name || u.email}</option>
              ))}
-           </select>
+           </StyledSelect>
            <ChevronDown size={14} className="absolute right-2 top-1/2 -translate-y-1/2 text-slate-400" />
          </div>
 

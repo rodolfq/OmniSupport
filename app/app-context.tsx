@@ -297,6 +297,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
               role: data.user.role,
               companyId: data.user.companyId,
               phone: data.user.phone,
+              avatarUrl: data.user.avatarUrl,
               viewAllCompanyTickets: data.user.viewAllCompanyTickets,
               mustChangePassword: data.user.mustChangePassword,
               isAdmin: data.user.isAdmin,

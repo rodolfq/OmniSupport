@@ -82,9 +82,18 @@ export default function SettingsPage() {
         const base64 = await fileToBase64(file);
         
         // 3. Persist only after processing
-        const updatedUser = { ...currentUser, avatarUrl: base64 };
-        await supabase.from('profiles').update({ avatar_url: base64 }).eq('id', currentUser.id);
+        const { data, error } = await supabase
+          .from('profiles')
+          .update({ avatar_url: base64 })
+          .eq('id', currentUser.id)
+          .single();
+
+        if (error) throw new Error(error.message);
+
+        const persistedAvatar = data?.avatar_url || base64;
+        const updatedUser = { ...currentUser, avatarUrl: persistedAvatar };
         setCurrentUser(updatedUser);
+        setPreviewUrl(null);
         toast.success('Avatar atualizado com sucesso!');
         
         // Clean up blob to avoid memory leaks

@@ -1,6 +1,7 @@
 ﻿'use client';
 
 import React, { useState, useEffect } from 'react';
+import { StyledSelect } from '@/components/styled-select';
 import { Clock, Info, AlertCircle, CheckCircle2, Coffee, Users, Filter, Plus, Trash2 } from 'lucide-react';
 import { UserStatusHistory, User } from '@/lib/types';
 import { AbsenceReasonService, UserStatusHistoryService } from '@/lib/services/chat-service';
@@ -146,7 +147,7 @@ useEffect(() => {
           <div className="flex flex-wrap items-center gap-3">
             <div className="flex items-center gap-2">
               <Filter size={16} className="text-slate-400" />
-              <select 
+              <StyledSelect 
                 value={selectedUserId}
                 onChange={(e) => setSelectedUserId(e.target.value)}
                 className="bg-slate-50 border border-slate-200 rounded-xl px-4 py-2 text-xs font-bold text-slate-700 focus:outline-none focus:ring-2 focus:ring-indigo-500/20 transition-all"
@@ -155,11 +156,11 @@ useEffect(() => {
                 {profiles.filter(p => p.role !== UserRole.CUSTOMER).map(p => (
                   <option key={p.id} value={p.id}>{p.name}</option>
                 ))}
-              </select>
+              </StyledSelect>
             </div>
 
             <div className="flex items-center gap-2">
-              <select 
+              <StyledSelect 
                 value={periodFilter}
                 onChange={(e: any) => setPeriodFilter(e.target.value)}
                 className="bg-slate-50 border border-slate-200 rounded-xl px-4 py-2 text-xs font-bold text-slate-700 focus:outline-none focus:ring-2 focus:ring-indigo-500/20 transition-all"
@@ -169,7 +170,7 @@ useEffect(() => {
                 <option value="month">Este Mês</option>
                 <option value="year">Este Ano</option>
                 <option value="specific">Data Específica</option>
-              </select>
+              </StyledSelect>
 
               {periodFilter === 'specific' && (
                 <input 

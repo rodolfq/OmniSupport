@@ -1,6 +1,7 @@
 'use client';
 
 import React, { useState, useEffect, useRef } from 'react';
+import { StyledSelect } from '@/components/styled-select';
 import { X, User, MessageCircle, Clock, Link2, Paperclip, Save, Maximize2, Minimize2, Send, Lock, History, Download, File, Image as ImageIcon, Film } from 'lucide-react';
 import { motion } from 'motion/react';
 import { Ticket, TicketStatus, User as UserType, Message, UserRole, StatusConfig, Company, Attachment, PriorityConfig, CategoryConfig, InternalTicket, Permission } from '@/lib/types';
@@ -10,7 +11,7 @@ import { useApp } from '@/app/app-context';
 import { Star } from 'lucide-react';
 import { toast } from 'sonner';
 import { RichEditor } from './rich-editor';
-import { AttachmentGallery } from './attachment-gallery';
+import { AttachmentGallery, AttachmentPreviewModal, isImageAttachment, openAttachmentInNewTab } from './attachment-gallery';
 import { LinkInternalTicketModal } from './link-internal-ticket-modal';
 import { ClientTime } from './client-time';
 import { TicketService, MessageService, InternalTicketService } from '@/lib/services/ticket-service';
@@ -35,6 +36,7 @@ export function TicketDetailModal({ ticket, onClose }: TicketDetailModalProps) {
   const [historyTab, setHistoryTab] = useState<'customer' | 'internal'>('customer');
   const [message, setMessage] = useState('');
    const [messageAttachments, setMessageAttachments] = useState<Attachment[]>([]);
+   const [previewAttachment, setPreviewAttachment] = useState<Attachment | null>(null);
    const messageFileInputRef = useRef<HTMLInputElement>(null);
   const [messages, setMessages] = useState<Message[]>([]);
   const [analysts, setAnalysts] = useState<UserType[]>([]);
@@ -547,7 +549,7 @@ const handleSendMessage = async (isInternal: boolean) => {
                     <div className="space-y-3">
                        <div className="flex items-start gap-4">
                           <span className="text-[11px] font-black uppercase text-slate-400 w-24 pt-0.5">Equipe</span>
-                          <select 
+                          <StyledSelect 
                             value={mainTeam}
                             onChange={(e) => {
                               const val = e.target.value;
@@ -559,12 +561,12 @@ const handleSendMessage = async (isInternal: boolean) => {
                             {categories.map(cat => (
                               <option key={cat.id} value={cat.label}>{cat.label}</option>
                             ))}
-                          </select>
+                          </StyledSelect>
                        </div>
                        <div className="flex items-start gap-4">
                           <span className="text-[11px] font-black uppercase text-slate-400 w-24 pt-0.5">Responsável</span>
                           <div className="flex items-center gap-2">
-                             <select 
+                             <StyledSelect 
                                value={assigneeId}
                                onChange={(e) => {
                                  const val = e.target.value;
@@ -575,7 +577,7 @@ const handleSendMessage = async (isInternal: boolean) => {
                              >
                                <option value="">Não atribuído</option>
                                {analysts.map(a => <option key={a.id} value={a.id}>{a.name}</option>)}
-                             </select>
+                             </StyledSelect>
                           </div>
                        </div>
 <div className="flex items-start gap-4">
@@ -645,7 +647,7 @@ const handleSendMessage = async (isInternal: boolean) => {
                     <div className="space-y-3">
                        <div className="flex items-start gap-4">
                           <span className="text-[11px] font-black uppercase text-slate-400 w-24 pt-0.5">Cliente</span>
-                          <select 
+                          <StyledSelect 
                              value={companyId}
                              onChange={(e) => {
                                const val = e.target.value;
@@ -662,11 +664,11 @@ const handleSendMessage = async (isInternal: boolean) => {
                           >
                              <option value="">Selecione uma empresa</option>
                              {companies.map(c => <option key={c.id} value={c.id}>{c.name}</option>)}
-                          </select>
+                          </StyledSelect>
                        </div>
                        <div className="flex items-start gap-4">
                           <span className="text-[11px] font-black uppercase text-slate-400 w-24 pt-0.5">Contato</span>
-<select 
+<StyledSelect 
                               value={customerId || ''}
                               onChange={(e) => {
                                const val = e.target.value;
@@ -679,7 +681,7 @@ const handleSendMessage = async (isInternal: boolean) => {
                              {allUsers
                                .filter(u => (u.role === UserRole.EMPLOYEE) && (!companyId || u.companyId === companyId))
                                .map(u => <option key={u.id} value={u.id}>{u.name}</option>)}
-                          </select>
+                          </StyledSelect>
                        </div>
                        <div className="flex items-start gap-4">
                           <span className="text-[11px] font-black uppercase text-slate-400 w-24 pt-0.5">Telefone</span>
@@ -708,7 +710,7 @@ const handleSendMessage = async (isInternal: boolean) => {
                                    );
                                 })}
                              </div>
-                             <select 
+                             <StyledSelect 
                                 onChange={(e) => {
                                    if (!e.target.value) return;
                                    if (!employeeIds.includes(e.target.value)) {
@@ -724,7 +726,7 @@ const handleSendMessage = async (isInternal: boolean) => {
                                 {allUsers
                                   .filter(u => (u.role === UserRole.EMPLOYEE) && !employeeIds.includes(u.id))
                                   .map(u => <option key={u.id} value={u.id}>{u.name}</option>)}
-                             </select>
+                             </StyledSelect>
                           </div>
                        </div>
                        <div className="flex items-start gap-4 pt-1">
@@ -883,7 +885,7 @@ const handleSendMessage = async (isInternal: boolean) => {
                                      </div>
 <div className="flex flex-col gap-1.5">
                                          <label className="text-[10px] font-black uppercase text-slate-400">Equipe Responsável</label>
-                                         <select 
+                                         <StyledSelect 
                                            value={itTeam}
                                            onChange={(e) => {
                                              setItTeam(e.target.value);
@@ -895,7 +897,7 @@ const handleSendMessage = async (isInternal: boolean) => {
                                              <option key={t.id} value={t.name}>{t.name}</option>
                                            ))}
                                            <option value="">Sem equipe</option>
-                                         </select>
+                                         </StyledSelect>
                                       </div>
                                       <div className="flex flex-col gap-1.5">
                                          <label className="text-[10px] font-black uppercase text-slate-400">Vencimento SLA</label>
@@ -921,7 +923,7 @@ const handleSendMessage = async (isInternal: boolean) => {
                                       </div>
                                       <div className="flex flex-col gap-1.5">
                                          <label className="text-[10px] font-black uppercase text-slate-400">Responsável Interno</label>
-                                         <select 
+                                         <StyledSelect 
                                            value={itAssignee}
                                            onChange={(e) => {
                                              setItAssignee(e.target.value);
@@ -935,7 +937,7 @@ const handleSendMessage = async (isInternal: boolean) => {
                                                 internalTeams.find(t => t.name === itTeam)?.id || ''
                                               ))
                                               .map(a => <option key={a.id} value={a.id}>{a.name}</option>)}
-                                         </select>
+                                         </StyledSelect>
                                       </div>
                                      <div className="flex flex-col gap-1.5 font-sans">
                                         <label className="text-[10px] font-black uppercase text-slate-400">Prioridade</label>
@@ -1100,18 +1102,21 @@ const handleSendMessage = async (isInternal: boolean) => {
                            {m.attachments && m.attachments.length > 0 && (
                              <div className="mt-3 pt-3 border-t border-slate-200">
                                <div className="flex flex-wrap gap-2">
-                                 {m.attachments.map(att => (
-                                   <a 
-                                     key={att.id}
-                                     href={att.url}
-                                     target="_blank"
-                                     rel="noopener noreferrer"
-                                     className="flex items-center gap-1 px-2 py-1 bg-slate-100 rounded text-[10px] hover:bg-slate-200 transition-colors"
-                                   >
-                                     <File size={12} />
-                                     <span className="truncate max-w-[120px]">{att.name}</span>
-                                   </a>
-                                 ))}
+                                 {m.attachments.map(att => {
+                                   const isImage = isImageAttachment(att);
+
+                                   return (
+                                     <button
+                                       key={att.id}
+                                       type="button"
+                                       onClick={() => isImage ? setPreviewAttachment(att) : openAttachmentInNewTab(att)}
+                                       className="flex items-center gap-1 px-2 py-1 bg-slate-100 rounded text-[10px] hover:bg-slate-200 transition-colors"
+                                     >
+                                       {isImage ? <ImageIcon size={12} /> : <File size={12} />}
+                                       <span className="truncate max-w-[120px]">{att.name}</span>
+                                     </button>
+                                   );
+                                 })}
                                </div>
                              </div>
                            )}
@@ -1198,6 +1203,7 @@ const handleSendMessage = async (isInternal: boolean) => {
       onClose={() => setShowLinkModal(false)}
       onLink={handleLinkInternalTicket}
     />
+    <AttachmentPreviewModal attachment={previewAttachment} onClose={() => setPreviewAttachment(null)} />
   </>
   );
 }

@@ -1,6 +1,7 @@
 "use client";
 
-import React, { useState, useEffect, useMemo } from "react";
+import React, { useState, useEffect, useMemo, useRef } from "react";
+import { StyledSelect } from '@/components/styled-select';
 import {
   Ticket,
   TicketStatus,
@@ -12,6 +13,7 @@ import { SearchFilters, searchTickets } from "@/lib/search";
 import { isClosedTicketStatus, isInProgressTicketStatus } from "@/lib/ticket-status";
 import {
   FileText,
+  ChevronLeft,
   ChevronRight,
   Star,
   ArrowUpDown,
@@ -19,19 +21,18 @@ import {
   Loader2,
   CheckSquare,
   Square,
+  Trash2,
   Users,
   RefreshCw,
-  Check,
   X,
   GitMerge,
-  ChevronDown,
-  Calendar,
   Tag,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { AnimatePresence, motion } from "motion/react";
 import { ModernSearchBar } from "@/components/modern-search-bar";
 import { TicketDetailModal } from "@/components/ticket-detail-modal";
+import { ConfirmDialog } from "@/components/confirm-dialog";
 import { useApp } from "@/app/app-context";
 import {
   DndContext,
@@ -124,13 +125,15 @@ function SortableHeader({
 }
 
 export default function TicketsPage() {
-  const { currentUser, hasPermission, refreshTrigger } = useApp();
+  const { currentUser, hasPermission } = useApp();
   const [filteredTickets, setFilteredTickets] = useState<Ticket[]>([]);
   const [selectedTicket, setSelectedTicket] = useState<Ticket | null>(null);
+  const [ticketToDelete, setTicketToDelete] = useState<Ticket | null>(null);
+  const [isDeletingTicket, setIsDeletingTicket] = useState(false);
   const [currentPage, setCurrentPage] = useState(1);
   const [totalPages, setTotalPages] = useState(1);
   const [totalCount, setTotalCount] = useState(0);
-  const [pageSize] = useState(25);
+  const [pageSize] = useState(10);
   const [searchFilters, setSearchFilters] = useState<SearchFilters>({});
   const [sortConfig, setSortConfig] = useState<{
     key: string;
@@ -151,7 +154,6 @@ export default function TicketsPage() {
   const [selectedMasterTicketId, setSelectedMasterTicketId] = useState<string>('');
   const [newBulkTitle, setNewBulkTitle] = useState<string>('');
   const [selectedTags, setSelectedTags] = useState<string[]>([]);
-  const [selectedPriority, setSelectedPriority] = useState<string>('');
   const [tags, setTags] = useState<any[]>([]);
   const [teams, setTeams] = useState<any[]>([]);
   const [teamMembers, setTeamMembers] = useState<any[]>([]);
@@ -171,6 +173,9 @@ export default function TicketsPage() {
   const [priorities, setPriorities] = useState<any[]>([]);
   const [companies, setCompanies] = useState<any[]>([]);
   const [users, setUsers] = useState<any[]>([]);
+  const lastAutomaticRequestKeyRef = useRef('');
+  const referenceDataUserIdRef = useRef('');
+  const canDeleteTickets = hasPermission(Permission.TICKETS_DELETE) || currentUser?.role === UserRole.ADMIN;
 
   const sensors = useSensors(
     useSensor(PointerSensor, {
@@ -239,16 +244,6 @@ export default function TicketsPage() {
     if (!currentUser) return;
     setLoading(true);
     try {
-      const [pRes, cRes, uRes] = await Promise.all([
-        fetch('/api/config?type=priorities').then(r => r.json()),
-        fetch('/api/companies').then(r => r.json()),
-        fetch('/api/users?type=all').then(r => r.json()),
-      ]);
-
-      setPriorities(pRes);
-      setCompanies(cRes);
-      setUsers(uRes);
-
       const result = await searchTickets(searchFilters, currentPage, pageSize);
       const roleFilteredTickets = await applyRoleBasedFilters(result.tickets);
 
@@ -272,8 +267,65 @@ export default function TicketsPage() {
   };
 
   useEffect(() => {
+    if (!currentUser?.id) return;
+    const requestKey = `${currentUser.id}:${currentPage}:${JSON.stringify(searchFilters)}`;
+    if (lastAutomaticRequestKeyRef.current === requestKey) return;
+    lastAutomaticRequestKeyRef.current = requestKey;
     loadTickets();
-  }, [currentUser, refreshTrigger, currentPage, searchFilters]);
+  }, [currentUser?.id, currentPage, searchFilters]);
+
+  useEffect(() => {
+    if (!currentUser?.id) return;
+    if (referenceDataUserIdRef.current === currentUser.id) return;
+    referenceDataUserIdRef.current = currentUser.id;
+
+    const loadReferenceData = async () => {
+      try {
+        const [pRes, cRes, uRes] = await Promise.all([
+          fetch('/api/config?type=priorities').then(r => r.json()),
+          fetch('/api/companies').then(r => r.json()),
+          fetch('/api/users?type=all').then(r => r.json()),
+        ]);
+        setPriorities(pRes);
+        setCompanies(cRes);
+        setUsers(uRes);
+      } catch (error) {
+        console.error('Error loading ticket reference data:', error);
+      }
+    };
+
+    loadReferenceData();
+  }, [currentUser?.id]);
+
+  const handleDeleteTicket = async () => {
+    if (!ticketToDelete || isDeletingTicket) return;
+
+    setIsDeletingTicket(true);
+    try {
+      const res = await fetch(`/api/tickets?id=${encodeURIComponent(ticketToDelete.id)}`, {
+        method: 'DELETE'
+      });
+
+      const result = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        throw new Error(result.error || 'Erro ao excluir chamado.');
+      }
+
+      toast.success('Chamado excluído com sucesso!', {
+        description: `#${ticketToDelete.ticketNumber ? String(ticketToDelete.ticketNumber).padStart(4, '0') : ticketToDelete.id.slice(0, 8)} foi removido do banco.`
+      });
+      setSelectedTickets(prev => prev.filter(id => id !== ticketToDelete.id));
+      if (selectedTicket?.id === ticketToDelete.id) {
+        setSelectedTicket(null);
+      }
+      setTicketToDelete(null);
+      await loadTickets();
+    } catch (error: any) {
+      toast.error(error.message || 'Erro ao excluir chamado.');
+    } finally {
+      setIsDeletingTicket(false);
+    }
+  };
 
   // Bulk actions functions
   const toggleSelectAll = () => {
@@ -502,10 +554,16 @@ export default function TicketsPage() {
     return sortedTickets;
   }, [sortedTickets]);
 
-  const getSLAStatus = (ticket: Ticket) => {
-    if (isClosedTicketStatus(ticket.status))
-      return { label: "---", color: "text-slate-400", isOverdue: false };
+  const paginationPages = useMemo(() => {
+    if (totalPages <= 5) {
+      return Array.from({ length: totalPages }, (_, index) => index + 1);
+    }
 
+    const start = Math.min(Math.max(1, currentPage - 2), totalPages - 4);
+    return Array.from({ length: 5 }, (_, index) => start + index);
+  }, [currentPage, totalPages]);
+
+  const getSLAStatus = (ticket: Ticket) => {
     const config = priorities.find((p) => p.label === ticket.priority);
     if (!config || !config.sla_hours)
       return { label: "---", color: "text-slate-400", isOverdue: false };
@@ -659,7 +717,7 @@ export default function TicketsPage() {
               <span className={cn("text-[10px] uppercase", sla.color)}>
                 {sla.label}
               </span>
-              {sla.isOverdue && !isClosedTicketStatus(ticket.status) && (
+              {sla.isOverdue && (
                 <span className="text-[8px] font-black text-red-500 uppercase tracking-tighter">
                   SLA Vencido
                 </span>
@@ -670,9 +728,28 @@ export default function TicketsPage() {
       case "action":
         return (
           <td key="action" className="px-6 py-5 text-right">
-            <button className="p-2 text-slate-300 group-hover:text-indigo-600 transition-colors">
-              <ChevronRight size={18} />
-            </button>
+            <div className="flex items-center justify-end gap-1">
+              {canDeleteTickets && (
+                <button
+                  type="button"
+                  onClick={(event) => {
+                    event.stopPropagation();
+                    setTicketToDelete(ticket);
+                  }}
+                  className="p-2 text-slate-300 hover:text-red-600 hover:bg-red-50 rounded-xl transition-all"
+                  title="Excluir chamado"
+                >
+                  <Trash2 size={16} />
+                </button>
+              )}
+              <button
+                type="button"
+                className="p-2 text-slate-300 group-hover:text-indigo-600 transition-colors"
+                title="Abrir chamado"
+              >
+                <ChevronRight size={18} />
+              </button>
+            </div>
           </td>
         );
       default:
@@ -749,10 +826,6 @@ export default function TicketsPage() {
 
       <ModernSearchBar
         onSearch={handleSearch}
-        onFilterChange={(filters) => {
-          setSearchFilters(filters);
-          setCurrentPage(1);
-        }}
         loading={loading}
       />
 
@@ -778,18 +851,16 @@ export default function TicketsPage() {
                   </button>
                 </th>
                 <SortableContext
-                  items={columns.map((c) => c.id !== 'id' ? c.id : 'title')}
+                  items={columns.map((column) => column.id)}
                   strategy={horizontalListSortingStrategy}
                 >
                   {columns.map((col) => (
-                    col.id !== 'id' && (
-                      <SortableHeader
-                        key={col.id}
-                        column={col}
-                        sortConfig={sortConfig}
-                        onSort={handleSort}
-                      />
-                    )
+                    <SortableHeader
+                      key={col.id}
+                      column={col}
+                      sortConfig={sortConfig}
+                      onSort={handleSort}
+                    />
                   ))}
                 </SortableContext>
               </tr>
@@ -833,9 +904,7 @@ export default function TicketsPage() {
                     onClick={() => setSelectedTicket(t)}
                     className={cn(
                       "hover:bg-slate-50/80 cursor-pointer transition-colors group",
-                      getSLAStatus(t).isOverdue &&
-                        !isClosedTicketStatus(t.status) &&
-                        "bg-red-50/30",
+                      getSLAStatus(t).isOverdue && "bg-red-50/30",
                     )}
                   >
                     <td className="px-4 py-5 w-12">
@@ -861,14 +930,57 @@ export default function TicketsPage() {
           </table>
         </DndContext>
 
-        {totalPages > currentPage && (
-          <div className="p-6 text-center border-t border-slate-100">
-            <button
-              onClick={() => handlePagination(currentPage + 1)}
-              className="text-xs font-black uppercase tracking-widest text-indigo-600 hover:text-indigo-700 transition-colors"
-            >
-              Carregar mais chamados ({totalCount - (currentPage * pageSize)} restantes)
-            </button>
+        {!loading && (
+          <div className="flex flex-col gap-4 border-t border-slate-100 px-6 py-5 sm:flex-row sm:items-center sm:justify-between">
+            <p className="text-xs font-bold text-slate-500">
+              {totalCount === 0
+                ? 'Nenhum chamado'
+                : `Exibindo ${(currentPage - 1) * pageSize + 1}-${Math.min(currentPage * pageSize, totalCount)} de ${totalCount} chamados`}
+            </p>
+
+            {totalPages > 1 && (
+              <div className="flex items-center gap-1.5" aria-label="Paginação de chamados">
+                <button
+                  type="button"
+                  title="Página anterior"
+                  aria-label="Página anterior"
+                  disabled={currentPage === 1}
+                  onClick={() => handlePagination(currentPage - 1)}
+                  className="flex h-9 w-9 items-center justify-center rounded-lg border border-slate-200 text-slate-500 transition-colors hover:border-indigo-200 hover:bg-indigo-50 hover:text-indigo-600 disabled:cursor-not-allowed disabled:opacity-40"
+                >
+                  <ChevronLeft size={16} />
+                </button>
+
+                {paginationPages.map((pageNumber) => (
+                  <button
+                    key={pageNumber}
+                    type="button"
+                    onClick={() => handlePagination(pageNumber)}
+                    aria-label={`Ir para a página ${pageNumber}`}
+                    aria-current={currentPage === pageNumber ? 'page' : undefined}
+                    className={cn(
+                      "h-9 min-w-9 rounded-lg px-2 text-xs font-black transition-colors",
+                      currentPage === pageNumber
+                        ? "bg-indigo-600 text-white shadow-md shadow-indigo-200"
+                        : "border border-slate-200 text-slate-500 hover:border-indigo-200 hover:bg-indigo-50 hover:text-indigo-600"
+                    )}
+                  >
+                    {pageNumber}
+                  </button>
+                ))}
+
+                <button
+                  type="button"
+                  title="Próxima página"
+                  aria-label="Próxima página"
+                  disabled={currentPage === totalPages}
+                  onClick={() => handlePagination(currentPage + 1)}
+                  className="flex h-9 w-9 items-center justify-center rounded-lg border border-slate-200 text-slate-500 transition-colors hover:border-indigo-200 hover:bg-indigo-50 hover:text-indigo-600 disabled:cursor-not-allowed disabled:opacity-40"
+                >
+                  <ChevronRight size={16} />
+                </button>
+              </div>
+            )}
           </div>
         )}
       </div>
@@ -879,11 +991,23 @@ export default function TicketsPage() {
             ticket={selectedTicket}
             onClose={() => {
               setSelectedTicket(null);
-              loadTickets();
             }}
           />
         )}
       </AnimatePresence>
+
+      <ConfirmDialog
+        isOpen={!!ticketToDelete}
+        onClose={() => {
+          if (!isDeletingTicket) setTicketToDelete(null);
+        }}
+        onConfirm={handleDeleteTicket}
+        title="Excluir chamado"
+        description={`Tem certeza que deseja excluir o chamado #${ticketToDelete?.ticketNumber ? String(ticketToDelete.ticketNumber).padStart(4, '0') : ticketToDelete?.id.slice(0, 8)}? Essa ação removerá o registro do banco.`}
+        confirmLabel={isDeletingTicket ? "Excluindo..." : "Excluir"}
+        cancelLabel="Cancelar"
+        variant="danger"
+      />
 
       {/* Transfer Modal */}
       <AnimatePresence>
@@ -910,7 +1034,7 @@ export default function TicketsPage() {
               <div className="p-8 space-y-4">
                 <div>
                   <label className="text-[10px] font-black uppercase text-slate-400 mb-2 block">Equipe</label>
-                  <select
+                  <StyledSelect
                     value={selectedTeamId}
                     onChange={(e) => {
                       setSelectedTeamId(e.target.value);
@@ -922,13 +1046,13 @@ export default function TicketsPage() {
                     {teams.map(team => (
                       <option key={team.id} value={team.id}>{team.name}</option>
                     ))}
-                  </select>
+                  </StyledSelect>
                 </div>
                 
                 {selectedTeamId && (
                   <div>
                     <label className="text-[10px] font-black uppercase text-slate-400 mb-2 block">Analista</label>
-                    <select
+                    <StyledSelect
                       value={selectedAssigneeId}
                       onChange={(e) => setSelectedAssigneeId(e.target.value)}
                       className="w-full bg-slate-50 border border-slate-200 rounded-xl px-4 py-3 text-sm font-bold outline-none"
@@ -937,7 +1061,7 @@ export default function TicketsPage() {
                       {teamMembers.map(m => (
                         <option key={m.id} value={m.id}>{m.name}</option>
                       ))}
-                    </select>
+                    </StyledSelect>
                   </div>
                 )}
               </div>

@@ -13,7 +13,7 @@ export async function POST(request: Request) {
 
     // Buscar perfil no banco Postgres próprio
     const result = await query(
-      'SELECT id, name, email, role, password, must_change_password, company_id, is_admin, lives_in_squad FROM public.profiles WHERE email = $1',
+      'SELECT id, name, email, role, password, must_change_password, company_id, phone, avatar_url, view_all_company_tickets, is_admin, lives_in_squad FROM public.profiles WHERE email = $1',
       [email]
     );
 
@@ -44,6 +44,9 @@ export async function POST(request: Request) {
         email: user.email,
         role: user.role,
         companyId: user.company_id,
+        phone: user.phone,
+        avatarUrl: user.avatar_url,
+        viewAllCompanyTickets: user.view_all_company_tickets,
         isAdmin: user.is_admin,
         livesInSquad: user.lives_in_squad,
         mustChangePassword: user.must_change_password

@@ -1,6 +1,7 @@
 ﻿'use client';
 
 import React from 'react';
+import { StyledSelect } from '@/components/styled-select';
 import { Volume2 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { useApp } from '@/app/app-context';
@@ -42,7 +43,7 @@ export function NotificationSettingsContent() {
                   <div className="space-y-1">
                      <label className="text-[9px] font-black uppercase text-slate-400 tracking-widest">Alerta de Sistema</label>
                      <div className="flex gap-2">
-                        <select 
+                        <StyledSelect 
                           value={notificationSettings.systemSound}
                           onChange={(e) => updateNotificationSettings({ systemSound: e.target.value })}
                           className="flex-1 bg-white border border-slate-200 rounded-xl px-3 py-2 text-xs font-bold outline-none focus:border-indigo-500"
@@ -56,7 +57,7 @@ export function NotificationSettingsContent() {
                            <option value="/audio/Formiguinha.mp3">Formiguinha</option>
                            <option value="/audio/Nokia.mp3">Clássico (Nokia)</option>
                            <option value="/audio/Notificação de Mensagem.mp3">Mensagem WhatsApp</option>
-                        </select>
+                        </StyledSelect>
                         <button 
                           onClick={() => playSound('system')}
                           className="p-2 bg-indigo-100 text-indigo-600 rounded-xl hover:bg-indigo-200 transition-all"
@@ -69,7 +70,7 @@ export function NotificationSettingsContent() {
                   <div className="space-y-1">
                      <label className="text-[9px] font-black uppercase text-slate-400 tracking-widest">Alerta de Chat</label>
                      <div className="flex gap-2">
-                        <select 
+                        <StyledSelect 
                           value={notificationSettings.chatSound}
                           onChange={(e) => updateNotificationSettings({ chatSound: e.target.value })}
                           className="flex-1 bg-white border border-slate-200 rounded-xl px-3 py-2 text-xs font-bold outline-none focus:border-indigo-500"
@@ -82,7 +83,7 @@ export function NotificationSettingsContent() {
                            <option value="/audio/Formiguinha.mp3">Formiguinha</option>
                            <option value="/audio/Nokia.mp3">Clássico (Nokia)</option>
                            <option value="/audio/notificação1.mp3">Notificação 1 (Curta)</option>
-                        </select>
+                        </StyledSelect>
                         <button 
                           onClick={() => playSound('chat')}
                           className="p-2 bg-emerald-100 text-emerald-600 rounded-xl hover:bg-emerald-200 transition-all"

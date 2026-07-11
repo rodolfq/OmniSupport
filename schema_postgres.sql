@@ -461,7 +461,7 @@ INSERT INTO public.role_permissions (name, role, permissions) VALUES
     'dashboard:view'
   ]::TEXT[]),
   ('Cliente', 'Cliente', ARRAY[
-    'tickets:read', 'tickets:write'
+    'tickets:read', 'tickets:write', 'customers:read'
   ]::TEXT[]),
   ('Funcionário', 'Funcionário', ARRAY[]::TEXT[]),
   ('Time Interno', 'Time Interno', ARRAY[
@@ -494,10 +494,10 @@ BEGIN
     password, must_change_password, view_all_company_tickets
   )
   VALUES (
-    v_client_id, 'jose@cliente.com', 'José Cliente', 'Cliente', FALSE, FALSE, 
+    v_client_id, 'jose@cliente.com', 'José Cliente', 'Cliente', TRUE, FALSE, 
     '11111111-1111-4111-8111-111111111111'::UUID,
     'pbkdf2$10000$1234567890abcdef$9f8c1b0ef34a31f95ad00aadf1585d3be04a2c273e703ec00dd304c0b0beb07dd782187e54cdb46638bc9a32acbf7f48a7681571f2f52e6aa4559b8106c86e78',
-    FALSE, FALSE
+    FALSE, TRUE
   )
   ON CONFLICT (email) DO NOTHING;
 

@@ -1,6 +1,7 @@
 "use client";
 
 import React, { useState, useRef, useEffect } from "react";
+import { StyledSelect } from '@/components/styled-select';
 import {
   X,
   Send,
@@ -29,6 +30,7 @@ import { toast } from "sonner";
 import { supabase } from "@/lib/supabase";
 import { createTicket } from "@/lib/tickets";
 import { RichEditor } from "./rich-editor";
+import { AttachmentPreviewModal, isImageAttachment } from "./attachment-gallery";
 
 export function NewTicketModal() {
   const {
@@ -49,6 +51,7 @@ export function NewTicketModal() {
   const [category, setCategory] = useState("");
   const [priority, setPriority] = useState("");
   const [attachments, setAttachments] = useState<Attachment[]>([]);
+  const [previewAttachment, setPreviewAttachment] = useState<Attachment | null>(null);
   const [isDragging, setIsDragging] = useState(false);
   const [assigneeId, setAssigneeId] = useState("");
   const [loading, setLoading] = useState(false);
@@ -280,9 +283,10 @@ export function NewTicketModal() {
   };
 
   return (
-    <AnimatePresence>
-      {isNewTicketModalOpen && (
-        <div className="fixed inset-0 z-[100] flex items-center justify-center p-4">
+    <>
+      <AnimatePresence>
+        {isNewTicketModalOpen && (
+          <div className="fixed inset-0 z-[100] flex items-center justify-center p-4">
           <motion.div
             initial={{ opacity: 0 }}
             animate={{ opacity: 1 }}
@@ -324,7 +328,7 @@ export function NewTicketModal() {
                     <label className="text-[10px] font-black uppercase tracking-widest text-slate-400 ml-1">
                       Empresa / Cliente
                     </label>
-                    <select
+                    <StyledSelect
                       value={selectedCompanyId}
                       onChange={(e) => {
                         setSelectedCompanyId(e.target.value);
@@ -342,7 +346,7 @@ export function NewTicketModal() {
                           {c.name}
                         </option>
                       ))}
-                    </select>
+                    </StyledSelect>
                     {companies.length === 0 && (
                       <p className="text-[9px] text-red-500 font-bold mt-1">
                         Nenhuma empresa carregada. Verifique o banco de dados.
@@ -353,7 +357,7 @@ export function NewTicketModal() {
                     <label className="text-[10px] font-black uppercase tracking-widest text-slate-400 ml-1">
                       Solicitante Principal
                     </label>
-                    <select
+                    <StyledSelect
                       value={selectedCustomerId}
                       onChange={(e) => setSelectedCustomerId(e.target.value)}
                       className="w-full bg-slate-50 border border-slate-200 rounded-xl px-4 py-2.5 text-sm font-medium focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-500 transition-all appearance-none outline-none disabled:opacity-60"
@@ -365,7 +369,7 @@ export function NewTicketModal() {
                           {u.name}
                         </option>
                       ))}
-                    </select>
+                    </StyledSelect>
                   </div>
                 </div>
               )}
@@ -420,7 +424,7 @@ export function NewTicketModal() {
                   <label className="text-[10px] font-black uppercase tracking-widest text-slate-400 ml-1">
                     Categoria
                   </label>
-                  <select
+                  <StyledSelect
                     value={category}
                     onChange={(e) => setCategory(e.target.value)}
                     className="w-full bg-slate-50 border border-slate-200 rounded-xl px-4 py-2.5 text-sm font-medium focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-500 outline-none transition-all appearance-none"
@@ -431,13 +435,13 @@ export function NewTicketModal() {
                         {cat.label}
                       </option>
                     ))}
-                  </select>
+                  </StyledSelect>
                 </div>
                 <div className="space-y-1">
                   <label className="text-[10px] font-black uppercase tracking-widest text-slate-400 ml-1">
                     Prioridade
                   </label>
-                  <select
+                  <StyledSelect
                     value={priority}
                     onChange={(e) => setPriority(e.target.value)}
                     className="w-full bg-slate-50 border border-slate-200 rounded-xl px-4 py-2.5 text-sm font-medium focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-500 outline-none transition-all appearance-none"
@@ -448,7 +452,7 @@ export function NewTicketModal() {
                         {p.label}
                       </option>
                     ))}
-                  </select>
+                  </StyledSelect>
                 </div>
               </div>
 
@@ -457,7 +461,7 @@ export function NewTicketModal() {
                   <label className="text-[10px] font-black uppercase tracking-widest text-slate-400 ml-1">
                     Analista Responsável (Opcional)
                   </label>
-                  <select
+                  <StyledSelect
                     value={assigneeId}
                     onChange={(e) => setAssigneeId(e.target.value)}
                     className="w-full bg-slate-50 border border-slate-200 rounded-xl px-4 py-2.5 text-sm font-medium focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-500 outline-none transition-all appearance-none"
@@ -468,7 +472,7 @@ export function NewTicketModal() {
                         {a.name} ({a.role})
                       </option>
                     ))}
-                  </select>
+                  </StyledSelect>
                 </div>
               )}
 
@@ -526,32 +530,42 @@ export function NewTicketModal() {
 
                 {attachments.length > 0 && (
                   <div className="grid grid-cols-2 gap-2 mt-3">
-                    {attachments.map((att) => (
-                      <div
-                        key={att.id}
-                        className="flex items-center justify-between p-2 bg-white border border-slate-200 rounded-xl"
-                      >
-                        <div className="flex items-center gap-2 overflow-hidden">
-                          {att.type.startsWith("image/") ? (
-                            <ImageIcon size={14} className="text-indigo-500" />
-                          ) : att.type.startsWith("audio/") ? (
-                            <Music size={14} className="text-pink-500" />
-                          ) : (
-                            <FileText size={14} className="text-slate-400" />
-                          )}
-                          <span className="text-[10px] font-bold text-slate-700 truncate">
-                            {att.name}
-                          </span>
-                        </div>
-                        <button
-                          type="button"
-                          onClick={() => removeAttachment(att.id)}
-                          className="p-1 hover:bg-red-50 text-slate-400 hover:text-red-500 rounded-lg transition-all"
+                    {attachments.map((att) => {
+                      const isImage = isImageAttachment(att);
+
+                      return (
+                        <div
+                          key={att.id}
+                          className="flex items-center justify-between p-2 bg-white border border-slate-200 rounded-xl"
                         >
-                          <Trash2 size={14} />
-                        </button>
-                      </div>
-                    ))}
+                          <button
+                            type="button"
+                            onClick={() => isImage && setPreviewAttachment(att)}
+                            disabled={!isImage}
+                            className="flex min-w-0 items-center gap-2 overflow-hidden text-left disabled:cursor-default"
+                            title={isImage ? "Visualizar imagem" : undefined}
+                          >
+                            {isImage ? (
+                              <ImageIcon size={14} className="text-indigo-500" />
+                            ) : att.type.startsWith("audio/") ? (
+                              <Music size={14} className="text-pink-500" />
+                            ) : (
+                              <FileText size={14} className="text-slate-400" />
+                            )}
+                            <span className="text-[10px] font-bold text-slate-700 truncate">
+                              {att.name}
+                            </span>
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => removeAttachment(att.id)}
+                            className="p-1 hover:bg-red-50 text-slate-400 hover:text-red-500 rounded-lg transition-all"
+                          >
+                            <Trash2 size={14} />
+                          </button>
+                        </div>
+                      );
+                    })}
                   </div>
                 )}
               </div>
@@ -590,8 +604,10 @@ export function NewTicketModal() {
               </div>
             </form>
           </motion.div>
-        </div>
-      )}
-    </AnimatePresence>
+          </div>
+        )}
+      </AnimatePresence>
+      <AttachmentPreviewModal attachment={previewAttachment} onClose={() => setPreviewAttachment(null)} />
+    </>
   );
 }

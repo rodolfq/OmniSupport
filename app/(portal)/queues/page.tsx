@@ -1,6 +1,7 @@
 'use client';
 
 import React, { useState, useEffect } from 'react';
+import { StyledSelect } from '@/components/styled-select';
 import { User, UserRole, Queue, WhatsappInstance } from '@/lib/types';
 import { UserService } from '@/lib/services/user-service';
 import { getQueues, saveQueue, deleteQueue, getWhatsappInstances } from '@/app/actions';
@@ -350,7 +351,7 @@ export default function QueuesManagementPage() {
                          </div>
                          <div className="space-y-1.5">
                             <label className="text-[10px] font-black uppercase text-slate-500 tracking-widest ml-1">Instância WhatsApp</label>
-                            <select 
+                            <StyledSelect 
                               value={selectedWhatsappId}
                               onChange={(e) => setSelectedWhatsappId(e.target.value)}
                               className="w-full bg-slate-50 border border-slate-200 rounded-2xl px-5 py-4 text-sm font-bold focus:ring-4 focus:ring-indigo-500/10 outline-none transition-all appearance-none"
@@ -359,7 +360,7 @@ export default function QueuesManagementPage() {
                                {whatsappInstances.map(i => (
                                  <option key={i.id} value={i.id}>{i.name} ({i.phone})</option>
                                ))}
-                            </select>
+                            </StyledSelect>
                          </div>
                       </div>
                       <div className="space-y-1.5">

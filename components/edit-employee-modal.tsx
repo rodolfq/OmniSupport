@@ -1,6 +1,7 @@
 'use client';
 
 import React, { useState, useEffect } from 'react';
+import { StyledSelect } from '@/components/styled-select';
 import { X, Save, Mail, Phone, Shield, Lock, Eye, EyeOff, Plus, Trash2, AlertTriangle } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import { UserRole, type User, type Company } from '@/lib/types';
@@ -181,7 +182,7 @@ export function EditEmployeeModal({ isOpen, onClose, user, onSuccess }: { isOpen
                   <label className="text-[10px] font-black uppercase tracking-widest text-slate-400 ml-1">Empresa</label>
                   <div className="relative">
                     <Globe className="absolute left-4 top-1/2 -translate-y-1/2 text-slate-400" size={16} />
-                    <select 
+                    <StyledSelect 
                       value={companyId}
                       onChange={(e) => setCompanyId(e.target.value)}
                       className="w-full bg-slate-50 border border-slate-200 rounded-xl pl-12 pr-4 py-3 text-sm font-medium focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-500 outline-none transition-all appearance-none"
@@ -191,7 +192,7 @@ export function EditEmployeeModal({ isOpen, onClose, user, onSuccess }: { isOpen
                       {companies.map(c => (
                         <option key={c.id} value={c.id}>{c.name}</option>
                       ))}
-                    </select>
+                    </StyledSelect>
                   </div>
                 </div>
 

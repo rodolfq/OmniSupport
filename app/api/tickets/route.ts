@@ -1,6 +1,29 @@
-import { NextResponse } from 'next/server';
+import { NextRequest, NextResponse } from 'next/server';
 import { query } from '@/lib/db';
 import { CLOSED_TICKET_STATUSES } from '@/lib/ticket-status';
+import { verifyJWT } from '@/lib/jwt';
+
+async function getTicketActor(request: NextRequest) {
+  const token = request.cookies.get('token')?.value;
+  if (!token) return null;
+
+  const decoded = await verifyJWT(token);
+  if (!decoded?.id) return null;
+
+  const result = await query(
+    `SELECT p.id, p.role, COALESCE(rp.permissions, '{}'::text[]) AS permissions
+     FROM public.profiles p
+     LEFT JOIN public.role_permissions rp ON rp.role = p.role
+     WHERE p.id = $1`,
+    [decoded.id]
+  );
+
+  return result.rows[0] || null;
+}
+
+function canDeleteTickets(actor: any) {
+  return actor?.role === 'Administrador' || (actor?.permissions || []).includes('tickets:delete');
+}
 
 export async function GET(request: Request) {
   const { searchParams } = new URL(request.url);
@@ -314,5 +337,38 @@ export async function PATCH(request: Request) {
   } catch (error: any) {
     console.error('Error in tickets PATCH:', error);
     return NextResponse.json({ error: error.message }, { status: 500 });
+  }
+}
+
+export async function DELETE(request: NextRequest) {
+  const id = request.nextUrl.searchParams.get('id');
+
+  if (!id) {
+    return NextResponse.json({ error: 'ID do chamado é obrigatório.' }, { status: 400 });
+  }
+
+  try {
+    const actor = await getTicketActor(request);
+    if (!actor) {
+      return NextResponse.json({ error: 'Sessão inválida ou expirada.' }, { status: 401 });
+    }
+
+    if (!canDeleteTickets(actor)) {
+      return NextResponse.json({ error: 'Você não tem permissão para excluir chamados.' }, { status: 403 });
+    }
+
+    const result = await query(
+      'DELETE FROM public.tickets WHERE id = $1 RETURNING id, public_ticket_number',
+      [id]
+    );
+
+    if ((result.rowCount ?? 0) === 0) {
+      return NextResponse.json({ error: 'Chamado não encontrado.' }, { status: 404 });
+    }
+
+    return NextResponse.json({ success: true, ticket: result.rows[0] });
+  } catch (error: any) {
+    console.error('Error in tickets DELETE:', error);
+    return NextResponse.json({ error: error.message || 'Erro ao excluir chamado.' }, { status: 500 });
   }
 }

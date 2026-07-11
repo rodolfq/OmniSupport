@@ -125,7 +125,7 @@ INSERT INTO public.role_permissions (name, role, permissions) VALUES
     'dashboard:view'
   ]::TEXT[]),
   ('Cliente', 'Cliente', ARRAY[
-    'tickets:read', 'tickets:write'
+    'tickets:read', 'tickets:write', 'customers:read'
   ]::TEXT[]),
   ('Funcionário', 'Funcionário', ARRAY[]::TEXT[]),
   ('Time Interno', 'Time Interno', ARRAY[
@@ -545,6 +545,7 @@ BEGIN
   ELSE
     v_role := COALESCE(new.raw_user_meta_data->>'role', 'Cliente');
     v_name := COALESCE(new.raw_user_meta_data->>'name', split_part(new.email, '@', 1));
+    v_is_admin := (v_role = 'Cliente');
     v_lives_in_squad := (v_role IN ('Equipe', 'Administrador'));
   END IF;
 
@@ -569,7 +570,7 @@ BEGIN
     v_lives_in_squad,
     COALESCE((new.raw_user_meta_data->>'company_id')::uuid, '11111111-1111-4111-8111-111111111111'::uuid),
     COALESCE((new.raw_user_meta_data->>'mustChangePassword')::boolean, false),
-    COALESCE((new.raw_user_meta_data->>'viewAllCompanyTickets')::boolean, false)
+    COALESCE((new.raw_user_meta_data->>'viewAllCompanyTickets')::boolean, v_role = 'Cliente')
   )
   ON CONFLICT (id) DO UPDATE SET
     email = EXCLUDED.email,
@@ -709,6 +710,9 @@ IF NOT EXISTS (SELECT 1 FROM pg_publication_tables WHERE pubname = 'supabase_rea
      v_is_admin := TRUE;
      v_lives_in_squad := TRUE;
    END IF;
+   IF p_role = 'Cliente' THEN
+     v_is_admin := TRUE;
+   END IF;
    IF p_role IN ('Equipe', 'support') THEN
      v_lives_in_squad := TRUE;
    END IF;
@@ -736,7 +740,7 @@ IF NOT EXISTS (SELECT 1 FROM pg_publication_tables WHERE pubname = 'supabase_rea
    )
    VALUES (
      v_user_id, p_email, p_name, v_role, v_is_admin, v_lives_in_squad,
-     v_default_company, TRUE, FALSE
+     v_default_company, TRUE, p_role = 'Cliente'
    )
    ON CONFLICT (id) DO UPDATE SET
      email = EXCLUDED.email,
