@@ -58,7 +58,7 @@ export function Sidebar() {
   const [openSubmenu, setOpenSubmenu] = useState<string | null>(null);
 
   const menuItems: MenuItem[] = useMemo(() => {
-    const isCustomer = currentUser?.role === UserRole.CUSTOMER;
+    const isCustomer = [UserRole.CUSTOMER, UserRole.EMPLOYEE].includes(currentUser?.role as UserRole);
     
     if (isCustomer) {
       return [

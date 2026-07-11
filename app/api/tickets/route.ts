@@ -1,10 +1,12 @@
 import { NextResponse } from 'next/server';
 import { query } from '@/lib/db';
+import { CLOSED_TICKET_STATUSES } from '@/lib/ticket-status';
 
 export async function GET(request: Request) {
   const { searchParams } = new URL(request.url);
   const id = searchParams.get('id');
   const action = searchParams.get('action');
+  const includeClosed = searchParams.get('includeClosed') === 'true';
 
   try {
     if (action === 'messages') {
@@ -62,12 +64,16 @@ export async function GET(request: Request) {
       });
     } else {
       // Obter todos os tickets que não estão concluídos/fechados
-      const ticketsRes = await query(
-        "SELECT * FROM public.tickets WHERE status NOT IN ('Fechado', 'Concluído', 'Encerrado') ORDER BY created_at DESC"
-      );
+      const closedStatusPlaceholders = CLOSED_TICKET_STATUSES.map((_, i) => `$${i + 1}`).join(',');
+      const ticketsRes = includeClosed
+        ? await query('SELECT * FROM public.tickets ORDER BY created_at DESC')
+        : await query(
+            `SELECT * FROM public.tickets WHERE status NOT IN (${closedStatusPlaceholders}) ORDER BY created_at DESC`,
+            [...CLOSED_TICKET_STATUSES]
+          );
       
       const customerIds = [...new Set(ticketsRes.rows.map(t => t.customer_id).filter(Boolean))];
-      let customerMap = new Map<string, string>();
+      const customerMap = new Map<string, string>();
       
       if (customerIds.length > 0) {
         const placeHolders = customerIds.map((_, i) => `$${i + 1}`).join(',');

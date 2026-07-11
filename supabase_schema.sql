@@ -251,6 +251,8 @@ CREATE TABLE public.chat_sessions (
   assignee_id UUID REFERENCES public.profiles(id) ON DELETE SET NULL,
   queue_id TEXT,
   status TEXT DEFAULT 'waiting', -- 'waiting', 'active', 'closed'
+  ticket_id UUID REFERENCES public.tickets(id) ON DELETE SET NULL,
+  ticket_number BIGINT,
   created_at TIMESTAMP WITH TIME ZONE DEFAULT now() NOT NULL,
   updated_at TIMESTAMP WITH TIME ZONE DEFAULT now() NOT NULL,
   last_message_at TIMESTAMP WITH TIME ZONE

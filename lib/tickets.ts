@@ -102,11 +102,12 @@ const MOCK_EXAMPLE_MESSAGES: Message[] = [
   }
 ];
 
-export async function fetchAllTickets(signal?: AbortSignal): Promise<Ticket[]> {
+export async function fetchAllTickets(signal?: AbortSignal, options?: { includeClosed?: boolean }): Promise<Ticket[]> {
   let remoteTickets: Ticket[] = [];
   
   try {
-    const res = await fetch('/api/tickets');
+    const url = options?.includeClosed ? '/api/tickets?includeClosed=true' : '/api/tickets';
+    const res = await fetch(url, { signal });
     if (res.ok) {
       remoteTickets = await res.json();
     }

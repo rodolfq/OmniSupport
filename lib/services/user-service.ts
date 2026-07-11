@@ -83,14 +83,12 @@ export class UserService {
         Permission.OUTSIDE_QUEUE_VIEW,
       ],
       [UserRole.CUSTOMER]: [
-        Permission.DASHBOARD_VIEW,
         Permission.TICKETS_READ,
         Permission.TICKETS_WRITE,
       ],
       [UserRole.EMPLOYEE]: [
         Permission.TICKETS_READ,
         Permission.TICKETS_WRITE,
-        Permission.DASHBOARD_VIEW,
       ],
       [UserRole.INTERNAL]: [
         Permission.INTERNAL_TICKETS_VIEW,

@@ -5,9 +5,26 @@ import { useApp } from '@/app/app-context';
 import { Bell, Clock, Search, Filter, Check, Lock, MessageCircle, MessageSquare, Ticket, UserPlus, CheckCircle2 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import Link from 'next/link';
+import { UserRole } from '@/lib/types';
+
+function stripHtml(value: string) {
+  return value
+    .replace(/<style[\s\S]*?<\/style>/gi, ' ')
+    .replace(/<script[\s\S]*?<\/script>/gi, ' ')
+    .replace(/<[^>]*>/g, ' ')
+    .replace(/&nbsp;/g, ' ')
+    .replace(/&amp;/g, '&')
+    .replace(/&lt;/g, '<')
+    .replace(/&gt;/g, '>')
+    .replace(/&quot;/g, '"')
+    .replace(/&#39;/g, "'")
+    .replace(/\s+/g, ' ')
+    .trim();
+}
 
 export default function ActivitiesPage() {
-  const { notifications, markNotificationRead, clearNotifications } = useApp();
+  const { currentUser, notifications, markNotificationRead, clearNotifications } = useApp();
+  const isCompanyUser = [UserRole.CUSTOMER, UserRole.EMPLOYEE].includes(currentUser?.role as UserRole);
 
   const getIcon = (type: string) => {
     switch (type) {
@@ -26,6 +43,12 @@ export default function ActivitiesPage() {
     if (type === 'ticket_closed') return "bg-emerald-100 text-emerald-600";
     if (type === 'ticket_new') return "bg-indigo-100 text-indigo-600";
     return "bg-slate-100 text-slate-600";
+  };
+
+  const getTargetHref = (notif: { type: string; targetId?: string }) => {
+    if (!notif.targetId) return '#';
+    if (notif.type.startsWith('chat_')) return `${isCompanyUser ? '/my-tickets' : '/dashboard'}?chat=${notif.targetId}`;
+    return `${isCompanyUser ? '/my-tickets' : '/dashboard'}?ticket=${notif.targetId}`;
   };
 
   return (
@@ -109,12 +132,12 @@ export default function ActivitiesPage() {
                       })}
                     </span>
                   </div>
-                  <p className="text-sm font-medium text-slate-500 leading-relaxed max-w-2xl">{notif.message}</p>
+                  <p className="text-sm font-medium text-slate-500 leading-relaxed max-w-2xl">{stripHtml(notif.message)}</p>
                   
                   <div className="mt-4 flex items-center gap-4">
                      {notif.targetId && (
                        <Link 
-                        href={notif.type.startsWith('chat_') ? "/dashboard?chat=" + notif.targetId : "/dashboard?ticket=" + notif.targetId}
+                        href={getTargetHref(notif)}
                         className="text-[10px] font-black uppercase text-indigo-600 hover:underline tracking-widest"
                        >
                          Visualizar Registro

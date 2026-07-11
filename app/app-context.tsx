@@ -1,14 +1,15 @@
 'use client';
 
-import React, { createContext, useContext, useState, useEffect, useRef, useCallback, useMemo } from 'react';
+import React, { createContext, useContext, useState, useEffect, useRef } from 'react';
 import { User, UserRole, Permission, AbsenceReason } from '@/lib/types';
 import { safeJsonStringify } from '@/lib/utils';
 import { toast } from 'sonner';
 import { UserService } from '@/lib/services/user-service';
-import { ChatService, AbsenceReasonService, UserStatusHistoryService, AnalystService } from '@/lib/services/chat-service';
+import { AbsenceReasonService, AnalystService } from '@/lib/services/chat-service';
 
 export interface AppNotification {
   id: string;
+  sourceId?: string;
   title: string;
   message: string;
   type: 'ticket_new' | 'ticket_update' | 'ticket_assigned' | 'ticket_closed' | 'chat_new' | 'chat_message';
@@ -42,6 +43,8 @@ interface AppContextType {
   setPreselectedCompanyId: (id: string | null) => void;
   isOmniChatOpen: boolean;
   setIsOmniChatOpen: (open: boolean) => void;
+  isOmniChatExpanded: boolean;
+  setIsOmniChatExpanded: (expanded: boolean) => void;
   activeOmniChatId: string | null;
   setActiveOmniChatId: (id: string | null) => void;
   refreshTrigger: number;
@@ -77,6 +80,21 @@ const DEFAULT_SETTINGS: NotificationSettings = {
   chat_message: true,
 };
 
+function stripNotificationHtml(value: string) {
+  return value
+    .replace(/<style[\s\S]*?<\/style>/gi, ' ')
+    .replace(/<script[\s\S]*?<\/script>/gi, ' ')
+    .replace(/<[^>]*>/g, ' ')
+    .replace(/&nbsp;/g, ' ')
+    .replace(/&amp;/g, '&')
+    .replace(/&lt;/g, '<')
+    .replace(/&gt;/g, '>')
+    .replace(/&quot;/g, '"')
+    .replace(/&#39;/g, "'")
+    .replace(/\s+/g, ' ')
+    .trim();
+}
+
 export function AppProvider({ children }: { children: React.ReactNode }) {
   const [currentUser, setCurrentUser] = useState<User | null>(null);
   const [authInitialized, setAuthInitialized] = useState(false);
@@ -84,6 +102,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
   const [preselectedUserId, setPreselectedUserId] = useState<string | null>(null);
   const [preselectedCompanyId, setPreselectedCompanyId] = useState<string | null>(null);
   const [isOmniChatOpen, setIsOmniChatOpen] = useState(false);
+  const [isOmniChatExpanded, setIsOmniChatExpanded] = useState(false);
   const [activeOmniChatId, setActiveOmniChatId] = useState<string | null>(null);
   const [refreshTrigger, setRefreshTrigger] = useState(0);
 
@@ -91,12 +110,15 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
   const activeChatRef = useRef<string | null>(null);
   const chatOpenRef = useRef<boolean>(false);
   const initialStatusLoadedRef = useRef<boolean>(false);
+  const audioCacheRef = useRef<Map<string, HTMLAudioElement>>(new Map());
+  const audioUnlockedRef = useRef(false);
 
   const [notificationSettings, setNotificationSettings] = useState<NotificationSettings>(DEFAULT_SETTINGS);
   const settingsRef = useRef<NotificationSettings>(DEFAULT_SETTINGS);
 
   const [notifications, setNotifications] = useState<AppNotification[]>([]);
   const lastCheckTimeRef = useRef<string>(new Date().toISOString());
+  const notificationSourceIdsRef = useRef<Set<string>>(new Set());
 
   const [whatsappStatus, setWhatsappStatus] = useState<'connected' | 'disconnected' | 'connecting' | 'error'>('disconnected');
   const [dbStatus, setDbStatus] = useState<'connected' | 'disconnected' | 'error'>('disconnected');
@@ -117,14 +139,22 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
   const playSound = React.useCallback((type: 'system' | 'chat') => {
     try {
       const currentSettings = settingsRef.current;
-      const defaultChatSound = 'https://assets.mixkit.co/active_storage/sfx/2354/2354-preview.mp3';
-      const defaultSystemSound = 'https://assets.mixkit.co/active_storage/sfx/2869/2869-preview.mp3';
+      const defaultChatSound = '/audio/Notificação de Mensagem.mp3';
+      const defaultSystemSound = '/audio/Alerta.mp3';
 
       const audioPath = type === 'system' 
         ? (currentSettings.systemSound || defaultSystemSound)
         : (currentSettings.chatSound || defaultChatSound);
-      
-      const audio = new Audio(audioPath);
+
+      let audio = audioCacheRef.current.get(audioPath);
+      if (!audio) {
+        audio = new Audio(audioPath);
+        audio.preload = 'auto';
+        audioCacheRef.current.set(audioPath, audio);
+      }
+
+      audio.pause();
+      audio.currentTime = 0;
       audio.volume = 0.5;
       
       const playPromise = audio.play();
@@ -139,16 +169,24 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
   }, []);
 
   const addNotification = React.useCallback((notif: Omit<AppNotification, 'id' | 'timestamp' | 'read' | 'recipientId'>, recipientId: string) => {
+    if (notif.sourceId && notificationSourceIdsRef.current.has(`${recipientId}:${notif.sourceId}`)) {
+      return;
+    }
+
     const isEnabled = settingsRef.current[notif.type as keyof NotificationSettings];
     
     if (isEnabled) {
       const newNotif: AppNotification = {
         ...notif,
+        message: stripNotificationHtml(notif.message),
         id: Math.random().toString(36).substr(2, 9),
         recipientId,
         timestamp: new Date().toISOString(),
         read: false
       };
+      if (newNotif.sourceId) {
+        notificationSourceIdsRef.current.add(`${recipientId}:${newNotif.sourceId}`);
+      }
       setNotifications(prev => {
         const updated = [newNotif, ...prev].slice(0, 100);
         localStorage.setItem('omni_notif_history', safeJsonStringify(updated));
@@ -159,16 +197,46 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       playSound(soundType);
 
       toast(notif.title, {
-        description: notif.message,
+        description: newNotif.message,
         duration: 4000
       });
     }
   }, [playSound]);
 
+  const checkNotifications = React.useCallback(async () => {
+    if (!userRef.current?.id) return;
+
+    const checkStartedAt = new Date().toISOString();
+
+    try {
+      const res = await fetch(`/api/notifications/check?since=${encodeURIComponent(lastCheckTimeRef.current)}`, {
+        credentials: 'include'
+      });
+
+      if (!res.ok) return;
+
+      const data = await res.json();
+      const incoming: Array<Omit<AppNotification, 'id' | 'timestamp' | 'read' | 'recipientId'>> = data.notifications || [];
+
+      incoming.forEach((notif) => {
+        addNotification(notif, userRef.current!.id);
+      });
+
+      lastCheckTimeRef.current = checkStartedAt;
+    } catch (error) {
+      console.error('Erro ao buscar notificações:', error);
+    }
+  }, [addNotification]);
+
   useEffect(() => { userRef.current = currentUser; }, [currentUser]);
   useEffect(() => { activeChatRef.current = activeOmniChatId; }, [activeOmniChatId]);
   useEffect(() => { chatOpenRef.current = isOmniChatOpen; }, [isOmniChatOpen]);
   useEffect(() => { settingsRef.current = notificationSettings; }, [notificationSettings]);
+  useEffect(() => {
+    if (currentUser?.id) {
+      lastCheckTimeRef.current = new Date().toISOString();
+    }
+  }, [currentUser?.id]);
 
   const refreshAbsenceReasons = React.useCallback(async () => {
     try {
@@ -272,6 +340,13 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
   }, [authInitialized, currentUser?.id, triggerRefresh]);
 
   useEffect(() => {
+    if (!authInitialized || !currentUser?.id) return;
+
+    const interval = setInterval(checkNotifications, 10000);
+    return () => clearInterval(interval);
+  }, [authInitialized, currentUser?.id, checkNotifications]);
+
+  useEffect(() => {
     if (currentUser) {
       if (!initialStatusLoadedRef.current) {
         initialStatusLoadedRef.current = true;
@@ -311,7 +386,11 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     const savedNotifs = localStorage.getItem('omni_notif_history');
     if (savedNotifs) {
       try {
-        setNotifications(JSON.parse(savedNotifs));
+        const parsedNotifications = JSON.parse(savedNotifs);
+        parsedNotifications
+          .filter((n: AppNotification) => n.sourceId && n.recipientId)
+          .forEach((n: AppNotification) => notificationSourceIdsRef.current.add(`${n.recipientId}:${n.sourceId}`));
+        setNotifications(parsedNotifications);
       } catch (e) {
         console.error('Error loading notifications', e);
       }
@@ -328,8 +407,18 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
 
   useEffect(() => {
     const unlock = () => {
-      const audio = new Audio();
-      audio.play().catch(() => {});
+      if (audioUnlockedRef.current) return;
+
+      const audio = new Audio('/audio/Alerta.mp3');
+      audio.muted = true;
+      audio.volume = 0;
+      audio.play()
+        .then(() => {
+          audio.pause();
+          audio.currentTime = 0;
+          audioUnlockedRef.current = true;
+        })
+        .catch(() => {});
       window.removeEventListener('click', unlock);
       window.removeEventListener('keydown', unlock);
       console.log('Audio Context Unlocked');
@@ -393,6 +482,8 @@ return (
       setPreselectedCompanyId,
       isOmniChatOpen,
       setIsOmniChatOpen,
+      isOmniChatExpanded,
+      setIsOmniChatExpanded,
       activeOmniChatId,
       setActiveOmniChatId,
       refreshTrigger,

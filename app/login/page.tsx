@@ -20,7 +20,8 @@ export default function LoginPage() {
   React.useEffect(() => {
     // Só redireciona se auth já foi inicializado E tem usuário
     if (authInitialized && currentUser) {
-      router.replace('/dashboard');
+      const isCompanyUser = [UserRole.CUSTOMER, UserRole.EMPLOYEE].includes(currentUser.role as UserRole);
+      router.replace(isCompanyUser ? '/my-tickets' : '/dashboard');
     }
   }, [authInitialized, currentUser, router]);
 
@@ -66,7 +67,8 @@ export default function LoginPage() {
 
         setIsLoading(false);
         isSubmittingRef.current = false;
-        router.replace('/dashboard');
+        const isCompanyUser = [UserRole.CUSTOMER, UserRole.EMPLOYEE].includes(data.user.role as UserRole);
+        router.replace(isCompanyUser ? '/my-tickets' : '/dashboard');
       }
     } catch (err: any) {
       setIsLoading(false);

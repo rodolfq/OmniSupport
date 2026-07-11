@@ -2,8 +2,7 @@
 
 import React, { useState } from 'react';
 import { useApp } from '@/app/app-context';
-import { supabase } from '@/lib/supabase';
-import { motion, AnimatePresence } from 'motion/react';
+import { motion } from 'motion/react';
 import { Lock, Eye, EyeOff, AlertCircle, CheckCircle2 } from 'lucide-react';
 
 export function ForcePasswordChange() {
@@ -32,15 +31,25 @@ export function ForcePasswordChange() {
         throw new Error('As senhas não coincidem.');
       }
 
-      const updatedUser = { 
-        ...currentUser, 
-        password: newPassword, 
-        mustChangePassword: false 
+      const response = await fetch('/api/auth/change-password', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        credentials: 'include',
+        body: JSON.stringify({ password: newPassword })
+      });
+
+      const result = await response.json().catch(() => ({}));
+
+      if (!response.ok) {
+        throw new Error(result.error || 'Erro ao atualizar a senha.');
+      }
+
+      const updatedUser = {
+        ...currentUser,
+        ...(result.user || {}),
+        mustChangePassword: false
       };
-      
-      // Atualizar no Supabase - usando admin API para mudar senha
-      await supabase.auth.admin.updateUserById(currentUser.id, { password: newPassword });
-      await supabase.from('profiles').update({ must_change_password: false }).eq('id', currentUser.id);
+
       setCurrentUser(updatedUser);
       setIsSuccess(true);
     } catch (err: any) {

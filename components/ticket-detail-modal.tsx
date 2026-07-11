@@ -17,6 +17,7 @@ import { TicketService, MessageService, InternalTicketService } from '@/lib/serv
 import { UserService } from '@/lib/services/user-service';
 import { CompanyService } from '@/lib/services/company-service';
 import { ConfigService } from '@/lib/services/config-service';
+import { getDefaultClosedTicketStatus, isClosedTicketStatus } from '@/lib/ticket-status';
 
 interface TicketDetailModalProps {
   ticket: Ticket | null;
@@ -440,9 +441,10 @@ const handleSendMessage = async (isInternal: boolean) => {
 
   const handleCompleteTicket = async () => {
     if (!ticket || !currentUser) return;
-    setTicketStatus(TicketStatus.CLOSED);
+    const closedStatus = getDefaultClosedTicketStatus(statuses.map(s => s.label));
+    setTicketStatus(closedStatus as any);
     handleUpdateMainTicket({ 
-      status: TicketStatus.CLOSED, 
+      status: closedStatus as any, 
       completedAt: new Date().toISOString() 
     });
     onClose();
@@ -507,7 +509,7 @@ const handleSendMessage = async (isInternal: boolean) => {
                       Assumir
                     </button>
                   )}
-                  {ticketStatus !== TicketStatus.CLOSED && (
+                  {!isClosedTicketStatus(ticketStatus) && (
                     <button 
                       onClick={handleCompleteTicket}
                       className="px-4 py-2 bg-emerald-600 hover:bg-emerald-700 text-white rounded-xl text-xs font-black uppercase tracking-widest shadow-lg shadow-emerald-100 transition-all"
@@ -585,7 +587,7 @@ const handleSendMessage = async (isInternal: boolean) => {
                                    const config = priorities.find(p => p.label === mainPriority);
                                    if (!config || !config.slaHours) return false;
                                    const limit = new Date(new Date(ticket.createdAt).getTime() + config.slaHours * 60 * 60 * 1000);
-                                   return limit < new Date() && ticketStatus !== TicketStatus.CLOSED;
+                                   return limit < new Date() && !isClosedTicketStatus(ticketStatus);
                                  })() ? "text-red-600" : "text-slate-700"
                              )}>
                                {(() => {
@@ -599,7 +601,7 @@ const handleSendMessage = async (isInternal: boolean) => {
                                const config = priorities.find(p => p.label === mainPriority);
                                if (!config || !config.slaHours) return false;
                                const limit = new Date(new Date(ticket.createdAt).getTime() + config.slaHours * 60 * 60 * 1000);
-                               return limit < new Date() && ticketStatus !== TicketStatus.CLOSED;
+                               return limit < new Date() && !isClosedTicketStatus(ticketStatus);
                              })() && (
                                <span className="text-[10px] font-black text-red-500 uppercase tracking-tight">Prazo ultrapassado</span>
                              )}

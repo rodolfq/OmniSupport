@@ -1,6 +1,22 @@
 import { NextResponse } from 'next/server';
 import { query } from '@/lib/db';
 
+function normalizePhone(value?: string | null): string {
+  return (value || '').replace(/\D/g, '');
+}
+
+function phoneLookupVariants(phone?: string | null): string[] {
+  const digits = normalizePhone(phone);
+  if (!digits) return [];
+  const variants = new Set<string>([digits]);
+  if (digits.startsWith('55') && digits.length > 11) {
+    variants.add(digits.slice(2));
+  } else if (digits.length <= 11) {
+    variants.add(`55${digits}`);
+  }
+  return [...variants];
+}
+
 export async function GET(request: Request) {
   const { searchParams } = new URL(request.url);
   const action = searchParams.get('action');
@@ -8,7 +24,7 @@ export async function GET(request: Request) {
   try {
     if (action === 'sessions') {
       // Obter todas as sessões e suas respectivas mensagens
-      const sessionsRes = await query('SELECT * FROM public.chat_sessions ORDER BY created_at DESC');
+      const sessionsRes = await query('SELECT * FROM public.chat_sessions ORDER BY COALESCE(last_message_at, updated_at, created_at) DESC');
       const messagesRes = await query('SELECT * FROM public.chat_messages ORDER BY created_at ASC');
       
       const messagesBySession = new Map<string, any[]>();
@@ -21,7 +37,8 @@ export async function GET(request: Request) {
           text: m.text,
           timestamp: m.created_at,
           type: m.type,
-          metadata: m.metadata
+          metadata: m.metadata,
+          attachments: m.metadata?.attachments || []
         });
         messagesBySession.set(m.session_id, arr);
       });
@@ -34,6 +51,8 @@ export async function GET(request: Request) {
         assigneeId: s.assignee_id,
         queueId: s.queue_id,
         status: s.status,
+        ticketId: s.ticket_id,
+        ticketNumber: s.ticket_number,
         startedAt: s.created_at,
         lastMessageAt: s.last_message_at || s.created_at,
         messages: messagesBySession.get(s.id) || []
@@ -145,8 +164,8 @@ export async function POST(request: Request) {
     if (action === 'save-session') {
       const { session } = body;
       await query(
-        `INSERT INTO public.chat_sessions (id, customer_id, customer_name, customer_phone, assignee_id, queue_id, status, created_at, last_message_at, updated_at)
-         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, NOW())
+        `INSERT INTO public.chat_sessions (id, customer_id, customer_name, customer_phone, assignee_id, queue_id, status, ticket_id, ticket_number, created_at, last_message_at, updated_at)
+         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, NOW())
          ON CONFLICT (id) DO UPDATE SET
            customer_id = EXCLUDED.customer_id,
            customer_name = EXCLUDED.customer_name,
@@ -154,6 +173,8 @@ export async function POST(request: Request) {
            assignee_id = EXCLUDED.assignee_id,
            queue_id = EXCLUDED.queue_id,
            status = EXCLUDED.status,
+           ticket_id = COALESCE(EXCLUDED.ticket_id, chat_sessions.ticket_id),
+           ticket_number = COALESCE(EXCLUDED.ticket_number, chat_sessions.ticket_number),
            last_message_at = EXCLUDED.last_message_at,
            updated_at = NOW()`,
         [
@@ -164,6 +185,8 @@ export async function POST(request: Request) {
           session.assigneeId || null,
           session.queueId || null,
           session.status,
+          session.ticketId || null,
+          session.ticketNumber || null,
           session.startedAt,
           session.lastMessageAt
         ]
@@ -173,6 +196,52 @@ export async function POST(request: Request) {
 
     if (action === 'create-session') {
       const { session } = body;
+      const phoneVariants = phoneLookupVariants(session.customerPhone);
+      const lookupClauses: string[] = [];
+      const lookupParams: any[] = [];
+
+      if (session.customerId) {
+        lookupParams.push(session.customerId);
+        lookupClauses.push(`customer_id = $${lookupParams.length}`);
+      }
+
+      if (phoneVariants.length > 0) {
+        const placeholders = phoneVariants.map((_, i) => `$${lookupParams.length + i + 1}`).join(',');
+        lookupClauses.push(`regexp_replace(COALESCE(customer_phone, ''), '\\D', '', 'g') IN (${placeholders})`);
+        lookupParams.push(...phoneVariants);
+      }
+
+      if (lookupClauses.length > 0) {
+        const existing = await query(
+          `SELECT id FROM public.chat_sessions
+           WHERE ${lookupClauses.map(c => `(${c})`).join(' OR ')}
+           ORDER BY updated_at DESC, created_at DESC
+           LIMIT 1`,
+          lookupParams
+        );
+
+        if ((existing.rowCount || 0) > 0) {
+          const existingId = existing.rows[0].id;
+          await query(
+            `UPDATE public.chat_sessions
+             SET customer_id = COALESCE($1, customer_id),
+                 customer_name = COALESCE($2, customer_name),
+                 customer_phone = COALESCE($3, customer_phone),
+                 status = $4,
+                 updated_at = NOW()
+             WHERE id = $5`,
+            [
+              session.customerId || null,
+              session.customerName || null,
+              session.customerPhone || null,
+              session.status || 'active',
+              existingId
+            ]
+          );
+          return NextResponse.json({ id: existingId, reused: true });
+        }
+      }
+
       const id = session.id || crypto.randomUUID();
       await query(
         `INSERT INTO public.chat_sessions (id, customer_id, customer_name, customer_phone, status, created_at, updated_at)
@@ -201,12 +270,16 @@ export async function POST(request: Request) {
           message.senderName || null,
           message.text,
           message.type || 'text',
-          message.metadata || '{}',
+          { ...(message.metadata || {}), attachments: message.attachments || message.metadata?.attachments || [] },
           message.timestamp
         ]
       );
       await query(
-        'UPDATE public.chat_sessions SET last_message_at = $1, updated_at = NOW() WHERE id = $2',
+        `UPDATE public.chat_sessions
+         SET last_message_at = $1,
+             status = CASE WHEN status = 'closed' THEN 'pending' ELSE status END,
+             updated_at = NOW()
+         WHERE id = $2`,
         [message.timestamp, sessionId]
       );
       return NextResponse.json({ success: true });

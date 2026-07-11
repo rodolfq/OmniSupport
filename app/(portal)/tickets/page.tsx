@@ -9,6 +9,7 @@ import {
 } from "@/lib/types";
 
 import { SearchFilters, searchTickets } from "@/lib/search";
+import { isClosedTicketStatus, isInProgressTicketStatus } from "@/lib/ticket-status";
 import {
   FileText,
   ChevronRight,
@@ -481,7 +482,7 @@ export default function TicketsPage() {
           break;
         case "sla":
           const slaValue = (ticket: Ticket) => {
-            if (ticket.status === TicketStatus.CLOSED) return "";
+            if (isClosedTicketStatus(ticket.status)) return "";
             const config = priorities.find((p) => p.label === ticket.priority);
             if (!config || !config.sla_hours) return "";
             return new Date(ticket.createdAt).getTime() + config.sla_hours * 60 * 60 * 1000;
@@ -502,7 +503,7 @@ export default function TicketsPage() {
   }, [sortedTickets]);
 
   const getSLAStatus = (ticket: Ticket) => {
-    if (ticket.status === TicketStatus.CLOSED)
+    if (isClosedTicketStatus(ticket.status))
       return { label: "---", color: "text-slate-400", isOverdue: false };
 
     const config = priorities.find((p) => p.label === ticket.priority);
@@ -616,9 +617,9 @@ export default function TicketsPage() {
                 "px-3 py-1 rounded-full text-[10px] font-black uppercase tracking-tighter",
                 ticket.status === TicketStatus.NEW
                   ? "bg-blue-100 text-blue-700"
-                  : ticket.status === TicketStatus.IN_PROGRESS
+                  : isInProgressTicketStatus(ticket.status)
                     ? "bg-amber-100 text-amber-700"
-                    : ticket.status === TicketStatus.CLOSED
+                    : isClosedTicketStatus(ticket.status)
                       ? "bg-emerald-100 text-emerald-700"
                       : "bg-slate-100 text-slate-600",
               )}
@@ -658,7 +659,7 @@ export default function TicketsPage() {
               <span className={cn("text-[10px] uppercase", sla.color)}>
                 {sla.label}
               </span>
-              {sla.isOverdue && ticket.status !== TicketStatus.CLOSED && (
+              {sla.isOverdue && !isClosedTicketStatus(ticket.status) && (
                 <span className="text-[8px] font-black text-red-500 uppercase tracking-tighter">
                   SLA Vencido
                 </span>
@@ -833,7 +834,7 @@ export default function TicketsPage() {
                     className={cn(
                       "hover:bg-slate-50/80 cursor-pointer transition-colors group",
                       getSLAStatus(t).isOverdue &&
-                        t.status !== TicketStatus.CLOSED &&
+                        !isClosedTicketStatus(t.status) &&
                         "bg-red-50/30",
                     )}
                   >

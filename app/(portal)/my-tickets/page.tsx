@@ -2,7 +2,7 @@
 
 import React, { useState, useEffect, useMemo } from 'react';
 import { useApp } from '@/app/app-context';
-import { Ticket, TicketStatus, Permission, UserRole } from '@/lib/types';
+import { Ticket, Permission, UserRole } from '@/lib/types';
 import { fetchAllTickets } from '@/lib/tickets';
 import { 
   Search, 
@@ -19,12 +19,39 @@ import {
 import { motion, AnimatePresence } from 'motion/react';
 import { cn, normalizeString } from '@/lib/utils';
 import { TicketDetailModal } from '@/components/ticket-detail-modal';
+import { isClosedTicketStatus, isInProgressTicketStatus } from '@/lib/ticket-status';
+import { useSearchParams } from 'next/navigation';
+
+type CustomerStatusFilter = 'all' | 'Novo' | 'Em andamento' | 'Pendente' | 'Resolvido' | 'Concluído';
+
+const CUSTOMER_STATUS_FILTERS: Array<{ value: CustomerStatusFilter; label: string }> = [
+  { value: 'all', label: 'Todos' },
+  { value: 'Novo', label: 'Novo' },
+  { value: 'Em andamento', label: 'Em andamento' },
+  { value: 'Pendente', label: 'Pendente' },
+  { value: 'Resolvido', label: 'Resolvido' },
+  { value: 'Concluído', label: 'Concluído' },
+];
+
+function getCustomerStatusLabel(status: string) {
+  if (isClosedTicketStatus(status)) return 'Concluído';
+  if (isInProgressTicketStatus(status)) return 'Em andamento';
+  return status;
+}
+
+function matchesCustomerStatusFilter(status: string, filter: CustomerStatusFilter) {
+  if (filter === 'all') return true;
+  if (filter === 'Em andamento') return isInProgressTicketStatus(status);
+  if (filter === 'Concluído') return isClosedTicketStatus(status);
+  return status === filter;
+}
 
 export default function MyTicketsPage() {
   const { currentUser, hasPermission, setIsNewTicketModalOpen, refreshTrigger } = useApp();
+  const searchParams = useSearchParams();
   const [allTickets, setAllTickets] = useState<Ticket[]>([]); // Renamed from tickets = useState<Ticket[]>([])
   const [search, setSearch] = useState('');
-  const [filter, setFilter] = useState<TicketStatus | 'all'>('all');
+  const [filter, setFilter] = useState<CustomerStatusFilter>('all');
   const [selectedTicket, setSelectedTicket] = useState<Ticket | null>(null);
   const [view, setView] = useState<'grid' | 'list'>('grid');
   const [visibleCount, setVisibleCount] = useState(12);
@@ -32,7 +59,7 @@ export default function MyTicketsPage() {
   useEffect(() => {
     async function loadData() {
         if (!currentUser) return;
-        const all = await fetchAllTickets();
+        const all = await fetchAllTickets(undefined, { includeClosed: true });
         
         const canViewEverything = hasPermission(Permission.OUTSIDE_QUEUE_VIEW) || currentUser.role === UserRole.ADMIN;
     
@@ -51,16 +78,24 @@ export default function MyTicketsPage() {
           );
         });
         setAllTickets(filtered);
+
+        const ticketId = searchParams?.get('ticket');
+        if (ticketId) {
+          const ticket = filtered.find(t => t.id === ticketId);
+          if (ticket) {
+            setSelectedTicket(ticket);
+          }
+        }
     }
     loadData();
-  }, [currentUser, refreshTrigger, hasPermission]);
+  }, [currentUser, refreshTrigger, hasPermission, searchParams]);
 
   const filteredTickets = useMemo(() => {
     const normalQuery = normalizeString(search);
     return allTickets.filter(t => {
       const matchesSearch = normalizeString(t.title).includes(normalQuery) || 
                            normalizeString(t.id).includes(normalQuery);
-      const matchesStatus = filter === 'all' || t.status === filter;
+      const matchesStatus = matchesCustomerStatusFilter(t.status, filter);
       return matchesSearch && matchesStatus;
     });
   }, [allTickets, search, filter]);
@@ -69,15 +104,13 @@ export default function MyTicketsPage() {
     return filteredTickets.slice(0, visibleCount);
   }, [filteredTickets, visibleCount]);
 
-  const getStatusColor = (status: TicketStatus) => {
-    switch (status) {
-      case TicketStatus.NEW: return 'bg-blue-100 text-blue-700';
-      case TicketStatus.IN_PROGRESS: return 'bg-amber-100 text-amber-700';
-      case TicketStatus.AWAITING_INTERNAL: return 'bg-purple-100 text-purple-700';
-      case TicketStatus.AWAITING_CUSTOMER: return 'bg-pink-100 text-pink-700';
-      case TicketStatus.CLOSED: return 'bg-emerald-100 text-emerald-700';
-      default: return 'bg-gray-100 text-gray-700';
-    }
+  const getStatusColor = (status: string) => {
+    if (status === 'Novo') return 'bg-blue-100 text-blue-700';
+    if (isInProgressTicketStatus(status)) return 'bg-amber-100 text-amber-700';
+    if (status === 'Pendente') return 'bg-slate-100 text-slate-700';
+    if (status === 'Resolvido') return 'bg-emerald-100 text-emerald-700';
+    if (isClosedTicketStatus(status)) return 'bg-gray-100 text-gray-700';
+    return 'bg-gray-100 text-gray-700';
   };
 
   return (
@@ -115,19 +148,19 @@ export default function MyTicketsPage() {
         </div>
 
         <div className="flex items-center gap-2 p-1 bg-slate-50 rounded-2xl border border-slate-100 overflow-x-auto max-w-full scrollbar-hidden">
-          {(['all', ...Object.values(TicketStatus)] as const).map(s => (
+          {CUSTOMER_STATUS_FILTERS.map(s => (
             <button
-              key={s}
+              key={s.value}
               onClick={() => {
-                setFilter(s);
+                setFilter(s.value);
                 setVisibleCount(12);
               }}
               className={cn(
                 "px-4 py-2 rounded-xl text-[10px] font-black uppercase tracking-widest transition-all whitespace-nowrap",
-                filter === s ? "bg-white text-indigo-600 shadow-md" : "text-slate-400 hover:text-slate-600"
+                filter === s.value ? "bg-white text-indigo-600 shadow-md" : "text-slate-400 hover:text-slate-600"
               )}
             >
-              {s === 'all' ? 'Todos' : s}
+              {s.label}
             </button>
           ))}
         </div>
@@ -170,7 +203,7 @@ export default function MyTicketsPage() {
                     <div className="flex items-center justify-between mb-4">
                       <span className="text-[10px] font-black uppercase tracking-widest text-slate-400">#{ticket.ticketNumber ? String(ticket.ticketNumber).padStart(4, '0') : ticket.id.slice(0, 8)}</span>
                       <span className={cn("px-4 py-1.5 rounded-full text-[9px] font-black uppercase tracking-widest", getStatusColor(ticket.status))}>
-                        {ticket.status}
+                        {getCustomerStatusLabel(ticket.status)}
                       </span>
                     </div>
                     

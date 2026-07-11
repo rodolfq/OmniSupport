@@ -1,9 +1,9 @@
 export enum TicketStatus {
   NEW = 'Novo',
-  IN_PROGRESS = 'Em Andamento',
+  IN_PROGRESS = 'Em Atendimento',
   AWAITING_INTERNAL = 'Aguardando Equipe interna',
   AWAITING_CUSTOMER = 'Aguardando Cliente',
-  CLOSED = 'Concluído'
+  CLOSED = 'Fechado'
 }
 
 /* eslint-disable @typescript-eslint/no-duplicate-enum-values */
@@ -122,7 +122,7 @@ export interface InternalTicket {
   createdAt?: string;
   updatedAt?: string;
   slaLimit?: string | null;
-  status?: "Novo" | "Em Andamento" | "Em Espera" | "Concluído" | "Cancelado";
+  status?: "Novo" | "Em Andamento" | "Em Atendimento" | "Em Espera" | "Pendente" | "Resolvido" | "Concluído" | "Fechado" | "Encerrado" | "Cancelado";
 }
 
 export interface Ticket {
@@ -209,6 +209,7 @@ export interface ChatMessage {
     fileSize?: number;
     gifUrl?: string;
     stickerUrl?: string;
+    attachments?: Attachment[];
   };
   attachments?: Attachment[];
 }
@@ -221,6 +222,8 @@ export interface ChatSession {
   assigneeId?: string;
   queueId?: string;
   status: 'pending' | 'active' | 'closed';
+  ticketId?: string;
+  ticketNumber?: number;
   messages: ChatMessage[];
   startedAt: string;
   lastMessageAt: string;

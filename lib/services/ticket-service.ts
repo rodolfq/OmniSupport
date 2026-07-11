@@ -1,6 +1,7 @@
 import { supabase } from '../supabase';
 import { Ticket, Message, InternalTicket, TicketStatus } from '../types';
 import { Permission } from '../types';
+import { CLOSED_TICKET_STATUSES } from '../ticket-status';
 
 export class TicketService {
   static async getAll(signal?: AbortSignal): Promise<Ticket[]> {
@@ -11,7 +12,7 @@ export class TicketService {
         customer:profiles!tickets_customer_id_fkey(name),
         assignee:profiles!tickets_assignee_id_fkey(name)
       `)
-      .not('status', 'in', '("Fechado","Concluído","Encerrado")')
+      .not('status', 'in', `(${CLOSED_TICKET_STATUSES.map(s => `"${s}"`).join(',')})`)
       .abortSignal(signal as any);
 
     if (error) throw error;

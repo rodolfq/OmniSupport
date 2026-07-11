@@ -4,13 +4,29 @@ import React from 'react';
 import { Volume2 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { useApp } from '@/app/app-context';
+import { UserRole } from '@/lib/types';
+
+const ALL_NOTIFICATION_TOGGLES = [
+  { key: 'ticket_new', label: 'Novos Chamados', audience: 'team' },
+  { key: 'ticket_assigned', label: 'Chamados Atribuídos', audience: 'team' },
+  { key: 'ticket_update', label: 'Atualização de Chamado', audience: 'all' },
+  { key: 'ticket_closed', label: 'Chamado Encerrado', audience: 'all' },
+  { key: 'chat_new', label: 'Nova Conversa WhatsApp', audience: 'team' },
+  { key: 'chat_message', label: 'Novas Mensagens no Chat', audience: 'all' },
+] as const;
+const COMPANY_NOTIFICATION_ORDER = ['chat_message', 'ticket_closed', 'ticket_update'];
 
 export function NotificationSettingsContent() {
   const { 
+    currentUser,
     notificationSettings,
     updateNotificationSettings,
     playSound 
   } = useApp();
+  const isCompanyUser = [UserRole.CUSTOMER, UserRole.EMPLOYEE].includes(currentUser?.role as UserRole);
+  const visibleToggles = ALL_NOTIFICATION_TOGGLES
+    .filter(toggle => !isCompanyUser || toggle.audience === 'all')
+    .sort((a, b) => isCompanyUser ? COMPANY_NOTIFICATION_ORDER.indexOf(a.key) - COMPANY_NOTIFICATION_ORDER.indexOf(b.key) : 0);
 
   return (
     <div className="space-y-8 animate-in fade-in slide-in-from-bottom-4 duration-300">
@@ -83,36 +99,14 @@ export function NotificationSettingsContent() {
           <div className="space-y-4">
              <h4 className="text-[10px] font-black uppercase text-slate-800 tracking-widest px-2">Notificações Ativas</h4>
              <div className="bg-white border border-slate-100 rounded-2xl shadow-sm divide-y divide-slate-100">
-                <NotificationToggle 
-                  label="Novos Chamados" 
-                  active={notificationSettings.ticket_new} 
-                  onChange={(v) => updateNotificationSettings({ ticket_new: v })} 
-                />
-                <NotificationToggle 
-                  label="Chamados Atribuídos" 
-                  active={notificationSettings.ticket_assigned} 
-                  onChange={(v) => updateNotificationSettings({ ticket_assigned: v })} 
-                />
-                <NotificationToggle 
-                  label="Atualização de Chamado" 
-                  active={notificationSettings.ticket_update} 
-                  onChange={(v) => updateNotificationSettings({ ticket_update: v })} 
-                />
-                <NotificationToggle 
-                  label="Chamado Encerrado" 
-                  active={notificationSettings.ticket_closed} 
-                  onChange={(v) => updateNotificationSettings({ ticket_closed: v })} 
-                />
-                <NotificationToggle 
-                  label="Nova Conversa WhatsApp" 
-                  active={notificationSettings.chat_new} 
-                  onChange={(v) => updateNotificationSettings({ chat_new: v })} 
-                />
-                <NotificationToggle 
-                  label="Novas Mensagens no Chat" 
-                  active={notificationSettings.chat_message} 
-                  onChange={(v) => updateNotificationSettings({ chat_message: v })} 
-                />
+                {visibleToggles.map(toggle => (
+                  <NotificationToggle
+                    key={toggle.key}
+                    label={toggle.label}
+                    active={notificationSettings[toggle.key]}
+                    onChange={(v) => updateNotificationSettings({ [toggle.key]: v })}
+                  />
+                ))}
              </div>
           </div>
        </div>

@@ -2,26 +2,39 @@
 
 import React, { useState, Suspense } from 'react';
 import { Sidebar } from '@/components/sidebar';
-import { Search, Bell, HelpCircle, Plus, Check, Clock, Trash2, Ticket, ChevronDown } from 'lucide-react';
+import { Bell, Check, Clock, MessageCircle, Ticket, ChevronDown } from 'lucide-react';
 import { useApp } from '@/app/app-context';
-import { useRouter } from 'next/navigation';
+import { usePathname, useRouter } from 'next/navigation';
 import { NewTicketModal } from '@/components/new-ticket-modal';
 import { ChatWidget } from '@/components/chat-widget';
 import { ForcePasswordChange } from '@/components/force-password-change';
 import { cn } from '@/lib/utils';
 import Link from 'next/link';
-import { UserRole, Permission } from '@/lib/types';
-import { UserService } from '@/lib/services/user-service';
+import { UserRole } from '@/lib/types';
+
+function stripNotificationHtml(value: string) {
+  return value
+    .replace(/<style[\s\S]*?<\/style>/gi, ' ')
+    .replace(/<script[\s\S]*?<\/script>/gi, ' ')
+    .replace(/<[^>]*>/g, ' ')
+    .replace(/&nbsp;/g, ' ')
+    .replace(/&amp;/g, '&')
+    .replace(/&lt;/g, '<')
+    .replace(/&gt;/g, '>')
+    .replace(/&quot;/g, '"')
+    .replace(/&#39;/g, "'")
+    .replace(/\s+/g, ' ')
+    .trim();
+}
 
 export default function PortalLayout({ children }: { children: React.ReactNode }) {
   const router = useRouter();
+  const pathname = usePathname();
   const { 
     currentUser,
     authInitialized,
-    setIsNewTicketModalOpen, 
     notifications, 
     markNotificationRead, 
-    clearNotifications,
     whatsappStatus,
     userStatus,
     userStatusReason,
@@ -45,14 +58,18 @@ export default function PortalLayout({ children }: { children: React.ReactNode }
   // Redirect users without dashboard permission to their default screen
   React.useEffect(() => {
     if (currentUser && authInitialized) {
-      const hasDashboardPerm = [UserRole.ADMIN, UserRole.SUPPORT, UserRole.INTERNAL].includes(currentUser.role as UserRole);
-      if (!hasDashboardPerm) {
+      const isCompanyUser = [UserRole.CUSTOMER, UserRole.EMPLOYEE].includes(currentUser.role as UserRole);
+      const isTeamUser = [UserRole.ADMIN, UserRole.SUPPORT, UserRole.INTERNAL].includes(currentUser.role as UserRole);
+
+      if (isCompanyUser && pathname === '/dashboard') {
         router.replace('/my-tickets');
-      } else if (currentUser.role === UserRole.INTERNAL) {
+      } else if (!isTeamUser && pathname === '/dashboard') {
+        router.replace('/my-tickets');
+      } else if (currentUser.role === UserRole.INTERNAL && pathname === '/dashboard') {
         router.replace('/internal-tickets');
       }
     }
-  }, [currentUser, authInitialized, router]);
+  }, [currentUser, authInitialized, pathname, router]);
 
   if (!mounted) {
     return <div className="min-h-screen bg-slate-50 flex items-center justify-center font-bold text-slate-400">Carregando...</div>;
@@ -66,11 +83,18 @@ export default function PortalLayout({ children }: { children: React.ReactNode }
     return null;
   }
 
-  const unreadCount = notifications.filter(n => !n.read && !n.type.startsWith('chat_')).length;
+  const unreadCount = notifications.filter(n => !n.read).length;
   const isTeam = [UserRole.ADMIN, UserRole.SUPPORT, UserRole.INTERNAL].includes(currentUser.role as UserRole);
-  const userPermissions = UserService.getPermissionsByRole(currentUser.role);
-  const canCreateTickets = userPermissions.includes(Permission.TICKETS_READ) && userPermissions.includes(Permission.TICKETS_WRITE);
-
+  const getNotificationIcon = (type: string) => {
+    if (type.startsWith('chat_')) return <MessageCircle size={14} />;
+    if (type === 'ticket_closed') return <Check size={14} />;
+    return <Ticket size={14} />;
+  };
+  const getNotificationColor = (type: string) => {
+    if (type.startsWith('chat_')) return 'bg-green-100 text-green-600';
+    if (type === 'ticket_closed') return 'bg-emerald-100 text-emerald-600';
+    return 'bg-indigo-100 text-indigo-600';
+  };
   return (
     <div className="flex bg-gray-50 min-h-screen">
       <Sidebar />
@@ -82,23 +106,6 @@ export default function PortalLayout({ children }: { children: React.ReactNode }
             <span className="text-sm text-slate-500 font-medium">Logado como: {currentUser?.name}</span>
           </div>
           <div className="flex items-center gap-6">
-            <div className="relative">
-              <Search className="absolute left-4 top-1/2 -translate-y-1/2 text-slate-400" size={16} />
-              <input 
-                type="text" 
-                placeholder="Buscar ticket ou cliente..." 
-                className="bg-slate-50 border border-slate-200 rounded-full py-2 px-10 text-sm w-80 focus:outline-none focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-500 transition-all"
-              />
-            </div>
-            {canCreateTickets && (
-              <button 
-                onClick={() => setIsNewTicketModalOpen(true)}
-                className="flex items-center gap-2 bg-indigo-600 hover:bg-indigo-700 text-white px-4 py-2 rounded-lg text-sm font-semibold shadow-sm transition-colors cursor-pointer"
-              >
-                <Plus size={16} />
-                Novo Chamado
-              </button>
-            )}
             <div className="flex items-center gap-4 text-slate-400 border-l pl-6 ml-2">
               {isTeam && (
                 <div className="relative">
@@ -211,10 +218,10 @@ export default function PortalLayout({ children }: { children: React.ReactNode }
                     />
                     <div className="absolute right-0 mt-2 w-80 bg-white border border-slate-200 rounded-2xl shadow-2xl z-50 overflow-hidden transform origin-top-right transition-all animate-in fade-in zoom-in-95 duration-200">
                       <div className="p-4 border-b border-slate-100 flex items-center justify-between bg-slate-50/50">
-                        <h3 className="text-[10px] font-black uppercase tracking-widest text-slate-800">Notificações de chamados</h3>
+                        <h3 className="text-[10px] font-black uppercase tracking-widest text-slate-800">Notificações</h3>
                         <button 
                           onClick={() => {
-                            notifications.filter(n => !n.type.startsWith('chat_')).forEach(n => markNotificationRead(n.id));
+                            notifications.forEach(n => markNotificationRead(n.id));
                           }}
                           className="text-[9px] font-black uppercase text-slate-400 hover:text-red-500 transition-all flex items-center gap-1"
                         >
@@ -222,13 +229,13 @@ export default function PortalLayout({ children }: { children: React.ReactNode }
                         </button>
                       </div>
                       <div className="max-h-[400px] overflow-y-auto">
-                        {notifications.filter(n => !n.type.startsWith('chat_')).length === 0 ? (
+                        {notifications.length === 0 ? (
                           <div className="p-10 text-center text-slate-400">
                             <Bell size={32} className="mx-auto mb-3 opacity-20" />
-                            <p className="text-xs font-bold">Nenhuma notificação de ticket</p>
+                            <p className="text-xs font-bold">Nenhuma notificação</p>
                           </div>
                         ) : (
-                          notifications.filter(n => !n.type.startsWith('chat_')).map(notif => (
+                          notifications.map(notif => (
                             <div 
                               key={notif.id}
                               onClick={() => {
@@ -243,13 +250,13 @@ export default function PortalLayout({ children }: { children: React.ReactNode }
                               <div className="flex items-start gap-3">
                                 <div className={cn(
                                   "w-8 h-8 rounded-full flex items-center justify-center shrink-0",
-                                  notif.type === 'ticket_closed' ? "bg-emerald-100 text-emerald-600" : "bg-indigo-100 text-indigo-600"
+                                  getNotificationColor(notif.type)
                                 )}>
-                                  {notif.type === 'ticket_closed' ? <Check size={14} /> : <Ticket size={14} />}
+                                  {getNotificationIcon(notif.type)}
                                 </div>
                                 <div className="min-w-0 flex-1">
                                   <p className="text-[11px] font-bold text-slate-800 truncate">{notif.title}</p>
-                                  <p className="text-[10px] text-slate-500 mt-0.5 line-clamp-2">{notif.message}</p>
+                                  <p className="text-[10px] text-slate-500 mt-0.5 line-clamp-2">{stripNotificationHtml(notif.message)}</p>
                                   <div className="flex items-center gap-1.5 mt-2 text-[9px] text-slate-400 font-medium">
                                     <Clock size={10} />
                                     {new Date(notif.timestamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}

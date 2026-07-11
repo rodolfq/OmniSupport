@@ -3,6 +3,7 @@
 import React, { useState, useEffect, useMemo } from 'react';
 import { Ticket as TicketType, TicketStatus, UserRole, TicketPriority } from '@/lib/types';
 import { fetchAllTickets } from '@/lib/tickets';
+import { isClosedTicketStatus, isInProgressTicketStatus } from '@/lib/ticket-status';
 import { fetchPriorities, fetchStatuses, fetchUsers } from '@/lib/services/config-service';
 import { useApp } from '@/app/app-context';
 import { Plus, Clock, AlertCircle, User } from 'lucide-react';
@@ -29,7 +30,7 @@ export default function DashboardPage() {
     const controller = new AbortController();
     
     async function loadData() {
-      if (currentUser?.role === UserRole.CUSTOMER) {
+      if ([UserRole.CUSTOMER, UserRole.EMPLOYEE].includes(currentUser?.role as UserRole)) {
         router.push('/my-tickets');
         return;
       }
@@ -49,7 +50,7 @@ export default function DashboardPage() {
         
         let tickets = loadedTickets;
         
-        if (currentUser?.role === UserRole.CUSTOMER) {
+        if ([UserRole.CUSTOMER, UserRole.EMPLOYEE].includes(currentUser?.role as UserRole)) {
           tickets = tickets.filter(t => t.companyId === currentUser.companyId);
         }
         
@@ -79,10 +80,12 @@ export default function DashboardPage() {
     return () => controller.abort();
   }, [searchParams, currentUser, refreshTrigger, router]);
 
-  const columns = useMemo(() => statuses.map(s => ({
-    title: s.label,
-    status: s.label
-  })), [statuses]);
+  const columns = useMemo(() => statuses
+    .filter(s => !isClosedTicketStatus(s.label))
+    .map(s => ({
+      title: s.label,
+      status: s.label
+    })), [statuses]);
 
   // ... (rest of component remains same)
 
@@ -92,7 +95,7 @@ export default function DashboardPage() {
     
     // Alertas críticos sempre usam todos os chamados
     const unassigned = allTickets.filter(t => t.status === TicketStatus.NEW && !t.assigneeId).length;
-    const allActive = allTickets.filter(t => t.status !== TicketStatus.CLOSED);
+    const allActive = allTickets.filter(t => !isClosedTicketStatus(t.status));
     
     const overdue = allActive.filter(t => {
       const config = priorities.find(p => p.label === t.priority);
@@ -109,8 +112,8 @@ export default function DashboardPage() {
       return diff > 0 && diff < 4 * 60 * 60 * 1000; // 4 hours
     }).length;
 
-    const inProgress = filteredTickets.filter(t => (t.status as string) === 'Em Andamento').length;
-    const closed = filteredTickets.filter(t => (t.status as string) === 'Concluído').length;
+    const inProgress = filteredTickets.filter(t => isInProgressTicketStatus(t.status)).length;
+    const closed = filteredTickets.filter(t => isClosedTicketStatus(t.status)).length;
     const analystTickets = filteredTickets.filter(t => t.assigneeId === currentUser?.id).length;
 
     return { total, overdue, nearExpiry, inProgress, closed, unassigned, analystTickets };
@@ -167,7 +170,7 @@ export default function DashboardPage() {
       <div className="grid grid-cols-1 md:grid-cols-4 gap-6">
         <StatCard 
           label="Total em Aberto" 
-          value={filteredTickets.filter(t => t.status !== TicketStatus.CLOSED).length} 
+          value={filteredTickets.filter(t => !isClosedTicketStatus(t.status)).length} 
           color="bg-indigo-600" 
           textColor="text-white"
           icon={<AlertCircle size={14} />}
@@ -210,7 +213,7 @@ export default function DashboardPage() {
               title="SLA Vencido" 
               tickets={allTickets.filter(t => {
                 const config = priorities.find(p => p.label === t.priority);
-                if (!config || !config.sla_hours || t.status === TicketStatus.CLOSED) return false;
+                if (!config || !config.sla_hours || isClosedTicketStatus(t.status)) return false;
                 const limit = new Date(new Date(t.createdAt).getTime() + config.sla_hours * 60 * 60 * 1000);
                 return limit < new Date();
               })}
@@ -225,7 +228,7 @@ export default function DashboardPage() {
               title="Próximos do Vencimento" 
               tickets={allTickets.filter(t => {
                 const config = priorities.find(p => p.label === t.priority);
-                if (!config || !config.sla_hours || t.status === TicketStatus.CLOSED) return false;
+                if (!config || !config.sla_hours || isClosedTicketStatus(t.status)) return false;
                 const limit = new Date(new Date(t.createdAt).getTime() + config.sla_hours * 60 * 60 * 1000);
                 const diff = limit.getTime() - new Date().getTime();
                 return diff > 0 && diff < 4 * 60 * 60 * 1000;
@@ -444,8 +447,8 @@ function TicketCard({ ticket, availablePriorities, users, onClick }: { ticket: T
     return new Date(new Date(ticket.createdAt).getTime() + priorityConfig.sla_hours * 60 * 60 * 1000);
   }, [ticket.createdAt, priorityConfig]);
 
-  const isOverdue = slaLimit && slaLimit < now && ticket.status !== TicketStatus.CLOSED;
-  const isNear = slaLimit && !isOverdue && (slaLimit.getTime() - now.getTime() < 4 * 60 * 60 * 1000) && ticket.status !== TicketStatus.CLOSED;
+  const isOverdue = slaLimit && slaLimit < now && !isClosedTicketStatus(ticket.status);
+  const isNear = slaLimit && !isOverdue && (slaLimit.getTime() - now.getTime() < 4 * 60 * 60 * 1000) && !isClosedTicketStatus(ticket.status);
 
   const formatDate = (date: Date) => {
     return date.toLocaleString('pt-BR', { day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' });
@@ -484,7 +487,7 @@ function TicketCard({ ticket, availablePriorities, users, onClick }: { ticket: T
       </div>
       <h3 className="font-bold text-sm text-slate-800 mb-1 line-clamp-2 leading-tight">{ticket.title}</h3>
       
-      {slaLimit && ticket.status !== TicketStatus.CLOSED && (
+      {slaLimit && !isClosedTicketStatus(ticket.status) && (
         <div className={cn(
           "text-[9px] font-black uppercase mb-3 flex items-center gap-1",
           isOverdue ? "text-red-600" : isNear ? "text-orange-600" : "text-slate-400"

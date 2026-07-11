@@ -79,28 +79,24 @@ export function EditEmployeeModal({ isOpen, onClose, user, onSuccess }: { isOpen
     if (!user) return;
     try {
       setLoading(true);
-      const newPassword = Math.random().toString(36).slice(-8); // Generate 8 char password
-      console.log('Resetting password for:', user.email, 'New:', newPassword);
-      
-      // Update password in auth.users via RPC
-      const { data, error: rpcError } = await supabase.rpc('admin_update_user_password', {
-        p_email: user.email,
-        p_password: newPassword
+      console.log('Resetting password for:', user.email);
+
+      const response = await fetch('/api/users/reset-password', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        credentials: 'include',
+        body: JSON.stringify({ userId: user.id })
       });
-      
-      if (rpcError) {
-        throw rpcError;
+
+      const result = await response.json().catch(() => ({}));
+
+      if (!response.ok) {
+        throw new Error(result.error || 'Erro ao reiniciar senha.');
       }
-      
-      // Update profile with mustChangePassword flag
-      const updatedUser = {
-        ...user,
-        mustChangePassword: true
-      };
-      await UserService.save(updatedUser);
-      
-      console.log('Password reset successful. Generated:', newPassword);
-      setGeneratedPassword(newPassword);
+
+      console.log('Password reset successful.');
+      setGeneratedPassword(result.password);
+      if (onSuccess) onSuccess();
     } catch (e: any) {
       console.error('Erro ao reiniciar senha:', e);
       alert('Erro ao reiniciar senha: ' + e.message);

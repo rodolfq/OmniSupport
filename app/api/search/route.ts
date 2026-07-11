@@ -1,5 +1,6 @@
 import { NextResponse } from 'next/server';
 import { query } from '@/lib/db';
+import { CLOSED_TICKET_STATUSES } from '@/lib/ticket-status';
 
 export async function GET(request: Request) {
   const { searchParams } = new URL(request.url);
@@ -31,7 +32,10 @@ export async function GET(request: Request) {
         params.push(status);
         paramCount++;
       } else if (!includeClosed) {
-        sql += ` AND status NOT IN ('Fechado', 'Concluído', 'Encerrado')`;
+        const closedStatusPlaceholders = CLOSED_TICKET_STATUSES.map((_, i) => `$${paramCount + i}`).join(',');
+        sql += ` AND status NOT IN (${closedStatusPlaceholders})`;
+        params.push(...CLOSED_TICKET_STATUSES);
+        paramCount += CLOSED_TICKET_STATUSES.length;
       }
 
       if (priority) {
@@ -92,10 +96,14 @@ export async function GET(request: Request) {
     }
 
     if (action === 'stats') {
+      const closedStatusPlaceholders = CLOSED_TICKET_STATUSES.map((_, i) => `$${i + 1}`).join(',');
       const totalRes = await query('SELECT COUNT(*) FROM public.tickets');
       const openRes = await query("SELECT COUNT(*) FROM public.tickets WHERE status = 'Novo'");
-      const inProgressRes = await query("SELECT COUNT(*) FROM public.tickets WHERE status = 'Em Andamento'");
-      const closedRes = await query("SELECT COUNT(*) FROM public.tickets WHERE status = 'Fechado'");
+      const inProgressRes = await query("SELECT COUNT(*) FROM public.tickets WHERE status IN ('Em Andamento', 'Em Atendimento')");
+      const closedRes = await query(
+        `SELECT COUNT(*) FROM public.tickets WHERE status IN (${closedStatusPlaceholders})`,
+        [...CLOSED_TICKET_STATUSES]
+      );
 
       return NextResponse.json({
         total: parseInt(totalRes.rows[0].count || '0', 10),

@@ -3,7 +3,6 @@
 import React, { useState } from 'react';
 import { motion } from 'motion/react';
 import { Eye, EyeOff, X, AlertCircle, CheckCircle2 } from 'lucide-react';
-import { supabase } from '@/lib/supabase';
 import { useApp } from '@/app/app-context';
 import { toast } from 'sonner';
 
@@ -33,31 +32,29 @@ export function ChangePasswordModal({ isOpen, onClose }: { isOpen: boolean, onCl
     if (!currentUser) return;
     
     setIsLoading(true);
-    // First, update Auth password
-    if (!supabase) {
-      setError('Erro de configuração: Supabase não inicializado.');
-      setIsLoading(false);
-      return;
-    }
 
     try {
-      const { error: authError } = await supabase.auth.updateUser({
-        password: newPassword
+      const response = await fetch('/api/auth/change-password', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        credentials: 'include',
+        body: JSON.stringify({ password: newPassword })
       });
 
-      if (authError) {
-        setError('Erro ao atualizar senha no servidor: ' + authError.message);
+      const result = await response.json().catch(() => ({}));
+
+      if (!response.ok) {
+        setError(result.error || 'Erro ao atualizar senha no servidor.');
         setIsLoading(false);
         return;
       }
 
       const updatedUser = { 
-        ...currentUser, 
-        password: newPassword, 
+        ...currentUser,
+        ...(result.user || {}),
         mustChangePassword: false 
       };
       
-      await supabase.from('profiles').update({ must_change_password: false }).eq('id', currentUser.id);
       setCurrentUser(updatedUser);
       setIsSuccess(true);
       toast.success('Senha alterada com sucesso!');
