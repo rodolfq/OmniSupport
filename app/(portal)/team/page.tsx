@@ -11,8 +11,9 @@ import { motion, AnimatePresence } from 'motion/react';
 import { useApp } from '@/app/app-context';
 import { NotificationSettingsContent } from '@/components/notification-settings';
 import { getUsers, createUser, updateUser, deleteUser, getCompanies } from '@/app/actions';
-import { UserRole, type User } from '@/lib/types';
+import { Permission, UserRole, type User } from '@/lib/types';
 import { toast } from 'sonner';
+import { useRouter } from 'next/navigation';
 
 export default function TeamManagementPage() {
   const [analysts, setAnalysts] = useState<any[]>([]);
@@ -34,7 +35,16 @@ export default function TeamManagementPage() {
   const [companies, setCompanies] = useState<any[]>([]);
   const [isSaving, setIsSaving] = useState(false);
   
-  const { currentUser } = useApp();
+  const { currentUser, authInitialized } = useApp();
+  const router = useRouter();
+  const canViewTeam = currentUser?.role === UserRole.ADMIN ||
+    currentUser?.permissions?.includes(Permission.TEAM_READ) === true;
+
+  useEffect(() => {
+    if (!authInitialized || !currentUser || canViewTeam) return;
+    const isCompanyUser = [UserRole.CUSTOMER, UserRole.EMPLOYEE].includes(currentUser.role as UserRole);
+    router.replace(isCompanyUser ? '/my-tickets' : '/dashboard');
+  }, [authInitialized, currentUser?.id, currentUser?.role, canViewTeam, router]);
 
   const fetchUsers = async () => {
     try {
@@ -50,8 +60,10 @@ export default function TeamManagementPage() {
   };
 
   useEffect(() => {
-    fetchUsers();
-  }, []);
+    if (authInitialized && canViewTeam) {
+      fetchUsers();
+    }
+  }, [authInitialized, canViewTeam]);
 
   const filteredAnalysts = analysts.filter(a => 
     [UserRole.ADMIN, UserRole.SUPPORT, UserRole.INTERNAL, 'Gestor'].includes(a.role) &&
@@ -217,6 +229,10 @@ export default function TeamManagementPage() {
       alert('Não foi possível excluir o usuário. Verifique suas permissões no sistema.');
     }
   };
+
+  if (!authInitialized || !currentUser || !canViewTeam) {
+    return null;
+  }
 
   return (
     <div className="space-y-8">

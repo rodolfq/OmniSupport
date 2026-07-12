@@ -431,15 +431,15 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
   }, []);
 
   const hasPermission = React.useCallback((permission: Permission) => {
-    if (!userRef.current) return false;
-    if (userRef.current.role === UserRole.ADMIN) return true;
-    if (Array.isArray(userRef.current.permissions)) {
-      return userRef.current.permissions.includes(permission);
+    if (!currentUser) return false;
+    if (currentUser.role === UserRole.ADMIN) return true;
+    if (Array.isArray(currentUser.permissions)) {
+      return currentUser.permissions.includes(permission);
     }
-    const roleName = userRef.current.role.toString();
+    const roleName = currentUser.role.toString();
     const perms = UserService.getPermissionsByRole(roleName);
     return perms.includes(permission);
-  }, []);
+  }, [currentUser]);
 
   const userNotifications = React.useMemo(() => 
     notifications.filter(n => n.recipientId === currentUser?.id),

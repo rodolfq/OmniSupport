@@ -2,7 +2,7 @@
 
 import React, { useState, useMemo } from 'react';
 import Link from 'next/link';
-import { usePathname, useRouter, useSearchParams } from 'next/navigation';
+import { usePathname, useRouter } from 'next/navigation';
 import { Permission, UserRole } from '@/lib/types';
 import { UserService } from '@/lib/services/user-service';
 import { 
@@ -13,7 +13,6 @@ import {
    Settings, 
    LogOut, 
    Headset,
-   ChevronRight,
    UserCog,
    Shield,
    MessageSquare,
@@ -40,7 +39,6 @@ import { ChangePasswordModal } from './change-password-modal';
 
 export function Sidebar() {
   const pathname = usePathname();
-  const searchParams = useSearchParams();
   const router = useRouter();
   const { currentUser, setCurrentUser, userStatus, dbStatus } = useApp();
 
@@ -115,8 +113,7 @@ export function Sidebar() {
         icon: Settings, 
         href: '/settings',
         subItems: [
-          { name: 'Meu Perfil', icon: Settings, href: '/settings' },
-          { name: 'Geral do Sistema', icon: Database, href: '/settings?tab=system', permission: Permission.SETTINGS_SYSTEM },
+          { name: 'Configurações', icon: Settings, href: '/settings' },
           { name: 'Equipe', icon: UserCog, href: '/team', permission: Permission.TEAM_READ },
           { name: 'Perfil de Acesso', icon: Shield, href: '/permissions', permission: Permission.SETTINGS_WRITE },
           { name: 'Filas', icon: Library, href: '/queues', permission: Permission.SETTINGS_WRITE },
@@ -208,10 +205,7 @@ export function Sidebar() {
                     // Check sub-item permission
                     if (sub.permission && !userPermissions.includes(sub.permission as Permission)) return null;
 
-                    const [subPath, subQuery] = sub.href?.split('?') || [];
-                    const isSubActive = sub.href
-                      ? pathname === subPath && (subQuery ? searchParams.toString() === subQuery : !searchParams.get('tab'))
-                      : false;
+                    const isSubActive = sub.href ? pathname === sub.href : false;
 
                     if (sub.action) {
                       return (

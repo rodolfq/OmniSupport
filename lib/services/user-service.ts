@@ -82,6 +82,7 @@ export class UserService {
         Permission.INTERNAL_TICKETS_VIEW,
         Permission.INTERNAL_TICKETS_EDIT,
         Permission.OUTSIDE_QUEUE_VIEW,
+        Permission.CHAT_INTERNAL_VIEW,
       ],
       [UserRole.CUSTOMER]: [
         Permission.TICKETS_READ,

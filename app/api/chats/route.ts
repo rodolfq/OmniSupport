@@ -1,5 +1,6 @@
-import { NextResponse } from 'next/server';
+import { NextRequest, NextResponse } from 'next/server';
 import { query } from '@/lib/db';
+import { verifyJWT } from '@/lib/jwt';
 
 function normalizePhone(value?: string | null): string {
   return (value || '').replace(/\D/g, '');
@@ -17,7 +18,7 @@ function phoneLookupVariants(phone?: string | null): string[] {
   return [...variants];
 }
 
-export async function GET(request: Request) {
+export async function GET(request: NextRequest) {
   const { searchParams } = new URL(request.url);
   const action = searchParams.get('action');
 
@@ -116,7 +117,19 @@ export async function GET(request: Request) {
     }
 
     if (action === 'internal-chats') {
-      const res = await query('SELECT * FROM public.internal_chats ORDER BY last_message_at DESC');
+      const token = request.cookies.get('token')?.value;
+      const authenticatedUser = token ? await verifyJWT(token) : null;
+      if (!authenticatedUser?.id) {
+        return NextResponse.json({ error: 'Sessão inválida.' }, { status: 401 });
+      }
+
+      const res = await query(
+        `SELECT *
+         FROM public.internal_chats
+         WHERE $1::uuid = ANY(member_ids)
+         ORDER BY last_message_at DESC`,
+        [authenticatedUser.id]
+      );
       return NextResponse.json(res.rows.map(c => ({
         id: c.id,
         name: c.name,
@@ -137,9 +150,20 @@ export async function GET(request: Request) {
       const chatId = searchParams.get('chatId');
       if (!chatId) return NextResponse.json({ error: 'chatId é obrigatório' }, { status: 400 });
 
+      const token = request.cookies.get('token')?.value;
+      const authenticatedUser = token ? await verifyJWT(token) : null;
+      if (!authenticatedUser?.id) {
+        return NextResponse.json({ error: 'Sessão inválida.' }, { status: 401 });
+      }
+
       const res = await query(
-        'SELECT * FROM public.internal_chat_messages WHERE chat_id = $1 ORDER BY created_at ASC',
-        [chatId]
+        `SELECT m.*
+         FROM public.internal_chat_messages m
+         JOIN public.internal_chats c ON c.id = m.chat_id
+         WHERE m.chat_id = $1
+           AND $2::uuid = ANY(c.member_ids)
+         ORDER BY m.created_at ASC`,
+        [chatId, authenticatedUser.id]
       );
       return NextResponse.json(res.rows.map(m => ({
         id: m.id,

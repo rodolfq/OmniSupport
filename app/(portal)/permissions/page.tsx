@@ -45,6 +45,13 @@ const permissionGroups = [
     ]
   },
   {
+    id: 'communication',
+    title: 'Comunicação',
+    permissions: [
+      { id: Permission.CHAT_INTERNAL_VIEW, label: 'Acessar chat interno', desc: 'Permite visualizar e participar das conversas internas da equipe' },
+    ]
+  },
+  {
     id: 'admin',
     title: 'Equipe & Administração',
     permissions: [

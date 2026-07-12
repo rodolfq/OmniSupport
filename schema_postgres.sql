@@ -449,7 +449,7 @@ INSERT INTO public.role_permissions (name, role, permissions) VALUES
     'reports:read',
     'internal:view', 'internal:edit',
     'tickets:outside_queue',
-    'dashboard:view'
+    'dashboard:view', 'chat:internal'
   ]::TEXT[]),
   ('Equipe', 'Equipe', ARRAY[
     'tickets:read', 'tickets:write', 'tickets:assign',
@@ -458,14 +458,14 @@ INSERT INTO public.role_permissions (name, role, permissions) VALUES
     'reports:read',
     'internal:view', 'internal:edit',
     'tickets:outside_queue',
-    'dashboard:view'
+    'dashboard:view', 'chat:internal'
   ]::TEXT[]),
   ('Cliente', 'Cliente', ARRAY[
     'tickets:read', 'tickets:write', 'customers:read'
   ]::TEXT[]),
   ('Funcionário', 'Funcionário', ARRAY[]::TEXT[]),
   ('Time Interno', 'Time Interno', ARRAY[
-    'internal:view', 'internal:edit'
+    'internal:view', 'internal:edit', 'chat:internal'
   ]::TEXT[])
 ON CONFLICT (name) DO NOTHING;
 

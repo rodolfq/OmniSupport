@@ -32,7 +32,8 @@ import {
   UserCircle,
   EyeOff,
   Clock,
-  Eye
+  Eye,
+  Loader2
 } from 'lucide-react';
 import { cn, normalizeString } from '@/lib/utils';
 import { useApp } from '@/app/app-context';
@@ -40,7 +41,6 @@ import { InternalGroup, ChatMessage, User, UserRole, Permission } from '@/lib/ty
 import { supabase } from '@/lib/supabase';
 import { ClientTime } from '@/components/client-time';
 import { InternalChatService } from '@/lib/services/chat-service';
-import { UserService } from '@/lib/services/user-service';
 import { useRouter } from 'next/navigation';
 import { motion, AnimatePresence } from 'motion/react';
 import EmojiPicker, { Theme as EmojiTheme } from 'emoji-picker-react';
@@ -64,6 +64,23 @@ const STICKERS = [
   { name: 'Angry', url: 'https://fonts.gstatic.com/s/e/notoemoji/latest/1f621/512.gif' },
   { name: 'Surprised', url: 'https://fonts.gstatic.com/s/e/notoemoji/latest/1f632/512.gif' },
 ];
+
+const preloadAvatars = (users: User[]) => Promise.all(
+  users
+    .map(user => user.avatarUrl)
+    .filter((url): url is string => Boolean(url))
+    .map(url => new Promise<void>(resolve => {
+      const image = new Image();
+      const timeout = window.setTimeout(resolve, 8000);
+      const finish = () => {
+        window.clearTimeout(timeout);
+        resolve();
+      };
+      image.onload = finish;
+      image.onerror = finish;
+      image.src = url;
+    }))
+);
 
 const getCroppedImg = (imageSrc: string, pixelCrop: Area): Promise<string> => {
   return new Promise((resolve, reject) => {
@@ -96,7 +113,7 @@ const getCroppedImg = (imageSrc: string, pixelCrop: Area): Promise<string> => {
 };
 
 export default function ChatInternalPage() {
-   const { currentUser, setCurrentUser } = useApp();
+   const { currentUser, setCurrentUser, authInitialized } = useApp();
    const router = useRouter();
   const [rooms, setRooms] = useState<InternalGroup[]>([]);
   const [selectedRoomId, setSelectedRoomId] = useState<string | null>(null);
@@ -128,6 +145,7 @@ export default function ChatInternalPage() {
   const [croppedAreaPixels, setCroppedAreaPixels] = useState<Area | null>(null);
   const [replyingToId, setReplyingToId] = useState<string | null>(null);
   const [showPinnedOnly, setShowPinnedOnly] = useState(false);
+  const [isChatReady, setIsChatReady] = useState(false);
 
   const stickerInputRef = useRef<HTMLInputElement>(null);
 
@@ -136,27 +154,46 @@ export default function ChatInternalPage() {
   const messagesEndRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
-    if (!currentUser) return;
+    if (!authInitialized || !currentUser) return;
     const canViewInternalChat = currentUser.role === UserRole.ADMIN ||
-      UserService.getPermissionsByRole(currentUser.role).includes(Permission.CHAT_INTERNAL_VIEW);
+      currentUser.permissions?.includes(Permission.CHAT_INTERNAL_VIEW) === true;
     if (!canViewInternalChat) {
-      router.push('/internal-tickets');
+      router.replace('/internal-tickets');
       return;
     }
-    loadRooms();
-    const loadUsers = async () => {
-      const { data } = await supabase
-        .from('profiles')
-        .select('id, name, email, avatar_url, role, status, status_reason')
-        .or('role.eq.Equipe,role.eq.Administrador,role.eq.Time Interno');
-      setAllUsers((data || []).map((user: any) => ({
-        ...user,
-        avatarUrl: user.avatar_url,
-        statusReason: user.status_reason
-      })));
+    let isActive = true;
+    setIsChatReady(false);
+
+    const initializeChat = async () => {
+      try {
+        const [, { data }] = await Promise.all([
+          loadRooms(),
+          supabase
+            .from('profiles')
+            .select('id, name, email, avatar_url, role, status, status_reason')
+            .or('role.eq.Equipe,role.eq.Administrador,role.eq.Time Interno')
+        ]);
+        const users = (data || []).map((user: any) => ({
+          ...user,
+          avatarUrl: user.avatar_url,
+          statusReason: user.status_reason
+        })) as User[];
+
+        await preloadAvatars(users);
+        if (!isActive) return;
+        setAllUsers(users);
+      } catch (error) {
+        console.error('Error initializing internal chat:', error);
+      } finally {
+        if (isActive) setIsChatReady(true);
+      }
     };
-    loadUsers();
-  }, [currentUser?.id, currentUser?.role, router]);
+
+    initializeChat();
+    return () => {
+      isActive = false;
+    };
+  }, [authInitialized, currentUser?.id, currentUser?.role, currentUser?.permissions, router]);
 
   const selectedRoom = rooms.find(r => r.id === selectedRoomId);
 
@@ -222,10 +259,22 @@ export default function ChatInternalPage() {
 
   const generateId = () => Math.random().toString(36).substring(2, 11) + Date.now().toString(36);
 
+  const isDirectChatWith = (room: InternalGroup, userId: string) => {
+    if (!currentUser || room.type !== 'direct' || !room.memberIds?.length) return false;
+    if (userId === currentUser.id) {
+      return room.memberIds.every(memberId => memberId === currentUser.id);
+    }
+
+    const uniqueMemberIds = new Set(room.memberIds);
+    return uniqueMemberIds.size === 2 &&
+      uniqueMemberIds.has(currentUser.id) &&
+      uniqueMemberIds.has(userId);
+  };
+
   const startDirectChat = (user: User) => {
     if (!currentUser) return;
     // Check if direct chat already exists
-    const existing = rooms.find(r => r.type === 'direct' && r.memberIds?.includes(user.id) && r.memberIds?.includes(currentUser.id));
+    const existing = rooms.find(room => isDirectChatWith(room, user.id));
     if (existing) {
       setSelectedRoomId(existing.id);
     } else {
@@ -613,6 +662,10 @@ export default function ChatInternalPage() {
 
   const getDirectChatUser = (room: InternalGroup) => {
     if (room.type !== 'direct') return undefined;
+    const isSelfChat = Boolean(currentUser) && room.memberIds.length > 0 &&
+      room.memberIds.every(memberId => memberId === currentUser.id);
+    if (isSelfChat) return currentUser || undefined;
+
     const participantId = room.memberIds.find(id => id !== currentUser?.id) || room.memberIds[0];
     return allUsers.find(user => user.id === participantId) ||
       (participantId === currentUser?.id ? currentUser : undefined);
@@ -620,8 +673,19 @@ export default function ChatInternalPage() {
 
   const filteredUsers = allUsers.filter(u => 
     normalizeString(u.name).includes(normalizeString(searchTerm)) &&
-    !rooms.some(r => r.type === 'direct' && r.memberIds.includes(u.id))
+    !rooms.some(room => isDirectChatWith(room, u.id))
   );
+
+  if (!isChatReady) {
+    return (
+      <div className="h-[calc(100vh-120px)] flex items-center justify-center bg-white rounded-3xl border border-slate-200 shadow-2xl">
+        <div className="flex flex-col items-center gap-3 text-slate-500">
+          <Loader2 size={28} className="animate-spin text-indigo-600" />
+          <span className="text-sm font-bold">Carregando conversas...</span>
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div className="h-[calc(100vh-120px)] flex bg-white rounded-3xl border border-slate-200 overflow-hidden shadow-2xl">
