@@ -4,7 +4,9 @@ import { normalizePhone } from '../utils';
 export class ChatService {
   static async getSessions(): Promise<ChatSession[]> {
     const res = await fetch('/api/chats?action=sessions');
-    return res.json();
+    if (!res.ok) throw new Error('Error fetching chat sessions via API');
+    const data = await res.json();
+    return Array.isArray(data) ? data : [];
   }
 
   static async save(session: ChatSession): Promise<void> {
@@ -160,7 +162,8 @@ export async function findExistingChatSessionByPhone(phone: string): Promise<str
 
 export async function fetchChatSessions(signal?: AbortSignal): Promise<ChatSession[]> {
   try {
-    return await ChatService.getSessions();
+    const sessions = await ChatService.getSessions();
+    return Array.isArray(sessions) ? sessions : [];
   } catch (err) {
     console.error("Error fetching chat sessions:", err);
     return [];

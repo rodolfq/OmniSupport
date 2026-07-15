@@ -319,7 +319,7 @@ function HistoryList({ history, isAdmin, getUserName, getStatusIcon, formatDurat
                     )}
                   </div>
                   <p className="text-[10px] text-slate-400 font-medium mt-0.5">
-                    {format(new Date(entry.timestamp), "dd/MM 'Ã s' HH:mm", { locale: ptBR })}
+                    {format(new Date(entry.timestamp), "dd/MM 'às' HH:mm", { locale: ptBR })}
                   </p>
                 </div>
               </div>

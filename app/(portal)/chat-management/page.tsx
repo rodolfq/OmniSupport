@@ -622,7 +622,7 @@ const handleDeleteNote = async () => {
                     <th className="px-8 py-4 text-[9px] font-black uppercase text-slate-400 tracking-widest">Data/Hora</th>
                     <th className="px-8 py-4 text-[9px] font-black uppercase text-slate-400 tracking-widest">Cliente</th>
                     <th className="px-8 py-4 text-[9px] font-black uppercase text-slate-400 tracking-widest">Analista</th>
-                    <th className="px-8 py-4 text-[9px] font-black uppercase text-slate-400 tracking-widest">Ãšltima Mensagem</th>
+                    <th className="px-8 py-4 text-[9px] font-black uppercase text-slate-400 tracking-widest">Última Mensagem</th>
                     <th className="px-8 py-4 text-[9px] font-black uppercase text-slate-400 tracking-widest text-right">Ações</th>
                   </tr>
                 </thead>

@@ -10,9 +10,9 @@ import { toast } from 'sonner';
 
 const TAG_COLORS = [
   { bg: 'bg-slate-100', text: 'text-slate-700', label: 'Cinza' },
-  { bg: 'bg-indigo-100', text: 'text-indigo-700', label: 'Ã ndigo' },
+  { bg: 'bg-indigo-100', text: 'text-indigo-700', label: 'Índigo' },
   { bg: 'bg-emerald-100', text: 'text-emerald-700', label: 'Esmeralda' },
-  { bg: 'bg-amber-100', text: 'text-amber-700', label: 'Ã‚mbar' },
+  { bg: 'bg-amber-100', text: 'text-amber-700', label: 'Âmbar' },
   { bg: 'bg-rose-100', text: 'text-rose-700', label: 'Rosa' },
   { bg: 'bg-cyan-100', text: 'text-cyan-700', label: 'Ciano' },
   { bg: 'bg-violet-100', text: 'text-violet-700', label: 'Violeta' },

@@ -1064,7 +1064,7 @@ useEffect(() => {
                                   {company && (
                                     <p className="text-[9px] text-indigo-600 font-bold uppercase tracking-widest">{company.name}</p>
                                   )}
-                                  <p className="text-[10px] text-slate-400 font-medium">{s.status === 'pending' ? 'Ÿ¡ Aguardando' : 'Ÿ¢ Em curso'}</p>
+                                  <p className="text-[10px] text-slate-400 font-medium">{s.status === 'pending' ? '🟡 Aguardando' : '🟢 Em curso'}</p>
                                 </div>
                               </div>
                             </button>
