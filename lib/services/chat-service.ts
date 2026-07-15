@@ -4,7 +4,10 @@ import { normalizePhone } from '../utils';
 export class ChatService {
   static async getSessions(): Promise<ChatSession[]> {
     const res = await fetch('/api/chats?action=sessions');
-    if (!res.ok) throw new Error('Error fetching chat sessions via API');
+    if (!res.ok) {
+      const body = await res.json().catch(() => ({}));
+      throw new Error(`Error fetching chat sessions via API (status ${res.status}): ${body.error || res.statusText}`);
+    }
     const data = await res.json();
     return Array.isArray(data) ? data : [];
   }

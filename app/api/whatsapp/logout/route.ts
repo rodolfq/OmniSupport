@@ -1,14 +1,14 @@
 import { NextResponse } from 'next/server';
-import { whatsappManager } from '@/lib/whatsapp-manager';
+import { WhatsAppService } from '@/lib/services/whatsapp-service';
 
 export async function POST(req: Request) {
   try {
-    const { sessionId } = await req.json();
-    if (!sessionId) {
-      return NextResponse.json({ error: 'Session ID is required' }, { status: 400 });
+    const { instanceId } = await req.json();
+    if (!instanceId) {
+      return NextResponse.json({ error: 'instanceId is required' }, { status: 400 });
     }
 
-    await whatsappManager.logout(sessionId);
+    await WhatsAppService.disconnect(instanceId);
     return NextResponse.json({ success: true });
   } catch (error: any) {
     console.error('WhatsApp Logout Error:', error);

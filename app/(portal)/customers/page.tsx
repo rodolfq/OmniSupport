@@ -344,8 +344,12 @@ if (isCompanyPortalUser) {
                     </div>
                     
                     <div className="flex items-center gap-4 mb-6">
-                      <div className="w-14 h-14 rounded-xl bg-slate-100 flex items-center justify-center text-slate-400 group-hover:bg-indigo-50 group-hover:text-indigo-600 transition-colors">
-                        <UserIcon size={28} />
+                      <div className="w-14 h-14 rounded-xl bg-slate-100 flex items-center justify-center text-slate-400 group-hover:bg-indigo-50 group-hover:text-indigo-600 transition-colors overflow-hidden">
+                        {employee.avatarUrl ? (
+                          <img src={employee.avatarUrl} alt={employee.name} className="w-full h-full object-cover" />
+                        ) : (
+                          <UserIcon size={28} />
+                        )}
                       </div>
                       <div>
                         <p className="font-black text-lg text-slate-800 tracking-tight">{employee.name}</p>

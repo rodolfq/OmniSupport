@@ -24,9 +24,23 @@ export async function GET(request: NextRequest) {
 
   try {
     if (action === 'sessions') {
-      // Obter todas as sessões e suas respectivas mensagens
-      const sessionsRes = await query('SELECT * FROM public.chat_sessions ORDER BY COALESCE(last_message_at, updated_at, created_at) DESC');
-      const messagesRes = await query('SELECT * FROM public.chat_messages ORDER BY created_at ASC');
+      // Obter todas as sessões e suas respectivas mensagens.
+      // Sessões cujo "telefone" tem mais dígitos do que um número real (E.164, até 15)
+      // são resquícios de mensagens de grupo/broadcast processadas por engano no passado.
+      const sessionsRes = await query(
+        `SELECT * FROM public.chat_sessions
+         WHERE customer_phone IS NULL OR length(regexp_replace(customer_phone, '\\D', '', 'g')) <= 15
+         ORDER BY COALESCE(last_message_at, updated_at, created_at) DESC`
+      );
+      // Conversas fechadas já têm o histórico salvo em chat_histories (texto) e não
+      // aparecem na fila/lista ativa — não há motivo para reenviar seus anexos (áudio/
+      // imagem em base64) a cada polling do widget de chat.
+      const messagesRes = await query(
+        `SELECT m.* FROM public.chat_messages m
+         JOIN public.chat_sessions s ON s.id = m.session_id
+         WHERE s.status != 'closed'
+         ORDER BY m.created_at ASC`
+      );
       
       const messagesBySession = new Map<string, any[]>();
       messagesRes.rows.forEach(m => {
@@ -180,7 +194,13 @@ export async function GET(request: NextRequest) {
 
     return NextResponse.json({ error: 'Action não suportada.' }, { status: 400 });
   } catch (error: any) {
-    console.error('Error in chats GET:', error);
+    console.error('Error in chats GET:', {
+      action,
+      message: error?.message,
+      code: error?.code,
+      detail: error?.detail,
+      stack: error?.stack
+    });
     return NextResponse.json({ error: error.message }, { status: 500 });
   }
 }
@@ -289,9 +309,10 @@ export async function POST(request: Request) {
 
     if (action === 'push-message') {
       const { sessionId, message } = body;
+      const metadata = { ...(message.metadata || {}), attachments: message.attachments || message.metadata?.attachments || [] };
       await query(
         `INSERT INTO public.chat_messages (id, session_id, sender_id, sender_name, text, type, metadata, created_at)
-         VALUES ($1, $2, $3, $4, $5, $6, $7, $8)`,
+         VALUES ($1, $2, $3, $4, $5, $6, $7::jsonb, $8)`,
         [
           message.id,
           sessionId,
@@ -299,7 +320,7 @@ export async function POST(request: Request) {
           message.senderName || null,
           message.text,
           message.type || 'text',
-          { ...(message.metadata || {}), attachments: message.attachments || message.metadata?.attachments || [] },
+          JSON.stringify(metadata),
           message.timestamp
         ]
       );
@@ -409,16 +430,17 @@ export async function POST(request: Request) {
 
     if (action === 'save-internal-message') {
       const { chatId, message } = body;
+      const internalMetadata = { ...message.metadata, attachments: message.attachments || [] };
       await query(
         `INSERT INTO public.internal_chat_messages (chat_id, sender_id, sender_name, text, type, metadata, created_at)
-         VALUES ($1, $2, $3, $4, $5, $6, $7)`,
+         VALUES ($1, $2, $3, $4, $5, $6::jsonb, $7)`,
         [
           chatId,
           message.senderId || null,
           message.senderName || null,
           message.text,
           message.type || 'text',
-          { ...message.metadata, attachments: message.attachments || [] },
+          JSON.stringify(internalMetadata),
           message.timestamp || new Date().toISOString()
         ]
       );

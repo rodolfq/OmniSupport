@@ -1,15 +1,20 @@
-import { makeWASocket, fetchLatestBaileysVersion, DisconnectReason, BufferJSON } from '@whiskeysockets/baileys';
+import { makeWASocket, fetchLatestBaileysVersion, DisconnectReason, BufferJSON, downloadContentFromMessage } from '@whiskeysockets/baileys';
 import pino from 'pino';
 import { Boom } from '@hapi/boom';
 import QRCode from 'qrcode';
+import { v4 as uuidv4 } from 'uuid';
 import { normalizePhone } from '../utils';
 import { useSupabaseAuthState, sessionDataCache } from '../supabase-auth';
-import { query } from '../db';
+import { whatsappQuery as query } from '../whatsapp-db';
+import { Attachment } from '../types';
 
-const log = pino({ level: 'silent' });
+const log = pino({ level: (process.env.WHATSAPP_LOG_LEVEL as any) || 'warn' });
 
 const MAX_RECONNECT_ATTEMPTS = 5;
 const CONNECTING_STALE_MS = 45000;
+const MAX_INCOMING_MEDIA_BYTES = 8 * 1024 * 1024; // mesmo limite usado para anexos enviados pelo agente
+const SEND_RETRY_ATTEMPTS = 3;
+const MAX_CONTACT_PHOTO_BYTES = 2 * 1024 * 1024;
 
 interface WhatsAppInstance {
   sock: any;
@@ -152,9 +157,9 @@ async function findChatSessionByPhone(jid: string, instanceId = 'default') {
 
   const placeHolders = variants.map((_, i) => `$${i + 1}`).join(',');
   const res = await query(
-    `SELECT id, customer_phone, updated_at 
-     FROM public.chat_sessions 
-     WHERE customer_phone IN (${placeHolders}) 
+    `SELECT id, customer_phone, customer_id, customer_name, updated_at
+     FROM public.chat_sessions
+     WHERE customer_phone IN (${placeHolders})
      ORDER BY updated_at DESC`,
     variants
   );
@@ -166,6 +171,36 @@ async function findChatSessionByPhone(jid: string, instanceId = 'default') {
   );
 
   return dialable || res.rows[0];
+}
+
+async function findOrCreateChatSession(jid: string, pushName: string | undefined, instanceId = 'default') {
+  const existing = await findChatSessionByPhone(jid, instanceId);
+  if (existing) return existing;
+
+  const digits = normalizePhone(jid.split('@')[0] || jid);
+  if (!digits) return null;
+
+  const profileVariants = phoneLookupVariants(jid, instanceId);
+  let profile: { id: string; name: string } | undefined;
+  if (profileVariants.length) {
+    const placeHolders = profileVariants.map((_, i) => `$${i + 1}`).join(',');
+    const profileRes = await query(
+      `SELECT id, name FROM public.profiles WHERE phone IN (${placeHolders}) LIMIT 1`,
+      profileVariants
+    );
+    profile = profileRes.rows[0];
+  }
+
+  const customerName = profile?.name || pushName || 'Contato WhatsApp';
+
+  const insertRes = await query(
+    `INSERT INTO public.chat_sessions (customer_id, customer_name, customer_phone, status, created_at, updated_at)
+     VALUES ($1, $2, $3, 'pending', NOW(), NOW())
+     RETURNING id, customer_phone, customer_id, customer_name, updated_at`,
+    [profile?.id || null, customerName, digits]
+  );
+
+  return insertRes.rows[0] || null;
 }
 
 export class WhatsAppService {
@@ -235,24 +270,24 @@ export class WhatsAppService {
       return !!sessionData?.creds?.noiseKey;
     }
     const res = await query('SELECT data FROM public.whatsapp_sessions WHERE id = $1', [instanceId]);
-    return !!res.rows[0]?.data?.creds?.noiseKey;
+    return !!res.rows[0]?.data?.noiseKey;
   }
 
   private static async hasInvalidCredentials(instanceId: string): Promise<boolean> {
-    let sessionData = sessionDataCache.get(instanceId);
-    if (!sessionData) {
+    let creds = sessionDataCache.get(instanceId)?.creds;
+    if (!creds) {
       const res = await query('SELECT data FROM public.whatsapp_sessions WHERE id = $1', [instanceId]);
       if (res.rows[0]?.data) {
-        sessionData = JSON.parse(JSON.stringify(res.rows[0].data), BufferJSON.reviver);
+        creds = JSON.parse(JSON.stringify(res.rows[0].data), BufferJSON.reviver);
       }
     }
-    if (!sessionData) return false;
-    return sessionData.creds?.registered === false && !!sessionData.creds?.me;
+    if (!creds) return false;
+    return creds.registered === false && !!creds.me;
   }
 
   private static async clearLocalAuth(instanceId: string): Promise<void> {
     sessionDataCache.delete(instanceId);
-    await query('DELETE FROM public.whatsapp_sessions WHERE id = $1', [instanceId]);
+    await query('DELETE FROM public.whatsapp_sessions WHERE id = $1 OR id LIKE $2', [instanceId, `${instanceId}:%`]);
   }
 
   static async ensureConnection(instanceId: string): Promise<void> {
@@ -329,6 +364,16 @@ export class WhatsAppService {
         auth: authState,
         logger: log,
         browser: ['OmniSupport', 'Desktop', '1.0.0'],
+        connectTimeoutMs: 60000,
+        defaultQueryTimeoutMs: 60000,
+        keepAliveIntervalMs: 30000,
+        retryRequestDelayMs: 5000,
+        syncFullHistory: false,
+        emitOwnEvents: false,
+        markOnlineOnConnect: true,
+        generateHighQualityLinkPreview: false,
+        linkPreviewImageThumbnailWidth: 100,
+        shouldIgnoreJid: (jid) => jid.includes('broadcast') || jid.includes('newsletter') || jid.endsWith('@g.us'),
       });
 
       state.instances.set(instanceId, {
@@ -355,14 +400,19 @@ export class WhatsAppService {
             }
             await query(
               `INSERT INTO public.whatsapp_sessions (id, data, updated_at)
-               VALUES ($1, $2, NOW())
+               VALUES ($1, $2::jsonb, NOW())
                ON CONFLICT (id) DO UPDATE SET
                  data = EXCLUDED.data,
                  updated_at = NOW()`,
-              [instanceId, { qr: qrDataUrl }]
+              [`${instanceId}:qr`, JSON.stringify({ qr: qrDataUrl })]
             );
-          } catch (e) {
-            console.error('QR generation error:', e);
+          } catch (e: any) {
+            console.error(`[WhatsApp:${instanceId}] QR generation/persist error:`, {
+              message: e?.message,
+              code: e?.code,
+              detail: e?.detail,
+              stack: e?.stack
+            });
           }
         }
 
@@ -457,9 +507,85 @@ export class WhatsAppService {
     return this.getStatus(instanceId).qr;
   }
 
+  private static profilePictureCache = new Map<string, { url: string | null; expiresAt: number }>();
+  private static readonly PROFILE_PICTURE_TTL_MS = 60 * 60 * 1000;
+
+  static async getProfilePicture(instanceId: string, phone: string): Promise<string | null> {
+    // Já persistida no banco? Não precisamos consultar o WhatsApp de novo.
+    const stored = await query(
+      'SELECT photo_url FROM public.whatsapp_contact_photos WHERE instance_id = $1 AND phone = $2',
+      [instanceId, phone]
+    );
+    if (stored.rows[0]?.photo_url) {
+      return stored.rows[0].photo_url;
+    }
+
+    const cacheKey = `${instanceId}:${phone}`;
+    const cached = this.profilePictureCache.get(cacheKey);
+    if (cached && cached.expiresAt > Date.now()) {
+      return cached.url;
+    }
+
+    const inst = getState().instances.get(instanceId);
+    let url: string | null = null;
+
+    if (inst && this.isInstanceReady(inst)) {
+      // O mesmo número pode existir em variantes (com/sem 9º dígito, com/sem DDI)
+      // no JID real do WhatsApp; tentamos todas antes de desistir.
+      const candidates = phoneLookupVariants(phone, instanceId);
+      for (const candidate of candidates.length ? candidates : [phone]) {
+        try {
+          const jid = buildRecipientJid(candidate);
+          const waUrl = await inst.sock.profilePictureUrl(jid, 'image');
+          if (waUrl) {
+            url = await this.downloadAndPersistContactPhoto(instanceId, phone, waUrl);
+            if (url) break;
+          }
+        } catch {
+          // tenta a próxima variante
+        }
+      }
+    }
+
+    this.profilePictureCache.set(cacheKey, { url, expiresAt: Date.now() + this.PROFILE_PICTURE_TTL_MS });
+    return url;
+  }
+
+  private static async downloadAndPersistContactPhoto(instanceId: string, phone: string, waUrl: string): Promise<string | null> {
+    try {
+      const res = await fetch(waUrl);
+      if (!res.ok) return null;
+
+      const arrayBuffer = await res.arrayBuffer();
+      if (arrayBuffer.byteLength > MAX_CONTACT_PHOTO_BYTES) return null;
+
+      const contentType = res.headers.get('content-type') || 'image/jpeg';
+      const dataUrl = `data:${contentType};base64,${Buffer.from(arrayBuffer).toString('base64')}`;
+
+      await query(
+        `INSERT INTO public.whatsapp_contact_photos (instance_id, phone, photo_url, updated_at)
+         VALUES ($1, $2, $3, NOW())
+         ON CONFLICT (instance_id, phone) DO UPDATE SET
+           photo_url = EXCLUDED.photo_url,
+           updated_at = NOW()`,
+        [instanceId, phone, dataUrl]
+      );
+
+      return dataUrl;
+    } catch (e: any) {
+      console.error(`[WhatsApp:${instanceId}] Falha ao baixar/persistir foto de perfil para ${phone}:`, {
+        message: e?.message,
+        code: e?.code,
+        detail: e?.detail,
+        stack: e?.stack
+      });
+      return null;
+    }
+  }
+
   private static async clearStoredSession(instanceId: string): Promise<void> {
     try {
-      await query('DELETE FROM public.whatsapp_sessions WHERE id = $1', [instanceId]);
+      await query('DELETE FROM public.whatsapp_sessions WHERE id = $1 OR id LIKE $2', [instanceId, `${instanceId}:%`]);
     } catch (e) {
       console.error(`[WhatsApp:${instanceId}] Error clearing stored session:`, e);
     }
@@ -484,44 +610,139 @@ export class WhatsAppService {
   }
 
   static async sendMessage(instanceId: string, to: string, message: string): Promise<void> {
-    await this.waitUntilConnected(instanceId);
-
-    const inst = getState().instances.get(instanceId);
-    if (!inst || !this.isInstanceReady(inst)) {
-      throw new Error('WhatsApp instance not connected');
-    }
-
     const jid = buildRecipientJid(to);
+    let lastError: any;
 
-    try {
-      await inst.sock.sendMessage(jid, { text: message });
-    } catch (error) {
-      console.error(`[WhatsApp:${instanceId}] Send failed to ${jid}:`, error);
-      getState().instances.delete(instanceId);
-      throw error;
+    for (let attempt = 1; attempt <= SEND_RETRY_ATTEMPTS; attempt++) {
+      try {
+        await this.waitUntilConnected(instanceId);
+
+        const inst = getState().instances.get(instanceId);
+        if (!inst || !this.isInstanceReady(inst)) {
+          const state = getState();
+          const snapshot = inst
+            ? { status: inst.status, hasQr: !!inst.qr, connectingSince: inst.connectingSince }
+            : { status: 'no-instance-in-memory', reconnecting: state.reconnectTimers.has(instanceId) };
+          throw new Error(`WhatsApp instance not connected (${JSON.stringify(snapshot)})`);
+        }
+
+        await inst.sock.sendMessage(jid, { text: message });
+        return;
+      } catch (error: any) {
+        lastError = error;
+        console.error(`[WhatsApp:${instanceId}] Send attempt ${attempt}/${SEND_RETRY_ATTEMPTS} failed to ${jid}:`, {
+          message: error?.message,
+          name: error?.name,
+          code: error?.code,
+          statusCode: error?.output?.statusCode,
+          stack: error?.stack
+        });
+        getState().instances.delete(instanceId);
+        if (attempt < SEND_RETRY_ATTEMPTS) {
+          await new Promise((resolve) => setTimeout(resolve, 1000 * attempt));
+        }
+      }
     }
+
+    console.error(`[WhatsApp:${instanceId}] Giving up sending to ${jid} after ${SEND_RETRY_ATTEMPTS} attempts:`, lastError?.message || lastError);
+    throw lastError;
   }
 
   private static async handleIncomingMessage(m: any, instanceId: string) {
     if (m.type && m.type !== 'notify') return;
 
-    const msg = m.messages[0];
-    if (!msg || msg.key.fromMe) return;
+    for (const msg of m.messages || []) {
+      try {
+        await this.processIncomingMessage(msg, instanceId);
+      } catch (e) {
+        console.error(`[WhatsApp:${instanceId}] Error processing message ${msg?.key?.id}:`, e);
+      }
+    }
+  }
+
+  private static async downloadIncomingMedia(message: any, type: string): Promise<Attachment | null> {
+    const mediaMessage = message[type];
+    if (!mediaMessage) return null;
+
+    const stream = await downloadContentFromMessage(mediaMessage, type.replace('Message', '') as any);
+    let buffer = Buffer.from([]);
+    for await (const chunk of stream) {
+      buffer = Buffer.concat([buffer, chunk]);
+      if (buffer.length > MAX_INCOMING_MEDIA_BYTES) {
+        console.warn(`[WhatsApp] Mídia recebida excede ${MAX_INCOMING_MEDIA_BYTES} bytes, descartando conteúdo (mantendo apenas o texto).`);
+        return null;
+      }
+    }
+
+    // O WhatsApp reporta mimetypes com parâmetros de codec (ex.: "audio/ogg; codecs=opus"),
+    // com espaço após o ";". Usar isso cru como extensão de arquivo ou dentro de uma data: URL
+    // quebra tanto o nome do arquivo quanto a decodificação do <audio>/<img> no navegador.
+    const rawMimetype = mediaMessage.mimetype || 'application/octet-stream';
+    const baseMimetype = rawMimetype.split(';')[0].trim();
+    const extension = baseMimetype.split('/')[1] || 'bin';
+    const fileName = mediaMessage.fileName || `whatsapp-${Date.now()}.${extension}`;
+
+    return {
+      id: uuidv4(),
+      name: fileName,
+      type: baseMimetype,
+      url: `data:${baseMimetype};base64,${buffer.toString('base64')}`,
+      size: buffer.length
+    };
+  }
+
+  private static async processIncomingMessage(msg: any, instanceId: string) {
+    if (!msg?.message || msg.key?.fromMe) return;
 
     const remoteJid = msg.key.remoteJid;
     if (!remoteJid) return;
+    // Conversas de grupo/broadcast/canal não representam um cliente individual;
+    // ignoradas para não misturar com o atendimento 1:1.
+    if (remoteJid.endsWith('@g.us') || remoteJid.endsWith('@broadcast') || remoteJid.endsWith('@newsletter')) return;
 
-    const text =
+    const messageId: string | undefined = msg.key.id;
+    if (messageId) {
+      const dup = await query(
+        `SELECT 1 FROM public.chat_messages WHERE metadata->>'whatsapp_message_id' = $1 LIMIT 1`,
+        [messageId]
+      );
+      if ((dup.rowCount ?? 0) > 0) return;
+    }
+
+    let text =
       msg.message?.conversation ||
       msg.message?.extendedTextMessage?.text ||
       msg.message?.ephemeralMessage?.message?.extendedTextMessage?.text ||
+      msg.message?.imageMessage?.caption ||
+      msg.message?.videoMessage?.caption ||
+      msg.message?.documentMessage?.caption ||
       '';
 
-    if (!text) return;
+    let mediaData: Attachment | null = null;
+    const messageType = Object.keys(msg.message)[0];
 
-    const session = await findChatSessionByPhone(remoteJid, instanceId);
+    if (['imageMessage', 'videoMessage', 'documentMessage', 'audioMessage'].includes(messageType)) {
+      try {
+        mediaData = await this.downloadIncomingMedia(msg.message, messageType);
+        if (mediaData && !text) {
+          text = messageType === 'audioMessage' ? '[Áudio]' : `[Arquivo: ${mediaData.name}]`;
+        }
+      } catch (err) {
+        console.error(`[WhatsApp:${instanceId}] Falha ao baixar mídia:`, err);
+      }
+    }
 
+    if (!text && !mediaData) return;
+
+    const session = await findOrCreateChatSession(remoteJid, msg.pushName, instanceId);
     if (!session?.id) return;
+
+    const metadata: Record<string, any> = {
+      whatsapp_jid: remoteJid,
+      source: 'whatsapp',
+      ...(messageId ? { whatsapp_message_id: messageId } : {}),
+      ...(mediaData ? { attachments: [mediaData] } : {})
+    };
 
     try {
       await query(
@@ -529,11 +750,11 @@ export class WhatsAppService {
          VALUES ($1, $2, $3, $4, $5, $6, NOW())`,
         [
           session.id,
-          null,
-          msg.pushName || 'Contato',
+          session.customer_id || null,
+          msg.pushName || session.customer_name || 'Contato WhatsApp',
           text,
-          'text',
-          JSON.stringify({ whatsapp_jid: remoteJid, source: 'whatsapp' })
+          mediaData ? 'file' : 'text',
+          JSON.stringify(metadata)
         ]
       );
 

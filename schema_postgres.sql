@@ -303,6 +303,15 @@ CREATE TABLE public.whatsapp_instances (
   updated_at TIMESTAMP WITH TIME ZONE DEFAULT now() NOT NULL
 );
 
+-- WhatsApp Contact Photos (persistidas para não reconsultar o WhatsApp após obter sucesso)
+CREATE TABLE public.whatsapp_contact_photos (
+  instance_id TEXT NOT NULL,
+  phone TEXT NOT NULL,
+  photo_url TEXT,
+  updated_at TIMESTAMP WITH TIME ZONE DEFAULT now() NOT NULL,
+  PRIMARY KEY (instance_id, phone)
+);
+
 -- Internal Chats for messaging
 CREATE TABLE public.internal_chats (
     id TEXT PRIMARY KEY,

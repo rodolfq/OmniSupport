@@ -26,7 +26,10 @@ import {
   Paperclip,
   File,
   Image as ImageIcon,
-  Download
+  Download,
+  Mic,
+  Square,
+  Trash2
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import { 
@@ -50,6 +53,8 @@ import { supabase } from '@/lib/supabase';
 import { useSearchParams } from 'next/navigation';
 import { LinkContactModal } from '@/components/link-contact-modal';
 import { ClientTime } from '@/components/client-time';
+import { AssignChatMenu } from '@/components/assign-chat-menu';
+import { AudioPlayer } from '@/components/audio-player';
 import { toast } from 'sonner';
 
 const URL_PATTERN = /(https?:\/\/[^\s<]+|www\.[^\s<]+)/gi;
@@ -82,13 +87,56 @@ function isImageAttachment(attachment: Attachment): boolean {
   return attachment.type?.startsWith('image/') || /\.(png|jpe?g|gif|webp|bmp|svg)$/i.test(attachment.name || attachment.url || '');
 }
 
-function fileToDataUrl(file: File): Promise<string> {
+function isAudioAttachment(attachment: Attachment): boolean {
+  return attachment.type?.startsWith('audio/') || /\.(webm|ogg|opus|mp3|m4a|wav|aac)$/i.test(attachment.name || attachment.url || '');
+}
+
+function fileToDataUrl(file: Blob): Promise<string> {
   return new Promise((resolve, reject) => {
     const reader = new FileReader();
     reader.onload = () => resolve(String(reader.result || ''));
     reader.onerror = () => reject(reader.error || new Error('Erro ao ler arquivo'));
     reader.readAsDataURL(file);
   });
+}
+
+// Codifica um WAV PCM 16-bit mono a partir das amostras capturadas via Web Audio API.
+// Construindo o arquivo byte a byte nós mesmos (em vez de depender de um encoder de
+// codec do navegador), eliminamos qualquer ambiguidade de contêiner/codec na reprodução.
+function encodeWav(samples: Float32Array, sampleRate: number): Blob {
+  const bytesPerSample = 2;
+  const blockAlign = bytesPerSample; // mono
+  const byteRate = sampleRate * blockAlign;
+  const dataSize = samples.length * bytesPerSample;
+  const buffer = new ArrayBuffer(44 + dataSize);
+  const view = new DataView(buffer);
+
+  const writeString = (offset: number, str: string) => {
+    for (let i = 0; i < str.length; i++) view.setUint8(offset + i, str.charCodeAt(i));
+  };
+
+  writeString(0, 'RIFF');
+  view.setUint32(4, 36 + dataSize, true);
+  writeString(8, 'WAVE');
+  writeString(12, 'fmt ');
+  view.setUint32(16, 16, true); // tamanho do bloco fmt
+  view.setUint16(20, 1, true); // formato PCM
+  view.setUint16(22, 1, true); // 1 canal (mono)
+  view.setUint32(24, sampleRate, true);
+  view.setUint32(28, byteRate, true);
+  view.setUint16(32, blockAlign, true);
+  view.setUint16(34, 16, true); // bits por amostra
+  writeString(36, 'data');
+  view.setUint32(40, dataSize, true);
+
+  let offset = 44;
+  for (let i = 0; i < samples.length; i++) {
+    const s = Math.max(-1, Math.min(1, samples[i]));
+    view.setInt16(offset, s < 0 ? s * 0x8000 : s * 0x7fff, true);
+    offset += bytesPerSample;
+  }
+
+  return new Blob([buffer], { type: 'audio/wav' });
 }
 
 function openAttachmentInNewTab(attachment: Attachment) {
@@ -143,7 +191,10 @@ export function ChatWidget() {
     setIsOmniChatExpanded,
     activeOmniChatId,
     setActiveOmniChatId,
-    triggerRefresh
+    triggerRefresh,
+    getContactPhoto,
+    ensureContactPhoto,
+    userStatus
   } = useApp();
   const searchParams = useSearchParams();
   
@@ -225,10 +276,83 @@ export function ChatWidget() {
   const [analystStatuses, setAnalystStatuses] = useState<AnalystStatus[]>([]);
   const [companies, setCompanies] = useState<Company[]>([]);
   const [allUsers, setAllUsers] = useState<UserType[]>([]);
-  
+
+  const selectedChatContact = React.useMemo(() => {
+    if (!selectedChat) return undefined;
+    return allUsers.find(u =>
+      u.id === selectedChat.customerId ||
+      matchPhones(u.phone, selectedChat.customerPhone) ||
+      (u.phones && u.phones.some(p => matchPhones(p, selectedChat.customerPhone)))
+    );
+  }, [selectedChat, allUsers]);
+
+  const onlineAssignTargets = React.useMemo(() => {
+    return analystStatuses
+      .filter(s => s.isOnline)
+      .map(s => allUsers.find(u => u.id === s.userId))
+      .filter((u): u is UserType => !!u)
+      .map(u => ({ id: u.id, name: u.name }));
+  }, [analystStatuses, allUsers]);
+
+  const handleAssignChat = async (sessionId: string, targetUserId?: string) => {
+    if (!currentUser) return;
+    const assigneeId = targetUserId || currentUser.id;
+    if (!targetUserId && userStatus !== 'online') {
+      toast.error('Você precisa estar Online para assumir atendimentos!');
+      return;
+    }
+    const { error } = await supabase.from('chat_sessions').update({
+      assignee_id: assigneeId,
+      status: 'active'
+    }).eq('id', sessionId);
+
+    if (!error) {
+      toast.success(targetUserId ? 'Atendimento transferido com sucesso!' : 'Atendimento assumido com sucesso!');
+      const refreshedSessions = await fetchChatSessions();
+      setCustomerSessions(refreshedSessions);
+    } else {
+      toast.error('Erro ao atualizar o atendimento.');
+    }
+  };
+
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const scrollRef = useRef<HTMLDivElement>(null);
   const chatFileInputRef = useRef<HTMLInputElement>(null);
+
+  const [isRecording, setIsRecording] = useState(false);
+  const [recordingSeconds, setRecordingSeconds] = useState(0);
+  const mediaStreamRef = useRef<MediaStream | null>(null);
+  const recordingIntervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  // Captura de PCM bruto via Web Audio API. Optamos por isso em vez do MediaRecorder
+  // (webm/opus) porque, neste ambiente, o MediaRecorder produzia contêineres que nem o
+  // próprio navegador conseguia reabrir depois (DEMUXER_ERROR_COULD_NOT_OPEN). Gravando
+  // PCM e montando o WAV nós mesmos, eliminamos essa categoria inteira de falha.
+  const audioContextRef = useRef<AudioContext | null>(null);
+  const audioSourceNodeRef = useRef<MediaStreamAudioSourceNode | null>(null);
+  const scriptProcessorRef = useRef<ScriptProcessorNode | null>(null);
+  const silentGainRef = useRef<GainNode | null>(null);
+  const pcmChunksRef = useRef<Float32Array[]>([]);
+  const recordingSampleRateRef = useRef<number>(44100);
+
+  const disconnectRecordingGraph = () => {
+    try { scriptProcessorRef.current?.disconnect(); } catch { /* ignore */ }
+    try { audioSourceNodeRef.current?.disconnect(); } catch { /* ignore */ }
+    try { silentGainRef.current?.disconnect(); } catch { /* ignore */ }
+    scriptProcessorRef.current = null;
+    audioSourceNodeRef.current = null;
+    silentGainRef.current = null;
+  };
+
+  useEffect(() => {
+    return () => {
+      if (recordingIntervalRef.current) clearInterval(recordingIntervalRef.current);
+      disconnectRecordingGraph();
+      mediaStreamRef.current?.getTracks().forEach(track => track.stop());
+      if (audioContextRef.current && audioContextRef.current.state !== 'closed') {
+        audioContextRef.current.close().catch(() => {});
+      }
+    };
+  }, []);
 
   const jumpToLatestMessage = React.useCallback(() => {
     const scrollContainer = scrollRef.current;
@@ -281,6 +405,18 @@ export function ChatWidget() {
   const [chatFilter, setChatFilter] = useState<'all' | 'me' | 'queue'>('all');
   const [userQueues, setUserQueues] = useState<string[]>([]);
   const [allQueues, setAllQueues] = useState<any[]>([]);
+
+  const getSessionInstanceId = React.useCallback((session?: { queueId?: string }) => {
+    const queue = allQueues.find((q: any) => q.id === session?.queueId);
+    return queue?.whatsapp_instance_id || queue?.whatsappInstanceId || 'default';
+  }, [allQueues]);
+
+  // Cache de foto de contato compartilhado com as demais telas (ex: /chat-management)
+  useEffect(() => {
+    customerSessions
+      .filter(s => s.status !== 'closed' && s.customerPhone)
+      .forEach(s => ensureContactPhoto(s.customerPhone, getSessionInstanceId(s)));
+  }, [customerSessions, getSessionInstanceId, ensureContactPhoto]);
 
   useEffect(() => {
     const controller = new AbortController();
@@ -616,6 +752,7 @@ useEffect(() => {
           const phone = session.customerPhone.replace(/\D/g, '');
 
           if (phone) {
+            const hasAttachments = !!newMessage.attachments && newMessage.attachments.length > 0;
             try {
               const res = await fetch('/api/whatsapp/send', {
                 method: 'POST',
@@ -624,11 +761,28 @@ useEffect(() => {
               });
               if (!res.ok) {
                 const body = await res.json().catch(() => ({}));
-                console.error('WhatsApp send failed:', body.error || res.statusText);
+                console.error('WhatsApp send failed:', {
+                  status: res.status,
+                  statusText: res.statusText,
+                  error: body.error,
+                  instanceId,
+                  phone,
+                  hasAttachments
+                });
                 toast.warning('Mensagem salva, mas não foi enviada no WhatsApp.');
+              } else if (hasAttachments) {
+                // Envio de mídia pelo WhatsApp ainda não é suportado (só o texto é transmitido).
+                console.warn('WhatsApp send: attachment present but media sending is not yet implemented; only text was transmitted.', { instanceId, phone });
+                toast.warning('Anexo salvo na conversa, mas o envio de mídia (áudio/arquivo) pelo WhatsApp ainda não está disponível.');
               }
-            } catch (error) {
-              console.error('Failed to send real WhatsApp message:', error);
+            } catch (error: any) {
+              console.error('Failed to send real WhatsApp message:', {
+                message: error?.message,
+                stack: error?.stack,
+                instanceId,
+                phone,
+                hasAttachments
+              });
               toast.warning('Mensagem salva, mas não foi enviada no WhatsApp.');
             }
           }
@@ -877,6 +1031,152 @@ useEffect(() => {
     }
   };
 
+  const startRecording = async () => {
+    if (isRecording) return;
+
+    console.log('[AudioRecording] startRecording called');
+
+    if (!navigator.mediaDevices?.getUserMedia) {
+      console.error('[AudioRecording] navigator.mediaDevices.getUserMedia is unavailable (requires HTTPS or localhost).');
+      toast.error('Gravação de áudio requer conexão segura (HTTPS) ou localhost.');
+      return;
+    }
+    const AudioContextClass: typeof AudioContext | undefined =
+      (window as any).AudioContext || (window as any).webkitAudioContext;
+    if (!AudioContextClass) {
+      console.error('[AudioRecording] Web Audio API is unavailable in this browser.');
+      toast.error('Gravação de áudio não é suportada neste navegador.');
+      return;
+    }
+
+    try {
+      const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+      console.log('[AudioRecording] Microphone stream acquired. Audio tracks:', stream.getAudioTracks().map(t => ({ label: t.label, readyState: t.readyState, enabled: t.enabled })));
+      mediaStreamRef.current = stream;
+      pcmChunksRef.current = [];
+
+      const audioContext = new AudioContextClass();
+      audioContextRef.current = audioContext;
+      recordingSampleRateRef.current = audioContext.sampleRate;
+
+      const source = audioContext.createMediaStreamSource(stream);
+      audioSourceNodeRef.current = source;
+
+      const bufferSize = 4096;
+      const processor = audioContext.createScriptProcessor(bufferSize, 1, 1);
+      scriptProcessorRef.current = processor;
+
+      processor.onaudioprocess = (e) => {
+        // Copiamos o buffer: o AudioBuffer interno é reaproveitado pelo navegador entre chamadas.
+        pcmChunksRef.current.push(new Float32Array(e.inputBuffer.getChannelData(0)));
+      };
+
+      // ScriptProcessorNode só dispara onaudioprocess quando conectado a um destino;
+      // usamos um GainNode com volume 0 para não haver retorno audível do microfone.
+      const silentGain = audioContext.createGain();
+      silentGain.gain.value = 0;
+      silentGainRef.current = silentGain;
+
+      source.connect(processor);
+      processor.connect(silentGain);
+      silentGain.connect(audioContext.destination);
+
+      console.log(`[AudioRecording] Recording started via Web Audio API (PCM). sampleRate=${audioContext.sampleRate}`);
+      setIsRecording(true);
+      setRecordingSeconds(0);
+      recordingIntervalRef.current = setInterval(() => {
+        setRecordingSeconds(prev => prev + 1);
+      }, 1000);
+    } catch (error: any) {
+      console.error('[AudioRecording] Error starting audio recording:', {
+        name: error?.name,
+        message: error?.message,
+        stack: error?.stack
+      });
+      if (error?.name === 'NotAllowedError' || error?.name === 'PermissionDeniedError') {
+        toast.error('Permissão de microfone negada. Habilite o acesso ao microfone nas configurações do navegador.');
+      } else if (error?.name === 'NotFoundError') {
+        toast.error('Nenhum microfone encontrado neste dispositivo.');
+      } else {
+        toast.error('Não foi possível acessar o microfone.');
+      }
+    }
+  };
+
+  const releaseRecordingResources = () => {
+    if (recordingIntervalRef.current) {
+      clearInterval(recordingIntervalRef.current);
+      recordingIntervalRef.current = null;
+    }
+    disconnectRecordingGraph();
+    mediaStreamRef.current?.getTracks().forEach(track => track.stop());
+    mediaStreamRef.current = null;
+    if (audioContextRef.current && audioContextRef.current.state !== 'closed') {
+      audioContextRef.current.close().catch(() => {});
+    }
+    audioContextRef.current = null;
+    pcmChunksRef.current = [];
+    setIsRecording(false);
+    setRecordingSeconds(0);
+  };
+
+  const cancelRecording = () => {
+    releaseRecordingResources();
+  };
+
+  const stopRecordingAndAttach = async () => {
+    if (!audioContextRef.current) {
+      releaseRecordingResources();
+      return;
+    }
+
+    console.log(`[AudioRecording] Stopping. PCM chunks collected: ${pcmChunksRef.current.length}`);
+    const sampleRate = recordingSampleRateRef.current;
+    const chunks = pcmChunksRef.current;
+    const totalLength = chunks.reduce((sum, c) => sum + c.length, 0);
+    console.log(`[AudioRecording] Total samples captured: ${totalLength} (~${(totalLength / sampleRate).toFixed(1)}s at ${sampleRate}Hz)`);
+
+    if (totalLength === 0) {
+      console.error('[AudioRecording] No audio samples captured — check microphone permissions/input device.');
+      toast.error('Nenhum áudio foi capturado. Verifique se o microfone está funcionando.');
+      releaseRecordingResources();
+      return;
+    }
+
+    const merged = new Float32Array(totalLength);
+    let offset = 0;
+    for (const chunk of chunks) {
+      merged.set(chunk, offset);
+      offset += chunk.length;
+    }
+
+    const wavBlob = encodeWav(merged, sampleRate);
+    console.log(`[AudioRecording] WAV encoded: size=${wavBlob.size} bytes`);
+
+    if (wavBlob.size > MAX_CHAT_ATTACHMENT_SIZE) {
+      toast.error('Áudio excede o limite de 8 MB.');
+      releaseRecordingResources();
+      return;
+    }
+
+    try {
+      const dataUrl = await fileToDataUrl(wavBlob);
+      setChatAttachments(prev => [...prev, {
+        id: crypto.randomUUID(),
+        name: `audio-${Date.now()}.wav`,
+        type: 'audio/wav',
+        url: dataUrl,
+        size: wavBlob.size
+      }]);
+      console.log('[AudioRecording] Audio attachment added to chatAttachments successfully.');
+    } catch (error: any) {
+      console.error('[AudioRecording] Error processing recorded audio:', { message: error?.message, stack: error?.stack });
+      toast.error('Erro ao processar áudio gravado.');
+    } finally {
+      releaseRecordingResources();
+    }
+  };
+
   const handleScroll = () => {
     if (scrollRef.current) {
       const { scrollTop, scrollHeight, clientHeight } = scrollRef.current;
@@ -930,28 +1230,28 @@ useEffect(() => {
             )}
           >
             {/* Header */}
-            <div className="bg-indigo-600 p-6 flex justify-between items-center text-white">
-              <div className="flex items-center gap-3">
-                <div className="w-10 h-10 bg-white/20 rounded-2xl flex items-center justify-center backdrop-blur-md">
-                  <MessageCircle size={20} />
+            <div className="bg-indigo-600 px-5 py-4 flex justify-between items-center text-white">
+              <div className="flex items-center gap-2.5">
+                <div className="w-8 h-8 bg-white/20 rounded-xl flex items-center justify-center backdrop-blur-md">
+                  <MessageCircle size={16} />
                 </div>
                 <div>
-                  <h3 className="text-sm font-black uppercase tracking-widest text-white">
+                  <h3 className="text-xs font-black uppercase tracking-widest text-white">
                     {isCustomer ? 'Suporte Omni' : 'WhatsApp Omni'}
                   </h3>
-                  <p className="text-[10px] text-indigo-100 font-bold uppercase tracking-widest">
+                  <p className="text-[9px] text-indigo-100 font-bold uppercase tracking-widest">
                     {isCustomer ? 'Fale Conosco' : 'Central de Atendimento'}
                   </p>
                 </div>
               </div>
-              <div className="flex items-center gap-2">
-                <button 
+              <div className="flex items-center gap-1">
+                <button
                   onClick={() => setIsExpanded(!isExpanded)}
-                  className="p-2 hover:bg-white/10 rounded-xl transition-all"
+                  className="p-1.5 hover:bg-white/10 rounded-lg transition-all"
                 >
-                  {isExpanded ? <Minimize2 size={20} /> : <Maximize2 size={20} />}
+                  {isExpanded ? <Minimize2 size={16} /> : <Maximize2 size={16} />}
                 </button>
-                <button 
+                <button
                   onClick={() => {
                     if (isExpanded) {
                       setIsExpanded(false);
@@ -959,9 +1259,9 @@ useEffect(() => {
                     }
                     setIsMinimized(true);
                   }}
-                  className="p-2 hover:bg-white/10 rounded-xl transition-all"
+                  className="p-1.5 hover:bg-white/10 rounded-lg transition-all"
                 >
-                  <ChevronDown size={20} />
+                  <ChevronDown size={16} />
                 </button>
               </div>
             </div>
@@ -973,45 +1273,45 @@ useEffect(() => {
                   "flex flex-col border-r border-slate-100 bg-white",
                   isExpanded ? "w-80" : "w-full"
                 )}>
-                  <div className="p-4 border-b border-slate-100 space-y-3">
+                  <div className="p-3 border-b border-slate-100 space-y-2">
                     <div className="relative">
-                      <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" size={14} />
-                      <input 
-                        type="text" 
-                        placeholder="Buscar conversas..." 
-                        className="w-full bg-slate-50 border border-slate-100 rounded-xl pl-9 pr-4 py-2 text-xs font-bold outline-none"
+                      <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" size={13} />
+                      <input
+                        type="text"
+                        placeholder="Buscar conversas..."
+                        className="w-full bg-slate-50 border border-slate-100 rounded-xl pl-8 pr-3 py-1.5 text-xs font-bold outline-none"
                       />
                     </div>
-                    <button 
+                    <button
                       onClick={() => setIsNewChatModalOpen(true)}
-                      className="w-full py-2.5 bg-indigo-50 text-indigo-600 border border-indigo-100 rounded-xl text-[10px] font-black uppercase tracking-widest flex items-center justify-center gap-2 hover:bg-indigo-100 transition-all"
+                      className="w-full py-2 bg-indigo-50 text-indigo-600 border border-indigo-100 rounded-xl text-[10px] font-black uppercase tracking-widest flex items-center justify-center gap-2 hover:bg-indigo-100 transition-all"
                     >
-                      <Plus size={14} /> Novo WhatsApp
+                      <Plus size={13} /> Novo WhatsApp
                     </button>
 
                     <div className="flex bg-slate-100 p-1 rounded-xl gap-1">
-                      <button 
+                      <button
                         onClick={() => setChatFilter('all')}
                         className={cn(
-                          "flex-1 py-1.5 text-[9px] font-black uppercase tracking-widest rounded-lg transition-all",
+                          "flex-1 py-1 text-[9px] font-black uppercase tracking-widest rounded-lg transition-all",
                           chatFilter === 'all' ? "bg-white text-indigo-600 shadow-sm" : "text-slate-400"
                         )}
                       >
                         Todos
                       </button>
-                      <button 
+                      <button
                         onClick={() => setChatFilter('queue')}
                         className={cn(
-                          "flex-1 py-1.5 text-[9px] font-black uppercase tracking-widest rounded-lg transition-all",
+                          "flex-1 py-1 text-[9px] font-black uppercase tracking-widest rounded-lg transition-all",
                           chatFilter === 'queue' ? "bg-white text-indigo-600 shadow-sm" : "text-slate-400"
                         )}
                       >
                         Fila
                       </button>
-                      <button 
+                      <button
                         onClick={() => setChatFilter('me')}
                         className={cn(
-                          "flex-1 py-1.5 text-[9px] font-black uppercase tracking-widest rounded-lg transition-all",
+                          "flex-1 py-1 text-[9px] font-black uppercase tracking-widest rounded-lg transition-all",
                           chatFilter === 'me' ? "bg-white text-indigo-600 shadow-sm" : "text-slate-400"
                         )}
                       >
@@ -1019,7 +1319,7 @@ useEffect(() => {
                       </button>
                     </div>
                   </div>
-                  <div className="flex-1 overflow-y-auto p-4 space-y-2">
+                  <div className="flex-1 overflow-y-auto p-3 space-y-1.5">
                     {customerSessions
                       .filter(s => s.status !== 'closed')
                       .filter(s => {
@@ -1041,15 +1341,22 @@ useEffect(() => {
                               key={s.id} 
                               onClick={() => setSelectedChatId(s.id)}
                               className={cn(
-                                "w-full text-left p-4 rounded-2xl transition-all group flex items-center justify-between border",
-                                selectedChatId === s.id 
-                                  ? "bg-indigo-50 border-indigo-100 shadow-sm" 
+                                "w-full text-left p-3 rounded-2xl transition-all group flex items-center justify-between border",
+                                selectedChatId === s.id
+                                  ? "bg-indigo-50 border-indigo-100 shadow-sm"
                                   : "bg-slate-50 border-slate-100 hover:border-indigo-100 shadow-none"
                               )}
                             >
-                              <div className="flex items-center gap-3">
-                                <div className="w-10 h-10 bg-emerald-100 rounded-xl flex items-center justify-center text-emerald-600 relative">
-                                  <User size={18} />
+                              <div className="flex items-center gap-2.5">
+                                <div className="w-9 h-9 rounded-xl flex items-center justify-center text-emerald-600 relative shrink-0 overflow-hidden bg-emerald-100">
+                                  {(() => {
+                                    const photo = contact?.avatarUrl || getContactPhoto(s.customerPhone, getSessionInstanceId(s));
+                                    return photo ? (
+                                      <img src={photo} alt={s.customerName} className="w-full h-full object-cover" />
+                                    ) : (
+                                      <User size={16} />
+                                    );
+                                  })()}
                                   {sessionUnread > 0 && (
                                     <span className="absolute -top-1 -right-1 w-5 h-5 bg-red-500 text-white text-[8px] font-black flex items-center justify-center rounded-full border-2 border-white">
                                       {sessionUnread > 9 ? '9+' : sessionUnread}
@@ -1078,15 +1385,29 @@ useEffect(() => {
               {selectedChatId ? (
                 <div className="flex-1 flex flex-col bg-white">
                   {/* Chat Header */}
-                  <div className="px-6 py-4 bg-slate-50 border-b border-slate-100 flex items-center justify-between">
-                    <div className="flex items-center gap-3">
+                  <div className="px-5 py-3 bg-slate-50 border-b border-slate-100 flex flex-wrap items-center justify-between gap-y-2">
+                    <div className="flex items-center gap-2 min-w-0">
                       {!isCustomer && !isExpanded && (
-                        <button onClick={() => setSelectedChatId(null)} className="text-indigo-600 p-2 hover:bg-indigo-50 rounded-xl transition-all">
-                          <ChevronDown size={20} className="rotate-90" />
+                        <button onClick={() => setSelectedChatId(null)} className="text-indigo-600 p-1.5 hover:bg-indigo-50 rounded-xl transition-all shrink-0">
+                          <ChevronDown size={18} className="rotate-90" />
                         </button>
                       )}
-                      <div>
-                        <p className="text-xs font-black uppercase text-slate-800 tracking-widest leading-none mb-0.5">
+                      {!isCustomer && (() => {
+                        const photo = selectedChatContact?.avatarUrl || getContactPhoto(selectedChat?.customerPhone, getSessionInstanceId(selectedChat));
+                        return photo ? (
+                          <img
+                            src={photo}
+                            alt={selectedChat && 'customerName' in selectedChat ? selectedChat.customerName : 'Contato'}
+                            className="w-9 h-9 rounded-xl object-cover shrink-0"
+                          />
+                        ) : (
+                          <div className="w-9 h-9 bg-emerald-100 rounded-xl flex items-center justify-center text-emerald-600 shrink-0">
+                            <User size={16} />
+                          </div>
+                        );
+                      })()}
+                      <div className="min-w-0">
+                        <p className="text-xs font-black uppercase text-slate-800 tracking-widest leading-none mb-0.5 truncate">
                           {isCustomer ? 'Time de Suporte' : (selectedChat && 'customerName' in selectedChat ? selectedChat.customerName : 'Canal')}
                         </p>
                         {selectedChat?.ticketNumber && (
@@ -1100,11 +1421,8 @@ useEffect(() => {
                                Sempre disponível
                              </span>
                            );
-                           
-                           const contact = allUsers.find(u => 
-                             u.id === selectedChat?.customerId || 
-                             (selectedChat?.customerPhone && (u.phone === selectedChat.customerPhone || u.phone === selectedChat.customerPhone.replace(/\D/g, '') || u.phone?.replace(/\D/g, '') === selectedChat.customerPhone.replace(/\D/g, '')))
-                           );
+
+                           const contact = selectedChatContact;
                            const company = contact ? companies.find(c => c.id === contact.companyId) : null;
                            
                            if (company) {
@@ -1140,19 +1458,35 @@ useEffect(() => {
                       </div>
                     </div>
                     
-                    {!isCustomer && (
-                      <button 
-                        onClick={() => {
-                          const now = new Date();
-                          const datePrefix = now.toLocaleDateString('pt-BR');
-                          const timePrefix = now.toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' });
-                          setTicketTitle(`Atendimento ${datePrefix} ${timePrefix}: ${selectedChat?.customerName}`);
-                          setIsFinishModalOpen(true);
-                        }}
-                        className="px-4 py-2 bg-slate-900 text-white rounded-xl text-[10px] font-black uppercase tracking-widest hover:bg-slate-800 transition-all flex items-center gap-2"
-                      >
-                        <TicketIcon size={14} /> Finalizar
-                      </button>
+                    {!isCustomer && selectedChat && (
+                      <div className="flex items-center gap-1.5 shrink-0">
+                        <AssignChatMenu
+                          currentUserId={currentUser?.id}
+                          isCurrentUserOnline={userStatus === 'online'}
+                          onlineTargets={onlineAssignTargets}
+                          onAssignToSelf={() => handleAssignChat(selectedChat.id)}
+                          onAssignToUser={(userId) => handleAssignChat(selectedChat.id, userId)}
+                          selfLabel="Assumir"
+                          showSelf={selectedChat.assigneeId !== currentUser?.id}
+                          variant={isExpanded ? 'full' : 'icon'}
+                        />
+                        <button
+                          onClick={() => {
+                            const now = new Date();
+                            const datePrefix = now.toLocaleDateString('pt-BR');
+                            const timePrefix = now.toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' });
+                            setTicketTitle(`Atendimento ${datePrefix} ${timePrefix}: ${selectedChat?.customerName}`);
+                            setIsFinishModalOpen(true);
+                          }}
+                          className={cn(
+                            "bg-slate-900 text-white rounded-xl text-[10px] font-black uppercase tracking-widest hover:bg-slate-800 transition-all flex items-center gap-2",
+                            isExpanded ? "px-4 py-2" : "p-2.5"
+                          )}
+                          title="Finalizar"
+                        >
+                          <TicketIcon size={14} /> {isExpanded && 'Finalizar'}
+                        </button>
+                      </div>
                     )}
                   </div>
 
@@ -1160,7 +1494,7 @@ useEffect(() => {
                   <div 
                     ref={scrollRef} 
                     onScroll={handleScroll}
-                    className="flex-1 overflow-y-auto p-8 space-y-6 bg-slate-50/30 scroll-smooth"
+                    className="flex-1 overflow-y-auto px-8 py-6 space-y-3 bg-slate-50/30 scroll-smooth"
                   >
                     {selectedChatMessageRows.map((row) => {
                       if (row.type === 'date') {
@@ -1223,6 +1557,17 @@ useEffect(() => {
                                     );
                                   }
 
+                                  if (isAudioAttachment(attachment)) {
+                                    return (
+                                      <AudioPlayer
+                                        key={attachmentKey}
+                                        src={attachment.url}
+                                        name={attachment.name}
+                                        isOwnMessage={isOwnMessage}
+                                      />
+                                    );
+                                  }
+
                                   return (
                                     <a
                                       key={attachmentKey}
@@ -1246,8 +1591,8 @@ useEffect(() => {
                               </div>
                             )}
                           </div>
-                          <span className="text-[9px] text-slate-400 font-black uppercase mt-1.5 px-1 tracking-widest">
-                            {isOwnMessage ? 'Você' : m.senderName} • <ClientTime date={m.timestamp} />
+                          <span className="text-[9px] text-slate-400 font-black uppercase mt-1 px-1 tracking-widest">
+                            <ClientTime date={m.timestamp} />
                           </span>
                         </div>
                       );
@@ -1256,7 +1601,7 @@ useEffect(() => {
                   </div>
 
                   {/* Input Area */}
-                  <div className="p-6 bg-white border-t border-slate-100 relative">
+                  <div className="p-4 bg-white border-t border-slate-100 relative">
                     <AnimatePresence>
                       {showNewMessageIndicator && (
                         <motion.button 
@@ -1299,21 +1644,64 @@ useEffect(() => {
                     {chatAttachments.length > 0 && (
                       <div className="mb-3 flex flex-wrap gap-2">
                         {chatAttachments.map((attachment) => (
-                          <div key={attachment.id} className="flex max-w-full items-center gap-2 rounded-xl border border-slate-200 bg-slate-50 px-3 py-2 text-xs font-bold text-slate-700">
-                            {isImageAttachment(attachment) ? <ImageIcon size={14} className="text-indigo-500" /> : <File size={14} className="text-slate-400" />}
-                            <span className="max-w-[180px] truncate">{attachment.name}</span>
-                            <button
-                              type="button"
-                              onClick={() => setChatAttachments(prev => prev.filter(item => item.id !== attachment.id))}
-                              className="text-slate-400 hover:text-red-500"
-                            >
-                              <X size={13} />
-                            </button>
-                          </div>
+                          isAudioAttachment(attachment) ? (
+                            <div key={attachment.id} className="flex w-full items-center gap-2">
+                              <div className="flex-1 min-w-0">
+                                <AudioPlayer src={attachment.url} name={attachment.name} />
+                              </div>
+                              <button
+                                type="button"
+                                onClick={() => setChatAttachments(prev => prev.filter(item => item.id !== attachment.id))}
+                                className="shrink-0 text-slate-400 hover:text-red-500 p-1"
+                                title="Descartar áudio"
+                              >
+                                <Trash2 size={16} />
+                              </button>
+                            </div>
+                          ) : (
+                            <div key={attachment.id} className="flex max-w-full items-center gap-2 rounded-xl border border-slate-200 bg-slate-50 px-3 py-2 text-xs font-bold text-slate-700">
+                              {isImageAttachment(attachment) ? <ImageIcon size={14} className="text-indigo-500" /> : <File size={14} className="text-slate-400" />}
+                              <span className="max-w-[180px] truncate">{attachment.name}</span>
+                              <button
+                                type="button"
+                                onClick={() => setChatAttachments(prev => prev.filter(item => item.id !== attachment.id))}
+                                className="text-slate-400 hover:text-red-500"
+                              >
+                                <X size={13} />
+                              </button>
+                            </div>
+                          )
                         ))}
                       </div>
                     )}
-<form onSubmit={(e) => { e.preventDefault(); handleSendMessage(); }} className="flex items-center gap-3">
+                    {isRecording ? (
+                      <div className="flex items-center gap-2">
+                        <button
+                          type="button"
+                          onClick={cancelRecording}
+                          className="w-11 h-11 shrink-0 bg-slate-100 text-slate-500 rounded-2xl hover:bg-red-100 hover:text-red-600 transition-all flex items-center justify-center"
+                          title="Cancelar gravação"
+                        >
+                          <Trash2 size={17} />
+                        </button>
+                        <div className="flex-1 min-w-0 flex items-center gap-2 bg-slate-50 border border-slate-200 rounded-2xl px-4 py-3.5">
+                          <span className="w-2.5 h-2.5 rounded-full bg-red-500 animate-pulse shrink-0" />
+                          <span className="text-sm font-bold text-slate-700 tabular-nums shrink-0">
+                            {Math.floor(recordingSeconds / 60)}:{(recordingSeconds % 60).toString().padStart(2, '0')}
+                          </span>
+                          <span className="text-xs text-slate-400 font-medium truncate hidden sm:inline">Gravando áudio...</span>
+                        </div>
+                        <button
+                          type="button"
+                          onClick={stopRecordingAndAttach}
+                          className="w-12 h-12 shrink-0 bg-indigo-600 text-white rounded-2xl hover:bg-indigo-700 transition-all shadow-xl shadow-indigo-100 flex items-center justify-center"
+                          title="Parar e anexar"
+                        >
+                          <Square size={16} fill="currentColor" />
+                        </button>
+                      </div>
+                    ) : (
+                    <form onSubmit={(e) => { e.preventDefault(); handleSendMessage(); }} className="flex items-center gap-2">
                       <input
                         ref={chatFileInputRef}
                         type="file"
@@ -1324,26 +1712,35 @@ useEffect(() => {
                       <button
                         type="button"
                         onClick={() => chatFileInputRef.current?.click()}
-                        className="w-12 h-12 shrink-0 bg-slate-100 text-slate-500 rounded-2xl hover:bg-slate-200 hover:text-indigo-600 transition-all flex items-center justify-center"
+                        className="w-11 h-11 shrink-0 bg-slate-100 text-slate-500 rounded-2xl hover:bg-slate-200 hover:text-indigo-600 transition-all flex items-center justify-center"
                         title="Anexar arquivo"
                       >
-                        <Paperclip size={18} />
+                        <Paperclip size={17} />
                       </button>
-                      <input 
-                        type="text" 
+                      <button
+                        type="button"
+                        onClick={startRecording}
+                        className="w-11 h-11 shrink-0 bg-slate-100 text-slate-500 rounded-2xl hover:bg-slate-200 hover:text-indigo-600 transition-all flex items-center justify-center"
+                        title="Gravar áudio"
+                      >
+                        <Mic size={17} />
+                      </button>
+                      <input
+                        type="text"
                         value={message}
                         onChange={handleInputChange}
-                        placeholder="Resposta padrão '/' para atalhos..." 
-                        className="flex-1 bg-slate-50 border border-slate-200 rounded-2xl px-5 py-4 text-sm font-bold focus:ring-4 focus:ring-indigo-500/10 outline-none transition-all"
+                        placeholder="Resposta padrão '/' para atalhos..."
+                        className="flex-1 min-w-0 bg-slate-50 border border-slate-200 rounded-2xl px-4 py-3.5 text-sm font-bold focus:ring-4 focus:ring-indigo-500/10 outline-none transition-all"
                       />
-                      <button 
+                      <button
                         type="submit"
                         disabled={!message.trim() && chatAttachments.length === 0}
-                        className="w-14 h-14 bg-indigo-600 text-white rounded-2xl hover:bg-indigo-700 transition-all shadow-xl shadow-indigo-100 flex items-center justify-center disabled:opacity-50 disabled:cursor-not-allowed"
+                        className="w-12 h-12 shrink-0 bg-indigo-600 text-white rounded-2xl hover:bg-indigo-700 transition-all shadow-xl shadow-indigo-100 flex items-center justify-center disabled:opacity-50 disabled:cursor-not-allowed"
                       >
-                        <Send size={20} />
+                        <Send size={18} />
                       </button>
                     </form>
+                    )}
                   </div>
                 </div>
               ) : (

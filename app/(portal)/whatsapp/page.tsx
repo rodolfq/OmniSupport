@@ -42,8 +42,8 @@ export default function WhatsAppPage() {
         <div className="grid gap-6">
           <WhatsAppConnect instanceId="default" />
           <div className="bg-amber-50 border border-amber-200 rounded-2xl p-4">
-            <p className="text-xs font-bold text-amber-800">⚠️ Requer servidor persistente (não functiiona no Vercel)</p>
-            <p className="text-[10px] text-amber-600 mt-1">Execute: `npm run whatsapp` em outro terminal</p>
+            <p className="text-xs font-bold text-amber-800">⚠️ Requer servidor persistente (não funciona no Vercel)</p>
+            <p className="text-[10px] text-amber-600 mt-1">A conexão é gerenciada automaticamente pelo próprio servidor — não é necessário rodar nenhum processo separado.</p>
           </div>
         </div>
       ) : (

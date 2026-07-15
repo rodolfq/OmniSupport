@@ -16,9 +16,8 @@ import {
   Zap, 
   Search, 
   Plus, 
-  Trash2, 
-  Edit2, 
-  UserPlus,
+  Trash2,
+  Edit2,
   ArrowRightLeft,
   Power,
   CheckCircle2,
@@ -37,12 +36,14 @@ import { cn, normalizeString, maskPhone, matchPhones } from '@/lib/utils';
 import { motion, AnimatePresence } from 'motion/react';
 import { useApp } from '@/app/app-context';
 import { LinkContactModal } from '@/components/link-contact-modal';
+import { AssignChatMenu } from '@/components/assign-chat-menu';
 import { ConfirmDialog } from '@/components/confirm-dialog';
 import { supabase } from '@/lib/supabase';
+import { fetchChatSessions } from '@/lib/services/chat-service';
 import { getQuickNotes, saveQuickNote as saveQuickNoteAction, deleteQuickNote, getAnalysts, getCompanies, updateUserStatus } from '@/app/actions';
 
 export default function ChatManagementPage() {
-  const { currentUser, setActiveOmniChatId, setIsOmniChatOpen, refreshTrigger, userStatus } = useApp();
+  const { currentUser, setActiveOmniChatId, setIsOmniChatOpen, refreshTrigger, userStatus, getContactPhoto, ensureContactPhoto } = useApp();
   const [sessions, setSessions] = useState<ChatSession[]>([]);
   const [statuses, setStatuses] = useState<AnalystStatus[]>([]);
   const [notes, setNotes] = useState<QuickNote[]>([]);
@@ -52,9 +53,12 @@ export default function ChatManagementPage() {
   const [activeTab, setActiveTab] = useState<'queue' | 'analysts' | 'notes' | 'history'>('queue');
   const [queueFilter, setQueueFilter] = useState<'all' | 'me' | 'queue'>('all');
   const [userQueues, setUserQueues] = useState<string[]>([]);
-  
+  const [allQueues, setAllQueues] = useState<any[]>([]);
+
   const [isLinkModalOpen, setIsLinkModalOpen] = useState(false);
   const [selectedSessionForLink, setSelectedSessionForLink] = useState<ChatSession | null>(null);
+
+  const [selectedSessionIds, setSelectedSessionIds] = useState<Set<string>>(new Set());
 
   const channelRef = useRef<any>(null);
 
@@ -83,13 +87,15 @@ export default function ChatManagementPage() {
   const [deletingNote, setDeletingNote] = useState<QuickNote | null>(null);
 
   const refreshData = React.useCallback(async (sync = false) => {
-    // Get chat sessions from Supabase
-    const { data: chatData, error: chatError } = await supabase.from('chat_sessions').select('*');
-    if (chatError) {
-      console.error('Error fetching chat sessions:', chatError);
+    // Mesma fonte de dados usada pelo widget de chat (/api/chats?action=sessions),
+    // garantindo que as duas telas sempre mostrem exatamente as mesmas conversas.
+    try {
+      const chatData = await fetchChatSessions();
+      setSessions(chatData);
+    } catch (err) {
+      console.error('Error fetching chat sessions:', err);
     }
-    setSessions(chatData || []);
-    
+
     // Get analyst statuses
     const { data: statusData, error: statusError } = await supabase.from('analyst_status').select('*');
     if (statusError) {
@@ -114,9 +120,10 @@ export default function ChatManagementPage() {
     setCompanies(companiesData);
 
     if (currentUser) {
-      const { data: queuesData } = await supabase.from('queues').select('id, member_ids');
+      const { data: queuesData } = await supabase.from('queues').select('id, member_ids, whatsapp_instance_id');
       const myQueues = queuesData?.filter(q => q.member_ids?.includes(currentUser.id)).map(q => q.id) || [];
       setUserQueues(myQueues);
+      setAllQueues(queuesData || []);
     }
   }, [currentUser?.id]);
 
@@ -127,6 +134,53 @@ export default function ChatManagementPage() {
     }
     refreshData(true);
   }, [refreshTrigger, currentUser?.id, refreshData]);
+
+  // Mantém a fila sincronizada com o widget de chat (mesmo intervalo/estratégia de polling).
+  useEffect(() => {
+    if (!currentUser || currentUser.role === UserRole.CUSTOMER) return;
+
+    const loadWhenVisible = () => {
+      if (document.visibilityState === 'visible') refreshData();
+    };
+    const interval = setInterval(loadWhenVisible, 30000);
+    document.addEventListener('visibilitychange', loadWhenVisible);
+
+    return () => {
+      clearInterval(interval);
+      document.removeEventListener('visibilitychange', loadWhenVisible);
+    };
+  }, [currentUser, refreshData]);
+
+  const getSessionInstanceId = React.useCallback((session?: { queueId?: string }) => {
+    const queue = allQueues.find((q: any) => q.id === session?.queueId);
+    return queue?.whatsapp_instance_id || queue?.whatsappInstanceId || 'default';
+  }, [allQueues]);
+
+  // Cache de foto de contato compartilhado com as demais telas (ex: widget de chat)
+  useEffect(() => {
+    sessions
+      .filter(s => s.status !== 'closed' && s.customerPhone)
+      .forEach(s => ensureContactPhoto(s.customerPhone, getSessionInstanceId(s)));
+  }, [sessions, getSessionInstanceId, ensureContactPhoto]);
+
+  const visibleQueueSessions = React.useMemo(() => {
+    return sessions
+      .filter(s => s?.status !== 'closed')
+      .filter(s => {
+        if (queueFilter === 'all') return true;
+        if (queueFilter === 'me') return s.assigneeId === currentUser?.id;
+        if (queueFilter === 'queue') return s.queueId && userQueues.includes(s.queueId);
+        return true;
+      });
+  }, [sessions, queueFilter, currentUser?.id, userQueues]);
+
+  useEffect(() => {
+    setSelectedSessionIds(prev => {
+      const validIds = new Set(sessions.map(s => s.id));
+      const next = new Set([...prev].filter(id => validIds.has(id)));
+      return next.size === prev.size ? prev : next;
+    });
+  }, [sessions]);
 
   const isSubscribedRef = useRef(false);
 
@@ -221,22 +275,88 @@ const handleDeleteNote = async () => {
     setIsNoteModalOpen(true);
   };
 
-  const handleAssignAnalyst = async (sessionId: string) => {
+  const handleAssignAnalyst = async (sessionId: string, targetUserId?: string) => {
     if (!currentUser) return;
-    if (userStatus !== 'online') {
+    const assigneeId = targetUserId || currentUser.id;
+    if (!targetUserId && userStatus !== 'online') {
       toast.error('Você precisa estar Online para assumir atendimentos!');
       return;
     }
     const { error } = await supabase.from('chat_sessions').update({
-      assignee_id: currentUser.id,
+      assignee_id: assigneeId,
       status: 'active'
     }).eq('id', sessionId);
-    
+
     if (!error) {
       refreshData();
-      toast.success('Atendimento assumido com sucesso!');
+      toast.success(targetUserId ? 'Atendimento transferido com sucesso!' : 'Atendimento assumido com sucesso!');
+    } else {
+      toast.error('Erro ao atualizar o atendimento.');
     }
   };
+
+  const toggleSessionSelected = (sessionId: string) => {
+    setSelectedSessionIds(prev => {
+      const next = new Set(prev);
+      if (next.has(sessionId)) {
+        next.delete(sessionId);
+      } else {
+        next.add(sessionId);
+      }
+      return next;
+    });
+  };
+
+  const toggleSelectAllVisible = (visibleIds: string[]) => {
+    setSelectedSessionIds(prev => {
+      const allSelected = visibleIds.length > 0 && visibleIds.every(id => prev.has(id));
+      if (allSelected) {
+        const next = new Set(prev);
+        visibleIds.forEach(id => next.delete(id));
+        return next;
+      }
+      return new Set([...prev, ...visibleIds]);
+    });
+  };
+
+  const handleBulkAssign = async (visibleSessions: ChatSession[], targetUserId?: string) => {
+    if (!currentUser) return;
+    const assigneeId = targetUserId || currentUser.id;
+    if (!targetUserId && userStatus !== 'online') {
+      toast.error('Você precisa estar Online para assumir atendimentos!');
+      return;
+    }
+
+    const idsToAssign = visibleSessions
+      .filter(s => selectedSessionIds.has(s.id) && s.status !== 'closed')
+      .map(s => s.id);
+
+    if (idsToAssign.length === 0) {
+      toast.info('Nenhum atendimento selecionado.');
+      return;
+    }
+
+    const { error } = await supabase.from('chat_sessions').update({
+      assignee_id: assigneeId,
+      status: 'active'
+    }).in('id', idsToAssign);
+
+    if (!error) {
+      setSelectedSessionIds(new Set());
+      refreshData();
+      toast.success(`${idsToAssign.length} atendimento(s) ${targetUserId ? 'transferido(s)' : 'assumido(s)'} com sucesso!`);
+    } else {
+      toast.error('Erro ao atualizar os atendimentos selecionados.');
+    }
+  };
+
+  const onlineAssignTargets = React.useMemo(() => {
+    return statuses
+      .filter(s => s.isOnline)
+      .map(s => analysts.find(a => a.id === s.userId))
+      .filter((a): a is User => !!a)
+      .map(a => ({ id: a.id, name: a.name }));
+  }, [statuses, analysts]);
 
   return (
     <div className="space-y-8">
@@ -294,9 +414,19 @@ const handleDeleteNote = async () => {
           <div className="md:col-span-2 space-y-6">
               <div className="bg-white border border-slate-200 rounded-[2.5rem] shadow-sm overflow-hidden">
                  <div className="p-8 border-b border-slate-100 flex flex-col md:flex-row md:items-center justify-between gap-4">
-                    <div>
-                       <h3 className="text-sm font-black uppercase text-slate-800 tracking-widest">Controle de Atendimentos</h3>
-                       <p className="text-[10px] text-slate-400 font-bold uppercase tracking-widest mt-1">Sessões pendentes e em curso</p>
+                    <div className="flex items-center gap-3">
+                       <input
+                         type="checkbox"
+                         className="w-4 h-4 rounded border-slate-300 accent-indigo-600 cursor-pointer"
+                         checked={visibleQueueSessions.length > 0 && visibleQueueSessions.every(s => selectedSessionIds.has(s.id))}
+                         onChange={() => toggleSelectAllVisible(visibleQueueSessions.map(s => s.id))}
+                         disabled={visibleQueueSessions.length === 0}
+                         title="Selecionar todos"
+                       />
+                       <div>
+                          <h3 className="text-sm font-black uppercase text-slate-800 tracking-widest">Controle de Atendimentos</h3>
+                          <p className="text-[10px] text-slate-400 font-bold uppercase tracking-widest mt-1">Sessões pendentes e em curso</p>
+                       </div>
                     </div>
                     <div className="flex bg-slate-100 p-1 rounded-2xl gap-1">
                        {[
@@ -304,7 +434,7 @@ const handleDeleteNote = async () => {
                          { id: 'queue', label: 'Minha Fila' },
                          { id: 'me', label: 'Comigo' }
                        ].map(f => (
-                         <button 
+                         <button
                            key={f.id}
                            onClick={() => setQueueFilter(f.id as any)}
                            className={cn(
@@ -317,35 +447,63 @@ const handleDeleteNote = async () => {
                        ))}
                     </div>
                  </div>
+                 {selectedSessionIds.size > 0 && (
+                   <div className="px-8 py-3 bg-indigo-50 border-b border-indigo-100 flex items-center justify-between gap-4">
+                      <p className="text-[10px] font-black uppercase tracking-widest text-indigo-700">
+                        {selectedSessionIds.size} selecionado(s)
+                      </p>
+                      <div className="flex items-center gap-2">
+                         <AssignChatMenu
+                           currentUserId={currentUser?.id}
+                           isCurrentUserOnline={userStatus === 'online'}
+                           onlineTargets={onlineAssignTargets}
+                           onAssignToSelf={() => handleBulkAssign(visibleQueueSessions)}
+                           onAssignToUser={(userId) => handleBulkAssign(visibleQueueSessions, userId)}
+                           selfLabel="Assumir selecionados"
+                         />
+                         <button
+                           onClick={() => setSelectedSessionIds(new Set())}
+                           className="px-4 py-2 bg-white text-slate-500 rounded-xl text-[10px] font-black uppercase tracking-widest hover:bg-slate-100 transition-all border border-slate-200"
+                         >
+                           Limpar seleção
+                         </button>
+                      </div>
+                   </div>
+                 )}
                   <div className="divide-y divide-slate-50">
-                     {sessions
-                      .filter(s => s?.status !== 'closed')
-                      .filter(s => {
-                        if (queueFilter === 'all') return true;
-                        if (queueFilter === 'me') return s.assigneeId === currentUser?.id;
-                        if (queueFilter === 'queue') return s.queueId && userQueues.includes(s.queueId);
-                        return true;
-                      }).length === 0 ? (
+                     {visibleQueueSessions.length === 0 ? (
                        <div className="p-20 text-center text-slate-400">
                           <MessageSquare size={48} className="mx-auto mb-4 opacity-20" />
                           <p className="text-sm font-bold">Nenhum atendimento corresponde aos filtros</p>
                        </div>
                      ) : (
-                       sessions
-                        .filter(s => s?.status !== 'closed')
-                        .filter(s => {
-                          if (queueFilter === 'all') return true;
-                          if (queueFilter === 'me') return s.assigneeId === currentUser?.id;
-                          if (queueFilter === 'queue') return s.queueId && userQueues.includes(s.queueId);
-                          return true;
-                        }).map(s => (
+                       visibleQueueSessions.map(s => (
+                         (() => {
+                           const contact = customers.find(c =>
+                              c.id === s.customerId ||
+                              matchPhones(c.phone, s.customerPhone) || (c.phones && c.phones.some(p => matchPhones(p, s.customerPhone)))
+                            );
+                           const company = contact ? companies.find(comp => comp.id === contact.companyId) : null;
+                           const displayName = s.customerName || contact?.name || (s.customerPhone && maskPhone(s.customerPhone)) || 'Contato sem nome';
+                           const photo = contact?.avatarUrl || getContactPhoto(s.customerPhone, getSessionInstanceId(s));
+                           return (
                          <div key={s.id} className="p-6 flex items-center justify-between hover:bg-slate-50 transition-all">
                             <div className="flex items-center gap-4">
+                               <input
+                                 type="checkbox"
+                                 className="w-4 h-4 rounded border-slate-300 accent-indigo-600 cursor-pointer"
+                                 checked={selectedSessionIds.has(s.id)}
+                                 onChange={() => toggleSessionSelected(s.id)}
+                               />
                                <div className={cn(
-                                 "w-12 h-12 rounded-2xl flex items-center justify-center relative",
+                                 "w-12 h-12 rounded-2xl flex items-center justify-center relative overflow-hidden",
                                  s.status === 'pending' ? "bg-amber-100 text-amber-600 border-2 border-amber-300 animate-pulse" : "bg-emerald-50 text-emerald-600"
                                )}>
-                                  <UserIcon size={24} />
+                                  {photo ? (
+                                    <img src={photo} alt={displayName} className="w-full h-full object-cover" />
+                                  ) : (
+                                    <UserIcon size={24} />
+                                  )}
                                   <div className={cn(
                                     "absolute -top-1 -right-1 w-4 h-4 rounded-full border-2 border-white shadow-sm",
                                     s.status === 'pending' ? "bg-amber-500" : "bg-emerald-500"
@@ -355,25 +513,18 @@ const handleDeleteNote = async () => {
                                   <div className="flex items-center gap-2">
                                      <div className="flex flex-col">
                                         <p className="font-black text-slate-800 leading-tight flex items-center gap-2">
-                                          {s.customerName}
+                                          {displayName}
                                           {s.status === 'pending' && (
                                             <span className="flex items-center gap-1 px-1.5 py-0.5 bg-red-50 text-red-600 text-[8px] font-black rounded border border-red-100">
                                               AGUARDANDO
                                             </span>
                                           )}
                                         </p>
-                                        {(() => {
-                                           const contact = customers.find(c => 
-                                              c.id === s.customerId || 
-                                              matchPhones(c.phone, s.customerPhone) || (c.phones && c.phones.some(p => matchPhones(p, s.customerPhone)))
-                                            );
-                                           const company = contact ? companies.find(comp => comp.id === contact.companyId) : null;
-                                           return company ? (
-                                             <p className="text-[10px] text-indigo-600 font-bold uppercase tracking-widest">{company.name}</p>
-                                           ) : (
-                                             <p className="text-[10px] text-slate-400 font-bold uppercase tracking-widest italic">Sem Empresa</p>
-                                           );
-                                        })()}
+                                        {company ? (
+                                          <p className="text-[10px] text-indigo-600 font-bold uppercase tracking-widest">{company.name}</p>
+                                        ) : (
+                                          <p className="text-[10px] text-slate-400 font-bold uppercase tracking-widest italic">Sem Empresa</p>
+                                        )}
                                      </div>
                                      <span className={cn(
                                        "text-[8px] font-black uppercase px-2 py-0.5 rounded self-start",
@@ -406,25 +557,37 @@ const handleDeleteNote = async () => {
                                    </button>
                                 )}
                                 {s.status === 'pending' ? (
-                                  <button 
-                                    onClick={() => handleAssignAnalyst(s.id)}
-                                    className="flex items-center gap-2 px-5 py-2.5 bg-indigo-600 text-white rounded-xl text-[10px] font-black uppercase tracking-widest hover:bg-indigo-700 transition-all shadow-lg shadow-indigo-100"
-                                  >
-                                     <UserPlus size={14} /> Assumir
-                                  </button>
+                                  <AssignChatMenu
+                                    currentUserId={currentUser?.id}
+                                    isCurrentUserOnline={userStatus === 'online'}
+                                    onlineTargets={onlineAssignTargets}
+                                    onAssignToSelf={() => handleAssignAnalyst(s.id)}
+                                    onAssignToUser={(userId) => handleAssignAnalyst(s.id, userId)}
+                                  />
                                 ) : (
-                                  <button 
-                                    onClick={() => {
-                                       setActiveOmniChatId(s.id);
-                                       setIsOmniChatOpen(true);
-                                    }}
-                                    className="flex items-center gap-2 px-5 py-2.5 bg-slate-900 text-white rounded-xl text-[10px] font-black uppercase tracking-widest hover:bg-slate-800 transition-all shadow-lg"
-                                  >
-                                     <MessageSquare size={14} /> Abrir Chat
-                                  </button>
+                                  <>
+                                    <button
+                                      onClick={() => {
+                                         setActiveOmniChatId(s.id);
+                                         setIsOmniChatOpen(true);
+                                      }}
+                                      className="flex items-center gap-2 px-5 py-2.5 bg-slate-900 text-white rounded-xl text-[10px] font-black uppercase tracking-widest hover:bg-slate-800 transition-all shadow-lg"
+                                    >
+                                       <MessageSquare size={14} /> Abrir Chat
+                                    </button>
+                                    <AssignChatMenu
+                                      currentUserId={currentUser?.id}
+                                      isCurrentUserOnline={userStatus === 'online'}
+                                      onlineTargets={onlineAssignTargets}
+                                      onAssignToUser={(userId) => handleAssignAnalyst(s.id, userId)}
+                                      showSelf={false}
+                                    />
+                                  </>
                                 )}
                              </div>
                          </div>
+                           );
+                         })()
                        ))
                      )}
                   </div>

@@ -1,0 +1,8 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(npx tsc --noEmit -p tsconfig.json *)",
+      "Bash(node scripts/check-encoding.js)"
+    ]
+  }
+}

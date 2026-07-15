@@ -65,6 +65,8 @@ interface AppContextType {
   absenceReasons: AbsenceReason[];
   setUserStatus: (status: 'online' | 'away' | 'offline', reason?: string) => void;
   refreshAbsenceReasons: () => Promise<void>;
+  getContactPhoto: (phone?: string, instanceId?: string) => string | null | undefined;
+  ensureContactPhoto: (phone?: string, instanceId?: string) => void;
 }
 
 const AppContext = createContext<AppContextType | undefined>(undefined);
@@ -125,6 +127,63 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
   const [userStatus, setUserStatusState] = useState<'online' | 'away' | 'offline'>('online');
   const [userStatusReason, setUserStatusReason] = useState<string | null>(null);
   const [absenceReasons, setAbsenceReasons] = useState<AbsenceReason[]>([]);
+
+  // Cache compartilhado da foto de contato do WhatsApp: um único fetch/estado
+  // usado por todas as telas (widget de chat, /chat-management, etc.), para
+  // que todas mostrem sempre a mesma informação em vez de cada uma buscar
+  // e cachear por conta própria.
+  interface ContactPhotoEntry { url: string | null; fetchedAt: number }
+  const CONTACT_PHOTO_RETRY_MS = 60000;
+  const [contactPhotos, setContactPhotos] = useState<Record<string, ContactPhotoEntry>>({});
+  const contactPhotosRef = useRef<Record<string, ContactPhotoEntry>>({});
+  const inFlightPhotoFetchesRef = useRef<Set<string>>(new Set());
+  // Fila serial: pedir várias fotos ao mesmo tempo sobrecarrega a conexão do
+  // WhatsApp e faz algumas requisições falharem silenciosamente. Processamos
+  // uma de cada vez.
+  const photoFetchQueueRef = useRef<Array<{ phone: string; instanceId: string }>>([]);
+  const isProcessingPhotoQueueRef = useRef(false);
+
+  useEffect(() => {
+    contactPhotosRef.current = contactPhotos;
+  }, [contactPhotos]);
+
+  const getContactPhoto = React.useCallback((phone?: string, instanceId?: string) => {
+    if (!phone || !instanceId) return undefined;
+    return contactPhotosRef.current[`${instanceId}:${phone}`]?.url;
+  }, []);
+
+  const processPhotoQueue = React.useCallback(async () => {
+    if (isProcessingPhotoQueueRef.current) return;
+    isProcessingPhotoQueueRef.current = true;
+
+    while (photoFetchQueueRef.current.length > 0) {
+      const { phone, instanceId } = photoFetchQueueRef.current.shift()!;
+      const key = `${instanceId}:${phone}`;
+      try {
+        const res = await fetch(`/api/whatsapp/contact-photo?instanceId=${encodeURIComponent(instanceId)}&phone=${encodeURIComponent(phone)}`);
+        const data = await res.json();
+        setContactPhotos(prev => ({ ...prev, [key]: { url: data.url || null, fetchedAt: Date.now() } }));
+      } catch {
+        setContactPhotos(prev => ({ ...prev, [key]: { url: null, fetchedAt: Date.now() } }));
+      } finally {
+        inFlightPhotoFetchesRef.current.delete(key);
+      }
+    }
+
+    isProcessingPhotoQueueRef.current = false;
+  }, []);
+
+  const ensureContactPhoto = React.useCallback((phone?: string, instanceId?: string) => {
+    if (!phone || !instanceId) return;
+    const key = `${instanceId}:${phone}`;
+    const entry = contactPhotosRef.current[key];
+    const isFresh = !!entry && (!!entry.url || Date.now() - entry.fetchedAt < CONTACT_PHOTO_RETRY_MS);
+    if (isFresh || inFlightPhotoFetchesRef.current.has(key)) return;
+
+    inFlightPhotoFetchesRef.current.add(key);
+    photoFetchQueueRef.current.push({ phone, instanceId });
+    void processPhotoQueue();
+  }, [processPhotoQueue]);
 
   const triggerRefresh = React.useCallback(() => {
     setRefreshTrigger(prev => prev + 1);
@@ -480,7 +539,9 @@ return (
       userStatusReason,
       absenceReasons,
       setUserStatus,
-      refreshAbsenceReasons
+      refreshAbsenceReasons,
+      getContactPhoto,
+      ensureContactPhoto
     }}>
       {children}
     </AppContext.Provider>

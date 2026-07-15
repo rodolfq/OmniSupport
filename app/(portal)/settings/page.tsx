@@ -112,7 +112,7 @@ export default function SettingsPage() {
   const pollStatus = async () => {
     if (!selectedInstance) return;
     try {
-      const res = await fetch(`/api/whatsapp/status?sessionId=${selectedInstance.id}`);
+      const res = await fetch(`/api/whatsapp/status?instanceId=${selectedInstance.id}`);
       if (!res.ok) return;
       const data = await res.json();
       
@@ -163,10 +163,9 @@ export default function SettingsPage() {
       const res = await fetch('/api/whatsapp/connect', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: safeJsonStringify({ 
-          sessionId: selectedInstance.id, 
-          name: selectedInstance.name,
-          force // We can pass force to manager if needed, but the manager logic already handles cleanup
+        body: safeJsonStringify({
+          instanceId: selectedInstance.id,
+          name: selectedInstance.name
         })
       });
       
@@ -190,7 +189,7 @@ export default function SettingsPage() {
       await fetch('/api/whatsapp/logout', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: safeJsonStringify({ sessionId: selectedInstance.id })
+        body: safeJsonStringify({ instanceId: selectedInstance.id })
       });
       setQrStatus('idle');
       setRealQr(null);

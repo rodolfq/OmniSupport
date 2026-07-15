@@ -32,6 +32,7 @@ export function LinkContactModal({
 }) {
   const [users, setUsers] = useState<User[]>([]);
   const [companies, setCompanies] = useState<Company[]>([]);
+  const [queues, setQueues] = useState<any[]>([]);
   const [searchTerm, setSearchTerm] = useState('');
   const [isCreatingNew, setIsCreatingNew] = useState(false);
   const [newName, setNewName] = useState('');
@@ -47,6 +48,8 @@ export function LinkContactModal({
           setUsers(emps);
           const comps = await CompanyService.getAll();
           setCompanies(comps);
+          const { data: queuesData } = await supabase.from('queues').select('id, whatsapp_instance_id');
+          setQueues(queuesData || []);
         } catch (e) {
           console.error("Error loading LinkContactModal data:", e);
         }
@@ -56,35 +59,55 @@ export function LinkContactModal({
     }
   }, [isOpen, session]);
 
+  // Foto de perfil do WhatsApp do contato, para sincronizar com o cadastro
+  // (profiles.avatar_url) assim que ele é vinculado/criado.
+  const fetchWhatsappContactPhoto = async (): Promise<string | null> => {
+    if (!session?.customerPhone) return null;
+    const queue = queues.find(q => q.id === session.queueId);
+    const instanceId = queue?.whatsapp_instance_id || queue?.whatsappInstanceId || 'default';
+    try {
+      const res = await fetch(`/api/whatsapp/contact-photo?instanceId=${encodeURIComponent(instanceId)}&phone=${encodeURIComponent(session.customerPhone)}`);
+      const data = await res.json();
+      return data.url || null;
+    } catch {
+      return null;
+    }
+  };
+
   const filteredUsers = users.filter(u => 
     normalizeString(u.name).includes(normalizeString(searchTerm)) ||
     (u.phone && u.phone.includes(searchTerm)) ||
     (u.phones && u.phones.some(p => p.includes(searchTerm)))
   );
 
-  const handleLink = async (userId: string) => {
+  const handleLink = async (user: User) => {
     if (!session) return;
-    const user = users.find(u => u.id === userId);
-    if (!user) return;
 
     try {
-      // Add phone to user if it's new
-      if (session.customerPhone) {
-        const currentPhones = user.phones || (user.phone ? [user.phone] : []);
-        if (!currentPhones.includes(session.customerPhone)) {
-          await UserService.save({
-            ...user,
-            phones: [...currentPhones, session.customerPhone],
-            phone: user.phone || session.customerPhone
-          });
-        }
+      const currentPhones = user.phones || (user.phone ? [user.phone] : []);
+      const needsPhone = !!session.customerPhone && !currentPhones.includes(session.customerPhone);
+
+      // Sincroniza a foto do WhatsApp com o cadastro, só se ele ainda não tiver avatar
+      // (não sobrescreve uma foto definida manualmente).
+      let newAvatarUrl: string | null = null;
+      if (!user.avatarUrl) {
+        newAvatarUrl = await fetchWhatsappContactPhoto();
+      }
+
+      if (needsPhone || newAvatarUrl) {
+        await UserService.save({
+          ...user,
+          phones: needsPhone ? [...currentPhones, session.customerPhone!] : currentPhones,
+          phone: user.phone || session.customerPhone,
+          avatarUrl: newAvatarUrl || user.avatarUrl
+        });
       }
 
       // Update chat session
       const { error } = await supabase
         .from('chat_sessions')
         .update({
-          customer_id: userId,
+          customer_id: user.id,
           customer_name: user.name
         })
         .eq('id', session.id);
@@ -134,10 +157,15 @@ export function LinkContactModal({
       }
 
       if (newUserId) {
-        // Re-load employees list to allow handleLink to find the new user
+        // Re-load employees list e usa o resultado fresco (o estado `users`
+        // só seria atualizado no próximo render, tarde demais para o find abaixo).
         const emps = await UserService.getEmployees();
         setUsers(emps);
-        await handleLink(newUserId);
+        const newUser = emps.find(u => u.id === newUserId);
+        if (!newUser) {
+          throw new Error('Usuário criado, mas não foi possível localizá-lo para vincular.');
+        }
+        await handleLink(newUser);
       }
     } catch (e: any) {
       console.error(e);
@@ -262,7 +290,7 @@ export function LinkContactModal({
                     {filteredUsers.map(u => (
                       <button
                         key={u.id}
-                        onClick={() => handleLink(u.id)}
+                        onClick={() => handleLink(u)}
                         className="w-full flex items-center justify-between p-3 bg-white border border-slate-100 rounded-2xl hover:border-indigo-500 hover:bg-indigo-50 transition-all group"
                       >
                         <div className="flex items-center gap-3">

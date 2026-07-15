@@ -217,6 +217,7 @@ export async function getUsers() {
       role: u.role,
       companyId: u.company_id,
       phone: u.phone || undefined,
+      avatarUrl: u.avatar_url || undefined,
       viewAllCompanyTickets: u.view_all_company_tickets,
       isAdmin: u.is_admin
     }));
