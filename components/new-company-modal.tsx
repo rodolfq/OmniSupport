@@ -100,34 +100,34 @@ export function NewCompanyModal({ isOpen, onClose, onSuccess, company }: { isOpe
             initial={{ opacity: 0, scale: 0.95, y: 20 }}
             animate={{ opacity: 1, scale: 1, y: 0 }}
             exit={{ opacity: 0, scale: 0.95, y: 20 }}
-            className="relative bg-white w-full max-w-2xl max-h-[92vh] rounded-3xl shadow-2xl overflow-hidden border border-slate-200 flex flex-col"
+            className="relative bg-white dark:bg-[var(--surface-card)] w-full max-w-2xl max-h-[92vh] rounded-3xl shadow-2xl overflow-hidden border border-slate-200 dark:border-[var(--border-default)] flex flex-col"
           >
             <div className="bg-slate-900 px-8 py-6 text-white flex items-center justify-between">
               <div>
                 <h3 className="text-xl font-black tracking-tight text-white m-0">{isEditing ? 'Editar Empresa' : 'Nova Empresa'}</h3>
-                <p className="text-[10px] text-slate-400 font-bold uppercase tracking-widest mt-1">{isEditing ? 'Atualize os dados da organização' : 'Cadastre a empresa e seu admin cliente'}</p>
+                <p className="text-[10px] text-slate-400 dark:text-[var(--text-tertiary)] font-bold uppercase tracking-widest mt-1">{isEditing ? 'Atualize os dados da organização' : 'Cadastre a empresa e seu admin cliente'}</p>
               </div>
-              <button onClick={onClose} className="p-2 hover:bg-white/10 rounded-xl transition-colors text-slate-400 hover:text-white">
+              <button onClick={onClose} className="p-2 hover:bg-white/10 rounded-xl transition-colors text-slate-400 dark:text-[var(--text-tertiary)] hover:text-white">
                 <X size={20} />
               </button>
             </div>
 
             <form onSubmit={handleSubmit} className="p-8 space-y-5 overflow-y-auto">
               {errorMsg && (
-                <div className="bg-red-50 border border-red-200 text-red-600 rounded-xl p-4 text-sm font-medium">
+                <div className="bg-red-50 dark:bg-[var(--surface-danger)] border border-red-200 dark:border-[var(--text-danger)]/30 text-red-600 dark:text-[var(--text-danger)] rounded-xl p-4 text-sm font-medium">
                   {errorMsg}
                 </div>
               )}
               <div className="space-y-2">
-                <label className="text-[10px] font-black uppercase tracking-widest text-slate-400 ml-1">Nome da Empresa</label>
+                <label className="text-[10px] font-black uppercase tracking-widest text-slate-400 dark:text-[var(--text-tertiary)] ml-1">Nome da Empresa</label>
                 <div className="relative">
-                   <Building2 className="absolute left-4 top-1/2 -translate-y-1/2 text-slate-400" size={16} />
+                   <Building2 className="absolute left-4 top-1/2 -translate-y-1/2 text-slate-400 dark:text-[var(--text-tertiary)]" size={16} />
                    <input 
                     type="text" 
                     value={name}
                     onChange={(e) => setName(e.target.value)}
                     placeholder="Razão social ou nome fantasia"
-                    className="w-full bg-slate-50 border border-slate-200 rounded-xl pl-12 pr-4 py-3 text-sm font-medium focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-500 outline-none transition-all"
+                    className="w-full bg-slate-50 dark:bg-[var(--surface-card)] border border-slate-200 dark:border-[var(--border-default)] rounded-xl pl-12 pr-4 py-3 text-sm font-medium focus:ring-2 focus:ring-indigo-500/20 dark:focus:ring-[var(--accent)]/20 focus:border-indigo-500 dark:focus:border-[var(--accent)] outline-none transition-all"
                     required
                   />
                 </div>
@@ -135,108 +135,108 @@ export function NewCompanyModal({ isOpen, onClose, onSuccess, company }: { isOpe
 
               <div className="grid grid-cols-2 gap-4">
                 <div className="space-y-2">
-                  <label className="text-[10px] font-black uppercase tracking-widest text-slate-400 ml-1">Setor / Indústria</label>
+                  <label className="text-[10px] font-black uppercase tracking-widest text-slate-400 dark:text-[var(--text-tertiary)] ml-1">Setor / Indústria</label>
                   <div className="relative">
-                    <Briefcase className="absolute left-4 top-1/2 -translate-y-1/2 text-slate-400" size={16} />
+                    <Briefcase className="absolute left-4 top-1/2 -translate-y-1/2 text-slate-400 dark:text-[var(--text-tertiary)]" size={16} />
                     <input 
                       type="text" 
                       value={industry}
                       onChange={(e) => setIndustry(e.target.value)}
                       placeholder="Ex: Tecnologia"
-                      className="w-full bg-slate-50 border border-slate-200 rounded-xl pl-12 pr-4 py-3 text-sm font-medium focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-500 outline-none transition-all"
+                      className="w-full bg-slate-50 dark:bg-[var(--surface-card)] border border-slate-200 dark:border-[var(--border-default)] rounded-xl pl-12 pr-4 py-3 text-sm font-medium focus:ring-2 focus:ring-indigo-500/20 dark:focus:ring-[var(--accent)]/20 focus:border-indigo-500 dark:focus:border-[var(--accent)] outline-none transition-all"
                     />
                   </div>
                 </div>
                 <div className="space-y-2">
-                  <label className="text-[10px] font-black uppercase tracking-widest text-slate-400 ml-1">Telefone Principal</label>
+                  <label className="text-[10px] font-black uppercase tracking-widest text-slate-400 dark:text-[var(--text-tertiary)] ml-1">Telefone Principal</label>
                   <div className="relative">
-                    <Phone className="absolute left-4 top-1/2 -translate-y-1/2 text-slate-400" size={16} />
+                    <Phone className="absolute left-4 top-1/2 -translate-y-1/2 text-slate-400 dark:text-[var(--text-tertiary)]" size={16} />
                     <input 
                       type="text" 
                       value={maskPhone(phone)}
                       onChange={(e) => setPhone(e.target.value)}
                       placeholder="(xx) xxxx-xxxx"
                       maxLength={15}
-                      className="w-full bg-slate-50 border border-slate-200 rounded-xl pl-12 pr-4 py-3 text-sm font-medium focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-500 outline-none transition-all"
+                      className="w-full bg-slate-50 dark:bg-[var(--surface-card)] border border-slate-200 dark:border-[var(--border-default)] rounded-xl pl-12 pr-4 py-3 text-sm font-medium focus:ring-2 focus:ring-indigo-500/20 dark:focus:ring-[var(--accent)]/20 focus:border-indigo-500 dark:focus:border-[var(--accent)] outline-none transition-all"
                     />
                   </div>
                 </div>
               </div>
 
               {!isEditing && (
-                <div className="rounded-2xl border border-indigo-100 bg-indigo-50/40 p-5 space-y-4">
+                <div className="rounded-2xl border border-indigo-100 dark:border-[var(--accent)]/20 bg-indigo-50/40 dark:bg-[var(--accent)]/10 p-5 space-y-4">
                   <div className="flex items-center gap-3">
-                    <div className="w-10 h-10 rounded-xl bg-white border border-indigo-100 text-indigo-600 flex items-center justify-center shadow-sm">
+                    <div className="w-10 h-10 rounded-xl bg-white dark:bg-[var(--surface-card)] border border-indigo-100 dark:border-[var(--accent)]/20 text-indigo-600 dark:text-[var(--accent-text)] flex items-center justify-center shadow-sm">
                       <UserPlus size={18} />
                     </div>
                     <div>
                       <p className="text-xs font-black text-indigo-950 uppercase tracking-widest">Admin da Empresa</p>
-                      <p className="text-[10px] font-bold text-indigo-500 uppercase tracking-widest">Perfil Cliente com acesso aos funcionários</p>
+                      <p className="text-[10px] font-bold text-indigo-500 dark:text-[var(--accent-text)] uppercase tracking-widest">Perfil Cliente com acesso aos funcionários</p>
                     </div>
                   </div>
 
                   <div className="space-y-2">
-                    <label className="text-[10px] font-black uppercase tracking-widest text-slate-400 ml-1">Nome do Admin</label>
+                    <label className="text-[10px] font-black uppercase tracking-widest text-slate-400 dark:text-[var(--text-tertiary)] ml-1">Nome do Admin</label>
                     <input
                       type="text"
                       value={adminName}
                       onChange={(e) => setAdminName(e.target.value)}
                       placeholder="Nome do responsável"
-                      className="w-full bg-white border border-slate-200 rounded-xl px-4 py-3 text-sm font-medium focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-500 outline-none transition-all"
+                      className="w-full bg-white dark:bg-[var(--surface-card)] border border-slate-200 dark:border-[var(--border-default)] rounded-xl px-4 py-3 text-sm font-medium focus:ring-2 focus:ring-indigo-500/20 dark:focus:ring-[var(--accent)]/20 focus:border-indigo-500 dark:focus:border-[var(--accent)] outline-none transition-all"
                       required
                     />
                   </div>
 
                   <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                     <div className="space-y-2">
-                      <label className="text-[10px] font-black uppercase tracking-widest text-slate-400 ml-1">Email de Login</label>
+                      <label className="text-[10px] font-black uppercase tracking-widest text-slate-400 dark:text-[var(--text-tertiary)] ml-1">Email de Login</label>
                       <div className="relative">
-                        <Mail className="absolute left-4 top-1/2 -translate-y-1/2 text-slate-400" size={16} />
+                        <Mail className="absolute left-4 top-1/2 -translate-y-1/2 text-slate-400 dark:text-[var(--text-tertiary)]" size={16} />
                         <input
                           type="email"
                           value={adminEmail}
                           onChange={(e) => setAdminEmail(e.target.value)}
                           placeholder="admin@empresa.com"
-                          className="w-full bg-white border border-slate-200 rounded-xl pl-12 pr-4 py-3 text-sm font-medium focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-500 outline-none transition-all"
+                          className="w-full bg-white dark:bg-[var(--surface-card)] border border-slate-200 dark:border-[var(--border-default)] rounded-xl pl-12 pr-4 py-3 text-sm font-medium focus:ring-2 focus:ring-indigo-500/20 dark:focus:ring-[var(--accent)]/20 focus:border-indigo-500 dark:focus:border-[var(--accent)] outline-none transition-all"
                           required
                         />
                       </div>
                     </div>
 
                     <div className="space-y-2">
-                      <label className="text-[10px] font-black uppercase tracking-widest text-slate-400 ml-1">Telefone do Admin</label>
+                      <label className="text-[10px] font-black uppercase tracking-widest text-slate-400 dark:text-[var(--text-tertiary)] ml-1">Telefone do Admin</label>
                       <div className="relative">
-                        <Phone className="absolute left-4 top-1/2 -translate-y-1/2 text-slate-400" size={16} />
+                        <Phone className="absolute left-4 top-1/2 -translate-y-1/2 text-slate-400 dark:text-[var(--text-tertiary)]" size={16} />
                         <input
                           type="text"
                           value={maskPhone(adminPhone)}
                           onChange={(e) => setAdminPhone(e.target.value)}
                           placeholder="(xx) xxxxx-xxxx"
                           maxLength={15}
-                          className="w-full bg-white border border-slate-200 rounded-xl pl-12 pr-4 py-3 text-sm font-medium focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-500 outline-none transition-all"
+                          className="w-full bg-white dark:bg-[var(--surface-card)] border border-slate-200 dark:border-[var(--border-default)] rounded-xl pl-12 pr-4 py-3 text-sm font-medium focus:ring-2 focus:ring-indigo-500/20 dark:focus:ring-[var(--accent)]/20 focus:border-indigo-500 dark:focus:border-[var(--accent)] outline-none transition-all"
                         />
                       </div>
                     </div>
                   </div>
 
                   <div className="space-y-2">
-                    <label className="text-[10px] font-black uppercase tracking-widest text-slate-400 ml-1">Senha Inicial</label>
+                    <label className="text-[10px] font-black uppercase tracking-widest text-slate-400 dark:text-[var(--text-tertiary)] ml-1">Senha Inicial</label>
                     <div className="flex gap-2">
                       <div className="relative flex-1">
-                        <Lock className="absolute left-4 top-1/2 -translate-y-1/2 text-slate-400" size={16} />
+                        <Lock className="absolute left-4 top-1/2 -translate-y-1/2 text-slate-400 dark:text-[var(--text-tertiary)]" size={16} />
                         <input
                           type={showAdminPassword ? 'text' : 'password'}
                           value={adminPassword}
                           onChange={(e) => setAdminPassword(e.target.value)}
                           placeholder="Senha de acesso"
                           minLength={6}
-                          className="w-full bg-white border border-slate-200 rounded-xl pl-12 pr-11 py-3 text-sm font-mono font-bold focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-500 outline-none transition-all"
+                          className="w-full bg-white dark:bg-[var(--surface-card)] border border-slate-200 dark:border-[var(--border-default)] rounded-xl pl-12 pr-11 py-3 text-sm font-mono font-bold focus:ring-2 focus:ring-indigo-500/20 dark:focus:ring-[var(--accent)]/20 focus:border-indigo-500 dark:focus:border-[var(--accent)] outline-none transition-all"
                           required
                         />
                         <button
                           type="button"
                           onClick={() => setShowAdminPassword(value => !value)}
-                          className="absolute right-3 top-1/2 -translate-y-1/2 p-1 text-slate-400 hover:text-indigo-600"
+                          className="absolute right-3 top-1/2 -translate-y-1/2 p-1 text-slate-400 dark:text-[var(--text-tertiary)] hover:text-indigo-600 dark:hover:text-[var(--accent-text)]"
                           title={showAdminPassword ? 'Ocultar senha' : 'Mostrar senha'}
                         >
                           {showAdminPassword ? <EyeOff size={16} /> : <Eye size={16} />}
@@ -245,7 +245,7 @@ export function NewCompanyModal({ isOpen, onClose, onSuccess, company }: { isOpe
                       <button
                         type="button"
                         onClick={() => setAdminPassword(generateTemporaryPassword())}
-                        className="px-4 rounded-xl bg-white border border-slate-200 text-slate-500 hover:text-indigo-600 hover:border-indigo-300 transition-all"
+                        className="px-4 rounded-xl bg-white dark:bg-[var(--surface-card)] border border-slate-200 dark:border-[var(--border-default)] text-slate-500 dark:text-[var(--text-tertiary)] hover:text-indigo-600 dark:hover:text-[var(--accent-text)] hover:border-indigo-300 transition-all"
                         title="Gerar nova senha"
                       >
                         <RefreshCw size={16} />
@@ -260,14 +260,14 @@ export function NewCompanyModal({ isOpen, onClose, onSuccess, company }: { isOpe
                   type="button" 
                   onClick={onClose}
                   disabled={isLoading}
-                  className="flex-1 px-6 py-3.5 rounded-xl text-sm font-bold text-slate-500 hover:bg-slate-50 transition-all border border-slate-200 disabled:opacity-50"
+                  className="flex-1 px-6 py-3.5 rounded-xl text-sm font-bold text-slate-500 dark:text-[var(--text-tertiary)] hover:bg-slate-50 dark:hover:bg-[var(--surface-card)] transition-all border border-slate-200 dark:border-[var(--border-default)] disabled:opacity-50"
                 >
                   Cancelar
                 </button>
                 <button 
                   type="submit"
                   disabled={isLoading}
-                  className="flex-1 bg-indigo-600 text-white px-6 py-3.5 rounded-xl text-sm font-black uppercase tracking-widest shadow-lg shadow-indigo-100 hover:bg-indigo-700 transition-all flex items-center justify-center gap-2 disabled:opacity-70 disabled:cursor-not-allowed"
+                  className="flex-1 bg-indigo-600 dark:bg-[var(--accent)] text-white px-6 py-3.5 rounded-xl text-sm font-black uppercase tracking-widest shadow-lg shadow-indigo-100 hover:bg-indigo-700 dark:hover:bg-[var(--accent-hover)] transition-all flex items-center justify-center gap-2 disabled:opacity-70 disabled:cursor-not-allowed"
                 >
                   {isLoading ? (
                     <>

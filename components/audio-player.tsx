@@ -71,7 +71,7 @@ export function AudioPlayer({ src, name, isOwnMessage }: AudioPlayerProps) {
     return (
       <div className={cn(
         "flex items-center gap-2 rounded-xl p-2.5 w-full text-xs font-bold",
-        own ? "bg-white/10 text-white/70" : "bg-slate-50 border border-slate-200 text-slate-400"
+        own ? "bg-white/10 text-white/70" : "bg-slate-50 dark:bg-[var(--surface-card)] border border-slate-200 dark:border-[var(--border-default)] text-slate-400 dark:text-[var(--text-tertiary)]"
       )}>
         Áudio indisponível
       </div>
@@ -81,7 +81,7 @@ export function AudioPlayer({ src, name, isOwnMessage }: AudioPlayerProps) {
   return (
     <div className={cn(
       "flex items-center gap-2 rounded-xl p-2.5 w-full",
-      own ? "bg-white/10" : "bg-slate-50 border border-slate-200"
+      own ? "bg-white/10" : "bg-slate-50 dark:bg-[var(--surface-card)] border border-slate-200 dark:border-[var(--border-default)]"
     )}>
       <audio
         ref={audioRef}
@@ -110,7 +110,7 @@ export function AudioPlayer({ src, name, isOwnMessage }: AudioPlayerProps) {
         onClick={togglePlay}
         className={cn(
           "shrink-0 w-9 h-9 rounded-full flex items-center justify-center transition-all",
-          own ? "bg-white text-indigo-600" : "bg-indigo-600 text-white"
+          own ? "bg-white dark:bg-[var(--surface-card)] text-indigo-600 dark:text-[var(--accent-text)]" : "bg-indigo-600 dark:bg-[var(--accent)] text-white"
         )}
         title={isPlaying ? 'Pausar' : 'Reproduzir'}
       >
@@ -125,9 +125,9 @@ export function AudioPlayer({ src, name, isOwnMessage }: AudioPlayerProps) {
           step={0.1}
           value={Math.min(currentTime, duration || 0)}
           onChange={handleSeek}
-          className={cn("w-full h-1 accent-current cursor-pointer", own ? "text-white" : "text-indigo-600")}
+          className={cn("w-full h-1 accent-current cursor-pointer", own ? "text-white" : "text-indigo-600 dark:text-[var(--accent-text)]")}
         />
-        <span className={cn("text-[10px] font-bold tabular-nums", own ? "text-white/80" : "text-slate-400")}>
+        <span className={cn("text-[10px] font-bold tabular-nums", own ? "text-white/80" : "text-slate-400 dark:text-[var(--text-tertiary)]")}>
           {formatTime(currentTime)} / {formatTime(duration)}
         </span>
       </div>
@@ -137,7 +137,7 @@ export function AudioPlayer({ src, name, isOwnMessage }: AudioPlayerProps) {
         onClick={cycleSpeed}
         className={cn(
           "shrink-0 px-2 py-1 rounded-lg text-[10px] font-black transition-all",
-          own ? "bg-white/15 text-white hover:bg-white/25" : "bg-slate-200 text-slate-600 hover:bg-slate-300"
+          own ? "bg-white/15 text-white hover:bg-white/25" : "bg-slate-200 dark:bg-[var(--border-default)] text-slate-600 dark:text-[var(--text-secondary)] hover:bg-slate-300 dark:hover:bg-[var(--text-tertiary)]"
         )}
         title="Velocidade de reprodução"
       >
@@ -150,7 +150,7 @@ export function AudioPlayer({ src, name, isOwnMessage }: AudioPlayerProps) {
         onClick={(e) => e.stopPropagation()}
         className={cn(
           "shrink-0 w-8 h-8 rounded-full flex items-center justify-center transition-all",
-          own ? "text-white/80 hover:bg-white/15" : "text-slate-400 hover:bg-slate-200"
+          own ? "text-white/80 hover:bg-white/15" : "text-slate-400 dark:text-[var(--text-tertiary)] hover:bg-slate-200 dark:hover:bg-[var(--border-default)]"
         )}
         title="Baixar áudio"
       >

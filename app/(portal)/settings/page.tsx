@@ -243,8 +243,8 @@ export default function SettingsPage() {
   return (
     <div className="space-y-8 px-6 lg:px-10 max-w-[1600px] mx-auto">
       <div>
-        <h2 className="text-3xl font-black text-slate-800 tracking-tight">Configurações</h2>
-        <p className="text-slate-500 font-medium">Personalize sua experiência e gerencie parâmetros do sistema</p>
+        <h2 className="text-3xl font-black text-slate-800 dark:text-[var(--text-primary)] tracking-tight">Configurações</h2>
+        <p className="text-slate-500 dark:text-[var(--text-tertiary)] font-medium">Personalize sua experiência e gerencie parâmetros do sistema</p>
       </div>
 
       <div className="grid grid-cols-1 md:grid-cols-12 gap-8">
@@ -286,20 +286,20 @@ export default function SettingsPage() {
              </div>
            )}
           {activeTab === 'whatsapp' && currentUser?.role === UserRole.ADMIN && (
-            <div className="bg-white border border-slate-200 rounded-[2.5rem] p-12 shadow-sm">
+            <div className="bg-white dark:bg-[var(--surface-card)] border border-slate-200 dark:border-[var(--border-default)] rounded-[2.5rem] p-12 shadow-sm">
                <div className="flex items-center justify-between mb-8">
                   <div className="flex items-center gap-4">
-                    <div className="w-16 h-16 bg-emerald-50 rounded-[1.5rem] flex items-center justify-center text-emerald-600">
+                    <div className="w-16 h-16 bg-emerald-50 dark:bg-[var(--surface-success)] rounded-[1.5rem] flex items-center justify-center text-emerald-600 dark:text-[var(--text-success)]">
                       <Globe size={32} />
                     </div>
                     <div className="flex items-center gap-2">
-                       <h3 className="font-black text-xl text-slate-800 uppercase tracking-tight">{selectedInstance?.name}</h3>
+                       <h3 className="font-black text-xl text-slate-800 dark:text-[var(--text-primary)] uppercase tracking-tight">{selectedInstance?.name}</h3>
                        <button 
                          onClick={() => {
                             setEditInstanceName(selectedInstance?.name || '');
                             setIsEditInstanceModalOpen(true);
                          }}
-                         className="p-1.5 hover:bg-slate-100 rounded-lg text-slate-400 hover:text-indigo-600 transition-all"
+                         className="p-1.5 hover:bg-slate-100 dark:hover:bg-[var(--surface-pill)] rounded-lg text-slate-400 dark:text-[var(--text-tertiary)] hover:text-indigo-600 dark:hover:text-[var(--accent-text)] transition-all"
                          title="Editar Nome do Canal"
                        >
                          <Edit2 size={16} />
@@ -307,14 +307,14 @@ export default function SettingsPage() {
                     </div>
                   </div>
                   <div className="flex items-center gap-2">
-                    <div className="flex bg-slate-100 p-1.5 rounded-2xl gap-1">
+                    <div className="flex bg-slate-100 dark:bg-[var(--surface-pill)] p-1.5 rounded-2xl gap-1">
                        {whatsappInstances.map(inst => (
                          <button 
                            key={inst.id}
                            onClick={() => setSelectedInstance(inst)}
                            className={cn(
                              "px-4 py-2 rounded-xl text-[10px] font-black uppercase tracking-widest transition-all",
-                             selectedInstance?.id === inst.id ? "bg-white text-indigo-600 shadow-sm" : "text-slate-500 hover:bg-white/50"
+                             selectedInstance?.id === inst.id ? "bg-white dark:bg-[var(--surface-card)] text-indigo-600 dark:text-[var(--accent-text)] shadow-sm" : "text-slate-500 dark:text-[var(--text-tertiary)] hover:bg-white/50 dark:hover:bg-[var(--surface-card)]"
                            )}
                          >
                            {inst.name}
@@ -323,7 +323,7 @@ export default function SettingsPage() {
                     </div>
                     <button 
                       onClick={() => setIsNewInstanceModalOpen(true)}
-                      className="p-3 bg-indigo-600 text-white rounded-2xl hover:bg-indigo-700 transition-all shadow-lg shadow-indigo-100"
+                      className="p-3 bg-indigo-600 dark:bg-[var(--accent)] text-white rounded-2xl hover:bg-indigo-700 dark:hover:bg-[var(--accent-hover)] transition-all shadow-lg shadow-indigo-100"
                       title="Adicionar Novo Canal"
                     >
                       <Plus size={18} />
@@ -331,36 +331,36 @@ export default function SettingsPage() {
                   </div>
                </div>
 
-               <div className="grid grid-cols-1 md:grid-cols-2 gap-12 items-center border-t border-slate-100 pt-12">
+               <div className="grid grid-cols-1 md:grid-cols-2 gap-12 items-center border-t border-slate-100 dark:border-[var(--border-default)] pt-12">
                   <div className="space-y-6">
-                    <div className="p-6 bg-slate-50 rounded-3xl border border-slate-100">
-                      <h4 className="text-xs font-black uppercase text-slate-800 mb-4 flex items-center gap-2">
-                        <Globe size={14} className="text-indigo-600" />
+                    <div className="p-6 bg-slate-50 dark:bg-[var(--surface-card)] rounded-3xl border border-slate-100 dark:border-[var(--border-default)]">
+                      <h4 className="text-xs font-black uppercase text-slate-800 dark:text-[var(--text-primary)] mb-4 flex items-center gap-2">
+                        <Globe size={14} className="text-indigo-600 dark:text-[var(--accent-text)]" />
                         Instruções para {selectedInstance?.name}
                       </h4>
-                      <ul className="text-xs text-slate-500 space-y-3 font-medium">
+                      <ul className="text-xs text-slate-500 dark:text-[var(--text-tertiary)] space-y-3 font-medium">
                         <li className="flex gap-3">
-                          <span className="w-5 h-5 rounded-full bg-white border border-slate-200 flex items-center justify-center text-[10px] font-black shrink-0">1</span>
+                          <span className="w-5 h-5 rounded-full bg-white dark:bg-[var(--surface-card)] border border-slate-200 dark:border-[var(--border-default)] flex items-center justify-center text-[10px] font-black shrink-0">1</span>
                           <span>Abra o WhatsApp no celular</span>
                         </li>
                         <li className="flex gap-3">
-                          <span className="w-5 h-5 rounded-full bg-white border border-slate-200 flex items-center justify-center text-[10px] font-black shrink-0">2</span>
-                          <span>Toque em <span className="text-slate-800 font-bold">Aparelhos conectados</span></span>
+                          <span className="w-5 h-5 rounded-full bg-white dark:bg-[var(--surface-card)] border border-slate-200 dark:border-[var(--border-default)] flex items-center justify-center text-[10px] font-black shrink-0">2</span>
+                          <span>Toque em <span className="text-slate-800 dark:text-[var(--text-primary)] font-bold">Aparelhos conectados</span></span>
                         </li>
                         <li className="flex gap-3">
-                          <span className="w-5 h-5 rounded-full bg-white border border-slate-200 flex items-center justify-center text-[10px] font-black shrink-0">3</span>
+                          <span className="w-5 h-5 rounded-full bg-white dark:bg-[var(--surface-card)] border border-slate-200 dark:border-[var(--border-default)] flex items-center justify-center text-[10px] font-black shrink-0">3</span>
                           <span>Escaneie o QR Code ao lado</span>
                         </li>
                       </ul>
                       
-                      <div className="mt-6 pt-6 border-t border-slate-200/60">
-                        <div className="p-3 bg-indigo-50 rounded-2xl border border-indigo-100 flex gap-3">
-                           <div className="w-5 h-5 bg-indigo-500 rounded-full flex items-center justify-center text-white shrink-0 mt-0.5">
+                      <div className="mt-6 pt-6 border-t border-slate-200/60 dark:border-[var(--border-default)]/60">
+                        <div className="p-3 bg-indigo-50 dark:bg-[var(--accent)]/10 rounded-2xl border border-indigo-100 dark:border-[var(--accent)]/20 flex gap-3">
+                           <div className="w-5 h-5 bg-indigo-500 dark:bg-[var(--accent)] rounded-full flex items-center justify-center text-white shrink-0 mt-0.5">
                               <Shield size={10} />
                            </div>
                            <div className="space-y-1">
                               <p className="text-[10px] font-black text-indigo-800 uppercase tracking-tight">Conexão Segura</p>
-                              <p className="text-[10px] text-indigo-700 font-medium leading-relaxed">
+                              <p className="text-[10px] text-indigo-700 dark:text-[var(--accent-text)] font-medium leading-relaxed">
                                 Use o WhatsApp oficial no seu celular para escanear o código. A conexão é criptografada de ponta a ponta.
                               </p>
                            </div>
@@ -372,13 +372,13 @@ export default function SettingsPage() {
                       <div className="flex flex-col gap-2">
                         <button 
                           onClick={() => startLinking()}
-                          className="w-full py-4 bg-emerald-600 text-white rounded-2xl text-xs font-black uppercase tracking-widest shadow-xl shadow-emerald-100 hover:bg-emerald-700 transition-all flex items-center justify-center gap-2"
+                          className="w-full py-4 bg-emerald-600 dark:bg-[var(--text-success)] text-white rounded-2xl text-xs font-black uppercase tracking-widest shadow-xl shadow-emerald-100 hover:bg-emerald-700 transition-all flex items-center justify-center gap-2"
                         >
                           Gerar Autenticação
                         </button>
                         <button 
                           onClick={() => startLinking(true)}
-                          className="w-full py-2 text-[10px] font-black text-slate-400 hover:text-red-500 uppercase tracking-widest transition-all"
+                          className="w-full py-2 text-[10px] font-black text-slate-400 dark:text-[var(--text-tertiary)] hover:text-red-500 dark:hover:text-[var(--text-danger)] uppercase tracking-widest transition-all"
                         >
                           Problemas com QR? Limpar e Reiniciar
                         </button>
@@ -387,19 +387,19 @@ export default function SettingsPage() {
 
                     {qrStatus === 'ready' && (
                       <div className="space-y-3">
-                        <div className="p-4 bg-indigo-50 border border-indigo-100 rounded-2xl">
-                           <p className="text-[10px] font-black text-indigo-700 uppercase tracking-widest text-center">QR Code Gerado. Escaneie agora!</p>
+                        <div className="p-4 bg-indigo-50 dark:bg-[var(--accent)]/10 border border-indigo-100 dark:border-[var(--accent)]/20 rounded-2xl">
+                           <p className="text-[10px] font-black text-indigo-700 dark:text-[var(--accent-text)] uppercase tracking-widest text-center">QR Code Gerado. Escaneie agora!</p>
                         </div>
                         <div className="flex gap-2">
                           <button 
                             onClick={() => startLinking(true)}
-                            className="flex-1 py-2 bg-slate-100 hover:bg-slate-200 text-slate-600 rounded-xl text-[10px] font-black uppercase tracking-widest transition-all"
+                            className="flex-1 py-2 bg-slate-100 dark:bg-[var(--surface-pill)] hover:bg-slate-200 dark:hover:bg-[var(--border-default)] text-slate-600 dark:text-[var(--text-secondary)] rounded-xl text-[10px] font-black uppercase tracking-widest transition-all"
                           >
                             Forçar Novo QR
                           </button>
 <button 
                              onClick={() => setConfirmingDisconnect(true)}
-                             className="flex-1 py-2 bg-slate-50 hover:bg-red-50 text-red-500 rounded-xl text-[10px] font-black uppercase tracking-widest transition-all"
+                             className="flex-1 py-2 bg-slate-50 dark:bg-[var(--surface-card)] hover:bg-red-50 dark:hover:bg-[var(--surface-danger)] text-red-500 dark:text-[var(--text-danger)] rounded-xl text-[10px] font-black uppercase tracking-widest transition-all"
                            >
                              Encerrar
                            </button>
@@ -409,15 +409,15 @@ export default function SettingsPage() {
 
                     {qrStatus === 'generating' && (
                       <div className="space-y-4">
-                        <div className="p-6 bg-slate-50 border border-slate-100 rounded-2xl flex flex-col items-center gap-4 animate-pulse">
-                           <Loader2 className="w-8 h-8 text-indigo-600 animate-spin" />
-                           <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest text-center">
+                        <div className="p-6 bg-slate-50 dark:bg-[var(--surface-card)] border border-slate-100 dark:border-[var(--border-default)] rounded-2xl flex flex-col items-center gap-4 animate-pulse">
+                           <Loader2 className="w-8 h-8 text-indigo-600 dark:text-[var(--accent-text)] animate-spin" />
+                           <p className="text-[10px] font-black text-slate-400 dark:text-[var(--text-tertiary)] uppercase tracking-widest text-center">
                              Gerando ambiente seguro...
                            </p>
                         </div>
                         <button 
                           onClick={() => startLinking(true)}
-                          className="w-full py-2 text-[10px] font-black text-indigo-600 hover:underline uppercase tracking-widest"
+                          className="w-full py-2 text-[10px] font-black text-indigo-600 dark:text-[var(--accent-text)] hover:underline uppercase tracking-widest"
                         >
                           Demorando muito? Tente reiniciar
                         </button>
@@ -425,25 +425,25 @@ export default function SettingsPage() {
                     )}
 
                     {qrStatus === 'connected' && (
-                      <div className="p-6 bg-emerald-50 border border-emerald-100 rounded-2xl flex items-center gap-4">
-                         <div className="w-10 h-10 bg-emerald-600 rounded-full flex items-center justify-center text-white">
+                      <div className="p-6 bg-emerald-50 dark:bg-[var(--surface-success)] border border-emerald-100 dark:border-[var(--text-success)]/20 rounded-2xl flex items-center gap-4">
+                         <div className="w-10 h-10 bg-emerald-600 dark:bg-[var(--text-success)] rounded-full flex items-center justify-center text-white">
                            <Save size={18} />
                          </div>
                          <div>
-                            <p className="text-xs font-black text-emerald-800 uppercase tracking-tight">Conectado com sucesso!</p>
+                            <p className="text-xs font-black text-emerald-800 dark:text-[var(--text-success)] uppercase tracking-tight">Conectado com sucesso!</p>
                          </div>
-                         <button onClick={() => setConfirmingDisconnect(true)} className="ml-auto text-[10px] font-black uppercase text-red-500 hover:underline">Desconectar</button>
+                         <button onClick={() => setConfirmingDisconnect(true)} className="ml-auto text-[10px] font-black uppercase text-red-500 dark:text-[var(--text-danger)] hover:underline">Desconectar</button>
                       </div>
                     )}
                   </div>
 
                   <div className="flex flex-col items-center justify-center">
-                    <div className="relative w-64 h-64 bg-slate-50 rounded-[3rem] border-4 border-slate-100 flex items-center justify-center mb-4 group overflow-hidden">
+                    <div className="relative w-64 h-64 bg-slate-50 dark:bg-[var(--surface-card)] rounded-[3rem] border-4 border-slate-100 dark:border-[var(--border-default)] flex items-center justify-center mb-4 group overflow-hidden">
                        {qrStatus === 'idle' && <Globe size={48} className="text-slate-200" />}
                        {qrStatus === 'generating' && (
                          <div className="flex flex-col items-center gap-3">
-                           <div className="w-12 h-12 border-4 border-emerald-500 border-t-transparent rounded-full animate-spin" />
-                           <span className="text-[10px] font-black text-slate-400 uppercase tracking-widest animate-pulse">Gerando QR...</span>
+                           <div className="w-12 h-12 border-4 border-emerald-500 dark:border-[var(--text-success)] border-t-transparent rounded-full animate-spin" />
+                           <span className="text-[10px] font-black text-slate-400 dark:text-[var(--text-tertiary)] uppercase tracking-widest animate-pulse">Gerando QR...</span>
                          </div>
                        )}
                        {qrStatus === 'ready' && realQr && (
@@ -453,8 +453,8 @@ export default function SettingsPage() {
                               alt="QR Code" 
                               className="w-48 h-48"
                             />
-                            <div className="absolute inset-0 bg-white/40 backdrop-blur-[2px] opacity-0 group-hover:opacity-100 flex items-center justify-center transition-all text-center p-4">
-                               <div className="bg-indigo-600 text-white px-4 py-2 rounded-xl shadow-lg">
+                            <div className="absolute inset-0 bg-white/40 dark:bg-[var(--surface-card)] backdrop-blur-[2px] opacity-0 group-hover:opacity-100 flex items-center justify-center transition-all text-center p-4">
+                               <div className="bg-indigo-600 dark:bg-[var(--accent)] text-white px-4 py-2 rounded-xl shadow-lg">
                                   <p className="text-[9px] font-black uppercase tracking-widest leading-tight">Escaneie com seu WhatsApp</p>
                                </div>
                             </div>
@@ -462,48 +462,48 @@ export default function SettingsPage() {
                        )}
                        {qrStatus === 'connected' && (
                          <div className="text-center animate-in zoom-in-50 duration-500">
-                            <div className="w-20 h-20 bg-emerald-100 rounded-full flex items-center justify-center text-emerald-600 mx-auto mb-4">
+                            <div className="w-20 h-20 bg-emerald-100 dark:bg-[var(--surface-success)] rounded-full flex items-center justify-center text-emerald-600 dark:text-[var(--text-success)] mx-auto mb-4">
                                <Save size={40} />
                             </div>
-                            <span className="text-[10px] font-black uppercase text-emerald-600">{selectedInstance?.name} Ativo</span>
+                            <span className="text-[10px] font-black uppercase text-emerald-600 dark:text-[var(--text-success)]">{selectedInstance?.name} Ativo</span>
                          </div>
                        )}
                     </div>
                     <div className="flex items-center gap-2">
                        <div className={cn(
                          "w-2 h-2 rounded-full animate-pulse",
-                         qrStatus === 'connected' ? "bg-emerald-500" : "bg-slate-300"
+                         qrStatus === 'connected' ? "bg-emerald-500 dark:bg-[var(--text-success)]" : "bg-slate-300 dark:bg-[var(--text-tertiary)]"
                        )} />
-                       <p className="text-[10px] text-slate-400 font-black uppercase tracking-widest">Status: {qrStatus === 'connected' ? 'ONLINE' : 'OFFLINE'}</p>
+                       <p className="text-[10px] text-slate-400 dark:text-[var(--text-tertiary)] font-black uppercase tracking-widest">Status: {qrStatus === 'connected' ? 'ONLINE' : 'OFFLINE'}</p>
                     </div>
                   </div>
                </div>
             </div>
           )}
           {activeTab === 'notifications' && (
-            <div className="bg-white border border-slate-200 rounded-[2rem] p-10 shadow-sm space-y-8 animate-in fade-in slide-in-from-bottom-4 duration-300">
+            <div className="bg-white dark:bg-[var(--surface-card)] border border-slate-200 dark:border-[var(--border-default)] rounded-[2rem] p-10 shadow-sm space-y-8 animate-in fade-in slide-in-from-bottom-4 duration-300">
                <div>
-                  <h3 className="text-xl font-black text-slate-800 uppercase tracking-tight flex items-center gap-2">
-                    <Bell className="text-indigo-600" size={24} /> Configurações de Alerta
+                  <h3 className="text-xl font-black text-slate-800 dark:text-[var(--text-primary)] uppercase tracking-tight flex items-center gap-2">
+                    <Bell className="text-indigo-600 dark:text-[var(--accent-text)]" size={24} /> Configurações de Alerta
                   </h3>
-                  <p className="text-xs text-slate-400 font-bold uppercase tracking-widest mt-1">Gerencie como você recebe as notificações</p>
+                  <p className="text-xs text-slate-400 dark:text-[var(--text-tertiary)] font-bold uppercase tracking-widest mt-1">Gerencie como você recebe as notificações</p>
                </div>
 
-               <div className="flex gap-4 p-6 bg-slate-50 rounded-3xl border border-slate-100">
+               <div className="flex gap-4 p-6 bg-slate-50 dark:bg-[var(--surface-card)] rounded-3xl border border-slate-100 dark:border-[var(--border-default)]">
                   <div className="flex-1">
-                    <p className="text-sm font-black text-slate-800 uppercase tracking-tight">Teste de Som</p>
-                    <p className="text-xs text-slate-500 font-medium leading-relaxed">Clique para testar os sons e desbloquear o áudio no seu navegador.</p>
+                    <p className="text-sm font-black text-slate-800 dark:text-[var(--text-primary)] uppercase tracking-tight">Teste de Som</p>
+                    <p className="text-xs text-slate-500 dark:text-[var(--text-tertiary)] font-medium leading-relaxed">Clique para testar os sons e desbloquear o áudio no seu navegador.</p>
                   </div>
                   <div className="flex gap-2">
                     <button 
                       onClick={() => playSound('system')}
-                      className="px-4 py-2 bg-white border border-slate-200 text-slate-600 rounded-xl text-[10px] font-black uppercase tracking-widest hover:bg-slate-50 transition-all shadow-sm"
+                      className="px-4 py-2 bg-white dark:bg-[var(--surface-card)] border border-slate-200 dark:border-[var(--border-default)] text-slate-600 dark:text-[var(--text-secondary)] rounded-xl text-[10px] font-black uppercase tracking-widest hover:bg-slate-50 dark:hover:bg-[var(--surface-card)] transition-all shadow-sm"
                     >
                       Sons Sistema
                     </button>
                     <button 
                       onClick={() => playSound('chat')}
-                      className="px-4 py-2 bg-indigo-600 text-white rounded-xl text-[10px] font-black uppercase tracking-widest hover:bg-indigo-700 transition-all shadow-md"
+                      className="px-4 py-2 bg-indigo-600 dark:bg-[var(--accent)] text-white rounded-xl text-[10px] font-black uppercase tracking-widest hover:bg-indigo-700 dark:hover:bg-[var(--accent-hover)] transition-all shadow-md"
                     >
                       Sons Chat
                     </button>
@@ -514,23 +514,23 @@ export default function SettingsPage() {
             </div>
           )}
           {activeTab === 'profile' && currentUser && (
-            <div className="bg-white border border-slate-200 rounded-2xl p-8 shadow-sm">
-              <h3 className="font-bold text-slate-800 mb-6 flex items-center gap-2"><User size={20} className="text-indigo-600" /> Informações do Perfil</h3>
+            <div className="bg-white dark:bg-[var(--surface-card)] border border-slate-200 dark:border-[var(--border-default)] rounded-2xl p-8 shadow-sm">
+              <h3 className="font-bold text-slate-800 dark:text-[var(--text-primary)] mb-6 flex items-center gap-2"><User size={20} className="text-indigo-600 dark:text-[var(--accent-text)]" /> Informações do Perfil</h3>
               
               <div className="flex flex-col md:flex-row gap-8 mb-8 items-start">
                 <div className="relative group">
-                  <div className="w-32 h-32 rounded-[2.5rem] bg-slate-100 border-2 border-slate-200 overflow-hidden flex items-center justify-center relative">
+                  <div className="w-32 h-32 rounded-[2.5rem] bg-slate-100 dark:bg-[var(--surface-pill)] border-2 border-slate-200 dark:border-[var(--border-default)] overflow-hidden flex items-center justify-center relative">
                     {previewUrl ? (
                       <img src={previewUrl} alt="Preview" className="w-full h-full object-cover" />
                     ) : isValidImageUrl(currentUser.avatarUrl) ? (
                       <img src={currentUser.avatarUrl!} alt="Avatar" className="w-full h-full object-cover" />
                     ) : (
-                      <span className="text-4xl font-black text-slate-400">{currentUser.name.charAt(0)}</span>
+                      <span className="text-4xl font-black text-slate-400 dark:text-[var(--text-tertiary)]">{currentUser.name.charAt(0)}</span>
                     )}
                     
                     {isUploading && (
-                      <div className="absolute inset-0 bg-white/60 backdrop-blur-sm flex items-center justify-center">
-                        <Loader2 className="w-8 h-8 text-indigo-600 animate-spin" />
+                      <div className="absolute inset-0 bg-white/60 dark:bg-[var(--surface-card)] backdrop-blur-sm flex items-center justify-center">
+                        <Loader2 className="w-8 h-8 text-indigo-600 dark:text-[var(--accent-text)] animate-spin" />
                       </div>
                     )}
 
@@ -558,28 +558,28 @@ export default function SettingsPage() {
                 <div className="flex-1 space-y-4 w-full">
                   <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                     <div className="space-y-2">
-                      <label className="text-[10px] font-black uppercase text-slate-400 tracking-widest">Nome Completo</label>
+                      <label className="text-[10px] font-black uppercase text-slate-400 dark:text-[var(--text-tertiary)] tracking-widest">Nome Completo</label>
                       <input 
                         type="text" 
                         defaultValue={currentUser.name}
                         onChange={(e) => {
                           setCurrentUser(prev => prev ? { ...prev, name: e.target.value } : null);
                         }}
-                        className="w-full bg-slate-50 border border-slate-200 rounded-xl px-4 py-2.5 text-sm font-medium" 
+                        className="w-full bg-slate-50 dark:bg-[var(--surface-card)] border border-slate-200 dark:border-[var(--border-default)] rounded-xl px-4 py-2.5 text-sm font-medium" 
                       />
                     </div>
                     <div className="space-y-2">
-                      <label className="text-[10px] font-black uppercase text-slate-400 tracking-widest">Apelido</label>
-                      <input type="text" defaultValue={currentUser.name.split(' ')[0]} className="w-full bg-slate-50 border border-slate-200 rounded-xl px-4 py-2.5 text-sm font-medium" />
+                      <label className="text-[10px] font-black uppercase text-slate-400 dark:text-[var(--text-tertiary)] tracking-widest">Apelido</label>
+                      <input type="text" defaultValue={currentUser.name.split(' ')[0]} className="w-full bg-slate-50 dark:bg-[var(--surface-card)] border border-slate-200 dark:border-[var(--border-default)] rounded-xl px-4 py-2.5 text-sm font-medium" />
                     </div>
                   </div>
                   <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                     <div className="space-y-2">
-                      <label className="text-[10px] font-black uppercase text-slate-400 tracking-widest">Email Corporativo</label>
-                      <input type="email" defaultValue={currentUser.email} className="w-full bg-slate-50 border border-slate-200 rounded-xl px-4 py-2.5 text-sm font-bold text-slate-400" disabled />
+                      <label className="text-[10px] font-black uppercase text-slate-400 dark:text-[var(--text-tertiary)] tracking-widest">Email Corporativo</label>
+                      <input type="email" defaultValue={currentUser.email} className="w-full bg-slate-50 dark:bg-[var(--surface-card)] border border-slate-200 dark:border-[var(--border-default)] rounded-xl px-4 py-2.5 text-sm font-bold text-slate-400 dark:text-[var(--text-tertiary)]" disabled />
                     </div>
                     <div className="space-y-2">
-                      <label className="text-[10px] font-black uppercase text-slate-400 tracking-widest">Telefone</label>
+                      <label className="text-[10px] font-black uppercase text-slate-400 dark:text-[var(--text-tertiary)] tracking-widest">Telefone</label>
                       <input 
                         type="text" 
                         value={maskPhone(currentUser.phone || "")} 
@@ -588,14 +588,14 @@ export default function SettingsPage() {
                         }}
                         placeholder="(xx) xxxxx-xxxx"
                         maxLength={15}
-                        className="w-full bg-slate-50 border border-slate-200 rounded-xl px-4 py-2.5 text-sm font-medium" 
+                        className="w-full bg-slate-50 dark:bg-[var(--surface-card)] border border-slate-200 dark:border-[var(--border-default)] rounded-xl px-4 py-2.5 text-sm font-medium" 
                       />
                     </div>
                   </div>
                   <div className="space-y-2">
-                    <label className="text-[10px] font-black uppercase text-slate-400 tracking-widest">Bio</label>
+                    <label className="text-[10px] font-black uppercase text-slate-400 dark:text-[var(--text-tertiary)] tracking-widest">Bio</label>
                     <textarea 
-                      className="w-full bg-slate-50 border border-slate-200 rounded-xl px-4 py-2.5 text-sm min-h-[100px]" 
+                      className="w-full bg-slate-50 dark:bg-[var(--surface-card)] border border-slate-200 dark:border-[var(--border-default)] rounded-xl px-4 py-2.5 text-sm min-h-[100px]" 
                       defaultValue={currentUser.role === 'Administrador' ? "Lead Product Designer focado em experiências escaláveis." : "Colaborador da equipe OmniSupport."} 
                     />
                   </div>
@@ -613,7 +613,7 @@ export default function SettingsPage() {
                       toast.error("Erro ao salvar perfil.");
                     }
                   }}
-                  className="bg-indigo-600 text-white px-6 py-2.5 rounded-xl text-sm font-bold shadow-md hover:bg-indigo-700 transition-all flex items-center gap-2"
+                  className="bg-indigo-600 dark:bg-[var(--accent)] text-white px-6 py-2.5 rounded-xl text-sm font-bold shadow-md hover:bg-indigo-700 dark:hover:bg-[var(--accent-hover)] transition-all flex items-center gap-2"
                 >
                   <Save size={16} /> Salvar Perfil
                 </button>
@@ -623,9 +623,9 @@ export default function SettingsPage() {
 
           {activeTab === 'security' && (
             <div className="space-y-6">
-              <div className="bg-white border border-slate-200 rounded-2xl p-8 shadow-sm">
-                <h3 className="font-bold text-slate-800 mb-6 flex items-center gap-2"><Lock size={20} className="text-indigo-600" /> Alterar Senha</h3>
-                <p className="text-sm text-slate-500 mb-6">Para sua segurança, recomendamos alterar sua senha periodicamente.</p>
+              <div className="bg-white dark:bg-[var(--surface-card)] border border-slate-200 dark:border-[var(--border-default)] rounded-2xl p-8 shadow-sm">
+                <h3 className="font-bold text-slate-800 dark:text-[var(--text-primary)] mb-6 flex items-center gap-2"><Lock size={20} className="text-indigo-600 dark:text-[var(--accent-text)]" /> Alterar Senha</h3>
+                <p className="text-sm text-slate-500 dark:text-[var(--text-tertiary)] mb-6">Para sua segurança, recomendamos alterar sua senha periodicamente.</p>
                 <button 
                   onClick={() => setIsPasswordModalOpen(true)}
                   className="bg-slate-900 text-white px-6 py-2.5 rounded-xl text-sm font-bold shadow-md hover:bg-slate-800 transition-all flex items-center gap-2"
@@ -642,25 +642,25 @@ export default function SettingsPage() {
       {isEditInstanceModalOpen && (
         <div className="fixed inset-0 z-[110] flex items-center justify-center p-4">
           <div className="absolute inset-0 bg-slate-900/60 backdrop-blur-sm" onClick={() => setIsEditInstanceModalOpen(false)} />
-          <div className="relative bg-white w-full max-w-md rounded-[2.5rem] shadow-2xl p-8 flex flex-col gap-6 animate-in zoom-in-95 duration-200">
+          <div className="relative bg-white dark:bg-[var(--surface-card)] w-full max-w-md rounded-[2.5rem] shadow-2xl p-8 flex flex-col gap-6 animate-in zoom-in-95 duration-200">
             <div className="flex items-center gap-4">
-               <div className="w-12 h-12 bg-indigo-600 rounded-2xl flex items-center justify-center text-white shadow-lg shadow-indigo-100">
+               <div className="w-12 h-12 bg-indigo-600 dark:bg-[var(--accent)] rounded-2xl flex items-center justify-center text-white shadow-lg shadow-indigo-100">
                   <Edit2 size={24} />
                </div>
                <div>
-                  <h3 className="text-xl font-black text-slate-800 tracking-tight uppercase leading-none mb-1">Editar Canal</h3>
-                  <p className="text-[10px] text-slate-400 font-bold uppercase tracking-widest leading-none">Alterar Nome da Conexão</p>
+                  <h3 className="text-xl font-black text-slate-800 dark:text-[var(--text-primary)] tracking-tight uppercase leading-none mb-1">Editar Canal</h3>
+                  <p className="text-[10px] text-slate-400 dark:text-[var(--text-tertiary)] font-bold uppercase tracking-widest leading-none">Alterar Nome da Conexão</p>
                </div>
             </div>
 
             <div className="space-y-4">
                <div className="space-y-1">
-                  <label className="text-[10px] font-black uppercase text-slate-400 tracking-widest ml-1">Nome da Conexão</label>
+                  <label className="text-[10px] font-black uppercase text-slate-400 dark:text-[var(--text-tertiary)] tracking-widest ml-1">Nome da Conexão</label>
                   <input 
                     type="text" 
                     value={editInstanceName}
                     onChange={(e) => setEditInstanceName(e.target.value)}
-                    className="w-full bg-slate-50 border border-slate-200 rounded-2xl px-4 py-3 text-sm font-bold focus:ring-4 focus:ring-indigo-500/10 outline-none"
+                    className="w-full bg-slate-50 dark:bg-[var(--surface-card)] border border-slate-200 dark:border-[var(--border-default)] rounded-2xl px-4 py-3 text-sm font-bold focus:ring-4 focus:ring-indigo-500/10 dark:focus:ring-[var(--accent)]/10 outline-none"
                   />
                </div>
             </div>
@@ -668,13 +668,13 @@ export default function SettingsPage() {
             <div className="flex gap-3">
                <button 
                  onClick={() => setIsEditInstanceModalOpen(false)}
-                 className="flex-1 py-4 text-[10px] font-black uppercase tracking-widest text-slate-400 hover:bg-slate-50 rounded-2xl transition-all"
+                 className="flex-1 py-4 text-[10px] font-black uppercase tracking-widest text-slate-400 dark:text-[var(--text-tertiary)] hover:bg-slate-50 dark:hover:bg-[var(--surface-card)] rounded-2xl transition-all"
                >
                  Cancelar
                </button>
                <button 
                  onClick={handleUpdateInstanceName}
-                 className="flex-1 py-4 bg-indigo-600 text-white rounded-2xl text-[10px] font-black uppercase tracking-widest hover:bg-indigo-700 transition-all shadow-xl shadow-indigo-100"
+                 className="flex-1 py-4 bg-indigo-600 dark:bg-[var(--accent)] text-white rounded-2xl text-[10px] font-black uppercase tracking-widest hover:bg-indigo-700 dark:hover:bg-[var(--accent-hover)] transition-all shadow-xl shadow-indigo-100"
                >
                  Salvar Alterações
                </button>
@@ -686,36 +686,36 @@ export default function SettingsPage() {
 {isNewInstanceModalOpen && (
          <div className="fixed inset-0 z-[110] flex items-center justify-center p-4">
            <div className="absolute inset-0 bg-slate-900/60 backdrop-blur-sm" onClick={() => setIsNewInstanceModalOpen(false)} />
-           <div className="relative bg-white w-full max-w-md rounded-[2.5rem] shadow-2xl p-8 flex flex-col gap-6 animate-in zoom-in-95 duration-200">
+           <div className="relative bg-white dark:bg-[var(--surface-card)] w-full max-w-md rounded-[2.5rem] shadow-2xl p-8 flex flex-col gap-6 animate-in zoom-in-95 duration-200">
              <div className="flex items-center gap-4">
-                <div className="w-12 h-12 bg-indigo-600 rounded-2xl flex items-center justify-center text-white shadow-lg shadow-indigo-100">
+                <div className="w-12 h-12 bg-indigo-600 dark:bg-[var(--accent)] rounded-2xl flex items-center justify-center text-white shadow-lg shadow-indigo-100">
                    <Plus size={24} />
                 </div>
                 <div>
-                   <h3 className="text-xl font-black text-slate-800 tracking-tight uppercase leading-none mb-1">Novo Canal</h3>
-                   <p className="text-[10px] text-slate-400 font-bold uppercase tracking-widest leading-none">Criar Instância WhatsApp</p>
+                   <h3 className="text-xl font-black text-slate-800 dark:text-[var(--text-primary)] tracking-tight uppercase leading-none mb-1">Novo Canal</h3>
+                   <p className="text-[10px] text-slate-400 dark:text-[var(--text-tertiary)] font-bold uppercase tracking-widest leading-none">Criar Instância WhatsApp</p>
                 </div>
              </div>
  
              <div className="space-y-4">
                 <div className="space-y-1">
-                   <label className="text-[10px] font-black uppercase text-slate-400 tracking-widest ml-1">Nome da Conexão</label>
+                   <label className="text-[10px] font-black uppercase text-slate-400 dark:text-[var(--text-tertiary)] tracking-widest ml-1">Nome da Conexão</label>
                    <input 
                      type="text" 
                      value={newInstanceName}
                      onChange={(e) => setNewInstanceName(e.target.value)}
                      placeholder="Ex: Comercial SP"
-                     className="w-full bg-slate-50 border border-slate-200 rounded-2xl px-4 py-3 text-sm font-bold focus:ring-4 focus:ring-indigo-500/10 outline-none"
+                     className="w-full bg-slate-50 dark:bg-[var(--surface-card)] border border-slate-200 dark:border-[var(--border-default)] rounded-2xl px-4 py-3 text-sm font-bold focus:ring-4 focus:ring-indigo-500/10 dark:focus:ring-[var(--accent)]/10 outline-none"
                    />
                 </div>
                 <div className="space-y-1">
-                   <label className="text-[10px] font-black uppercase text-slate-400 tracking-widest ml-1">Número (com DDD)</label>
+                   <label className="text-[10px] font-black uppercase text-slate-400 dark:text-[var(--text-tertiary)] tracking-widest ml-1">Número (com DDD)</label>
                    <input 
                      type="text" 
                      value={newInstancePhone}
                      onChange={(e) => setNewInstancePhone(e.target.value)}
                      placeholder="5511988880000"
-                     className="w-full bg-slate-50 border border-slate-200 rounded-2xl px-4 py-3 text-sm font-bold focus:ring-4 focus:ring-indigo-500/10 outline-none"
+                     className="w-full bg-slate-50 dark:bg-[var(--surface-card)] border border-slate-200 dark:border-[var(--border-default)] rounded-2xl px-4 py-3 text-sm font-bold focus:ring-4 focus:ring-indigo-500/10 dark:focus:ring-[var(--accent)]/10 outline-none"
                    />
                 </div>
              </div>
@@ -723,13 +723,13 @@ export default function SettingsPage() {
              <div className="flex gap-3">
                 <button 
                   onClick={() => setIsNewInstanceModalOpen(false)}
-                  className="flex-1 py-4 text-[10px] font-black uppercase tracking-widest text-slate-400 hover:bg-slate-50 rounded-2xl transition-all"
+                  className="flex-1 py-4 text-[10px] font-black uppercase tracking-widest text-slate-400 dark:text-[var(--text-tertiary)] hover:bg-slate-50 dark:hover:bg-[var(--surface-card)] rounded-2xl transition-all"
                 >
                   Cancelar
                 </button>
                 <button 
                   onClick={handleCreateInstance}
-                  className="flex-1 py-4 bg-indigo-600 text-white rounded-2xl text-[10px] font-black uppercase tracking-widest hover:bg-indigo-700 transition-all shadow-xl shadow-indigo-100"
+                  className="flex-1 py-4 bg-indigo-600 dark:bg-[var(--accent)] text-white rounded-2xl text-[10px] font-black uppercase tracking-widest hover:bg-indigo-700 dark:hover:bg-[var(--accent-hover)] transition-all shadow-xl shadow-indigo-100"
                 >
                   Cadastrar Canal
                 </button>
@@ -757,7 +757,7 @@ function SettingsNavLink({ icon, label, active, onClick }: { icon: React.ReactNo
       onClick={onClick}
       className={cn(
         "w-full flex items-center gap-3 px-4 py-2.5 rounded-xl text-sm font-bold transition-all",
-        active ? "bg-indigo-50 text-indigo-600" : "text-slate-500 hover:bg-slate-50 hover:text-slate-700"
+        active ? "bg-indigo-50 dark:bg-[var(--accent)]/10 text-indigo-600 dark:text-[var(--accent-text)]" : "text-slate-500 dark:text-[var(--text-tertiary)] hover:bg-slate-50 dark:hover:bg-[var(--surface-card)] hover:text-slate-700 dark:hover:text-[var(--text-secondary)]"
       )}
     >
       {icon}

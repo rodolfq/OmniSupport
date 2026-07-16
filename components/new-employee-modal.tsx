@@ -84,52 +84,52 @@ export function NewEmployeeModal({ isOpen, onClose, companyId, onSuccess }: { is
             initial={{ opacity: 0, scale: 0.95, y: 20 }}
             animate={{ opacity: 1, scale: 1, y: 0 }}
             exit={{ opacity: 0, scale: 0.95, y: 20 }}
-            className="relative bg-white w-full max-w-lg rounded-3xl shadow-2xl overflow-hidden border border-slate-200"
+            className="relative bg-white dark:bg-[var(--surface-card)] w-full max-w-lg rounded-3xl shadow-2xl overflow-hidden border border-slate-200 dark:border-[var(--border-default)]"
           >
             <div className="bg-slate-900 px-8 py-6 text-white flex items-center justify-between">
               <div>
                 <h3 className="text-xl font-black tracking-tight text-white m-0">Novo Funcionário</h3>
-                <p className="text-[10px] text-slate-400 font-bold uppercase tracking-widest mt-1">Adicione um novo usuário do cliente para abrir chamados</p>
+                <p className="text-[10px] text-slate-400 dark:text-[var(--text-tertiary)] font-bold uppercase tracking-widest mt-1">Adicione um novo usuário do cliente para abrir chamados</p>
               </div>
-              <button onClick={onClose} className="p-2 hover:bg-white/10 rounded-xl transition-colors text-slate-400 hover:text-white">
+              <button onClick={onClose} className="p-2 hover:bg-white/10 rounded-xl transition-colors text-slate-400 dark:text-[var(--text-tertiary)] hover:text-white">
                 <X size={20} />
               </button>
             </div>
 
             <form onSubmit={handleSubmit} className="p-8 space-y-5">
               <div className="space-y-2">
-                <label className="text-[10px] font-black uppercase tracking-widest text-slate-400 ml-1">Nome Completo</label>
+                <label className="text-[10px] font-black uppercase tracking-widest text-slate-400 dark:text-[var(--text-tertiary)] ml-1">Nome Completo</label>
                 <input 
                   type="text" 
                   value={name}
                   onChange={(e) => setName(e.target.value)}
                   placeholder="Nome do funcionário"
-                  className="w-full bg-slate-50 border border-slate-200 rounded-xl px-4 py-3 text-sm font-medium focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-500 outline-none transition-all"
+                  className="w-full bg-slate-50 dark:bg-[var(--surface-card)] border border-slate-200 dark:border-[var(--border-default)] rounded-xl px-4 py-3 text-sm font-medium focus:ring-2 focus:ring-indigo-500/20 dark:focus:ring-[var(--accent)]/20 focus:border-indigo-500 dark:focus:border-[var(--accent)] outline-none transition-all"
                   required
                 />
               </div>
 
               <div className="space-y-2">
-                <label className="text-[10px] font-black uppercase tracking-widest text-slate-400 ml-1">Email</label>
+                <label className="text-[10px] font-black uppercase tracking-widest text-slate-400 dark:text-[var(--text-tertiary)] ml-1">Email</label>
                 <div className="relative">
-                  <Mail className="absolute left-4 top-1/2 -translate-y-1/2 text-slate-400" size={16} />
+                  <Mail className="absolute left-4 top-1/2 -translate-y-1/2 text-slate-400 dark:text-[var(--text-tertiary)]" size={16} />
                   <input 
                     type="email" 
                     value={email}
                     onChange={(e) => setEmail(e.target.value)}
                     placeholder="email@empresa.com"
-                    className="w-full bg-slate-50 border border-slate-200 rounded-xl pl-12 pr-4 py-3 text-sm font-medium focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-500 outline-none transition-all"
+                    className="w-full bg-slate-50 dark:bg-[var(--surface-card)] border border-slate-200 dark:border-[var(--border-default)] rounded-xl pl-12 pr-4 py-3 text-sm font-medium focus:ring-2 focus:ring-indigo-500/20 dark:focus:ring-[var(--accent)]/20 focus:border-indigo-500 dark:focus:border-[var(--accent)] outline-none transition-all"
                     required
                   />
                 </div>
               </div>
 
               <div className="space-y-3">
-                <label className="text-[10px] font-black uppercase tracking-widest text-slate-400 ml-1">Telefones (WhatsApp)</label>
+                <label className="text-[10px] font-black uppercase tracking-widest text-slate-400 dark:text-[var(--text-tertiary)] ml-1">Telefones (WhatsApp)</label>
                 {phones.map((p, idx) => (
                   <div key={idx} className="relative flex items-center gap-2">
                     <div className="relative flex-1">
-                      <Phone className="absolute left-4 top-1/2 -translate-y-1/2 text-slate-400" size={16} />
+                      <Phone className="absolute left-4 top-1/2 -translate-y-1/2 text-slate-400 dark:text-[var(--text-tertiary)]" size={16} />
                       <input 
                         type="text" 
                         value={maskPhone(p)}
@@ -140,14 +140,14 @@ export function NewEmployeeModal({ isOpen, onClose, companyId, onSuccess }: { is
                         }}
                         placeholder="(xx) xxxxx-xxxx"
                         maxLength={15}
-                        className="w-full bg-slate-50 border border-slate-200 rounded-xl pl-12 pr-4 py-3 text-sm font-medium focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-500 outline-none transition-all"
+                        className="w-full bg-slate-50 dark:bg-[var(--surface-card)] border border-slate-200 dark:border-[var(--border-default)] rounded-xl pl-12 pr-4 py-3 text-sm font-medium focus:ring-2 focus:ring-indigo-500/20 dark:focus:ring-[var(--accent)]/20 focus:border-indigo-500 dark:focus:border-[var(--accent)] outline-none transition-all"
                       />
                     </div>
                     {phones.length > 1 && (
                       <button 
                         type="button"
                         onClick={() => setPhones(phones.filter((_, i) => i !== idx))}
-                        className="p-3 text-rose-500 hover:bg-rose-50 rounded-xl transition-all"
+                        className="p-3 text-rose-500 dark:text-[var(--text-danger)] hover:bg-rose-50 dark:hover:bg-[var(--surface-danger)] rounded-xl transition-all"
                       >
                         <X size={18} />
                       </button>
@@ -157,33 +157,33 @@ export function NewEmployeeModal({ isOpen, onClose, companyId, onSuccess }: { is
                 <button 
                   type="button"
                   onClick={() => setPhones([...phones, ''])}
-                  className="w-full py-2.5 border-2 border-dashed border-slate-200 rounded-xl text-[10px] font-black uppercase tracking-widest text-slate-400 hover:border-indigo-300 hover:text-indigo-600 transition-all flex items-center justify-center gap-2"
+                  className="w-full py-2.5 border-2 border-dashed border-slate-200 dark:border-[var(--border-default)] rounded-xl text-[10px] font-black uppercase tracking-widest text-slate-400 dark:text-[var(--text-tertiary)] hover:border-indigo-300 hover:text-indigo-600 dark:hover:text-[var(--accent-text)] transition-all flex items-center justify-center gap-2"
                 >
                   <Plus size={14} /> Adicionar outro número
                 </button>
               </div>
 
               {currentUser?.role !== UserRole.CUSTOMER && (
-              <div className="p-4 bg-indigo-50/50 rounded-2xl border border-indigo-100 flex items-center justify-between">
+              <div className="p-4 bg-indigo-50/50 dark:bg-[var(--accent)]/10 rounded-2xl border border-indigo-100 dark:border-[var(--accent)]/20 flex items-center justify-between">
                 <div className="flex items-center gap-3">
-                  <div className="w-8 h-8 rounded-lg bg-white border border-indigo-100 flex items-center justify-center text-indigo-600 shadow-sm transition-transform group-hover:scale-110">
+                  <div className="w-8 h-8 rounded-lg bg-white dark:bg-[var(--surface-card)] border border-indigo-100 dark:border-[var(--accent)]/20 flex items-center justify-center text-indigo-600 dark:text-[var(--accent-text)] shadow-sm transition-transform group-hover:scale-110">
                     <Shield size={14} />
                   </div>
                   <div>
-                    <p className="text-[11px] font-black text-indigo-900 uppercase tracking-tight">Visualizar apenas chamados internos</p>
+                    <p className="text-[11px] font-black text-indigo-900 dark:text-[var(--accent-soft-text)] uppercase tracking-tight">Visualizar apenas chamados internos</p>
                   </div>
                 </div>
                 <div 
                   onClick={() => setViewAllCompanyTickets(!viewAllCompanyTickets)}
-                  className={`w-12 h-6 rounded-full p-1 cursor-pointer transition-all ${viewAllCompanyTickets ? 'bg-indigo-600 translate-z-0' : 'bg-slate-200'}`}
+                  className={`w-12 h-6 rounded-full p-1 cursor-pointer transition-all ${viewAllCompanyTickets ? 'bg-indigo-600 dark:bg-[var(--accent)] translate-z-0' : 'bg-slate-200 dark:bg-[var(--border-default)]'}`}
                 >
-                  <div className={`w-4 h-4 rounded-full bg-white shadow-sm transition-transform ${viewAllCompanyTickets ? 'translate-x-6' : 'translate-x-0'}`} />
+                  <div className={`w-4 h-4 rounded-full bg-white dark:bg-[var(--surface-card)] shadow-sm transition-transform ${viewAllCompanyTickets ? 'translate-x-6' : 'translate-x-0'}`} />
                 </div>
               </div>
               )}
 
               {error && (
-                <div className="p-3 bg-rose-50 text-rose-600 text-xs font-bold rounded-xl border border-rose-100">
+                <div className="p-3 bg-rose-50 dark:bg-[var(--surface-danger)] text-rose-600 dark:text-[var(--text-danger)] text-xs font-bold rounded-xl border border-rose-100 dark:border-[var(--text-danger)]/20">
                   {error}
                 </div>
               )}
@@ -192,14 +192,14 @@ export function NewEmployeeModal({ isOpen, onClose, companyId, onSuccess }: { is
                 <button 
                   type="button" 
                   onClick={onClose}
-                  className="flex-1 px-6 py-3.5 rounded-xl text-sm font-bold text-slate-500 hover:bg-slate-50 transition-all border border-slate-200"
+                  className="flex-1 px-6 py-3.5 rounded-xl text-sm font-bold text-slate-500 dark:text-[var(--text-tertiary)] hover:bg-slate-50 dark:hover:bg-[var(--surface-card)] transition-all border border-slate-200 dark:border-[var(--border-default)]"
                 >
                   Cancelar
                 </button>
                 <button 
                   type="submit"
                   disabled={loading || saveSuccess}
-                  className={`flex-1 px-6 py-3.5 rounded-xl text-sm font-black uppercase tracking-widest shadow-lg transition-all flex items-center justify-center gap-2 disabled:opacity-50 ${saveSuccess ? 'bg-emerald-500 text-white' : 'bg-slate-900 text-white hover:bg-slate-800'}`}
+                  className={`flex-1 px-6 py-3.5 rounded-xl text-sm font-black uppercase tracking-widest shadow-lg transition-all flex items-center justify-center gap-2 disabled:opacity-50 ${saveSuccess ? 'bg-emerald-500 dark:bg-[var(--text-success)] text-white' : 'bg-slate-900 text-white hover:bg-slate-800'}`}
                 >
                   {loading ? (
                     <>

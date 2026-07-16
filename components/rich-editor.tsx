@@ -41,13 +41,13 @@ export function RichEditor({ content, onChange, placeholder = 'Comece a digitar.
       Image.configure({
         allowBase64: true,
         HTMLAttributes: {
-          class: 'rounded-xl max-w-full my-4 border border-slate-200 shadow-sm',
+          class: 'rounded-xl max-w-full my-4 border border-slate-200 dark:border-[var(--border-default)] shadow-sm',
         },
       }),
       Link.configure({
         openOnClick: false,
         HTMLAttributes: {
-          class: 'text-indigo-600 underline font-medium',
+          class: 'text-indigo-600 dark:text-[var(--accent-text)] underline font-medium',
         },
       }),
       Youtube.configure({
@@ -70,8 +70,8 @@ export function RichEditor({ content, onChange, placeholder = 'Comece a digitar.
         class: cn(
           "prose prose-sm max-w-none focus:outline-none focus:ring-0 p-4",
           "prose-headings:font-black prose-headings:tracking-tighter",
-          "prose-p:text-slate-600 prose-p:font-medium leading-relaxed",
-          "prose-a:text-indigo-600 prose-a:underline"
+          "prose-p:text-slate-600 dark:prose-p:text-[var(--text-secondary)] prose-p:font-medium leading-relaxed",
+          "prose-a:text-indigo-600 dark:prose-a:text-[var(--accent-text)] prose-a:underline"
         ),
       },
     },
@@ -130,13 +130,13 @@ export function RichEditor({ content, onChange, placeholder = 'Comece a digitar.
   if (!editor) return null;
 
   return (
-    <div className="w-full border border-slate-200 rounded-2xl overflow-hidden bg-white group focus-within:ring-4 focus-within:ring-indigo-500/10 focus-within:border-indigo-500 transition-all">
+    <div className="w-full border border-slate-200 dark:border-[var(--border-default)] rounded-2xl overflow-hidden bg-white dark:bg-[var(--surface-card)] group focus-within:ring-4 focus-within:ring-indigo-500/10 dark:focus-within:ring-[var(--accent)]/10 focus-within:border-indigo-500 dark:focus-within:border-[var(--accent)] transition-all">
       {/* Toolbar */}
-      <div className="bg-slate-50 border-b border-slate-200 p-2 flex flex-wrap gap-1 items-center">
+      <div className="bg-slate-50 dark:bg-[var(--surface-card)] border-b border-slate-200 dark:border-[var(--border-default)] p-2 flex flex-wrap gap-1 items-center">
         <button
           type="button"
           onClick={() => editor.chain().focus().toggleBold().run()}
-          className={cn("p-1.5 rounded-lg transition-all hover:bg-white hover:shadow-sm", editor.isActive('bold') ? "bg-white shadow-sm text-indigo-600" : "text-slate-400")}
+          className={cn("p-1.5 rounded-lg transition-all hover:bg-white dark:hover:bg-[var(--surface-card)] hover:shadow-sm", editor.isActive('bold') ? "bg-white dark:bg-[var(--surface-card)] shadow-sm text-indigo-600 dark:text-[var(--accent-text)]" : "text-slate-400 dark:text-[var(--text-tertiary)]")}
           title="Negrito"
         >
           <Bold size={16} />
@@ -144,16 +144,16 @@ export function RichEditor({ content, onChange, placeholder = 'Comece a digitar.
         <button
           type="button"
           onClick={() => editor.chain().focus().toggleItalic().run()}
-          className={cn("p-1.5 rounded-lg transition-all hover:bg-white hover:shadow-sm", editor.isActive('italic') ? "bg-white shadow-sm text-indigo-600" : "text-slate-400")}
+          className={cn("p-1.5 rounded-lg transition-all hover:bg-white dark:hover:bg-[var(--surface-card)] hover:shadow-sm", editor.isActive('italic') ? "bg-white dark:bg-[var(--surface-card)] shadow-sm text-indigo-600 dark:text-[var(--accent-text)]" : "text-slate-400 dark:text-[var(--text-tertiary)]")}
           title="Itálico"
         >
           <Italic size={16} />
         </button>
-        <div className="w-px h-4 bg-slate-300 mx-1" />
+        <div className="w-px h-4 bg-slate-300 dark:bg-[var(--text-tertiary)] mx-1" />
         <button
           type="button"
           onClick={() => editor.chain().focus().toggleHeading({ level: 1 }).run()}
-          className={cn("p-1.5 rounded-lg transition-all hover:bg-white hover:shadow-sm", editor.isActive('heading', { level: 1 }) ? "bg-white shadow-sm text-indigo-600" : "text-slate-400")}
+          className={cn("p-1.5 rounded-lg transition-all hover:bg-white dark:hover:bg-[var(--surface-card)] hover:shadow-sm", editor.isActive('heading', { level: 1 }) ? "bg-white dark:bg-[var(--surface-card)] shadow-sm text-indigo-600 dark:text-[var(--accent-text)]" : "text-slate-400 dark:text-[var(--text-tertiary)]")}
           title="Título 1"
         >
           <Heading1 size={16} />
@@ -161,16 +161,16 @@ export function RichEditor({ content, onChange, placeholder = 'Comece a digitar.
         <button
           type="button"
           onClick={() => editor.chain().focus().toggleHeading({ level: 2 }).run()}
-          className={cn("p-1.5 rounded-lg transition-all hover:bg-white hover:shadow-sm", editor.isActive('heading', { level: 2 }) ? "bg-white shadow-sm text-indigo-600" : "text-slate-400")}
+          className={cn("p-1.5 rounded-lg transition-all hover:bg-white dark:hover:bg-[var(--surface-card)] hover:shadow-sm", editor.isActive('heading', { level: 2 }) ? "bg-white dark:bg-[var(--surface-card)] shadow-sm text-indigo-600 dark:text-[var(--accent-text)]" : "text-slate-400 dark:text-[var(--text-tertiary)]")}
           title="Título 2"
         >
           <Heading2 size={16} />
         </button>
-        <div className="w-px h-4 bg-slate-300 mx-1" />
+        <div className="w-px h-4 bg-slate-300 dark:bg-[var(--text-tertiary)] mx-1" />
         <button
           type="button"
           onClick={() => editor.chain().focus().toggleBulletList().run()}
-          className={cn("p-1.5 rounded-lg transition-all hover:bg-white hover:shadow-sm", editor.isActive('bulletList') ? "bg-white shadow-sm text-indigo-600" : "text-slate-400")}
+          className={cn("p-1.5 rounded-lg transition-all hover:bg-white dark:hover:bg-[var(--surface-card)] hover:shadow-sm", editor.isActive('bulletList') ? "bg-white dark:bg-[var(--surface-card)] shadow-sm text-indigo-600 dark:text-[var(--accent-text)]" : "text-slate-400 dark:text-[var(--text-tertiary)]")}
           title="Lista"
         >
           <List size={16} />
@@ -178,7 +178,7 @@ export function RichEditor({ content, onChange, placeholder = 'Comece a digitar.
         <button
           type="button"
           onClick={() => editor.chain().focus().toggleOrderedList().run()}
-          className={cn("p-1.5 rounded-lg transition-all hover:bg-white hover:shadow-sm", editor.isActive('orderedList') ? "bg-white shadow-sm text-indigo-600" : "text-slate-400")}
+          className={cn("p-1.5 rounded-lg transition-all hover:bg-white dark:hover:bg-[var(--surface-card)] hover:shadow-sm", editor.isActive('orderedList') ? "bg-white dark:bg-[var(--surface-card)] shadow-sm text-indigo-600 dark:text-[var(--accent-text)]" : "text-slate-400 dark:text-[var(--text-tertiary)]")}
           title="Lista Numerada"
         >
           <ListOrdered size={16} />
@@ -186,16 +186,16 @@ export function RichEditor({ content, onChange, placeholder = 'Comece a digitar.
         <button
           type="button"
           onClick={() => editor.chain().focus().toggleBlockquote().run()}
-          className={cn("p-1.5 rounded-lg transition-all hover:bg-white hover:shadow-sm", editor.isActive('blockquote') ? "bg-white shadow-sm text-indigo-600" : "text-slate-400")}
+          className={cn("p-1.5 rounded-lg transition-all hover:bg-white dark:hover:bg-[var(--surface-card)] hover:shadow-sm", editor.isActive('blockquote') ? "bg-white dark:bg-[var(--surface-card)] shadow-sm text-indigo-600 dark:text-[var(--accent-text)]" : "text-slate-400 dark:text-[var(--text-tertiary)]")}
           title="Citação"
         >
           <Quote size={16} />
         </button>
-        <div className="w-px h-4 bg-slate-300 mx-1" />
+        <div className="w-px h-4 bg-slate-300 dark:bg-[var(--text-tertiary)] mx-1" />
         <button
           type="button"
           onClick={() => openUrlModal('link')}
-          className={cn("p-1.5 rounded-lg transition-all hover:bg-white hover:shadow-sm", editor.isActive('link') ? "bg-white shadow-sm text-indigo-600" : "text-slate-400")}
+          className={cn("p-1.5 rounded-lg transition-all hover:bg-white dark:hover:bg-[var(--surface-card)] hover:shadow-sm", editor.isActive('link') ? "bg-white dark:bg-[var(--surface-card)] shadow-sm text-indigo-600 dark:text-[var(--accent-text)]" : "text-slate-400 dark:text-[var(--text-tertiary)]")}
           title="Link"
         >
           <LinkIcon size={16} />
@@ -203,7 +203,7 @@ export function RichEditor({ content, onChange, placeholder = 'Comece a digitar.
         <button
           type="button"
           onClick={() => openUrlModal('image')}
-          className="p-1.5 rounded-lg transition-all hover:bg-white hover:shadow-sm text-slate-400"
+          className="p-1.5 rounded-lg transition-all hover:bg-white dark:hover:bg-[var(--surface-card)] hover:shadow-sm text-slate-400 dark:text-[var(--text-tertiary)]"
           title="Imagem"
         >
           <ImageIcon size={16} />
@@ -211,7 +211,7 @@ export function RichEditor({ content, onChange, placeholder = 'Comece a digitar.
         <button
           type="button"
           onClick={() => openUrlModal('youtube')}
-          className="p-1.5 rounded-lg transition-all hover:bg-white hover:shadow-sm text-slate-400"
+          className="p-1.5 rounded-lg transition-all hover:bg-white dark:hover:bg-[var(--surface-card)] hover:shadow-sm text-slate-400 dark:text-[var(--text-tertiary)]"
           title="Vídeo do YouTube"
         >
           <YoutubeIcon size={16} />
@@ -220,7 +220,7 @@ export function RichEditor({ content, onChange, placeholder = 'Comece a digitar.
         <button
           type="button"
           onClick={() => editor.chain().focus().undo().run()}
-          className="p-1.5 rounded-lg transition-all hover:bg-white hover:shadow-sm text-slate-400"
+          className="p-1.5 rounded-lg transition-all hover:bg-white dark:hover:bg-[var(--surface-card)] hover:shadow-sm text-slate-400 dark:text-[var(--text-tertiary)]"
           disabled={!editor.can().undo()}
         >
           <Undo size={16} />
@@ -228,7 +228,7 @@ export function RichEditor({ content, onChange, placeholder = 'Comece a digitar.
         <button
           type="button"
           onClick={() => editor.chain().focus().redo().run()}
-          className="p-1.5 rounded-lg transition-all hover:bg-white hover:shadow-sm text-slate-400"
+          className="p-1.5 rounded-lg transition-all hover:bg-white dark:hover:bg-[var(--surface-card)] hover:shadow-sm text-slate-400 dark:text-[var(--text-tertiary)]"
           disabled={!editor.can().redo()}
         >
           <Redo size={16} />
@@ -237,7 +237,7 @@ export function RichEditor({ content, onChange, placeholder = 'Comece a digitar.
 
       {/* URL Input Modal (Internal) */}
       {isUrlModalOpen && (
-        <div className="bg-white border-b border-slate-200 p-3 animate-in slide-in-from-top-1 duration-200">
+        <div className="bg-white dark:bg-[var(--surface-card)] border-b border-slate-200 dark:border-[var(--border-default)] p-3 animate-in slide-in-from-top-1 duration-200">
           <form onSubmit={handleUrlSubmit} className="flex gap-2">
             <input
               autoFocus
@@ -249,18 +249,18 @@ export function RichEditor({ content, onChange, placeholder = 'Comece a digitar.
                 isUrlModalOpen === 'image' ? "Cole a URL da imagem..." :
                 "Cole a URL do vídeo do YouTube..."
               }
-              className="flex-1 px-3 py-1.5 text-sm border border-slate-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-500"
+              className="flex-1 px-3 py-1.5 text-sm border border-slate-200 dark:border-[var(--border-default)] rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-500/20 dark:focus:ring-[var(--accent)]/20 focus:border-indigo-500 dark:focus:border-[var(--accent)]"
             />
             <button
               type="submit"
-              className="px-3 py-1.5 bg-indigo-600 text-white text-sm font-semibold rounded-lg hover:bg-indigo-700 transition-colors"
+              className="px-3 py-1.5 bg-indigo-600 dark:bg-[var(--accent)] text-white text-sm font-semibold rounded-lg hover:bg-indigo-700 dark:hover:bg-[var(--accent-hover)] transition-colors"
             >
               Confirmar
             </button>
             <button
               type="button"
               onClick={() => setIsUrlModalOpen(null)}
-              className="px-3 py-1.5 bg-slate-100 text-slate-600 text-sm font-semibold rounded-lg hover:bg-slate-200 transition-colors"
+              className="px-3 py-1.5 bg-slate-100 dark:bg-[var(--surface-pill)] text-slate-600 dark:text-[var(--text-secondary)] text-sm font-semibold rounded-lg hover:bg-slate-200 dark:hover:bg-[var(--border-default)] transition-colors"
             >
               Cancelar
             </button>
@@ -271,7 +271,7 @@ export function RichEditor({ content, onChange, placeholder = 'Comece a digitar.
 {/* Editor Content Area */}
         <div 
           style={{ minHeight }} 
-          className="cursor-text bg-white relative"
+          className="cursor-text bg-white dark:bg-[var(--surface-card)] relative"
           onClick={handleContainerClick}
         >
           <EditorContent editor={editor} className="outline-none focus:outline-none pointer-events-auto" />
@@ -284,21 +284,21 @@ export function RichEditor({ content, onChange, placeholder = 'Comece a digitar.
           <button
             type="button"
             onClick={() => editor.chain().focus().toggleBold().run()}
-            className={cn("p-1 rounded transition-all", editor.isActive('bold') ? "text-indigo-400" : "text-white")}
+            className={cn("p-1 rounded transition-all", editor.isActive('bold') ? "text-indigo-400 dark:text-[var(--accent-text)]" : "text-white")}
           >
             <Bold size={14} />
           </button>
           <button
             type="button"
             onClick={() => editor.chain().focus().toggleItalic().run()}
-            className={cn("p-1 rounded transition-all", editor.isActive('italic') ? "text-indigo-400" : "text-white")}
+            className={cn("p-1 rounded transition-all", editor.isActive('italic') ? "text-indigo-400 dark:text-[var(--accent-text)]" : "text-white")}
           >
             <Italic size={14} />
           </button>
           <button
             type="button"
             onClick={() => openUrlModal('link')}
-            className={cn("p-1 rounded transition-all", editor.isActive('link') ? "text-indigo-400" : "text-white")}
+            className={cn("p-1 rounded transition-all", editor.isActive('link') ? "text-indigo-400 dark:text-[var(--accent-text)]" : "text-white")}
           >
             <LinkIcon size={14} />
           </button>

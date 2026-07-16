@@ -74,7 +74,7 @@ function renderLinkedText(text: string, isOwnMessage: boolean) {
         onClick={(event) => event.stopPropagation()}
         className={cn(
           "font-black underline underline-offset-4 break-all",
-          isOwnMessage ? "text-white decoration-white/70" : "text-indigo-600 decoration-indigo-300"
+          isOwnMessage ? "text-white decoration-white/70" : "text-indigo-600 dark:text-[var(--accent-text)] decoration-indigo-300 dark:decoration-[var(--accent)]"
         )}
       >
         {part}
@@ -1237,12 +1237,12 @@ useEffect(() => {
             }}
             exit={{ opacity: 0, y: 50, scale: 0.9 }}
             className={cn(
-              "bg-white border border-slate-200 shadow-2xl flex flex-col overflow-hidden absolute",
+              "bg-white dark:bg-[var(--surface-card)] border border-slate-200 dark:border-[var(--border-default)] shadow-2xl flex flex-col overflow-hidden absolute",
               isExpanded ? "rounded-[3rem] z-[210]" : "rounded-[2.5rem] z-[205]"
             )}
           >
             {/* Header */}
-            <div className="bg-indigo-600 px-5 py-4 flex justify-between items-center text-white">
+            <div className="bg-indigo-600 dark:bg-[var(--accent)] px-5 py-4 flex justify-between items-center text-white">
               <div className="flex items-center gap-2.5">
                 <div className="w-8 h-8 bg-white/20 rounded-xl flex items-center justify-center backdrop-blur-md">
                   <MessageCircle size={16} />
@@ -1251,7 +1251,7 @@ useEffect(() => {
                   <h3 className="text-xs font-black uppercase tracking-widest text-white">
                     {isCustomer ? 'Suporte Omni' : 'WhatsApp Omni'}
                   </h3>
-                  <p className="text-[9px] text-indigo-100 font-bold uppercase tracking-widest">
+                  <p className="text-[9px] text-indigo-100 dark:text-[var(--accent-soft-text)] font-bold uppercase tracking-widest">
                     {isCustomer ? 'Fale Conosco' : 'Central de Atendimento'}
                   </p>
                 </div>
@@ -1278,35 +1278,35 @@ useEffect(() => {
               </div>
             </div>
 
-            <div className="flex-1 flex overflow-hidden bg-slate-50/30">
+            <div className="flex-1 flex overflow-hidden bg-slate-50/30 dark:bg-[var(--surface-card)]/30">
               {/* Sidebar (List) - Hide for customer */}
               {(!isCustomer && (!selectedChatId || isExpanded)) && (
                 <div className={cn(
-                  "flex flex-col border-r border-slate-100 bg-white",
+                  "flex flex-col border-r border-slate-100 dark:border-[var(--border-default)] bg-white dark:bg-[var(--surface-card)]",
                   isExpanded ? "w-80" : "w-full"
                 )}>
-                  <div className="p-3 border-b border-slate-100 space-y-2">
+                  <div className="p-3 border-b border-slate-100 dark:border-[var(--border-default)] space-y-2">
                     <div className="relative">
-                      <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" size={13} />
+                      <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400 dark:text-[var(--text-tertiary)]" size={13} />
                       <input
                         type="text"
                         placeholder="Buscar conversas..."
-                        className="w-full bg-slate-50 border border-slate-100 rounded-xl pl-8 pr-3 py-1.5 text-xs font-bold outline-none"
+                        className="w-full bg-slate-50 dark:bg-[var(--surface-card)] border border-slate-100 dark:border-[var(--border-default)] rounded-xl pl-8 pr-3 py-1.5 text-xs font-bold outline-none"
                       />
                     </div>
                     <button
                       onClick={() => setIsNewChatModalOpen(true)}
-                      className="w-full py-2 bg-indigo-50 text-indigo-600 border border-indigo-100 rounded-xl text-[10px] font-black uppercase tracking-widest flex items-center justify-center gap-2 hover:bg-indigo-100 transition-all"
+                      className="w-full py-2 bg-indigo-50 dark:bg-[var(--accent)]/10 text-indigo-600 dark:text-[var(--accent-text)] border border-indigo-100 dark:border-[var(--accent)]/20 rounded-xl text-[10px] font-black uppercase tracking-widest flex items-center justify-center gap-2 hover:bg-indigo-100 dark:hover:bg-[var(--accent)]/20 transition-all"
                     >
                       <Plus size={13} /> Novo WhatsApp
                     </button>
 
-                    <div className="flex bg-slate-100 p-1 rounded-xl gap-1">
+                    <div className="flex bg-slate-100 dark:bg-[var(--surface-pill)] p-1 rounded-xl gap-1">
                       <button
                         onClick={() => setChatFilter('all')}
                         className={cn(
                           "flex-1 py-1 text-[9px] font-black uppercase tracking-widest rounded-lg transition-all",
-                          chatFilter === 'all' ? "bg-white text-indigo-600 shadow-sm" : "text-slate-400"
+                          chatFilter === 'all' ? "bg-white dark:bg-[var(--surface-card)] text-indigo-600 dark:text-[var(--accent-text)] shadow-sm" : "text-slate-400 dark:text-[var(--text-tertiary)]"
                         )}
                       >
                         Todos
@@ -1315,7 +1315,7 @@ useEffect(() => {
                         onClick={() => setChatFilter('queue')}
                         className={cn(
                           "flex-1 py-1 text-[9px] font-black uppercase tracking-widest rounded-lg transition-all",
-                          chatFilter === 'queue' ? "bg-white text-indigo-600 shadow-sm" : "text-slate-400"
+                          chatFilter === 'queue' ? "bg-white dark:bg-[var(--surface-card)] text-indigo-600 dark:text-[var(--accent-text)] shadow-sm" : "text-slate-400 dark:text-[var(--text-tertiary)]"
                         )}
                       >
                         Fila
@@ -1324,7 +1324,7 @@ useEffect(() => {
                         onClick={() => setChatFilter('me')}
                         className={cn(
                           "flex-1 py-1 text-[9px] font-black uppercase tracking-widest rounded-lg transition-all",
-                          chatFilter === 'me' ? "bg-white text-indigo-600 shadow-sm" : "text-slate-400"
+                          chatFilter === 'me' ? "bg-white dark:bg-[var(--surface-card)] text-indigo-600 dark:text-[var(--accent-text)] shadow-sm" : "text-slate-400 dark:text-[var(--text-tertiary)]"
                         )}
                       >
                         Meus
@@ -1355,12 +1355,12 @@ useEffect(() => {
                               className={cn(
                                 "w-full text-left p-3 rounded-2xl transition-all group flex items-center justify-between border",
                                 selectedChatId === s.id
-                                  ? "bg-indigo-50 border-indigo-100 shadow-sm"
-                                  : "bg-slate-50 border-slate-100 hover:border-indigo-100 shadow-none"
+                                  ? "bg-indigo-50 dark:bg-[var(--accent)]/10 border-indigo-100 dark:border-[var(--accent)]/20 shadow-sm"
+                                  : "bg-slate-50 dark:bg-[var(--surface-card)] border-slate-100 dark:border-[var(--border-default)] hover:border-indigo-100 dark:hover:border-[var(--accent)]/20 shadow-none"
                               )}
                             >
                               <div className="flex items-center gap-2.5">
-                                <div className="w-9 h-9 rounded-xl flex items-center justify-center text-emerald-600 relative shrink-0 overflow-hidden bg-emerald-100">
+                                <div className="w-9 h-9 rounded-xl flex items-center justify-center text-emerald-600 dark:text-[var(--text-success)] relative shrink-0 overflow-hidden bg-emerald-100 dark:bg-[var(--surface-success)]">
                                   {(() => {
                                     const photo = contact?.avatarUrl || getContactPhoto(s.customerPhone, getSessionInstanceId(s));
                                     return photo ? (
@@ -1370,20 +1370,20 @@ useEffect(() => {
                                     );
                                   })()}
                                   {sessionUnread > 0 && (
-                                    <span className="absolute -top-1 -right-1 w-5 h-5 bg-red-500 text-white text-[8px] font-black flex items-center justify-center rounded-full border-2 border-white">
+                                    <span className="absolute -top-1 -right-1 w-5 h-5 bg-red-500 dark:bg-[var(--text-danger)] text-white text-[8px] font-black flex items-center justify-center rounded-full border-2 border-white">
                                       {sessionUnread > 9 ? '9+' : sessionUnread}
                                     </span>
                                   )}
                                 </div>
                                 <div>
-                                  <p className="text-xs font-black text-slate-800 uppercase tracking-tight">{s.customerName}</p>
+                                  <p className="text-xs font-black text-slate-800 dark:text-[var(--text-primary)] uppercase tracking-tight">{s.customerName}</p>
                                   {s.ticketNumber && (
-                                    <p className="text-[9px] text-slate-500 font-black uppercase tracking-widest">Conversa #{String(s.ticketNumber).padStart(4, '0')}</p>
+                                    <p className="text-[9px] text-slate-500 dark:text-[var(--text-tertiary)] font-black uppercase tracking-widest">Conversa #{String(s.ticketNumber).padStart(4, '0')}</p>
                                   )}
                                   {company && (
-                                    <p className="text-[9px] text-indigo-600 font-bold uppercase tracking-widest">{company.name}</p>
+                                    <p className="text-[9px] text-indigo-600 dark:text-[var(--accent-text)] font-bold uppercase tracking-widest">{company.name}</p>
                                   )}
-                                  <p className="text-[10px] text-slate-400 font-medium">{s.status === 'pending' ? '🟡 Aguardando' : '🟢 Em curso'}</p>
+                                  <p className="text-[10px] text-slate-400 dark:text-[var(--text-tertiary)] font-medium">{s.status === 'pending' ? '🟡 Aguardando' : '🟢 Em curso'}</p>
                                 </div>
                               </div>
                             </button>
@@ -1395,12 +1395,12 @@ useEffect(() => {
 
               {/* Chat Content */}
               {selectedChatId ? (
-                <div className="flex-1 flex flex-col bg-white">
+                <div className="flex-1 flex flex-col bg-white dark:bg-[var(--surface-card)]">
                   {/* Chat Header */}
-                  <div className="px-5 py-3 bg-slate-50 border-b border-slate-100 flex flex-wrap items-center justify-between gap-y-2">
+                  <div className="px-5 py-3 bg-slate-50 dark:bg-[var(--surface-card)] border-b border-slate-100 dark:border-[var(--border-default)] flex flex-wrap items-center justify-between gap-y-2">
                     <div className="flex items-center gap-2 min-w-0">
                       {!isCustomer && !isExpanded && (
-                        <button onClick={() => setSelectedChatId(null)} className="text-indigo-600 p-1.5 hover:bg-indigo-50 rounded-xl transition-all shrink-0">
+                        <button onClick={() => setSelectedChatId(null)} className="text-indigo-600 dark:text-[var(--accent-text)] p-1.5 hover:bg-indigo-50 dark:hover:bg-[var(--accent)]/10 rounded-xl transition-all shrink-0">
                           <ChevronDown size={18} className="rotate-90" />
                         </button>
                       )}
@@ -1413,23 +1413,23 @@ useEffect(() => {
                             className="w-9 h-9 rounded-xl object-cover shrink-0"
                           />
                         ) : (
-                          <div className="w-9 h-9 bg-emerald-100 rounded-xl flex items-center justify-center text-emerald-600 shrink-0">
+                          <div className="w-9 h-9 bg-emerald-100 dark:bg-[var(--surface-success)] rounded-xl flex items-center justify-center text-emerald-600 dark:text-[var(--text-success)] shrink-0">
                             <User size={16} />
                           </div>
                         );
                       })()}
                       <div className="min-w-0">
-                        <p className="text-xs font-black uppercase text-slate-800 tracking-widest leading-none mb-0.5 truncate">
+                        <p className="text-xs font-black uppercase text-slate-800 dark:text-[var(--text-primary)] tracking-widest leading-none mb-0.5 truncate">
                           {isCustomer ? 'Time de Suporte' : (selectedChat && 'customerName' in selectedChat ? selectedChat.customerName : 'Canal')}
                         </p>
                         {selectedChat?.ticketNumber && (
-                          <p className="text-[9px] text-slate-500 font-black uppercase tracking-widest">
+                          <p className="text-[9px] text-slate-500 dark:text-[var(--text-tertiary)] font-black uppercase tracking-widest">
                             Conversa #{String(selectedChat.ticketNumber).padStart(4, '0')}
                           </p>
                         )}
                         {(() => {
                            if (isCustomer) return (
-                             <span className="text-[10px] text-emerald-500 font-black uppercase tracking-tighter">
+                             <span className="text-[10px] text-emerald-500 dark:text-[var(--text-success)] font-black uppercase tracking-tighter">
                                Sempre disponível
                              </span>
                            );
@@ -1439,7 +1439,7 @@ useEffect(() => {
                            
                            if (company) {
                              return (
-                               <p className="text-[9px] text-indigo-600 font-black uppercase tracking-widest">
+                               <p className="text-[9px] text-indigo-600 dark:text-[var(--accent-text)] font-black uppercase tracking-widest">
                                  {company.name}
                                </p>
                              );
@@ -1447,7 +1447,7 @@ useEffect(() => {
 
                            return (
                              <div className="flex items-center gap-2 mt-1">
-                               <span className="text-[9px] text-slate-400 font-black uppercase tracking-widest leading-none">
+                               <span className="text-[9px] text-slate-400 dark:text-[var(--text-tertiary)] font-black uppercase tracking-widest leading-none">
                                  Sem Empresa
                                </span>
                                <button 
@@ -1460,7 +1460,7 @@ useEffect(() => {
                                       setIsLinkModalOpen(true);
                                    }
                                  }}
-                                 className="text-[9px] font-black uppercase text-indigo-600 hover:underline px-1.5 py-0.5 bg-indigo-50 rounded"
+                                 className="text-[9px] font-black uppercase text-indigo-600 dark:text-[var(--accent-text)] hover:underline px-1.5 py-0.5 bg-indigo-50 dark:bg-[var(--accent)]/10 rounded"
                                >
                                  + Vincular
                                </button>
@@ -1506,17 +1506,17 @@ useEffect(() => {
                   <div 
                     ref={scrollRef} 
                     onScroll={handleScroll}
-                    className="flex-1 overflow-y-auto px-8 py-6 space-y-3 bg-slate-50/30 scroll-smooth"
+                    className="flex-1 overflow-y-auto px-8 py-6 space-y-3 bg-slate-50/30 dark:bg-[var(--surface-card)]/30 scroll-smooth"
                   >
                     {selectedChatMessageRows.map((row) => {
                       if (row.type === 'date') {
                         return (
                           <div key={row.id} className="flex items-center gap-3 py-2">
-                            <div className="h-px flex-1 bg-slate-200" />
-                            <span className="text-[9px] font-black uppercase tracking-widest text-slate-400">
+                            <div className="h-px flex-1 bg-slate-200 dark:bg-[var(--border-default)]" />
+                            <span className="text-[9px] font-black uppercase tracking-widest text-slate-400 dark:text-[var(--text-tertiary)]">
                               {row.label}
                             </span>
-                            <div className="h-px flex-1 bg-slate-200" />
+                            <div className="h-px flex-1 bg-slate-200 dark:bg-[var(--border-default)]" />
                           </div>
                         );
                       }
@@ -1529,8 +1529,8 @@ useEffect(() => {
                           <div className={cn(
                             "max-w-[min(88%,34rem)] sm:max-w-[78%] p-4 rounded-[1.5rem] text-sm font-medium shadow-sm transition-all break-words whitespace-pre-wrap",
                             isOwnMessage
-                              ? "bg-indigo-600 text-white rounded-tr-none"
-                              : "bg-white border border-slate-100 text-slate-800 rounded-tl-none"
+                              ? "bg-indigo-600 dark:bg-[var(--accent)] text-white rounded-tr-none"
+                              : "bg-white dark:bg-[var(--surface-card)] border border-slate-100 dark:border-[var(--border-default)] text-slate-800 dark:text-[var(--text-primary)] rounded-tl-none"
                           )}>
                             {renderLinkedText(m.text, isOwnMessage)}
                             {attachments.length > 0 && (
@@ -1540,7 +1540,7 @@ useEffect(() => {
                                   const isImage = isImageAttachment(attachment);
                                   const attachmentClassName = cn(
                                     "block w-full overflow-hidden rounded-xl border text-left transition-all",
-                                    isOwnMessage ? "border-white/20 bg-white/10 hover:bg-white/15" : "border-slate-200 bg-slate-50 hover:bg-slate-100"
+                                    isOwnMessage ? "border-white/20 bg-white/10 hover:bg-white/15" : "border-slate-200 dark:border-[var(--border-default)] bg-slate-50 dark:bg-[var(--surface-card)] hover:bg-slate-100 dark:hover:bg-[var(--surface-pill)]"
                                   );
 
                                   if (isImage) {
@@ -1592,7 +1592,7 @@ useEffect(() => {
                                         <File size={16} className="shrink-0" />
                                         <div className="min-w-0">
                                           <p className="truncate text-xs font-black">{attachment.name}</p>
-                                          <p className={cn("text-[9px] font-bold uppercase", isOwnMessage ? "text-white/70" : "text-slate-400")}>
+                                          <p className={cn("text-[9px] font-bold uppercase", isOwnMessage ? "text-white/70" : "text-slate-400 dark:text-[var(--text-tertiary)]")}>
                                             {attachment.size ? `${Math.ceil(attachment.size / 1024)} KB` : 'Arquivo'}
                                           </p>
                                         </div>
@@ -1603,7 +1603,7 @@ useEffect(() => {
                               </div>
                             )}
                           </div>
-                          <span className="text-[9px] text-slate-400 font-black uppercase mt-1 px-1 tracking-widest">
+                          <span className="text-[9px] text-slate-400 dark:text-[var(--text-tertiary)] font-black uppercase mt-1 px-1 tracking-widest">
                             <ClientTime date={m.timestamp} />
                           </span>
                         </div>
@@ -1613,7 +1613,7 @@ useEffect(() => {
                   </div>
 
                   {/* Input Area */}
-                  <div className="p-4 bg-white border-t border-slate-100 relative">
+                  <div className="p-4 bg-white dark:bg-[var(--surface-card)] border-t border-slate-100 dark:border-[var(--border-default)] relative">
                     <AnimatePresence>
                       {showNewMessageIndicator && (
                         <motion.button 
@@ -1621,11 +1621,11 @@ useEffect(() => {
                           animate={{ opacity: 1, y: 0 }}
                           exit={{ opacity: 0, y: 20 }}
                           onClick={scrollToBottom}
-                          className="absolute bottom-full left-1/2 -translate-x-1/2 mb-10 bg-indigo-600 text-white px-5 py-2.5 rounded-full shadow-2xl shadow-indigo-200 text-[10px] font-black uppercase tracking-widest flex items-center gap-2 hover:bg-indigo-700 transition-all z-20 group border-2 border-white"
+                          className="absolute bottom-full left-1/2 -translate-x-1/2 mb-10 bg-indigo-600 dark:bg-[var(--accent)] text-white px-5 py-2.5 rounded-full shadow-2xl shadow-indigo-200 text-[10px] font-black uppercase tracking-widest flex items-center gap-2 hover:bg-indigo-700 dark:hover:bg-[var(--accent-hover)] transition-all z-20 group border-2 border-white"
                         >
                           <ChevronUp size={14} className="group-hover:-translate-y-0.5 transition-transform" />
                           Nova Mensagem
-                          <div className="w-1.5 h-1.5 bg-white rounded-full animate-ping" />
+                          <div className="w-1.5 h-1.5 bg-white dark:bg-[var(--surface-card)] rounded-full animate-ping" />
                         </motion.button>
                       )}
 
@@ -1634,20 +1634,20 @@ useEffect(() => {
                           initial={{ opacity: 0, y: 10 }}
                           animate={{ opacity: 1, y: 0 }}
                           exit={{ opacity: 0, y: 10 }}
-                          className="absolute bottom-full left-6 right-6 mb-4 bg-white border border-slate-200 rounded-[2rem] shadow-2xl p-3 max-h-64 overflow-y-auto z-10"
+                          className="absolute bottom-full left-6 right-6 mb-4 bg-white dark:bg-[var(--surface-card)] border border-slate-200 dark:border-[var(--border-default)] rounded-[2rem] shadow-2xl p-3 max-h-64 overflow-y-auto z-10"
                         >
-                          <p className="p-3 text-[10px] font-black uppercase text-slate-400 tracking-widest border-b border-slate-50 mb-2">Comandos Rápidos</p>
+                          <p className="p-3 text-[10px] font-black uppercase text-slate-400 dark:text-[var(--text-tertiary)] tracking-widest border-b border-slate-50 dark:border-[var(--border-default)] mb-2">Comandos Rápidos</p>
                           {quickNotes.filter(n => n.shortcut.includes(message.slice(1))).map(note => (
                             <button 
                               key={note.id}
                               onClick={() => selectQuickNote(note)}
-                              className="w-full text-left p-4 hover:bg-indigo-50 rounded-2xl transition-all flex items-center justify-between group"
+                              className="w-full text-left p-4 hover:bg-indigo-50 dark:hover:bg-[var(--accent)]/10 rounded-2xl transition-all flex items-center justify-between group"
                             >
                               <div className="flex flex-col">
-                                <span className="text-[11px] font-black text-indigo-600 uppercase mb-0.5">/{note.shortcut}</span>
-                                <span className="text-[10px] text-slate-500 font-medium truncate w-64">{note.content}</span>
+                                <span className="text-[11px] font-black text-indigo-600 dark:text-[var(--accent-text)] uppercase mb-0.5">/{note.shortcut}</span>
+                                <span className="text-[10px] text-slate-500 dark:text-[var(--text-tertiary)] font-medium truncate w-64">{note.content}</span>
                               </div>
-                              <Zap size={14} className="text-amber-400 opacity-0 group-hover:opacity-100" />
+                              <Zap size={14} className="text-amber-400 dark:text-[var(--text-warning)] opacity-0 group-hover:opacity-100" />
                             </button>
                           ))}
                         </motion.div>
@@ -1664,20 +1664,20 @@ useEffect(() => {
                               <button
                                 type="button"
                                 onClick={() => setChatAttachments(prev => prev.filter(item => item.id !== attachment.id))}
-                                className="shrink-0 text-slate-400 hover:text-red-500 p-1"
+                                className="shrink-0 text-slate-400 dark:text-[var(--text-tertiary)] hover:text-red-500 dark:hover:text-[var(--text-danger)] p-1"
                                 title="Descartar áudio"
                               >
                                 <Trash2 size={16} />
                               </button>
                             </div>
                           ) : (
-                            <div key={attachment.id} className="flex max-w-full items-center gap-2 rounded-xl border border-slate-200 bg-slate-50 px-3 py-2 text-xs font-bold text-slate-700">
-                              {isImageAttachment(attachment) ? <ImageIcon size={14} className="text-indigo-500" /> : <File size={14} className="text-slate-400" />}
+                            <div key={attachment.id} className="flex max-w-full items-center gap-2 rounded-xl border border-slate-200 dark:border-[var(--border-default)] bg-slate-50 dark:bg-[var(--surface-card)] px-3 py-2 text-xs font-bold text-slate-700 dark:text-[var(--text-secondary)]">
+                              {isImageAttachment(attachment) ? <ImageIcon size={14} className="text-indigo-500 dark:text-[var(--accent-text)]" /> : <File size={14} className="text-slate-400 dark:text-[var(--text-tertiary)]" />}
                               <span className="max-w-[180px] truncate">{attachment.name}</span>
                               <button
                                 type="button"
                                 onClick={() => setChatAttachments(prev => prev.filter(item => item.id !== attachment.id))}
-                                className="text-slate-400 hover:text-red-500"
+                                className="text-slate-400 dark:text-[var(--text-tertiary)] hover:text-red-500 dark:hover:text-[var(--text-danger)]"
                               >
                                 <X size={13} />
                               </button>
@@ -1691,22 +1691,22 @@ useEffect(() => {
                         <button
                           type="button"
                           onClick={cancelRecording}
-                          className="w-11 h-11 shrink-0 bg-slate-100 text-slate-500 rounded-2xl hover:bg-red-100 hover:text-red-600 transition-all flex items-center justify-center"
+                          className="w-11 h-11 shrink-0 bg-slate-100 dark:bg-[var(--surface-pill)] text-slate-500 dark:text-[var(--text-tertiary)] rounded-2xl hover:bg-red-100 dark:hover:bg-[var(--surface-danger)] hover:text-red-600 dark:hover:text-[var(--text-danger)] transition-all flex items-center justify-center"
                           title="Cancelar gravação"
                         >
                           <Trash2 size={17} />
                         </button>
-                        <div className="flex-1 min-w-0 flex items-center gap-2 bg-slate-50 border border-slate-200 rounded-2xl px-4 py-3.5">
-                          <span className="w-2.5 h-2.5 rounded-full bg-red-500 animate-pulse shrink-0" />
-                          <span className="text-sm font-bold text-slate-700 tabular-nums shrink-0">
+                        <div className="flex-1 min-w-0 flex items-center gap-2 bg-slate-50 dark:bg-[var(--surface-card)] border border-slate-200 dark:border-[var(--border-default)] rounded-2xl px-4 py-3.5">
+                          <span className="w-2.5 h-2.5 rounded-full bg-red-500 dark:bg-[var(--text-danger)] animate-pulse shrink-0" />
+                          <span className="text-sm font-bold text-slate-700 dark:text-[var(--text-secondary)] tabular-nums shrink-0">
                             {Math.floor(recordingSeconds / 60)}:{(recordingSeconds % 60).toString().padStart(2, '0')}
                           </span>
-                          <span className="text-xs text-slate-400 font-medium truncate hidden sm:inline">Gravando áudio...</span>
+                          <span className="text-xs text-slate-400 dark:text-[var(--text-tertiary)] font-medium truncate hidden sm:inline">Gravando áudio...</span>
                         </div>
                         <button
                           type="button"
                           onClick={stopRecordingAndAttach}
-                          className="w-12 h-12 shrink-0 bg-indigo-600 text-white rounded-2xl hover:bg-indigo-700 transition-all shadow-xl shadow-indigo-100 flex items-center justify-center"
+                          className="w-12 h-12 shrink-0 bg-indigo-600 dark:bg-[var(--accent)] text-white rounded-2xl hover:bg-indigo-700 dark:hover:bg-[var(--accent-hover)] transition-all shadow-xl shadow-indigo-100 flex items-center justify-center"
                           title="Parar e anexar"
                         >
                           <Square size={16} fill="currentColor" />
@@ -1724,7 +1724,7 @@ useEffect(() => {
                       <button
                         type="button"
                         onClick={() => chatFileInputRef.current?.click()}
-                        className="w-11 h-11 shrink-0 bg-slate-100 text-slate-500 rounded-2xl hover:bg-slate-200 hover:text-indigo-600 transition-all flex items-center justify-center"
+                        className="w-11 h-11 shrink-0 bg-slate-100 dark:bg-[var(--surface-pill)] text-slate-500 dark:text-[var(--text-tertiary)] rounded-2xl hover:bg-slate-200 dark:hover:bg-[var(--border-default)] hover:text-indigo-600 dark:hover:text-[var(--accent-text)] transition-all flex items-center justify-center"
                         title="Anexar arquivo"
                       >
                         <Paperclip size={17} />
@@ -1732,7 +1732,7 @@ useEffect(() => {
                       <button
                         type="button"
                         onClick={startRecording}
-                        className="w-11 h-11 shrink-0 bg-slate-100 text-slate-500 rounded-2xl hover:bg-slate-200 hover:text-indigo-600 transition-all flex items-center justify-center"
+                        className="w-11 h-11 shrink-0 bg-slate-100 dark:bg-[var(--surface-pill)] text-slate-500 dark:text-[var(--text-tertiary)] rounded-2xl hover:bg-slate-200 dark:hover:bg-[var(--border-default)] hover:text-indigo-600 dark:hover:text-[var(--accent-text)] transition-all flex items-center justify-center"
                         title="Gravar áudio"
                       >
                         <Mic size={17} />
@@ -1742,12 +1742,12 @@ useEffect(() => {
                         value={message}
                         onChange={handleInputChange}
                         placeholder="Resposta padrão '/' para atalhos..."
-                        className="flex-1 min-w-0 bg-slate-50 border border-slate-200 rounded-2xl px-4 py-3.5 text-sm font-bold focus:ring-4 focus:ring-indigo-500/10 outline-none transition-all"
+                        className="flex-1 min-w-0 bg-slate-50 dark:bg-[var(--surface-card)] border border-slate-200 dark:border-[var(--border-default)] rounded-2xl px-4 py-3.5 text-sm font-bold focus:ring-4 focus:ring-indigo-500/10 dark:focus:ring-[var(--accent)]/10 outline-none transition-all"
                       />
                       <button
                         type="submit"
                         disabled={!message.trim() && chatAttachments.length === 0}
-                        className="w-12 h-12 shrink-0 bg-indigo-600 text-white rounded-2xl hover:bg-indigo-700 transition-all shadow-xl shadow-indigo-100 flex items-center justify-center disabled:opacity-50 disabled:cursor-not-allowed"
+                        className="w-12 h-12 shrink-0 bg-indigo-600 dark:bg-[var(--accent)] text-white rounded-2xl hover:bg-indigo-700 dark:hover:bg-[var(--accent-hover)] transition-all shadow-xl shadow-indigo-100 flex items-center justify-center disabled:opacity-50 disabled:cursor-not-allowed"
                       >
                         <Send size={18} />
                       </button>
@@ -1756,12 +1756,12 @@ useEffect(() => {
                   </div>
                 </div>
               ) : (
-                <div className="flex-1 flex flex-col items-center justify-center p-12 text-center bg-white/50">
-                   <div className="w-20 h-20 bg-indigo-50 rounded-[2rem] flex items-center justify-center text-indigo-400 mb-6">
+                <div className="flex-1 flex flex-col items-center justify-center p-12 text-center bg-white/50 dark:bg-[var(--surface-card)]">
+                   <div className="w-20 h-20 bg-indigo-50 dark:bg-[var(--accent)]/10 rounded-[2rem] flex items-center justify-center text-indigo-400 dark:text-[var(--accent-text)] mb-6">
                       <MessageCircle size={40} />
                    </div>
-                   <h4 className="text-lg font-black text-slate-800 uppercase tracking-tight mb-2">Selecione um Chat</h4>
-                   <p className="text-sm text-slate-400 font-medium max-w-xs">Escolha uma conversa lateral ou inicie um novo atendimento via WhatsApp.</p>
+                   <h4 className="text-lg font-black text-slate-800 dark:text-[var(--text-primary)] uppercase tracking-tight mb-2">Selecione um Chat</h4>
+                   <p className="text-sm text-slate-400 dark:text-[var(--text-tertiary)] font-medium max-w-xs">Escolha uma conversa lateral ou inicie um novo atendimento via WhatsApp.</p>
                 </div>
               )}
             </div>
@@ -1789,17 +1789,17 @@ useEffect(() => {
                 initial={{ scale: 0.96, opacity: 0 }}
                 animate={{ scale: 1, opacity: 1 }}
                 exit={{ scale: 0.96, opacity: 0 }}
-                className="relative flex h-full max-h-[92vh] w-full max-w-6xl flex-col overflow-hidden rounded-3xl bg-white shadow-2xl"
+                className="relative flex h-full max-h-[92vh] w-full max-w-6xl flex-col overflow-hidden rounded-3xl bg-white dark:bg-[var(--surface-card)] shadow-2xl"
                 style={{ zIndex: 2147483647 }}
               >
-                <div className="flex items-center justify-between gap-3 border-b border-slate-100 px-4 py-3 sm:px-5">
+                <div className="flex items-center justify-between gap-3 border-b border-slate-100 dark:border-[var(--border-default)] px-4 py-3 sm:px-5">
                   <div className="flex min-w-0 items-center gap-3">
-                    <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-2xl bg-indigo-50 text-indigo-600">
+                    <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-2xl bg-indigo-50 dark:bg-[var(--accent)]/10 text-indigo-600 dark:text-[var(--accent-text)]">
                       <ImageIcon size={18} />
                     </div>
                     <div className="min-w-0">
-                      <p className="truncate text-sm font-black text-slate-800">{previewAttachment.name}</p>
-                      <p className="text-[10px] font-black uppercase tracking-widest text-slate-400">
+                      <p className="truncate text-sm font-black text-slate-800 dark:text-[var(--text-primary)]">{previewAttachment.name}</p>
+                      <p className="text-[10px] font-black uppercase tracking-widest text-slate-400 dark:text-[var(--text-tertiary)]">
                         {previewAttachment.size ? `${Math.ceil(previewAttachment.size / 1024)} KB` : 'Imagem'}
                       </p>
                     </div>
@@ -1808,7 +1808,7 @@ useEffect(() => {
                     <button
                       type="button"
                       onClick={() => openAttachmentInNewTab(previewAttachment)}
-                      className="flex h-10 w-10 items-center justify-center rounded-2xl border border-slate-200 text-slate-500 transition-all hover:bg-slate-50 hover:text-indigo-600"
+                      className="flex h-10 w-10 items-center justify-center rounded-2xl border border-slate-200 dark:border-[var(--border-default)] text-slate-500 dark:text-[var(--text-tertiary)] transition-all hover:bg-slate-50 dark:hover:bg-[var(--surface-card)] hover:text-indigo-600 dark:hover:text-[var(--accent-text)]"
                       title="Abrir em nova aba"
                     >
                       <Maximize2 size={17} />
@@ -1816,7 +1816,7 @@ useEffect(() => {
                     <a
                       href={previewAttachment.url}
                       download={previewAttachment.name}
-                      className="flex h-10 w-10 items-center justify-center rounded-2xl border border-slate-200 text-slate-500 transition-all hover:bg-slate-50 hover:text-indigo-600"
+                      className="flex h-10 w-10 items-center justify-center rounded-2xl border border-slate-200 dark:border-[var(--border-default)] text-slate-500 dark:text-[var(--text-tertiary)] transition-all hover:bg-slate-50 dark:hover:bg-[var(--surface-card)] hover:text-indigo-600 dark:hover:text-[var(--accent-text)]"
                       title="Baixar imagem"
                     >
                       <Download size={17} />
@@ -1850,43 +1850,43 @@ useEffect(() => {
         {isNewChatModalOpen && (
           <div className="fixed inset-0 z-[250] flex items-center justify-center p-4">
              <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} onClick={() => setIsNewChatModalOpen(false)} className="absolute inset-0 bg-slate-900/40 backdrop-blur-sm" />
-             <motion.div initial={{ scale: 0.9, opacity: 0 }} animate={{ scale: 1, opacity: 1 }} exit={{ scale: 0.9, opacity: 0 }} className="relative bg-white w-full max-w-md rounded-[2.5rem] shadow-2xl p-8 max-h-[80vh] overflow-y-auto">
-                <h3 className="text-xl font-black text-slate-800 uppercase tracking-tight mb-2">Novo WhatsApp</h3>
-                <p className="text-xs text-slate-400 font-medium mb-6">Inicie uma conversa manual ou busque um cliente cadastrado.</p>
+             <motion.div initial={{ scale: 0.9, opacity: 0 }} animate={{ scale: 1, opacity: 1 }} exit={{ scale: 0.9, opacity: 0 }} className="relative bg-white dark:bg-[var(--surface-card)] w-full max-w-md rounded-[2.5rem] shadow-2xl p-8 max-h-[80vh] overflow-y-auto">
+                <h3 className="text-xl font-black text-slate-800 dark:text-[var(--text-primary)] uppercase tracking-tight mb-2">Novo WhatsApp</h3>
+                <p className="text-xs text-slate-400 dark:text-[var(--text-tertiary)] font-medium mb-6">Inicie uma conversa manual ou busque um cliente cadastrado.</p>
 
                 <div className="space-y-4">
                    <div className="space-y-1.5 relative">
-                      <label className="text-[10px] font-black uppercase text-slate-400 tracking-widest ml-1">Buscar Cliente ou Funcionário</label>
+                      <label className="text-[10px] font-black uppercase text-slate-400 dark:text-[var(--text-tertiary)] tracking-widest ml-1">Buscar Cliente ou Funcionário</label>
                       <div className="relative">
-                        <Search className="absolute left-4 top-1/2 -translate-y-1/2 text-slate-400" size={16} />
+                        <Search className="absolute left-4 top-1/2 -translate-y-1/2 text-slate-400 dark:text-[var(--text-tertiary)]" size={16} />
                         <input 
                           type="text" 
                           value={customerSearch}
                           onChange={(e) => setCustomerSearch(e.target.value)}
                           placeholder="Digite nome da empresa ou contato..." 
-                          className="w-full bg-slate-50 border border-slate-200 rounded-2xl pl-12 pr-4 py-3 text-sm font-bold focus:ring-4 focus:ring-indigo-500/10 outline-none transition-all" 
+                          className="w-full bg-slate-50 dark:bg-[var(--surface-card)] border border-slate-200 dark:border-[var(--border-default)] rounded-2xl pl-12 pr-4 py-3 text-sm font-bold focus:ring-4 focus:ring-indigo-500/10 dark:focus:ring-[var(--accent)]/10 outline-none transition-all" 
                         />
                       </div>
                       
                       {searchResults.length > 0 && (
-                        <div className="absolute top-full left-0 right-0 z-10 mt-2 bg-white border border-slate-200 rounded-2xl shadow-xl overflow-hidden max-h-48 overflow-y-auto animate-in fade-in slide-in-from-top-2">
+                        <div className="absolute top-full left-0 right-0 z-10 mt-2 bg-white dark:bg-[var(--surface-card)] border border-slate-200 dark:border-[var(--border-default)] rounded-2xl shadow-xl overflow-hidden max-h-48 overflow-y-auto animate-in fade-in slide-in-from-top-2">
                           {searchResults.map(res => (
                             <button 
                               key={`${res.type}-${res.id}`}
                               onClick={() => selectCustomer(res)}
-                              className="w-full px-4 py-3 flex items-center justify-between hover:bg-indigo-50 transition-all border-b border-slate-50 last:border-0"
+                              className="w-full px-4 py-3 flex items-center justify-between hover:bg-indigo-50 dark:hover:bg-[var(--accent)]/10 transition-all border-b border-slate-50 dark:border-[var(--border-default)] last:border-0"
                             >
                               <div className="flex items-center gap-3">
                                 <div className={cn(
                                   "w-8 h-8 rounded-lg flex items-center justify-center",
-                                  res.type === 'company' ? "bg-amber-100 text-amber-600" : "bg-indigo-100 text-indigo-600"
+                                  res.type === 'company' ? "bg-amber-100 dark:bg-[var(--surface-warning)] text-amber-600 dark:text-[var(--text-warning)]" : "bg-indigo-100 dark:bg-[var(--accent)]/20 text-indigo-600 dark:text-[var(--accent-text)]"
                                 )}>
                                   {res.type === 'company' ? <LayoutGrid size={14} /> : <User size={14} />}
                                 </div>
                                 <div className="text-left flex-1 min-w-0">
-                                  <p className="text-[11px] font-black uppercase text-slate-800 leading-none mb-1 truncate">{res.name}</p>
+                                  <p className="text-[11px] font-black uppercase text-slate-800 dark:text-[var(--text-primary)] leading-none mb-1 truncate">{res.name}</p>
                                   <div className="flex items-center gap-2">
-                                    <p className="text-[9px] text-slate-400 font-bold uppercase whitespace-nowrap">
+                                    <p className="text-[9px] text-slate-400 dark:text-[var(--text-tertiary)] font-bold uppercase whitespace-nowrap">
                                       {res.type === 'company' ? 'Empresa' : `Funcionário • ${res.companyName || 'S/ Empresa'}`}
                                     </p>
                                   </div>
@@ -1894,8 +1894,8 @@ useEffect(() => {
                               </div>
                               {res.phone && (
                                 <div className="text-right">
-                                  <span className="text-[10px] font-black text-indigo-600 block">{res.phone}</span>
-                                  <span className="text-[8px] text-slate-400 font-black uppercase">WhatsApp</span>
+                                  <span className="text-[10px] font-black text-indigo-600 dark:text-[var(--accent-text)] block">{res.phone}</span>
+                                  <span className="text-[8px] text-slate-400 dark:text-[var(--text-tertiary)] font-black uppercase">WhatsApp</span>
                                 </div>
                               )}
                             </button>
@@ -1905,37 +1905,37 @@ useEffect(() => {
                    </div>
 
                    <div className="flex items-center gap-4 py-2">
-                     <div className="flex-1 h-px bg-slate-100" />
+                     <div className="flex-1 h-px bg-slate-100 dark:bg-[var(--surface-pill)]" />
                      <span className="text-[10px] font-black text-slate-300 uppercase tracking-widest">ou manual</span>
-                     <div className="flex-1 h-px bg-slate-100" />
+                     <div className="flex-1 h-px bg-slate-100 dark:bg-[var(--surface-pill)]" />
                    </div>
 
                    <div className="grid grid-cols-2 gap-4">
                      <div className="space-y-1.5">
-                        <label className="text-[10px] font-black uppercase text-slate-400 tracking-widest ml-1">Número</label>
+                        <label className="text-[10px] font-black uppercase text-slate-400 dark:text-[var(--text-tertiary)] tracking-widest ml-1">Número</label>
                         <input 
                           type="tel" 
                           value={newChatNumber} 
                           onChange={e => setNewChatNumber(e.target.value)} 
                           placeholder="Ex: 11999999999" 
-                          className="w-full bg-slate-50 border border-slate-200 rounded-2xl px-4 py-3 text-sm font-bold focus:ring-4 focus:ring-indigo-500/10 outline-none" 
+                          className="w-full bg-slate-50 dark:bg-[var(--surface-card)] border border-slate-200 dark:border-[var(--border-default)] rounded-2xl px-4 py-3 text-sm font-bold focus:ring-4 focus:ring-indigo-500/10 dark:focus:ring-[var(--accent)]/10 outline-none" 
                         />
                      </div>
                      <div className="space-y-1.5">
-                        <label className="text-[10px] font-black uppercase text-slate-400 tracking-widest ml-1">Nome</label>
+                        <label className="text-[10px] font-black uppercase text-slate-400 dark:text-[var(--text-tertiary)] tracking-widest ml-1">Nome</label>
                         <input 
                           type="text" 
                           value={newChatName} 
                           onChange={e => setNewChatName(e.target.value)} 
                           placeholder="Identificação" 
-                          className="w-full bg-slate-50 border border-slate-200 rounded-2xl px-4 py-3 text-sm font-bold focus:ring-4 focus:ring-indigo-500/10 outline-none" 
+                          className="w-full bg-slate-50 dark:bg-[var(--surface-card)] border border-slate-200 dark:border-[var(--border-default)] rounded-2xl px-4 py-3 text-sm font-bold focus:ring-4 focus:ring-indigo-500/10 dark:focus:ring-[var(--accent)]/10 outline-none" 
                         />
                      </div>
                    </div>
                    <button 
                      onClick={handleStartNewChat} 
                      disabled={!newChatNumber}
-                     className="w-full mt-4 py-4 bg-indigo-600 text-white rounded-2xl text-[11px] font-black uppercase tracking-widest shadow-xl shadow-indigo-100 hover:bg-indigo-700 disabled:opacity-50 disabled:cursor-not-allowed transition-all"
+                     className="w-full mt-4 py-4 bg-indigo-600 dark:bg-[var(--accent)] text-white rounded-2xl text-[11px] font-black uppercase tracking-widest shadow-xl shadow-indigo-100 hover:bg-indigo-700 dark:hover:bg-[var(--accent-hover)] disabled:opacity-50 disabled:cursor-not-allowed transition-all"
                    >
                      Iniciar Conversa
                    </button>
@@ -1950,32 +1950,32 @@ useEffect(() => {
         {isFinishModalOpen && (
           <div className="fixed inset-0 z-[250] flex items-center justify-center p-4">
              <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} onClick={() => setIsFinishModalOpen(false)} className="absolute inset-0 bg-slate-900/40 backdrop-blur-sm" />
-             <motion.div initial={{ scale: 0.9, opacity: 0 }} animate={{ scale: 1, opacity: 1 }} exit={{ scale: 0.9, opacity: 0 }} className="relative bg-white w-full max-w-sm rounded-[2.5rem] shadow-2xl p-8">
-                <h3 className="text-xl font-black text-slate-800 uppercase tracking-tight mb-2">Finalizar Chat</h3>
-                <p className="text-xs text-slate-400 font-medium mb-6">Transforme esta conversa em um chamado para Histórico.</p>
+             <motion.div initial={{ scale: 0.9, opacity: 0 }} animate={{ scale: 1, opacity: 1 }} exit={{ scale: 0.9, opacity: 0 }} className="relative bg-white dark:bg-[var(--surface-card)] w-full max-w-sm rounded-[2.5rem] shadow-2xl p-8">
+                <h3 className="text-xl font-black text-slate-800 dark:text-[var(--text-primary)] uppercase tracking-tight mb-2">Finalizar Chat</h3>
+                <p className="text-xs text-slate-400 dark:text-[var(--text-tertiary)] font-medium mb-6">Transforme esta conversa em um chamado para Histórico.</p>
                 
                 <div className="space-y-4">
                    <div className="space-y-1.5">
-                      <label className="text-[10px] font-black uppercase text-slate-400 tracking-widest">Título do Chamado</label>
+                      <label className="text-[10px] font-black uppercase text-slate-400 dark:text-[var(--text-tertiary)] tracking-widest">Título do Chamado</label>
                       <input 
                         type="text" 
                         value={ticketTitle} 
                         onChange={e => setTicketTitle(e.target.value)} 
                         placeholder="Ex: Suporte técnico - Erro no login" 
-                        className="w-full bg-slate-50 border border-slate-200 rounded-2xl px-4 py-3 text-sm font-bold focus:ring-4 focus:ring-indigo-500/10 outline-none" 
+                        className="w-full bg-slate-50 dark:bg-[var(--surface-card)] border border-slate-200 dark:border-[var(--border-default)] rounded-2xl px-4 py-3 text-sm font-bold focus:ring-4 focus:ring-indigo-500/10 dark:focus:ring-[var(--accent)]/10 outline-none" 
                       />
                    </div>
                    
-                   <label className="flex items-center gap-3 p-4 bg-slate-50 border border-slate-100 rounded-2xl cursor-pointer hover:bg-slate-100 transition-all">
+                   <label className="flex items-center gap-3 p-4 bg-slate-50 dark:bg-[var(--surface-card)] border border-slate-100 dark:border-[var(--border-default)] rounded-2xl cursor-pointer hover:bg-slate-100 dark:hover:bg-[var(--surface-pill)] transition-all">
                       <input 
                         type="checkbox" 
                         checked={closeTicketImmediately} 
                         onChange={e => setCloseTicketImmediately(e.target.checked)}
-                        className="w-5 h-5 rounded-lg border-slate-300 text-indigo-600 focus:ring-indigo-500" 
+                        className="w-5 h-5 rounded-lg border-slate-300 dark:border-[var(--border-default)] text-indigo-600 dark:text-[var(--accent-text)] focus:ring-indigo-500 dark:focus:ring-[var(--accent)]" 
                       />
                       <div className="flex flex-col">
-                         <span className="text-xs font-black uppercase text-slate-700 tracking-tight">Fechar Imediatamente</span>
-                         <span className="text-[9px] text-slate-400 font-medium">O chamado será criado com status &quot;Fechado&quot;</span>
+                         <span className="text-xs font-black uppercase text-slate-700 dark:text-[var(--text-secondary)] tracking-tight">Fechar Imediatamente</span>
+                         <span className="text-[9px] text-slate-400 dark:text-[var(--text-tertiary)] font-medium">O chamado será criado com status &quot;Fechado&quot;</span>
                       </div>
                    </label>
 
@@ -2012,14 +2012,14 @@ useEffect(() => {
           }}
           className={cn(
             "w-16 h-16 rounded-full flex items-center justify-center text-white shadow-2xl transition-all hover:scale-110 active:scale-95 relative group",
-            isMinimized ? "bg-indigo-600" : "bg-slate-900 border-4 border-slate-800"
+            isMinimized ? "bg-indigo-600 dark:bg-[var(--accent)]" : "bg-slate-900 border-4 border-slate-800"
           )}
         >
           {isMinimized ? <MessageSquare size={28} /> : <X size={28} />}
           {isMinimized && (unreadCount > 0 || (!isCustomer && customerSessions.some(s => s.status === 'pending'))) && (
             <span className={cn(
               "absolute -top-1 -right-1 min-w-[24px] h-6 px-1 text-white text-[10px] font-black flex items-center justify-center rounded-full border-2 border-white",
-              unreadCount > 0 ? "bg-red-500" : "bg-amber-500 animate-pulse"
+              unreadCount > 0 ? "bg-red-500 dark:bg-[var(--text-danger)]" : "bg-amber-500 dark:bg-[var(--text-warning-strong)] animate-pulse"
             )}>
               {unreadCount > 0 ? (unreadCount > 9 ? '9+' : unreadCount) : '!'}
             </span>

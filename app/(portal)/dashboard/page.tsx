@@ -131,30 +131,30 @@ export default function DashboardPage() {
     <div className="space-y-8 h-full flex flex-col">
       <div className="flex flex-col md:flex-row md:items-end justify-between gap-4">
         <div>
-          <h2 className="text-3xl font-black text-slate-800 tracking-tight">Visão Geral</h2>
-          <p className="text-slate-500 font-medium">Controle de fluxo e produtividade em tempo real</p>
+          <h2 className="text-3xl font-black text-slate-800 dark:text-[var(--text-primary)] tracking-tight">Visão Geral</h2>
+          <p className="text-slate-500 dark:text-[var(--text-tertiary)] font-medium">Controle de fluxo e produtividade em tempo real</p>
         </div>
         <div className="flex gap-4">
           {loading && (
-            <div className="flex items-center gap-2 bg-slate-100 px-4 py-2 rounded-xl text-slate-500 animate-pulse">
-               <div className="w-4 h-4 border-2 border-indigo-600 border-t-transparent rounded-full animate-spin" />
+            <div className="flex items-center gap-2 bg-slate-100 dark:bg-[var(--surface-pill)] px-4 py-2 rounded-xl text-slate-500 dark:text-[var(--text-tertiary)] animate-pulse">
+               <div className="w-4 h-4 border-2 border-indigo-600 dark:border-[var(--accent)] border-t-transparent rounded-full animate-spin" />
                <span className="text-[10px] font-black uppercase tracking-widest">Sincronizando...</span>
             </div>
           )}
           {stats.unassigned > 0 && !loading && (
-            <div className="flex items-center gap-2 bg-red-50 border border-red-200 px-4 py-2 rounded-xl text-red-800 animate-pulse whitespace-nowrap">
+            <div className="flex items-center gap-2 bg-red-50 dark:bg-[var(--surface-danger)] border border-red-200 dark:border-[var(--text-danger)]/30 px-4 py-2 rounded-xl text-red-800 dark:text-[var(--text-danger)] animate-pulse whitespace-nowrap">
                <AlertCircle size={18} />
                <span className="text-[10px] font-black uppercase tracking-widest">{stats.unassigned} Novos Sem Analista</span>
             </div>
           )}
           {stats.overdue > 0 && (
-            <div className="flex items-center gap-2 bg-rose-600 px-4 py-2 rounded-xl text-white whitespace-nowrap shadow-md">
+            <div className="flex items-center gap-2 bg-rose-600 dark:bg-[var(--text-danger)] px-4 py-2 rounded-xl text-white whitespace-nowrap shadow-md">
                <span className="text-[10px] font-black uppercase tracking-widest">{stats.overdue} Vencidos</span>
             </div>
           )}
           <button 
             onClick={() => setIsNewTicketModalOpen(true)}
-            className="bg-indigo-600 hover:bg-indigo-700 text-white px-6 py-2.5 rounded-lg text-sm font-bold shadow-md transition-all flex items-center gap-2 whitespace-nowrap"
+            className="bg-indigo-600 dark:bg-[var(--accent)] hover:bg-indigo-700 dark:hover:bg-[var(--accent-hover)] text-white px-6 py-2.5 rounded-lg text-sm font-bold shadow-md transition-all flex items-center gap-2 whitespace-nowrap"
           >
             <Plus size={18} />
             Novo Chamado
@@ -171,7 +171,7 @@ export default function DashboardPage() {
         <StatCard 
           label="Total em Aberto" 
           value={filteredTickets.filter(t => !isClosedTicketStatus(t.status)).length} 
-          color="bg-indigo-600" 
+          color="bg-indigo-600 dark:bg-[var(--accent)]" 
           textColor="text-white"
           icon={<AlertCircle size={14} />}
           highlight 
@@ -179,24 +179,24 @@ export default function DashboardPage() {
         <StatCard 
           label="SLA Vencido" 
           value={stats.overdue} 
-          color={stats.overdue > 0 ? "bg-rose-50 border-rose-200" : "bg-white"}
-          textColor="text-rose-600"
-          icon={<AlertCircle size={14} className="text-rose-500" />}
+          color={stats.overdue > 0 ? "bg-rose-50 dark:bg-[var(--surface-danger)] border-rose-200 dark:border-[var(--text-danger)]/30" : "bg-white dark:bg-[var(--surface-card)]"}
+          textColor="text-rose-600 dark:text-[var(--text-danger)]"
+          icon={<AlertCircle size={14} className="text-rose-500 dark:text-[var(--text-danger)]" />}
           pulse={stats.overdue > 0}
         />
         <StatCard 
           label="Próximos do Vencimento" 
           value={stats.nearExpiry} 
-          color={stats.nearExpiry > 0 ? "bg-orange-50 border-orange-200" : "bg-white"}
-          textColor="text-orange-600"
-          icon={<Clock size={14} className="text-orange-500" />}
+          color={stats.nearExpiry > 0 ? "bg-orange-50 dark:bg-orange-500/10 border-orange-200 dark:border-orange-500/30" : "bg-white dark:bg-[var(--surface-card)]"}
+          textColor="text-orange-600 dark:text-orange-400"
+          icon={<Clock size={14} className="text-orange-500 dark:text-orange-400" />}
         />
         <StatCard 
           label="Novos Sem Analista" 
           value={stats.unassigned} 
-          color={stats.unassigned > 0 ? "bg-amber-50 border-amber-200" : "bg-white"}
-          textColor="text-amber-600"
-          icon={<User size={14} className="text-amber-500" />}
+          color={stats.unassigned > 0 ? "bg-amber-50 dark:bg-[var(--surface-warning)] border-amber-200 dark:border-[var(--border-alert)]" : "bg-white dark:bg-[var(--surface-card)]"}
+          textColor="text-amber-600 dark:text-[var(--text-warning)]"
+          icon={<User size={14} className="text-amber-500 dark:text-[var(--text-warning-strong)]" />}
         />
       </div>
 
@@ -204,8 +204,8 @@ export default function DashboardPage() {
       {(stats.overdue > 0 || stats.nearExpiry > 0 || stats.unassigned > 0) && (
         <div className="space-y-3">
           <div className="flex items-center gap-2 px-2">
-             <div className="w-1.5 h-1.5 rounded-full bg-rose-500 animate-pulse" />
-             <h3 className="text-xs font-black uppercase tracking-widest text-slate-500">Chamados Prioritários</h3>
+             <div className="w-1.5 h-1.5 rounded-full bg-rose-500 dark:bg-[var(--text-danger)] animate-pulse" />
+             <h3 className="text-xs font-black uppercase tracking-widest text-slate-500 dark:text-[var(--text-tertiary)]">Chamados Prioritários</h3>
           </div>
           <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
             {/* Lista de Vencidos */}
@@ -264,12 +264,12 @@ export default function DashboardPage() {
           return (
             <div key={col.status} className="flex flex-col gap-4 min-w-[280px]">
               <div className="flex items-center justify-between px-2">
-                <h3 className="text-[10px] font-black uppercase tracking-[0.2em] text-slate-400">{col.title}</h3>
-                <span className="bg-slate-200 text-slate-600 text-[10px] font-bold px-2 py-0.5 rounded-full">
+                <h3 className="text-[10px] font-black uppercase tracking-[0.2em] text-slate-400 dark:text-[var(--text-tertiary)]">{col.title}</h3>
+                <span className="bg-slate-200 dark:bg-[var(--border-default)] text-slate-600 dark:text-[var(--text-secondary)] text-[10px] font-bold px-2 py-0.5 rounded-full">
                   {colTickets.length}
                 </span>
               </div>
-              <div className="flex-1 bg-slate-100/50 rounded-2xl p-4 space-y-4 border border-dashed border-slate-300">
+              <div className="flex-1 bg-slate-100/50 dark:bg-[var(--surface-pill)]/50 rounded-2xl p-4 space-y-4 border border-dashed border-slate-300 dark:border-[var(--border-default)]">
                 {displayTickets.map(ticket => (
                   <TicketCard 
                     key={ticket.id} 
@@ -282,7 +282,7 @@ export default function DashboardPage() {
                 {hasMore && (
                   <button 
                     onClick={() => router.push(`/tickets?status=${col.status}`)}
-                    className="w-full py-3 text-[10px] font-black uppercase tracking-widest text-slate-400 hover:text-indigo-600 transition-colors bg-white/50 rounded-xl border border-dashed border-slate-300"
+                    className="w-full py-3 text-[10px] font-black uppercase tracking-widest text-slate-400 dark:text-[var(--text-tertiary)] hover:text-indigo-600 dark:hover:text-[var(--accent-text)] transition-colors bg-white/50 dark:bg-[var(--surface-card)] rounded-xl border border-dashed border-slate-300 dark:border-[var(--border-default)]"
                   >
                     Ver mais {colTickets.length - 20} chamados
                   </button>
@@ -321,21 +321,21 @@ function PriorityList({ title, tickets, color, onSelect, priorities, users }: {
   if (tickets.length === 0) return null;
 
   const bgColors = {
-    rose: "bg-rose-50 border-rose-100",
-    orange: "bg-orange-50 border-orange-100",
-    amber: "bg-amber-50 border-amber-100"
+    rose: "bg-rose-50 dark:bg-[var(--surface-danger)] border-rose-100 dark:border-[var(--text-danger)]/20",
+    orange: "bg-orange-50 dark:bg-orange-500/10 border-orange-100 dark:border-orange-500/20",
+    amber: "bg-amber-50 dark:bg-[var(--surface-warning)] border-amber-100 dark:border-[var(--border-alert)]"
   };
 
   const textColors = {
-    rose: "text-rose-600",
-    orange: "text-orange-600",
-    amber: "text-amber-600"
+    rose: "text-rose-600 dark:text-[var(--text-danger)]",
+    orange: "text-orange-600 dark:text-orange-400",
+    amber: "text-amber-600 dark:text-[var(--text-warning)]"
   };
 
   const bulletColors = {
-    rose: "bg-rose-500",
-    orange: "bg-orange-500",
-    amber: "bg-amber-500"
+    rose: "bg-rose-500 dark:bg-[var(--text-danger)]",
+    orange: "bg-orange-500 dark:bg-orange-500",
+    amber: "bg-amber-500 dark:bg-[var(--text-warning-strong)]"
   };
 
   return (
@@ -353,31 +353,31 @@ function PriorityList({ title, tickets, color, onSelect, priorities, users }: {
             <div 
               key={t.id} 
               onClick={() => onSelect(t)}
-              className="group cursor-pointer bg-white/80 backdrop-blur-sm p-3 rounded-xl border border-white hover:border-slate-200 transition-all flex items-center justify-between gap-3 shadow-sm"
+              className="group cursor-pointer bg-white/80 dark:bg-[var(--surface-card)] backdrop-blur-sm p-3 rounded-xl border border-white dark:border-[var(--border-default)] hover:border-slate-200 dark:hover:border-[var(--border-default)] transition-all flex items-center justify-between gap-3 shadow-sm"
             >
               <div className="flex-1 min-w-0">
-                <h5 className="text-xs font-bold text-slate-700 truncate group-hover:text-indigo-600 transition-colors">
+                <h5 className="text-xs font-bold text-slate-700 dark:text-[var(--text-secondary)] truncate group-hover:text-indigo-600 dark:group-hover:text-[var(--accent-text)] transition-colors">
                   {t.title}
                 </h5>
                 <div className="flex items-center gap-2 mt-1">
-                  <span className="text-[9px] font-black text-slate-400 uppercase tracking-tighter">#{t.ticketNumber ? String(t.ticketNumber).padStart(4, '0') : t.id.slice(0, 8)}</span>
-                  <span className="text-[9px] text-slate-400">•</span>
+                  <span className="text-[9px] font-black text-slate-400 dark:text-[var(--text-tertiary)] uppercase tracking-tighter">#{t.ticketNumber ? String(t.ticketNumber).padStart(4, '0') : t.id.slice(0, 8)}</span>
+                  <span className="text-[9px] text-slate-400 dark:text-[var(--text-tertiary)]">•</span>
                   {assignee ? (
                     <div className="flex items-center gap-1">
-                      <div className="w-4 h-4 rounded bg-indigo-100 flex items-center justify-center text-[7px] font-black text-indigo-600 uppercase">
+                      <div className="w-4 h-4 rounded bg-indigo-100 dark:bg-[var(--accent)]/20 flex items-center justify-center text-[7px] font-black text-indigo-600 dark:text-[var(--accent-text)] uppercase">
                         {assignee.name.charAt(0)}
                       </div>
-                      <span className="text-[9px] text-slate-500 font-bold truncate max-w-[80px]">{assignee.name.split(' ')[0]}</span>
+                      <span className="text-[9px] text-slate-500 dark:text-[var(--text-tertiary)] font-bold truncate max-w-[80px]">{assignee.name.split(' ')[0]}</span>
                     </div>
                   ) : (
-                    <span className="text-[9px] text-amber-500 font-black uppercase tracking-tighter">Não atribuído</span>
+                    <span className="text-[9px] text-amber-500 dark:text-[var(--text-warning-strong)] font-black uppercase tracking-tighter">Não atribuído</span>
                   )}
                 </div>
               </div>
               <div className="shrink-0 flex items-center gap-2">
                  <div className={cn(
                    "text-[8px] font-black px-2 py-0.5 rounded uppercase tracking-tighter",
-                   priorities.find(p => p.label === t.priority)?.color || "bg-slate-100 text-slate-600"
+                   priorities.find(p => p.label === t.priority)?.color || "bg-slate-100 dark:bg-[var(--surface-pill)] text-slate-600 dark:text-[var(--text-secondary)]"
                  )}>
                    {t.priority}
                  </div>
@@ -386,7 +386,7 @@ function PriorityList({ title, tickets, color, onSelect, priorities, users }: {
           );
         })}
         {tickets.length > 5 && (
-          <button className="w-full py-1 text-[9px] font-black uppercase text-slate-400 hover:text-indigo-600">
+          <button className="w-full py-1 text-[9px] font-black uppercase text-slate-400 dark:text-[var(--text-tertiary)] hover:text-indigo-600 dark:hover:text-[var(--accent-text)]">
             + {tickets.length - 5} chamados
           </button>
         )}
@@ -419,14 +419,14 @@ function StatCard({ label, value, color, textColor, icon, highlight, pulse }: {
     <div className={cn(
       "p-6 rounded-2xl border transition-all duration-500 flex flex-col justify-between",
       color,
-      !color.includes('border') && "border-slate-200 shadow-sm",
+      !color.includes('border') && "border-slate-200 dark:border-[var(--border-default)] shadow-sm",
       pulse && "animate-[pulse_2s_infinite]"
     )}>
       <div className="flex items-center justify-between mb-1">
-        <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest">{label}</p>
+        <p className="text-[10px] font-black text-slate-400 dark:text-[var(--text-tertiary)] uppercase tracking-widest">{label}</p>
         <div className="opacity-50">{icon}</div>
       </div>
-      <p className={cn("text-3xl font-black", textColor || "text-slate-800")}>{value}</p>
+      <p className={cn("text-3xl font-black", textColor || "text-slate-800 dark:text-[var(--text-primary)]")}>{value}</p>
     </div>
   );
 }
@@ -459,63 +459,63 @@ function TicketCard({ ticket, availablePriorities, users, onClick }: { ticket: T
       layoutId={ticket.id} 
       onClick={onClick}
       className={cn(
-        "bg-white p-4 rounded-xl border cursor-pointer transition-all hover:shadow-md active:scale-[0.98] shadow-sm relative overflow-hidden group",
+        "bg-white dark:bg-[var(--surface-card)] p-4 rounded-xl border cursor-pointer transition-all hover:shadow-md active:scale-[0.98] shadow-sm relative overflow-hidden group",
         isUnassignedNew 
-          ? "border-amber-200 bg-amber-50/10" 
+          ? "border-amber-200 dark:border-[var(--border-alert)] bg-amber-50/10 dark:bg-[var(--surface-warning)]/10" 
           : isOverdue
-            ? "border-rose-200 bg-rose-50/10"
+            ? "border-rose-200 dark:border-[var(--text-danger)]/30 bg-rose-50/10 dark:bg-[var(--surface-danger)]/10"
             : isNear
-              ? "border-orange-200 bg-orange-50/10"
-              : "border-slate-200 hover:border-indigo-300"
+              ? "border-orange-200 dark:border-orange-500/30 bg-orange-50/10 dark:bg-orange-500/10"
+              : "border-slate-200 dark:border-[var(--border-default)] hover:border-indigo-300"
       )}
     >
       {/* Indicador lateral de status */}
       <div className={cn(
         "absolute left-0 top-0 bottom-0 w-1",
-        isOverdue ? "bg-rose-500" : isNear ? "bg-orange-500" : isUnassignedNew ? "bg-amber-500" : "bg-transparent"
+        isOverdue ? "bg-rose-500 dark:bg-[var(--text-danger)]" : isNear ? "bg-orange-500 dark:bg-orange-500" : isUnassignedNew ? "bg-amber-500 dark:bg-[var(--text-warning-strong)]" : "bg-transparent"
       )} />
 
-      {isOverdue && <div className="absolute top-0 right-0 bg-rose-600 text-white text-[8px] font-black px-2 py-0.5 rounded-bl uppercase tracking-tighter">SLA Vencido</div>}
-      {isNear && <div className="absolute top-0 right-0 bg-orange-500 text-white text-[8px] font-black px-2 py-0.5 rounded-bl uppercase tracking-tighter">Expira logo</div>}
-      {isUnassignedNew && <div className="absolute top-0 right-0 bg-amber-500 text-white text-[8px] font-black px-2 py-0.5 rounded-bl uppercase tracking-tighter">Sem Analista</div>}
+      {isOverdue && <div className="absolute top-0 right-0 bg-rose-600 dark:bg-[var(--text-danger)] text-white text-[8px] font-black px-2 py-0.5 rounded-bl uppercase tracking-tighter">SLA Vencido</div>}
+      {isNear && <div className="absolute top-0 right-0 bg-orange-500 dark:bg-orange-500 text-white text-[8px] font-black px-2 py-0.5 rounded-bl uppercase tracking-tighter">Expira logo</div>}
+      {isUnassignedNew && <div className="absolute top-0 right-0 bg-amber-500 dark:bg-[var(--text-warning-strong)] text-white text-[8px] font-black px-2 py-0.5 rounded-bl uppercase tracking-tighter">Sem Analista</div>}
       
       <div className="flex items-start justify-between mb-3">
-        <span className={cn("text-[10px] font-black px-2 py-0.5 rounded-md uppercase", priorityConfig?.color || 'bg-slate-100 text-slate-600')}>
+        <span className={cn("text-[10px] font-black px-2 py-0.5 rounded-md uppercase", priorityConfig?.color || 'bg-slate-100 dark:bg-[var(--surface-pill)] text-slate-600 dark:text-[var(--text-secondary)]')}>
           {ticket.priority}
         </span>
-        <span className="text-[10px] text-slate-400 font-bold uppercase tracking-wider">#{ticket.ticketNumber ? String(ticket.ticketNumber).padStart(4, '0') : ticket.id.slice(0, 8)}</span>
+        <span className="text-[10px] text-slate-400 dark:text-[var(--text-tertiary)] font-bold uppercase tracking-wider">#{ticket.ticketNumber ? String(ticket.ticketNumber).padStart(4, '0') : ticket.id.slice(0, 8)}</span>
       </div>
-      <h3 className="font-bold text-sm text-slate-800 mb-1 line-clamp-2 leading-tight">{ticket.title}</h3>
+      <h3 className="font-bold text-sm text-slate-800 dark:text-[var(--text-primary)] mb-1 line-clamp-2 leading-tight">{ticket.title}</h3>
       
       {slaLimit && !isClosedTicketStatus(ticket.status) && (
         <div className={cn(
           "text-[9px] font-black uppercase mb-3 flex items-center gap-1",
-          isOverdue ? "text-red-600" : isNear ? "text-orange-600" : "text-slate-400"
+          isOverdue ? "text-red-600 dark:text-[var(--text-danger)]" : isNear ? "text-orange-600 dark:text-orange-400" : "text-slate-400 dark:text-[var(--text-tertiary)]"
         )}>
           <Clock size={10} />
           Vence {formatDate(slaLimit)}
         </div>
       )}
 
-      <div className="flex items-center justify-between pt-3 border-t border-slate-100 mt-2 text-[10px] text-slate-400 font-bold">
+      <div className="flex items-center justify-between pt-3 border-t border-slate-100 dark:border-[var(--border-default)] mt-2 text-[10px] text-slate-400 dark:text-[var(--text-tertiary)] font-bold">
         <div className="flex items-center gap-1.5" title="Criado em">
-          <div className="w-1 h-1 rounded-full bg-slate-300" />
+          <div className="w-1 h-1 rounded-full bg-slate-300 dark:bg-[var(--text-tertiary)]" />
           {new Date(ticket.createdAt).toLocaleString('pt-BR', { day: '2-digit', month: '2-digit' })}
         </div>
         <div className="flex items-center gap-2">
            {assignee ? (
              <div className="flex items-center gap-2">
-               <span className="text-[9px] text-slate-500 font-bold truncate max-w-[60px] hidden sm:inline">{assignee.name.split(' ')[0]}</span>
-               <div className="w-6 h-6 rounded-lg bg-indigo-600 flex items-center justify-center font-black text-white text-[9px] uppercase shadow-sm" title={assignee.name}>
+               <span className="text-[9px] text-slate-500 dark:text-[var(--text-tertiary)] font-bold truncate max-w-[60px] hidden sm:inline">{assignee.name.split(' ')[0]}</span>
+               <div className="w-6 h-6 rounded-lg bg-indigo-600 dark:bg-[var(--accent)] flex items-center justify-center font-black text-white text-[9px] uppercase shadow-sm" title={assignee.name}>
                  {assignee.name.charAt(0)}
                </div>
              </div>
            ) : (
              <div className={cn(
                "w-6 h-6 rounded-lg flex items-center justify-center border",
-               isUnassignedNew ? "bg-amber-50 border-amber-200" : "bg-slate-100 border-slate-200"
+               isUnassignedNew ? "bg-amber-50 dark:bg-[var(--surface-warning)] border-amber-200 dark:border-[var(--border-alert)]" : "bg-slate-100 dark:bg-[var(--surface-pill)] border-slate-200 dark:border-[var(--border-default)]"
              )} title="Sem Analista">
-               <User size={10} className={isUnassignedNew ? "text-amber-500" : "text-slate-400"} />
+               <User size={10} className={isUnassignedNew ? "text-amber-500 dark:text-[var(--text-warning-strong)]" : "text-slate-400 dark:text-[var(--text-tertiary)]"} />
              </div>
            )}
         </div>

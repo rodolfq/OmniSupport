@@ -117,15 +117,15 @@ export function WhatsAppConnect({ instanceId = 'default' }: WhatsAppConnectProps
   }, [instanceId]);
   
   return (
-    <div className="bg-white border border-slate-200 rounded-3xl p-6">
+    <div className="bg-white dark:bg-[var(--surface-card)] border border-slate-200 dark:border-[var(--border-default)] rounded-3xl p-6">
       <div className="flex items-center justify-between mb-4">
-        <h3 className="text-lg font-black text-slate-800">WhatsApp</h3>
+        <h3 className="text-lg font-black text-slate-800 dark:text-[var(--text-primary)]">WhatsApp</h3>
         <button
           onClick={status === 'connected' ? disconnect : connect}
           disabled={loading}
           className={cn(
             "p-2 rounded-xl transition-all",
-            status === 'connected' ? "bg-red-100 text-red-600" : "bg-green-100 text-green-600"
+            status === 'connected' ? "bg-red-100 dark:bg-[var(--surface-danger)] text-red-600 dark:text-[var(--text-danger)]" : "bg-green-100 dark:bg-[var(--surface-success)] text-green-600 dark:text-[var(--text-success)]"
           )}
         >
           {status === 'connected' ? <Power size={18} /> : <RefreshCw size={18} className={loading ? "animate-spin" : ""} />}
@@ -140,28 +140,28 @@ export function WhatsAppConnect({ instanceId = 'default' }: WhatsAppConnectProps
             exit={{ opacity: 0, scale: 0.9 }}
             className="flex flex-col items-center gap-3"
           >
-            <QrCode size={24} className="text-slate-400" />
+            <QrCode size={24} className="text-slate-400 dark:text-[var(--text-tertiary)]" />
             <img 
               src={qr} 
               alt="WhatsApp QR Code" 
-              className="w-48 h-48 border border-slate-200 rounded-xl"
+              className="w-48 h-48 border border-slate-200 dark:border-[var(--border-default)] rounded-xl"
             />
-            <p className="text-xs text-slate-500">Escaneie o QR Code com o WhatsApp</p>
+            <p className="text-xs text-slate-500 dark:text-[var(--text-tertiary)]">Escaneie o QR Code com o WhatsApp</p>
           </motion.div>
         )}
         
         {!qr && status === 'connected' && (
-          <p className="text-sm text-emerald-600 font-bold">WhatsApp conectado!</p>
+          <p className="text-sm text-emerald-600 dark:text-[var(--text-success)] font-bold">WhatsApp conectado!</p>
         )}
         
         {!qr && status === 'connecting' && (
-          <p className="text-sm text-amber-600 font-bold">
+          <p className="text-sm text-amber-600 dark:text-[var(--text-warning)] font-bold">
             {loading ? 'Gerando QR Code...' : 'Conectando...'}
           </p>
         )}
 
         {!qr && status === 'disconnected' && (
-          <p className="text-sm text-slate-500">Clique para conectar o WhatsApp</p>
+          <p className="text-sm text-slate-500 dark:text-[var(--text-tertiary)]">Clique para conectar o WhatsApp</p>
         )}
       </AnimatePresence>
     </div>

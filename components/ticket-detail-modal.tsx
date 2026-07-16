@@ -468,22 +468,22 @@ const handleSendMessage = async (isInternal: boolean) => {
         exit={{ x: '100%' }}
         transition={{ type: 'spring', damping: 25, stiffness: 200 }}
         className={cn(
-          "relative bg-white h-full shadow-2xl border-l border-slate-200 flex flex-row transition-all duration-500 ease-in-out",
+          "relative bg-white dark:bg-[var(--surface-card)] h-full shadow-2xl border-l border-slate-200 dark:border-[var(--border-default)] flex flex-row transition-all duration-500 ease-in-out",
           isFocused ? "w-full" : "w-full max-w-[90vw]"
         )}
       >
         {/* Left Side: Ticket Info */}
-        <div className="flex-1 flex flex-col min-w-0 bg-white">
+        <div className="flex-1 flex flex-col min-w-0 bg-white dark:bg-[var(--surface-card)]">
           {/* Header Bar */}
-          <div className="px-8 py-4 border-b border-slate-100 flex items-center justify-between bg-slate-50/50">
+          <div className="px-8 py-4 border-b border-slate-100 dark:border-[var(--border-default)] flex items-center justify-between bg-slate-50/50 dark:bg-[var(--surface-card)]/50">
             <div className="flex items-center gap-3">
-              <span className="text-xs font-black text-indigo-600 bg-indigo-50 px-2 py-0.5 rounded tracking-widest">#{ticket.ticketNumber ? String(ticket.ticketNumber).padStart(4, '0') : ticket.id.slice(0, 8)}</span>
-              <span className="text-slate-400 font-bold">/</span>
-              <span className="text-sm font-bold text-slate-800 truncate max-w-md">{ticket.title}</span>
+              <span className="text-xs font-black text-indigo-600 dark:text-[var(--accent-text)] bg-indigo-50 dark:bg-[var(--accent)]/10 px-2 py-0.5 rounded tracking-widest">#{ticket.ticketNumber ? String(ticket.ticketNumber).padStart(4, '0') : ticket.id.slice(0, 8)}</span>
+              <span className="text-slate-400 dark:text-[var(--text-tertiary)] font-bold">/</span>
+              <span className="text-sm font-bold text-slate-800 dark:text-[var(--text-primary)] truncate max-w-md">{ticket.title}</span>
             </div>
             <div className="flex items-center gap-4">
               {!isCustomer && (
-                <div className="flex bg-slate-100 p-0.5 rounded-lg">
+                <div className="flex bg-slate-100 dark:bg-[var(--surface-pill)] p-0.5 rounded-lg">
                     {statuses.map((s) => (
                     <button 
                       key={s.id}
@@ -493,7 +493,7 @@ const handleSendMessage = async (isInternal: boolean) => {
                       }}
                       className={cn(
                         "px-3 py-1 text-[10px] font-black uppercase rounded-md transition-all",
-                        ticketStatus === s.label ? "bg-white text-indigo-600 shadow-sm" : "text-slate-400 hover:bg-slate-200/50"
+                        ticketStatus === s.label ? "bg-white dark:bg-[var(--surface-card)] text-indigo-600 dark:text-[var(--accent-text)] shadow-sm" : "text-slate-400 dark:text-[var(--text-tertiary)] hover:bg-slate-200/50 dark:hover:bg-[var(--border-default)]/50"
                       )}
                     >
                       {s.label}
@@ -506,7 +506,7 @@ const handleSendMessage = async (isInternal: boolean) => {
                   {!assigneeId && (
                     <button 
                       onClick={handleTakeTicket}
-                      className="px-4 py-2 bg-amber-500 hover:bg-amber-600 text-white rounded-xl text-xs font-black uppercase tracking-widest shadow-lg shadow-amber-100 transition-all"
+                      className="px-4 py-2 bg-amber-500 dark:bg-[var(--text-warning-strong)] hover:bg-amber-600 dark:hover:bg-[var(--accent-warning-hover)] text-white rounded-xl text-xs font-black uppercase tracking-widest shadow-lg shadow-amber-100 transition-all"
                     >
                       Assumir
                     </button>
@@ -514,24 +514,24 @@ const handleSendMessage = async (isInternal: boolean) => {
                   {!isClosedTicketStatus(ticketStatus) && (
                     <button 
                       onClick={handleCompleteTicket}
-                      className="px-4 py-2 bg-emerald-600 hover:bg-emerald-700 text-white rounded-xl text-xs font-black uppercase tracking-widest shadow-lg shadow-emerald-100 transition-all"
+                      className="px-4 py-2 bg-emerald-600 dark:bg-[var(--text-success)] hover:bg-emerald-700 text-white rounded-xl text-xs font-black uppercase tracking-widest shadow-lg shadow-emerald-100 transition-all"
                     >
                       Finalizar
                     </button>
                   )}
                   <button 
                     onClick={() => handleUpdateMainTicket()}
-                    className="flex items-center gap-2 px-4 py-2 bg-indigo-600 hover:bg-indigo-700 text-white rounded-xl text-xs font-black uppercase tracking-widest shadow-lg shadow-indigo-100 transition-all"
+                    className="flex items-center gap-2 px-4 py-2 bg-indigo-600 dark:bg-[var(--accent)] hover:bg-indigo-700 dark:hover:bg-[var(--accent-hover)] text-white rounded-xl text-xs font-black uppercase tracking-widest shadow-lg shadow-indigo-100 transition-all"
                   >
                     <Save size={16} />
                     Salvar
                   </button>
                 </div>
               )}
-              <button onClick={() => setIsFocused(!isFocused)} className="p-2 hover:bg-slate-200 rounded-xl transition-all text-slate-400">
+              <button onClick={() => setIsFocused(!isFocused)} className="p-2 hover:bg-slate-200 dark:hover:bg-[var(--border-default)] rounded-xl transition-all text-slate-400 dark:text-[var(--text-tertiary)]">
                 {isFocused ? <Minimize2 size={18} /> : <Maximize2 size={18} />}
               </button>
-              <button onClick={onClose} className="p-2 hover:bg-red-50 rounded-xl transition-all text-slate-400 hover:text-red-500">
+              <button onClick={onClose} className="p-2 hover:bg-red-50 dark:hover:bg-[var(--surface-danger)] rounded-xl transition-all text-slate-400 dark:text-[var(--text-tertiary)] hover:text-red-500 dark:hover:text-[var(--text-danger)]">
                 <X size={18} />
               </button>
             </div>
@@ -540,7 +540,7 @@ const handleSendMessage = async (isInternal: boolean) => {
           <div className="flex-1 overflow-y-auto">
             {/* Title Large */}
             <div className="px-8 py-8 space-y-6">
-               <h1 className="text-3xl font-black text-slate-800 tracking-tight leading-tight">{ticket.title}</h1>
+               <h1 className="text-3xl font-black text-slate-800 dark:text-[var(--text-primary)] tracking-tight leading-tight">{ticket.title}</h1>
 
                {/* Grid Info (Odoo style) */}
                {!isCustomer && hasPermission(Permission.TICKETS_READ) && (
@@ -548,7 +548,7 @@ const handleSendMessage = async (isInternal: boolean) => {
                     {/* Column 1 */}
                     <div className="space-y-3">
                        <div className="flex items-start gap-4">
-                          <span className="text-[11px] font-black uppercase text-slate-400 w-24 pt-0.5">Equipe</span>
+                          <span className="text-[11px] font-black uppercase text-slate-400 dark:text-[var(--text-tertiary)] w-24 pt-0.5">Equipe</span>
                           <StyledSelect 
                             value={mainTeam}
                             onChange={(e) => {
@@ -556,7 +556,7 @@ const handleSendMessage = async (isInternal: boolean) => {
                               setMainTeam(val);
                               handleUpdateMainTicket({ category: val });
                             }}
-                            className="text-sm font-bold text-slate-700 bg-transparent border-none outline-none focus:ring-2 focus:ring-indigo-500/10 rounded px-1 -ml-1 cursor-pointer hover:bg-slate-50 transition-all"
+                            className="text-sm font-bold text-slate-700 dark:text-[var(--text-secondary)] bg-transparent border-none outline-none focus:ring-2 focus:ring-indigo-500/10 dark:focus:ring-[var(--accent)]/10 rounded px-1 -ml-1 cursor-pointer hover:bg-slate-50 dark:hover:bg-[var(--surface-card)] transition-all"
                           >
                             {categories.map(cat => (
                               <option key={cat.id} value={cat.label}>{cat.label}</option>
@@ -564,7 +564,7 @@ const handleSendMessage = async (isInternal: boolean) => {
                           </StyledSelect>
                        </div>
                        <div className="flex items-start gap-4">
-                          <span className="text-[11px] font-black uppercase text-slate-400 w-24 pt-0.5">Responsável</span>
+                          <span className="text-[11px] font-black uppercase text-slate-400 dark:text-[var(--text-tertiary)] w-24 pt-0.5">Responsável</span>
                           <div className="flex items-center gap-2">
                              <StyledSelect 
                                value={assigneeId}
@@ -573,7 +573,7 @@ const handleSendMessage = async (isInternal: boolean) => {
                                  setAssigneeId(val);
                                  handleUpdateMainTicket({ assigneeId: val });
                                }}
-                               className="text-sm font-bold text-slate-700 bg-transparent border-none outline-none focus:ring-2 focus:ring-indigo-500/10 rounded px-1 -ml-1 cursor-pointer hover:bg-slate-50 transition-all"
+                               className="text-sm font-bold text-slate-700 dark:text-[var(--text-secondary)] bg-transparent border-none outline-none focus:ring-2 focus:ring-indigo-500/10 dark:focus:ring-[var(--accent)]/10 rounded px-1 -ml-1 cursor-pointer hover:bg-slate-50 dark:hover:bg-[var(--surface-card)] transition-all"
                              >
                                <option value="">Não atribuído</option>
                                {analysts.map(a => <option key={a.id} value={a.id}>{a.name}</option>)}
@@ -581,7 +581,7 @@ const handleSendMessage = async (isInternal: boolean) => {
                           </div>
                        </div>
 <div className="flex items-start gap-4">
-                           <span className="text-[11px] font-black uppercase text-slate-400 w-24 pt-0.5">Vencimento</span>
+                           <span className="text-[11px] font-black uppercase text-slate-400 dark:text-[var(--text-tertiary)] w-24 pt-0.5">Vencimento</span>
                            <div className="flex flex-col">
                              <span className={cn(
                                "text-sm font-bold",
@@ -590,7 +590,7 @@ const handleSendMessage = async (isInternal: boolean) => {
                                    if (!config || !config.slaHours) return false;
                                    const limit = new Date(new Date(ticket.createdAt).getTime() + config.slaHours * 60 * 60 * 1000);
                                    return limit < new Date() && !isClosedTicketStatus(ticketStatus);
-                                 })() ? "text-red-600" : "text-slate-700"
+                                 })() ? "text-red-600 dark:text-[var(--text-danger)]" : "text-slate-700 dark:text-[var(--text-secondary)]"
                              )}>
                                {(() => {
                                  const config = priorities.find(p => p.label === mainPriority);
@@ -605,12 +605,12 @@ const handleSendMessage = async (isInternal: boolean) => {
                                const limit = new Date(new Date(ticket.createdAt).getTime() + config.slaHours * 60 * 60 * 1000);
                                return limit < new Date() && !isClosedTicketStatus(ticketStatus);
                              })() && (
-                               <span className="text-[10px] font-black text-red-500 uppercase tracking-tight">Prazo ultrapassado</span>
+                               <span className="text-[10px] font-black text-red-500 dark:text-[var(--text-danger)] uppercase tracking-tight">Prazo ultrapassado</span>
                              )}
                            </div>
                         </div>
                        <div className="flex items-start gap-4">
-                          <span className="text-[11px] font-black uppercase text-slate-400 w-24 pt-0.5">Prioridade</span>
+                          <span className="text-[11px] font-black uppercase text-slate-400 dark:text-[var(--text-tertiary)] w-24 pt-0.5">Prioridade</span>
                           <div className="flex items-center gap-0.5 pt-0.5">
                              {[1, 2, 3, 4].map((star) => {
                                // Priority mapping
@@ -633,7 +633,7 @@ const handleSendMessage = async (isInternal: boolean) => {
                                     size={14} 
                                     className={cn(
                                       "transition-colors",
-                                      star <= currentStars ? "fill-amber-400 text-amber-400" : "text-slate-200"
+                                      star <= currentStars ? "fill-amber-400 text-amber-400 dark:text-[var(--text-warning)]" : "text-slate-200"
                                     )} 
                                   />
                                 </button>
@@ -646,7 +646,7 @@ const handleSendMessage = async (isInternal: boolean) => {
                     {/* Column 2 */}
                     <div className="space-y-3">
                        <div className="flex items-start gap-4">
-                          <span className="text-[11px] font-black uppercase text-slate-400 w-24 pt-0.5">Cliente</span>
+                          <span className="text-[11px] font-black uppercase text-slate-400 dark:text-[var(--text-tertiary)] w-24 pt-0.5">Cliente</span>
                           <StyledSelect 
                              value={companyId}
                              onChange={(e) => {
@@ -660,14 +660,14 @@ const handleSendMessage = async (isInternal: boolean) => {
                                }
                                handleUpdateMainTicket({ companyId: val, customerId: newCustomerId });
                              }}
-                             className="text-sm font-bold text-slate-700 bg-transparent border-none outline-none focus:ring-2 focus:ring-indigo-500/10 rounded px-1 -ml-1 cursor-pointer hover:bg-slate-50 transition-all"
+                             className="text-sm font-bold text-slate-700 dark:text-[var(--text-secondary)] bg-transparent border-none outline-none focus:ring-2 focus:ring-indigo-500/10 dark:focus:ring-[var(--accent)]/10 rounded px-1 -ml-1 cursor-pointer hover:bg-slate-50 dark:hover:bg-[var(--surface-card)] transition-all"
                           >
                              <option value="">Selecione uma empresa</option>
                              {companies.map(c => <option key={c.id} value={c.id}>{c.name}</option>)}
                           </StyledSelect>
                        </div>
                        <div className="flex items-start gap-4">
-                          <span className="text-[11px] font-black uppercase text-slate-400 w-24 pt-0.5">Contato</span>
+                          <span className="text-[11px] font-black uppercase text-slate-400 dark:text-[var(--text-tertiary)] w-24 pt-0.5">Contato</span>
 <StyledSelect 
                               value={customerId || ''}
                               onChange={(e) => {
@@ -675,7 +675,7 @@ const handleSendMessage = async (isInternal: boolean) => {
                                setCustomerId(val);
                                handleUpdateMainTicket({ customerId: val });
                              }}
-                             className="text-sm font-bold text-slate-700 bg-transparent border-none outline-none focus:ring-2 focus:ring-indigo-500/10 rounded px-1 -ml-1 cursor-pointer hover:bg-slate-50 transition-all"
+                             className="text-sm font-bold text-slate-700 dark:text-[var(--text-secondary)] bg-transparent border-none outline-none focus:ring-2 focus:ring-indigo-500/10 dark:focus:ring-[var(--accent)]/10 rounded px-1 -ml-1 cursor-pointer hover:bg-slate-50 dark:hover:bg-[var(--surface-card)] transition-all"
                           >
                              <option value="">Selecione um contato</option>
                              {allUsers
@@ -684,17 +684,17 @@ const handleSendMessage = async (isInternal: boolean) => {
                           </StyledSelect>
                        </div>
                        <div className="flex items-start gap-4">
-                          <span className="text-[11px] font-black uppercase text-slate-400 w-24 pt-0.5">Telefone</span>
-                          <span className="text-sm font-medium text-slate-500">{allUsers.find(u => u.id === customerId)?.phone || 'Não informado'}</span>
+                          <span className="text-[11px] font-black uppercase text-slate-400 dark:text-[var(--text-tertiary)] w-24 pt-0.5">Telefone</span>
+                          <span className="text-sm font-medium text-slate-500 dark:text-[var(--text-tertiary)]">{allUsers.find(u => u.id === customerId)?.phone || 'Não informado'}</span>
                        </div>
                        <div className="flex items-start gap-4">
-                          <span className="text-[11px] font-black uppercase text-slate-400 w-24 pt-0.5">Colaboradores</span>
+                          <span className="text-[11px] font-black uppercase text-slate-400 dark:text-[var(--text-tertiary)] w-24 pt-0.5">Colaboradores</span>
                           <div className="flex flex-col gap-2 flex-1">
                              <div className="flex flex-wrap gap-1">
                                 {employeeIds.map(empId => {
                                    const emp = allUsers.find(u => u.id === empId);
                                    return (
-                                      <span key={empId} className="inline-flex items-center gap-1 px-2 py-0.5 bg-slate-100 text-slate-600 rounded text-[10px] font-bold">
+                                      <span key={empId} className="inline-flex items-center gap-1 px-2 py-0.5 bg-slate-100 dark:bg-[var(--surface-pill)] text-slate-600 dark:text-[var(--text-secondary)] rounded text-[10px] font-bold">
                                          {emp?.name}
                                          <button 
                                            onClick={() => {
@@ -702,7 +702,7 @@ const handleSendMessage = async (isInternal: boolean) => {
                                               setEmployeeIds(next);
                                               setTimeout(() => handleUpdateMainTicket(), 0);
                                            }}
-                                           className="hover:text-red-500"
+                                           className="hover:text-red-500 dark:hover:text-[var(--text-danger)]"
                                          >
                                             <X size={10} />
                                          </button>
@@ -720,7 +720,7 @@ const handleSendMessage = async (isInternal: boolean) => {
                                    }
                                    e.target.value = "";
                                 }}
-                                className="text-[10px] font-black uppercase text-indigo-600 bg-transparent border-none outline-none cursor-pointer hover:underline"
+                                className="text-[10px] font-black uppercase text-indigo-600 dark:text-[var(--accent-text)] bg-transparent border-none outline-none cursor-pointer hover:underline"
                              >
                                 <option value="">+ Adicionar</option>
                                 {allUsers
@@ -730,13 +730,13 @@ const handleSendMessage = async (isInternal: boolean) => {
                           </div>
                        </div>
                        <div className="flex items-start gap-4 pt-1">
-                          <span className="text-[11px] font-black uppercase text-slate-400 w-24 pt-0.5">Marcadores</span>
+                          <span className="text-[11px] font-black uppercase text-slate-400 dark:text-[var(--text-tertiary)] w-24 pt-0.5">Marcadores</span>
 <input 
                               value={mainTags.join(', ')}
                               onChange={(e) => setMainTags(e.target.value.split(',').map(s => s.trim()).filter(s => !!s))}
                               onBlur={() => handleUpdateMainTicket()}
                               placeholder="tags..."
-                              className="text-sm font-bold text-slate-700 bg-transparent border-none outline-none focus:ring-2 focus:ring-indigo-500/10 rounded px-1 -ml-1 flex-1 hover:bg-slate-50 transition-all"
+                              className="text-sm font-bold text-slate-700 dark:text-[var(--text-secondary)] bg-transparent border-none outline-none focus:ring-2 focus:ring-indigo-500/10 dark:focus:ring-[var(--accent)]/10 rounded px-1 -ml-1 flex-1 hover:bg-slate-50 dark:hover:bg-[var(--surface-card)] transition-all"
                            />
                        </div>
                     </div>
@@ -747,40 +747,40 @@ const handleSendMessage = async (isInternal: boolean) => {
                   <div className="grid grid-cols-2 gap-x-12 gap-y-4">
                      <div className="space-y-3">
                         <div className="flex items-start gap-4">
-                           <span className="text-[11px] font-black uppercase text-slate-400 w-24 pt-0.5">Status</span>
-                           <span className="text-sm font-bold text-indigo-600 bg-indigo-50 px-2 py-0.5 rounded uppercase tracking-tighter">{ticket.status}</span>
+                           <span className="text-[11px] font-black uppercase text-slate-400 dark:text-[var(--text-tertiary)] w-24 pt-0.5">Status</span>
+                           <span className="text-sm font-bold text-indigo-600 dark:text-[var(--accent-text)] bg-indigo-50 dark:bg-[var(--accent)]/10 px-2 py-0.5 rounded uppercase tracking-tighter">{ticket.status}</span>
                         </div>
                         <div className="flex items-start gap-4">
-                           <span className="text-[11px] font-black uppercase text-slate-400 w-24 pt-0.5">Prioridade</span>
-                           <span className="text-sm font-bold text-slate-700">{ticket.priority}</span>
+                           <span className="text-[11px] font-black uppercase text-slate-400 dark:text-[var(--text-tertiary)] w-24 pt-0.5">Prioridade</span>
+                           <span className="text-sm font-bold text-slate-700 dark:text-[var(--text-secondary)]">{ticket.priority}</span>
                         </div>
                         <div className="flex items-start gap-4">
-                           <span className="text-[11px] font-black uppercase text-slate-400 w-24 pt-0.5">Identificado</span>
-                           <span className="text-sm font-bold text-slate-700">#{ticket.ticketNumber ? String(ticket.ticketNumber).padStart(4, '0') : ticket.id.slice(0, 8)}</span>
+                           <span className="text-[11px] font-black uppercase text-slate-400 dark:text-[var(--text-tertiary)] w-24 pt-0.5">Identificado</span>
+                           <span className="text-sm font-bold text-slate-700 dark:text-[var(--text-secondary)]">#{ticket.ticketNumber ? String(ticket.ticketNumber).padStart(4, '0') : ticket.id.slice(0, 8)}</span>
                         </div>
                      </div>
                      <div className="space-y-3">
                         <div className="flex items-start gap-4">
-                           <span className="text-[11px] font-black uppercase text-slate-400 w-24 pt-0.5">Categoria</span>
-                           <span className="text-sm font-bold text-slate-700">{ticket.category}</span>
+                           <span className="text-[11px] font-black uppercase text-slate-400 dark:text-[var(--text-tertiary)] w-24 pt-0.5">Categoria</span>
+                           <span className="text-sm font-bold text-slate-700 dark:text-[var(--text-secondary)]">{ticket.category}</span>
                         </div>
                         <div className="flex items-start gap-4">
-                           <span className="text-[11px] font-black uppercase text-slate-400 w-24 pt-0.5">Abertura</span>
-                           <span className="text-sm font-bold text-slate-700">{new Date(ticket.createdAt).toLocaleDateString()}</span>
+                           <span className="text-[11px] font-black uppercase text-slate-400 dark:text-[var(--text-tertiary)] w-24 pt-0.5">Abertura</span>
+                           <span className="text-sm font-bold text-slate-700 dark:text-[var(--text-secondary)]">{new Date(ticket.createdAt).toLocaleDateString()}</span>
                         </div>
                      </div>
                   </div>
                )}
 
                {/* Tabs Layout */}
-               <div className="mt-12 border-t border-slate-100">
-                  <div className="flex border-b border-slate-100">
+               <div className="mt-12 border-t border-slate-100 dark:border-[var(--border-default)]">
+                  <div className="flex border-b border-slate-100 dark:border-[var(--border-default)]">
                      {hasPermission(Permission.TICKETS_READ) && (
                        <button 
                          onClick={() => setActiveTab('description')}
                          className={cn(
                            "px-6 py-3 text-[11px] font-black uppercase tracking-widest border-b-2 transition-all",
-                           activeTab === 'description' ? "border-indigo-600 text-indigo-600" : "border-transparent text-slate-400 hover:text-slate-600"
+                           activeTab === 'description' ? "border-indigo-600 dark:border-[var(--accent)] text-indigo-600 dark:text-[var(--accent-text)]" : "border-transparent text-slate-400 dark:text-[var(--text-tertiary)] hover:text-slate-600 dark:hover:text-[var(--text-secondary)]"
                          )}
                        >
                          Descrição
@@ -791,7 +791,7 @@ const handleSendMessage = async (isInternal: boolean) => {
                          onClick={() => setActiveTab('internal')}
                          className={cn(
                            "px-6 py-3 text-[11px] font-black uppercase tracking-widest border-b-2 transition-all flex items-center gap-2",
-                           activeTab === 'internal' ? "border-amber-500 text-amber-600" : "border-transparent text-slate-400 hover:text-slate-600"
+                           activeTab === 'internal' ? "border-amber-500 dark:border-[var(--text-warning-strong)] text-amber-600 dark:text-[var(--text-warning)]" : "border-transparent text-slate-400 dark:text-[var(--text-tertiary)] hover:text-slate-600 dark:hover:text-[var(--text-secondary)]"
                          )}
                        >
                          <Lock size={12} /> Ticket Interno
@@ -801,7 +801,7 @@ const handleSendMessage = async (isInternal: boolean) => {
                         onClick={() => setActiveTab('history')}
                         className={cn(
                           "px-4 py-3 border-b-2 transition-all flex items-center justify-center",
-                          activeTab === 'history' ? "border-slate-500 text-slate-600 bg-slate-50/50" : "border-transparent text-slate-400 hover:text-slate-600"
+                          activeTab === 'history' ? "border-slate-500 text-slate-600 dark:text-[var(--text-secondary)] bg-slate-50/50 dark:bg-[var(--surface-card)]/50" : "border-transparent text-slate-400 dark:text-[var(--text-tertiary)] hover:text-slate-600 dark:hover:text-[var(--text-secondary)]"
                         )}
                         title="Histórico de alterações"
                       >
@@ -811,10 +811,10 @@ const handleSendMessage = async (isInternal: boolean) => {
                         onClick={() => setActiveTab('attachments')}
                         className={cn(
                           "px-6 py-3 text-[11px] font-black uppercase tracking-widest border-b-2 transition-all flex items-center gap-2",
-                          activeTab === 'attachments' ? "border-indigo-600 text-indigo-600" : "border-transparent text-slate-400 hover:text-slate-600"
+                          activeTab === 'attachments' ? "border-indigo-600 dark:border-[var(--accent)] text-indigo-600 dark:text-[var(--accent-text)]" : "border-transparent text-slate-400 dark:text-[var(--text-tertiary)] hover:text-slate-600 dark:hover:text-[var(--text-secondary)]"
                         )}
                       >
-                        <Paperclip size={12} /> {allAttachments.length > 0 && <span className="w-1.5 h-1.5 rounded-full bg-indigo-500 animate-pulse" />} Anexos
+                        <Paperclip size={12} /> {allAttachments.length > 0 && <span className="w-1.5 h-1.5 rounded-full bg-indigo-500 dark:bg-[var(--accent)] animate-pulse" />} Anexos
                       </button>
                   </div>
 
@@ -823,10 +823,10 @@ const handleSendMessage = async (isInternal: boolean) => {
                      {activeTab === 'description' && (
                        <div className="space-y-4">
 <div className="flex items-center justify-between">
-                              <h3 className="text-xs font-black uppercase text-slate-400 tracking-widest">Descrição do Chamado</h3>
+                              <h3 className="text-xs font-black uppercase text-slate-400 dark:text-[var(--text-tertiary)] tracking-widest">Descrição do Chamado</h3>
                               <button 
                                 onClick={() => isEditingDescription ? saveMainTicketDescription() : setIsEditingDescription(true)}
-                                className="text-xs font-black text-indigo-600 uppercase hover:underline"
+                                className="text-xs font-black text-indigo-600 dark:text-[var(--accent-text)] uppercase hover:underline"
                               >
                                 {isEditingDescription ? 'Salvar' : 'Editar'}
                               </button>
@@ -834,7 +834,7 @@ const handleSendMessage = async (isInternal: boolean) => {
                            {isEditingDescription ? (
                              <RichEditor content={ticketDescription} onChange={setTicketDescription} minHeight="300px" />
                            ) : (
-                             <div className="text-sm font-medium text-slate-700 leading-relaxed prose prose-sm max-w-none prose-p:my-2 prose-img:rounded-xl prose-img:border" dangerouslySetInnerHTML={{ __html: ticket.description }} />
+                             <div className="text-sm font-medium text-slate-700 dark:text-[var(--text-secondary)] leading-relaxed prose prose-sm max-w-none prose-p:my-2 prose-img:rounded-xl prose-img:border" dangerouslySetInnerHTML={{ __html: ticket.description }} />
                            )}
                        </div>
                      )}
@@ -853,13 +853,13 @@ const handleSendMessage = async (isInternal: boolean) => {
                                {itSla && (
                                  <div className={cn(
                                    "p-4 rounded-xl flex items-center justify-between",
-                                   new Date(itSla) < new Date() ? "bg-red-50 border border-red-100" : "bg-emerald-50 border border-emerald-100"
+                                   new Date(itSla) < new Date() ? "bg-red-50 dark:bg-[var(--surface-danger)] border border-red-100 dark:border-[var(--text-danger)]/20" : "bg-emerald-50 dark:bg-[var(--surface-success)] border border-emerald-100 dark:border-[var(--text-success)]/20"
                                  )}>
                                    <div className="flex items-center gap-3">
-                                      <Clock className={cn(new Date(itSla) < new Date() ? "text-red-600" : "text-emerald-600")} size={20} />
+                                      <Clock className={cn(new Date(itSla) < new Date() ? "text-red-600 dark:text-[var(--text-danger)]" : "text-emerald-600 dark:text-[var(--text-success)]")} size={20} />
                                       <div>
-                                         <p className="text-[10px] font-black uppercase tracking-widest text-slate-400">Tempo de SLA</p>
-                                         <p className={cn("text-sm font-black", new Date(itSla) < new Date() ? "text-red-700" : "text-emerald-700")}>
+                                         <p className="text-[10px] font-black uppercase tracking-widest text-slate-400 dark:text-[var(--text-tertiary)]">Tempo de SLA</p>
+                                         <p className={cn("text-sm font-black", new Date(itSla) < new Date() ? "text-red-700 dark:text-[var(--text-danger)]" : "text-emerald-700 dark:text-[var(--text-success)]")}>
                                             {new Date(itSla) < new Date() ? "SLA VENCIDO" : `Expira em: ${new Date(itSla).toLocaleString()}`}
                                          </p>
                                       </div>
@@ -868,30 +868,30 @@ const handleSendMessage = async (isInternal: boolean) => {
                                )}
 
                                {/* Internal Ticket Fields */}
-                               <div className="grid grid-cols-2 gap-x-12 gap-y-6 p-6 bg-slate-50 border border-slate-100 rounded-2xl shadow-inner">
+                               <div className="grid grid-cols-2 gap-x-12 gap-y-6 p-6 bg-slate-50 dark:bg-[var(--surface-card)] border border-slate-100 dark:border-[var(--border-default)] rounded-2xl shadow-inner">
 <div className="space-y-4">
                                       <div className="flex flex-col gap-1.5">
-                                         <label className="text-[10px] font-black uppercase text-slate-400">Ticket Interno #</label>
-                                         <div className="text-sm font-black text-amber-600">#{internalTicket?.internalTicketNumber?.toString().padStart(4, '0') || '----'}</div>
+                                         <label className="text-[10px] font-black uppercase text-slate-400 dark:text-[var(--text-tertiary)]">Ticket Interno #</label>
+                                         <div className="text-sm font-black text-amber-600 dark:text-[var(--text-warning)]">#{internalTicket?.internalTicketNumber?.toString().padStart(4, '0') || '----'}</div>
                                       </div>
                                       <div className="flex flex-col gap-1.5">
-                                         <label className="text-[10px] font-black uppercase text-slate-400">Título Interno</label>
+                                         <label className="text-[10px] font-black uppercase text-slate-400 dark:text-[var(--text-tertiary)]">Título Interno</label>
                                          <input
                                           value={itTitle}
                                           onChange={(e) => setItTitle(e.target.value)}
                                           onBlur={handleUpdateInternalTicket}
-                                          className="bg-white border border-slate-200 rounded-lg px-3 py-2 text-sm font-bold text-slate-700 focus:border-amber-400 outline-none"
+                                          className="bg-white dark:bg-[var(--surface-card)] border border-slate-200 dark:border-[var(--border-default)] rounded-lg px-3 py-2 text-sm font-bold text-slate-700 dark:text-[var(--text-secondary)] focus:border-amber-400 dark:focus:border-[var(--text-warning-strong)] outline-none"
                                         />
                                      </div>
 <div className="flex flex-col gap-1.5">
-                                         <label className="text-[10px] font-black uppercase text-slate-400">Equipe Responsável</label>
+                                         <label className="text-[10px] font-black uppercase text-slate-400 dark:text-[var(--text-tertiary)]">Equipe Responsável</label>
                                          <StyledSelect 
                                            value={itTeam}
                                            onChange={(e) => {
                                              setItTeam(e.target.value);
                                              setTimeout(handleUpdateInternalTicket, 0);
                                            }}
-                                           className="bg-white border border-slate-200 rounded-lg px-3 py-2 text-xs font-bold text-slate-700 focus:border-amber-400 outline-none"
+                                           className="bg-white dark:bg-[var(--surface-card)] border border-slate-200 dark:border-[var(--border-default)] rounded-lg px-3 py-2 text-xs font-bold text-slate-700 dark:text-[var(--text-secondary)] focus:border-amber-400 dark:focus:border-[var(--text-warning-strong)] outline-none"
                                          >
                                            {internalTeams.map(t => (
                                              <option key={t.id} value={t.name}>{t.name}</option>
@@ -900,7 +900,7 @@ const handleSendMessage = async (isInternal: boolean) => {
                                          </StyledSelect>
                                       </div>
                                       <div className="flex flex-col gap-1.5">
-                                         <label className="text-[10px] font-black uppercase text-slate-400">Vencimento SLA</label>
+                                         <label className="text-[10px] font-black uppercase text-slate-400 dark:text-[var(--text-tertiary)]">Vencimento SLA</label>
                                          <input 
                                            type="datetime-local"
                                            value={itSla}
@@ -908,28 +908,28 @@ const handleSendMessage = async (isInternal: boolean) => {
                                              setItSla(e.target.value);
                                              setTimeout(handleUpdateInternalTicket, 0);
                                            }}
-                                           className="bg-white border border-slate-200 rounded-lg px-3 py-2 text-xs font-bold text-slate-700 focus:border-amber-400 outline-none"
+                                           className="bg-white dark:bg-[var(--surface-card)] border border-slate-200 dark:border-[var(--border-default)] rounded-lg px-3 py-2 text-xs font-bold text-slate-700 dark:text-[var(--text-secondary)] focus:border-amber-400 dark:focus:border-[var(--text-warning-strong)] outline-none"
                                          />
                                       </div>
                                    </div>
 
                                    <div className="space-y-4">
                                       <div className="flex flex-col gap-1.5">
-                                         <label className="text-[10px] font-black uppercase text-slate-400">Criado por</label>
+                                         <label className="text-[10px] font-black uppercase text-slate-400 dark:text-[var(--text-tertiary)]">Criado por</label>
                                          <div className="flex items-center gap-2 py-2">
-                                            <div className="w-5 h-5 rounded-full bg-slate-400 text-[8px] flex items-center justify-center font-black text-white">{itCreator?.name.charAt(0)}</div>
-                                            <span className="text-xs font-bold text-slate-600">{itCreator?.name}</span>
+                                            <div className="w-5 h-5 rounded-full bg-slate-400 dark:bg-[var(--text-tertiary)] text-[8px] flex items-center justify-center font-black text-white">{itCreator?.name.charAt(0)}</div>
+                                            <span className="text-xs font-bold text-slate-600 dark:text-[var(--text-secondary)]">{itCreator?.name}</span>
                                          </div>
                                       </div>
                                       <div className="flex flex-col gap-1.5">
-                                         <label className="text-[10px] font-black uppercase text-slate-400">Responsável Interno</label>
+                                         <label className="text-[10px] font-black uppercase text-slate-400 dark:text-[var(--text-tertiary)]">Responsável Interno</label>
                                          <StyledSelect 
                                            value={itAssignee}
                                            onChange={(e) => {
                                              setItAssignee(e.target.value);
                                              setTimeout(handleUpdateInternalTicket, 0);
                                            }}
-                                           className="bg-white border border-slate-200 rounded-lg px-3 py-2 text-xs font-bold text-slate-700 focus:border-amber-400 outline-none"
+                                           className="bg-white dark:bg-[var(--surface-card)] border border-slate-200 dark:border-[var(--border-default)] rounded-lg px-3 py-2 text-xs font-bold text-slate-700 dark:text-[var(--text-secondary)] focus:border-amber-400 dark:focus:border-[var(--text-warning-strong)] outline-none"
                                          >
                                            <option value="">Nenhum</option>
 {analysts
@@ -940,7 +940,7 @@ const handleSendMessage = async (isInternal: boolean) => {
                                          </StyledSelect>
                                       </div>
                                      <div className="flex flex-col gap-1.5 font-sans">
-                                        <label className="text-[10px] font-black uppercase text-slate-400">Prioridade</label>
+                                        <label className="text-[10px] font-black uppercase text-slate-400 dark:text-[var(--text-tertiary)]">Prioridade</label>
                                         <div className="flex items-center gap-1 py-1">
                                            {[1, 2, 3].map((star) => (
                                              <button 
@@ -958,7 +958,7 @@ const handleSendMessage = async (isInternal: boolean) => {
                                                }}
                                                className="hover:scale-125 transition-all"
                                              >
-                                               <Star size={18} className={cn(star <= itPriority ? "fill-amber-400 text-amber-400" : "text-slate-200")} />
+                                               <Star size={18} className={cn(star <= itPriority ? "fill-amber-400 text-amber-400 dark:text-[var(--text-warning)]" : "text-slate-200")} />
                                              </button>
                                            ))}
                                         </div>
@@ -966,31 +966,31 @@ const handleSendMessage = async (isInternal: boolean) => {
                                   </div>
 
                                   <div className="col-span-2 space-y-2">
-                                     <label className="text-[10px] font-black uppercase text-slate-400">Descrição Técnica / Notas do Desenvolvedor</label>
+                                     <label className="text-[10px] font-black uppercase text-slate-400 dark:text-[var(--text-tertiary)]">Descrição Técnica / Notas do Desenvolvedor</label>
                                      <textarea 
                                        value={itDescription}
                                        onChange={(e) => setItDescription(e.target.value)}
                                        onBlur={handleUpdateInternalTicket}
                                        placeholder="Adicione detalhes técnicos, bugs reportados ou requisitos..."
-                                       className="w-full min-h-[120px] bg-white border border-slate-200 rounded-xl p-4 text-sm font-medium outline-none focus:border-amber-400 shadow-sm"
+                                       className="w-full min-h-[120px] bg-white dark:bg-[var(--surface-card)] border border-slate-200 dark:border-[var(--border-default)] rounded-xl p-4 text-sm font-medium outline-none focus:border-amber-400 dark:focus:border-[var(--text-warning-strong)] shadow-sm"
                                      />
                                   </div>
                                </div>
                             </div>
                           ) : (
-                            <div className="text-center py-20 border-2 border-dashed border-slate-200 rounded-3xl group hover:border-amber-300 transition-all">
-                               <Lock className="mx-auto text-slate-200 mb-4 group-hover:text-amber-400 transition-all" size={48} />
-                               <h3 className="text-lg font-black text-slate-800 uppercase tracking-tight">Criar Ticket Interno</h3>
-<p className="text-sm font-medium text-slate-400 mt-2 mb-6 max-w-sm mx-auto uppercase">Vincule um ticket de desenvolvimento ou manutenção técnica a este chamado do cliente.</p>
+                            <div className="text-center py-20 border-2 border-dashed border-slate-200 dark:border-[var(--border-default)] rounded-3xl group hover:border-amber-300 transition-all">
+                               <Lock className="mx-auto text-slate-200 mb-4 group-hover:text-amber-400 dark:group-hover:text-[var(--text-warning)] transition-all" size={48} />
+                               <h3 className="text-lg font-black text-slate-800 dark:text-[var(--text-primary)] uppercase tracking-tight">Criar Ticket Interno</h3>
+<p className="text-sm font-medium text-slate-400 dark:text-[var(--text-tertiary)] mt-2 mb-6 max-w-sm mx-auto uppercase">Vincule um ticket de desenvolvimento ou manutenção técnica a este chamado do cliente.</p>
                                 <button 
                                   onClick={handleCreateInternalTicket}
-                                  className="px-6 py-3 bg-amber-500 text-white rounded-2xl text-xs font-black uppercase tracking-widest hover:bg-amber-600 transition-all shadow-lg shadow-amber-100"
+                                  className="px-6 py-3 bg-amber-500 dark:bg-[var(--text-warning-strong)] text-white rounded-2xl text-xs font-black uppercase tracking-widest hover:bg-amber-600 dark:hover:bg-[var(--accent-warning-hover)] transition-all shadow-lg shadow-amber-100"
                                 >
                                   Iniciar Fluxo Interno
                                 </button>
                                 <button 
                                   onClick={() => setShowLinkModal(true)}
-                                  className="px-6 py-3 bg-slate-200 text-slate-700 rounded-2xl text-xs font-black uppercase tracking-widest hover:bg-slate-300 transition-all shadow-lg ml-2"
+                                  className="px-6 py-3 bg-slate-200 dark:bg-[var(--border-default)] text-slate-700 dark:text-[var(--text-secondary)] rounded-2xl text-xs font-black uppercase tracking-widest hover:bg-slate-300 dark:hover:bg-[var(--text-tertiary)] transition-all shadow-lg ml-2"
                                 >
                                   Vincular Existente
                                 </button>
@@ -1002,28 +1002,28 @@ const handleSendMessage = async (isInternal: boolean) => {
                      {activeTab === 'history' && (
                        <div className="space-y-6 animate-in fade-in slide-in-from-bottom-2 duration-300 px-2 lg:px-0">
                          <div className="flex items-center justify-between">
-                            <h3 className="text-xs font-black uppercase text-slate-400 tracking-widest">Logs de Alteração</h3>
+                            <h3 className="text-xs font-black uppercase text-slate-400 dark:text-[var(--text-tertiary)] tracking-widest">Logs de Alteração</h3>
                          </div>
                          <div className="space-y-4">
                            {ticket?.history && ticket.history.length > 0 ? (
                              [...ticket.history].reverse().map((entry: any, idx) => (
-                               <div key={idx} className="flex gap-4 p-4 rounded-xl border border-slate-100 bg-slate-50/30">
-                                 <div className="w-8 h-8 rounded-full bg-slate-100 flex items-center justify-center shrink-0">
-                                   <History size={14} className="text-slate-400" />
+                               <div key={idx} className="flex gap-4 p-4 rounded-xl border border-slate-100 dark:border-[var(--border-default)] bg-slate-50/30 dark:bg-[var(--surface-card)]/30">
+                                 <div className="w-8 h-8 rounded-full bg-slate-100 dark:bg-[var(--surface-pill)] flex items-center justify-center shrink-0">
+                                   <History size={14} className="text-slate-400 dark:text-[var(--text-tertiary)]" />
                                  </div>
                                  <div className="flex-1 min-w-0">
                                     <div className="flex items-center justify-between gap-4 mb-1">
-                                      <span className="text-xs font-bold text-slate-800 truncate">{entry.author}</span>
-                                      <span className="text-[10px] font-medium text-slate-400 shrink-0"><ClientTime date={entry.timestamp} showDate={true} /></span>
+                                      <span className="text-xs font-bold text-slate-800 dark:text-[var(--text-primary)] truncate">{entry.author}</span>
+                                      <span className="text-[10px] font-medium text-slate-400 dark:text-[var(--text-tertiary)] shrink-0"><ClientTime date={entry.timestamp} showDate={true} /></span>
                                     </div>
-                                    <p className="text-xs text-slate-600 leading-relaxed">{entry.description}</p>
+                                    <p className="text-xs text-slate-600 dark:text-[var(--text-secondary)] leading-relaxed">{entry.description}</p>
                                  </div>
                                </div>
                              ))
                            ) : (
-                             <div className="text-center py-12 bg-slate-50/50 rounded-2xl border border-dashed border-slate-200">
+                             <div className="text-center py-12 bg-slate-50/50 dark:bg-[var(--surface-card)]/50 rounded-2xl border border-dashed border-slate-200 dark:border-[var(--border-default)]">
                                 <History size={24} className="mx-auto text-slate-300 mb-3" />
-                                <p className="text-xs font-bold text-slate-400 uppercase tracking-widest">Nenhuma alteração registrada</p>
+                                <p className="text-xs font-bold text-slate-400 dark:text-[var(--text-tertiary)] uppercase tracking-widest">Nenhuma alteração registrada</p>
                              </div>
                            )}
                          </div>
@@ -1036,16 +1036,16 @@ const handleSendMessage = async (isInternal: boolean) => {
         </div>
 
         {/* Right Side: Activity/Chat Panel */}
-        <div className="w-[450px] border-l border-slate-100 flex flex-col bg-slate-50/50">
+        <div className="w-[450px] border-l border-slate-100 dark:border-[var(--border-default)] flex flex-col bg-slate-50/50 dark:bg-[var(--surface-card)]/50">
            {/* Top Tabs */}
-           <div className="px-6 py-4 border-b border-slate-100 bg-white flex items-center justify-between">
+           <div className="px-6 py-4 border-b border-slate-100 dark:border-[var(--border-default)] bg-white dark:bg-[var(--surface-card)] flex items-center justify-between">
               <div className="flex gap-4">
                  {hasPermission(Permission.TICKETS_READ) && (
                    <button 
                      onClick={() => setHistoryTab('customer')}
                      className={cn(
                        "text-[10px] font-black uppercase tracking-widest transition-all",
-                       historyTab === 'customer' ? "text-indigo-600" : "text-slate-400"
+                       historyTab === 'customer' ? "text-indigo-600 dark:text-[var(--accent-text)]" : "text-slate-400 dark:text-[var(--text-tertiary)]"
                      )}
                    >
                      Histórico Cliente
@@ -1056,7 +1056,7 @@ const handleSendMessage = async (isInternal: boolean) => {
                       onClick={() => setHistoryTab('internal')}
                       className={cn(
                         "text-[10px] font-black uppercase tracking-widest transition-all",
-                        historyTab === 'internal' ? "text-amber-600" : "text-slate-400"
+                        historyTab === 'internal' ? "text-amber-600 dark:text-[var(--text-warning)]" : "text-slate-400 dark:text-[var(--text-tertiary)]"
                        )}
                     >
                       Ticket Interno
@@ -1078,29 +1078,29 @@ const handleSendMessage = async (isInternal: boolean) => {
                       <div className="flex gap-3">
                         <div className={cn(
                           "w-8 h-8 rounded-full flex-shrink-0 flex items-center justify-center text-[10px] font-black text-white shadow-sm mt-1",
-                          isInternal ? "bg-amber-500" : "bg-indigo-600"
+                          isInternal ? "bg-amber-500 dark:bg-[var(--text-warning-strong)]" : "bg-indigo-600 dark:bg-[var(--accent)]"
                         )}>
                           {sender?.name.charAt(0) || 'U'}
                         </div>
                         <div className="flex-1 min-w-0">
                           <div className="flex items-center gap-2 mb-1">
-                            <span className="text-xs font-black text-slate-800">{sender?.name}</span>
-                            <span className="text-[9px] font-bold text-slate-400"><ClientTime date={m.timestamp} /></span>
+                            <span className="text-xs font-black text-slate-800 dark:text-[var(--text-primary)]">{sender?.name}</span>
+                            <span className="text-[9px] font-bold text-slate-400 dark:text-[var(--text-tertiary)]"><ClientTime date={m.timestamp} /></span>
                             {isInternal && (
-                              <span className="text-[8px] font-black px-1 py-0.5 bg-amber-100 text-amber-600 rounded uppercase tracking-tighter">Interno</span>
+                              <span className="text-[8px] font-black px-1 py-0.5 bg-amber-100 dark:bg-[var(--surface-warning)] text-amber-600 dark:text-[var(--text-warning)] rounded uppercase tracking-tighter">Interno</span>
                             )}
                           </div>
 <div className={cn(
                              "p-3 rounded-2xl text-sm leading-relaxed shadow-sm prose prose-sm max-w-none",
                              isInternal 
-                               ? "bg-amber-50 border border-amber-100 text-amber-900 border-l-4 border-l-amber-400 prose-amber" 
-                               : "bg-white border border-slate-200 text-slate-700"
+                               ? "bg-amber-50 dark:bg-[var(--surface-warning)] border border-amber-100 dark:border-[var(--border-alert)] text-amber-900 dark:text-[var(--text-warning)] border-l-4 border-l-amber-400 prose-amber" 
+                               : "bg-white dark:bg-[var(--surface-card)] border border-slate-200 dark:border-[var(--border-default)] text-slate-700 dark:text-[var(--text-secondary)]"
                            )}
                            dangerouslySetInnerHTML={{ __html: m.text }}
                            />
                            {/* Render attachments inline */}
                            {m.attachments && m.attachments.length > 0 && (
-                             <div className="mt-3 pt-3 border-t border-slate-200">
+                             <div className="mt-3 pt-3 border-t border-slate-200 dark:border-[var(--border-default)]">
                                <div className="flex flex-wrap gap-2">
                                  {m.attachments.map(att => {
                                    const isImage = isImageAttachment(att);
@@ -1110,7 +1110,7 @@ const handleSendMessage = async (isInternal: boolean) => {
                                        key={att.id}
                                        type="button"
                                        onClick={() => isImage ? setPreviewAttachment(att) : openAttachmentInNewTab(att)}
-                                       className="flex items-center gap-1 px-2 py-1 bg-slate-100 rounded text-[10px] hover:bg-slate-200 transition-colors"
+                                       className="flex items-center gap-1 px-2 py-1 bg-slate-100 dark:bg-[var(--surface-pill)] rounded text-[10px] hover:bg-slate-200 dark:hover:bg-[var(--border-default)] transition-colors"
                                      >
                                        {isImage ? <ImageIcon size={12} /> : <File size={12} />}
                                        <span className="truncate max-w-[120px]">{att.name}</span>
@@ -1130,24 +1130,24 @@ const handleSendMessage = async (isInternal: boolean) => {
                 : messages.filter(m => !m.isVisibleToCustomer).length) === 0 && (
                 <div className="text-center py-20">
                    <Clock className="mx-auto text-slate-200 mb-2" size={32} />
-                   <p className="text-xs font-bold text-slate-400 uppercase tracking-widest">Nenhuma atividade registrada</p>
+                   <p className="text-xs font-bold text-slate-400 dark:text-[var(--text-tertiary)] uppercase tracking-widest">Nenhuma atividade registrada</p>
                 </div>
               )}
            </div>
 
 {/* Input Tool area */}
-             <div className="p-6 bg-white border-t border-slate-100">
+             <div className="p-6 bg-white dark:bg-[var(--surface-card)] border-t border-slate-100 dark:border-[var(--border-default)]">
                 <div className="space-y-4">
                    {/* Attachment preview */}
                    {messageAttachments.length > 0 && (
                      <div className="flex flex-wrap gap-2">
                        {messageAttachments.map(att => (
-                         <div key={att.id} className="flex items-center gap-1 px-2 py-1 bg-slate-100 rounded-lg text-[10px]">
+                         <div key={att.id} className="flex items-center gap-1 px-2 py-1 bg-slate-100 dark:bg-[var(--surface-pill)] rounded-lg text-[10px]">
                            <File size={12} />
                            <span className="truncate max-w-[120px]">{att.name}</span>
                            <button
                              onClick={() => setMessageAttachments(prev => prev.filter(a => a.id !== att.id))}
-                             className="text-red-500 hover:text-red-700"
+                             className="text-red-500 dark:text-[var(--text-danger)] hover:text-red-700 dark:hover:text-[var(--text-danger)]"
                            >
                              <X size={10} />
                            </button>
@@ -1175,7 +1175,7 @@ const handleSendMessage = async (isInternal: boolean) => {
                          <button
                            type="button"
                            onClick={() => messageFileInputRef.current?.click()}
-                           className="px-3 py-1.5 rounded-lg border border-slate-200 text-slate-600 hover:bg-slate-50 transition-colors text-[10px] font-black uppercase tracking-widest flex items-center gap-1"
+                           className="px-3 py-1.5 rounded-lg border border-slate-200 dark:border-[var(--border-default)] text-slate-600 dark:text-[var(--text-secondary)] hover:bg-slate-50 dark:hover:bg-[var(--surface-card)] transition-colors text-[10px] font-black uppercase tracking-widest flex items-center gap-1"
                          >
                            <Paperclip size={12} />
                            Anexar
@@ -1186,7 +1186,7 @@ const handleSendMessage = async (isInternal: boolean) => {
                         disabled={!message.trim() || message === '<p></p>'}
                         className={cn(
                           "px-6 py-2 rounded-xl transition-all disabled:opacity-50 shadow-lg text-xs font-black uppercase tracking-widest flex items-center gap-2",
-                          historyTab === 'internal' ? "bg-amber-500 hover:bg-amber-600 text-white shadow-amber-100" : "bg-indigo-600 hover:bg-indigo-700 text-white shadow-indigo-100"
+                          historyTab === 'internal' ? "bg-amber-500 dark:bg-[var(--text-warning-strong)] hover:bg-amber-600 dark:hover:bg-[var(--accent-warning-hover)] text-white shadow-amber-100" : "bg-indigo-600 dark:bg-[var(--accent)] hover:bg-indigo-700 dark:hover:bg-[var(--accent-hover)] text-white shadow-indigo-100"
                         )}
                       >
                          <Send size={16} />

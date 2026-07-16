@@ -197,13 +197,13 @@ export function FilterBar({ onFilterChange, originalTickets }: FilterBarProps) {
     <div className="space-y-4">
       <div className="flex flex-col md:flex-row gap-4 items-start md:items-center justify-between">
         <div className="flex-1 w-full max-w-2xl relative">
-          <Search className="absolute left-4 top-1/2 -translate-y-1/2 text-slate-400" size={18} />
+          <Search className="absolute left-4 top-1/2 -translate-y-1/2 text-slate-400 dark:text-[var(--text-tertiary)]" size={18} />
           <input 
             type="text" 
             placeholder="Pesquisar por assunto..." 
             value={search}
             onChange={(e) => setSearch(e.target.value)}
-            className="w-full bg-white border border-slate-200 rounded-2xl pl-12 pr-4 py-3 text-sm focus:ring-4 focus:ring-indigo-500/10 focus:border-indigo-500 outline-none transition-all shadow-sm font-medium"
+            className="w-full bg-white dark:bg-[var(--surface-card)] border border-slate-200 dark:border-[var(--border-default)] rounded-2xl pl-12 pr-4 py-3 text-sm focus:ring-4 focus:ring-indigo-500/10 dark:focus:ring-[var(--accent)]/10 focus:border-indigo-500 dark:focus:border-[var(--accent)] outline-none transition-all shadow-sm font-medium"
           />
         </div>
         
@@ -212,7 +212,7 @@ export function FilterBar({ onFilterChange, originalTickets }: FilterBarProps) {
             onClick={() => setIsOpen(!isOpen)}
             className={cn(
               "flex-1 md:flex-none flex items-center justify-center gap-2 px-6 py-3 rounded-2xl text-sm font-black uppercase tracking-widest transition-all border shadow-sm",
-              isOpen ? "bg-indigo-600 text-white border-indigo-600" : "bg-white text-slate-700 border-slate-200 hover:border-indigo-300"
+              isOpen ? "bg-indigo-600 dark:bg-[var(--accent)] text-white border-indigo-600 dark:border-[var(--accent)]" : "bg-white dark:bg-[var(--surface-card)] text-slate-700 dark:text-[var(--text-secondary)] border-slate-200 dark:border-[var(--border-default)] hover:border-indigo-300"
             )}
           >
             <Filter size={18} /> Filtros {isOpen ? <X size={16} /> : <ChevronDown size={16} />}
@@ -220,23 +220,23 @@ export function FilterBar({ onFilterChange, originalTickets }: FilterBarProps) {
           
           <div className="relative group">
             <button 
-              className="p-3 bg-white border border-slate-200 rounded-2xl text-slate-500 hover:text-indigo-600 hover:border-indigo-200 transition-all shadow-sm"
+              className="p-3 bg-white dark:bg-[var(--surface-card)] border border-slate-200 dark:border-[var(--border-default)] rounded-2xl text-slate-500 dark:text-[var(--text-tertiary)] hover:text-indigo-600 dark:hover:text-[var(--accent-text)] hover:border-indigo-200 dark:hover:border-[var(--accent)]/30 transition-all shadow-sm"
               title="Filtros Salvos"
             >
               <Bookmark size={20} />
             </button>
-            <div className="absolute right-0 top-full mt-2 w-64 bg-white border border-slate-200 rounded-2xl shadow-xl p-4 hidden group-hover:block z-[100]">
-               <p className="text-[10px] font-black uppercase text-slate-400 tracking-widest mb-3">Buscas Salvas</p>
+            <div className="absolute right-0 top-full mt-2 w-64 bg-white dark:bg-[var(--surface-card)] border border-slate-200 dark:border-[var(--border-default)] rounded-2xl shadow-xl p-4 hidden group-hover:block z-[100]">
+               <p className="text-[10px] font-black uppercase text-slate-400 dark:text-[var(--text-tertiary)] tracking-widest mb-3">Buscas Salvas</p>
                <div className="space-y-1 max-h-48 overflow-y-auto">
-                  {savedFilters.length === 0 && <p className="text-[10px] text-slate-400 italic">Nenhuma busca salva</p>}
+                  {savedFilters.length === 0 && <p className="text-[10px] text-slate-400 dark:text-[var(--text-tertiary)] italic">Nenhuma busca salva</p>}
                   {savedFilters.map(f => (
                     <button 
                       key={f.id} 
                       onClick={() => loadSavedFilter(f)}
-                      className="w-full text-left p-2 rounded-lg hover:bg-slate-50 text-xs font-bold text-slate-700 flex items-center justify-between group/item"
+                      className="w-full text-left p-2 rounded-lg hover:bg-slate-50 dark:hover:bg-[var(--surface-card)] text-xs font-bold text-slate-700 dark:text-[var(--text-secondary)] flex items-center justify-between group/item"
                     >
                       {f.name}
-                      <span className="text-indigo-600 text-[8px] opacity-0 group-hover/item:opacity-100 uppercase">Carregar</span>
+                      <span className="text-indigo-600 dark:text-[var(--accent-text)] text-[8px] opacity-0 group-hover/item:opacity-100 uppercase">Carregar</span>
                     </button>
                   ))}
                </div>
@@ -251,27 +251,27 @@ export function FilterBar({ onFilterChange, originalTickets }: FilterBarProps) {
             initial={{ height: 0, opacity: 0 }}
             animate={{ height: 'auto', opacity: 1 }}
             exit={{ height: 0, opacity: 0 }}
-            className="overflow-hidden bg-white border border-slate-200 rounded-3xl shadow-xl shadow-slate-200/50"
+            className="overflow-hidden bg-white dark:bg-[var(--surface-card)] border border-slate-200 dark:border-[var(--border-default)] rounded-3xl shadow-xl shadow-slate-200/50"
           >
             <div className="p-8 space-y-8">
               <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
                 <div className="space-y-1.5">
-                  <label className="text-[10px] font-black uppercase text-slate-400 tracking-widest ml-1">ID do Ticket</label>
+                  <label className="text-[10px] font-black uppercase text-slate-400 dark:text-[var(--text-tertiary)] tracking-widest ml-1">ID do Ticket</label>
                   <input 
                     type="text" 
                     value={ticketId}
                     onChange={(e) => setTicketId(e.target.value)}
                     placeholder="T-1001"
-                    className="w-full bg-slate-50 border border-slate-200 rounded-xl px-4 py-2.5 text-sm font-bold focus:ring-2 focus:ring-indigo-500/20 outline-none"
+                    className="w-full bg-slate-50 dark:bg-[var(--surface-card)] border border-slate-200 dark:border-[var(--border-default)] rounded-xl px-4 py-2.5 text-sm font-bold focus:ring-2 focus:ring-indigo-500/20 dark:focus:ring-[var(--accent)]/20 outline-none"
                   />
                 </div>
 
                 <div className="space-y-1.5">
-                  <label className="text-[10px] font-black uppercase text-slate-400 tracking-widest ml-1">Status</label>
+                  <label className="text-[10px] font-black uppercase text-slate-400 dark:text-[var(--text-tertiary)] tracking-widest ml-1">Status</label>
                   <StyledSelect 
                     value={status}
                     onChange={(e) => setStatus(e.target.value)}
-                    className="w-full bg-slate-50 border border-slate-200 rounded-xl px-4 py-2.5 text-sm font-bold focus:ring-2 focus:ring-indigo-500/20 outline-none appearance-none"
+                    className="w-full bg-slate-50 dark:bg-[var(--surface-card)] border border-slate-200 dark:border-[var(--border-default)] rounded-xl px-4 py-2.5 text-sm font-bold focus:ring-2 focus:ring-indigo-500/20 dark:focus:ring-[var(--accent)]/20 outline-none appearance-none"
                   >
                     <option value="">Qualquer Status</option>
                     {Object.values(TicketStatus).map(s => <option key={s} value={s}>{s}</option>)}
@@ -281,11 +281,11 @@ export function FilterBar({ onFilterChange, originalTickets }: FilterBarProps) {
                 {currentUser?.role !== UserRole.CUSTOMER && (
                   <>
                     <div className="space-y-1.5">
-                      <label className="text-[10px] font-black uppercase text-slate-400 tracking-widest ml-1">Cliente / Empresa</label>
+                      <label className="text-[10px] font-black uppercase text-slate-400 dark:text-[var(--text-tertiary)] tracking-widest ml-1">Cliente / Empresa</label>
                       <StyledSelect 
                         value={companyId}
                         onChange={(e) => setCompanyId(e.target.value)}
-                        className="w-full bg-slate-50 border border-slate-200 rounded-xl px-4 py-2.5 text-sm font-bold focus:ring-2 focus:ring-indigo-500/20 outline-none appearance-none"
+                        className="w-full bg-slate-50 dark:bg-[var(--surface-card)] border border-slate-200 dark:border-[var(--border-default)] rounded-xl px-4 py-2.5 text-sm font-bold focus:ring-2 focus:ring-indigo-500/20 dark:focus:ring-[var(--accent)]/20 outline-none appearance-none"
                       >
                         <option value="">Qualquer Empresa</option>
                         {companies.map(c => <option key={c.id} value={c.id}>{c.name}</option>)}
@@ -293,11 +293,11 @@ export function FilterBar({ onFilterChange, originalTickets }: FilterBarProps) {
                     </div>
 
                     <div className="space-y-1.5">
-                      <label className="text-[10px] font-black uppercase text-slate-400 tracking-widest ml-1">Analista Responsável</label>
+                      <label className="text-[10px] font-black uppercase text-slate-400 dark:text-[var(--text-tertiary)] tracking-widest ml-1">Analista Responsável</label>
                       <StyledSelect 
                         value={assigneeId}
                         onChange={(e) => setAssigneeId(e.target.value)}
-                        className="w-full bg-slate-50 border border-slate-200 rounded-xl px-4 py-2.5 text-sm font-bold focus:ring-2 focus:ring-indigo-500/20 outline-none appearance-none"
+                        className="w-full bg-slate-50 dark:bg-[var(--surface-card)] border border-slate-200 dark:border-[var(--border-default)] rounded-xl px-4 py-2.5 text-sm font-bold focus:ring-2 focus:ring-indigo-500/20 dark:focus:ring-[var(--accent)]/20 outline-none appearance-none"
                       >
                         <option value="">Qualquer Analista</option>
                         {analysts.map(a => <option key={a.id} value={a.id}>{a.name}</option>)}
@@ -307,58 +307,58 @@ export function FilterBar({ onFilterChange, originalTickets }: FilterBarProps) {
                 )}
 
                 <div className="space-y-1.5">
-                  <label className="text-[10px] font-black uppercase text-slate-400 tracking-widest ml-1">Criado (Início)</label>
+                  <label className="text-[10px] font-black uppercase text-slate-400 dark:text-[var(--text-tertiary)] tracking-widest ml-1">Criado (Início)</label>
                   <input 
                     type="date" 
                     value={startDate}
                     onChange={(e) => setStartDate(e.target.value)}
-                    className="w-full bg-slate-50 border border-slate-200 rounded-xl px-4 py-2.5 text-sm font-bold focus:ring-2 focus:ring-indigo-500/20 outline-none"
+                    className="w-full bg-slate-50 dark:bg-[var(--surface-card)] border border-slate-200 dark:border-[var(--border-default)] rounded-xl px-4 py-2.5 text-sm font-bold focus:ring-2 focus:ring-indigo-500/20 dark:focus:ring-[var(--accent)]/20 outline-none"
                   />
                 </div>
 
                 <div className="space-y-1.5">
-                  <label className="text-[10px] font-black uppercase text-slate-400 tracking-widest ml-1">Criado (Fim)</label>
+                  <label className="text-[10px] font-black uppercase text-slate-400 dark:text-[var(--text-tertiary)] tracking-widest ml-1">Criado (Fim)</label>
                   <input 
                     type="date" 
                     value={endDate}
                     onChange={(e) => setEndDate(e.target.value)}
-                    className="w-full bg-slate-50 border border-slate-200 rounded-xl px-4 py-2.5 text-sm font-bold focus:ring-2 focus:ring-indigo-500/20 outline-none"
+                    className="w-full bg-slate-50 dark:bg-[var(--surface-card)] border border-slate-200 dark:border-[var(--border-default)] rounded-xl px-4 py-2.5 text-sm font-bold focus:ring-2 focus:ring-indigo-500/20 dark:focus:ring-[var(--accent)]/20 outline-none"
                   />
                 </div>
 
                 <div className="space-y-1.5">
-                  <label className="text-[10px] font-black uppercase text-slate-400 tracking-widest ml-1">Finalizado (Início)</label>
+                  <label className="text-[10px] font-black uppercase text-slate-400 dark:text-[var(--text-tertiary)] tracking-widest ml-1">Finalizado (Início)</label>
                   <input 
                     type="date" 
                     value={compStartDate}
                     onChange={(e) => setCompStartDate(e.target.value)}
-                    className="w-full bg-slate-50 border border-slate-200 rounded-xl px-4 py-2.5 text-sm font-bold focus:ring-2 focus:ring-indigo-500/20 outline-none"
+                    className="w-full bg-slate-50 dark:bg-[var(--surface-card)] border border-slate-200 dark:border-[var(--border-default)] rounded-xl px-4 py-2.5 text-sm font-bold focus:ring-2 focus:ring-indigo-500/20 dark:focus:ring-[var(--accent)]/20 outline-none"
                   />
                 </div>
 
                 <div className="space-y-1.5">
-                  <label className="text-[10px] font-black uppercase text-slate-400 tracking-widest ml-1">Finalizado (Fim)</label>
+                  <label className="text-[10px] font-black uppercase text-slate-400 dark:text-[var(--text-tertiary)] tracking-widest ml-1">Finalizado (Fim)</label>
                   <input 
                     type="date" 
                     value={compEndDate}
                     onChange={(e) => setCompEndDate(e.target.value)}
-                    className="w-full bg-slate-50 border border-slate-200 rounded-xl px-4 py-2.5 text-sm font-bold focus:ring-2 focus:ring-indigo-500/20 outline-none"
+                    className="w-full bg-slate-50 dark:bg-[var(--surface-card)] border border-slate-200 dark:border-[var(--border-default)] rounded-xl px-4 py-2.5 text-sm font-bold focus:ring-2 focus:ring-indigo-500/20 dark:focus:ring-[var(--accent)]/20 outline-none"
                   />
                 </div>
 
                 <div className="col-span-1 md:col-span-2 space-y-1.5">
-                  <label className="text-[10px] font-black uppercase text-slate-400 tracking-widest ml-1">Trecho da Descrição</label>
+                  <label className="text-[10px] font-black uppercase text-slate-400 dark:text-[var(--text-tertiary)] tracking-widest ml-1">Trecho da Descrição</label>
                   <input 
                     type="text" 
                     value={contentSearch}
                     onChange={(e) => setContentSearch(e.target.value)}
                     placeholder="Procure palavras-chave dentro dos chamados..."
-                    className="w-full bg-slate-50 border border-slate-200 rounded-xl px-4 py-2.5 text-sm font-bold focus:ring-2 focus:ring-indigo-500/20 outline-none"
+                    className="w-full bg-slate-50 dark:bg-[var(--surface-card)] border border-slate-200 dark:border-[var(--border-default)] rounded-xl px-4 py-2.5 text-sm font-bold focus:ring-2 focus:ring-indigo-500/20 dark:focus:ring-[var(--accent)]/20 outline-none"
                   />
                 </div>
               </div>
 
-              <div className="flex flex-col md:flex-row items-center justify-between pt-6 border-t border-slate-100 gap-4">
+              <div className="flex flex-col md:flex-row items-center justify-between pt-6 border-t border-slate-100 dark:border-[var(--border-default)] gap-4">
                 <div className="flex items-center gap-4 w-full md:w-auto">
                    {isSaving ? (
                      <div className="flex items-center gap-2">
@@ -367,15 +367,15 @@ export function FilterBar({ onFilterChange, originalTickets }: FilterBarProps) {
                           placeholder="Nome do filtro..." 
                           value={newFilterName}
                           onChange={(e) => setNewFilterName(e.target.value)}
-                          className="bg-slate-50 border border-slate-200 rounded-lg px-3 py-2 text-xs font-bold outline-none"
+                          className="bg-slate-50 dark:bg-[var(--surface-card)] border border-slate-200 dark:border-[var(--border-default)] rounded-lg px-3 py-2 text-xs font-bold outline-none"
                         />
-                        <button onClick={handleSaveFilter} className="bg-indigo-600 text-white p-2 rounded-lg hover:bg-indigo-700 transition-all"><Save size={16} /></button>
-                        <button onClick={() => setIsSaving(false)} className="text-slate-400 hover:text-slate-600"><X size={16} /></button>
+                        <button onClick={handleSaveFilter} className="bg-indigo-600 dark:bg-[var(--accent)] text-white p-2 rounded-lg hover:bg-indigo-700 dark:hover:bg-[var(--accent-hover)] transition-all"><Save size={16} /></button>
+                        <button onClick={() => setIsSaving(false)} className="text-slate-400 dark:text-[var(--text-tertiary)] hover:text-slate-600 dark:hover:text-[var(--text-secondary)]"><X size={16} /></button>
                      </div>
                    ) : (
                      <button 
                        onClick={() => setIsSaving(true)}
-                       className="flex items-center gap-2 text-[10px] font-black uppercase text-slate-400 tracking-widest hover:text-indigo-600 transition-colors"
+                       className="flex items-center gap-2 text-[10px] font-black uppercase text-slate-400 dark:text-[var(--text-tertiary)] tracking-widest hover:text-indigo-600 dark:hover:text-[var(--accent-text)] transition-colors"
                      >
                         <Save size={14} /> Salvar como nova busca
                      </button>
@@ -385,7 +385,7 @@ export function FilterBar({ onFilterChange, originalTickets }: FilterBarProps) {
                 <div className="flex gap-3 w-full md:w-auto">
                    <button 
                     onClick={clearFilters}
-                    className="flex-1 md:flex-none px-6 py-2.5 rounded-xl text-[10px] font-black uppercase tracking-widest text-slate-500 hover:bg-slate-100 transition-all"
+                    className="flex-1 md:flex-none px-6 py-2.5 rounded-xl text-[10px] font-black uppercase tracking-widest text-slate-500 dark:text-[var(--text-tertiary)] hover:bg-slate-100 dark:hover:bg-[var(--surface-pill)] transition-all"
                    >
                      Limpar Todos
                    </button>

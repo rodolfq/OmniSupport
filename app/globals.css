@@ -1,5 +1,7 @@
 @import "tailwindcss";
 
+@custom-variant dark (&:where(.dark, .dark *));
+
 @keyframes border-pulse {
   0%, 100% { border-color: rgb(248 113 113); box-shadow: 0 0 0 0 rgba(239, 68, 68, 0.4); }
   50% { border-color: rgb(220 38 38); box-shadow: 0 0 0 10px rgba(239, 68, 68, 0); }
@@ -13,11 +15,73 @@
   --foreground-rgb: 0, 0, 0;
   --background-start-rgb: 214, 219, 220;
   --background-end-rgb: 255, 255, 255;
+  color-scheme: light;
+}
+
+:root.dark {
+  --foreground-rgb: 242, 242, 244;
+  --background-start-rgb: 21, 22, 26;
+  --background-end-rgb: 15, 16, 19;
+  color-scheme: dark;
+
+  /* Superfícies */
+  --surface-page: #15161a;
+  --surface-sidebar: #0f1013;
+  --surface-card: #1c1d22;
+  --surface-alert: #211d10;
+  --border-default: #2a2b30;
+  --border-alert: #3a3018;
+
+  /* Tipografia */
+  --text-primary: #f2f2f4;
+  --text-secondary: #8b8d96;
+  --text-tertiary: #6b6d76;
+
+  /* Estados e badges semânticos */
+  --surface-success: #12261e;
+  --text-success: #5fd6a0;
+  --surface-danger: #2a1418;
+  --text-danger: #e8798a;
+  --surface-info: #1c2a4a;
+  --text-info: #8fb3f0;
+  --surface-warning: #241f10;
+  --text-warning: #e8c98c;
+  --text-warning-strong: #e8a75f;
+  --accent-warning-hover: #d1934f;
+
+  /* Destaque roxo (ação principal) */
+  --accent: #6a5cf0;
+  --accent-hover: #5949e0;
+  --accent-strong: #4a3fd6;
+  --accent-text: #a7a9ff;
+  --accent-soft-text: #d6d2ff;
+
+  /* Pill neutra (contadores, chips) */
+  --surface-pill: #2a2b30;
+  --text-pill: #c9cad0;
 }
 
 body {
   color: rgb(var(--foreground-rgb));
   background: white;
+  transition: background-color 0.15s ease, color 0.15s ease;
+}
+
+.dark body {
+  background: var(--surface-page);
+}
+
+/* Modo escuro: superfícies totalmente planas, sem sombras, brilhos ou gradientes */
+.dark [class*="shadow-"],
+.dark [class~="shadow"] {
+  box-shadow: none !important;
+}
+
+.dark [class*="bg-gradient-"],
+.dark [class*="from-"],
+.dark [class*="via-"],
+.dark [class*="to-"] {
+  background-image: none !important;
 }
 
 @layer utilities {
@@ -39,12 +103,23 @@ body {
   .custom-scrollbar::-webkit-scrollbar-thumb:hover {
     background: #cbd5e1;
   }
+
+  .dark .custom-scrollbar::-webkit-scrollbar-thumb {
+    background: var(--border-default);
+  }
+  .dark .custom-scrollbar::-webkit-scrollbar-thumb:hover {
+    background: var(--text-tertiary);
+  }
 }
 
 /* Minimal scrollbar for all elements */
 * {
   scrollbar-width: thin;
   scrollbar-color: #e2e8f0 transparent;
+}
+
+.dark * {
+  scrollbar-color: var(--border-default) transparent;
 }
 
 /* Webkit scrollbar */
@@ -64,4 +139,12 @@ body {
 
 ::-webkit-scrollbar-thumb:hover {
   background: #cbd5e1;
+}
+
+.dark ::-webkit-scrollbar-thumb {
+  background: var(--border-default);
+}
+
+.dark ::-webkit-scrollbar-thumb:hover {
+  background: var(--text-tertiary);
 }

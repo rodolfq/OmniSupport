@@ -188,27 +188,27 @@ export function LinkContactModal({
             initial={{ opacity: 0, scale: 0.95, y: 20 }}
             animate={{ opacity: 1, scale: 1, y: 0 }}
             exit={{ opacity: 0, scale: 0.95, y: 20 }}
-            className="relative bg-white w-full max-w-lg rounded-[2.5rem] shadow-2xl overflow-hidden border border-slate-200"
+            className="relative bg-white dark:bg-[var(--surface-card)] w-full max-w-lg rounded-[2.5rem] shadow-2xl overflow-hidden border border-slate-200 dark:border-[var(--border-default)]"
           >
             <div className="bg-slate-900 px-8 py-6 text-white flex items-center justify-between">
               <div>
                 <h3 className="text-xl font-black tracking-tight">Vincular Contato</h3>
-                <p className="text-[10px] text-slate-400 font-bold uppercase tracking-widest mt-1">
+                <p className="text-[10px] text-slate-400 dark:text-[var(--text-tertiary)] font-bold uppercase tracking-widest mt-1">
                   Número: {maskPhone(session?.customerPhone || '')}
                 </p>
               </div>
-              <button onClick={onClose} className="p-2 hover:bg-white/10 rounded-xl transition-colors text-slate-400">
+              <button onClick={onClose} className="p-2 hover:bg-white/10 rounded-xl transition-colors text-slate-400 dark:text-[var(--text-tertiary)]">
                 <X size={20} />
               </button>
             </div>
 
             <div className="p-8 space-y-6">
-              <div className="flex bg-slate-100 p-1 rounded-2xl">
+              <div className="flex bg-slate-100 dark:bg-[var(--surface-pill)] p-1 rounded-2xl">
                 <button 
                   onClick={() => setIsCreatingNew(false)}
                   className={cn(
                     "flex-1 py-2 text-[10px] font-black uppercase tracking-widest rounded-xl transition-all",
-                    !isCreatingNew ? "bg-white text-indigo-600 shadow-sm" : "text-slate-500"
+                    !isCreatingNew ? "bg-white dark:bg-[var(--surface-card)] text-indigo-600 dark:text-[var(--accent-text)] shadow-sm" : "text-slate-500 dark:text-[var(--text-tertiary)]"
                   )}
                 >
                   Pesquisar Existente
@@ -217,7 +217,7 @@ export function LinkContactModal({
                   onClick={() => setIsCreatingNew(true)}
                   className={cn(
                     "flex-1 py-2 text-[10px] font-black uppercase tracking-widest rounded-xl transition-all",
-                    isCreatingNew ? "bg-white text-indigo-600 shadow-sm" : "text-slate-500"
+                    isCreatingNew ? "bg-white dark:bg-[var(--surface-card)] text-indigo-600 dark:text-[var(--accent-text)] shadow-sm" : "text-slate-500 dark:text-[var(--text-tertiary)]"
                   )}
                 >
                   Criar Novo
@@ -227,21 +227,21 @@ export function LinkContactModal({
               {isCreatingNew ? (
                 <div className="space-y-4">
                   <div className="space-y-1.5">
-                    <label className="text-[10px] font-black uppercase text-slate-400 tracking-widest ml-1">Nome</label>
+                    <label className="text-[10px] font-black uppercase text-slate-400 dark:text-[var(--text-tertiary)] tracking-widest ml-1">Nome</label>
                     <input 
                       type="text" 
                       value={newName}
                       onChange={(e) => setNewName(e.target.value)}
                       placeholder="Nome completo"
-                      className="w-full bg-slate-50 border border-slate-200 rounded-2xl px-4 py-3 text-sm font-bold focus:ring-4 focus:ring-indigo-500/10 outline-none transition-all"
+                      className="w-full bg-slate-50 dark:bg-[var(--surface-card)] border border-slate-200 dark:border-[var(--border-default)] rounded-2xl px-4 py-3 text-sm font-bold focus:ring-4 focus:ring-indigo-500/10 dark:focus:ring-[var(--accent)]/10 outline-none transition-all"
                     />
                   </div>
                   <div className="space-y-1.5">
                     <div className="flex items-center justify-between ml-1">
-                      <label className="text-[10px] font-black uppercase text-slate-400 tracking-widest">Empresa</label>
+                      <label className="text-[10px] font-black uppercase text-slate-400 dark:text-[var(--text-tertiary)] tracking-widest">Empresa</label>
                       <button 
                         onClick={() => setIsCreatingNewCompany(!isCreatingNewCompany)}
-                        className="text-[9px] font-black uppercase text-indigo-600 hover:underline"
+                        className="text-[9px] font-black uppercase text-indigo-600 dark:text-[var(--accent-text)] hover:underline"
                       >
                         {isCreatingNewCompany ? 'Selecionar Existente' : '+ Nova Empresa'}
                       </button>
@@ -252,13 +252,13 @@ export function LinkContactModal({
                         value={newCompanyName}
                         onChange={(e) => setNewCompanyName(e.target.value)}
                         placeholder="Nome da nova empresa"
-                        className="w-full bg-slate-50 border border-slate-200 rounded-2xl px-4 py-3 text-sm font-bold focus:ring-4 focus:ring-indigo-500/10 outline-none transition-all"
+                        className="w-full bg-slate-50 dark:bg-[var(--surface-card)] border border-slate-200 dark:border-[var(--border-default)] rounded-2xl px-4 py-3 text-sm font-bold focus:ring-4 focus:ring-indigo-500/10 dark:focus:ring-[var(--accent)]/10 outline-none transition-all"
                       />
                     ) : (
                       <StyledSelect 
                         value={newCompanyId}
                         onChange={(e) => setNewCompanyId(e.target.value)}
-                        className="w-full bg-slate-50 border border-slate-200 rounded-2xl px-4 py-3 text-sm font-bold focus:ring-4 focus:ring-indigo-500/10 outline-none transition-all appearance-none"
+                        className="w-full bg-slate-50 dark:bg-[var(--surface-card)] border border-slate-200 dark:border-[var(--border-default)] rounded-2xl px-4 py-3 text-sm font-bold focus:ring-4 focus:ring-indigo-500/10 dark:focus:ring-[var(--accent)]/10 outline-none transition-all appearance-none"
                       >
                         <option value="">Selecione uma empresa</option>
                         {companies.map(c => <option key={c.id} value={c.id}>{c.name}</option>)}
@@ -268,7 +268,7 @@ export function LinkContactModal({
                   <button 
                     onClick={handleCreateAndLink}
                     disabled={!newName || (isCreatingNewCompany ? !newCompanyName : !newCompanyId)}
-                    className="w-full py-4 bg-emerald-600 text-white text-[10px] font-black uppercase tracking-widest rounded-2xl shadow-xl shadow-emerald-100 hover:bg-emerald-700 transition-all disabled:opacity-50"
+                    className="w-full py-4 bg-emerald-600 dark:bg-[var(--text-success)] text-white text-[10px] font-black uppercase tracking-widest rounded-2xl shadow-xl shadow-emerald-100 hover:bg-emerald-700 transition-all disabled:opacity-50"
                   >
                     Criar e Vincular
                   </button>
@@ -276,13 +276,13 @@ export function LinkContactModal({
               ) : (
                 <div className="space-y-4">
                   <div className="relative">
-                    <Search className="absolute left-4 top-1/2 -translate-y-1/2 text-slate-400" size={18} />
+                    <Search className="absolute left-4 top-1/2 -translate-y-1/2 text-slate-400 dark:text-[var(--text-tertiary)]" size={18} />
                     <input 
                       type="text"
                       placeholder="Buscar por nome ou telefone..."
                       value={searchTerm}
                       onChange={(e) => setSearchTerm(e.target.value)}
-                      className="w-full bg-slate-50 border border-slate-200 rounded-2xl pl-12 pr-4 py-3 text-sm font-bold focus:ring-4 focus:ring-indigo-500/10 outline-none transition-all"
+                      className="w-full bg-slate-50 dark:bg-[var(--surface-card)] border border-slate-200 dark:border-[var(--border-default)] rounded-2xl pl-12 pr-4 py-3 text-sm font-bold focus:ring-4 focus:ring-indigo-500/10 dark:focus:ring-[var(--accent)]/10 outline-none transition-all"
                     />
                   </div>
 
@@ -291,24 +291,24 @@ export function LinkContactModal({
                       <button
                         key={u.id}
                         onClick={() => handleLink(u)}
-                        className="w-full flex items-center justify-between p-3 bg-white border border-slate-100 rounded-2xl hover:border-indigo-500 hover:bg-indigo-50 transition-all group"
+                        className="w-full flex items-center justify-between p-3 bg-white dark:bg-[var(--surface-card)] border border-slate-100 dark:border-[var(--border-default)] rounded-2xl hover:border-indigo-500 dark:hover:border-[var(--accent)] hover:bg-indigo-50 dark:hover:bg-[var(--accent)]/10 transition-all group"
                       >
                         <div className="flex items-center gap-3">
-                          <div className="w-8 h-8 rounded-xl bg-slate-100 flex items-center justify-center text-slate-400 font-bold text-xs uppercase tracking-tighter group-hover:bg-indigo-600 group-hover:text-white transition-all">
+                          <div className="w-8 h-8 rounded-xl bg-slate-100 dark:bg-[var(--surface-pill)] flex items-center justify-center text-slate-400 dark:text-[var(--text-tertiary)] font-bold text-xs uppercase tracking-tighter group-hover:bg-indigo-600 dark:group-hover:bg-[var(--accent)] group-hover:text-white transition-all">
                             {u.name.charAt(0)}
                           </div>
                           <div className="text-left">
-                            <p className="text-xs font-black text-slate-700">{u.name}</p>
-                            <p className="text-[10px] font-bold text-slate-400 truncate w-40">
+                            <p className="text-xs font-black text-slate-700 dark:text-[var(--text-secondary)]">{u.name}</p>
+                            <p className="text-[10px] font-bold text-slate-400 dark:text-[var(--text-tertiary)] truncate w-40">
                                {companies.find(c => c.id === u.companyId)?.name}
                             </p>
                           </div>
                         </div>
-                        <Check size={16} className="text-indigo-500 opacity-0 group-hover:opacity-100" />
+                        <Check size={16} className="text-indigo-500 dark:text-[var(--accent-text)] opacity-0 group-hover:opacity-100" />
                       </button>
                     ))}
                     {filteredUsers.length === 0 && (
-                      <p className="text-xs text-slate-400 italic text-center py-4">Nenhum colaborador encontrado.</p>
+                      <p className="text-xs text-slate-400 dark:text-[var(--text-tertiary)] italic text-center py-4">Nenhum colaborador encontrado.</p>
                     )}
                   </div>
                 </div>

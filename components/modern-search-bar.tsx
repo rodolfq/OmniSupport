@@ -159,7 +159,7 @@ export function ModernSearchBar({ onSearch, loading }: ModernSearchBarProps) {
       {/* Main Search Bar */}
       <div className="flex items-center gap-3">
         <div className="relative flex-1 max-w-2xl">
-          <Search size={20} className="absolute left-4 top-1/2 -translate-y-1/2 text-slate-400" />
+          <Search size={20} className="absolute left-4 top-1/2 -translate-y-1/2 text-slate-400 dark:text-[var(--text-tertiary)]" />
           <input
             ref={inputRef}
             type="text"
@@ -168,12 +168,12 @@ export function ModernSearchBar({ onSearch, loading }: ModernSearchBarProps) {
             onChange={(e) => setQuery(e.target.value)}
             onFocus={() => setShowSuggestions(true)}
             onBlur={() => setTimeout(() => setShowSuggestions(false), 200)}
-            className="w-full pl-12 pr-12 py-3.5 rounded-2xl border border-slate-200 bg-white text-sm font-medium focus:ring-4 focus:ring-indigo-500/10 focus:border-indigo-500 outline-none transition-all shadow-sm"
+            className="w-full pl-12 pr-12 py-3.5 rounded-2xl border border-slate-200 dark:border-[var(--border-default)] bg-white dark:bg-[var(--surface-card)] text-sm font-medium focus:ring-4 focus:ring-indigo-500/10 dark:focus:ring-[var(--accent)]/10 focus:border-indigo-500 dark:focus:border-[var(--accent)] outline-none transition-all shadow-sm"
           />
           {query && (
             <button
               onClick={() => setQuery("")}
-              className="absolute right-4 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600"
+              className="absolute right-4 top-1/2 -translate-y-1/2 text-slate-400 dark:text-[var(--text-tertiary)] hover:text-slate-600 dark:hover:text-[var(--text-secondary)]"
             >
               <X size={16} />
             </button>
@@ -186,7 +186,7 @@ export function ModernSearchBar({ onSearch, loading }: ModernSearchBarProps) {
                 initial={{ opacity: 0, y: -10 }}
                 animate={{ opacity: 1, y: 0 }}
                 exit={{ opacity: 0, y: -10 }}
-                className="absolute top-full left-0 right-0 mt-2 bg-white border border-slate-200 rounded-xl shadow-lg p-2 z-50"
+                className="absolute top-full left-0 right-0 mt-2 bg-white dark:bg-[var(--surface-card)] border border-slate-200 dark:border-[var(--border-default)] rounded-xl shadow-lg p-2 z-50"
               >
                 {suggestions.map((s, i) => (
                   <button
@@ -195,7 +195,7 @@ export function ModernSearchBar({ onSearch, loading }: ModernSearchBarProps) {
                       setQuery(s);
                       setShowSuggestions(false);
                     }}
-                    className="w-full px-3 py-2 text-left text-sm hover:bg-slate-50 rounded-lg"
+                    className="w-full px-3 py-2 text-left text-sm hover:bg-slate-50 dark:hover:bg-[var(--surface-card)] rounded-lg"
                   >
                     {s}
                   </button>
@@ -210,18 +210,18 @@ export function ModernSearchBar({ onSearch, loading }: ModernSearchBarProps) {
           className={cn(
             "flex items-center gap-2 px-5 py-3 rounded-2xl text-sm font-black uppercase tracking-widest transition-all border shadow-sm",
             showFilterPanel || hasActiveFilters
-              ? "bg-indigo-600 text-white border-indigo-600"
-              : "bg-white text-slate-700 border-slate-200 hover:border-indigo-300"
+              ? "bg-indigo-600 dark:bg-[var(--accent)] text-white border-indigo-600 dark:border-[var(--accent)]"
+              : "bg-white dark:bg-[var(--surface-card)] text-slate-700 dark:text-[var(--text-secondary)] border-slate-200 dark:border-[var(--border-default)] hover:border-indigo-300"
           )}
         >
           <Filter size={18} />
-          Filtros {hasActiveFilters && <span className="w-5 h-5 bg-white text-indigo-600 rounded-full text-[10px] font-bold flex items-center justify-center">{Object.keys(activeFilters).filter(k => activeFilters[k as keyof SearchFilters] !== undefined && activeFilters[k as keyof SearchFilters] !== "").length}</span>}
+          Filtros {hasActiveFilters && <span className="w-5 h-5 bg-white dark:bg-[var(--surface-card)] text-indigo-600 dark:text-[var(--accent-text)] rounded-full text-[10px] font-bold flex items-center justify-center">{Object.keys(activeFilters).filter(k => activeFilters[k as keyof SearchFilters] !== undefined && activeFilters[k as keyof SearchFilters] !== "").length}</span>}
         </button>
 
         {hasActiveFilters && (
           <button
             onClick={clearAllFilters}
-            className="px-4 py-3 rounded-2xl text-sm font-black uppercase tracking-widest text-slate-500 border border-slate-200 hover:bg-slate-50 transition-all"
+            className="px-4 py-3 rounded-2xl text-sm font-black uppercase tracking-widest text-slate-500 dark:text-[var(--text-tertiary)] border border-slate-200 dark:border-[var(--border-default)] hover:bg-slate-50 dark:hover:bg-[var(--surface-card)] transition-all"
           >
             Limpar
           </button>
@@ -231,7 +231,7 @@ export function ModernSearchBar({ onSearch, loading }: ModernSearchBarProps) {
         <div className="relative">
           <button
             onClick={() => setShowSaveView(!showSaveView)}
-            className="p-3 rounded-2xl border border-slate-200 bg-white text-slate-500 hover:text-indigo-600 hover:border-indigo-200 transition-all"
+            className="p-3 rounded-2xl border border-slate-200 dark:border-[var(--border-default)] bg-white dark:bg-[var(--surface-card)] text-slate-500 dark:text-[var(--text-tertiary)] hover:text-indigo-600 dark:hover:text-[var(--accent-text)] hover:border-indigo-200 dark:hover:border-[var(--accent)]/30 transition-all"
             title="Visualizações salvas"
           >
             <Bookmark size={20} />
@@ -243,43 +243,43 @@ export function ModernSearchBar({ onSearch, loading }: ModernSearchBarProps) {
                 initial={{ opacity: 0, y: 10 }}
                 animate={{ opacity: 1, y: 0 }}
                 exit={{ opacity: 0, y: 10 }}
-                className="absolute top-full right-0 mt-2 w-72 bg-white border border-slate-200 rounded-xl shadow-lg p-4 z-50"
+                className="absolute top-full right-0 mt-2 w-72 bg-white dark:bg-[var(--surface-card)] border border-slate-200 dark:border-[var(--border-default)] rounded-xl shadow-lg p-4 z-50"
               >
                 <div className="flex items-center justify-between mb-3">
-                  <span className="text-xs font-black uppercase text-slate-400">Visualizações</span>
+                  <span className="text-xs font-black uppercase text-slate-400 dark:text-[var(--text-tertiary)]">Visualizações</span>
                   {savedViews.length > 0 && (
-                    <span className="text-[10px] font-bold text-slate-500">{savedViews.length} salvas</span>
+                    <span className="text-[10px] font-bold text-slate-500 dark:text-[var(--text-tertiary)]">{savedViews.length} salvas</span>
                   )}
                 </div>
                 {savedViews.length === 0 ? (
-                  <p className="text-xs text-slate-400 italic mb-3">Nenhuma visualização salva</p>
+                  <p className="text-xs text-slate-400 dark:text-[var(--text-tertiary)] italic mb-3">Nenhuma visualização salva</p>
                 ) : (
                   <div className="space-y-1 max-h-48 overflow-y-auto mb-3">
                     {savedViews.map((v) => (
                       <button
                         key={v.id}
                         onClick={() => loadView(v.filters)}
-                        className="w-full text-left px-3 py-2 rounded-lg hover:bg-slate-50 text-xs font-bold flex items-center justify-between group"
+                        className="w-full text-left px-3 py-2 rounded-lg hover:bg-slate-50 dark:hover:bg-[var(--surface-card)] text-xs font-bold flex items-center justify-between group"
                       >
                         <span>{v.name}</span>
-                        <span className="text-indigo-600 opacity-0 group-hover:opacity-100 transition-opacity">Aplicar</span>
+                        <span className="text-indigo-600 dark:text-[var(--accent-text)] opacity-0 group-hover:opacity-100 transition-opacity">Aplicar</span>
                       </button>
                     ))}
                   </div>
                 )}
-                <div className="border-t border-slate-100 pt-3">
+                <div className="border-t border-slate-100 dark:border-[var(--border-default)] pt-3">
                   <input
                     type="text"
                     placeholder="Nome da visualização..."
                     value={newViewName}
                     onChange={(e) => setNewViewName(e.target.value)}
                     onKeyDown={(e) => e.key === "Enter" && saveCurrentView()}
-                    className="w-full px-3 py-2 rounded-lg border border-slate-200 text-xs font-bold outline-none focus:border-indigo-400"
+                    className="w-full px-3 py-2 rounded-lg border border-slate-200 dark:border-[var(--border-default)] text-xs font-bold outline-none focus:border-indigo-400"
                   />
                   <button
                     onClick={saveCurrentView}
                     disabled={!newViewName.trim()}
-                    className="w-full mt-2 py-2 rounded-lg bg-indigo-600 text-white text-xs font-black uppercase disabled:opacity-50"
+                    className="w-full mt-2 py-2 rounded-lg bg-indigo-600 dark:bg-[var(--accent)] text-white text-xs font-black uppercase disabled:opacity-50"
                   >
                     Salvar como visualização
                   </button>
@@ -300,49 +300,49 @@ export function ModernSearchBar({ onSearch, loading }: ModernSearchBarProps) {
             className="flex flex-wrap gap-2 items-center"
           >
             {activeFilters.status && (
-              <span className="inline-flex items-center gap-1.5 px-3 py-1.5 bg-indigo-50 text-indigo-700 rounded-full text-xs font-bold">
+              <span className="inline-flex items-center gap-1.5 px-3 py-1.5 bg-indigo-50 dark:bg-[var(--accent)]/10 text-indigo-700 dark:text-[var(--accent-text)] rounded-full text-xs font-bold">
                 Status: {activeFilters.status}
                 <button onClick={() => removeFilter("status")}><X size={12} /></button>
               </span>
             )}
             {activeFilters.priority && (
-              <span className="inline-flex items-center gap-1.5 px-3 py-1.5 bg-amber-50 text-amber-700 rounded-full text-xs font-bold">
+              <span className="inline-flex items-center gap-1.5 px-3 py-1.5 bg-amber-50 dark:bg-[var(--surface-warning)] text-amber-700 dark:text-[var(--text-warning)] rounded-full text-xs font-bold">
                 Prioridade: {activeFilters.priority}
                 <button onClick={() => removeFilter("priority")}><X size={12} /></button>
               </span>
             )}
             {activeFilters.slaOverdue && (
-              <span className="inline-flex items-center gap-1.5 px-3 py-1.5 bg-red-50 text-red-700 rounded-full text-xs font-bold">
+              <span className="inline-flex items-center gap-1.5 px-3 py-1.5 bg-red-50 dark:bg-[var(--surface-danger)] text-red-700 dark:text-[var(--text-danger)] rounded-full text-xs font-bold">
                 SLA Vencido
                 <button onClick={() => removeFilter("slaOverdue")}><X size={12} /></button>
               </span>
             )}
             {activeFilters.companyId && (
-              <span className="inline-flex items-center gap-1.5 px-3 py-1.5 bg-emerald-50 text-emerald-700 rounded-full text-xs font-bold">
+              <span className="inline-flex items-center gap-1.5 px-3 py-1.5 bg-emerald-50 dark:bg-[var(--surface-success)] text-emerald-700 dark:text-[var(--text-success)] rounded-full text-xs font-bold">
                 Cliente: {companies.find(c => c.id === activeFilters.companyId)?.name || activeFilters.companyId}
                 <button onClick={() => removeFilter("companyId")}><X size={12} /></button>
               </span>
             )}
             {activeFilters.assigneeId && (
-              <span className="inline-flex items-center gap-1.5 px-3 py-1.5 bg-purple-50 text-purple-700 rounded-full text-xs font-bold">
+              <span className="inline-flex items-center gap-1.5 px-3 py-1.5 bg-purple-50 dark:bg-purple-500/10 text-purple-700 dark:text-purple-300 rounded-full text-xs font-bold">
                 Responsável: {users.find(u => u.id === activeFilters.assigneeId)?.name || activeFilters.assigneeId}
                 <button onClick={() => removeFilter("assigneeId")}><X size={12} /></button>
               </span>
             )}
             {activeFilters.startDate && (
-              <span className="inline-flex items-center gap-1.5 px-3 py-1.5 bg-blue-50 text-blue-700 rounded-full text-xs font-bold">
+              <span className="inline-flex items-center gap-1.5 px-3 py-1.5 bg-blue-50 dark:bg-[var(--surface-info)] text-blue-700 dark:text-[var(--text-info)] rounded-full text-xs font-bold">
                 De: {new Date(activeFilters.startDate!).toLocaleDateString()}
                 <button onClick={() => removeFilter("startDate")}><X size={12} /></button>
               </span>
             )}
             {activeFilters.endDate && (
-              <span className="inline-flex items-center gap-1.5 px-3 py-1.5 bg-blue-50 text-blue-700 rounded-full text-xs font-bold">
+              <span className="inline-flex items-center gap-1.5 px-3 py-1.5 bg-blue-50 dark:bg-[var(--surface-info)] text-blue-700 dark:text-[var(--text-info)] rounded-full text-xs font-bold">
                 Até: {new Date(activeFilters.endDate!).toLocaleDateString()}
                 <button onClick={() => removeFilter("endDate")}><X size={12} /></button>
               </span>
             )}
             {activeFilters.includeClosed && (
-              <span className="inline-flex items-center gap-1.5 px-3 py-1.5 bg-emerald-50 text-emerald-700 rounded-full text-xs font-bold">
+              <span className="inline-flex items-center gap-1.5 px-3 py-1.5 bg-emerald-50 dark:bg-[var(--surface-success)] text-emerald-700 dark:text-[var(--text-success)] rounded-full text-xs font-bold">
                 Mostrando encerrados
                 <button onClick={() => removeFilter("includeClosed")}><X size={12} /></button>
               </span>
@@ -360,17 +360,17 @@ export function ModernSearchBar({ onSearch, loading }: ModernSearchBarProps) {
             exit={{ opacity: 0, height: 0 }}
             className="overflow-hidden"
           >
-            <div className="bg-white border border-slate-200 rounded-3xl p-6 shadow-lg">
+            <div className="bg-white dark:bg-[var(--surface-card)] border border-slate-200 dark:border-[var(--border-default)] rounded-3xl p-6 shadow-lg">
               <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
                 {/* Status */}
                 <div className="space-y-1.5">
-                  <label className="text-[10px] font-black uppercase text-slate-400 flex items-center gap-1">
+                  <label className="text-[10px] font-black uppercase text-slate-400 dark:text-[var(--text-tertiary)] flex items-center gap-1">
                     <Tag size={12} /> Status
                   </label>
                   <StyledSelect
                     value={status}
                     onChange={(e) => setStatus(e.target.value as TicketStatus)}
-                    className="w-full px-3 py-2 rounded-lg border border-slate-200 text-xs font-bold bg-slate-50 focus:border-indigo-400 outline-none"
+                    className="w-full px-3 py-2 rounded-lg border border-slate-200 dark:border-[var(--border-default)] text-xs font-bold bg-slate-50 dark:bg-[var(--surface-card)] focus:border-indigo-400 outline-none"
                   >
                     <option value="">Qualquer Status</option>
                     {Object.values(TicketStatus).map(s => (
@@ -381,13 +381,13 @@ export function ModernSearchBar({ onSearch, loading }: ModernSearchBarProps) {
 
                 {/* Priority */}
                 <div className="space-y-1.5">
-                  <label className="text-[10px] font-black uppercase text-slate-400 flex items-center gap-1">
+                  <label className="text-[10px] font-black uppercase text-slate-400 dark:text-[var(--text-tertiary)] flex items-center gap-1">
                     <Star size={12} /> Prioridade
                   </label>
                   <StyledSelect
                     value={priority}
                     onChange={(e) => setPriority(e.target.value)}
-                    className="w-full px-3 py-2 rounded-lg border border-slate-200 text-xs font-bold bg-slate-50 focus:border-indigo-400 outline-none"
+                    className="w-full px-3 py-2 rounded-lg border border-slate-200 dark:border-[var(--border-default)] text-xs font-bold bg-slate-50 dark:bg-[var(--surface-card)] focus:border-indigo-400 outline-none"
                   >
                     <option value="">Qualquer Prioridade</option>
                     <option>Baixa</option>
@@ -399,13 +399,13 @@ export function ModernSearchBar({ onSearch, loading }: ModernSearchBarProps) {
 
                 {/* Company (Cliente) */}
                 <div className="space-y-1.5">
-                  <label className="text-[10px] font-black uppercase text-slate-400 flex items-center gap-1">
+                  <label className="text-[10px] font-black uppercase text-slate-400 dark:text-[var(--text-tertiary)] flex items-center gap-1">
                     <Building2 size={12} /> Cliente
                   </label>
                   <StyledSelect
                     value={company}
                     onChange={(e) => setCompany(e.target.value)}
-                    className="w-full px-3 py-2 rounded-lg border border-slate-200 text-xs font-bold bg-slate-50 focus:border-indigo-400 outline-none"
+                    className="w-full px-3 py-2 rounded-lg border border-slate-200 dark:border-[var(--border-default)] text-xs font-bold bg-slate-50 dark:bg-[var(--surface-card)] focus:border-indigo-400 outline-none"
                   >
                     <option value="">Qualquer Cliente</option>
                     {companies.map(c => (
@@ -416,13 +416,13 @@ export function ModernSearchBar({ onSearch, loading }: ModernSearchBarProps) {
 
                 {/* Assignee (Responsável) */}
                 <div className="space-y-1.5">
-                  <label className="text-[10px] font-black uppercase text-slate-400 flex items-center gap-1">
+                  <label className="text-[10px] font-black uppercase text-slate-400 dark:text-[var(--text-tertiary)] flex items-center gap-1">
                     <Users size={12} /> Responsável
                   </label>
                   <StyledSelect
                     value={assignee}
                     onChange={(e) => setAssignee(e.target.value)}
-                    className="w-full px-3 py-2 rounded-lg border border-slate-200 text-xs font-bold bg-slate-50 focus:border-indigo-400 outline-none"
+                    className="w-full px-3 py-2 rounded-lg border border-slate-200 dark:border-[var(--border-default)] text-xs font-bold bg-slate-50 dark:bg-[var(--surface-card)] focus:border-indigo-400 outline-none"
                   >
                     <option value="">Qualquer Responsável</option>
                     {users.map(u => (
@@ -433,26 +433,26 @@ export function ModernSearchBar({ onSearch, loading }: ModernSearchBarProps) {
 
                 {/* Date Range */}
                 <div className="space-y-1.5">
-                  <label className="text-[10px] font-black uppercase text-slate-400 flex items-center gap-1">
+                  <label className="text-[10px] font-black uppercase text-slate-400 dark:text-[var(--text-tertiary)] flex items-center gap-1">
                     <Calendar size={12} /> Criado De
                   </label>
                   <input
                     type="date"
                     value={startDate}
                     onChange={(e) => setStartDate(e.target.value)}
-                    className="w-full px-3 py-2 rounded-lg border border-slate-200 text-xs font-bold bg-slate-50 focus:border-indigo-400 outline-none"
+                    className="w-full px-3 py-2 rounded-lg border border-slate-200 dark:border-[var(--border-default)] text-xs font-bold bg-slate-50 dark:bg-[var(--surface-card)] focus:border-indigo-400 outline-none"
                   />
                 </div>
 
                 <div className="space-y-1.5">
-                  <label className="text-[10px] font-black uppercase text-slate-400 flex items-center gap-1">
+                  <label className="text-[10px] font-black uppercase text-slate-400 dark:text-[var(--text-tertiary)] flex items-center gap-1">
                     <Calendar size={12} /> Criado Até
                   </label>
                   <input
                     type="date"
                     value={endDate}
                     onChange={(e) => setEndDate(e.target.value)}
-                    className="w-full px-3 py-2 rounded-lg border border-slate-200 text-xs font-bold bg-slate-50 focus:border-indigo-400 outline-none"
+                    className="w-full px-3 py-2 rounded-lg border border-slate-200 dark:border-[var(--border-default)] text-xs font-bold bg-slate-50 dark:bg-[var(--surface-card)] focus:border-indigo-400 outline-none"
                   />
                 </div>
 
@@ -463,9 +463,9 @@ export function ModernSearchBar({ onSearch, loading }: ModernSearchBarProps) {
                     id="slaOverdue"
                     checked={slaOverdue}
                     onChange={(e) => setSlaOverdue(e.target.checked)}
-                    className="w-4 h-4 rounded border-slate-300"
+                    className="w-4 h-4 rounded border-slate-300 dark:border-[var(--border-default)]"
                   />
-                  <label htmlFor="slaOverdue" className="text-xs font-bold text-slate-600 flex items-center gap-1">
+                  <label htmlFor="slaOverdue" className="text-xs font-bold text-slate-600 dark:text-[var(--text-secondary)] flex items-center gap-1">
                     <Clock size={12} /> SLA Vencido
                   </label>
                 </div>
@@ -477,9 +477,9 @@ export function ModernSearchBar({ onSearch, loading }: ModernSearchBarProps) {
                     id="includeClosed"
                     checked={includeClosed}
                     onChange={(e) => setIncludeClosed(e.target.checked)}
-                    className="w-4 h-4 rounded border-slate-300"
+                    className="w-4 h-4 rounded border-slate-300 dark:border-[var(--border-default)]"
                   />
-                  <label htmlFor="includeClosed" className="text-xs font-bold text-slate-600 flex items-center gap-1">
+                  <label htmlFor="includeClosed" className="text-xs font-bold text-slate-600 dark:text-[var(--text-secondary)] flex items-center gap-1">
                     <Check size={12} /> Mostrar chamados encerrados
                   </label>
                 </div>
