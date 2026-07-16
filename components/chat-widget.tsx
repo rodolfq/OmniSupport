@@ -185,6 +185,7 @@ export function ChatWidget() {
     addNotification,
     markNotificationRead,
     markNotificationsAsReadByTarget,
+    pruneStaleChatNotifications,
     isOmniChatOpen,
     setIsOmniChatOpen,
     isOmniChatExpanded,
@@ -199,7 +200,8 @@ export function ChatWidget() {
   const searchParams = useSearchParams();
   
   const [customerSessions, setCustomerSessions] = useState<ChatSession[]>([]);
-  
+  const [sessionsLoaded, setSessionsLoaded] = useState(false);
+
   // Track expanded state locally
   const [isExpanded, setIsExpanded] = useState(false);
 
@@ -418,6 +420,15 @@ export function ChatWidget() {
       .forEach(s => ensureContactPhoto(s.customerPhone, getSessionInstanceId(s)));
   }, [customerSessions, getSessionInstanceId, ensureContactPhoto]);
 
+  // Notificações de chat sobrevivem no localStorage; se a sessão de origem for
+  // encerrada/apagada do banco, a notificação nunca some sozinha e o badge de
+  // "não lidas" fica mostrando uma contagem que não existe mais. Reconcilia
+  // sempre que a lista de sessões (fonte de verdade) mudar.
+  useEffect(() => {
+    if (!sessionsLoaded) return;
+    pruneStaleChatNotifications(customerSessions.map(s => s.id));
+  }, [customerSessions, sessionsLoaded, pruneStaleChatNotifications]);
+
   useEffect(() => {
     const controller = new AbortController();
 
@@ -440,6 +451,7 @@ export function ChatWidget() {
             users: users.length 
         });
         setCustomerSessions(sessions);
+        setSessionsLoaded(true);
         setQuickNotes(notes);
         setAnalystStatuses(statuses);
         setCompanies(comp);

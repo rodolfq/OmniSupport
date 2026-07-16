@@ -54,6 +54,7 @@ interface AppContextType {
   markNotificationRead: (id: string | 'all') => void;
   markNotificationsAsReadByTarget: (targetId: string) => void;
   clearNotifications: () => void;
+  pruneStaleChatNotifications: (validSessionIds: string[]) => void;
   playSound: (type: 'system' | 'chat') => void;
   notificationSettings: NotificationSettings;
   updateNotificationSettings: (settings: Partial<NotificationSettings>) => void;
@@ -489,6 +490,20 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     localStorage.removeItem('omni_notif_history');
   }, []);
 
+  // Notificações de chat ficam guardadas no localStorage (persistem entre reloads),
+  // então se a conversa de origem for encerrada/apagada elas viram "fantasmas" que
+  // nunca mais somem sozinhas. Remove qualquer notificação de chat cujo targetId
+  // não corresponda a nenhuma sessão atualmente existente.
+  const pruneStaleChatNotifications = React.useCallback((validSessionIds: string[]) => {
+    const validIds = new Set(validSessionIds);
+    setNotifications(prev => {
+      const filtered = prev.filter(n => !n.type.startsWith('chat_') || !n.targetId || validIds.has(n.targetId));
+      if (filtered.length === prev.length) return prev;
+      localStorage.setItem('omni_notif_history', safeJsonStringify(filtered));
+      return filtered;
+    });
+  }, []);
+
   const hasPermission = React.useCallback((permission: Permission) => {
     if (!currentUser) return false;
     if (currentUser.role === UserRole.ADMIN) return true;
@@ -529,6 +544,7 @@ return (
       markNotificationRead,
       markNotificationsAsReadByTarget,
       clearNotifications,
+      pruneStaleChatNotifications,
       playSound,
       notificationSettings,
       updateNotificationSettings,

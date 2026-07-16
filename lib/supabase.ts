@@ -66,6 +66,11 @@ class SupabaseCompatChain {
     return this;
   }
 
+  not(col: string, operator: string, val: any) {
+    this.filters.push({ type: 'not', col, operator, val });
+    return this;
+  }
+
   order(col: string, opts?: { ascending?: boolean }) {
     this.orderBy = { col, ascending: opts?.ascending !== false };
     return this;

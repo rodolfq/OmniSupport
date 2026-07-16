@@ -50,7 +50,7 @@ export function AssignChatMenu({
 
   return (
     <div ref={containerRef} className={cn('relative inline-block', className)}>
-      <div className="flex items-center rounded-xl overflow-hidden shadow-lg shadow-indigo-100">
+      <div className="flex items-center rounded-xl overflow-hidden shadow-sm shadow-indigo-100">
         {showSelf && (
           <button
             type="button"
@@ -58,11 +58,11 @@ export function AssignChatMenu({
             disabled={!isCurrentUserOnline}
             className={cn(
               'flex items-center gap-2 bg-indigo-600 text-white text-[10px] font-black uppercase tracking-widest hover:bg-indigo-700 transition-all disabled:opacity-50 disabled:cursor-not-allowed',
-              variant === 'full' ? 'px-5 py-2.5' : 'px-3 py-2.5'
+              variant === 'full' ? 'px-4 py-2' : 'px-2.5 py-2'
             )}
             title={isCurrentUserOnline ? undefined : 'Você precisa estar Online para assumir atendimentos'}
           >
-            <UserPlus size={14} /> {variant === 'full' && selfLabel}
+            <UserPlus size={13} /> {variant === 'full' && selfLabel}
           </button>
         )}
         <button
@@ -70,11 +70,11 @@ export function AssignChatMenu({
           onClick={() => setOpen(o => !o)}
           className={cn(
             'flex items-center justify-center bg-indigo-600 text-white hover:bg-indigo-700 transition-all',
-            showSelf ? 'px-2 py-2.5 border-l border-indigo-500' : 'px-3 py-2.5'
+            showSelf ? 'px-1.5 py-2 border-l border-indigo-500' : 'px-2.5 py-2'
           )}
           title="Enviar para outro usuário online"
         >
-          <ChevronDown size={14} />
+          <ChevronDown size={13} />
           {!showSelf && variant === 'full' && <span className="ml-2">Transferir</span>}
         </button>
       </div>

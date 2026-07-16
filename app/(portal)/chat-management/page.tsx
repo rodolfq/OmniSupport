@@ -2,20 +2,22 @@
 
 import React, { useState, useEffect, useRef } from 'react';
 import { toast } from 'sonner';
-import { 
-  ChatSession, 
-  AnalystStatus, 
-  User, 
+import {
+  ChatSession,
+  AnalystStatus,
+  User,
   UserRole,
   Company,
-  QuickNote
+  QuickNote,
+  TicketStatus,
+  TicketPriority
 } from '@/lib/types';
-import { 
-  MessageSquare, 
-  Users, 
-  Zap, 
-  Search, 
-  Plus, 
+import {
+  MessageSquare,
+  Users,
+  Zap,
+  Search,
+  Plus,
   Trash2,
   Edit2,
   ArrowRightLeft,
@@ -30,7 +32,8 @@ import {
   X,
   Check,
   Building2,
-  Phone
+  Phone,
+  Ticket as TicketIcon
 } from 'lucide-react';
 import { cn, normalizeString, maskPhone, matchPhones } from '@/lib/utils';
 import { motion, AnimatePresence } from 'motion/react';
@@ -39,7 +42,7 @@ import { LinkContactModal } from '@/components/link-contact-modal';
 import { AssignChatMenu } from '@/components/assign-chat-menu';
 import { ConfirmDialog } from '@/components/confirm-dialog';
 import { supabase } from '@/lib/supabase';
-import { fetchChatSessions } from '@/lib/services/chat-service';
+import { fetchChatSessions, saveChatHistory } from '@/lib/services/chat-service';
 import { getQuickNotes, saveQuickNote as saveQuickNoteAction, deleteQuickNote, getAnalysts, getCompanies, updateUserStatus } from '@/app/actions';
 
 export default function ChatManagementPage() {
@@ -358,6 +361,127 @@ const handleDeleteNote = async () => {
       .map(a => ({ id: a.id, name: a.name }));
   }, [statuses, analysts]);
 
+  const [isBulkFinishConfirmOpen, setIsBulkFinishConfirmOpen] = useState(false);
+  const [isBulkFinishing, setIsBulkFinishing] = useState(false);
+
+  const finishSession = async (session: ChatSession): Promise<boolean> => {
+    try {
+      const formattedChatLog = session.messages?.map(m => {
+        const time = new Date(m.timestamp).toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' });
+        return `[${time}] ${m.senderName}: ${m.text}`;
+      }).join('\n') || '';
+
+      const chatHistoryText = `===== HISTÓRICO DO CHAT =====\n${formattedChatLog}\n===== FIM DO HISTÓRICO =====\n\nChat finalizado em: ${new Date().toLocaleString('pt-BR')}`;
+      const chatHistoryHtml = chatHistoryText
+        .replace(/&/g, '&amp;')
+        .replace(/</g, '&lt;')
+        .replace(/>/g, '&gt;')
+        .replace(/\n/g, '<br>');
+
+      const now = new Date();
+      const datePrefix = now.toLocaleDateString('pt-BR');
+      const timePrefix = now.toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' });
+      const ticketTitle = `Atendimento ${datePrefix} ${timePrefix}: ${session.customerName || 'Cliente'}`;
+      const assigneeId = session.assigneeId || currentUser?.id || null;
+
+      const { data: createdTicket, error: ticketError } = await supabase.from('tickets').insert({
+        title: ticketTitle,
+        description: chatHistoryHtml,
+        status: TicketStatus.NEW,
+        priority: TicketPriority.MEDIUM,
+        category: 'Atendimento Chat',
+        customer_id: session.customerId,
+        assignee_id: assigneeId,
+        created_at: new Date().toISOString(),
+        updated_at: new Date().toISOString()
+      });
+
+      if (ticketError) {
+        console.error('Error creating ticket from session', session.id, ticketError);
+        return false;
+      }
+
+      const createdTicketData = Array.isArray(createdTicket) ? createdTicket[0] : createdTicket;
+      const createdTicketId = createdTicketData?.id || null;
+      const createdTicketNumber = createdTicketData?.public_ticket_number || null;
+
+      const startedAt = session.startedAt ? new Date(session.startedAt) : new Date();
+      const finishedAt = new Date();
+      const durationSeconds = Math.floor((finishedAt.getTime() - startedAt.getTime()) / 1000);
+
+      let firstResponseSeconds: number | undefined;
+      if (session.messages && session.messages.length > 0) {
+        const firstAnalystMsg = session.messages.find(m =>
+          m.senderId !== session.customerId &&
+          m.text &&
+          !m.text.includes('criou o grupo')
+        );
+        if (firstAnalystMsg?.timestamp) {
+          firstResponseSeconds = Math.floor((new Date(firstAnalystMsg.timestamp).getTime() - startedAt.getTime()) / 1000);
+        }
+      }
+
+      await saveChatHistory({
+        sessionId: session.id,
+        customerId: session.customerId,
+        customerName: session.customerName,
+        customerPhone: session.customerPhone,
+        assigneeId,
+        startedAt: startedAt.toISOString(),
+        finishedAt: finishedAt.toISOString(),
+        durationSeconds,
+        firstResponseSeconds,
+        transcript: chatHistoryText
+      }).catch(err => console.error('Non-critical error saving chat history:', session.id, err));
+
+      const { error: closeError } = await supabase
+        .from('chat_sessions')
+        .update({
+          status: 'closed',
+          ticket_id: createdTicketId,
+          ticket_number: createdTicketNumber
+        })
+        .eq('id', session.id);
+
+      if (closeError) {
+        console.error('Error closing session', session.id, closeError);
+        return false;
+      }
+
+      return true;
+    } catch (e) {
+      console.error('Unexpected error finishing session', session.id, e);
+      return false;
+    }
+  };
+
+  const handleBulkFinish = async (visibleSessions: ChatSession[]) => {
+    const targets = visibleSessions.filter(s => selectedSessionIds.has(s.id) && s.status !== 'closed');
+    if (targets.length === 0) {
+      toast.info('Nenhum atendimento selecionado.');
+      return;
+    }
+
+    setIsBulkFinishing(true);
+    let successCount = 0;
+    for (const session of targets) {
+      const ok = await finishSession(session);
+      if (ok) successCount++;
+    }
+    setIsBulkFinishing(false);
+
+    setSelectedSessionIds(new Set());
+    refreshData();
+
+    if (successCount === targets.length) {
+      toast.success(`${successCount} atendimento(s) encerrado(s) com sucesso!`);
+    } else if (successCount > 0) {
+      toast.warning(`${successCount} de ${targets.length} atendimento(s) encerrado(s). Alguns falharam — veja o console.`);
+    } else {
+      toast.error('Erro ao encerrar os atendimentos selecionados.');
+    }
+  };
+
   return (
     <div className="space-y-8">
       <div className="flex flex-col md:flex-row md:items-end justify-between gap-4">
@@ -461,6 +585,13 @@ const handleDeleteNote = async () => {
                            onAssignToUser={(userId) => handleBulkAssign(visibleQueueSessions, userId)}
                            selfLabel="Assumir selecionados"
                          />
+                         <button
+                           onClick={() => setIsBulkFinishConfirmOpen(true)}
+                           disabled={isBulkFinishing}
+                           className="flex items-center gap-2 px-4 py-2 bg-slate-900 text-white rounded-xl text-[10px] font-black uppercase tracking-widest hover:bg-slate-800 transition-all disabled:opacity-50 disabled:cursor-not-allowed"
+                         >
+                           <TicketIcon size={13} /> {isBulkFinishing ? 'Encerrando...' : 'Finalizar selecionados'}
+                         </button>
                          <button
                            onClick={() => setSelectedSessionIds(new Set())}
                            className="px-4 py-2 bg-white text-slate-500 rounded-xl text-[10px] font-black uppercase tracking-widest hover:bg-slate-100 transition-all border border-slate-200"
@@ -998,6 +1129,16 @@ const handleDeleteNote = async () => {
         title="Excluir Nota Rápida"
         description="Deseja excluir esta nota rápida? Esta ação não pode ser desfeita."
         confirmLabel="Excluir"
+        variant="danger"
+      />
+
+      <ConfirmDialog
+        isOpen={isBulkFinishConfirmOpen}
+        onClose={() => setIsBulkFinishConfirmOpen(false)}
+        onConfirm={() => handleBulkFinish(visibleQueueSessions)}
+        title="Encerrar atendimentos selecionados"
+        description={`Deseja encerrar ${selectedSessionIds.size} atendimento(s)? Um chamado será criado automaticamente para cada um, com o histórico da conversa.`}
+        confirmLabel="Encerrar"
         variant="danger"
       />
     </div>

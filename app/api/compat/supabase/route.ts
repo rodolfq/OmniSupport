@@ -1,6 +1,25 @@
 import { NextResponse } from 'next/server';
 import { query } from '@/lib/db';
 
+// Colunas que são arrays nativos do Postgres (ex: text[], uuid[]) precisam ser
+// passadas como array JS puro para o driver `pg` serializar no formato "{a,b,c}".
+// Colunas jsonb que guardam listas (ex: attachments_data) precisam do texto JSON
+// "[...]" via JSON.stringify. Sem essa distinção, um array vazio em uma coluna
+// array nativa (ex: tags TEXT[]) vira a string "[]" e o Postgres rejeita com
+// "malformed array literal". Cache simples em memória por tabela.
+const arrayColumnsCache = new Map<string, Set<string>>();
+
+async function getNativeArrayColumns(table: string): Promise<Set<string>> {
+  if (arrayColumnsCache.has(table)) return arrayColumnsCache.get(table)!;
+  const res = await query(
+    `SELECT column_name FROM information_schema.columns WHERE table_schema = 'public' AND table_name = $1 AND data_type = 'ARRAY'`,
+    [table]
+  );
+  const cols = new Set(res.rows.map((r: any) => r.column_name as string));
+  arrayColumnsCache.set(table, cols);
+  return cols;
+}
+
 export async function POST(request: Request) {
   try {
     const body = await request.json();
@@ -72,6 +91,23 @@ export async function POST(request: Request) {
           if (orClauses.length > 0) {
             clauses.push(`(${orClauses.join(' OR ')})`);
           }
+        } else if (filter.type === 'not') {
+          if (filter.operator === 'is' && filter.val === null) {
+            clauses.push(`${filter.col} IS NOT NULL`);
+          } else if (filter.operator === 'in') {
+            // Formato estilo PostgREST: "(\"a\",\"b\")" -> lista de valores
+            const items = String(filter.val)
+              .replace(/^\(|\)$/g, '')
+              .split(',')
+              .map((s: string) => s.trim().replace(/^"(.*)"$/, '$1'))
+              .filter((s: string) => s.length > 0);
+            if (items.length > 0) {
+              const placeholders = items.map((_: any, idx: number) => `$${paramIndex + idx}`).join(',');
+              clauses.push(`${filter.col} NOT IN (${placeholders})`);
+              params.push(...items);
+              paramIndex += items.length;
+            }
+          }
         }
       }
       return clauses.length > 0 ? ` WHERE ${clauses.join(' AND ')}` : '';
@@ -81,11 +117,11 @@ export async function POST(request: Request) {
       sql = `SELECT * FROM public.${table}`;
       sql += buildWhereClause();
 
-      if (orderBy) {
+      if (orderBy && orderBy.col) {
         sql += ` ORDER BY ${orderBy.col} ${orderBy.ascending ? 'ASC' : 'DESC'}`;
       }
 
-      if (limitCount !== null) {
+      if (typeof limitCount === 'number') {
         sql += ` LIMIT ${limitCount}`;
       }
 
@@ -96,7 +132,7 @@ export async function POST(request: Request) {
           offsetCount = offsetFilter.val;
         }
       }
-      if (offsetCount !== null) {
+      if (typeof offsetCount === 'number') {
         sql += ` OFFSET ${offsetCount}`;
       }
 
@@ -112,6 +148,7 @@ export async function POST(request: Request) {
       const records = Array.isArray(payload) ? payload : [payload];
       if (records.length === 0) return NextResponse.json([]);
 
+      const nativeArrayColumns = await getNativeArrayColumns(table);
       const returned: any[] = [];
       for (const record of records) {
         const columns = Object.keys(record);
@@ -122,6 +159,9 @@ export async function POST(request: Request) {
             if (col === 'id' || col.endsWith('_id')) {
               val = null;
             }
+          }
+          if (Array.isArray(val) && nativeArrayColumns.has(col)) {
+            return val;
           }
           if (val !== null && typeof val === 'object' && !(val instanceof Date)) {
             return JSON.stringify(val);
@@ -156,6 +196,7 @@ export async function POST(request: Request) {
       const columns = Object.keys(payload);
       if (columns.length === 0) return NextResponse.json([]);
 
+      const nativeArrayColumns = await getNativeArrayColumns(table);
       const setAssignments = columns.map((col, idx) => `${col} = $${paramIndex + idx}`).join(', ');
       const updateParams = columns.map(col => {
         let val = payload[col];
@@ -163,6 +204,9 @@ export async function POST(request: Request) {
           if (col === 'id' || col.endsWith('_id')) {
             val = null;
           }
+        }
+        if (Array.isArray(val) && nativeArrayColumns.has(col)) {
+          return val;
         }
         if (val !== null && typeof val === 'object' && !(val instanceof Date)) {
           return JSON.stringify(val);
