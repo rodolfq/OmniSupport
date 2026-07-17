@@ -86,17 +86,17 @@ export function AttachmentPreviewModal({
             initial={{ scale: 0.96, opacity: 0 }}
             animate={{ scale: 1, opacity: 1 }}
             exit={{ scale: 0.96, opacity: 0 }}
-            className="relative flex h-full max-h-[92vh] w-full max-w-6xl flex-col overflow-hidden rounded-3xl bg-white dark:bg-[var(--surface-card)] shadow-2xl"
+            className="relative flex h-full max-h-[92vh] w-full max-w-6xl flex-col overflow-hidden rounded-3xl bg-[var(--surface-card)] shadow-2xl"
             style={{ zIndex: 2147483647 }}
           >
-            <div className="flex items-center justify-between gap-3 border-b border-slate-100 dark:border-[var(--border-default)] px-4 py-3 sm:px-5">
+            <div className="flex items-center justify-between gap-3 border-b border-[var(--border-default)] px-4 py-3 sm:px-5">
               <div className="flex min-w-0 items-center gap-3">
-                <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-2xl bg-indigo-50 dark:bg-[var(--accent)]/10 text-indigo-600 dark:text-[var(--accent-text)]">
+                <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-2xl bg-[var(--accent)]/10 text-[var(--accent-text)]">
                   <ImageIcon size={18} />
                 </div>
                 <div className="min-w-0">
-                  <p className="truncate text-sm font-black text-slate-800 dark:text-[var(--text-primary)]">{attachment.name}</p>
-                  <p className="text-[10px] font-black uppercase tracking-widest text-slate-400 dark:text-[var(--text-tertiary)]">
+                  <p className="truncate text-sm font-black text-[var(--text-primary)]">{attachment.name}</p>
+                  <p className="text-[10px] font-semibold text-[var(--text-tertiary)]">
                     {attachment.size ? `${Math.ceil(attachment.size / 1024)} KB` : 'Imagem'}
                   </p>
                 </div>
@@ -105,7 +105,7 @@ export function AttachmentPreviewModal({
                 <button
                   type="button"
                   onClick={() => openAttachmentInNewTab(attachment)}
-                  className="flex h-10 w-10 items-center justify-center rounded-2xl border border-slate-200 dark:border-[var(--border-default)] text-slate-500 dark:text-[var(--text-tertiary)] transition-all hover:bg-slate-50 dark:hover:bg-[var(--surface-card)] hover:text-indigo-600 dark:hover:text-[var(--accent-text)]"
+                  className="flex h-10 w-10 items-center justify-center rounded-2xl border border-[var(--border-default)] text-[var(--text-tertiary)] transition-all hover:bg-[var(--surface-card)] hover:text-[var(--accent-text)]"
                   title="Abrir em nova aba"
                 >
                   <Maximize2 size={17} />
@@ -113,7 +113,7 @@ export function AttachmentPreviewModal({
                 <a
                   href={attachment.url}
                   download={attachment.name}
-                  className="flex h-10 w-10 items-center justify-center rounded-2xl border border-slate-200 dark:border-[var(--border-default)] text-slate-500 dark:text-[var(--text-tertiary)] transition-all hover:bg-slate-50 dark:hover:bg-[var(--surface-card)] hover:text-indigo-600 dark:hover:text-[var(--accent-text)]"
+                  className="flex h-10 w-10 items-center justify-center rounded-2xl border border-[var(--border-default)] text-[var(--text-tertiary)] transition-all hover:bg-[var(--surface-card)] hover:text-[var(--accent-text)]"
                   title="Baixar imagem"
                 >
                   <Download size={17} />
@@ -148,19 +148,19 @@ export function AttachmentGallery({ attachments, title = "Todos os Anexos" }: At
 
   if (attachments.length === 0) {
     return (
-      <div className="text-center py-20 bg-slate-50/50 dark:bg-[var(--surface-card)]/50 rounded-3xl border-2 border-dashed border-slate-200 dark:border-[var(--border-default)]">
+      <div className="text-center py-20 bg-[var(--surface-card)]/50 rounded-3xl border-2 border-dashed border-[var(--border-default)]">
         <File size={40} className="mx-auto text-slate-300 mb-4" />
-        <p className="text-sm font-bold text-slate-400 dark:text-[var(--text-tertiary)] uppercase tracking-widest">Nenhum anexo encontrado</p>
+        <p className="text-sm font-bold text-[var(--text-tertiary)] uppercase tracking-widest">Nenhum anexo encontrado</p>
       </div>
     );
   }
 
   const getIcon = (type: string) => {
-    if (!type) return <File size={20} className="text-slate-500 dark:text-[var(--text-tertiary)]" />;
-    if (type.startsWith('image/')) return <ImageIcon size={20} className="text-indigo-500 dark:text-[var(--accent-text)]" />;
-    if (type.startsWith('video/')) return <Film size={20} className="text-amber-500 dark:text-[var(--text-warning-strong)]" />;
-    if (type.startsWith('audio/')) return <Music size={20} className="text-emerald-500 dark:text-[var(--text-success)]" />;
-    return <File size={20} className="text-slate-500 dark:text-[var(--text-tertiary)]" />;
+    if (!type) return <File size={20} className="text-[var(--text-tertiary)]" />;
+    if (type.startsWith('image/')) return <ImageIcon size={20} className="text-[var(--accent-text)]" />;
+    if (type.startsWith('video/')) return <Film size={20} className="text-[var(--text-warning-strong)]" />;
+    if (type.startsWith('audio/')) return <Music size={20} className="text-[var(--text-success)]" />;
+    return <File size={20} className="text-[var(--text-tertiary)]" />;
   };
 
   const formatSize = (bytes: number) => {
@@ -174,8 +174,8 @@ export function AttachmentGallery({ attachments, title = "Todos os Anexos" }: At
   return (
     <div className="space-y-6 animate-in fade-in slide-in-from-bottom-2 duration-300">
       <div className="flex items-center justify-between">
-        <h3 className="text-xs font-black uppercase text-slate-400 dark:text-[var(--text-tertiary)] tracking-widest">{title}</h3>
-        <span className="text-[10px] font-black bg-slate-100 dark:bg-[var(--surface-pill)] text-slate-500 dark:text-[var(--text-tertiary)] px-2 py-0.5 rounded-full">{attachments.length} arquivos</span>
+        <h3 className="text-xs font-semibold text-[var(--text-tertiary)]">{title}</h3>
+        <span className="text-[10px] font-black bg-[var(--surface-pill)] text-[var(--text-tertiary)] px-2 py-0.5 rounded-full">{attachments.length} arquivos</span>
       </div>
 
       <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
@@ -185,13 +185,13 @@ export function AttachmentGallery({ attachments, title = "Todos os Anexos" }: At
           return (
             <div 
               key={file.id} 
-              className="group relative bg-white dark:bg-[var(--surface-card)] border border-slate-200 dark:border-[var(--border-default)] rounded-2xl overflow-hidden hover:shadow-xl hover:border-indigo-200 dark:hover:border-[var(--accent)]/30 transition-all duration-300"
+              className="group relative bg-[var(--surface-card)] border border-[var(--border-default)] rounded-2xl overflow-hidden hover:shadow-xl hover:border-[var(--accent)]/30 transition-all duration-300"
             >
               {isImage ? (
                 <button
                   type="button"
                   onClick={() => setPreviewAttachment(file)}
-                  className="aspect-video w-full bg-slate-100 dark:bg-[var(--surface-pill)] relative overflow-hidden text-left"
+                  className="aspect-video w-full bg-[var(--surface-pill)] relative overflow-hidden text-left"
                   title="Visualizar imagem"
                 >
                   <img 
@@ -201,15 +201,15 @@ export function AttachmentGallery({ attachments, title = "Todos os Anexos" }: At
                   />
                   <div className="absolute inset-0 bg-black/20 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center gap-2">
                      <span
-                       className="p-2 bg-white dark:bg-[var(--surface-card)] rounded-full text-slate-900 dark:text-[var(--text-primary)] shadow-xl hover:scale-110 transition-all font-black text-[10px]"
+                       className="p-2 bg-[var(--surface-card)] rounded-full text-[var(--text-primary)] shadow-xl hover:scale-110 transition-all font-black text-[10px]"
                      >
                        <ExternalLink size={14} />
                      </span>
                   </div>
                 </button>
               ) : (
-                <div className="aspect-video w-full bg-slate-50 dark:bg-[var(--surface-card)] flex items-center justify-center">
-                  <div className="w-12 h-12 rounded-2xl bg-white dark:bg-[var(--surface-card)] shadow-sm flex items-center justify-center">
+                <div className="aspect-video w-full bg-[var(--surface-card)] flex items-center justify-center">
+                  <div className="w-12 h-12 rounded-2xl bg-[var(--surface-card)] shadow-sm flex items-center justify-center">
                     {getIcon(file.type)}
                   </div>
                 </div>
@@ -218,15 +218,15 @@ export function AttachmentGallery({ attachments, title = "Todos os Anexos" }: At
               <div className="p-4">
                 <div className="flex items-start justify-between gap-2">
                   <div className="min-w-0">
-                    <p className="text-xs font-black text-slate-800 dark:text-[var(--text-primary)] truncate" title={file.name}>{file.name}</p>
-                    <p className="text-[10px] font-bold text-slate-400 dark:text-[var(--text-tertiary)] mt-0.5 uppercase tracking-tighter">
+                    <p className="text-xs font-black text-[var(--text-primary)] truncate" title={file.name}>{file.name}</p>
+                    <p className="text-[10px] font-bold text-[var(--text-tertiary)] mt-0.5 uppercase tracking-tighter">
                       {(file.type && file.type.includes('/')) ? (file.type.split('/')[1] || 'FILE') : (file.type || 'FILE')} • {formatSize(file.size)}
                     </p>
                   </div>
                   <a 
                     href={file.url} 
                     download={file.name}
-                    className="p-2 bg-indigo-50 dark:bg-[var(--accent)]/10 text-indigo-600 dark:text-[var(--accent-text)] rounded-lg hover:bg-indigo-600 dark:hover:bg-[var(--accent)] hover:text-white transition-all shrink-0"
+                    className="p-2 bg-[var(--accent)]/10 text-[var(--accent-text)] rounded-lg hover:bg-[var(--accent)] hover:text-white transition-all shrink-0"
                     title="Download"
                   >
                     <Download size={14} />

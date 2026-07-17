@@ -162,13 +162,13 @@ export function StyledSelect({
         }}
         className={cn(
           "flex min-h-9 min-w-0 items-center justify-between gap-2 text-left cursor-pointer",
-          "focus-visible:ring-4 focus-visible:ring-indigo-500/10 dark:focus-visible:ring-[var(--accent)]/10 focus-visible:border-indigo-500 dark:focus-visible:border-[var(--accent)]",
+          "focus-visible:ring-4 focus-visible:ring-[var(--accent)]/10 focus-visible:border-[var(--accent)]",
           "disabled:cursor-not-allowed disabled:opacity-60",
           className,
         )}
       >
         <span className="min-w-0 flex-1 truncate">{selectedOption?.label}</span>
-        <ChevronDown size={15} className={cn("shrink-0 text-slate-400 dark:text-[var(--text-tertiary)] transition-transform duration-200", open && "rotate-180 text-indigo-500 dark:text-[var(--accent-text)]")} />
+        <ChevronDown size={15} className={cn("shrink-0 text-[var(--text-tertiary)] transition-transform duration-200", open && "rotate-180 text-[var(--accent-text)]")} />
       </button>
 
       {mounted && createPortal(
@@ -182,7 +182,7 @@ export function StyledSelect({
                 animate={{ opacity: 1, y: 0, scale: 1 }}
                 exit={{ opacity: 0, y: -4, scale: 0.98 }}
                 transition={{ duration: 0.16, ease: [0.22, 1, 0.36, 1] }}
-                className="fixed overflow-y-auto rounded-xl border border-slate-200 dark:border-[var(--border-default)] bg-white dark:bg-[var(--surface-card)] p-1.5 shadow-2xl shadow-slate-900/15"
+                className="fixed overflow-y-auto rounded-xl border border-[var(--border-default)] bg-[var(--surface-card)] p-1.5 shadow-2xl shadow-slate-900/15"
                 style={{ ...position, zIndex: 2147483001 }}
               >
                 {options.map((option, index) => {
@@ -198,8 +198,8 @@ export function StyledSelect({
                       onClick={() => selectOption(option)}
                       className={cn(
                         "flex w-full items-center gap-2 rounded-lg px-3 py-2.5 text-left text-sm transition-colors",
-                        activeIndex === index && "bg-slate-100 dark:bg-[var(--surface-pill)]",
-                        selected ? "font-bold text-indigo-600 dark:text-[var(--accent-text)]" : "font-medium text-slate-700 dark:text-[var(--text-secondary)]",
+                        activeIndex === index && "bg-[var(--surface-pill)]",
+                        selected ? "font-bold text-[var(--accent-text)]" : "font-medium text-[var(--text-secondary)]",
                         option.disabled && "cursor-not-allowed opacity-40",
                       )}
                     >

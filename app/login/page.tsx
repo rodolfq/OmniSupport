@@ -83,36 +83,36 @@ export default function LoginPage() {
   };
 
   return (
-    <div className="min-h-screen flex items-center justify-center bg-slate-50 dark:bg-[var(--surface-card)] p-6 relative">
+    <div className="min-h-screen flex items-center justify-center bg-[var(--surface-card)] p-6 relative">
       <button
         type="button"
         onClick={toggleTheme}
-        className="absolute top-6 right-6 p-2.5 rounded-xl text-slate-400 dark:text-[var(--text-tertiary)] hover:text-slate-600 dark:hover:text-[var(--text-secondary)] hover:bg-white dark:hover:bg-[var(--surface-card)] transition-all"
+        className="absolute top-6 right-6 p-2.5 rounded-xl text-[var(--text-tertiary)] hover:text-[var(--text-secondary)] hover:bg-[var(--surface-card)] transition-all"
         title={theme === 'dark' ? 'Ativar modo claro' : 'Ativar modo escuro'}
       >
         {theme === 'dark' ? <Sun size={20} /> : <Moon size={20} />}
       </button>
       <div className="w-full max-w-md">
         <div className="text-center mb-10">
-          <div className="bg-indigo-600 dark:bg-[var(--accent)] w-16 h-16 rounded-2xl flex items-center justify-center text-white shadow-xl shadow-indigo-100 mx-auto mb-6">
+          <div className="bg-[var(--accent)] w-16 h-16 rounded-2xl flex items-center justify-center text-white shadow-xl shadow-indigo-100 mx-auto mb-6">
             <Headset size={32} />
           </div>
-          <h1 className="text-3xl font-black text-slate-900 dark:text-[var(--text-primary)] tracking-tight">Bem-vindo de volta</h1>
-          <p className="text-slate-500 dark:text-[var(--text-tertiary)] font-medium mt-2">Acesse sua conta OmniSupport</p>
+          <h1 className="text-3xl font-black text-[var(--text-primary)] tracking-tight">Bem-vindo de volta</h1>
+          <p className="text-[var(--text-tertiary)] font-medium mt-2">Acesse sua conta OmniSupport</p>
         </div>
 
-        <div className="bg-white dark:bg-[var(--surface-card)] p-8 rounded-3xl border border-slate-200 dark:border-[var(--border-default)] shadow-xl shadow-slate-200/50">
+        <div className="bg-[var(--surface-card)] p-8 rounded-3xl border border-[var(--border-default)] shadow-xl shadow-slate-200/50">
           <form onSubmit={handleLogin} className="space-y-6">
             <div className="space-y-2">
-              <label className="text-[10px] font-black uppercase tracking-widest text-slate-400 dark:text-[var(--text-tertiary)] ml-1">Email Corporativo</label>
+              <label className="text-[10px] font-semibold uppercase tracking-widest text-[var(--text-tertiary)] ml-1">Email Corporativo</label>
               <div className="relative">
-                <Mail className="absolute left-4 top-1/2 -translate-y-1/2 text-slate-400 dark:text-[var(--text-tertiary)]" size={18} />
-                <input 
-                  type="email" 
+                <Mail className="absolute left-4 top-1/2 -translate-y-1/2 text-[var(--text-tertiary)]" size={18} />
+                <input
+                  type="email"
                   value={email}
                   onChange={(e) => setEmail(e.target.value)}
                   placeholder="exemplo@empresa.com"
-                  className="w-full bg-slate-50 dark:bg-[var(--surface-card)] border border-slate-200 dark:border-[var(--border-default)] rounded-xl py-3 pl-12 pr-4 focus:outline-none focus:ring-2 focus:ring-indigo-500/20 dark:focus:ring-[var(--accent)]/20 focus:border-indigo-500 dark:focus:border-[var(--accent)] transition-all font-medium"
+                  className="w-full bg-[var(--surface-card)] border border-[var(--border-default)] rounded-xl py-3 pl-12 pr-4 focus:outline-none focus:ring-2 focus:ring-[var(--accent)]/20 focus:border-[var(--accent)] transition-all font-medium"
                   required
                   disabled={isLoading}
                 />
@@ -120,22 +120,22 @@ export default function LoginPage() {
             </div>
 
             <div className="space-y-2">
-              <label className="text-[10px] font-black uppercase tracking-widest text-slate-400 dark:text-[var(--text-tertiary)] ml-1">Senha</label>
+              <label className="text-[10px] font-semibold uppercase tracking-widest text-[var(--text-tertiary)] ml-1">Senha</label>
               <div className="relative">
-                <Lock className="absolute left-4 top-1/2 -translate-y-1/2 text-slate-400 dark:text-[var(--text-tertiary)]" size={18} />
-                <input 
+                <Lock className="absolute left-4 top-1/2 -translate-y-1/2 text-[var(--text-tertiary)]" size={18} />
+                <input
                   type={showPassword ? 'text' : 'password'}
                   value={password}
                   onChange={(e) => setPassword(e.target.value)}
                   placeholder="••••••••"
-                  className="w-full bg-slate-50 dark:bg-[var(--surface-card)] border border-slate-200 dark:border-[var(--border-default)] rounded-xl py-3 pl-12 pr-12 focus:outline-none focus:ring-2 focus:ring-indigo-500/20 dark:focus:ring-[var(--accent)]/20 focus:border-indigo-500 dark:focus:border-[var(--accent)] transition-all font-medium"
+                  className="w-full bg-[var(--surface-card)] border border-[var(--border-default)] rounded-xl py-3 pl-12 pr-12 focus:outline-none focus:ring-2 focus:ring-[var(--accent)]/20 focus:border-[var(--accent)] transition-all font-medium"
                   required
                   disabled={isLoading}
                 />
                 <button
                   type="button"
                   onClick={() => setShowPassword(value => !value)}
-                  className="absolute right-4 top-1/2 -translate-y-1/2 text-slate-400 dark:text-[var(--text-tertiary)] hover:text-indigo-600 dark:hover:text-[var(--accent-text)]"
+                  className="absolute right-4 top-1/2 -translate-y-1/2 text-[var(--text-tertiary)] hover:text-[var(--accent-text)]"
                   title={showPassword ? 'Ocultar senha' : 'Mostrar senha'}
                 >
                   {showPassword ? <EyeOff size={18} /> : <Eye size={18} />}
@@ -144,17 +144,17 @@ export default function LoginPage() {
             </div>
 
             <div className="flex items-center justify-between text-xs font-bold px-1">
-              <label className="flex items-center gap-2 text-slate-500 dark:text-[var(--text-tertiary)] cursor-pointer">
-                <input type="checkbox" className="rounded border-slate-300 dark:border-[var(--border-default)] text-indigo-600 dark:text-[var(--accent-text)] focus:ring-indigo-500 dark:focus:ring-[var(--accent)]" disabled={isLoading} />
+              <label className="flex items-center gap-2 text-[var(--text-tertiary)] cursor-pointer">
+                <input type="checkbox" className="rounded border-[var(--border-default)] text-[var(--accent-text)] focus:ring-[var(--accent)]" disabled={isLoading} />
                 Lembrar-me
               </label>
-              <button type="button" className="text-indigo-600 dark:text-[var(--accent-text)] hover:underline" disabled={isLoading}>Esqueceu a senha?</button>
+              <button type="button" className="text-[var(--accent-text)] hover:underline" disabled={isLoading}>Esqueceu a senha?</button>
             </div>
 
-            <button 
-              type="submit" 
+            <button
+              type="submit"
               disabled={isLoading}
-              className="w-full bg-indigo-600 dark:bg-[var(--accent)] text-white py-4 rounded-xl font-black uppercase tracking-widest text-sm shadow-lg shadow-indigo-100 hover:bg-indigo-700 dark:hover:bg-[var(--accent-hover)] transition-all flex items-center justify-center gap-2 group disabled:opacity-70 disabled:cursor-not-allowed"
+              className="w-full bg-[var(--accent)] text-white py-4 rounded-xl font-black uppercase tracking-widest text-sm shadow-lg shadow-indigo-100 hover:bg-[var(--accent-hover)] transition-all flex items-center justify-center gap-2 group disabled:opacity-70 disabled:cursor-not-allowed"
             >
               {isLoading ? (
                 <>
@@ -170,14 +170,14 @@ export default function LoginPage() {
             </button>
           </form>
 
-          <div className="mt-8 pt-8 border-t border-slate-100 dark:border-[var(--border-default)] text-center">
-            <p className="text-sm text-slate-500 dark:text-[var(--text-tertiary)] font-medium">
-              Não tem uma conta? <Link href="/" className="text-indigo-600 dark:text-[var(--accent-text)] font-bold hover:underline">Solicite acesso</Link>
+          <div className="mt-8 pt-8 border-t border-[var(--border-default)] text-center">
+            <p className="text-sm text-[var(--text-tertiary)] font-medium">
+              Não tem uma conta? <Link href="/" className="text-[var(--accent-text)] font-bold hover:underline">Solicite acesso</Link>
             </p>
           </div>
         </div>
-        
-        <p className="text-center mt-8 text-[10px] font-black text-slate-400 dark:text-[var(--text-tertiary)] uppercase tracking-widest">
+
+        <p className="text-center mt-8 text-[10px] font-semibold text-[var(--text-tertiary)] uppercase tracking-widest">
           Ambiente Seguro & Criptografado
         </p>
       </div>

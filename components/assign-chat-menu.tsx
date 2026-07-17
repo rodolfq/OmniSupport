@@ -57,7 +57,7 @@ export function AssignChatMenu({
             onClick={onAssignToSelf}
             disabled={!isCurrentUserOnline}
             className={cn(
-              'flex items-center gap-2 bg-indigo-600 dark:bg-[var(--accent)] text-white text-[10px] font-black uppercase tracking-widest hover:bg-indigo-700 dark:hover:bg-[var(--accent-hover)] transition-all disabled:opacity-50 disabled:cursor-not-allowed',
+              'flex items-center gap-2 bg-[var(--accent)] text-white text-[10px] font-semibold hover:bg-[var(--accent-hover)] transition-all disabled:opacity-50 disabled:cursor-not-allowed',
               variant === 'full' ? 'px-4 py-2' : 'px-2.5 py-2'
             )}
             title={isCurrentUserOnline ? undefined : 'Você precisa estar Online para assumir atendimentos'}
@@ -69,8 +69,8 @@ export function AssignChatMenu({
           type="button"
           onClick={() => setOpen(o => !o)}
           className={cn(
-            'flex items-center justify-center bg-indigo-600 dark:bg-[var(--accent)] text-white hover:bg-indigo-700 dark:hover:bg-[var(--accent-hover)] transition-all',
-            showSelf ? 'px-1.5 py-2 border-l border-indigo-500 dark:border-[var(--accent)]' : 'px-2.5 py-2'
+            'flex items-center justify-center bg-[var(--accent)] text-white hover:bg-[var(--accent-hover)] transition-all',
+            showSelf ? 'px-1.5 py-2 border-l border-[var(--accent)]' : 'px-2.5 py-2'
           )}
           title="Enviar para outro usuário online"
         >
@@ -80,12 +80,12 @@ export function AssignChatMenu({
       </div>
 
       {open && (
-        <div className="absolute right-0 mt-2 w-56 bg-white dark:bg-[var(--surface-card)] border border-slate-200 dark:border-[var(--border-default)] rounded-2xl shadow-2xl z-30 overflow-hidden">
-          <p className="px-4 py-2 text-[9px] font-black uppercase tracking-widest text-slate-400 dark:text-[var(--text-tertiary)] border-b border-slate-50 dark:border-[var(--border-default)]">
+        <div className="absolute right-0 mt-2 w-56 bg-[var(--surface-card)] border border-[var(--border-default)] rounded-2xl shadow-2xl z-30 overflow-hidden">
+          <p className="px-4 py-2 text-[9px] font-semibold text-[var(--text-tertiary)] border-b border-[var(--border-default)]">
             Enviar para
           </p>
           {targets.length === 0 ? (
-            <p className="px-4 py-3 text-xs text-slate-400 dark:text-[var(--text-tertiary)] italic">Nenhum outro usuário online</p>
+            <p className="px-4 py-3 text-xs text-[var(--text-tertiary)] italic">Nenhum outro usuário online</p>
           ) : (
             <div className="max-h-56 overflow-y-auto">
               {targets.map(target => (
@@ -96,9 +96,9 @@ export function AssignChatMenu({
                     onAssignToUser(target.id);
                     setOpen(false);
                   }}
-                  className="w-full flex items-center gap-2 px-4 py-2.5 text-xs font-bold text-slate-700 dark:text-[var(--text-secondary)] hover:bg-indigo-50 dark:hover:bg-[var(--accent)]/10 transition-all text-left"
+                  className="w-full flex items-center gap-2 px-4 py-2.5 text-xs font-bold text-[var(--text-secondary)] hover:bg-[var(--accent)]/10 transition-all text-left"
                 >
-                  <Send size={12} className="text-indigo-500 dark:text-[var(--accent-text)] shrink-0" /> {target.name}
+                  <Send size={12} className="text-[var(--accent-text)] shrink-0" /> {target.name}
                 </button>
               ))}
             </div>

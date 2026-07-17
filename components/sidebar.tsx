@@ -133,9 +133,9 @@ export function Sidebar() {
   }, [currentUser]);
 
   return (
-    <div className="w-20 bg-slate-900 dark:bg-[var(--surface-sidebar)] flex flex-col items-center py-6 gap-8 border-r border-slate-800 dark:border-[var(--border-default)] shadow-xl h-screen sticky top-0 z-20">
-      <div className="w-10 h-10 bg-indigo-500 dark:bg-[var(--accent)] rounded-lg flex items-center justify-center mb-4">
-        <Headset size={24} className="text-white" />
+    <div className="w-20 bg-[var(--surface-sidebar)] flex flex-col items-center py-6 gap-8 border-r border-white/10 shadow-xl h-screen sticky top-0 z-20">
+      <div className="w-10 h-10 bg-[var(--accent)] rounded-xl flex items-center justify-center mb-4">
+        <Headset size={22} className="text-white" />
       </div>
 
       <div className="flex-1 flex flex-col gap-4">
@@ -159,35 +159,35 @@ export function Sidebar() {
           return (
             <div key={item.name} className="relative group/main">
               {hasSubItems ? (
-                <button 
+                <button
                   onClick={() => setOpenSubmenu(openSubmenu === item.name ? null : item.name)}
                   className={cn(
                     "p-3 rounded-xl transition-all relative",
-                    isActive 
-                      ? "bg-slate-800 dark:bg-[var(--surface-pill)] text-indigo-400 dark:text-[var(--accent-text)]" 
-                      : "text-slate-500 dark:text-[var(--text-tertiary)] hover:bg-slate-800/50 dark:hover:bg-[var(--surface-pill)]/50 hover:text-slate-300"
+                    isActive
+                      ? "bg-white/10 text-[#5EEAD4]"
+                      : "text-white/40 hover:bg-white/5 hover:text-white/70"
                   )}
                   title={item.name}
                 >
                   <item.icon size={24} />
                   {isActive && (
-                    <div className="absolute right-0 top-1/2 -translate-y-1/2 w-1 h-6 bg-indigo-500 dark:bg-[var(--accent)] rounded-l-full" />
+                    <div className="absolute right-0 top-1/2 -translate-y-1/2 w-1 h-6 bg-[var(--accent)] rounded-l-full" />
                   )}
                 </button>
               ) : (
-                <Link 
+                <Link
                   href={item.href!}
                   title={item.name}
                   className={cn(
                     "p-3 rounded-xl transition-all relative block",
-                    isActive 
-                      ? "bg-slate-800 dark:bg-[var(--surface-pill)] text-indigo-400 dark:text-[var(--accent-text)]" 
-                      : "text-slate-500 dark:text-[var(--text-tertiary)] hover:bg-slate-800/50 dark:hover:bg-[var(--surface-pill)]/50 hover:text-slate-300"
+                    isActive
+                      ? "bg-white/10 text-[#5EEAD4]"
+                      : "text-white/40 hover:bg-white/5 hover:text-white/70"
                   )}
                 >
                   <item.icon size={24} />
                   {isActive && (
-                    <div className="absolute right-0 top-1/2 -translate-y-1/2 w-1 h-6 bg-indigo-500 dark:bg-[var(--accent)] rounded-l-full" />
+                    <div className="absolute right-0 top-1/2 -translate-y-1/2 w-1 h-6 bg-[var(--accent)] rounded-l-full" />
                   )}
                 </Link>
               )}
@@ -195,11 +195,11 @@ export function Sidebar() {
               {/* Submenu Flyout */}
               {hasSubItems && (
                 <div className={cn(
-                  "absolute left-full ml-2 top-0 bg-slate-900 dark:bg-[var(--surface-card)] border border-slate-800 dark:border-[var(--border-default)] rounded-2xl p-2 min-w-[180px] shadow-2xl transition-all scale-95 opacity-0 pointer-events-none group-hover/main:scale-100 group-hover/main:opacity-100 group-hover/main:pointer-events-auto z-50 before:absolute before:-left-2 before:top-0 before:h-full before:w-2 before:content-['']",
+                  "absolute left-full ml-2 top-0 bg-[var(--surface-card)] border border-[var(--border-default)] rounded-2xl p-2 min-w-[180px] shadow-2xl transition-all scale-95 opacity-0 pointer-events-none group-hover/main:scale-100 group-hover/main:opacity-100 group-hover/main:pointer-events-auto z-50 before:absolute before:-left-2 before:top-0 before:h-full before:w-2 before:content-['']",
                   openSubmenu === item.name && "scale-100 opacity-100 pointer-events-auto"
                 )}>
-                  <div className="px-4 py-2 border-b border-slate-800 dark:border-[var(--border-default)] mb-2">
-                    <p className="text-[10px] font-black uppercase tracking-widest text-slate-500 dark:text-[var(--text-tertiary)]">{item.name}</p>
+                  <div className="px-4 py-2 border-b border-[var(--border-default)] mb-2">
+                    <p className="text-[10px] font-semibold uppercase tracking-widest text-[var(--text-tertiary)]">{item.name}</p>
                   </div>
                   {item.subItems?.map(sub => {
                     // Check sub-item permission
@@ -215,7 +215,7 @@ export function Sidebar() {
                             sub.action?.();
                             setOpenSubmenu(null);
                           }}
-                          className="w-full flex items-center gap-3 px-4 py-3 rounded-xl text-xs font-bold text-slate-400 dark:text-[var(--text-tertiary)] hover:bg-slate-800 dark:hover:bg-[var(--surface-pill)] hover:text-slate-200 dark:hover:text-[var(--text-secondary)] transition-all border-none outline-none"
+                          className="w-full flex items-center gap-3 px-4 py-3 rounded-xl text-xs font-bold text-[var(--text-secondary)] hover:bg-[var(--surface-pill)] hover:text-[var(--text-primary)] transition-all border-none outline-none"
                         >
                           <sub.icon size={16} />
                           {sub.name}
@@ -230,9 +230,9 @@ export function Sidebar() {
                         onClick={() => setOpenSubmenu(null)}
                         className={cn(
                           "flex items-center gap-3 px-4 py-3 rounded-xl text-xs font-bold transition-all",
-                          isSubActive 
-                            ? "bg-indigo-500/10 dark:bg-[var(--accent)]/10 text-indigo-400 dark:text-[var(--accent-text)]" 
-                            : "text-slate-400 dark:text-[var(--text-tertiary)] hover:bg-slate-800 dark:hover:bg-[var(--surface-pill)] hover:text-slate-200 dark:hover:text-[var(--text-secondary)]"
+                          isSubActive
+                            ? "bg-[var(--accent)]/10 text-[var(--accent-text)]"
+                            : "text-[var(--text-secondary)] hover:bg-[var(--surface-pill)] hover:text-[var(--text-primary)]"
                         )}
                       >
                         <sub.icon size={16} />
@@ -248,26 +248,26 @@ export function Sidebar() {
       </div>
 
       <div className="mt-auto flex flex-col items-center gap-4">
-        <div 
+        <div
           className={cn(
             "p-2 rounded-lg transition-all relative flex flex-col items-center gap-1",
-            dbStatus === 'connected' ? "text-emerald-500 dark:text-[var(--text-success)] bg-emerald-500/10 dark:bg-[var(--text-success)]/10" : 
-            dbStatus === 'error' ? "text-red-500 dark:text-[var(--text-danger)] bg-red-500/10 dark:bg-[var(--text-danger)]/10 animate-pulse" : "text-slate-500 dark:text-[var(--text-tertiary)] bg-slate-800/50 dark:bg-[var(--surface-pill)]/50"
+            dbStatus === 'connected' ? "text-emerald-400 bg-white/5" :
+            dbStatus === 'error' ? "text-red-400 bg-white/5 animate-pulse" : "text-white/40 bg-white/5"
           )}
           title={`Banco de Dados: ${dbStatus === 'connected' ? 'Conectado' : dbStatus === 'error' ? 'Erro de Conexão' : 'Desconectado'}`}
         >
           <Database size={18} />
           <div className={cn(
             "w-1.5 h-1.5 rounded-full",
-            dbStatus === 'connected' ? "bg-emerald-500 dark:bg-[var(--text-success)]" :
-            dbStatus === 'error' ? "bg-red-500 dark:bg-[var(--text-danger)]" : "bg-slate-500 dark:bg-[var(--text-tertiary)]"
+            dbStatus === 'connected' ? "bg-emerald-400" :
+            dbStatus === 'error' ? "bg-red-400" : "bg-white/40"
           )} />
         </div>
 
         <div className={cn(
-          "w-10 h-10 rounded-full bg-slate-700 dark:bg-[var(--border-default)] border-2 flex items-center justify-center text-slate-300 text-xs font-bold overflow-hidden cursor-help",
-          userStatus === 'online' ? "border-emerald-500 dark:border-[var(--text-success)]" :
-          userStatus === 'away' ? "border-amber-500 dark:border-[var(--text-warning-strong)]" : "border-slate-500 dark:border-[var(--text-tertiary)]"
+          "w-10 h-10 rounded-full bg-white/10 border-2 flex items-center justify-center text-white/80 text-xs font-bold overflow-hidden cursor-help",
+          userStatus === 'online' ? "border-emerald-400" :
+          userStatus === 'away' ? "border-amber-400" : "border-white/20"
         )} title={`${currentUser?.name} (${userStatus})`}>
           {currentUser?.avatarUrl ? (
             <img src={currentUser.avatarUrl} alt={currentUser.name} className="w-full h-full object-cover" />
@@ -275,12 +275,12 @@ export function Sidebar() {
             (currentUser?.name || 'U').charAt(0)
           )}
         </div>
-        <button 
+        <button
           onClick={handleLogout}
-          className="p-3 text-slate-500 dark:text-[var(--text-tertiary)] hover:text-red-400 dark:hover:text-[var(--text-danger)] transition-colors"
+          className="p-3 text-white/40 hover:text-red-400 transition-colors"
           title="Sair"
         >
-          <LogOut size={24} />
+          <LogOut size={22} />
         </button>
       </div>
 

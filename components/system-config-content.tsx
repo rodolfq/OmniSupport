@@ -58,7 +58,7 @@ export function SystemConfigContent({ categories, priorities, setCategories, set
         toast.success(`SLA de ${label} atualizado para ${days} dias`);
       }
     } else {
-      const { data, error } = await supabase.from('config_priorities').insert({ label, sla_hours: hours, color: 'bg-slate-100 dark:bg-[var(--surface-pill)] text-slate-600 dark:text-[var(--text-secondary)]' }).select();
+      const { data, error } = await supabase.from('config_priorities').insert({ label, sla_hours: hours, color: 'bg-[var(--surface-pill)] text-[var(--text-secondary)]' }).select();
       if (error) { 
         toast.error('Erro ao ativar prioridade');
         console.error('Insert error:', error);
@@ -73,48 +73,48 @@ export function SystemConfigContent({ categories, priorities, setCategories, set
   const priorityLabels = ['Baixa', 'Média', 'Alta', 'Urgente'];
 
   return (
-    <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-8 border-t border-slate-200 dark:border-[var(--border-default)] pt-8 mt-8">
+    <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-8 border-t border-[var(--border-default)] pt-8 mt-8">
       <div className="space-y-4">
-        <h4 className="text-sm font-black text-slate-800 dark:text-[var(--text-primary)] uppercase tracking-tight">Categorias</h4>
+        <h4 className="text-sm font-black text-[var(--text-primary)] uppercase tracking-tight">Categorias</h4>
         <div className="flex gap-2">
-          <input value={newCatLabel} onChange={e => setNewCatLabel(e.target.value)} placeholder="Nova categoria..." className="flex-1 bg-slate-50 dark:bg-[var(--surface-card)] border border-slate-200 dark:border-[var(--border-default)] rounded-xl px-4 py-2 text-sm" />
+          <input value={newCatLabel} onChange={e => setNewCatLabel(e.target.value)} placeholder="Nova categoria..." className="flex-1 bg-[var(--surface-card)] border border-[var(--border-default)] rounded-xl px-4 py-2 text-sm" />
           <button onClick={addCategory} className="bg-slate-900 text-white p-2 rounded-xl"><Plus size={18}/></button>
         </div>
-        <div className="bg-slate-50 dark:bg-[var(--surface-card)] rounded-2xl p-4 space-y-2">
+        <div className="bg-[var(--surface-card)] rounded-2xl p-4 space-y-2">
           {categories.map((c: any) => (
-            <div key={c.id} className="flex justify-between items-center bg-white dark:bg-[var(--surface-card)] p-3 rounded-lg border border-slate-100 dark:border-[var(--border-default)] text-sm font-medium">
+            <div key={c.id} className="flex justify-between items-center bg-[var(--surface-card)] p-3 rounded-lg border border-[var(--border-default)] text-sm font-medium">
               {c.label}
-              <button onClick={() => deleteCategory(c.id)} className="text-red-500 dark:text-[var(--text-danger)]"><Trash2 size={16}/></button>
+              <button onClick={() => deleteCategory(c.id)} className="text-[var(--text-danger)]"><Trash2 size={16}/></button>
             </div>
           ))}
         </div>
       </div>
 
       <div className="space-y-4">
-        <h4 className="text-sm font-black text-slate-800 dark:text-[var(--text-primary)] uppercase tracking-tight">Prioridades (SLA)</h4>
-        <div className="bg-slate-50 dark:bg-[var(--surface-card)] rounded-2xl p-4 space-y-3">
+        <h4 className="text-sm font-black text-[var(--text-primary)] uppercase tracking-tight">Prioridades (SLA)</h4>
+        <div className="bg-[var(--surface-card)] rounded-2xl p-4 space-y-3">
           {priorityLabels.map((label, index) => {
             const priority = priorities.find((p: any) => p.label === label);
             const rawSlaHours = priority ? (priority.sla_hours || 24) : 24;
             const currentVal = slaValues[label] ?? Math.round(rawSlaHours / 24);
 
             return (
-              <div key={label} className="bg-white dark:bg-[var(--surface-card)] p-4 rounded-xl border border-slate-100 dark:border-[var(--border-default)] flex items-center justify-between shadow-sm">
+              <div key={label} className="bg-[var(--surface-card)] p-4 rounded-xl border border-[var(--border-default)] flex items-center justify-between shadow-sm">
                 <div className="flex items-center gap-3">
                   <div className="flex">
                     {[0, 1, 2, 3].map((s) => (
                       <Star 
                         key={s} 
                         size={14} 
-                        className={index >= s ? "fill-amber-400 text-amber-400 dark:text-[var(--text-warning)]" : "text-slate-200"} 
+                        className={index >= s ? "fill-amber-400 text-[var(--text-warning)]" : "text-slate-200"} 
                       />
                     ))}
                   </div>
-                  <span className="text-xs font-bold text-slate-700 dark:text-[var(--text-secondary)]">{label}</span>
+                  <span className="text-xs font-bold text-[var(--text-secondary)]">{label}</span>
                 </div>
                 
                 <div className="flex items-center gap-2">
-                  <div className="flex items-center gap-2 bg-slate-50 dark:bg-[var(--surface-card)] border border-slate-200 dark:border-[var(--border-default)] rounded-lg px-2 shrink-0">
+                  <div className="flex items-center gap-2 bg-[var(--surface-card)] border border-[var(--border-default)] rounded-lg px-2 shrink-0">
                     <input 
                        type="number" 
                        step="1"
@@ -126,12 +126,12 @@ export function SystemConfigContent({ categories, priorities, setCategories, set
                        }}
                        className="w-10 bg-transparent text-xs font-bold py-1 focus:outline-none"
                     />
-                    <span className="text-[10px] font-bold text-slate-400 dark:text-[var(--text-tertiary)] uppercase">dias</span>
+                    <span className="text-[10px] font-bold text-[var(--text-tertiary)] uppercase">dias</span>
                   </div>
                   
                   <button 
                     onClick={() => handleSaveSLA(label)}
-                    className="text-[10px] font-black uppercase text-indigo-600 dark:text-[var(--accent-text)] hover:bg-indigo-50 dark:hover:bg-[var(--accent)]/10 px-3 py-1.5 rounded-lg border border-indigo-100 dark:border-[var(--accent)]/20 transition-colors"
+                    className="text-[10px] font-black uppercase text-[var(--accent-text)] hover:bg-[var(--accent)]/10 px-3 py-1.5 rounded-lg border border-[var(--accent)]/20 transition-colors"
                   >
                     Salvar
                   </button>
@@ -140,7 +140,7 @@ export function SystemConfigContent({ categories, priorities, setCategories, set
             );
           })}
         </div>
-        <p className="text-[10px] text-slate-400 dark:text-[var(--text-tertiary)] font-medium px-2 italic">
+        <p className="text-[10px] text-[var(--text-tertiary)] font-medium px-2 italic">
           * O SLA define o tempo máximo para atendimento em dias inteiros.
         </p>
       </div>

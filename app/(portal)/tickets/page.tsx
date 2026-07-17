@@ -89,16 +89,16 @@ function SortableHeader({
       ref={setNodeRef}
       style={style}
       className={cn(
-        "px-6 py-5 text-[10px] font-black uppercase text-slate-400 dark:text-[var(--text-tertiary)] tracking-widest transition-colors",
-        column.sortable && "cursor-pointer hover:text-indigo-600 dark:hover:text-[var(--accent-text)]",
-        isDragging && "bg-white dark:bg-[var(--surface-card)] shadow-lg opacity-80",
+        "px-6 py-5 text-[10px] font-semibold uppercase text-[var(--text-tertiary)] tracking-widest transition-colors",
+        column.sortable && "cursor-pointer hover:text-[var(--accent-text)]",
+        isDragging && "bg-[var(--surface-card)] shadow-lg opacity-80",
       )}
     >
       <div className="flex items-center gap-2">
         <div
           {...attributes}
           {...listeners}
-          className="cursor-grab active:cursor-grabbing p-1 -ml-2 text-slate-300 hover:text-slate-400 dark:hover:text-[var(--text-tertiary)]"
+          className="cursor-grab active:cursor-grabbing p-1 -ml-2 text-slate-300 hover:text-[var(--text-tertiary)]"
         >
           <GripVertical size={10} />
         </div>
@@ -113,7 +113,7 @@ function SortableHeader({
               className={cn(
                 "transition-colors",
                 sortConfig?.key === column.id
-                  ? "text-indigo-600 dark:text-[var(--accent-text)]"
+                  ? "text-[var(--accent-text)]"
                   : "text-slate-200",
               )}
             />
@@ -566,7 +566,7 @@ export default function TicketsPage() {
   const getSLAStatus = (ticket: Ticket) => {
     const config = priorities.find((p) => p.label === ticket.priority);
     if (!config || !config.sla_hours)
-      return { label: "---", color: "text-slate-400 dark:text-[var(--text-tertiary)]", isOverdue: false };
+      return { label: "---", color: "text-[var(--text-tertiary)]", isOverdue: false };
 
     const createdAt = new Date(ticket.createdAt);
     const limit = new Date(
@@ -586,10 +586,10 @@ export default function TicketsPage() {
         minute: "2-digit",
       }),
       color: isOverdue
-        ? "text-red-600 dark:text-[var(--text-danger)] font-black"
+        ? "text-[var(--text-danger)] font-semibold"
         : isNear
           ? "text-orange-600 dark:text-orange-400 font-bold"
-          : "text-slate-500 dark:text-[var(--text-tertiary)] font-medium",
+          : "text-[var(--text-tertiary)] font-medium",
       isOverdue,
     };
   };
@@ -611,7 +611,7 @@ export default function TicketsPage() {
         // ID column - checkbox is rendered separately in the row
         return (
           <td key="id" className="px-6 py-5">
-            <span className="font-mono text-[10px] font-black text-indigo-600 dark:text-[var(--accent-text)] bg-indigo-50 dark:bg-[var(--accent)]/10 px-2 py-1 rounded">
+            <span className="font-mono text-[10px] font-semibold text-[var(--accent-text)] bg-[var(--accent)]/10 px-2 py-1 rounded">
               #{ticket.ticketNumber ? String(ticket.ticketNumber).padStart(4, '0') : ticket.id.slice(0, 8)}
             </span>
           </td>
@@ -621,16 +621,16 @@ export default function TicketsPage() {
           <td key="title" className="px-6 py-5">
             <div className="flex flex-col">
               <div className="flex flex-wrap items-center gap-2">
-                <span className="font-bold text-slate-800 dark:text-[var(--text-primary)] text-sm italic">
+                <span className="font-bold text-[var(--text-primary)] text-sm italic">
                   {ticket.title}
                 </span>
                 {ticket.id === "ex-ticket-payment-error" && (
-                  <span className="text-[9px] font-black uppercase tracking-tight text-indigo-700 dark:text-[var(--accent-text)] bg-indigo-50 dark:bg-[var(--accent)]/10 border border-indigo-200/50 dark:border-[var(--accent)]/30 px-1.5 py-0.5 rounded shadow-sm animate-pulse select-none">
+                  <span className="text-[9px] font-semibold uppercase tracking-tight text-[var(--accent-text)] bg-[var(--accent)]/10 border border-[var(--accent)]/30 px-1.5 py-0.5 rounded shadow-sm animate-pulse select-none">
                     Chamado Exemplo (Sem Banco)
                   </span>
                 )}
               </div>
-              <span className="text-[10px] text-slate-400 dark:text-[var(--text-tertiary)] font-medium">
+              <span className="text-[10px] text-[var(--text-tertiary)] font-medium">
                 {ticket.category}
               </span>
             </div>
@@ -640,7 +640,7 @@ export default function TicketsPage() {
         const company = companies.find((c) => c.id === ticket.companyId);
         return (
           <td key="company" className="px-6 py-5">
-            <span className="text-sm font-bold text-slate-600 dark:text-[var(--text-secondary)]">
+            <span className="text-sm font-bold text-[var(--text-secondary)]">
               {company?.name || "---"}
             </span>
           </td>
@@ -652,10 +652,10 @@ export default function TicketsPage() {
             <div className="flex items-center gap-2">
               {assignee ? (
                 <>
-                  <div className="w-5 h-5 rounded-full bg-slate-200 dark:bg-[var(--border-default)] flex items-center justify-center text-[8px] font-black text-slate-600 dark:text-[var(--text-secondary)]">
+                  <div className="w-5 h-5 rounded-full bg-[var(--border-default)] flex items-center justify-center text-[8px] font-semibold text-[var(--text-secondary)]">
                     {assignee.name.charAt(0)}
                   </div>
-                  <span className="text-sm font-medium text-slate-600 dark:text-[var(--text-secondary)]">
+                  <span className="text-sm font-medium text-[var(--text-secondary)]">
                     {assignee.name}
                   </span>
                 </>
@@ -672,14 +672,14 @@ export default function TicketsPage() {
           <td key="status" className="px-6 py-5">
             <span
               className={cn(
-                "px-3 py-1 rounded-full text-[10px] font-black uppercase tracking-tighter",
+                "px-3 py-1 rounded-full text-[10px] font-semibold uppercase tracking-tighter",
                 ticket.status === TicketStatus.NEW
-                  ? "bg-blue-100 dark:bg-[var(--surface-info)] text-blue-700 dark:text-[var(--text-info)]"
+                  ? "bg-[var(--surface-info)] text-[var(--text-info)]"
                   : isInProgressTicketStatus(ticket.status)
-                    ? "bg-amber-100 dark:bg-[var(--surface-warning)] text-amber-700 dark:text-[var(--text-warning)]"
+                    ? "bg-[var(--surface-warning)] text-[var(--text-warning)]"
                     : isClosedTicketStatus(ticket.status)
-                      ? "bg-emerald-100 dark:bg-[var(--surface-success)] text-emerald-700 dark:text-[var(--text-success)]"
-                      : "bg-slate-100 dark:bg-[var(--surface-pill)] text-slate-600 dark:text-[var(--text-secondary)]",
+                      ? "bg-[var(--surface-success)] text-[var(--text-success)]"
+                      : "bg-[var(--surface-pill)] text-[var(--text-secondary)]",
               )}
             >
               {ticket.status}
@@ -700,7 +700,7 @@ export default function TicketsPage() {
                     size={12}
                     className={cn(
                       star <= currentPriority
-                        ? "fill-amber-400 text-amber-400 dark:text-[var(--text-warning)]"
+                        ? "fill-amber-400 text-[var(--text-warning)]"
                         : "text-slate-200",
                     )}
                   />
@@ -718,7 +718,7 @@ export default function TicketsPage() {
                 {sla.label}
               </span>
               {sla.isOverdue && (
-                <span className="text-[8px] font-black text-red-500 dark:text-[var(--text-danger)] uppercase tracking-tighter">
+                <span className="text-[8px] font-semibold text-[var(--text-danger)] uppercase tracking-tighter">
                   SLA Vencido
                 </span>
               )}
@@ -736,7 +736,7 @@ export default function TicketsPage() {
                     event.stopPropagation();
                     setTicketToDelete(ticket);
                   }}
-                  className="p-2 text-slate-300 hover:text-red-600 dark:hover:text-[var(--text-danger)] hover:bg-red-50 dark:hover:bg-[var(--surface-danger)] rounded-xl transition-all"
+                  className="p-2 text-slate-300 hover:text-[var(--text-danger)] hover:bg-[var(--surface-danger)] rounded-xl transition-all"
                   title="Excluir chamado"
                 >
                   <Trash2 size={16} />
@@ -744,7 +744,7 @@ export default function TicketsPage() {
               )}
               <button
                 type="button"
-                className="p-2 text-slate-300 group-hover:text-indigo-600 dark:group-hover:text-[var(--accent-text)] transition-colors"
+                className="p-2 text-slate-300 group-hover:text-[var(--accent-text)] transition-colors"
                 title="Abrir chamado"
               >
                 <ChevronRight size={18} />
@@ -761,46 +761,46 @@ export default function TicketsPage() {
     <div className="space-y-8">
       <div className="flex justify-between items-end">
         <div>
-          <h2 className="text-3xl font-black text-slate-800 dark:text-[var(--text-primary)] tracking-tight">
+          <h2 className="text-3xl font-black text-[var(--text-primary)] tracking-tight">
             Chamados
           </h2>
-          <p className="text-slate-500 dark:text-[var(--text-tertiary)] font-medium">
+          <p className="text-[var(--text-tertiary)] font-medium">
             Gerenciamento completo de solicitações
           </p>
         </div>
         {showBulkActions && (
-          <div className="flex items-center gap-3 bg-indigo-50 dark:bg-[var(--accent)]/10 px-4 py-2 rounded-2xl border border-indigo-100 dark:border-[var(--accent)]/20">
-            <span className="text-xs font-bold text-indigo-700 dark:text-[var(--accent-text)]">
+          <div className="flex items-center gap-3 bg-[var(--accent)]/10 px-4 py-2 rounded-2xl border border-[var(--accent)]/20">
+            <span className="text-xs font-bold text-[var(--accent-text)]">
               {selectedTickets.length} selecionado(s)
             </span>
             <div className="flex gap-1.5">
               <button
                 onClick={() => setIsTransferModalOpen(true)}
-                className="px-3 py-1.5 bg-white dark:bg-[var(--surface-card)] text-indigo-600 dark:text-[var(--accent-text)] rounded-xl text-[10px] font-black uppercase tracking-widest border border-indigo-200 dark:border-[var(--accent)]/30 hover:bg-indigo-600 dark:hover:bg-[var(--accent)] hover:text-white transition-all flex items-center gap-1.5"
+                className="px-3 py-1.5 bg-[var(--surface-card)] text-[var(--accent-text)] rounded-xl text-[10px] font-semibold uppercase tracking-widest border border-[var(--accent)]/30 hover:bg-[var(--accent)] hover:text-white transition-all flex items-center gap-1.5"
               >
                 <Users size={12} /> Transferir
               </button>
               <button
                 onClick={() => setIsStatusModalOpen(true)}
-                className="px-3 py-1.5 bg-white dark:bg-[var(--surface-card)] text-slate-600 dark:text-[var(--text-secondary)] rounded-xl text-[10px] font-black uppercase tracking-widest border border-slate-200 dark:border-[var(--border-default)] hover:bg-slate-600 hover:text-white transition-all flex items-center gap-1.5"
+                className="px-3 py-1.5 bg-[var(--surface-card)] text-[var(--text-secondary)] rounded-xl text-[10px] font-semibold uppercase tracking-widest border border-[var(--border-default)] hover:bg-slate-600 hover:text-white transition-all flex items-center gap-1.5"
               >
                 <RefreshCw size={12} /> Status
               </button>
               <button
                 onClick={() => setIsMergeModalOpen(true)}
-                className="px-3 py-1.5 bg-white dark:bg-[var(--surface-card)] text-emerald-600 dark:text-[var(--text-success)] rounded-xl text-[10px] font-black uppercase tracking-widest border border-emerald-200 dark:border-[var(--text-success)]/30 hover:bg-emerald-600 dark:hover:bg-[var(--text-success)] hover:text-white transition-all flex items-center gap-1.5"
+                className="px-3 py-1.5 bg-[var(--surface-card)] text-[var(--text-success)] rounded-xl text-[10px] font-semibold uppercase tracking-widest border border-[var(--text-success)]/30 hover:bg-[var(--text-success)] hover:text-white transition-all flex items-center gap-1.5"
               >
                 <GitMerge size={12} /> Mesclar
               </button>
               <button
                 onClick={() => setIsTitleModalOpen(true)}
-                className="px-3 py-1.5 bg-white dark:bg-[var(--surface-card)] text-blue-600 dark:text-[var(--text-info)] rounded-xl text-[10px] font-black uppercase tracking-widest border border-blue-200 dark:border-[var(--text-info)]/30 hover:bg-blue-600 dark:hover:bg-[var(--text-info)] hover:text-white transition-all flex items-center gap-1.5"
+                className="px-3 py-1.5 bg-[var(--surface-card)] text-[var(--text-info)] rounded-xl text-[10px] font-semibold uppercase tracking-widest border border-[var(--text-info)]/30 hover:bg-[var(--text-info)] hover:text-white transition-all flex items-center gap-1.5"
               >
                 <FileText size={12} /> Título
               </button>
               <button
                 onClick={() => setIsPriorityModalOpen(true)}
-                className="px-3 py-1.5 bg-white dark:bg-[var(--surface-card)] text-amber-600 dark:text-[var(--text-warning)] rounded-xl text-[10px] font-black uppercase tracking-widest border border-amber-200 dark:border-[var(--border-alert)] hover:bg-amber-600 dark:hover:bg-[var(--accent-warning-hover)] hover:text-white transition-all flex items-center gap-1.5"
+                className="px-3 py-1.5 bg-[var(--surface-card)] text-[var(--text-warning)] rounded-xl text-[10px] font-semibold uppercase tracking-widest border border-[var(--border-alert)] hover:bg-[var(--accent-warning-hover)] hover:text-white transition-all flex items-center gap-1.5"
               >
                 <Star size={12} /> Prioridade
               </button>
@@ -809,13 +809,13 @@ export default function TicketsPage() {
                   setIsTagsModalOpen(true);
                   loadTags();
                 }}
-                className="px-3 py-1.5 bg-white dark:bg-[var(--surface-card)] text-purple-600 dark:text-purple-400 rounded-xl text-[10px] font-black uppercase tracking-widest border border-purple-200 dark:border-purple-500/30 hover:bg-purple-600 dark:hover:bg-purple-500 hover:text-white transition-all flex items-center gap-1.5"
+                className="px-3 py-1.5 bg-[var(--surface-card)] text-purple-600 dark:text-purple-400 rounded-xl text-[10px] font-semibold uppercase tracking-widest border border-purple-200 dark:border-purple-500/30 hover:bg-purple-600 dark:hover:bg-purple-500 hover:text-white transition-all flex items-center gap-1.5"
               >
                 <Tag size={12} /> Marcadores
               </button>
               <button
                 onClick={() => setSelectedTickets([])}
-                className="p-1.5 text-slate-400 dark:text-[var(--text-tertiary)] hover:text-red-600 dark:hover:text-[var(--text-danger)] transition-all"
+                className="p-1.5 text-[var(--text-tertiary)] hover:text-[var(--text-danger)] transition-all"
               >
                 <X size={14} />
               </button>
@@ -829,7 +829,7 @@ export default function TicketsPage() {
         loading={loading}
       />
 
-      <div className="bg-white dark:bg-[var(--surface-card)] border border-slate-200 dark:border-[var(--border-default)] rounded-3xl overflow-hidden shadow-sm shadow-slate-200/50 overflow-x-auto">
+      <div className="bg-[var(--surface-card)] border border-[var(--border-default)] rounded-3xl overflow-hidden shadow-sm shadow-slate-200/50 overflow-x-auto">
         <DndContext
           sensors={sensors}
           collisionDetection={closestCenter}
@@ -837,14 +837,14 @@ export default function TicketsPage() {
         >
           <table className="w-full text-left border-collapse min-w-[800px]">
             <thead>
-              <tr className="bg-slate-50/50 dark:bg-[var(--surface-card)]/50 border-b border-slate-100 dark:border-[var(--border-default)]">
+              <tr className="bg-[var(--surface-card)]/50 border-b border-[var(--border-default)]">
                 <th className="px-4 py-5 w-12">
                   <button
                     onClick={toggleSelectAll}
-                    className="p-1 hover:text-indigo-600 dark:hover:text-[var(--accent-text)] transition-colors"
+                    className="p-1 hover:text-[var(--accent-text)] transition-colors"
                   >
                     {selectedTickets.length === filteredTickets.length && filteredTickets.length > 0 ? (
-                      <CheckSquare size={16} className="text-indigo-600 dark:text-[var(--accent-text)]" />
+                      <CheckSquare size={16} className="text-[var(--accent-text)]" />
                     ) : (
                       <Square size={16} className="text-slate-300" />
                     )}
@@ -865,17 +865,17 @@ export default function TicketsPage() {
                 </SortableContext>
               </tr>
             </thead>
-<tbody className="divide-y divide-slate-50 dark:divide-[var(--border-default)]">
+<tbody className="divide-y divide-[var(--border-default)]">
               {loading ? (
                 <tr>
                   <td
                     colSpan={columns.length + 1}
                     className="px-6 py-12 text-center"
                   >
-                    <div className="flex flex-col items-center gap-4 text-slate-400 dark:text-[var(--text-tertiary)]">
+                    <div className="flex flex-col items-center gap-4 text-[var(--text-tertiary)]">
                       <Loader2
                         size={32}
-                        className="animate-spin text-indigo-600 dark:text-[var(--accent-text)]"
+                        className="animate-spin text-[var(--accent-text)]"
                       />
                       <p className="text-sm font-bold uppercase tracking-widest text-[10px]">
                         Carregando chamados...
@@ -889,7 +889,7 @@ export default function TicketsPage() {
                     colSpan={columns.length + 1}
                     className="px-6 py-12 text-center"
                   >
-                    <div className="flex flex-col items-center gap-2 text-slate-400 dark:text-[var(--text-tertiary)]">
+                    <div className="flex flex-col items-center gap-2 text-[var(--text-tertiary)]">
                       <FileText size={48} className="opacity-20" />
                       <p className="text-sm font-bold">
                         Nenhum chamado encontrado com esses filtros
@@ -903,8 +903,8 @@ export default function TicketsPage() {
                     key={t.id}
                     onClick={() => setSelectedTicket(t)}
                     className={cn(
-                      "hover:bg-slate-50/80 dark:hover:bg-[var(--surface-card)]/80 cursor-pointer transition-colors group",
-                      getSLAStatus(t).isOverdue && "bg-red-50/30 dark:bg-[var(--surface-danger)]/30",
+                      "hover:bg-[var(--surface-card)]/80 cursor-pointer transition-colors group",
+                      getSLAStatus(t).isOverdue && "bg-[var(--surface-danger)]/30",
                     )}
                   >
                     <td className="px-4 py-5 w-12">
@@ -913,10 +913,10 @@ export default function TicketsPage() {
                           e.stopPropagation();
                           toggleSelectTicket(t.id);
                         }}
-                        className="p-1 hover:text-indigo-600 dark:hover:text-[var(--accent-text)] transition-colors"
+                        className="p-1 hover:text-[var(--accent-text)] transition-colors"
                       >
                         {selectedTickets.includes(t.id) ? (
-                          <CheckSquare size={16} className="text-indigo-600 dark:text-[var(--accent-text)]" />
+                          <CheckSquare size={16} className="text-[var(--accent-text)]" />
                         ) : (
                           <Square size={16} className="text-slate-300" />
                         )}
@@ -931,8 +931,8 @@ export default function TicketsPage() {
         </DndContext>
 
         {!loading && (
-          <div className="flex flex-col gap-4 border-t border-slate-100 dark:border-[var(--border-default)] px-6 py-5 sm:flex-row sm:items-center sm:justify-between">
-            <p className="text-xs font-bold text-slate-500 dark:text-[var(--text-tertiary)]">
+          <div className="flex flex-col gap-4 border-t border-[var(--border-default)] px-6 py-5 sm:flex-row sm:items-center sm:justify-between">
+            <p className="text-xs font-bold text-[var(--text-tertiary)]">
               {totalCount === 0
                 ? 'Nenhum chamado'
                 : `Exibindo ${(currentPage - 1) * pageSize + 1}-${Math.min(currentPage * pageSize, totalCount)} de ${totalCount} chamados`}
@@ -946,7 +946,7 @@ export default function TicketsPage() {
                   aria-label="Página anterior"
                   disabled={currentPage === 1}
                   onClick={() => handlePagination(currentPage - 1)}
-                  className="flex h-9 w-9 items-center justify-center rounded-lg border border-slate-200 dark:border-[var(--border-default)] text-slate-500 dark:text-[var(--text-tertiary)] transition-colors hover:border-indigo-200 dark:hover:border-[var(--accent)]/30 hover:bg-indigo-50 dark:hover:bg-[var(--accent)]/10 hover:text-indigo-600 dark:hover:text-[var(--accent-text)] disabled:cursor-not-allowed disabled:opacity-40"
+                  className="flex h-9 w-9 items-center justify-center rounded-lg border border-[var(--border-default)] text-[var(--text-tertiary)] transition-colors hover:border-[var(--accent)]/30 hover:bg-[var(--accent)]/10 hover:text-[var(--accent-text)] disabled:cursor-not-allowed disabled:opacity-40"
                 >
                   <ChevronLeft size={16} />
                 </button>
@@ -961,8 +961,8 @@ export default function TicketsPage() {
                     className={cn(
                       "h-9 min-w-9 rounded-lg px-2 text-xs font-black transition-colors",
                       currentPage === pageNumber
-                        ? "bg-indigo-600 dark:bg-[var(--accent)] text-white shadow-md shadow-indigo-200"
-                        : "border border-slate-200 dark:border-[var(--border-default)] text-slate-500 dark:text-[var(--text-tertiary)] hover:border-indigo-200 dark:hover:border-[var(--accent)]/30 hover:bg-indigo-50 dark:hover:bg-[var(--accent)]/10 hover:text-indigo-600 dark:hover:text-[var(--accent-text)]"
+                        ? "bg-[var(--accent)] text-white shadow-md shadow-indigo-200"
+                        : "border border-[var(--border-default)] text-[var(--text-tertiary)] hover:border-[var(--accent)]/30 hover:bg-[var(--accent)]/10 hover:text-[var(--accent-text)]"
                     )}
                   >
                     {pageNumber}
@@ -975,7 +975,7 @@ export default function TicketsPage() {
                   aria-label="Próxima página"
                   disabled={currentPage === totalPages}
                   onClick={() => handlePagination(currentPage + 1)}
-                  className="flex h-9 w-9 items-center justify-center rounded-lg border border-slate-200 dark:border-[var(--border-default)] text-slate-500 dark:text-[var(--text-tertiary)] transition-colors hover:border-indigo-200 dark:hover:border-[var(--accent)]/30 hover:bg-indigo-50 dark:hover:bg-[var(--accent)]/10 hover:text-indigo-600 dark:hover:text-[var(--accent-text)] disabled:cursor-not-allowed disabled:opacity-40"
+                  className="flex h-9 w-9 items-center justify-center rounded-lg border border-[var(--border-default)] text-[var(--text-tertiary)] transition-colors hover:border-[var(--accent)]/30 hover:bg-[var(--accent)]/10 hover:text-[var(--accent-text)] disabled:cursor-not-allowed disabled:opacity-40"
                 >
                   <ChevronRight size={16} />
                 </button>
@@ -1024,23 +1024,23 @@ export default function TicketsPage() {
               initial={{ scale: 0.95, opacity: 0 }}
               animate={{ scale: 1, opacity: 1 }}
               exit={{ scale: 0.95, opacity: 0 }}
-              className="relative bg-white dark:bg-[var(--surface-card)] w-full max-w-md rounded-[2.5rem] shadow-2xl overflow-hidden"
+              className="relative bg-[var(--surface-card)] w-full max-w-md rounded-[2.5rem] shadow-2xl overflow-hidden"
             >
-              <div className="p-8 border-b border-slate-100 dark:border-[var(--border-default)]">
-                <h3 className="text-xl font-black text-slate-800 dark:text-[var(--text-primary)]">Transferir Chamados</h3>
-                <p className="text-sm text-slate-500 dark:text-[var(--text-tertiary)] mt-1">{selectedTickets.length} chamado(s) selecionado(s)</p>
+              <div className="p-8 border-b border-[var(--border-default)]">
+                <h3 className="text-xl font-black text-[var(--text-primary)]">Transferir Chamados</h3>
+                <p className="text-sm text-[var(--text-tertiary)] mt-1">{selectedTickets.length} chamado(s) selecionado(s)</p>
               </div>
               
               <div className="p-8 space-y-4">
                 <div>
-                  <label className="text-[10px] font-black uppercase text-slate-400 dark:text-[var(--text-tertiary)] mb-2 block">Equipe</label>
+                  <label className="text-[10px] font-semibold uppercase text-[var(--text-tertiary)] mb-2 block">Equipe</label>
                   <StyledSelect
                     value={selectedTeamId}
                     onChange={(e) => {
                       setSelectedTeamId(e.target.value);
                       setSelectedAssigneeId('');
                     }}
-                    className="w-full bg-slate-50 dark:bg-[var(--surface-card)] border border-slate-200 dark:border-[var(--border-default)] rounded-xl px-4 py-3 text-sm font-bold outline-none"
+                    className="w-full bg-[var(--surface-card)] border border-[var(--border-default)] rounded-xl px-4 py-3 text-sm font-bold outline-none"
                   >
                     <option value="">Selecione uma equipe</option>
                     {teams.map(team => (
@@ -1051,11 +1051,11 @@ export default function TicketsPage() {
                 
                 {selectedTeamId && (
                   <div>
-                    <label className="text-[10px] font-black uppercase text-slate-400 dark:text-[var(--text-tertiary)] mb-2 block">Analista</label>
+                    <label className="text-[10px] font-semibold uppercase text-[var(--text-tertiary)] mb-2 block">Analista</label>
                     <StyledSelect
                       value={selectedAssigneeId}
                       onChange={(e) => setSelectedAssigneeId(e.target.value)}
-                      className="w-full bg-slate-50 dark:bg-[var(--surface-card)] border border-slate-200 dark:border-[var(--border-default)] rounded-xl px-4 py-3 text-sm font-bold outline-none"
+                      className="w-full bg-[var(--surface-card)] border border-[var(--border-default)] rounded-xl px-4 py-3 text-sm font-bold outline-none"
                     >
                       <option value="">Selecione um analista</option>
                       {teamMembers.map(m => (
@@ -1066,17 +1066,17 @@ export default function TicketsPage() {
                 )}
               </div>
               
-              <div className="p-8 bg-slate-50/50 dark:bg-[var(--surface-card)]/50 flex gap-4">
+              <div className="p-8 bg-[var(--surface-card)]/50 flex gap-4">
                 <button
                   onClick={() => setIsTransferModalOpen(false)}
-                  className="flex-1 py-3 text-[10px] font-black uppercase tracking-widest text-slate-500 dark:text-[var(--text-tertiary)] hover:bg-slate-100 dark:hover:bg-[var(--surface-pill)] rounded-2xl transition-all"
+                  className="flex-1 py-3 text-[10px] font-semibold uppercase tracking-widest text-[var(--text-tertiary)] hover:bg-[var(--surface-pill)] rounded-2xl transition-all"
                 >
                   Cancelar
                 </button>
                 <button
                   onClick={handleBulkTransfer}
                   disabled={!selectedAssigneeId}
-                  className="flex-1 py-3 bg-indigo-600 dark:bg-[var(--accent)] text-white text-[10px] font-black uppercase tracking-widest rounded-2xl hover:bg-indigo-700 dark:hover:bg-[var(--accent-hover)] disabled:opacity-50 transition-all"
+                  className="flex-1 py-3 bg-[var(--accent)] text-white text-[10px] font-semibold uppercase tracking-widest rounded-2xl hover:bg-[var(--accent-hover)] disabled:opacity-50 transition-all"
                 >
                   Transferir
                 </button>
@@ -1101,19 +1101,19 @@ export default function TicketsPage() {
               initial={{ scale: 0.95, opacity: 0 }}
               animate={{ scale: 1, opacity: 1 }}
               exit={{ scale: 0.95, opacity: 0 }}
-              className="relative bg-white dark:bg-[var(--surface-card)] w-full max-w-md rounded-[2.5rem] shadow-2xl overflow-hidden"
+              className="relative bg-[var(--surface-card)] w-full max-w-md rounded-[2.5rem] shadow-2xl overflow-hidden"
             >
-              <div className="p-8 border-b border-slate-100 dark:border-[var(--border-default)]">
-                <h3 className="text-xl font-black text-slate-800 dark:text-[var(--text-primary)]">Alterar Status</h3>
-                <p className="text-sm text-slate-500 dark:text-[var(--text-tertiary)] mt-1">{selectedTickets.length} chamado(s) selecionado(s)</p>
+              <div className="p-8 border-b border-[var(--border-default)]">
+                <h3 className="text-xl font-black text-[var(--text-primary)]">Alterar Status</h3>
+                <p className="text-sm text-[var(--text-tertiary)] mt-1">{selectedTickets.length} chamado(s) selecionado(s)</p>
               </div>
               
               <div className="p-8 grid grid-cols-2 gap-3">
                 {[
-                  { value: TicketStatus.NEW, label: 'Novo', color: 'bg-blue-100 dark:bg-[var(--surface-info)] text-blue-700 dark:text-[var(--text-info)]' },
-                  { value: TicketStatus.IN_PROGRESS, label: 'Em Atendimento', color: 'bg-amber-100 dark:bg-[var(--surface-warning)] text-amber-700 dark:text-[var(--text-warning)]' },
-                  { value: 'Aguardando Cliente', label: 'Aguardando Cliente', color: 'bg-slate-100 dark:bg-[var(--surface-pill)] text-slate-600 dark:text-[var(--text-secondary)]' },
-                  { value: TicketStatus.CLOSED, label: 'Concluído/Fechado', color: 'bg-emerald-100 dark:bg-[var(--surface-success)] text-emerald-700 dark:text-[var(--text-success)]' },
+                  { value: TicketStatus.NEW, label: 'Novo', color: 'bg-[var(--surface-info)] text-[var(--text-info)]' },
+                  { value: TicketStatus.IN_PROGRESS, label: 'Em Atendimento', color: 'bg-[var(--surface-warning)] text-[var(--text-warning)]' },
+                  { value: 'Aguardando Cliente', label: 'Aguardando Cliente', color: 'bg-[var(--surface-pill)] text-[var(--text-secondary)]' },
+                  { value: TicketStatus.CLOSED, label: 'Concluído/Fechado', color: 'bg-[var(--surface-success)] text-[var(--text-success)]' },
                 ].map(status => (
                   <button
                     key={status.value}
@@ -1122,7 +1122,7 @@ export default function TicketsPage() {
                       setIsStatusModalOpen(false);
                     }}
                     className={cn(
-                      "py-3 rounded-xl text-[10px] font-black uppercase tracking-widest border transition-all",
+                      "py-3 rounded-xl text-[10px] font-semibold uppercase tracking-widest border transition-all",
                       status.color
                     )}
                   >
@@ -1131,10 +1131,10 @@ export default function TicketsPage() {
                 ))}
               </div>
               
-              <div className="p-8 bg-slate-50/50 dark:bg-[var(--surface-card)]/50">
+              <div className="p-8 bg-[var(--surface-card)]/50">
                 <button
                   onClick={() => setIsStatusModalOpen(false)}
-                  className="w-full py-3 text-[10px] font-black uppercase tracking-widest text-slate-500 dark:text-[var(--text-tertiary)] hover:bg-slate-100 dark:hover:bg-[var(--surface-pill)] rounded-2xl transition-all"
+                  className="w-full py-3 text-[10px] font-semibold uppercase tracking-widest text-[var(--text-tertiary)] hover:bg-[var(--surface-pill)] rounded-2xl transition-all"
                 >
                   Cancelar
                 </button>
@@ -1159,11 +1159,11 @@ export default function TicketsPage() {
               initial={{ scale: 0.95, opacity: 0 }}
               animate={{ scale: 1, opacity: 1 }}
               exit={{ scale: 0.95, opacity: 0 }}
-              className="relative bg-white dark:bg-[var(--surface-card)] w-full max-w-md rounded-[2.5rem] shadow-2xl overflow-hidden"
+              className="relative bg-[var(--surface-card)] w-full max-w-md rounded-[2.5rem] shadow-2xl overflow-hidden"
             >
-              <div className="p-8 border-b border-slate-100 dark:border-[var(--border-default)]">
-                <h3 className="text-xl font-black text-slate-800 dark:text-[var(--text-primary)]">Mesclar Chamados</h3>
-                <p className="text-sm text-slate-500 dark:text-[var(--text-tertiary)] mt-1">Selecione o chamado principal</p>
+              <div className="p-8 border-b border-[var(--border-default)]">
+                <h3 className="text-xl font-black text-[var(--text-primary)]">Mesclar Chamados</h3>
+                <p className="text-sm text-[var(--text-tertiary)] mt-1">Selecione o chamado principal</p>
               </div>
               
               <div className="p-8 max-h-80 overflow-y-auto space-y-2">
@@ -1176,34 +1176,34 @@ export default function TicketsPage() {
                       className={cn(
                         "w-full p-4 rounded-xl border text-left transition-all",
                         selectedMasterTicketId === id
-                          ? "border-emerald-300 dark:border-[var(--text-success)]/30 bg-emerald-50 dark:bg-[var(--surface-success)]"
-                          : "border-slate-200 dark:border-[var(--border-default)] hover:bg-slate-50 dark:hover:bg-[var(--surface-card)]"
+                          ? "border-[var(--text-success)]/30 bg-[var(--surface-success)]"
+                          : "border-[var(--border-default)] hover:bg-[var(--surface-card)]"
                       )}
                     >
                       <div className="flex items-center gap-2">
                         <div className={cn(
                           "w-4 h-4 rounded-full border-2",
-                          selectedMasterTicketId === id ? "border-emerald-500 dark:border-[var(--text-success)] bg-emerald-500 dark:bg-[var(--text-success)]" : "border-slate-300 dark:border-[var(--border-default)]"
+                          selectedMasterTicketId === id ? "border-[var(--text-success)] bg-[var(--text-success)]" : "border-[var(--border-default)]"
                         )} />
-                        <span className="font-bold text-slate-800 dark:text-[var(--text-primary)] text-sm">#{ticket.ticketNumber || ticket.id.slice(0, 8)}</span>
+                        <span className="font-bold text-[var(--text-primary)] text-sm">#{ticket.ticketNumber || ticket.id.slice(0, 8)}</span>
                       </div>
-                      <p className="text-xs text-slate-600 dark:text-[var(--text-secondary)] mt-1 truncate">{ticket.title}</p>
+                      <p className="text-xs text-[var(--text-secondary)] mt-1 truncate">{ticket.title}</p>
                     </button>
                   ) : null;
                 })}
               </div>
               
-              <div className="p-8 bg-slate-50/50 dark:bg-[var(--surface-card)]/50 flex gap-4">
+              <div className="p-8 bg-[var(--surface-card)]/50 flex gap-4">
                 <button
                   onClick={() => setIsMergeModalOpen(false)}
-                  className="flex-1 py-3 text-[10px] font-black uppercase tracking-widest text-slate-500 dark:text-[var(--text-tertiary)] hover:bg-slate-100 dark:hover:bg-[var(--surface-pill)] rounded-2xl transition-all"
+                  className="flex-1 py-3 text-[10px] font-semibold uppercase tracking-widest text-[var(--text-tertiary)] hover:bg-[var(--surface-pill)] rounded-2xl transition-all"
                 >
                   Cancelar
                 </button>
                 <button
                   onClick={handleMergeTickets}
                   disabled={!selectedMasterTicketId}
-                  className="flex-1 py-3 bg-emerald-600 dark:bg-[var(--text-success)] text-white text-[10px] font-black uppercase tracking-widest rounded-2xl hover:bg-emerald-700 disabled:opacity-50 transition-all"
+                  className="flex-1 py-3 bg-[var(--text-success)] text-white text-[10px] font-semibold uppercase tracking-widest rounded-2xl hover:bg-emerald-700 disabled:opacity-50 transition-all"
                 >
                   Mesclar
                 </button>
@@ -1228,11 +1228,11 @@ export default function TicketsPage() {
               initial={{ scale: 0.95, opacity: 0 }}
               animate={{ scale: 1, opacity: 1 }}
               exit={{ scale: 0.95, opacity: 0 }}
-              className="relative bg-white dark:bg-[var(--surface-card)] w-full max-w-md rounded-[2.5rem] shadow-2xl overflow-hidden"
+              className="relative bg-[var(--surface-card)] w-full max-w-md rounded-[2.5rem] shadow-2xl overflow-hidden"
             >
-              <div className="p-8 border-b border-slate-100 dark:border-[var(--border-default)]">
-                <h3 className="text-xl font-black text-slate-800 dark:text-[var(--text-primary)]">Alterar Título</h3>
-                <p className="text-sm text-slate-500 dark:text-[var(--text-tertiary)] mt-1">{selectedTickets.length} chamado(s) selecionado(s)</p>
+              <div className="p-8 border-b border-[var(--border-default)]">
+                <h3 className="text-xl font-black text-[var(--text-primary)]">Alterar Título</h3>
+                <p className="text-sm text-[var(--text-tertiary)] mt-1">{selectedTickets.length} chamado(s) selecionado(s)</p>
               </div>
               
               <div className="p-8">
@@ -1241,21 +1241,21 @@ export default function TicketsPage() {
                   value={newBulkTitle}
                   onChange={(e) => setNewBulkTitle(e.target.value)}
                   placeholder="Novo título..."
-                  className="w-full bg-slate-50 dark:bg-[var(--surface-card)] border border-slate-200 dark:border-[var(--border-default)] rounded-xl px-4 py-3 text-sm font-bold outline-none"
+                  className="w-full bg-[var(--surface-card)] border border-[var(--border-default)] rounded-xl px-4 py-3 text-sm font-bold outline-none"
                 />
               </div>
               
-              <div className="p-8 bg-slate-50/50 dark:bg-[var(--surface-card)]/50 flex gap-4">
+              <div className="p-8 bg-[var(--surface-card)]/50 flex gap-4">
                 <button
                   onClick={() => setIsTitleModalOpen(false)}
-                  className="flex-1 py-3 text-[10px] font-black uppercase tracking-widest text-slate-500 dark:text-[var(--text-tertiary)] hover:bg-slate-100 dark:hover:bg-[var(--surface-pill)] rounded-2xl transition-all"
+                  className="flex-1 py-3 text-[10px] font-semibold uppercase tracking-widest text-[var(--text-tertiary)] hover:bg-[var(--surface-pill)] rounded-2xl transition-all"
                 >
                   Cancelar
                 </button>
                 <button
                   onClick={handleBulkTitleChange}
                   disabled={!newBulkTitle.trim()}
-                  className="flex-1 py-3 bg-blue-600 dark:bg-[var(--text-info)] text-white text-[10px] font-black uppercase tracking-widest rounded-2xl hover:bg-blue-700 disabled:opacity-50 transition-all"
+                  className="flex-1 py-3 bg-[var(--text-info)] text-white text-[10px] font-semibold uppercase tracking-widest rounded-2xl hover:bg-blue-700 disabled:opacity-50 transition-all"
                 >
                   Alterar
                 </button>
@@ -1280,11 +1280,11 @@ export default function TicketsPage() {
               initial={{ scale: 0.95, opacity: 0 }}
               animate={{ scale: 1, opacity: 1 }}
               exit={{ scale: 0.95, opacity: 0 }}
-              className="relative bg-white dark:bg-[var(--surface-card)] w-full max-w-md rounded-[2.5rem] shadow-2xl overflow-hidden"
+              className="relative bg-[var(--surface-card)] w-full max-w-md rounded-[2.5rem] shadow-2xl overflow-hidden"
             >
-              <div className="p-8 border-b border-slate-100 dark:border-[var(--border-default)]">
-                <h3 className="text-xl font-black text-slate-800 dark:text-[var(--text-primary)]">Alterar Prioridade</h3>
-                <p className="text-sm text-slate-500 dark:text-[var(--text-tertiary)] mt-1">{selectedTickets.length} chamado(s) selecionado(s)</p>
+              <div className="p-8 border-b border-[var(--border-default)]">
+                <h3 className="text-xl font-black text-[var(--text-primary)]">Alterar Prioridade</h3>
+                <p className="text-sm text-[var(--text-tertiary)] mt-1">{selectedTickets.length} chamado(s) selecionado(s)</p>
               </div>
               
               <div className="p-8 grid grid-cols-2 gap-3">
@@ -1293,11 +1293,11 @@ export default function TicketsPage() {
                     key={priority}
                     onClick={() => handleBulkPriorityChange(priority)}
                     className={cn(
-                      "py-3 rounded-xl text-[10px] font-black uppercase tracking-widest border transition-all",
-                      priority === "Baixa" ? "bg-slate-100 dark:bg-[var(--surface-pill)] text-slate-600 dark:text-[var(--text-secondary)]" :
-                      priority === "Média" ? "bg-blue-100 dark:bg-[var(--surface-info)] text-blue-700 dark:text-[var(--text-info)]" :
-                      priority === "Alta" ? "bg-amber-100 dark:bg-[var(--surface-warning)] text-amber-700 dark:text-[var(--text-warning)]" :
-                      "bg-red-100 dark:bg-[var(--surface-danger)] text-red-700 dark:text-[var(--text-danger)]"
+                      "py-3 rounded-xl text-[10px] font-semibold uppercase tracking-widest border transition-all",
+                      priority === "Baixa" ? "bg-[var(--surface-pill)] text-[var(--text-secondary)]" :
+                      priority === "Média" ? "bg-[var(--surface-info)] text-[var(--text-info)]" :
+                      priority === "Alta" ? "bg-[var(--surface-warning)] text-[var(--text-warning)]" :
+                      "bg-[var(--surface-danger)] text-[var(--text-danger)]"
                     )}
                   >
                     {priority}
@@ -1305,10 +1305,10 @@ export default function TicketsPage() {
                 ))}
               </div>
               
-              <div className="p-8 bg-slate-50/50 dark:bg-[var(--surface-card)]/50">
+              <div className="p-8 bg-[var(--surface-card)]/50">
                 <button
                   onClick={() => setIsPriorityModalOpen(false)}
-                  className="w-full py-3 text-[10px] font-black uppercase tracking-widest text-slate-500 dark:text-[var(--text-tertiary)] hover:bg-slate-100 dark:hover:bg-[var(--surface-pill)] rounded-2xl transition-all"
+                  className="w-full py-3 text-[10px] font-semibold uppercase tracking-widest text-[var(--text-tertiary)] hover:bg-[var(--surface-pill)] rounded-2xl transition-all"
                 >
                   Cancelar
                 </button>
@@ -1333,11 +1333,11 @@ export default function TicketsPage() {
               initial={{ scale: 0.95, opacity: 0 }}
               animate={{ scale: 1, opacity: 1 }}
               exit={{ scale: 0.95, opacity: 0 }}
-              className="relative bg-white dark:bg-[var(--surface-card)] w-full max-w-md rounded-[2.5rem] shadow-2xl overflow-hidden"
+              className="relative bg-[var(--surface-card)] w-full max-w-md rounded-[2.5rem] shadow-2xl overflow-hidden"
             >
-              <div className="p-8 border-b border-slate-100 dark:border-[var(--border-default)]">
-                <h3 className="text-xl font-black text-slate-800 dark:text-[var(--text-primary)]">Adicionar Marcadores</h3>
-                <p className="text-sm text-slate-500 dark:text-[var(--text-tertiary)] mt-1">{selectedTickets.length} chamado(s) selecionado(s)</p>
+              <div className="p-8 border-b border-[var(--border-default)]">
+                <h3 className="text-xl font-black text-[var(--text-primary)]">Adicionar Marcadores</h3>
+                <p className="text-sm text-[var(--text-tertiary)] mt-1">{selectedTickets.length} chamado(s) selecionado(s)</p>
               </div>
               
               <div className="p-8 max-h-60 overflow-y-auto space-y-2">
@@ -1348,17 +1348,17 @@ export default function TicketsPage() {
                       setSelectedTags([tag.id]);
                       handleBulkTagsChange();
                     }}
-                    className="w-full p-3 bg-slate-50 dark:bg-[var(--surface-card)] border border-slate-200 dark:border-[var(--border-default)] rounded-xl text-left hover:bg-slate-100 dark:hover:bg-[var(--surface-pill)] transition-all"
+                    className="w-full p-3 bg-[var(--surface-card)] border border-[var(--border-default)] rounded-xl text-left hover:bg-[var(--surface-pill)] transition-all"
                   >
-                    <span className="text-sm font-bold text-slate-700 dark:text-[var(--text-secondary)]">{tag.label}</span>
+                    <span className="text-sm font-bold text-[var(--text-secondary)]">{tag.label}</span>
                   </button>
                 ))}
               </div>
               
-              <div className="p-8 bg-slate-50/50 dark:bg-[var(--surface-card)]/50">
+              <div className="p-8 bg-[var(--surface-card)]/50">
                 <button
                   onClick={() => setIsTagsModalOpen(false)}
-                  className="w-full py-3 text-[10px] font-black uppercase tracking-widest text-slate-500 dark:text-[var(--text-tertiary)] hover:bg-slate-100 dark:hover:bg-[var(--surface-pill)] rounded-2xl transition-all"
+                  className="w-full py-3 text-[10px] font-semibold uppercase tracking-widest text-[var(--text-tertiary)] hover:bg-[var(--surface-pill)] rounded-2xl transition-all"
                 >
                   Cancelar
                 </button>

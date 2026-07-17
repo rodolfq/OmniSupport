@@ -68,7 +68,7 @@ export default function ChatHistoryPage() {
   if (!currentUser || ![UserRole.ADMIN, UserRole.SUPPORT].includes(currentUser.role as UserRole)) {
     return (
       <div className="flex items-center justify-center h-full">
-        <p className="text-slate-500 dark:text-[var(--text-tertiary)]">Acesso negado</p>
+        <p className="text-[var(--text-tertiary)]">Acesso negado</p>
       </div>
     );
   }
@@ -84,31 +84,31 @@ export default function ChatHistoryPage() {
     <div className="space-y-6 animate-in fade-in duration-500">
       <div className="flex items-center justify-between">
         <div>
-          <h2 className="text-3xl font-black text-slate-800 dark:text-[var(--text-primary)] uppercase tracking-tight">Histórico de Conversas</h2>
-          <p className="text-slate-500 dark:text-[var(--text-tertiary)] font-medium mt-1">Acesse todas as conversas finalizadas</p>
+          <h2 className="text-3xl font-black text-[var(--text-primary)] uppercase tracking-tight">Histórico de Conversas</h2>
+          <p className="text-[var(--text-tertiary)] font-medium mt-1">Acesse todas as conversas finalizadas</p>
         </div>
       </div>
 
 {/* Filters */}
        <div className="flex flex-col md:flex-row gap-4">
          <div className="relative flex-1">
-           <Search className="absolute left-4 top-1/2 -translate-y-1/2 text-slate-400 dark:text-[var(--text-tertiary)]" size={18} />
+           <Search className="absolute left-4 top-1/2 -translate-y-1/2 text-[var(--text-tertiary)]" size={18} />
            <input 
              type="text" 
              placeholder="Buscar por cliente, agente ou conteúdo..." 
              value={search}
              onChange={e => setSearch(e.target.value)}
-             className="w-full bg-white dark:bg-[var(--surface-card)] border border-slate-200 dark:border-[var(--border-default)] rounded-2xl py-3 pl-12 pr-4 text-sm font-bold focus:ring-4 focus:ring-indigo-500/10 dark:focus:ring-[var(--accent)]/10 outline-none"
+             className="w-full bg-[var(--surface-card)] border border-[var(--border-default)] rounded-2xl py-3 pl-12 pr-4 text-sm font-bold focus:ring-4 focus:ring-[var(--accent)]/10 outline-none"
            />
          </div>
 
          {/* Handler Filter (Agent/Employee) */}
          <div className="relative">
-           <Users size={16} className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400 dark:text-[var(--text-tertiary)]" />
+           <Users size={16} className="absolute left-3 top-1/2 -translate-y-1/2 text-[var(--text-tertiary)]" />
            <StyledSelect 
              value={agentFilter}
              onChange={e => setAgentFilter(e.target.value)}
-             className="pl-9 pr-8 py-2 bg-white dark:bg-[var(--surface-card)] border border-slate-200 dark:border-[var(--border-default)] rounded-xl text-xs font-bold outline-none focus:ring-4 focus:ring-indigo-500/10 dark:focus:ring-[var(--accent)]/10 appearance-none cursor-pointer"
+             className="pl-9 pr-8 py-2 bg-[var(--surface-card)] border border-[var(--border-default)] rounded-xl text-xs font-bold outline-none focus:ring-4 focus:ring-[var(--accent)]/10 appearance-none cursor-pointer"
            >
              <option value="all">Todos Agentes/Funcionários</option>
              <optgroup label="Agentes">
@@ -122,23 +122,23 @@ export default function ChatHistoryPage() {
                ))}
              </optgroup>
            </StyledSelect>
-           <ChevronDown size={14} className="absolute right-2 top-1/2 -translate-y-1/2 text-slate-400 dark:text-[var(--text-tertiary)]" />
+           <ChevronDown size={14} className="absolute right-2 top-1/2 -translate-y-1/2 text-[var(--text-tertiary)]" />
          </div>
 
          {/* Customer Filter */}
          <div className="relative">
-           <User size={16} className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400 dark:text-[var(--text-tertiary)]" />
+           <User size={16} className="absolute left-3 top-1/2 -translate-y-1/2 text-[var(--text-tertiary)]" />
            <StyledSelect 
              value={customerFilter}
              onChange={e => setCustomerFilter(e.target.value)}
-             className="pl-9 pr-8 py-2 bg-white dark:bg-[var(--surface-card)] border border-slate-200 dark:border-[var(--border-default)] rounded-xl text-xs font-bold outline-none focus:ring-4 focus:ring-indigo-500/10 dark:focus:ring-[var(--accent)]/10 appearance-none cursor-pointer"
+             className="pl-9 pr-8 py-2 bg-[var(--surface-card)] border border-[var(--border-default)] rounded-xl text-xs font-bold outline-none focus:ring-4 focus:ring-[var(--accent)]/10 appearance-none cursor-pointer"
            >
              <option value="all">Todos Clientes</option>
              {users.filter(u => u.role === UserRole.CUSTOMER).map(u => (
                <option key={u.id} value={u.id}>{u.name || u.email}</option>
              ))}
            </StyledSelect>
-           <ChevronDown size={14} className="absolute right-2 top-1/2 -translate-y-1/2 text-slate-400 dark:text-[var(--text-tertiary)]" />
+           <ChevronDown size={14} className="absolute right-2 top-1/2 -translate-y-1/2 text-[var(--text-tertiary)]" />
          </div>
 
          <div className="flex items-center gap-2">
@@ -152,8 +152,8 @@ export default function ChatHistoryPage() {
                key={opt.value}
                onClick={() => setDateFilter(opt.value as any)}
                className={cn(
-                 "px-3 py-1.5 rounded-lg text-[10px] font-black uppercase tracking-widest transition-all",
-                 dateFilter === opt.value ? "bg-indigo-600 dark:bg-[var(--accent)] text-white" : "bg-slate-100 dark:bg-[var(--surface-pill)] text-slate-600 dark:text-[var(--text-secondary)] hover:bg-slate-200 dark:hover:bg-[var(--border-default)]"
+                 "px-3 py-1.5 rounded-lg text-[10px] font-semibold uppercase tracking-widest transition-all",
+                 dateFilter === opt.value ? "bg-[var(--accent)] text-white" : "bg-[var(--surface-pill)] text-[var(--text-secondary)] hover:bg-[var(--border-default)]"
                )}
              >
                {opt.label}
@@ -162,7 +162,7 @@ export default function ChatHistoryPage() {
          </div>
 
          <div className="flex items-center gap-2">
-           <Filter size={16} className="text-slate-400 dark:text-[var(--text-tertiary)]" />
+           <Filter size={16} className="text-[var(--text-tertiary)]" />
            {[
              { value: 'all', label: 'Todos' },
              { value: 'liked', label: 'Curtidos' },
@@ -172,8 +172,8 @@ export default function ChatHistoryPage() {
                key={opt.value}
                onClick={() => setRatingFilter(opt.value as any)}
                className={cn(
-                 "px-3 py-1.5 rounded-lg text-[10px] font-black uppercase tracking-widest transition-all",
-                 ratingFilter === opt.value ? "bg-emerald-600 dark:bg-[var(--text-success)] text-white" : "bg-slate-100 dark:bg-[var(--surface-pill)] text-slate-600 dark:text-[var(--text-secondary)] hover:bg-slate-200 dark:hover:bg-[var(--border-default)]"
+                 "px-3 py-1.5 rounded-lg text-[10px] font-semibold uppercase tracking-widest transition-all",
+                 ratingFilter === opt.value ? "bg-[var(--text-success)] text-white" : "bg-[var(--surface-pill)] text-[var(--text-secondary)] hover:bg-[var(--border-default)]"
                )}
              >
                {opt.label}
@@ -187,24 +187,24 @@ export default function ChatHistoryPage() {
          {filteredHistories.length === 0 ? (
            <div className="text-center py-20">
              <MessageSquare className="mx-auto text-slate-300 mb-4" size={48} />
-             <p className="text-slate-500 dark:text-[var(--text-tertiary)] font-medium">Nenhuma conversa encontrada</p>
+             <p className="text-[var(--text-tertiary)] font-medium">Nenhuma conversa encontrada</p>
            </div>
          ) : filteredHistories.map(h => (
-           <div key={h.id} className="bg-white dark:bg-[var(--surface-card)] rounded-2xl p-6 border border-slate-200 dark:border-[var(--border-default)] shadow-sm hover:shadow-md transition-shadow">
+           <div key={h.id} className="bg-[var(--surface-card)] rounded-2xl p-6 border border-[var(--border-default)] shadow-sm hover:shadow-md transition-shadow">
              <div className="flex items-start justify-between mb-4">
                <div>
-                 <h3 className="text-lg font-black text-slate-800 dark:text-[var(--text-primary)] uppercase tracking-tight">{h.customerName || 'Cliente'}</h3>
-                 <p className="text-xs text-slate-500 dark:text-[var(--text-tertiary)]">{h.customerPhone || 'Sem telefone'}</p>
+                 <h3 className="text-lg font-black text-[var(--text-primary)] uppercase tracking-tight">{h.customerName || 'Cliente'}</h3>
+                 <p className="text-xs text-[var(--text-tertiary)]">{h.customerPhone || 'Sem telefone'}</p>
                  {h.assigneeName && (
-<p className="text-[10px] text-indigo-600 dark:text-[var(--accent-text)] font-medium mt-1">
+<p className="text-[10px] text-[var(--accent-text)] font-medium mt-1">
                     {h.assigneeName ? `Responsável: ${h.assigneeName}` : 'Sem responsável'}
                   </p>
                  )}
                </div>
                <div className="flex items-center gap-2">
-                 {h.rating === 1 && <ThumbsUp className="text-emerald-500 dark:text-[var(--text-success)]" size={20} />}
-                 {h.rating === -1 && <ThumbsDown className="text-red-500 dark:text-[var(--text-danger)]" size={20} />}
-                 <span className="text-[10px] font-black uppercase text-slate-400 dark:text-[var(--text-tertiary)]">
+                 {h.rating === 1 && <ThumbsUp className="text-[var(--text-success)]" size={20} />}
+                 {h.rating === -1 && <ThumbsDown className="text-[var(--text-danger)]" size={20} />}
+                 <span className="text-[10px] font-semibold uppercase text-[var(--text-tertiary)]">
                    {new Date(h.finishedAt).toLocaleDateString('pt-BR')}
                  </span>
                </div>
@@ -212,21 +212,21 @@ export default function ChatHistoryPage() {
 
             <div className="grid grid-cols-3 gap-4 mb-4 text-xs">
               <div className="flex items-center gap-2">
-                <Clock size={14} className="text-slate-400 dark:text-[var(--text-tertiary)]" />
+                <Clock size={14} className="text-[var(--text-tertiary)]" />
                 <span className="font-medium">Duração: {formatDuration(h.durationSeconds)}</span>
               </div>
               <div className="flex items-center gap-2">
-                <MessageSquare size={14} className="text-slate-400 dark:text-[var(--text-tertiary)]" />
+                <MessageSquare size={14} className="text-[var(--text-tertiary)]" />
                 <span className="font-medium">1ª resposta: {formatDuration(h.firstResponseSeconds) || '-'}</span>
               </div>
               <div className="flex items-center gap-2">
-                <Calendar size={14} className="text-slate-400 dark:text-[var(--text-tertiary)]" />
+                <Calendar size={14} className="text-[var(--text-tertiary)]" />
                 <span className="font-medium">Início: {new Date(h.startedAt).toLocaleTimeString('pt-BR')}</span>
               </div>
             </div>
 
-            <div className="bg-slate-50 dark:bg-[var(--surface-card)] rounded-xl p-4 max-h-48 overflow-y-auto">
-              <pre className="text-[10px] text-slate-600 dark:text-[var(--text-secondary)] whitespace-pre-wrap font-mono">{h.transcript}</pre>
+            <div className="bg-[var(--surface-card)] rounded-xl p-4 max-h-48 overflow-y-auto">
+              <pre className="text-[10px] text-[var(--text-secondary)] whitespace-pre-wrap font-mono">{h.transcript}</pre>
             </div>
           </div>
         ))}

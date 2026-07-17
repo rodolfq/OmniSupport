@@ -80,25 +80,25 @@ export function TagManager() {
 
   return (
     <div className="space-y-6 animate-in fade-in slide-in-from-bottom-4 duration-300">
-      <div className="bg-white dark:bg-[var(--surface-card)] border border-slate-200 dark:border-[var(--border-default)] rounded-[2rem] p-8 shadow-sm">
+      <div className="bg-[var(--surface-card)] border border-[var(--border-default)] rounded-[2rem] p-8 shadow-sm">
         <div className="flex flex-col md:flex-row md:items-center justify-between gap-6 mb-8">
           <div>
-            <h3 className="text-xl font-black text-slate-800 dark:text-[var(--text-primary)] uppercase tracking-tight flex items-center gap-2">
-              <Tag className="text-indigo-600 dark:text-[var(--accent-text)]" size={24} /> Gestão de Tags
+            <h3 className="text-xl font-black text-[var(--text-primary)] uppercase tracking-tight flex items-center gap-2">
+              <Tag className="text-[var(--accent-text)]" size={24} /> Gestão de Tags
             </h3>
-            <p className="text-[10px] text-slate-400 dark:text-[var(--text-tertiary)] font-bold uppercase tracking-widest mt-1">
+            <p className="text-[10px] text-[var(--text-tertiary)] font-bold uppercase tracking-widest mt-1">
               Organize seus atendimentos com marcadores personalizados
             </p>
           </div>
 
-          <div className="flex bg-slate-100 dark:bg-[var(--surface-pill)] p-1 rounded-2xl gap-1 self-start">
+          <div className="flex bg-[var(--surface-pill)] p-1 rounded-2xl gap-1 self-start">
             {(['all', 'chat', 'ticket'] as const).map((d) => (
               <button
                 key={d}
                 onClick={() => setDomainFilter(d)}
                 className={cn(
                   "px-4 py-1.5 rounded-xl text-[10px] font-black uppercase tracking-widest transition-all",
-                  domainFilter === d ? "bg-white dark:bg-[var(--surface-card)] text-indigo-600 dark:text-[var(--accent-text)] shadow-sm" : "text-slate-500 dark:text-[var(--text-tertiary)] hover:bg-white/50 dark:hover:bg-[var(--surface-card)]"
+                  domainFilter === d ? "bg-[var(--surface-card)] text-[var(--accent-text)] shadow-sm" : "text-[var(--text-tertiary)] hover:bg-white/50 dark:hover:bg-[var(--surface-card)]"
                 )}
               >
                 {d === 'all' ? 'Todos' : d === 'chat' ? 'Chats' : 'Chamados'}
@@ -108,12 +108,12 @@ export function TagManager() {
         </div>
 
         {isAdmin && (
-          <form onSubmit={handleAddTag} className="bg-slate-50 dark:bg-[var(--surface-card)] border border-slate-100 dark:border-[var(--border-default)] rounded-3xl p-6 mb-8 space-y-6">
+          <form onSubmit={handleAddTag} className="bg-[var(--surface-card)] border border-[var(--border-default)] rounded-3xl p-6 mb-8 space-y-6">
             <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
               <div className="space-y-2">
-                <label className="text-[10px] font-black uppercase text-slate-400 dark:text-[var(--text-tertiary)] tracking-widest ml-1">Nome da Tag</label>
+                <label className="text-[10px] font-black uppercase text-[var(--text-tertiary)] tracking-widest ml-1">Nome da Tag</label>
                 <div className="relative">
-                  <span className="absolute left-4 top-1/2 -translate-y-1/2 text-slate-400 dark:text-[var(--text-tertiary)]">
+                  <span className="absolute left-4 top-1/2 -translate-y-1/2 text-[var(--text-tertiary)]">
                     <Hash size={16} />
                   </span>
                   <input
@@ -121,13 +121,13 @@ export function TagManager() {
                     value={newTagLabel}
                     onChange={(e) => setNewTagLabel(e.target.value)}
                     placeholder="Ex: Urgente, Retorno, Comercial..."
-                    className="w-full bg-white dark:bg-[var(--surface-card)] border border-slate-200 dark:border-[var(--border-default)] rounded-2xl pl-10 pr-4 py-3 text-sm font-bold focus:ring-4 focus:ring-indigo-500/10 dark:focus:ring-[var(--accent)]/10 outline-none transition-all placeholder:text-slate-300"
+                    className="w-full bg-[var(--surface-card)] border border-[var(--border-default)] rounded-2xl pl-10 pr-4 py-3 text-sm font-bold focus:ring-4 focus:ring-[var(--accent)]/10 outline-none transition-all placeholder:text-slate-300"
                   />
                 </div>
               </div>
 
               <div className="space-y-2">
-                <label className="text-[10px] font-black uppercase text-slate-400 dark:text-[var(--text-tertiary)] tracking-widest ml-1">Cor</label>
+                <label className="text-[10px] font-black uppercase text-[var(--text-tertiary)] tracking-widest ml-1">Cor</label>
                 <div className="flex flex-wrap gap-2">
                   {TAG_COLORS.map((color) => (
                     <button
@@ -137,7 +137,7 @@ export function TagManager() {
                       className={cn(
                         "w-8 h-8 rounded-xl transition-all flex items-center justify-center",
                         color.bg,
-                        selectedColor.label === color.label ? "ring-2 ring-indigo-500 dark:ring-[var(--accent)] ring-offset-2 scale-110" : "hover:scale-105"
+                        selectedColor.label === color.label ? "ring-2 ring-[var(--accent)] ring-offset-2 scale-110" : "hover:scale-105"
                       )}
                       title={color.label}
                     >
@@ -160,7 +160,7 @@ export function TagManager() {
         <div className="grid grid-cols-2 md:grid-cols-4 lg:grid-cols-5 gap-3">
           {filteredTags.length === 0 ? (
             <div className="col-span-full py-12 text-center">
-              <p className="text-slate-400 dark:text-[var(--text-tertiary)] text-xs font-bold uppercase tracking-widest italic">Nenhuma tag cadastrada para este domínio.</p>
+              <p className="text-[var(--text-tertiary)] text-xs font-bold uppercase tracking-widest italic">Nenhuma tag cadastrada para este domínio.</p>
             </div>
           ) : (
             filteredTags.map((tag) => (
@@ -170,7 +170,7 @@ export function TagManager() {
                   "p-4 rounded-3xl border flex flex-col gap-3 group transition-all hover:shadow-md h-32",
                   tag.color.split(' ')[0],
                   tag.color.split(' ')[1],
-                  "border-transparent hover:border-slate-200 dark:hover:border-[var(--border-default)]"
+                  "border-transparent hover:border-[var(--border-default)]"
                 )}
               >
                 <div className="flex justify-between items-start">
@@ -180,7 +180,7 @@ export function TagManager() {
                   {isAdmin && (
                     <button
                       onClick={() => handleDeleteTag(tag.id)}
-                      className="p-1.5 hover:bg-white/50 dark:hover:bg-[var(--surface-card)] rounded-lg text-slate-400 dark:text-[var(--text-tertiary)] hover:text-red-500 dark:hover:text-[var(--text-danger)] transition-all opacity-0 group-hover:opacity-100"
+                      className="p-1.5 hover:bg-white/50 dark:hover:bg-[var(--surface-card)] rounded-lg text-[var(--text-tertiary)] hover:text-[var(--text-danger)] transition-all opacity-0 group-hover:opacity-100"
                     >
                       <Trash2 size={14} />
                     </button>
@@ -198,13 +198,13 @@ export function TagManager() {
         </div>
       </div>
 
-      <div className="p-6 bg-indigo-50 dark:bg-[var(--accent)]/10 border border-indigo-100 dark:border-[var(--accent)]/20 rounded-3xl flex gap-4">
-        <div className="w-12 h-12 bg-indigo-600 dark:bg-[var(--accent)] rounded-2xl flex items-center justify-center text-white shrink-0 shadow-lg shadow-indigo-100">
+      <div className="p-6 bg-[var(--accent)]/10 border border-[var(--accent)]/20 rounded-3xl flex gap-4">
+        <div className="w-12 h-12 bg-[var(--accent)] rounded-2xl flex items-center justify-center text-white shrink-0 shadow-lg shadow-indigo-100">
            <Tag size={24} />
         </div>
         <div className="space-y-1">
            <h4 className="text-sm font-black text-indigo-900 dark:text-[var(--accent-soft-text)] uppercase tracking-tight">Para que servem as tags?</h4>
-           <p className="text-[10px] text-indigo-700 dark:text-[var(--accent-text)] font-medium leading-relaxed uppercase tracking-widest">
+           <p className="text-[10px] text-[var(--accent-text)] font-medium leading-relaxed uppercase tracking-widest">
              Tags ajudam na categorização rápida, filtragem em relatórios e identificação visual instantânea do tipo de atendimento que está sendo realizado.
            </p>
         </div>

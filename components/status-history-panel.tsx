@@ -122,33 +122,33 @@ useEffect(() => {
   };
 
   const getStatusIcon = (status: string, reason?: string) => {
-    if (status === 'online') return <CheckCircle2 className="text-emerald-500 dark:text-[var(--text-success)]" size={16} />;
-    if (status === 'offline') return <AlertCircle className="text-slate-400 dark:text-[var(--text-tertiary)]" size={16} />;
-    
-    if (reason === 'Almoço') return <Coffee className="text-amber-500 dark:text-[var(--text-warning-strong)]" size={16} />;
-    if (reason === 'Reunião') return <Users className="text-amber-500 dark:text-[var(--text-warning-strong)]" size={16} />;
-    return <Info className="text-amber-500 dark:text-[var(--text-warning-strong)]" size={16} />;
+    if (status === 'online') return <CheckCircle2 className="text-[var(--text-success)]" size={16} />;
+    if (status === 'offline') return <AlertCircle className="text-[var(--text-tertiary)]" size={16} />;
+
+    if (reason === 'Almoço') return <Coffee className="text-[var(--text-warning-strong)]" size={16} />;
+    if (reason === 'Reunião') return <Users className="text-[var(--text-warning-strong)]" size={16} />;
+    return <Info className="text-[var(--text-warning-strong)]" size={16} />;
   };
 
   return (
     <div className="space-y-6 animate-in fade-in slide-in-from-bottom-4 duration-300">
       {/* Header com Filtro para Admin */}
-      <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 bg-white dark:bg-[var(--surface-card)] p-6 border border-slate-200 dark:border-[var(--border-default)] rounded-[2rem] shadow-sm">
+      <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 bg-[var(--surface-card)] p-6 border border-[var(--border-default)] rounded-[2rem] shadow-sm">
         <div>
-          <h2 className="text-xl font-black text-slate-800 dark:text-[var(--text-primary)] uppercase tracking-tight">Análise de Tempo e Presença</h2>
-          <p className="text-[10px] text-slate-500 dark:text-[var(--text-tertiary)] font-bold uppercase tracking-widest">
+          <h2 className="text-xl font-black text-[var(--text-primary)] uppercase tracking-tight">Análise de Tempo e Presença</h2>
+          <p className="text-[10px] text-[var(--text-tertiary)] font-semibold uppercase tracking-widest">
             {isAdmin ? 'Gestão completa de disponibilidade e motivos' : 'Seu Histórico pessoal de disponibilidade'}
           </p>
         </div>
-        
+
         {isAdmin && (
           <div className="flex flex-wrap items-center gap-3">
             <div className="flex items-center gap-2">
-              <Filter size={16} className="text-slate-400 dark:text-[var(--text-tertiary)]" />
-              <StyledSelect 
+              <Filter size={16} className="text-[var(--text-tertiary)]" />
+              <StyledSelect
                 value={selectedUserId}
                 onChange={(e) => setSelectedUserId(e.target.value)}
-                className="bg-slate-50 dark:bg-[var(--surface-card)] border border-slate-200 dark:border-[var(--border-default)] rounded-xl px-4 py-2 text-xs font-bold text-slate-700 dark:text-[var(--text-secondary)] focus:outline-none focus:ring-2 focus:ring-indigo-500/20 dark:focus:ring-[var(--accent)]/20 transition-all"
+                className="bg-[var(--surface-card)] border border-[var(--border-default)] rounded-xl px-4 py-2 text-xs font-bold text-[var(--text-secondary)] focus:outline-none focus:ring-2 focus:ring-[var(--accent)]/20 transition-all"
               >
                 <option value="all">Todos os Analistas</option>
                 {profiles.filter(p => p.role !== UserRole.CUSTOMER).map(p => (
@@ -158,10 +158,10 @@ useEffect(() => {
             </div>
 
             <div className="flex items-center gap-2">
-              <StyledSelect 
+              <StyledSelect
                 value={periodFilter}
                 onChange={(e: any) => setPeriodFilter(e.target.value)}
-                className="bg-slate-50 dark:bg-[var(--surface-card)] border border-slate-200 dark:border-[var(--border-default)] rounded-xl px-4 py-2 text-xs font-bold text-slate-700 dark:text-[var(--text-secondary)] focus:outline-none focus:ring-2 focus:ring-indigo-500/20 dark:focus:ring-[var(--accent)]/20 transition-all"
+                className="bg-[var(--surface-card)] border border-[var(--border-default)] rounded-xl px-4 py-2 text-xs font-bold text-[var(--text-secondary)] focus:outline-none focus:ring-2 focus:ring-[var(--accent)]/20 transition-all"
               >
                 <option value="all">Todo o Período</option>
                 <option value="today">Hoje</option>
@@ -171,11 +171,11 @@ useEffect(() => {
               </StyledSelect>
 
               {periodFilter === 'specific' && (
-                <input 
+                <input
                   type="date"
                   value={selectedDate}
                   onChange={(e) => setSelectedDate(e.target.value)}
-                  className="bg-slate-50 dark:bg-[var(--surface-card)] border border-slate-200 dark:border-[var(--border-default)] rounded-xl px-4 py-1.5 text-xs font-bold text-slate-700 dark:text-[var(--text-secondary)] outline-none"
+                  className="bg-[var(--surface-card)] border border-[var(--border-default)] rounded-xl px-4 py-1.5 text-xs font-bold text-[var(--text-secondary)] outline-none"
                 />
               )}
             </div>
@@ -193,41 +193,41 @@ useEffect(() => {
         <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
           {/* Gestão de Motivos */}
           <div className="lg:col-span-1 space-y-4">
-             <div className="bg-white dark:bg-[var(--surface-card)] border border-slate-200 dark:border-[var(--border-default)] rounded-[2rem] overflow-hidden shadow-sm h-full">
-                <div className="px-6 py-4 border-b border-slate-100 dark:border-[var(--border-default)] bg-slate-50/50 dark:bg-[var(--surface-card)]/50">
-                  <h3 className="text-sm font-black text-slate-800 dark:text-[var(--text-primary)] uppercase tracking-tight">Motivos de Ausência</h3>
+             <div className="bg-[var(--surface-card)] border border-[var(--border-default)] rounded-[2rem] overflow-hidden shadow-sm h-full">
+                <div className="px-6 py-4 border-b border-[var(--border-default)] bg-[var(--surface-card)]/50">
+                  <h3 className="text-sm font-black text-[var(--text-primary)] uppercase tracking-tight">Motivos de Ausência</h3>
                 </div>
                 <div className="p-6 space-y-4">
                   <form onSubmit={handleAddReason} className="flex gap-2">
-                    <input 
-                      type="text" 
+                    <input
+                      type="text"
                       value={newReason}
                       onChange={(e) => setNewReason(e.target.value)}
                       placeholder="Novo motivo..."
-                      className="flex-1 bg-slate-50 dark:bg-[var(--surface-card)] border border-slate-200 dark:border-[var(--border-default)] rounded-xl px-4 py-2 text-xs font-semibold focus:outline-none focus:ring-2 focus:ring-indigo-500/20 dark:focus:ring-[var(--accent)]/20 transition-all"
+                      className="flex-1 bg-[var(--surface-card)] border border-[var(--border-default)] rounded-xl px-4 py-2 text-xs font-semibold focus:outline-none focus:ring-2 focus:ring-[var(--accent)]/20 transition-all"
                     />
-                    <button type="submit" className="w-10 h-10 bg-indigo-600 dark:bg-[var(--accent)] text-white rounded-xl hover:bg-indigo-700 dark:hover:bg-[var(--accent-hover)] transition-all shadow-md shrink-0 flex items-center justify-center">
+                    <button type="submit" className="w-10 h-10 bg-[var(--accent)] text-white rounded-xl hover:bg-[var(--accent-hover)] transition-all shadow-md shrink-0 flex items-center justify-center">
                       <Plus size={20} />
                     </button>
                   </form>
 
                   <div className="space-y-2 max-h-[350px] overflow-y-auto pr-1 -mr-1 custom-scrollbar">
                     {absenceReasons.length === 0 ? (
-                      <div className="text-center py-6 text-slate-400 dark:text-[var(--text-tertiary)]">
-                        <p className="text-[10px] font-bold uppercase tracking-widest italic">Nenhum motivo criado</p>
+                      <div className="text-center py-6 text-[var(--text-tertiary)]">
+                        <p className="text-[10px] font-semibold uppercase tracking-widest italic">Nenhum motivo criado</p>
                       </div>
                     ) : (
                       absenceReasons.map(reason => (
-                        <div key={reason.id} className="flex items-center justify-between p-3 bg-slate-50 dark:bg-[var(--surface-card)] border border-slate-100 dark:border-[var(--border-default)] rounded-xl group transition-all hover:bg-white dark:hover:bg-[var(--surface-card)] hover:border-slate-200 dark:hover:border-[var(--border-default)]">
-                          <span className="text-xs font-bold text-slate-600 dark:text-[var(--text-secondary)] uppercase tracking-tight truncate pr-2 flex-1 min-w-0">{reason.label}</span>
-                          <button 
+                        <div key={reason.id} className="flex items-center justify-between p-3 bg-[var(--surface-card)] border border-[var(--border-default)] rounded-xl group transition-all hover:bg-[var(--surface-card)] hover:border-[var(--border-default)]">
+                          <span className="text-xs font-bold text-[var(--text-secondary)] uppercase tracking-tight truncate pr-2 flex-1 min-w-0">{reason.label}</span>
+                          <button
                             type="button"
                             onClick={(e) => {
                               e.preventDefault();
                               e.stopPropagation();
                               handleDeleteReason(reason.id);
                             }}
-                            className="p-1.5 text-slate-400 dark:text-[var(--text-tertiary)] hover:text-rose-500 dark:hover:text-[var(--text-danger)] hover:bg-rose-50 dark:hover:bg-[var(--surface-danger)] rounded-lg transition-all shrink-0 ml-2"
+                            className="p-1.5 text-[var(--text-tertiary)] hover:text-[var(--text-danger)] hover:bg-[var(--surface-danger)] rounded-lg transition-all shrink-0 ml-2"
                             title="Remover motivo"
                           >
                             <Trash2 size={14} />
@@ -268,57 +268,57 @@ useEffect(() => {
 
 function HistoryList({ history, isAdmin, getUserName, getStatusIcon, formatDuration }: any) {
   return (
-    <div className="bg-white dark:bg-[var(--surface-card)] border border-slate-200 dark:border-[var(--border-default)] rounded-[2rem] overflow-hidden shadow-sm">
-      <div className="px-8 py-6 border-b border-slate-100 dark:border-[var(--border-default)] flex items-center justify-between bg-slate-50/50 dark:bg-[var(--surface-card)]/50">
+    <div className="bg-[var(--surface-card)] border border-[var(--border-default)] rounded-[2rem] overflow-hidden shadow-sm">
+      <div className="px-8 py-6 border-b border-[var(--border-default)] flex items-center justify-between bg-[var(--surface-card)]/50">
         <div>
-          <h3 className="text-lg font-black text-slate-800 dark:text-[var(--text-primary)] uppercase tracking-tight">Registro de Atividade</h3>
-          <p className="text-[10px] text-slate-500 dark:text-[var(--text-tertiary)] font-bold uppercase tracking-widest">Fluxo temporal de disponibilidade</p>
+          <h3 className="text-lg font-black text-[var(--text-primary)] uppercase tracking-tight">Registro de Atividade</h3>
+          <p className="text-[10px] text-[var(--text-tertiary)] font-semibold uppercase tracking-widest">Fluxo temporal de disponibilidade</p>
         </div>
-        <div className="p-2 bg-white dark:bg-[var(--surface-card)] rounded-xl border border-slate-200 dark:border-[var(--border-default)] text-slate-400 dark:text-[var(--text-tertiary)]">
+        <div className="p-2 bg-[var(--surface-card)] rounded-xl border border-[var(--border-default)] text-[var(--text-tertiary)]">
            <Clock size={20} />
         </div>
       </div>
 
-      <div className="divide-y divide-slate-50 dark:divide-[var(--border-default)] max-h-[600px] overflow-y-auto custom-scrollbar">
+      <div className="divide-y divide-[var(--border-default)] max-h-[600px] overflow-y-auto custom-scrollbar">
         {history.length === 0 ? (
           <div className="p-12 text-center">
-            <p className="text-slate-400 dark:text-[var(--text-tertiary)] font-medium italic">Nenhum registro encontrado.</p>
+            <p className="text-[var(--text-tertiary)] font-medium italic">Nenhum registro encontrado.</p>
           </div>
         ) : (
           history.map((entry: any) => (
-            <div key={entry.id} className="px-8 py-4 flex items-center justify-between hover:bg-slate-50/50 dark:hover:bg-[var(--surface-card)]/50 transition-all group">
+            <div key={entry.id} className="px-8 py-4 flex items-center justify-between hover:bg-[var(--surface-card)]/50 transition-all group">
               <div className="flex items-center gap-4">
                 <div className={cn(
                   "w-10 h-10 rounded-2xl flex items-center justify-center transition-all shadow-sm",
-                  entry.status === 'online' ? "bg-emerald-50 dark:bg-[var(--surface-success)] text-emerald-600 dark:text-[var(--text-success)] group-hover:bg-emerald-100 dark:group-hover:bg-[var(--surface-success)]" :
-                  entry.status === 'away' ? "bg-amber-50 dark:bg-[var(--surface-warning)] text-amber-600 dark:text-[var(--text-warning)] group-hover:bg-amber-100 dark:group-hover:bg-[var(--surface-warning)]" :
-                  "bg-slate-50 dark:bg-[var(--surface-card)] text-slate-400 dark:text-[var(--text-tertiary)] group-hover:bg-slate-100 dark:group-hover:bg-[var(--surface-pill)]"
+                  entry.status === 'online' ? "bg-[var(--surface-success)] text-[var(--text-success)] group-hover:bg-[var(--surface-success)]" :
+                  entry.status === 'away' ? "bg-[var(--surface-warning)] text-[var(--text-warning)] group-hover:bg-[var(--surface-warning)]" :
+                  "bg-[var(--surface-card)] text-[var(--text-tertiary)] group-hover:bg-[var(--surface-pill)]"
                 )}>
                   {getStatusIcon(entry.status, entry.reason)}
                 </div>
                 <div>
                   <div className="flex items-center gap-2">
                     {isAdmin && (
-                      <span className="text-[10px] font-black text-indigo-600 dark:text-[var(--accent-text)] uppercase bg-indigo-50 dark:bg-[var(--accent)]/10 px-2 py-0.5 rounded-lg border border-indigo-100/50 dark:border-[var(--accent)]/20">
+                      <span className="text-[10px] font-semibold text-[var(--accent-text)] uppercase bg-[var(--accent)]/10 px-2 py-0.5 rounded-lg border border-[var(--accent)]/20">
                         {getUserName(entry.userId)}
                       </span>
                     )}
                     <span className={cn(
-                      "text-[10px] font-black uppercase tracking-widest",
-                      entry.status === 'online' ? "text-emerald-600 dark:text-[var(--text-success)]" :
-                      entry.status === 'away' ? "text-amber-600 dark:text-[var(--text-warning)]" :
-                      "text-slate-500 dark:text-[var(--text-tertiary)]"
+                      "text-[10px] font-semibold uppercase tracking-widest",
+                      entry.status === 'online' ? "text-[var(--text-success)]" :
+                      entry.status === 'away' ? "text-[var(--text-warning)]" :
+                      "text-[var(--text-tertiary)]"
                     )}>
-                      {entry.status === 'online' ? 'Disponível' : 
+                      {entry.status === 'online' ? 'Disponível' :
                        entry.status === 'away' ? 'Ausente' : 'Offline'}
                     </span>
                     {entry.reason && (
-                      <span className="text-[10px] font-bold text-slate-400 dark:text-[var(--text-tertiary)] italic">
+                      <span className="text-[10px] font-bold text-[var(--text-tertiary)] italic">
                         {">"} {entry.reason}
                       </span>
                     )}
                   </div>
-                  <p className="text-[10px] text-slate-400 dark:text-[var(--text-tertiary)] font-medium mt-0.5">
+                  <p className="text-[10px] text-[var(--text-tertiary)] font-medium mt-0.5">
                     {format(new Date(entry.timestamp), "dd/MM 'às' HH:mm", { locale: ptBR })}
                   </p>
                 </div>
@@ -327,11 +327,11 @@ function HistoryList({ history, isAdmin, getUserName, getStatusIcon, formatDurat
               <div className="text-right">
                 {entry.duration ? (
                   <div className="flex flex-col items-end">
-                     <span className="text-xs font-black text-slate-700 dark:text-[var(--text-secondary)] tracking-tight">{formatDuration(entry.duration)}</span>
-                     <span className="text-[8px] font-black uppercase text-slate-400 dark:text-[var(--text-tertiary)] tracking-widest leading-none">Investido</span>
+                     <span className="text-xs font-black text-[var(--text-secondary)] tracking-tight">{formatDuration(entry.duration)}</span>
+                     <span className="text-[8px] font-semibold uppercase text-[var(--text-tertiary)] tracking-widest leading-none">Investido</span>
                   </div>
                 ) : (
-                  <span className="text-[9px] font-black uppercase text-emerald-500 dark:text-[var(--text-success)] bg-emerald-50 dark:bg-[var(--surface-success)] px-2 py-1 rounded-full border border-emerald-100 dark:border-[var(--text-success)]/20 tracking-widest animate-pulse">
+                  <span className="text-[9px] font-semibold uppercase text-[var(--text-success)] bg-[var(--surface-success)] px-2 py-1 rounded-full border border-[var(--text-success)]/20 tracking-widest animate-pulse">
                     Ativo Agora
                   </span>
                 )}
@@ -346,14 +346,14 @@ function HistoryList({ history, isAdmin, getUserName, getStatusIcon, formatDurat
 
 function StatCard({ label, value, color, icon }: { label: string; value: string | number; color: 'emerald' | 'amber' | 'slate'; icon: React.ReactNode }) {
   const colors = {
-    emerald: "bg-emerald-50 dark:bg-[var(--surface-success)] border-emerald-100 dark:border-[var(--text-success)]/20 text-emerald-600 dark:text-[var(--text-success)]",
-    amber: "bg-amber-50 dark:bg-[var(--surface-warning)] border-amber-100 dark:border-[var(--border-alert)] text-amber-600 dark:text-[var(--text-warning)]",
-    slate: "bg-slate-50 dark:bg-[var(--surface-card)] border-slate-100 dark:border-[var(--border-default)] text-slate-600 dark:text-[var(--text-secondary)]"
+    emerald: "bg-[var(--surface-success)] border-[var(--text-success)]/20 text-[var(--text-success)]",
+    amber: "bg-[var(--surface-warning)] border-[var(--border-alert)] text-[var(--text-warning)]",
+    slate: "bg-[var(--surface-card)] border-[var(--border-default)] text-[var(--text-secondary)]"
   };
 
   const iconColors = {
-    emerald: "bg-emerald-600 dark:bg-[var(--text-success)] text-white",
-    amber: "bg-amber-600 dark:bg-[var(--accent-warning-hover)] text-white",
+    emerald: "bg-[var(--text-success)] text-white",
+    amber: "bg-[var(--accent-warning-hover)] text-white",
     slate: "bg-slate-600 text-white"
   };
 
@@ -363,7 +363,7 @@ function StatCard({ label, value, color, icon }: { label: string; value: string 
         {icon}
       </div>
       <div>
-        <p className="text-[10px] font-black uppercase tracking-widest opacity-70 mb-0.5">{label}</p>
+        <p className="text-[10px] font-semibold uppercase tracking-widest opacity-70 mb-0.5">{label}</p>
         <p className="text-xl font-black tracking-tight leading-tight">{value}</p>
       </div>
     </div>

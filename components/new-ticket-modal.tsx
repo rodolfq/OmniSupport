@@ -298,20 +298,20 @@ export function NewTicketModal() {
             initial={{ opacity: 0, scale: 0.95, y: 20 }}
             animate={{ opacity: 1, scale: 1, y: 0 }}
             exit={{ opacity: 0, scale: 0.95, y: 20 }}
-            className="relative bg-white dark:bg-[var(--surface-card)] w-full max-w-2xl rounded-3xl shadow-2xl overflow-hidden border border-slate-200 dark:border-[var(--border-default)]"
+            className="relative bg-[var(--surface-card)] w-full max-w-2xl rounded-3xl shadow-2xl overflow-hidden border border-[var(--border-default)]"
           >
             <div className="bg-slate-900 px-8 py-6 text-white flex items-center justify-between">
               <div>
                 <h3 className="text-xl font-black tracking-tight m-0">
                   Novo Chamado
                 </h3>
-                <p className="text-[10px] text-slate-400 dark:text-[var(--text-tertiary)] font-bold uppercase tracking-widest mt-1">
+                <p className="text-[10px] text-[var(--text-tertiary)] font-bold uppercase tracking-widest mt-1">
                   Descreva sua solicitação com detalhes
                 </p>
               </div>
               <button
                 onClick={() => setIsNewTicketModalOpen(false)}
-                className="p-2 hover:bg-white/10 rounded-xl transition-colors text-slate-400 dark:text-[var(--text-tertiary)] hover:text-white"
+                className="p-2 hover:bg-white/10 rounded-xl transition-colors text-[var(--text-tertiary)] hover:text-white"
               >
                 <X size={20} />
               </button>
@@ -325,7 +325,7 @@ export function NewTicketModal() {
               {!isCustomer && (
                 <div className="grid grid-cols-2 gap-4">
                   <div className="space-y-1">
-                    <label className="text-[10px] font-black uppercase tracking-widest text-slate-400 dark:text-[var(--text-tertiary)] ml-1">
+                    <label className="text-[10px] font-semibold uppercase tracking-widest text-[var(--text-tertiary)] ml-1">
                       Empresa / Cliente
                     </label>
                     <StyledSelect
@@ -335,7 +335,7 @@ export function NewTicketModal() {
                         setSelectedCustomerId("");
                         setEmployeeIds([]);
                       }}
-                      className="w-full bg-slate-50 dark:bg-[var(--surface-card)] border border-slate-200 dark:border-[var(--border-default)] rounded-xl px-4 py-2.5 text-sm font-medium focus:ring-2 focus:ring-indigo-500/20 dark:focus:ring-[var(--accent)]/20 focus:border-indigo-500 dark:focus:border-[var(--accent)] transition-all appearance-none outline-none disabled:opacity-60"
+                      className="w-full bg-[var(--surface-card)] border border-[var(--border-default)] rounded-xl px-4 py-2.5 text-sm font-medium focus:ring-2 focus:ring-[var(--accent)]/20 focus:border-[var(--accent)] transition-all appearance-none outline-none disabled:opacity-60"
                       required
                     >
                       <option value="">
@@ -348,19 +348,19 @@ export function NewTicketModal() {
                       ))}
                     </StyledSelect>
                     {companies.length === 0 && (
-                      <p className="text-[9px] text-red-500 dark:text-[var(--text-danger)] font-bold mt-1">
+                      <p className="text-[9px] text-[var(--text-danger)] font-bold mt-1">
                         Nenhuma empresa carregada. Verifique o banco de dados.
                       </p>
                     )}
                   </div>
                   <div className="space-y-1">
-                    <label className="text-[10px] font-black uppercase tracking-widest text-slate-400 dark:text-[var(--text-tertiary)] ml-1">
+                    <label className="text-[10px] font-semibold uppercase tracking-widest text-[var(--text-tertiary)] ml-1">
                       Solicitante Principal
                     </label>
                     <StyledSelect
                       value={selectedCustomerId}
                       onChange={(e) => setSelectedCustomerId(e.target.value)}
-                      className="w-full bg-slate-50 dark:bg-[var(--surface-card)] border border-slate-200 dark:border-[var(--border-default)] rounded-xl px-4 py-2.5 text-sm font-medium focus:ring-2 focus:ring-indigo-500/20 dark:focus:ring-[var(--accent)]/20 focus:border-indigo-500 dark:focus:border-[var(--accent)] transition-all appearance-none outline-none disabled:opacity-60"
+                      className="w-full bg-[var(--surface-card)] border border-[var(--border-default)] rounded-xl px-4 py-2.5 text-sm font-medium focus:ring-2 focus:ring-[var(--accent)]/20 focus:border-[var(--accent)] transition-all appearance-none outline-none disabled:opacity-60"
                       required
                     >
                       <option value="">Selecione o solicitante</option>
@@ -377,12 +377,12 @@ export function NewTicketModal() {
               {/* Funcionários com Acesso */}
               {!isCustomer && (
                 <div className="space-y-1">
-                  <label className="text-[10px] font-black uppercase tracking-widest text-slate-400 dark:text-[var(--text-tertiary)] ml-1">
+                  <label className="text-[10px] font-semibold uppercase tracking-widest text-[var(--text-tertiary)] ml-1">
                     Funcionários com Acesso (Recebem atualizações)
                   </label>
-                  <div className="flex flex-wrap gap-2 p-3 bg-slate-50 dark:bg-[var(--surface-card)] border border-slate-200 dark:border-[var(--border-default)] rounded-xl min-h-[46px]">
+                  <div className="flex flex-wrap gap-2 p-3 bg-[var(--surface-card)] border border-[var(--border-default)] rounded-xl min-h-[46px]">
                     {filteredUsers.length === 0 && (
-                      <p className="text-xs text-slate-400 dark:text-[var(--text-tertiary)] italic">
+                      <p className="text-xs text-[var(--text-tertiary)] italic">
                         Selecione uma empresa primeiro
                       </p>
                     )}
@@ -394,8 +394,8 @@ export function NewTicketModal() {
                         className={cn(
                           "px-3 py-1 rounded-full text-xs font-bold border transition-all",
                           employeeIds.includes(u.id)
-                            ? "bg-indigo-600 dark:bg-[var(--accent)] border-indigo-600 dark:border-[var(--accent)] text-white shadow-sm"
-                            : "bg-white dark:bg-[var(--surface-card)] border-slate-200 dark:border-[var(--border-default)] text-slate-600 dark:text-[var(--text-secondary)] hover:border-slate-300 dark:hover:border-[var(--border-default)]",
+                            ? "bg-[var(--accent)] border-[var(--accent)] text-white shadow-sm"
+                            : "bg-[var(--surface-card)] border-[var(--border-default)] text-[var(--text-secondary)] hover:border-[var(--border-default)]",
                         )}
                       >
                         {u.name}
@@ -406,7 +406,7 @@ export function NewTicketModal() {
               )}
 
               <div className="space-y-1">
-                <label className="text-[10px] font-black uppercase tracking-widest text-slate-400 dark:text-[var(--text-tertiary)] ml-1">
+                <label className="text-[10px] font-semibold uppercase tracking-widest text-[var(--text-tertiary)] ml-1">
                   Assunto do Chamado
                 </label>
                 <input
@@ -414,20 +414,20 @@ export function NewTicketModal() {
                   value={title}
                   onChange={(e) => setTitle(e.target.value)}
                   placeholder="Ex: Erro ao gerar relatório mensal"
-                  className="w-full bg-slate-50 dark:bg-[var(--surface-card)] border border-slate-200 dark:border-[var(--border-default)] rounded-xl px-4 py-2.5 text-sm font-medium focus:ring-2 focus:ring-indigo-500/20 dark:focus:ring-[var(--accent)]/20 focus:border-indigo-500 dark:focus:border-[var(--accent)] outline-none transition-all"
+                  className="w-full bg-[var(--surface-card)] border border-[var(--border-default)] rounded-xl px-4 py-2.5 text-sm font-medium focus:ring-2 focus:ring-[var(--accent)]/20 focus:border-[var(--accent)] outline-none transition-all"
                   required
                 />
               </div>
 
               <div className="grid grid-cols-2 gap-4">
                 <div className="space-y-1">
-                  <label className="text-[10px] font-black uppercase tracking-widest text-slate-400 dark:text-[var(--text-tertiary)] ml-1">
+                  <label className="text-[10px] font-semibold uppercase tracking-widest text-[var(--text-tertiary)] ml-1">
                     Categoria
                   </label>
                   <StyledSelect
                     value={category}
                     onChange={(e) => setCategory(e.target.value)}
-                    className="w-full bg-slate-50 dark:bg-[var(--surface-card)] border border-slate-200 dark:border-[var(--border-default)] rounded-xl px-4 py-2.5 text-sm font-medium focus:ring-2 focus:ring-indigo-500/20 dark:focus:ring-[var(--accent)]/20 focus:border-indigo-500 dark:focus:border-[var(--accent)] outline-none transition-all appearance-none"
+                    className="w-full bg-[var(--surface-card)] border border-[var(--border-default)] rounded-xl px-4 py-2.5 text-sm font-medium focus:ring-2 focus:ring-[var(--accent)]/20 focus:border-[var(--accent)] outline-none transition-all appearance-none"
                   >
                     <option value="">Selecione uma categoria</option>
                     {availableCategories.map((cat) => (
@@ -438,13 +438,13 @@ export function NewTicketModal() {
                   </StyledSelect>
                 </div>
                 <div className="space-y-1">
-                  <label className="text-[10px] font-black uppercase tracking-widest text-slate-400 dark:text-[var(--text-tertiary)] ml-1">
+                  <label className="text-[10px] font-semibold uppercase tracking-widest text-[var(--text-tertiary)] ml-1">
                     Prioridade
                   </label>
                   <StyledSelect
                     value={priority}
                     onChange={(e) => setPriority(e.target.value)}
-                    className="w-full bg-slate-50 dark:bg-[var(--surface-card)] border border-slate-200 dark:border-[var(--border-default)] rounded-xl px-4 py-2.5 text-sm font-medium focus:ring-2 focus:ring-indigo-500/20 dark:focus:ring-[var(--accent)]/20 focus:border-indigo-500 dark:focus:border-[var(--accent)] outline-none transition-all appearance-none"
+                    className="w-full bg-[var(--surface-card)] border border-[var(--border-default)] rounded-xl px-4 py-2.5 text-sm font-medium focus:ring-2 focus:ring-[var(--accent)]/20 focus:border-[var(--accent)] outline-none transition-all appearance-none"
                   >
                     <option value="">Selecione a prioridade</option>
                     {availablePriorities.map((p) => (
@@ -458,13 +458,13 @@ export function NewTicketModal() {
 
               {!isCustomer && (
                 <div className="space-y-1">
-                  <label className="text-[10px] font-black uppercase tracking-widest text-slate-400 dark:text-[var(--text-tertiary)] ml-1">
+                  <label className="text-[10px] font-semibold uppercase tracking-widest text-[var(--text-tertiary)] ml-1">
                     Analista Responsável (Opcional)
                   </label>
                   <StyledSelect
                     value={assigneeId}
                     onChange={(e) => setAssigneeId(e.target.value)}
-                    className="w-full bg-slate-50 dark:bg-[var(--surface-card)] border border-slate-200 dark:border-[var(--border-default)] rounded-xl px-4 py-2.5 text-sm font-medium focus:ring-2 focus:ring-indigo-500/20 dark:focus:ring-[var(--accent)]/20 focus:border-indigo-500 dark:focus:border-[var(--accent)] outline-none transition-all appearance-none"
+                    className="w-full bg-[var(--surface-card)] border border-[var(--border-default)] rounded-xl px-4 py-2.5 text-sm font-medium focus:ring-2 focus:ring-[var(--accent)]/20 focus:border-[var(--accent)] outline-none transition-all appearance-none"
                   >
                     <option value="">Aguardando Atribuição</option>
                     {analysts.map((a) => (
@@ -477,7 +477,7 @@ export function NewTicketModal() {
               )}
 
               <div className="space-y-1">
-                <label className="text-[10px] font-black uppercase tracking-widest text-slate-400 dark:text-[var(--text-tertiary)] ml-1">
+                <label className="text-[10px] font-semibold uppercase tracking-widest text-[var(--text-tertiary)] ml-1">
                   Descrição Detalhada (Editor Moderno)
                 </label>
                 <RichEditor
@@ -490,7 +490,7 @@ export function NewTicketModal() {
 
               {/* Anexos */}
               <div className="space-y-2">
-                <label className="text-[10px] font-black uppercase tracking-widest text-slate-400 dark:text-[var(--text-tertiary)] ml-1">
+                <label className="text-[10px] font-semibold uppercase tracking-widest text-[var(--text-tertiary)] ml-1">
                   Anexos (Imagem, Áudio, Docs)
                 </label>
                 <div
@@ -507,16 +507,16 @@ export function NewTicketModal() {
                   className={cn(
                     "border-2 border-dashed rounded-2xl p-6 flex flex-col items-center justify-center gap-2 transition-all cursor-pointer",
                     isDragging
-                      ? "bg-indigo-50 dark:bg-[var(--accent)]/10 border-indigo-500 dark:border-[var(--accent)] scale-[1.02]"
-                      : "bg-slate-50 dark:bg-[var(--surface-card)] border-slate-200 dark:border-[var(--border-default)] hover:border-slate-300 dark:hover:border-[var(--border-default)]",
+                      ? "bg-[var(--accent)]/10 border-[var(--accent)] scale-[1.02]"
+                      : "bg-[var(--surface-card)] border-[var(--border-default)] hover:border-[var(--border-default)]",
                   )}
                   onClick={() => fileInputRef.current?.click()}
                 >
-                  <Paperclip className="text-slate-400 dark:text-[var(--text-tertiary)]" size={24} />
-                  <p className="text-xs font-bold text-slate-500 dark:text-[var(--text-tertiary)]">
+                  <Paperclip className="text-[var(--text-tertiary)]" size={24} />
+                  <p className="text-xs font-bold text-[var(--text-tertiary)]">
                     Clique ou arraste arquivos aqui
                   </p>
-                  <p className="text-[10px] text-slate-400 dark:text-[var(--text-tertiary)]">
+                  <p className="text-[10px] text-[var(--text-tertiary)]">
                     Suporta múltiplos arquivos e imagens do clipboard
                   </p>
                   <input
@@ -536,7 +536,7 @@ export function NewTicketModal() {
                       return (
                         <div
                           key={att.id}
-                          className="flex items-center justify-between p-2 bg-white dark:bg-[var(--surface-card)] border border-slate-200 dark:border-[var(--border-default)] rounded-xl"
+                          className="flex items-center justify-between p-2 bg-[var(--surface-card)] border border-[var(--border-default)] rounded-xl"
                         >
                           <button
                             type="button"
@@ -546,20 +546,20 @@ export function NewTicketModal() {
                             title={isImage ? "Visualizar imagem" : undefined}
                           >
                             {isImage ? (
-                              <ImageIcon size={14} className="text-indigo-500 dark:text-[var(--accent-text)]" />
+                              <ImageIcon size={14} className="text-[var(--accent-text)]" />
                             ) : att.type.startsWith("audio/") ? (
                               <Music size={14} className="text-pink-500 dark:text-pink-400" />
                             ) : (
-                              <FileText size={14} className="text-slate-400 dark:text-[var(--text-tertiary)]" />
+                              <FileText size={14} className="text-[var(--text-tertiary)]" />
                             )}
-                            <span className="text-[10px] font-bold text-slate-700 dark:text-[var(--text-secondary)] truncate">
+                            <span className="text-[10px] font-bold text-[var(--text-secondary)] truncate">
                               {att.name}
                             </span>
                           </button>
                           <button
                             type="button"
                             onClick={() => removeAttachment(att.id)}
-                            className="p-1 hover:bg-red-50 dark:hover:bg-[var(--surface-danger)] text-slate-400 dark:text-[var(--text-tertiary)] hover:text-red-500 dark:hover:text-[var(--text-danger)] rounded-lg transition-all"
+                            className="p-1 hover:bg-[var(--surface-danger)] text-[var(--text-tertiary)] hover:text-[var(--text-danger)] rounded-lg transition-all"
                           >
                             <Trash2 size={14} />
                           </button>
@@ -574,7 +574,7 @@ export function NewTicketModal() {
                 <button
                   type="button"
                   onClick={() => setIsNewTicketModalOpen(false)}
-                  className="flex-1 px-6 py-3 rounded-xl text-sm font-bold text-slate-500 dark:text-[var(--text-tertiary)] hover:bg-slate-50 dark:hover:bg-[var(--surface-card)] transition-all border border-slate-200 dark:border-[var(--border-default)]"
+                  className="flex-1 px-6 py-3 rounded-xl text-sm font-bold text-[var(--text-tertiary)] hover:bg-[var(--surface-card)] transition-all border border-[var(--border-default)]"
                 >
                   Cancelar
                 </button>
@@ -584,8 +584,8 @@ export function NewTicketModal() {
                   className={cn(
                     "flex-1 px-6 py-3 rounded-xl text-sm font-black uppercase tracking-widest shadow-lg transition-all flex items-center justify-center gap-2 disabled:opacity-70 disabled:cursor-not-allowed",
                     saveSuccess
-                      ? "bg-emerald-500 dark:bg-[var(--text-success)] text-white"
-                      : "bg-indigo-600 dark:bg-[var(--accent)] text-white shadow-indigo-100 hover:bg-indigo-700 dark:hover:bg-[var(--accent-hover)]",
+                      ? "bg-[var(--text-success)] text-white"
+                      : "bg-[var(--accent)] text-white shadow-indigo-100 hover:bg-[var(--accent-hover)]",
                   )}
                 >
                   {loading ? (

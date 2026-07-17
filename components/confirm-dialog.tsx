@@ -45,31 +45,31 @@ export function ConfirmDialog({
             initial={{ scale: 0.95, opacity: 0 }}
             animate={{ scale: 1, opacity: 1 }}
             exit={{ scale: 0.95, opacity: 0 }}
-            className="relative bg-white dark:bg-[var(--surface-card)] rounded-2xl shadow-2xl p-6 w-full max-w-sm"
+            className="relative bg-[var(--surface-card)] rounded-2xl shadow-2xl p-6 w-full max-w-sm"
           >
             <div className="flex items-start gap-4 mb-4">
-              <div className={`w-10 h-10 rounded-xl flex items-center justify-center ${variant === 'danger' ? 'bg-red-100 dark:bg-[var(--surface-danger)]' : 'bg-amber-100 dark:bg-[var(--surface-warning)]'}`}>
-                <AlertTriangle size={20} className={variant === 'danger' ? 'text-red-600 dark:text-[var(--text-danger)]' : 'text-amber-600 dark:text-[var(--text-warning)]'} />
+              <div className={`w-10 h-10 rounded-xl flex items-center justify-center ${variant === 'danger' ? 'bg-[var(--surface-danger)]' : 'bg-[var(--surface-warning)]'}`}>
+                <AlertTriangle size={20} className={variant === 'danger' ? 'text-[var(--text-danger)]' : 'text-[var(--text-warning)]'} />
               </div>
               <div>
-                <h3 className="text-lg font-black text-slate-800 dark:text-[var(--text-primary)]">{title}</h3>
-                {description && <p className="text-sm text-slate-500 dark:text-[var(--text-tertiary)] mt-1">{description}</p>}
+                <h3 className="text-lg font-black text-[var(--text-primary)]">{title}</h3>
+                {description && <p className="text-sm text-[var(--text-tertiary)] mt-1">{description}</p>}
               </div>
             </div>
-            
+
             <div className="flex gap-3 justify-end">
               <button
                 onClick={onClose}
-                className="px-4 py-2 rounded-lg text-slate-600 dark:text-[var(--text-secondary)] hover:bg-slate-100 dark:hover:bg-[var(--surface-pill)] transition-all text-sm font-bold"
+                className="px-4 py-2 rounded-lg text-[var(--text-secondary)] hover:bg-[var(--surface-pill)] transition-all text-sm font-bold"
               >
                 {cancelLabel}
               </button>
               <button
                 onClick={handleConfirm}
                 className={`px-4 py-2 rounded-lg text-white font-bold text-sm transition-all ${
-                  variant === 'danger' 
-                    ? 'bg-red-500 dark:bg-[var(--text-danger)] hover:bg-red-600 dark:hover:bg-[var(--text-danger)]' 
-                    : 'bg-amber-500 dark:bg-[var(--text-warning-strong)] hover:bg-amber-600 dark:hover:bg-[var(--accent-warning-hover)]'
+                  variant === 'danger'
+                    ? 'bg-[var(--text-danger)] hover:bg-[var(--text-danger)]'
+                    : 'bg-[var(--text-warning-strong)] hover:bg-[var(--accent-warning-hover)]'
                 }`}
               >
                 {confirmLabel}

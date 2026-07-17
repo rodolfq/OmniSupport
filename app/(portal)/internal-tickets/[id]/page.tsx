@@ -28,18 +28,18 @@ interface Attachment {
 }
 
 const TEAM_OPTIONS = [
-  { value: "Desenvolvimento", label: "Desenvolvimento", color: "bg-indigo-100 dark:bg-[var(--accent)]/20 text-indigo-700 dark:text-[var(--accent-text)]" },
-  { value: "Infraestrutura", label: "Infraestrutura", color: "bg-emerald-100 dark:bg-[var(--surface-success)] text-emerald-700 dark:text-[var(--text-success)]" },
-  { value: "QA / Testes", label: "QA / Testes", color: "bg-amber-100 dark:bg-[var(--surface-warning)] text-amber-700 dark:text-[var(--text-warning)]" },
+  { value: "Desenvolvimento", label: "Desenvolvimento", color: "bg-[var(--accent)]/20 text-[var(--accent-text)]" },
+  { value: "Infraestrutura", label: "Infraestrutura", color: "bg-[var(--surface-success)] text-[var(--text-success)]" },
+  { value: "QA / Testes", label: "QA / Testes", color: "bg-[var(--surface-warning)] text-[var(--text-warning)]" },
   { value: "Produto", label: "Produto", color: "bg-purple-100 dark:bg-purple-500/20 text-purple-700 dark:text-purple-300" },
 ];
 
 const KANBAN_STATUSES = [
-  { value: "Novo", label: "Novo", color: "bg-blue-100 dark:bg-[var(--surface-info)] text-blue-700 dark:text-[var(--text-info)]" },
-  { value: "Em Atendimento", label: "Em Atendimento", color: "bg-amber-100 dark:bg-[var(--surface-warning)] text-amber-700 dark:text-[var(--text-warning)]" },
-  { value: "Pendente", label: "Pendente", color: "bg-slate-100 dark:bg-[var(--surface-pill)] text-slate-700 dark:text-[var(--text-secondary)]" },
-  { value: "Resolvido", label: "Resolvido", color: "bg-emerald-100 dark:bg-[var(--surface-success)] text-emerald-700 dark:text-[var(--text-success)]" },
-  { value: "Fechado", label: "Fechado", color: "bg-slate-100 dark:bg-[var(--surface-pill)] text-slate-500 dark:text-[var(--text-tertiary)]" },
+  { value: "Novo", label: "Novo", color: "bg-[var(--surface-info)] text-[var(--text-info)]" },
+  { value: "Em Atendimento", label: "Em Atendimento", color: "bg-[var(--surface-warning)] text-[var(--text-warning)]" },
+  { value: "Pendente", label: "Pendente", color: "bg-[var(--surface-pill)] text-[var(--text-secondary)]" },
+  { value: "Resolvido", label: "Resolvido", color: "bg-[var(--surface-success)] text-[var(--text-success)]" },
+  { value: "Fechado", label: "Fechado", color: "bg-[var(--surface-pill)] text-[var(--text-tertiary)]" },
 ];
 
 interface InternalTicketWithExtras extends InternalTicket {
@@ -144,77 +144,77 @@ export default function InternalTicketDetailPage() {
   const formatDate = (dateStr: string) => new Date(dateStr).toLocaleString('pt-BR', { day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' });
 
   if (loading || !ticket) {
-    return <div className="h-full flex items-center justify-center"><Loader2 className="w-8 h-8 text-amber-500 dark:text-[var(--text-warning-strong)] animate-spin" /></div>;
+    return <div className="h-full flex items-center justify-center"><Loader2 className="w-8 h-8 text-[var(--text-warning-strong)] animate-spin" /></div>;
   }
 
   return (
     <div className="h-full flex flex-col">
       {/* Header superior */}
-      <div className="h-15 bg-white dark:bg-[var(--surface-card)] border-b border-slate-200 dark:border-[var(--border-default)] flex items-center justify-between px-6">
-        <div className="text-sm font-bold text-slate-800 dark:text-[var(--text-primary)]">#{ticket.id} / <span className="text-amber-600 dark:text-[var(--text-warning)]">Chamado Interno</span></div>
+      <div className="h-15 bg-[var(--surface-card)] border-b border-[var(--border-default)] flex items-center justify-between px-6">
+        <div className="text-sm font-bold text-[var(--text-primary)]">#{ticket.id} / <span className="text-[var(--text-warning)]">Chamado Interno</span></div>
         <div className="flex items-center gap-1">
           {KANBAN_STATUSES.map((status) => (
             <button key={status.value} onClick={() => { setFormStatus(status.value); handleUpdateTicket(); }}
-              className={cn("px-3 py-1 rounded-full text-[10px] font-bold uppercase transition-all", formStatus === status.value ? "bg-amber-600 dark:bg-[var(--accent-warning-hover)] text-white" : "bg-slate-100 dark:bg-[var(--surface-pill)] text-slate-600 dark:text-[var(--text-secondary)] hover:bg-slate-200 dark:hover:bg-[var(--border-default)]")}>
+              className={cn("px-3 py-1 rounded-full text-[10px] font-bold uppercase transition-all", formStatus === status.value ? "bg-[var(--accent-warning-hover)] text-white" : "bg-[var(--surface-pill)] text-[var(--text-secondary)] hover:bg-[var(--border-default)]")}>
               {status.label}
             </button>
           ))}
         </div>
         <div className="flex items-center gap-2">
-          <button onClick={() => { if (currentUser) { setFormAssignee(currentUser.id); handleUpdateTicket(); } }} className="px-3 py-1.5 rounded-lg text-xs font-bold border border-slate-200 dark:border-[var(--border-default)] hover:bg-slate-50 dark:hover:bg-[var(--surface-card)]">ASSUMIR</button>
-          <button onClick={() => { setFormStatus('Concluído'); handleUpdateTicket(); }} className="px-3 py-1.5 rounded-lg text-xs font-bold bg-emerald-600 dark:bg-[var(--text-success)] text-white hover:bg-emerald-700">FINALIZAR</button>
-          <button onClick={handleUpdateTicket} className="px-3 py-1.5 rounded-lg text-xs font-bold bg-amber-500 dark:bg-[var(--text-warning-strong)] text-white hover:bg-amber-600 dark:hover:bg-[var(--accent-warning-hover)]">SALVAR</button>
-          <button onClick={() => router.push('/internal-tickets')} className="p-1.5 rounded-lg text-slate-400 dark:text-[var(--text-tertiary)] hover:text-slate-600 dark:hover:text-[var(--text-secondary)]">
+          <button onClick={() => { if (currentUser) { setFormAssignee(currentUser.id); handleUpdateTicket(); } }} className="px-3 py-1.5 rounded-lg text-xs font-bold border border-[var(--border-default)] hover:bg-[var(--surface-card)]">ASSUMIR</button>
+          <button onClick={() => { setFormStatus('Concluído'); handleUpdateTicket(); }} className="px-3 py-1.5 rounded-lg text-xs font-bold bg-[var(--text-success)] text-white hover:bg-emerald-700">FINALIZAR</button>
+          <button onClick={handleUpdateTicket} className="px-3 py-1.5 rounded-lg text-xs font-bold bg-[var(--text-warning-strong)] text-white hover:bg-[var(--accent-warning-hover)]">SALVAR</button>
+          <button onClick={() => router.push('/internal-tickets')} className="p-1.5 rounded-lg text-[var(--text-tertiary)] hover:text-[var(--text-secondary)]">
             <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M18 6 6 18"/><path d="m6 6 12 12"/></svg>
           </button>
         </div>
       </div>
 
       {/* Título do ticket */}
-      <div className="px-6 py-4"><h1 className="text-2xl font-black text-slate-800 dark:text-[var(--text-primary)]">{ticket.title}</h1></div>
+      <div className="px-6 py-4"><h1 className="text-2xl font-black text-[var(--text-primary)]">{ticket.title}</h1></div>
 
       {/* Área principal */}
       <div className="flex-1 flex overflow-hidden">
         {/* Conteúdo principal */}
-        <div className="flex-[0.73] bg-white dark:bg-[var(--surface-card)] p-6 overflow-auto">
+        <div className="flex-[0.73] bg-[var(--surface-card)] p-6 overflow-auto">
           <div className="grid grid-cols-2 gap-6 mb-4">
             <div className="space-y-3">
-              <div><p className="text-[10px] text-slate-400 dark:text-[var(--text-tertiary)] font-bold uppercase mb-1">Equipe</p>
-                <StyledSelect value={formTeam} onChange={(e) => setFormTeam(e.target.value)} className="w-full bg-slate-50 dark:bg-[var(--surface-card)] border border-slate-200 dark:border-[var(--border-default)] rounded-lg px-3 py-2 text-xs font-bold text-slate-800 dark:text-[var(--text-primary)]">
+              <div><p className="text-[10px] text-[var(--text-tertiary)] font-bold uppercase mb-1">Equipe</p>
+                <StyledSelect value={formTeam} onChange={(e) => setFormTeam(e.target.value)} className="w-full bg-[var(--surface-card)] border border-[var(--border-default)] rounded-lg px-3 py-2 text-xs font-bold text-[var(--text-primary)]">
                   {TEAM_OPTIONS.map(t => <option key={t.value} value={t.value}>{t.label}</option>)}
                 </StyledSelect></div>
-              <div><p className="text-[10px] text-slate-400 dark:text-[var(--text-tertiary)] font-bold uppercase mb-1">Responsável</p>
-                <StyledSelect value={formAssignee} onChange={(e) => setFormAssignee(e.target.value)} className="w-full bg-slate-50 dark:bg-[var(--surface-card)] border border-slate-200 dark:border-[var(--border-default)] rounded-lg px-3 py-2 text-xs font-bold text-slate-800 dark:text-[var(--text-primary)]">
+              <div><p className="text-[10px] text-[var(--text-tertiary)] font-bold uppercase mb-1">Responsável</p>
+                <StyledSelect value={formAssignee} onChange={(e) => setFormAssignee(e.target.value)} className="w-full bg-[var(--surface-card)] border border-[var(--border-default)] rounded-lg px-3 py-2 text-xs font-bold text-[var(--text-primary)]">
                   <option value="">Não atribuído</option>
                   {analysts.map(a => <option key={a.id} value={a.id}>{a.name}</option>)}
                 </StyledSelect></div>
-              <div><p className="text-[10px] text-slate-400 dark:text-[var(--text-tertiary)] font-bold uppercase mb-1">Vencimento</p><p className="text-xs font-bold text-slate-800 dark:text-[var(--text-primary)]">---</p></div>
-              <div><p className="text-[10px] text-slate-400 dark:text-[var(--text-tertiary)] font-bold uppercase mb-1">Prioridade</p>
+              <div><p className="text-[10px] text-[var(--text-tertiary)] font-bold uppercase mb-1">Vencimento</p><p className="text-xs font-bold text-[var(--text-primary)]">---</p></div>
+              <div><p className="text-[10px] text-[var(--text-tertiary)] font-bold uppercase mb-1">Prioridade</p>
                 <div className="flex items-center gap-1">{[1, 2, 3, 4].map(star => (
-                  <Star key={star} size={16} className={cn(star <= formPriority ? "fill-amber-400 text-amber-400 dark:text-[var(--text-warning)]" : "text-slate-300")} />
+                  <Star key={star} size={16} className={cn(star <= formPriority ? "fill-amber-400 text-[var(--text-warning)]" : "text-slate-300")} />
                 ))}</div></div>
             </div>
             <div className="space-y-3">
-              <div><p className="text-[10px] text-slate-400 dark:text-[var(--text-tertiary)] font-bold uppercase mb-1">Cliente</p>
-                <StyledSelect className="w-full bg-slate-50 dark:bg-[var(--surface-card)] border border-slate-200 dark:border-[var(--border-default)] rounded-lg px-3 py-2 text-xs font-bold text-slate-800 dark:text-[var(--text-primary)]"><option value="">Selecione uma empresa</option></StyledSelect></div>
-              <div><p className="text-[10px] text-slate-400 dark:text-[var(--text-tertiary)] font-bold uppercase mb-1">Contato</p>
-                <StyledSelect className="w-full bg-slate-50 dark:bg-[var(--surface-card)] border border-slate-200 dark:border-[var(--border-default)] rounded-lg px-3 py-2 text-xs font-bold text-slate-800 dark:text-[var(--text-primary)]"><option value="">Selecione um contato</option></StyledSelect></div>
-              <div><p className="text-[10px] text-slate-400 dark:text-[var(--text-tertiary)] font-bold uppercase mb-1">Telefone</p><p className="text-xs font-bold text-slate-800 dark:text-[var(--text-primary)]">Não informado</p></div>
-              <div><p className="text-[10px] text-slate-400 dark:text-[var(--text-tertiary)] font-bold uppercase mb-1">Colaboradores</p><button className="px-3 py-1 rounded-lg text-xs font-bold border border-slate-200 dark:border-[var(--border-default)] text-slate-600 dark:text-[var(--text-secondary)]">+ ADICIONAR</button></div>
-              <div><p className="text-[10px] text-slate-400 dark:text-[var(--text-tertiary)] font-bold uppercase mb-1">Marcadores</p><p className="text-xs font-bold text-slate-800 dark:text-[var(--text-primary)]">tags...</p></div>
+              <div><p className="text-[10px] text-[var(--text-tertiary)] font-bold uppercase mb-1">Cliente</p>
+                <StyledSelect className="w-full bg-[var(--surface-card)] border border-[var(--border-default)] rounded-lg px-3 py-2 text-xs font-bold text-[var(--text-primary)]"><option value="">Selecione uma empresa</option></StyledSelect></div>
+              <div><p className="text-[10px] text-[var(--text-tertiary)] font-bold uppercase mb-1">Contato</p>
+                <StyledSelect className="w-full bg-[var(--surface-card)] border border-[var(--border-default)] rounded-lg px-3 py-2 text-xs font-bold text-[var(--text-primary)]"><option value="">Selecione um contato</option></StyledSelect></div>
+              <div><p className="text-[10px] text-[var(--text-tertiary)] font-bold uppercase mb-1">Telefone</p><p className="text-xs font-bold text-[var(--text-primary)]">Não informado</p></div>
+              <div><p className="text-[10px] text-[var(--text-tertiary)] font-bold uppercase mb-1">Colaboradores</p><button className="px-3 py-1 rounded-lg text-xs font-bold border border-[var(--border-default)] text-[var(--text-secondary)]">+ ADICIONAR</button></div>
+              <div><p className="text-[10px] text-[var(--text-tertiary)] font-bold uppercase mb-1">Marcadores</p><p className="text-xs font-bold text-[var(--text-primary)]">tags...</p></div>
             </div>
           </div>
 
-          <div className="border-t border-slate-200 dark:border-[var(--border-default)]"></div>
+          <div className="border-t border-[var(--border-default)]"></div>
 
-          <div className="flex items-center gap-6 px-6 py-3 border-b border-slate-200 dark:border-[var(--border-default)]">
+          <div className="flex items-center gap-6 px-6 py-3 border-b border-[var(--border-default)]">
             {[
               { key: 'description', label: 'DESCRIÇÃO' },
               { key: 'history', label: 'HISTÓRICO', icon: Clock },
               { key: 'attachments', label: 'ANEXOS', icon: Paperclip }
             ].map(tab => {
               const TabIcon = tab.icon;
-              return (<button key={tab.key} onClick={() => setActiveTab(tab.key as any)} className={cn("text-[10px] font-bold uppercase pb-2 border-b-2 transition-all flex items-center gap-1", activeTab === tab.key ? "text-amber-600 dark:text-[var(--text-warning)] border-amber-600 dark:border-[var(--text-warning-strong)]" : "text-slate-500 dark:text-[var(--text-tertiary)] border-transparent hover:text-slate-700 dark:hover:text-[var(--text-secondary)]")}>
+              return (<button key={tab.key} onClick={() => setActiveTab(tab.key as any)} className={cn("text-[10px] font-bold uppercase pb-2 border-b-2 transition-all flex items-center gap-1", activeTab === tab.key ? "text-[var(--text-warning)] border-[var(--text-warning-strong)]" : "text-[var(--text-tertiary)] border-transparent hover:text-[var(--text-secondary)]")}>
                 {TabIcon && <TabIcon size={14} />}{tab.label}
               </button>);
             })}
@@ -223,28 +223,28 @@ export default function InternalTicketDetailPage() {
           <div className="p-6">
             {activeTab === 'description' && (
               <div><div className="flex items-center justify-between mb-4">
-                <h2 className="text-xs font-black text-slate-400 dark:text-[var(--text-tertiary)] uppercase">DESCRIÇÃO DO CHAMADO</h2>
-                <button onClick={() => { document.getElementById('title-input')?.focus(); }} className="text-xs font-bold text-amber-600 dark:text-[var(--text-warning)] uppercase hover:underline">EDITAR</button>
+                <h2 className="text-xs font-semibold text-[var(--text-tertiary)] uppercase">DESCRIÇÃO DO CHAMADO</h2>
+                <button onClick={() => { document.getElementById('title-input')?.focus(); }} className="text-xs font-bold text-[var(--text-warning)] uppercase hover:underline">EDITAR</button>
               </div>
-              <p className="text-sm text-slate-700 dark:text-[var(--text-secondary)] min-h-96 whitespace-pre-wrap">{ticket.description || 'Sem descrição'}</p></div>
+              <p className="text-sm text-[var(--text-secondary)] min-h-96 whitespace-pre-wrap">{ticket.description || 'Sem descrição'}</p></div>
             )}
             {activeTab === 'history' && (
               <div className="min-h-96">
                 {messages.length === 0 ? (
                   <div className="text-center py-12">
                     <Clock size={32} className="mx-auto text-slate-300 mb-2" />
-                    <p className="text-xs text-slate-500 dark:text-[var(--text-tertiary)]">Nenhuma atividade registrada</p>
+                    <p className="text-xs text-[var(--text-tertiary)]">Nenhuma atividade registrada</p>
                   </div>
                 ) : (
                   <div className="space-y-3 max-h-96 overflow-y-auto">
                     {messages.map((msg) => (
-                      <div key={msg.id} className="bg-slate-50 dark:bg-[var(--surface-card)] rounded-lg p-3 border border-slate-200 dark:border-[var(--border-default)]">
+                      <div key={msg.id} className="bg-[var(--surface-card)] rounded-lg p-3 border border-[var(--border-default)]">
                         <div className="flex items-center gap-2 mb-1">
-                          <span className="text-[10px] font-bold text-amber-600 dark:text-[var(--text-warning)]">
+                          <span className="text-[10px] font-bold text-[var(--text-warning)]">
                             <ClientTime date={msg.timestamp} showDate={true} />
                           </span>
                         </div>
-                        <p className="text-sm text-slate-700 dark:text-[var(--text-secondary)]">{msg.text}</p>
+                        <p className="text-sm text-[var(--text-secondary)]">{msg.text}</p>
                       </div>
                     ))}
                   </div>
@@ -256,15 +256,15 @@ export default function InternalTicketDetailPage() {
                 {previewAttachments.length === 0 ? (
                   <div className="text-center py-12">
                     <Paperclip size={32} className="mx-auto text-slate-300 mb-2" />
-                    <p className="text-xs text-slate-500 dark:text-[var(--text-tertiary)]">Nenhum anexo</p>
+                    <p className="text-xs text-[var(--text-tertiary)]">Nenhum anexo</p>
                   </div>
                 ) : (
                   <div className="space-y-2 max-h-96 overflow-y-auto">
                     {previewAttachments.map((att) => (
-                      <div key={att.id} className="flex items-center gap-2 bg-slate-50 dark:bg-[var(--surface-card)] rounded-lg p-3 border border-slate-200 dark:border-[var(--border-default)]">
-                        <Paperclip size={14} className="text-slate-500 dark:text-[var(--text-tertiary)]" />
-                        <span className="text-sm text-slate-700 dark:text-[var(--text-secondary)] truncate">{att.name}</span>
-                        <span className="text-[10px] text-slate-400 dark:text-[var(--text-tertiary)] ml-auto">{(att.size / 1024).toFixed(1)}KB</span>
+                      <div key={att.id} className="flex items-center gap-2 bg-[var(--surface-card)] rounded-lg p-3 border border-[var(--border-default)]">
+                        <Paperclip size={14} className="text-[var(--text-tertiary)]" />
+                        <span className="text-sm text-[var(--text-secondary)] truncate">{att.name}</span>
+                        <span className="text-[10px] text-[var(--text-tertiary)] ml-auto">{(att.size / 1024).toFixed(1)}KB</span>
                       </div>
                     ))}
                   </div>
@@ -275,9 +275,9 @@ export default function InternalTicketDetailPage() {
         </div>
 
         {/* Painel lateral direito - UNIFICADO e estendido */}
-        <div className="flex-1 border-l border-slate-200 dark:border-[var(--border-default)] flex flex-col h-full">
-          <div className="px-4 py-3 border-b border-slate-200 dark:border-[var(--border-default)] flex items-center">
-            <span className="text-xs font-bold uppercase text-amber-600 dark:text-[var(--text-warning)] border-b-2 border-amber-600 dark:border-[var(--text-warning-strong)] flex items-center gap-1">
+        <div className="flex-1 border-l border-[var(--border-default)] flex flex-col h-full">
+          <div className="px-4 py-3 border-b border-[var(--border-default)] flex items-center">
+            <span className="text-xs font-bold uppercase text-[var(--text-warning)] border-b-2 border-[var(--text-warning-strong)] flex items-center gap-1">
               <Clock size={14} /> HISTÓRICO
             </span>
           </div>
@@ -285,36 +285,36 @@ export default function InternalTicketDetailPage() {
             {messages.length === 0 ? (
               <div className="flex items-center justify-center h-full">
                 <div className="text-center">
-                  <div className="w-12 h-12 bg-slate-100 dark:bg-[var(--surface-pill)] rounded-full flex items-center justify-center mx-auto mb-2">
-                    <svg className="w-6 h-6 text-slate-400 dark:text-[var(--text-tertiary)]" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><circle cx="12" cy="12" r="10"/><path d="M12 6v6l3 3"/></svg>
+                  <div className="w-12 h-12 bg-[var(--surface-pill)] rounded-full flex items-center justify-center mx-auto mb-2">
+                    <svg className="w-6 h-6 text-[var(--text-tertiary)]" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><circle cx="12" cy="12" r="10"/><path d="M12 6v6l3 3"/></svg>
                   </div>
-                  <p className="text-xs text-slate-500 dark:text-[var(--text-tertiary)]">NENHUMA ATIVIDADE REGISTRADA</p>
+                  <p className="text-xs text-[var(--text-tertiary)]">NENHUMA ATIVIDADE REGISTRADA</p>
                 </div>
               </div>
             ) : (
               <div className="space-y-3">
                 {messages.map((msg) => (
-                  <div key={msg.id} className="bg-white dark:bg-[var(--surface-card)] rounded-lg p-3 border border-slate-200 dark:border-[var(--border-default)]">
+                  <div key={msg.id} className="bg-[var(--surface-card)] rounded-lg p-3 border border-[var(--border-default)]">
                     <div className="flex items-center gap-2 mb-1">
-                      <span className="text-[10px] font-bold text-amber-600 dark:text-[var(--text-warning)]">
+                      <span className="text-[10px] font-bold text-[var(--text-warning)]">
                         <ClientTime date={msg.timestamp} showDate={true} />
                       </span>
                     </div>
-                    <p className="text-sm text-slate-700 dark:text-[var(--text-secondary)]">{msg.text}</p>
+                    <p className="text-sm text-[var(--text-secondary)]">{msg.text}</p>
                   </div>
                 ))}
               </div>
             )}
           </div>
-          <div className="p-4 border-t border-slate-200 dark:border-[var(--border-default)]">
+          <div className="p-4 border-t border-[var(--border-default)]">
             <RichEditor content={input} onChange={setInput} placeholder="Digite sua nota interna..." minHeight="80px" />
             <div className="flex justify-between items-center mt-3">
-              <button onClick={() => fileInputRef.current?.click()} className="px-3 py-1 rounded-lg text-xs font-bold border border-slate-200 dark:border-[var(--border-default)] text-slate-600 dark:text-[var(--text-secondary)] hover:bg-slate-50 dark:hover:bg-[var(--surface-card)] flex items-center gap-1">
+              <button onClick={() => fileInputRef.current?.click()} className="px-3 py-1 rounded-lg text-xs font-bold border border-[var(--border-default)] text-[var(--text-secondary)] hover:bg-[var(--surface-card)] flex items-center gap-1">
                 <Paperclip size={14} /> ANEXAR
               </button>
               <input ref={fileInputRef} type="file" multiple accept="image/*,.pdf,.doc,.docx,.txt,.zip,audio/*" onChange={handleFileSelect} className="hidden" />
               <button onClick={handleSendMessage} disabled={!input.trim() && previewAttachments.length === 0}
-                className="px-4 py-1.5 rounded-lg text-xs font-bold bg-amber-600 dark:bg-[var(--accent-warning-hover)] text-white hover:bg-amber-700 disabled:opacity-50 flex items-center gap-1">
+                className="px-4 py-1.5 rounded-lg text-xs font-bold bg-[var(--accent-warning-hover)] text-white hover:opacity-90 disabled:opacity-50 flex items-center gap-1">
                 <Send size={14} /> ENVIAR
               </button>
             </div>

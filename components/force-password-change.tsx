@@ -64,9 +64,9 @@ export function ForcePasswordChange() {
       <motion.div 
         initial={{ scale: 0.9, opacity: 0 }}
         animate={{ scale: 1, opacity: 1 }}
-        className="bg-white dark:bg-[var(--surface-card)] w-full max-w-md rounded-[3rem] shadow-2xl overflow-hidden"
+        className="bg-[var(--surface-card)] w-full max-w-md rounded-[3rem] shadow-2xl overflow-hidden"
       >
-        <div className="bg-indigo-600 dark:bg-[var(--accent)] p-8 text-white text-center">
+        <div className="bg-[var(--accent)] p-8 text-white text-center">
           <div className="w-16 h-16 bg-white/20 rounded-2xl flex items-center justify-center mx-auto mb-4 backdrop-blur-sm">
             <Lock size={32} />
           </div>
@@ -77,11 +77,11 @@ export function ForcePasswordChange() {
         <div className="p-10">
           {isSuccess ? (
             <div className="text-center py-4">
-              <div className="w-20 h-20 bg-emerald-100 dark:bg-[var(--surface-success)] text-emerald-600 dark:text-[var(--text-success)] rounded-full flex items-center justify-center mx-auto mb-6">
+              <div className="w-20 h-20 bg-[var(--surface-success)] text-[var(--text-success)] rounded-full flex items-center justify-center mx-auto mb-6">
                 <CheckCircle2 size={40} />
               </div>
-              <h3 className="text-xl font-bold text-slate-800 dark:text-[var(--text-primary)] mb-2">Senha alterada!</h3>
-              <p className="text-slate-500 dark:text-[var(--text-tertiary)] text-sm mb-8">Agora você já pode acessar todos os recursos do portal.</p>
+              <h3 className="text-xl font-bold text-[var(--text-primary)] mb-2">Senha alterada!</h3>
+              <p className="text-[var(--text-tertiary)] text-sm mb-8">Agora você já pode acessar todos os recursos do portal.</p>
               <button 
                 onClick={() => window.location.reload()}
                 className="w-full bg-slate-900 text-white py-4 rounded-2xl text-xs font-black uppercase tracking-widest shadow-xl shadow-slate-100 hover:bg-slate-800 transition-all"
@@ -92,28 +92,28 @@ export function ForcePasswordChange() {
           ) : (
             <form onSubmit={handleUpdatePassword} className="space-y-6">
               {error && (
-                <div className="bg-red-50 dark:bg-[var(--surface-danger)] border border-red-100 dark:border-[var(--text-danger)]/20 p-4 rounded-2xl flex items-start gap-3 animate-in fade-in slide-in-from-top-2">
-                  <AlertCircle className="text-red-600 dark:text-[var(--text-danger)] mt-0.5" size={18} />
-                  <p className="text-[13px] text-red-700 dark:text-[var(--text-danger)] font-bold leading-tight">{error}</p>
+                <div className="bg-[var(--surface-danger)] border border-[var(--text-danger)]/20 p-4 rounded-2xl flex items-start gap-3 animate-in fade-in slide-in-from-top-2">
+                  <AlertCircle className="text-[var(--text-danger)] mt-0.5" size={18} />
+                  <p className="text-[13px] text-[var(--text-danger)] font-bold leading-tight">{error}</p>
                 </div>
               )}
 
               <div className="space-y-4">
                 <div className="space-y-2">
-                  <label className="text-[10px] font-black uppercase text-slate-400 dark:text-[var(--text-tertiary)] tracking-widest ml-1">Nova Senha</label>
+                  <label className="text-[10px] font-black uppercase text-[var(--text-tertiary)] tracking-widest ml-1">Nova Senha</label>
                   <div className="relative">
                     <input 
                       type={showPassword ? 'text' : 'password'}
                       value={newPassword}
                       onChange={e => setNewPassword(e.target.value)}
-                      className="w-full bg-slate-50 dark:bg-[var(--surface-card)] border border-slate-200 dark:border-[var(--border-default)] rounded-2xl px-5 py-4 text-sm font-bold focus:ring-4 focus:ring-indigo-500/10 dark:focus:ring-[var(--accent)]/10 outline-none transition-all"
+                      className="w-full bg-[var(--surface-card)] border border-[var(--border-default)] rounded-2xl px-5 py-4 text-sm font-bold focus:ring-4 focus:ring-[var(--accent)]/10 outline-none transition-all"
                       placeholder="••••••••"
                       required
                     />
                     <button 
                       type="button"
                       onClick={() => setShowPassword(!showPassword)}
-                      className="absolute right-4 top-1/2 -translate-y-1/2 text-slate-400 dark:text-[var(--text-tertiary)] hover:text-slate-600 dark:hover:text-[var(--text-secondary)] transition-colors"
+                      className="absolute right-4 top-1/2 -translate-y-1/2 text-[var(--text-tertiary)] hover:text-[var(--text-secondary)] transition-colors"
                     >
                       {showPassword ? <EyeOff size={18} /> : <Eye size={18} />}
                     </button>
@@ -121,12 +121,12 @@ export function ForcePasswordChange() {
                 </div>
 
                 <div className="space-y-2">
-                  <label className="text-[10px] font-black uppercase text-slate-400 dark:text-[var(--text-tertiary)] tracking-widest ml-1">Confirmar Senha</label>
+                  <label className="text-[10px] font-black uppercase text-[var(--text-tertiary)] tracking-widest ml-1">Confirmar Senha</label>
                   <input 
                     type={showPassword ? 'text' : 'password'}
                     value={confirmPassword}
                     onChange={e => setConfirmPassword(e.target.value)}
-                    className="w-full bg-slate-50 dark:bg-[var(--surface-card)] border border-slate-200 dark:border-[var(--border-default)] rounded-2xl px-5 py-4 text-sm font-bold focus:ring-4 focus:ring-indigo-500/10 dark:focus:ring-[var(--accent)]/10 outline-none transition-all"
+                    className="w-full bg-[var(--surface-card)] border border-[var(--border-default)] rounded-2xl px-5 py-4 text-sm font-bold focus:ring-4 focus:ring-[var(--accent)]/10 outline-none transition-all"
                     placeholder="••••••••"
                     required
                   />
@@ -137,7 +137,7 @@ export function ForcePasswordChange() {
                 <button 
                   type="submit"
                   disabled={isUpdating}
-                  className="w-full bg-indigo-600 dark:bg-[var(--accent)] text-white py-4 rounded-2xl text-xs font-black uppercase tracking-widest shadow-xl shadow-indigo-100 hover:bg-indigo-700 dark:hover:bg-[var(--accent-hover)] transition-all flex items-center justify-center gap-2 disabled:opacity-50 disabled:cursor-not-allowed"
+                  className="w-full bg-[var(--accent)] text-white py-4 rounded-2xl text-xs font-black uppercase tracking-widest shadow-xl shadow-indigo-100 hover:bg-[var(--accent-hover)] transition-all flex items-center justify-center gap-2 disabled:opacity-50 disabled:cursor-not-allowed"
                 >
                   {isUpdating ? (
                     <>

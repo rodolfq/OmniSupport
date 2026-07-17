@@ -678,9 +678,9 @@ export default function ChatInternalPage() {
 
   if (!isChatReady) {
     return (
-      <div className="h-[calc(100vh-120px)] flex items-center justify-center bg-white dark:bg-[var(--surface-card)] rounded-3xl border border-slate-200 dark:border-[var(--border-default)] shadow-2xl">
-        <div className="flex flex-col items-center gap-3 text-slate-500 dark:text-[var(--text-tertiary)]">
-          <Loader2 size={28} className="animate-spin text-indigo-600 dark:text-[var(--accent-text)]" />
+      <div className="h-[calc(100vh-120px)] flex items-center justify-center bg-[var(--surface-card)] rounded-3xl border border-[var(--border-default)] shadow-2xl">
+        <div className="flex flex-col items-center gap-3 text-[var(--text-tertiary)]">
+          <Loader2 size={28} className="animate-spin text-[var(--accent-text)]" />
           <span className="text-sm font-bold">Carregando conversas...</span>
         </div>
       </div>
@@ -688,12 +688,12 @@ export default function ChatInternalPage() {
   }
 
   return (
-    <div className="h-[calc(100vh-120px)] flex bg-white dark:bg-[var(--surface-card)] rounded-3xl border border-slate-200 dark:border-[var(--border-default)] overflow-hidden shadow-2xl">
+    <div className="h-[calc(100vh-120px)] flex bg-[var(--surface-card)] rounded-3xl border border-[var(--border-default)] overflow-hidden shadow-2xl">
       {/* Sidebar */}
-      <div className="w-[350px] border-r border-slate-100 dark:border-[var(--border-default)] flex flex-col bg-slate-50/30 dark:bg-[var(--surface-card)]/30">
+      <div className="w-[350px] border-r border-[var(--border-default)] flex flex-col bg-[var(--surface-card)]/30">
         <div className="p-6 space-y-6">
           <div className="flex items-center justify-between">
-            <h1 className="text-2xl font-black text-slate-800 dark:text-[var(--text-primary)] tracking-tight">Chat Interno</h1>
+            <h1 className="text-2xl font-black text-[var(--text-primary)] tracking-tight">Chat Interno</h1>
             <div className="flex items-center gap-2">
               <button 
                 onClick={() => setShowHidden(!showHidden)}
@@ -701,7 +701,7 @@ export default function ChatInternalPage() {
                   "p-2.5 rounded-xl transition-all border shrink-0",
                   showHidden 
                     ? "bg-slate-900 border-slate-900 text-white shadow-lg shadow-slate-200" 
-                    : "bg-white dark:bg-[var(--surface-card)] border-slate-200 dark:border-[var(--border-default)] text-slate-400 dark:text-[var(--text-tertiary)] hover:text-slate-600 dark:hover:text-[var(--text-secondary)] hover:border-slate-300 dark:hover:border-[var(--border-default)]"
+                    : "bg-[var(--surface-card)] border-[var(--border-default)] text-[var(--text-tertiary)] hover:text-[var(--text-secondary)] hover:border-[var(--border-default)]"
                 )}
                 title={showHidden ? "Ocultar chats arquivados" : "Mostrar chats arquivados"}
               >
@@ -709,7 +709,7 @@ export default function ChatInternalPage() {
               </button>
               <button 
                 onClick={() => setIsCreatingGroup(true)}
-                className="p-2.5 bg-indigo-600 dark:bg-[var(--accent)] text-white rounded-xl hover:bg-indigo-700 dark:hover:bg-[var(--accent-hover)] transition-all shadow-lg shadow-indigo-100 shrink-0"
+                className="p-2.5 bg-[var(--accent)] text-white rounded-xl hover:bg-[var(--accent-hover)] transition-all shadow-lg shadow-indigo-100 shrink-0"
               >
                 <Plus size={20} />
               </button>
@@ -717,29 +717,29 @@ export default function ChatInternalPage() {
           </div>
 
           <div className="relative">
-            <Search className="absolute left-4 top-1/2 -translate-y-1/2 text-slate-400 dark:text-[var(--text-tertiary)]" size={18} />
+            <Search className="absolute left-4 top-1/2 -translate-y-1/2 text-[var(--text-tertiary)]" size={18} />
             <input 
               type="text"
               placeholder="Buscar pessoas ou grupos..."
               value={searchTerm}
               onChange={(e) => setSearchTerm(e.target.value)}
-              className="w-full bg-white dark:bg-[var(--surface-card)] border border-slate-200 dark:border-[var(--border-default)] rounded-2xl pl-12 pr-4 py-3 text-sm font-medium outline-none focus:border-indigo-500 dark:focus:border-[var(--accent)] focus:ring-4 focus:ring-indigo-500/5 dark:focus:ring-[var(--accent)]/5 transition-all"
+              className="w-full bg-[var(--surface-card)] border border-[var(--border-default)] rounded-2xl pl-12 pr-4 py-3 text-sm font-medium outline-none focus:border-[var(--accent)] focus:ring-4 focus:ring-[var(--accent)]/5 transition-all"
             />
           </div>
         </div>
 
         <div className="flex-1 overflow-y-auto px-4 pb-6 space-y-6">
           {findChatsWithUserId && (
-            <div className="mb-2 p-3 bg-indigo-50 dark:bg-[var(--accent)]/10 border border-indigo-100 dark:border-[var(--accent)]/20 rounded-2xl flex items-center justify-between">
+            <div className="mb-2 p-3 bg-[var(--accent)]/10 border border-[var(--accent)]/20 rounded-2xl flex items-center justify-between">
               <div className="flex items-center gap-2">
-                 <SearchIcon size={14} className="text-indigo-600 dark:text-[var(--accent-text)]" />
-                 <span className="text-[10px] font-black text-indigo-600 dark:text-[var(--accent-text)] uppercase tracking-widest">
+                 <SearchIcon size={14} className="text-[var(--accent-text)]" />
+                 <span className="text-[10px] font-semibold text-[var(--accent-text)] uppercase tracking-widest">
                    Filtrando por usuário
                  </span>
               </div>
               <button 
                 onClick={() => setFindChatsWithUserId(null)}
-                className="p-1 hover:bg-indigo-200/50 rounded-lg text-indigo-600 dark:text-[var(--accent-text)] transition-colors"
+                className="p-1 hover:bg-indigo-200/50 rounded-lg text-[var(--accent-text)] transition-colors"
               >
                  <X size={14} />
               </button>
@@ -749,7 +749,7 @@ export default function ChatInternalPage() {
           {/* Active Conversations */}
           {filteredRooms.length > 0 && (
             <div className="space-y-2">
-              <p className="px-4 text-[10px] font-black uppercase text-slate-400 dark:text-[var(--text-tertiary)] tracking-widest">Conversas</p>
+              <p className="px-4 text-[10px] font-semibold uppercase text-[var(--text-tertiary)] tracking-widest">Conversas</p>
               {filteredRooms.map((room, roomIdx) => {
                 const lastMessage = room.messages[room.messages.length - 1];
                 const isActive = selectedRoomId === room.id;
@@ -766,13 +766,13 @@ export default function ChatInternalPage() {
                     onContextMenu={(e) => handleContextMenu(e, room.id)}
                     className={cn(
                       "w-full flex items-center gap-4 p-4 rounded-3xl transition-all text-left group relative cursor-pointer",
-                      isActive ? "bg-white dark:bg-[var(--surface-card)] shadow-xl shadow-slate-100/50 border border-slate-100 dark:border-[var(--border-default)]" : "hover:bg-white/50 dark:hover:bg-[var(--surface-card)]",
-                      room.readLaterBy?.includes(currentUser?.id || '') && "border-2 border-indigo-200 dark:border-[var(--accent)]/30"
+                      isActive ? "bg-[var(--surface-card)] shadow-xl shadow-slate-100/50 border border-[var(--border-default)]" : "hover:bg-[var(--surface-card)]/50",
+                      room.readLaterBy?.includes(currentUser?.id || '') && "border-2 border-[var(--accent)]/30"
                     )}
                   >
                     <div className={cn(
-                      "w-12 h-12 rounded-2xl flex items-center justify-center text-white font-black overflow-hidden bg-slate-200 dark:bg-[var(--border-default)]",
-                      !avatar && (room.type === 'group' ? "bg-indigo-500 dark:bg-[var(--accent)]" : "bg-emerald-500 dark:bg-[var(--text-success)]")
+                      "w-12 h-12 rounded-2xl flex items-center justify-center text-white font-black overflow-hidden bg-[var(--border-default)]",
+                      !avatar && (room.type === 'group' ? "bg-[var(--accent)]" : "bg-[var(--text-success)]")
                     )}>
                       {avatar ? (
                         <img src={avatar} alt={room.name} className="w-full h-full object-cover" />
@@ -783,17 +783,17 @@ export default function ChatInternalPage() {
                     <div className="flex-1 min-w-0">
                       <div className="flex justify-between items-center mb-0.5 gap-2">
                         <div className="flex items-center gap-1.5 min-w-0 flex-1">
-                           <span className="text-sm font-black text-slate-800 dark:text-[var(--text-primary)] truncate">{room.name}</span>
+                           <span className="text-sm font-black text-[var(--text-primary)] truncate">{room.name}</span>
                         </div>
                         <div className="flex items-center gap-2 shrink-0">
                           {room.mutedBy?.includes(currentUser?.id || '') && <BellOff size={10} className="text-slate-300" />}
-                          {isPinned && <Pin size={12} className="text-indigo-500 dark:text-[var(--accent-text)] fill-indigo-500 rotate-45 shrink-0" />}
-                          <span className="text-[10px] font-bold text-slate-400 dark:text-[var(--text-tertiary)]">
+                          {isPinned && <Pin size={12} className="text-[var(--accent-text)] fill-indigo-500 rotate-45 shrink-0" />}
+                          <span className="text-[10px] font-bold text-[var(--text-tertiary)]">
                             {room.lastMessageAt ? new Date(room.lastMessageAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) : ''}
                           </span>
                         </div>
                       </div>
-                      <p className="text-xs text-slate-500 dark:text-[var(--text-tertiary)] truncate font-medium">
+                      <p className="text-xs text-[var(--text-tertiary)] truncate font-medium">
                         {lastMessage ? (
                           lastMessage.isDeleted ? (lastMessage.text || 'Mensagem apagada') :
                           lastMessage.type === 'text' ? lastMessage.text : 
@@ -812,16 +812,16 @@ export default function ChatInternalPage() {
           {/* All Users / Contacts */}
           {filteredUsers.length > 0 && (
             <div className="space-y-2">
-              <p className="px-4 text-[10px] font-black uppercase text-slate-400 dark:text-[var(--text-tertiary)] tracking-widest">Contatos</p>
+              <p className="px-4 text-[10px] font-semibold uppercase text-[var(--text-tertiary)] tracking-widest">Contatos</p>
               {filteredUsers.map((user, uIdx) => (
                 <button 
                   key={`contact-${user.id}-${uIdx}`}
                   onClick={() => startDirectChat(user)}
-                  className="w-full flex items-center gap-4 p-4 rounded-3xl transition-all text-left hover:bg-white/50 dark:hover:bg-[var(--surface-card)] group"
+                  className="w-full flex items-center gap-4 p-4 rounded-3xl transition-all text-left hover:bg-[var(--surface-card)]/50 group"
                 >
                   <div className={cn(
-                    "w-12 h-12 rounded-2xl flex items-center justify-center text-white font-black overflow-hidden bg-slate-200 dark:bg-[var(--border-default)]",
-                    !user.avatarUrl && "bg-emerald-500 dark:bg-[var(--text-success)]"
+                    "w-12 h-12 rounded-2xl flex items-center justify-center text-white font-black overflow-hidden bg-[var(--border-default)]",
+                    !user.avatarUrl && "bg-[var(--text-success)]"
                   )}>
                     {user.avatarUrl ? (
                       <img src={user.avatarUrl} alt={user.name} className="w-full h-full object-cover" />
@@ -830,8 +830,8 @@ export default function ChatInternalPage() {
                     )}
                   </div>
                   <div className="flex-1 min-w-0">
-                    <span className="text-sm font-black text-slate-800 dark:text-[var(--text-primary)] truncate block">{user.name}</span>
-                    <p className="text-[10px] font-bold text-slate-400 dark:text-[var(--text-tertiary)] uppercase tracking-tighter">{user.role}</p>
+                    <span className="text-sm font-black text-[var(--text-primary)] truncate block">{user.name}</span>
+                    <p className="text-[10px] font-bold text-[var(--text-tertiary)] uppercase tracking-tighter">{user.role}</p>
                   </div>
                 </button>
               ))}
@@ -841,15 +841,15 @@ export default function ChatInternalPage() {
       </div>
 
       {/* Main Window */}
-      <div className="flex-1 flex flex-col bg-white dark:bg-[var(--surface-card)]">
+      <div className="flex-1 flex flex-col bg-[var(--surface-card)]">
         {selectedRoom ? (
           <>
             {/* Header */}
-            <div className="px-8 py-5 border-b border-slate-100 dark:border-[var(--border-default)] flex items-center justify-between bg-white/80 dark:bg-[var(--surface-card)] backdrop-blur-xl sticky top-0 z-10">
+            <div className="px-8 py-5 border-b border-[var(--border-default)] flex items-center justify-between bg-[var(--surface-card)]/80 backdrop-blur-xl sticky top-0 z-10">
               <div className="flex items-center gap-4">
                 <div className={cn(
-                  "w-12 h-12 rounded-2xl flex items-center justify-center text-white font-black shadow-lg overflow-hidden bg-slate-200 dark:bg-[var(--border-default)]",
-                  selectedRoom.type === 'group' ? "bg-indigo-500 dark:bg-[var(--accent)] shadow-indigo-100" : "bg-emerald-500 dark:bg-[var(--text-success)] shadow-emerald-100"
+                  "w-12 h-12 rounded-2xl flex items-center justify-center text-white font-black shadow-lg overflow-hidden bg-[var(--border-default)]",
+                  selectedRoom.type === 'group' ? "bg-[var(--accent)] shadow-indigo-100" : "bg-[var(--text-success)] shadow-emerald-100"
                 )}>
                   {selectedRoom.type === 'group' ? (
                     selectedRoom.imageUrl ? <img src={selectedRoom.imageUrl} className="w-full h-full object-cover" /> : <Users size={20} />
@@ -860,8 +860,8 @@ export default function ChatInternalPage() {
                   )}
                 </div>
                 <div>
-                  <h2 className="text-lg font-black text-slate-800 dark:text-[var(--text-primary)] tracking-tight">{selectedRoom.name}</h2>
-                  <p className="text-xs font-bold text-slate-400 dark:text-[var(--text-tertiary)] uppercase tracking-widest">
+                  <h2 className="text-lg font-black text-[var(--text-primary)] tracking-tight">{selectedRoom.name}</h2>
+                  <p className="text-xs font-bold text-[var(--text-tertiary)] uppercase tracking-widest">
                     {selectedRoom.type === 'group' ? `${selectedRoom.memberIds?.length || 0} membros` : 'Online'}
                   </p>
                 </div>
@@ -870,7 +870,7 @@ export default function ChatInternalPage() {
                 {selectedRoom.type === 'group' && (
                   <button 
                     onClick={() => setShowGroupSettings(true)}
-                    className="p-3 text-slate-400 dark:text-[var(--text-tertiary)] hover:text-indigo-600 dark:hover:text-[var(--accent-text)] hover:bg-indigo-50 dark:hover:bg-[var(--accent)]/10 rounded-2xl transition-all"
+                    className="p-3 text-[var(--text-tertiary)] hover:text-[var(--accent-text)] hover:bg-[var(--accent)]/10 rounded-2xl transition-all"
                     title="Configurações do Grupo"
                   >
                       <Users size={20} />
@@ -878,7 +878,7 @@ export default function ChatInternalPage() {
                 )}
                 <button 
                   onClick={() => setShowSettings(true)}
-                  className="p-3 text-slate-400 dark:text-[var(--text-tertiary)] hover:text-indigo-600 dark:hover:text-[var(--accent-text)] hover:bg-indigo-50 dark:hover:bg-[var(--accent)]/10 rounded-2xl transition-all"
+                  className="p-3 text-[var(--text-tertiary)] hover:text-[var(--accent-text)] hover:bg-[var(--accent)]/10 rounded-2xl transition-all"
                   title="Minhas Preferências"
                 >
                     <Settings size={20} />
@@ -888,23 +888,23 @@ export default function ChatInternalPage() {
                   className={cn(
                     "p-3 rounded-2xl transition-all",
                     selectedRoom.mutedBy?.includes(currentUser?.id || '') 
-                      ? "text-rose-500 dark:text-[var(--text-danger)] bg-rose-50 dark:bg-[var(--surface-danger)] hover:bg-rose-100 dark:hover:bg-[var(--surface-danger)]" 
-                      : "text-slate-400 dark:text-[var(--text-tertiary)] hover:text-indigo-600 dark:hover:text-[var(--accent-text)] hover:bg-indigo-50 dark:hover:bg-[var(--accent)]/10"
+                      ? "text-[var(--text-danger)] bg-[var(--surface-danger)] hover:bg-[var(--surface-danger)]" 
+                      : "text-[var(--text-tertiary)] hover:text-[var(--accent-text)] hover:bg-[var(--accent)]/10"
                   )}
                   title={selectedRoom.mutedBy?.includes(currentUser?.id || '') ? "Desativar Mudo" : "Silenciar"}
                 >
                     {selectedRoom.mutedBy?.includes(currentUser?.id || '') ? <BellOff size={20} /> : <Bell size={20} />}
                 </button>
                 <div className="relative group/menu">
-                  <button className="p-3 text-slate-400 dark:text-[var(--text-tertiary)] hover:text-indigo-600 dark:hover:text-[var(--accent-text)] hover:bg-indigo-50 dark:hover:bg-[var(--accent)]/10 rounded-2xl transition-all">
+                  <button className="p-3 text-[var(--text-tertiary)] hover:text-[var(--accent-text)] hover:bg-[var(--accent)]/10 rounded-2xl transition-all">
                     <MoreVertical size={20} />
                   </button>
-                  <div className="absolute right-0 top-full mt-2 w-48 bg-white dark:bg-[var(--surface-card)] border border-slate-100 dark:border-[var(--border-default)] rounded-2xl shadow-xl opacity-0 group-hover/menu:opacity-100 pointer-events-none group-hover/menu:pointer-events-auto transition-all z-50 before:absolute before:-top-4 before:-left-4 before:h-4 before:w-[calc(100%+2rem)] before:content-['']">
+                  <div className="absolute right-0 top-full mt-2 w-48 bg-[var(--surface-card)] border border-[var(--border-default)] rounded-2xl shadow-xl opacity-0 group-hover/menu:opacity-100 pointer-events-none group-hover/menu:pointer-events-auto transition-all z-50 before:absolute before:-top-4 before:-left-4 before:h-4 before:w-[calc(100%+2rem)] before:content-['']">
                     <button 
                       onClick={() => setShowPinnedOnly(!showPinnedOnly)}
-                      className="w-full rounded-2xl px-4 py-3 text-left text-xs font-bold text-slate-600 dark:text-[var(--text-secondary)] hover:bg-slate-50 dark:hover:bg-[var(--surface-card)] flex items-center gap-2"
+                      className="w-full rounded-2xl px-4 py-3 text-left text-xs font-bold text-[var(--text-secondary)] hover:bg-[var(--surface-card)] flex items-center gap-2"
                     >
-                      <Pin size={14} className="text-indigo-500 dark:text-[var(--accent-text)]" />
+                      <Pin size={14} className="text-[var(--accent-text)]" />
                       {showPinnedOnly ? 'Ver todas as msgs' : 'Mensagens fixadas'}
                     </button>
                   </div>
@@ -914,16 +914,16 @@ export default function ChatInternalPage() {
 
             {/* Pinned Messages Bar */}
             {selectedRoom.pinnedMessageIds && selectedRoom.pinnedMessageIds.length > 0 && !showPinnedOnly && (
-               <div className="bg-indigo-50/50 dark:bg-[var(--accent)]/10 border-b border-indigo-100 dark:border-[var(--accent)]/20 px-8 py-2 flex items-center justify-between">
+               <div className="bg-[var(--accent)]/10 border-b border-[var(--accent)]/20 px-8 py-2 flex items-center justify-between">
                   <div className="flex items-center gap-2 overflow-hidden flex-1">
-                     <Pin size={12} className="text-indigo-500 dark:text-[var(--accent-text)] shrink-0" />
-                     <p className="text-[10px] font-bold text-indigo-700 dark:text-[var(--accent-text)] truncate">
+                     <Pin size={12} className="text-[var(--accent-text)] shrink-0" />
+                     <p className="text-[10px] font-bold text-[var(--accent-text)] truncate">
                         {selectedRoom.pinnedMessageIds.length} mensagem(ns) fixada(s)
                      </p>
                   </div>
                   <button 
                     onClick={() => setShowPinnedOnly(true)}
-                    className="text-[10px] font-black uppercase text-indigo-600 dark:text-[var(--accent-text)] hover:underline shrink-0"
+                    className="text-[10px] font-semibold uppercase text-[var(--accent-text)] hover:underline shrink-0"
                   >
                     Ver Tudo
                   </button>
@@ -931,7 +931,7 @@ export default function ChatInternalPage() {
             )}
 
             {/* Messages */}
-            <div className="flex-1 overflow-y-auto p-8 space-y-6 bg-slate-50/50 dark:bg-[var(--surface-card)]/50">
+            <div className="flex-1 overflow-y-auto p-8 space-y-6 bg-[var(--surface-card)]/50">
               {(showPinnedOnly ? selectedRoom.messages.filter(m => selectedRoom.pinnedMessageIds?.includes(m.id)) : selectedRoom.messages).map((msg, idx) => {
                 const isMine = msg.senderId === currentUser?.id;
                 const prevMsg = selectedRoom.messages[idx - 1];
@@ -944,7 +944,7 @@ export default function ChatInternalPage() {
 
                 const bubbleColorClass = isMine 
                   ? `bg-${bubbleColor}-600` 
-                  : "bg-white dark:bg-[var(--surface-card)] border border-slate-100 dark:border-[var(--border-default)] text-slate-700 dark:text-[var(--text-secondary)]";
+                  : "bg-[var(--surface-card)] border border-[var(--border-default)] text-[var(--text-secondary)]";
                 
                 const avatarSizeClass = cn(
                   avatarSize === 'xs' && "w-6 h-6",
@@ -958,7 +958,7 @@ export default function ChatInternalPage() {
                   if (!msg.text) return null;
                   return (
                     <div key={`sys-msg-${msg.id}-${idx}`} className="flex justify-center py-2">
-                      <span className="px-4 py-1.5 bg-slate-100 dark:bg-[var(--surface-pill)] text-slate-500 dark:text-[var(--text-tertiary)] text-[10px] font-black uppercase tracking-widest rounded-full">
+                      <span className="px-4 py-1.5 bg-[var(--surface-pill)] text-[var(--text-tertiary)] text-[10px] font-semibold uppercase tracking-widest rounded-full">
                         {msg.text}
                       </span>
                     </div>
@@ -974,11 +974,11 @@ export default function ChatInternalPage() {
                     )}
                   >
                     {!isMine && avatarSize !== 'none' && (
-                      <div className={cn("rounded-2xl bg-slate-200 dark:bg-[var(--border-default)] shrink-0 overflow-hidden mt-6 shadow-sm", avatarSizeClass)}>
+                      <div className={cn("rounded-2xl bg-[var(--border-default)] shrink-0 overflow-hidden mt-6 shadow-sm", avatarSizeClass)}>
                          {allUsers.find(u => u.id === msg.senderId)?.avatarUrl ? (
                            <img src={allUsers.find(u => u.id === msg.senderId)?.avatarUrl} className="w-full h-full object-cover" />
                          ) : (
-                           <div className="w-full h-full flex items-center justify-center text-[10px] font-black text-slate-500 dark:text-[var(--text-tertiary)]">
+                           <div className="w-full h-full flex items-center justify-center text-[10px] font-black text-[var(--text-tertiary)]">
                              {msg.senderName.charAt(0)}
                            </div>
                          )}
@@ -987,7 +987,7 @@ export default function ChatInternalPage() {
 
                     <div className={cn("flex flex-col", isMine ? "items-end" : "items-start")}>
                       {showSender && (
-                        <span className="text-[10px] font-black text-slate-400 dark:text-[var(--text-tertiary)] uppercase tracking-widest mb-1.5 ml-1">
+                        <span className="text-[10px] font-semibold text-[var(--text-tertiary)] uppercase tracking-widest mb-1.5 ml-1">
                           {msg.senderName}
                         </span>
                       )}
@@ -996,19 +996,19 @@ export default function ChatInternalPage() {
                         isMine ? "text-white rounded-br-none" : "rounded-bl-none",
                         bubbleColorClass,
                         msg.isDeleted && "italic opacity-80",
-                        isPinned && "ring-2 ring-indigo-500/20 dark:ring-[var(--accent)]/20"
+                        isPinned && "ring-2 ring-[var(--accent)]/20"
                       )}>
                         {isPinned && !showPinnedOnly && (
-                           <div className="absolute -top-2 -right-2 w-5 h-5 bg-indigo-600 dark:bg-[var(--accent)] rounded-full flex items-center justify-center text-white shadow-lg border border-white">
+                           <div className="absolute -top-2 -right-2 w-5 h-5 bg-[var(--accent)] rounded-full flex items-center justify-center text-white shadow-lg border border-white">
                               <Pin size={10} className="fill-white" />
                            </div>
                         )}
                         {repliedMessage && !msg.isDeleted && (
                            <div className={cn(
                              "mb-2 p-2 rounded-xl border-l-4 bg-black/5 flex flex-col gap-1",
-                             isMine ? "border-white/40" : "border-indigo-500/40 dark:border-[var(--accent)]/40"
+                             isMine ? "border-white/40" : "border-[var(--accent)]/40"
                            )}>
-                             <span className="text-[10px] font-black uppercase opacity-60">
+                             <span className="text-[10px] font-semibold uppercase opacity-60">
                                {repliedMessage.senderName}
                              </span>
                              <p className="text-[11px] line-clamp-1 opacity-80">
@@ -1029,11 +1029,11 @@ export default function ChatInternalPage() {
                             {msg.type === 'file' && (
                               <div className={cn(
                                 "flex items-center gap-4 rounded-2xl p-2",
-                                isMine ? "bg-white/10" : "bg-slate-50 dark:bg-[var(--surface-card)]"
+                                isMine ? "bg-white/10" : "bg-[var(--surface-card)]"
                               )}>
                                 <div className={cn(
                                   "w-10 h-10 rounded-xl flex items-center justify-center",
-                                  isMine ? "bg-white/20" : "bg-white dark:bg-[var(--surface-card)] border border-slate-100 dark:border-[var(--border-default)]"
+                                  isMine ? "bg-white/20" : "bg-[var(--surface-card)] border border-[var(--border-default)]"
                                 )}>
                                   <FileText size={20} />
                                 </div>
@@ -1043,7 +1043,7 @@ export default function ChatInternalPage() {
                                 </div>
                                 <button className={cn(
                                   "p-2 rounded-lg transition-all",
-                                  isMine ? "hover:bg-white/20" : "hover:bg-white dark:hover:bg-[var(--surface-card)]"
+                                  isMine ? "hover:bg-white/20" : "hover:bg-[var(--surface-card)]"
                                 )}>
                                   <Download size={16} />
                                 </button>
@@ -1069,7 +1069,7 @@ export default function ChatInternalPage() {
                           {isMine && !msg.isDeleted && (
                             <button 
                               onClick={() => handleDeleteMessage(msg.id)}
-                              className="text-[9px] font-black uppercase text-red-400 dark:text-[var(--text-danger)] hover:text-red-600 dark:hover:text-[var(--text-danger)] mr-2"
+                              className="text-[9px] font-semibold uppercase text-[var(--text-danger)] hover:text-[var(--text-danger)] mr-2"
                             >
                               Excluir
                             </button>
@@ -1078,27 +1078,27 @@ export default function ChatInternalPage() {
                              <>
                                 <button 
                                   onClick={() => setReplyingToId(msg.id)}
-                                  className="text-[9px] font-black uppercase text-indigo-400 dark:text-[var(--accent-text)] hover:text-indigo-600 dark:hover:text-[var(--accent-text)] mr-2"
+                                  className="text-[9px] font-semibold uppercase text-[var(--accent-text)] hover:text-[var(--accent-text)] mr-2"
                                 >
                                   Responder
                                 </button>
                                 <button 
                                   onClick={() => togglePinMessage(msg.id)}
                                   className={cn(
-                                    "text-[9px] font-black uppercase mr-2",
-                                    isPinned ? "text-indigo-600 dark:text-[var(--accent-text)]" : "text-slate-400 dark:text-[var(--text-tertiary)] hover:text-slate-600 dark:hover:text-[var(--text-secondary)]"
+                                    "text-[9px] font-semibold uppercase mr-2",
+                                    isPinned ? "text-[var(--accent-text)]" : "text-[var(--text-tertiary)] hover:text-[var(--text-secondary)]"
                                   )}
                                 >
                                   {isPinned ? 'Desafixar' : 'Fixar'}
                                 </button>
                              </>
                           )}
-                          <span className="text-[9px] font-bold text-slate-400 dark:text-[var(--text-tertiary)]">
+                          <span className="text-[9px] font-bold text-[var(--text-tertiary)]">
                             <ClientTime date={msg.timestamp} />
                           </span>
                           {isMine && (
                             msg.readBy && msg.readBy.length > (selectedRoom.type === 'group' ? 1 : 1) ? (
-                              <CheckCheck size={12} className={cn("text-indigo-400 dark:text-[var(--accent-text)]", (selectedRoom.type === 'direct' ? msg.readBy?.some(id => id !== currentUser?.id) : (msg.readBy?.length || 0) >= (selectedRoom.memberIds?.length || 0)) && "text-blue-500 dark:text-[var(--text-info)]")} />
+                              <CheckCheck size={12} className={cn("text-[var(--accent-text)]", (selectedRoom.type === 'direct' ? msg.readBy?.some(id => id !== currentUser?.id) : (msg.readBy?.length || 0) >= (selectedRoom.memberIds?.length || 0)) && "text-[var(--text-info)]")} />
                             ) : (
                               <Check size={12} className="text-slate-300" />
                             )
@@ -1113,21 +1113,21 @@ export default function ChatInternalPage() {
             </div>
 
             {/* Input */}
-            <div className="p-6 bg-white dark:bg-[var(--surface-card)] border-t border-slate-100 dark:border-[var(--border-default)]">
+            <div className="p-6 bg-[var(--surface-card)] border-t border-[var(--border-default)]">
               <div className="max-w-4xl mx-auto relative">
                 {replyingToId && (
-                   <div className="mb-4 bg-slate-50 dark:bg-[var(--surface-card)] border border-slate-200 dark:border-[var(--border-default)] rounded-2xl p-4 flex items-center justify-between animate-in slide-in-from-bottom-2">
-                      <div className="flex-1 min-w-0 border-l-4 border-indigo-600 dark:border-[var(--accent)] pl-4">
-                         <p className="text-[10px] font-black uppercase text-indigo-600 dark:text-[var(--accent-text)] truncate">
+                   <div className="mb-4 bg-[var(--surface-card)] border border-[var(--border-default)] rounded-2xl p-4 flex items-center justify-between animate-in slide-in-from-bottom-2">
+                      <div className="flex-1 min-w-0 border-l-4 border-[var(--accent)] pl-4">
+                         <p className="text-[10px] font-semibold uppercase text-[var(--accent-text)] truncate">
                             Respondendo para {selectedRoom.messages.find(m => m.id === replyingToId)?.senderId === currentUser?.id ? 'você' : selectedRoom.messages.find(m => m.id === replyingToId)?.senderName}
                          </p>
-                         <p className="text-xs text-slate-500 dark:text-[var(--text-tertiary)] truncate mt-0.5">
+                         <p className="text-xs text-[var(--text-tertiary)] truncate mt-0.5">
                             {selectedRoom.messages.find(m => m.id === replyingToId)?.text || 'Mídia'}
                          </p>
                       </div>
                       <button 
                         onClick={() => setReplyingToId(null)}
-                        className="p-2 hover:bg-slate-200 dark:hover:bg-[var(--border-default)] rounded-xl transition-all text-slate-400 dark:text-[var(--text-tertiary)]"
+                        className="p-2 hover:bg-[var(--border-default)] rounded-xl transition-all text-[var(--text-tertiary)]"
                       >
                          <X size={18} />
                       </button>
@@ -1155,13 +1155,13 @@ export default function ChatInternalPage() {
                       initial={{ opacity: 0, y: 10, scale: 0.95 }}
                       animate={{ opacity: 1, y: 0, scale: 1 }}
                       exit={{ opacity: 0, y: 10, scale: 0.95 }}
-                      className="absolute bottom-full mb-4 left-0 bg-white dark:bg-[var(--surface-card)] border border-slate-200 dark:border-[var(--border-default)] rounded-3xl p-6 shadow-2xl z-20 w-[300px]"
+                      className="absolute bottom-full mb-4 left-0 bg-[var(--surface-card)] border border-[var(--border-default)] rounded-3xl p-6 shadow-2xl z-20 w-[300px]"
                     >
                         <div className="flex items-center justify-between mb-4">
-                           <p className="text-[10px] font-black uppercase text-slate-400 dark:text-[var(--text-tertiary)] tracking-widest">Stickers</p>
+                           <p className="text-[10px] font-semibold uppercase text-[var(--text-tertiary)] tracking-widest">Stickers</p>
                            <button 
                              onClick={() => stickerInputRef.current?.click()}
-                             className="flex items-center gap-1 text-[10px] font-black uppercase text-indigo-600 dark:text-[var(--accent-text)] hover:text-indigo-800 transition-colors"
+                             className="flex items-center gap-1 text-[10px] font-semibold uppercase text-[var(--accent-text)] hover:text-indigo-800 transition-colors"
                            >
                              <Plus size={12} /> Novo
                            </button>
@@ -1185,7 +1185,7 @@ export default function ChatInternalPage() {
                       <div className="max-h-[300px] overflow-y-auto pr-2">
                          {currentUser?.chatPreferences?.personalStickers && (currentUser.chatPreferences.personalStickers?.length || 0) > 0 && (
                            <div className="mb-6">
-                              <p className="text-[8px] font-black text-slate-300 uppercase mb-3 tracking-widest">Seus Stickers</p>
+                              <p className="text-[8px] font-semibold text-slate-300 uppercase mb-3 tracking-widest">Seus Stickers</p>
                               <div className="grid grid-cols-3 gap-3">
                                  {(currentUser.chatPreferences.personalStickers || []).map((url, idx) => (
                                    <button 
@@ -1196,11 +1196,11 @@ export default function ChatInternalPage() {
                                        setContextMenu(null);
                                        setStickerContextMenu({ x: e.clientX, y: e.clientY, index: idx });
                                      }}
-                                     className="aspect-square rounded-xl overflow-hidden hover:scale-110 transition-all border border-slate-100 dark:border-[var(--border-default)] relative group"
+                                     className="aspect-square rounded-xl overflow-hidden hover:scale-110 transition-all border border-[var(--border-default)] relative group"
                                    >
                                      <img src={url} alt="Custom" className="w-full h-full object-contain" />
                                      <div className="absolute inset-0 bg-black/40 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center pointer-events-none">
-                                        <p className="text-[8px] text-white font-black uppercase">Excluir (R-Click)</p>
+                                        <p className="text-[8px] text-white font-semibold uppercase">Excluir (R-Click)</p>
                                      </div>
                                    </button>
                                  ))}
@@ -1208,7 +1208,7 @@ export default function ChatInternalPage() {
                            </div>
                          )}
 
-                           <p className="text-[8px] font-black text-slate-300 uppercase mb-3 tracking-widest">Padrão</p>
+                           <p className="text-[8px] font-semibold text-slate-300 uppercase mb-3 tracking-widest">Padrão</p>
                            <div className="grid grid-cols-3 gap-3">
                               {STICKERS.map((s, idx) => (
                                 <button 
@@ -1229,10 +1229,10 @@ export default function ChatInternalPage() {
                       initial={{ opacity: 0, y: 10, scale: 0.95 }}
                       animate={{ opacity: 1, y: 0, scale: 1 }}
                       exit={{ opacity: 0, y: 10, scale: 0.95 }}
-                      className="absolute bottom-full mb-4 left-0 bg-white dark:bg-[var(--surface-card)] border border-slate-200 dark:border-[var(--border-default)] rounded-3xl p-6 shadow-2xl z-20 min-w-[320px]"
+                      className="absolute bottom-full mb-4 left-0 bg-[var(--surface-card)] border border-[var(--border-default)] rounded-3xl p-6 shadow-2xl z-20 min-w-[320px]"
                     >
-                       <div className="flex items-center gap-2 mb-4 bg-slate-100 dark:bg-[var(--surface-pill)] rounded-xl p-2 pr-4">
-                          <SearchIcon size={16} className="text-slate-400 dark:text-[var(--text-tertiary)] ml-2" />
+                       <div className="flex items-center gap-2 mb-4 bg-[var(--surface-pill)] rounded-xl p-2 pr-4">
+                          <SearchIcon size={16} className="text-[var(--text-tertiary)] ml-2" />
                           <input 
                             type="text"
                             placeholder="Buscar GIFs..."
@@ -1252,7 +1252,7 @@ export default function ChatInternalPage() {
                             <button 
                               key={`${id}-${idx}`}
                               onClick={() => handleSendMessage('gif', `https://i.giphy.com/media/${id}/giphy.gif`)}
-                              className="rounded-lg overflow-hidden h-24 hover:opacity-80 transition-all bg-slate-100 dark:bg-[var(--surface-pill)]"
+                              className="rounded-lg overflow-hidden h-24 hover:opacity-80 transition-all bg-[var(--surface-pill)]"
                             >
                               <img src={`https://i.giphy.com/media/${id}/giphy.gif`} alt="GIF" className="w-full h-full object-cover" />
                             </button>
@@ -1262,7 +1262,7 @@ export default function ChatInternalPage() {
                   )}
                 </AnimatePresence>
 
-                <div className="flex items-center gap-4 bg-slate-50 dark:bg-[var(--surface-card)] border border-slate-100 dark:border-[var(--border-default)] rounded-[2rem] p-3 pl-6 pr-3 shadow-inner">
+                <div className="flex items-center gap-4 bg-[var(--surface-card)] border border-[var(--border-default)] rounded-[2rem] p-3 pl-6 pr-3 shadow-inner">
                   <div className="flex items-center gap-2">
                     <button 
                       onClick={() => {
@@ -1270,7 +1270,7 @@ export default function ChatInternalPage() {
                         setShowStickerPicker(false);
                         setShowGifSearch(false);
                       }}
-                      className={cn("p-2 rounded-full transition-all", showEmojiPicker ? "bg-indigo-100 dark:bg-[var(--accent)]/20 text-indigo-600 dark:text-[var(--accent-text)]" : "text-slate-400 dark:text-[var(--text-tertiary)] hover:text-indigo-600 dark:hover:text-[var(--accent-text)]")}
+                      className={cn("p-2 rounded-full transition-all", showEmojiPicker ? "bg-[var(--accent)]/20 text-[var(--accent-text)]" : "text-[var(--text-tertiary)] hover:text-[var(--accent-text)]")}
                     >
                       <Smile size={24} />
                     </button>
@@ -1280,7 +1280,7 @@ export default function ChatInternalPage() {
                         setShowEmojiPicker(false);
                         setShowGifSearch(false);
                       }}
-                      className={cn("p-2 rounded-full transition-all", showStickerPicker ? "bg-indigo-100 dark:bg-[var(--accent)]/20 text-indigo-600 dark:text-[var(--accent-text)]" : "text-slate-400 dark:text-[var(--text-tertiary)] hover:text-indigo-600 dark:hover:text-[var(--accent-text)]")}
+                      className={cn("p-2 rounded-full transition-all", showStickerPicker ? "bg-[var(--accent)]/20 text-[var(--accent-text)]" : "text-[var(--text-tertiary)] hover:text-[var(--accent-text)]")}
                     >
                       <ImageIcon size={24} />
                     </button>
@@ -1290,13 +1290,13 @@ export default function ChatInternalPage() {
                         setShowEmojiPicker(false);
                         setShowStickerPicker(false);
                       }}
-                      className={cn("px-2 py-1 rounded-lg transition-all font-black text-xs", showGifSearch ? "bg-indigo-100 dark:bg-[var(--accent)]/20 text-indigo-600 dark:text-[var(--accent-text)]" : "text-slate-400 dark:text-[var(--text-tertiary)] hover:text-indigo-600 dark:hover:text-[var(--accent-text)]")}
+                      className={cn("px-2 py-1 rounded-lg transition-all font-black text-xs", showGifSearch ? "bg-[var(--accent)]/20 text-[var(--accent-text)]" : "text-[var(--text-tertiary)] hover:text-[var(--accent-text)]")}
                     >
                       GIF
                     </button>
                     <button 
                       onClick={() => fileInputRef.current?.click()}
-                      className="p-2 text-slate-400 dark:text-[var(--text-tertiary)] hover:text-indigo-600 dark:hover:text-[var(--accent-text)] transition-all"
+                      className="p-2 text-[var(--text-tertiary)] hover:text-[var(--accent-text)] transition-all"
                     >
                       <Paperclip size={24} />
                     </button>
@@ -1319,13 +1319,13 @@ export default function ChatInternalPage() {
                        }
                      }}
                      placeholder="Escreva sua mensagem..."
-                     className="flex-1 bg-transparent border-none outline-none text-sm font-bold text-slate-700 dark:text-[var(--text-secondary)] mx-4"
+                     className="flex-1 bg-transparent border-none outline-none text-sm font-bold text-[var(--text-secondary)] mx-4"
                    />
 
                    <button 
                      onClick={() => handleSendMessage()}
                      disabled={!message.trim()}
-                     className="w-12 h-12 bg-indigo-600 dark:bg-[var(--accent)] text-white rounded-full flex items-center justify-center hover:bg-indigo-700 dark:hover:bg-[var(--accent-hover)] transition-all shadow-lg shadow-indigo-200 disabled:opacity-50"
+                     className="w-12 h-12 bg-[var(--accent)] text-white rounded-full flex items-center justify-center hover:bg-[var(--accent-hover)] transition-all shadow-lg shadow-indigo-200 disabled:opacity-50"
                    >
                      <Send size={20} />
                    </button>
@@ -1334,12 +1334,12 @@ export default function ChatInternalPage() {
             </div>
           </>
         ) : (
-          <div className="flex-1 flex flex-col items-center justify-center text-center p-12 bg-slate-50/30 dark:bg-[var(--surface-card)]/30">
-            <div className="w-24 h-24 bg-white dark:bg-[var(--surface-card)] rounded-[2rem] flex items-center justify-center shadow-2xl shadow-indigo-100 mb-8 border border-slate-100 dark:border-[var(--border-default)]">
-               <MessageCircle className="text-indigo-500 dark:text-[var(--accent-text)]" size={48} />
+          <div className="flex-1 flex flex-col items-center justify-center text-center p-12 bg-[var(--surface-card)]/30">
+            <div className="w-24 h-24 bg-[var(--surface-card)] rounded-[2rem] flex items-center justify-center shadow-2xl shadow-indigo-100 mb-8 border border-[var(--border-default)]">
+               <MessageCircle className="text-[var(--accent-text)]" size={48} />
             </div>
-            <h3 className="text-2xl font-black text-slate-800 dark:text-[var(--text-primary)] tracking-tight mb-3">Bem-vindo ao Chat Interno</h3>
-            <p className="text-slate-500 dark:text-[var(--text-tertiary)] font-medium max-w-sm leading-relaxed">
+            <h3 className="text-2xl font-black text-[var(--text-primary)] tracking-tight mb-3">Bem-vindo ao Chat Interno</h3>
+            <p className="text-[var(--text-tertiary)] font-medium max-w-sm leading-relaxed">
               Selecione uma conversa ao lado ou crie um novo grupo para começar a colaborar com sua equipe em tempo real.
             </p>
           </div>
@@ -1361,12 +1361,12 @@ export default function ChatInternalPage() {
                initial={{ opacity: 0, scale: 0.95, y: 20 }}
                animate={{ opacity: 1, scale: 1, y: 0 }}
                exit={{ opacity: 0, scale: 0.95, y: 20 }}
-               className="relative w-full max-w-md bg-white dark:bg-[var(--surface-card)] rounded-[2.5rem] shadow-2xl overflow-hidden"
+               className="relative w-full max-w-md bg-[var(--surface-card)] rounded-[2.5rem] shadow-2xl overflow-hidden"
              >
-                <div className="p-8 border-b border-slate-100 dark:border-[var(--border-default)] flex items-center justify-between">
-                   <h3 className="text-xl font-black text-slate-800 dark:text-[var(--text-primary)] tracking-tight">Novo Grupo</h3>
-                   <button onClick={() => setIsCreatingGroup(false)} className="p-2 hover:bg-slate-100 dark:hover:bg-[var(--surface-pill)] rounded-xl transition-all">
-                      <X size={20} className="text-slate-400 dark:text-[var(--text-tertiary)]" />
+                <div className="p-8 border-b border-[var(--border-default)] flex items-center justify-between">
+                   <h3 className="text-xl font-black text-[var(--text-primary)] tracking-tight">Novo Grupo</h3>
+                   <button onClick={() => setIsCreatingGroup(false)} className="p-2 hover:bg-[var(--surface-pill)] rounded-xl transition-all">
+                      <X size={20} className="text-[var(--text-tertiary)]" />
                    </button>
                 </div>
 
@@ -1374,14 +1374,14 @@ export default function ChatInternalPage() {
                    <div className="flex justify-center">
                       <div 
                         onClick={() => groupImageRef.current?.click()}
-                        className="w-24 h-24 rounded-[2rem] bg-slate-50 dark:bg-[var(--surface-card)] border-2 border-dashed border-slate-200 dark:border-[var(--border-default)] flex flex-col items-center justify-center cursor-pointer hover:border-indigo-500 dark:hover:border-[var(--accent)] hover:bg-slate-100 dark:hover:bg-[var(--surface-pill)] transition-all overflow-hidden relative group"
+                        className="w-24 h-24 rounded-[2rem] bg-[var(--surface-card)] border-2 border-dashed border-[var(--border-default)] flex flex-col items-center justify-center cursor-pointer hover:border-[var(--accent)] hover:bg-[var(--surface-pill)] transition-all overflow-hidden relative group"
                       >
                          {newGroupImage ? (
                            <img src={newGroupImage} className="w-full h-full object-cover" />
                          ) : (
                            <>
-                             <ImageIcon size={24} className="text-slate-400 dark:text-[var(--text-tertiary)] mb-1" />
-                             <span className="text-[10px] font-black text-slate-400 dark:text-[var(--text-tertiary)] uppercase">Logo</span>
+                             <ImageIcon size={24} className="text-[var(--text-tertiary)] mb-1" />
+                             <span className="text-[10px] font-semibold text-[var(--text-tertiary)] uppercase">Logo</span>
                            </>
                          )}
                          <div className="absolute inset-0 bg-black/40 opacity-0 group-hover:opacity-100 flex items-center justify-center transition-opacity">
@@ -1398,18 +1398,18 @@ export default function ChatInternalPage() {
                    </div>
 
                    <div className="space-y-2">
-                      <label className="text-[10px] font-black uppercase text-slate-400 dark:text-[var(--text-tertiary)] tracking-widest">Nome do Grupo</label>
+                      <label className="text-[10px] font-semibold uppercase text-[var(--text-tertiary)] tracking-widest">Nome do Grupo</label>
                       <input 
                         type="text"
                         value={newGroupName}
                         onChange={(e) => setNewGroupName(e.target.value)}
                         placeholder="Ex: Time de Suporte, Infraestrutura..."
-                        className="w-full bg-slate-50 dark:bg-[var(--surface-card)] border border-slate-200 dark:border-[var(--border-default)] rounded-2xl px-6 py-4 text-sm font-bold outline-none focus:border-indigo-500 dark:focus:border-[var(--accent)] focus:ring-4 focus:ring-indigo-500/5 dark:focus:ring-[var(--accent)]/5 transition-all"
+                        className="w-full bg-[var(--surface-card)] border border-[var(--border-default)] rounded-2xl px-6 py-4 text-sm font-bold outline-none focus:border-[var(--accent)] focus:ring-4 focus:ring-[var(--accent)]/5 transition-all"
                       />
                    </div>
 
                    <div className="space-y-3">
-                      <label className="text-[10px] font-black uppercase text-slate-400 dark:text-[var(--text-tertiary)] tracking-widest">Membros (Mais de 1 vira grupo)</label>
+                      <label className="text-[10px] font-semibold uppercase text-[var(--text-tertiary)] tracking-widest">Membros (Mais de 1 vira grupo)</label>
                       <div className="max-h-[300px] overflow-y-auto space-y-1 pr-2">
                          {allUsers.map((user, uIdx) => (
                            <button 
@@ -1417,21 +1417,21 @@ export default function ChatInternalPage() {
                              onClick={() => toggleMemberSelection(user.id)}
                              className={cn(
                                "w-full flex items-center gap-4 p-3 rounded-2xl transition-all",
-                               selectedMembers.includes(user.id) ? "bg-indigo-50 dark:bg-[var(--accent)]/10" : "hover:bg-slate-50 dark:hover:bg-[var(--surface-card)]"
+                               selectedMembers.includes(user.id) ? "bg-[var(--accent)]/10" : "hover:bg-[var(--surface-card)]"
                              )}
                            >
                               <div className={cn(
                                 "w-10 h-10 rounded-xl flex items-center justify-center text-white font-black",
-                                selectedMembers.includes(user.id) ? "bg-indigo-500 dark:bg-[var(--accent)]" : "bg-slate-400 dark:bg-[var(--text-tertiary)]"
+                                selectedMembers.includes(user.id) ? "bg-[var(--accent)]" : "bg-[var(--text-tertiary)]"
                               )}>
                                 {user.name.charAt(0)}
                               </div>
                               <div className="flex-1 text-left">
-                                 <p className="text-sm font-black text-slate-800 dark:text-[var(--text-primary)]">{user.name}</p>
-                                 <p className="text-[10px] font-bold text-slate-400 dark:text-[var(--text-tertiary)] uppercase tracking-tighter">{user.role}</p>
+                                 <p className="text-sm font-black text-[var(--text-primary)]">{user.name}</p>
+                                 <p className="text-[10px] font-bold text-[var(--text-tertiary)] uppercase tracking-tighter">{user.role}</p>
                               </div>
                               {selectedMembers.includes(user.id) && (
-                                <div className="w-6 h-6 bg-indigo-500 dark:bg-[var(--accent)] rounded-full flex items-center justify-center text-white">
+                                <div className="w-6 h-6 bg-[var(--accent)] rounded-full flex items-center justify-center text-white">
                                    <Check size={14} />
                                 </div>
                               )}
@@ -1443,7 +1443,7 @@ export default function ChatInternalPage() {
                    <button 
                      onClick={createRoom}
                      disabled={!newGroupName.trim() || selectedMembers.length === 0}
-                     className="w-full bg-indigo-600 dark:bg-[var(--accent)] text-white rounded-2xl py-4 font-black transition-all hover:bg-indigo-700 dark:hover:bg-[var(--accent-hover)] shadow-xl shadow-indigo-100 disabled:opacity-50"
+                     className="w-full bg-[var(--accent)] text-white rounded-2xl py-4 font-black transition-all hover:bg-[var(--accent-hover)] shadow-xl shadow-indigo-100 disabled:opacity-50"
                    >
                      Criar Conversa
                    </button>
@@ -1468,17 +1468,17 @@ export default function ChatInternalPage() {
               initial={{ opacity: 0, scale: 0.95, y: 20 }}
               animate={{ opacity: 1, scale: 1, y: 0 }}
               exit={{ opacity: 0, scale: 0.95, y: 20 }}
-              className="relative w-full max-w-lg bg-white dark:bg-[var(--surface-card)] rounded-[2.5rem] shadow-2xl overflow-hidden flex flex-col max-h-[90vh]"
+              className="relative w-full max-w-lg bg-[var(--surface-card)] rounded-[2.5rem] shadow-2xl overflow-hidden flex flex-col max-h-[90vh]"
             >
-              <div className="p-8 border-b border-slate-100 dark:border-[var(--border-default)] flex items-center justify-between shrink-0">
+              <div className="p-8 border-b border-[var(--border-default)] flex items-center justify-between shrink-0">
                 <div className="flex items-center gap-3">
-                   <div className="p-2 bg-indigo-50 dark:bg-[var(--accent)]/10 rounded-xl text-indigo-600 dark:text-[var(--accent-text)]">
+                   <div className="p-2 bg-[var(--accent)]/10 rounded-xl text-[var(--accent-text)]">
                       <Users size={20} />
                    </div>
-                   <h3 className="text-xl font-black text-slate-800 dark:text-[var(--text-primary)] tracking-tight">Configurações do Grupo</h3>
+                   <h3 className="text-xl font-black text-[var(--text-primary)] tracking-tight">Configurações do Grupo</h3>
                 </div>
-                <button onClick={() => setShowGroupSettings(false)} className="p-2 hover:bg-slate-100 dark:hover:bg-[var(--surface-pill)] rounded-xl transition-all">
-                  <X size={20} className="text-slate-400 dark:text-[var(--text-tertiary)]" />
+                <button onClick={() => setShowGroupSettings(false)} className="p-2 hover:bg-[var(--surface-pill)] rounded-xl transition-all">
+                  <X size={20} className="text-[var(--text-tertiary)]" />
                 </button>
               </div>
 
@@ -1499,24 +1499,24 @@ export default function ChatInternalPage() {
                         };
                         input.click();
                      }}
-                     className="w-24 h-24 rounded-[2rem] bg-slate-100 dark:bg-[var(--surface-pill)] border-2 border-slate-200 dark:border-[var(--border-default)] flex items-center justify-center cursor-pointer hover:border-indigo-500 dark:hover:border-[var(--accent)] transition-all overflow-hidden shrink-0 group relative"
+                     className="w-24 h-24 rounded-[2rem] bg-[var(--surface-pill)] border-2 border-[var(--border-default)] flex items-center justify-center cursor-pointer hover:border-[var(--accent)] transition-all overflow-hidden shrink-0 group relative"
                    >
                       {selectedRoom.imageUrl ? (
                         <img src={selectedRoom.imageUrl} className="w-full h-full object-cover" />
                       ) : (
-                        <Users size={32} className="text-slate-400 dark:text-[var(--text-tertiary)]" />
+                        <Users size={32} className="text-[var(--text-tertiary)]" />
                       )}
                       <div className="absolute inset-0 bg-black/40 opacity-0 group-hover:opacity-100 flex items-center justify-center transition-opacity">
                         <Plus size={24} className="text-white" />
                       </div>
                    </div>
                    <div className="flex-1 space-y-2">
-                       <label className="text-[10px] font-black uppercase text-slate-400 dark:text-[var(--text-tertiary)] tracking-widest">Nome do Grupo</label>
+                       <label className="text-[10px] font-semibold uppercase text-[var(--text-tertiary)] tracking-widest">Nome do Grupo</label>
                        <input 
                          type="text"
                          value={selectedRoom.name}
                          onChange={(e) => handleUpdateGroup({ name: e.target.value })}
-                         className="w-full bg-slate-50 dark:bg-[var(--surface-card)] border border-slate-100 dark:border-[var(--border-default)] rounded-2xl px-5 py-3 text-sm font-bold outline-none focus:border-indigo-500 dark:focus:border-[var(--accent)] transition-all"
+                         className="w-full bg-[var(--surface-card)] border border-[var(--border-default)] rounded-2xl px-5 py-3 text-sm font-bold outline-none focus:border-[var(--accent)] transition-all"
                        />
                    </div>
                 </div>
@@ -1524,12 +1524,12 @@ export default function ChatInternalPage() {
                 {/* Member List */}
                 <div className="space-y-4">
                   <div className="flex items-center justify-between">
-                    <div className="flex items-center gap-2 text-[10px] font-black uppercase text-slate-400 dark:text-[var(--text-tertiary)] tracking-widest">
+                    <div className="flex items-center gap-2 text-[10px] font-semibold uppercase text-[var(--text-tertiary)] tracking-widest">
                        <Users size={14} /> Membros ({selectedRoom.memberIds?.length || 0})
                     </div>
                     <button 
                       onClick={() => setIsAddingMember(!isAddingMember)}
-                      className="flex items-center gap-2 text-[10px] font-black uppercase text-indigo-600 dark:text-[var(--accent-text)] hover:text-indigo-800 tracking-widest"
+                      className="flex items-center gap-2 text-[10px] font-semibold uppercase text-[var(--accent-text)] hover:text-indigo-800 tracking-widest"
                     >
                       <UserPlus size={14} /> Adicionar
                     </button>
@@ -1539,24 +1539,24 @@ export default function ChatInternalPage() {
                     <motion.div 
                       initial={{ opacity: 0, y: -10 }}
                       animate={{ opacity: 1, y: 0 }}
-                      className="p-4 bg-slate-50 dark:bg-[var(--surface-card)] rounded-3xl border border-slate-200 dark:border-[var(--border-default)] animate-in fade-in slide-in-from-top-2"
+                      className="p-4 bg-[var(--surface-card)] rounded-3xl border border-[var(--border-default)] animate-in fade-in slide-in-from-top-2"
                     >
-                       <p className="text-[10px] font-black text-slate-400 dark:text-[var(--text-tertiary)] uppercase mb-3 px-2">Selecionar Usuário</p>
+                       <p className="text-[10px] font-semibold text-[var(--text-tertiary)] uppercase mb-3 px-2">Selecionar Usuário</p>
                        <div className="max-h-[200px] overflow-y-auto space-y-1">
                           {allUsers.filter(u => !selectedRoom.memberIds?.includes(u.id)).map((user, idx) => (
                             <button 
                               key={`add-member-${user.id || idx}`}
                               onClick={() => handleAddMember(user.id)}
-                              className="w-full flex items-center gap-3 p-3 rounded-2xl hover:bg-white dark:hover:bg-[var(--surface-card)] transition-all text-left"
+                              className="w-full flex items-center gap-3 p-3 rounded-2xl hover:bg-[var(--surface-card)] transition-all text-left"
                             >
-                               <div className="w-8 h-8 rounded-lg bg-indigo-500 dark:bg-[var(--accent)] flex items-center justify-center text-white text-xs font-black">
+                               <div className="w-8 h-8 rounded-lg bg-[var(--accent)] flex items-center justify-center text-white text-xs font-black">
                                   {user.name.charAt(0)}
                                </div>
                                <div>
-                                  <p className="text-xs font-black text-slate-800 dark:text-[var(--text-primary)]">{user.name}</p>
-                                  <p className="text-[9px] font-bold text-slate-400 dark:text-[var(--text-tertiary)] uppercase tracking-tighter">{user.role}</p>
+                                  <p className="text-xs font-black text-[var(--text-primary)]">{user.name}</p>
+                                  <p className="text-[9px] font-bold text-[var(--text-tertiary)] uppercase tracking-tighter">{user.role}</p>
                                </div>
-                               <Plus size={14} className="ml-auto text-indigo-500 dark:text-[var(--accent-text)]" />
+                               <Plus size={14} className="ml-auto text-[var(--accent-text)]" />
                             </button>
                           ))}
                        </div>
@@ -1568,18 +1568,18 @@ export default function ChatInternalPage() {
                       const user = allUsers.find(u => u.id === userId) || (userId === currentUser?.id ? currentUser : null);
                       if (!user) return null;
                       return (
-                        <div key={`member-${userId || idx}`} className="flex items-center gap-4 p-3 rounded-3xl hover:bg-slate-50 dark:hover:bg-[var(--surface-card)] transition-all group/member">
-                           <div className="w-10 h-10 rounded-xl bg-slate-100 dark:bg-[var(--surface-pill)] flex items-center justify-center overflow-hidden">
-                              {user.avatarUrl ? <img src={user.avatarUrl} className="w-full h-full object-cover" /> : <span className="font-black text-slate-400 dark:text-[var(--text-tertiary)]">{user.name.charAt(0)}</span>}
+                        <div key={`member-${userId || idx}`} className="flex items-center gap-4 p-3 rounded-3xl hover:bg-[var(--surface-card)] transition-all group/member">
+                           <div className="w-10 h-10 rounded-xl bg-[var(--surface-pill)] flex items-center justify-center overflow-hidden">
+                              {user.avatarUrl ? <img src={user.avatarUrl} className="w-full h-full object-cover" /> : <span className="font-black text-[var(--text-tertiary)]">{user.name.charAt(0)}</span>}
                            </div>
                            <div className="flex-1">
-                              <p className="text-sm font-black text-slate-800 dark:text-[var(--text-primary)]">{user.name}{userId === currentUser?.id && ' (Sua conta)'}</p>
-                              <p className="text-[10px] font-bold text-slate-400 dark:text-[var(--text-tertiary)] uppercase tracking-tighter">{user.role}</p>
+                              <p className="text-sm font-black text-[var(--text-primary)]">{user.name}{userId === currentUser?.id && ' (Sua conta)'}</p>
+                              <p className="text-[10px] font-bold text-[var(--text-tertiary)] uppercase tracking-tighter">{user.role}</p>
                            </div>
                            {userId !== currentUser?.id && (
                              <button 
                                onClick={() => handleRemoveMember(userId)}
-                               className="p-2 text-slate-300 hover:text-rose-500 dark:hover:text-[var(--text-danger)] opacity-0 group-hover/member:opacity-100 transition-all"
+                               className="p-2 text-slate-300 hover:text-[var(--text-danger)] opacity-0 group-hover/member:opacity-100 transition-all"
                                title="Remover Membro"
                              >
                                 <UserMinus size={18} />
@@ -1597,7 +1597,7 @@ export default function ChatInternalPage() {
                       handleRemoveMember(currentUser!.id);
                       setShowGroupSettings(false);
                     }}
-                    className="w-full flex items-center justify-center gap-2 py-4 text-rose-500 dark:text-[var(--text-danger)] font-black text-sm uppercase tracking-widest hover:bg-rose-50 dark:hover:bg-[var(--surface-danger)] rounded-2xl transition-all"
+                    className="w-full flex items-center justify-center gap-2 py-4 text-[var(--text-danger)] font-black text-sm uppercase tracking-widest hover:bg-[var(--surface-danger)] rounded-2xl transition-all"
                   >
                      <Trash2 size={18} /> Sair do Grupo
                   </button>
@@ -1632,24 +1632,24 @@ export default function ChatInternalPage() {
               initial={{ opacity: 0, scale: 0.95, y: 20 }}
               animate={{ opacity: 1, scale: 1, y: 0 }}
               exit={{ opacity: 0, scale: 0.95, y: 20 }}
-              className="relative w-full max-w-md bg-white dark:bg-[var(--surface-card)] rounded-[2.5rem] shadow-2xl overflow-hidden"
+              className="relative w-full max-w-md bg-[var(--surface-card)] rounded-[2.5rem] shadow-2xl overflow-hidden"
             >
-              <div className="p-8 border-b border-slate-100 dark:border-[var(--border-default)] flex items-center justify-between">
+              <div className="p-8 border-b border-[var(--border-default)] flex items-center justify-between">
                 <div className="flex items-center gap-3">
-                   <div className="p-2 bg-indigo-50 dark:bg-[var(--accent)]/10 rounded-xl text-indigo-600 dark:text-[var(--accent-text)]">
+                   <div className="p-2 bg-[var(--accent)]/10 rounded-xl text-[var(--accent-text)]">
                       <Settings size={20} />
                    </div>
-                   <h3 className="text-xl font-black text-slate-800 dark:text-[var(--text-primary)] tracking-tight">Personalização</h3>
+                   <h3 className="text-xl font-black text-[var(--text-primary)] tracking-tight">Personalização</h3>
                 </div>
-                <button onClick={() => setShowSettings(false)} className="p-2 hover:bg-slate-100 dark:hover:bg-[var(--surface-pill)] rounded-xl transition-all">
-                  <X size={20} className="text-slate-400 dark:text-[var(--text-tertiary)]" />
+                <button onClick={() => setShowSettings(false)} className="p-2 hover:bg-[var(--surface-pill)] rounded-xl transition-all">
+                  <X size={20} className="text-[var(--text-tertiary)]" />
                 </button>
               </div>
 
               <div className="p-8 space-y-8">
                 {/* Bubble Color */}
                 <div className="space-y-4">
-                  <div className="flex items-center gap-2 text-[10px] font-black uppercase text-slate-400 dark:text-[var(--text-tertiary)] tracking-widest">
+                  <div className="flex items-center gap-2 text-[10px] font-semibold uppercase text-[var(--text-tertiary)] tracking-widest">
                      <Palette size={14} /> Cor das Bolhas
                   </div>
                   <div className="flex flex-wrap gap-3">
@@ -1659,7 +1659,7 @@ export default function ChatInternalPage() {
                          onClick={() => updatePreferences({ bubbleColor: color })}
                          className={cn(
                            "w-10 h-10 rounded-xl transition-all flex items-center justify-center border-2",
-                           bubbleColor === color ? "border-indigo-500 dark:border-[var(--accent)] scale-110 shadow-lg" : "border-transparent opacity-80"
+                           bubbleColor === color ? "border-[var(--accent)] scale-110 shadow-lg" : "border-transparent opacity-80"
                          )}
                          style={{ backgroundColor: `var(--color-${color}-600)` }}
                        >
@@ -1671,7 +1671,7 @@ export default function ChatInternalPage() {
 
                 {/* Avatar Size */}
                 <div className="space-y-4">
-                  <div className="flex items-center gap-2 text-[10px] font-black uppercase text-slate-400 dark:text-[var(--text-tertiary)] tracking-widest">
+                  <div className="flex items-center gap-2 text-[10px] font-semibold uppercase text-[var(--text-tertiary)] tracking-widest">
                      <Users size={14} /> Tamanho da Foto
                   </div>
                   <div className="grid grid-cols-5 gap-2">
@@ -1688,8 +1688,8 @@ export default function ChatInternalPage() {
                          className={cn(
                            "py-3 rounded-xl font-bold transition-all border-2",
                            avatarSize === size.id 
-                             ? "bg-indigo-600 dark:bg-[var(--accent)] border-indigo-600 dark:border-[var(--accent)] text-white shadow-lg" 
-                             : "bg-slate-50 dark:bg-[var(--surface-card)] border-slate-200 dark:border-[var(--border-default)] text-slate-600 dark:text-[var(--text-secondary)] hover:bg-slate-100 dark:hover:bg-[var(--surface-pill)]"
+                             ? "bg-[var(--accent)] border-[var(--accent)] text-white shadow-lg" 
+                             : "bg-[var(--surface-card)] border-[var(--border-default)] text-[var(--text-secondary)] hover:bg-[var(--surface-pill)]"
                          )}
                        >
                          {size.label}
@@ -1698,11 +1698,11 @@ export default function ChatInternalPage() {
                   </div>
                 </div>
 
-                <div className="p-4 bg-slate-50 dark:bg-[var(--surface-card)] rounded-2xl border border-slate-100 dark:border-[var(--border-default)]">
-                   <p className="text-[10px] font-black uppercase text-slate-400 dark:text-[var(--text-tertiary)] mb-3 tracking-widest">Prévia</p>
+                <div className="p-4 bg-[var(--surface-card)] rounded-2xl border border-[var(--border-default)]">
+                   <p className="text-[10px] font-semibold uppercase text-[var(--text-tertiary)] mb-3 tracking-widest">Prévia</p>
                    <div className="flex items-end gap-2">
                       {avatarSize !== 'none' && (
-                        <div className={cn("rounded-lg bg-slate-200 dark:bg-[var(--border-default)] shrink-0", 
+                        <div className={cn("rounded-lg bg-[var(--border-default)] shrink-0", 
                           avatarSize === 'xs' && "w-4 h-4",
                           avatarSize === 'sm' && "w-6 h-6",
                           avatarSize === 'md' && "w-8 h-8",
@@ -1742,17 +1742,17 @@ export default function ChatInternalPage() {
               initial={{ opacity: 0, scale: 0.95, y: 20 }}
               animate={{ opacity: 1, scale: 1, y: 0 }}
               exit={{ opacity: 0, scale: 0.95, y: 20 }}
-              className="relative w-full max-w-lg bg-white dark:bg-[var(--surface-card)] rounded-[2.5rem] shadow-2xl overflow-hidden flex flex-col h-[600px]"
+              className="relative w-full max-w-lg bg-[var(--surface-card)] rounded-[2.5rem] shadow-2xl overflow-hidden flex flex-col h-[600px]"
             >
-               <div className="p-8 border-b border-slate-100 dark:border-[var(--border-default)] flex items-center justify-between shrink-0 bg-white dark:bg-[var(--surface-card)] z-10">
+               <div className="p-8 border-b border-[var(--border-default)] flex items-center justify-between shrink-0 bg-[var(--surface-card)] z-10">
                   <div className="flex items-center gap-3">
-                     <div className="p-2 bg-indigo-50 dark:bg-[var(--accent)]/10 rounded-xl text-indigo-600 dark:text-[var(--accent-text)]">
+                     <div className="p-2 bg-[var(--accent)]/10 rounded-xl text-[var(--accent-text)]">
                         <Scissors size={20} />
                      </div>
-                     <h3 className="text-xl font-black text-slate-800 dark:text-[var(--text-primary)] tracking-tight">Criar Sticker</h3>
+                     <h3 className="text-xl font-black text-[var(--text-primary)] tracking-tight">Criar Sticker</h3>
                   </div>
-                  <button onClick={() => setIsCroppingSticker(false)} className="p-2 hover:bg-slate-100 dark:hover:bg-[var(--surface-pill)] rounded-xl transition-all">
-                    <X size={20} className="text-slate-400 dark:text-[var(--text-tertiary)]" />
+                  <button onClick={() => setIsCroppingSticker(false)} className="p-2 hover:bg-[var(--surface-pill)] rounded-xl transition-all">
+                    <X size={20} className="text-[var(--text-tertiary)]" />
                   </button>
                </div>
 
@@ -1768,8 +1768,8 @@ export default function ChatInternalPage() {
                   />
                   {isTempStickerGif || (tempStickerUrl && tempStickerUrl.startsWith('data:image/gif')) ? (
                     <div className="absolute bottom-6 left-1/2 -translate-x-1/2 z-20">
-                      <div className="bg-amber-100/90 dark:bg-[var(--surface-warning)]/90 backdrop-blur-md px-4 py-2 rounded-xl border border-amber-200 dark:border-[var(--border-alert)] flex items-center gap-3 shadow-lg">
-                        <span className="text-[10px] font-black text-amber-800 dark:text-[var(--text-warning)] uppercase tracking-widest">Aviso: Recortar removerá a animação</span>
+                      <div className="bg-[var(--surface-warning)]/90 backdrop-blur-md px-4 py-2 rounded-xl border border-[var(--border-alert)] flex items-center gap-3 shadow-lg">
+                        <span className="text-[10px] font-semibold text-[var(--text-warning)] uppercase tracking-widest">Aviso: Recortar removerá a animação</span>
                         <button 
                           onClick={() => {
                             const updatedStickers = [...(currentUser?.chatPreferences?.personalStickers || []), tempStickerUrl];
@@ -1778,7 +1778,7 @@ export default function ChatInternalPage() {
                             setTempStickerUrl(null);
                             setShowStickerPicker(true);
                           }}
-                          className="px-3 py-1 bg-amber-600 dark:bg-[var(--accent-warning-hover)] text-white rounded-lg text-[9px] font-black uppercase shadow-sm hover:bg-amber-700 transition-all"
+                          className="px-3 py-1 bg-[var(--accent-warning-hover)] text-white rounded-lg text-[9px] font-semibold uppercase shadow-sm hover:bg-amber-700 transition-all"
                         >
                           Usar Original (Animado)
                         </button>
@@ -1787,9 +1787,9 @@ export default function ChatInternalPage() {
                   ) : null}
                </div>
 
-               <div className="p-8 space-y-6 shrink-0 bg-white dark:bg-[var(--surface-card)]">
+               <div className="p-8 space-y-6 shrink-0 bg-[var(--surface-card)]">
                   <div className="space-y-2">
-                     <div className="flex justify-between text-[10px] font-black uppercase text-slate-400 dark:text-[var(--text-tertiary)]">
+                     <div className="flex justify-between text-[10px] font-semibold uppercase text-[var(--text-tertiary)]">
                         <span>Zoom</span>
                         <span>{Math.round(zoom * 100)}%</span>
                      </div>
@@ -1800,14 +1800,14 @@ export default function ChatInternalPage() {
                        step={0.1}
                        value={zoom}
                        onChange={(e) => setZoom(Number(e.target.value))}
-                       className="w-full h-2 bg-slate-100 dark:bg-[var(--surface-pill)] rounded-full appearance-none cursor-pointer accent-indigo-600 dark:accent-[var(--accent)]"
+                       className="w-full h-2 bg-[var(--surface-pill)] rounded-full appearance-none cursor-pointer accent-[var(--accent)]"
                      />
                   </div>
 
                   <div className="flex gap-4">
                      <button 
                        onClick={() => setIsCroppingSticker(false)}
-                       className="flex-1 px-6 py-4 rounded-2xl font-black text-sm uppercase tracking-widest text-slate-500 dark:text-[var(--text-tertiary)] hover:bg-slate-50 dark:hover:bg-[var(--surface-card)] transition-all"
+                       className="flex-1 px-6 py-4 rounded-2xl font-black text-sm uppercase tracking-widest text-[var(--text-tertiary)] hover:bg-[var(--surface-card)] transition-all"
                      >
                        Cancelar
                      </button>
@@ -1832,7 +1832,7 @@ export default function ChatInternalPage() {
                             setShowStickerPicker(true);
                          }
                        }}
-                       className="flex-1 bg-indigo-600 dark:bg-[var(--accent)] text-white rounded-2xl py-4 font-black transition-all hover:bg-indigo-700 dark:hover:bg-[var(--accent-hover)] shadow-xl shadow-indigo-100"
+                       className="flex-1 bg-[var(--accent)] text-white rounded-2xl py-4 font-black transition-all hover:bg-[var(--accent-hover)] shadow-xl shadow-indigo-100"
                      >
                        Salvar Sticker
                      </button>
@@ -1857,7 +1857,7 @@ export default function ChatInternalPage() {
                animate={{ opacity: 1, scale: 1 }}
                exit={{ opacity: 0, scale: 0.95 }}
                style={{ top: stickerContextMenu.y, left: stickerContextMenu.x }}
-               className="absolute bg-white dark:bg-[var(--surface-card)] rounded-2xl shadow-2xl border border-slate-100 dark:border-[var(--border-default)] py-2 w-48 overflow-hidden"
+               className="absolute bg-[var(--surface-card)] rounded-2xl shadow-2xl border border-[var(--border-default)] py-2 w-48 overflow-hidden"
                onClick={e => e.stopPropagation()}
             >
                <button 
@@ -1867,9 +1867,9 @@ export default function ChatInternalPage() {
                    updatePreferences({ personalStickers: updated });
                    setStickerContextMenu(null);
                  }}
-                 className="w-full flex items-center gap-3 px-4 py-3 hover:bg-rose-50 dark:hover:bg-[var(--surface-danger)] text-rose-600 dark:text-[var(--text-danger)] transition-colors text-sm font-bold"
+                 className="w-full flex items-center gap-3 px-4 py-3 hover:bg-[var(--surface-danger)] text-[var(--text-danger)] transition-colors text-sm font-bold"
                >
-                  <Trash2 size={16} className="text-rose-400 dark:text-[var(--text-danger)]" />
+                  <Trash2 size={16} className="text-[var(--text-danger)]" />
                   Excluir Sticker
                </button>
             </motion.div>
@@ -1884,7 +1884,7 @@ export default function ChatInternalPage() {
             initial={{ opacity: 0, scale: 0.95 }}
             animate={{ opacity: 1, scale: 1 }}
             exit={{ opacity: 0, scale: 0.95 }}
-            className="fixed z-[100] w-64 bg-white dark:bg-[var(--surface-card)] rounded-2xl shadow-2xl border border-slate-100 dark:border-[var(--border-default)] overflow-hidden py-2"
+            className="fixed z-[100] w-64 bg-[var(--surface-card)] rounded-2xl shadow-2xl border border-[var(--border-default)] overflow-hidden py-2"
             style={{ left: contextMenu.x, top: contextMenu.y }}
             onClick={(e) => e.stopPropagation()}
           >
@@ -1903,9 +1903,9 @@ export default function ChatInternalPage() {
                        toggleReadLater(room.id);
                        closeContextMenu();
                      }}
-                     className="w-full flex items-center gap-3 px-4 py-3 hover:bg-slate-50 dark:hover:bg-[var(--surface-card)] text-slate-700 dark:text-[var(--text-secondary)] transition-colors text-sm font-bold"
+                     className="w-full flex items-center gap-3 px-4 py-3 hover:bg-[var(--surface-card)] text-[var(--text-secondary)] transition-colors text-sm font-bold"
                    >
-                      <Clock size={16} className="text-slate-400 dark:text-[var(--text-tertiary)]" />
+                      <Clock size={16} className="text-[var(--text-tertiary)]" />
                       {isReadLater ? 'Remover "Ler Depois"' : 'Marcar para ler depois'}
                    </button>
 
@@ -1914,9 +1914,9 @@ export default function ChatInternalPage() {
                         togglePin({ stopPropagation: () => {} } as any, room.id);
                         closeContextMenu();
                      }}
-                     className="w-full flex items-center gap-3 px-4 py-3 hover:bg-slate-50 dark:hover:bg-[var(--surface-card)] text-slate-700 dark:text-[var(--text-secondary)] transition-colors text-sm font-bold"
+                     className="w-full flex items-center gap-3 px-4 py-3 hover:bg-[var(--surface-card)] text-[var(--text-secondary)] transition-colors text-sm font-bold"
                    >
-                      {isPinned ? <PinOff size={16} className="text-slate-400 dark:text-[var(--text-tertiary)]" /> : <Pin size={16} className="text-slate-400 dark:text-[var(--text-tertiary)]" />}
+                      {isPinned ? <PinOff size={16} className="text-[var(--text-tertiary)]" /> : <Pin size={16} className="text-[var(--text-tertiary)]" />}
                       {isPinned ? 'Desafixar' : 'Fixar'}
                    </button>
 
@@ -1927,9 +1927,9 @@ export default function ChatInternalPage() {
                           setSelectedMembers([otherUserId!]);
                           closeContextMenu();
                        }}
-                       className="w-full flex items-center gap-3 px-4 py-3 hover:bg-slate-50 dark:hover:bg-[var(--surface-card)] text-slate-700 dark:text-[var(--text-secondary)] transition-colors text-sm font-bold"
+                       className="w-full flex items-center gap-3 px-4 py-3 hover:bg-[var(--surface-card)] text-[var(--text-secondary)] transition-colors text-sm font-bold"
                      >
-                        <UserPlus size={16} className="text-slate-400 dark:text-[var(--text-tertiary)]" />
+                        <UserPlus size={16} className="text-[var(--text-tertiary)]" />
                         Convidar para Grupo
                      </button>
                    )}
@@ -1939,18 +1939,18 @@ export default function ChatInternalPage() {
                         toggleMute(room.id);
                         closeContextMenu();
                      }}
-                     className="w-full flex items-center gap-3 px-4 py-3 hover:bg-slate-50 dark:hover:bg-[var(--surface-card)] text-slate-700 dark:text-[var(--text-secondary)] transition-colors text-sm font-bold"
+                     className="w-full flex items-center gap-3 px-4 py-3 hover:bg-[var(--surface-card)] text-[var(--text-secondary)] transition-colors text-sm font-bold"
                    >
-                      {isMuted ? <Bell size={16} className="text-slate-400 dark:text-[var(--text-tertiary)]" /> : <BellOff size={16} className="text-slate-400 dark:text-[var(--text-tertiary)]" />}
+                      {isMuted ? <Bell size={16} className="text-[var(--text-tertiary)]" /> : <BellOff size={16} className="text-[var(--text-tertiary)]" />}
                       {isMuted ? 'Ativar notificações' : 'Silenciar'}
                    </button>
 
-                   <div className="h-px bg-slate-100 dark:bg-[var(--surface-pill)] my-1 mx-2" />
+                   <div className="h-px bg-[var(--surface-pill)] my-1 mx-2" />
 
                    <button 
-                     className="w-full flex items-center gap-3 px-4 py-3 hover:bg-slate-50 dark:hover:bg-[var(--surface-card)] text-slate-700 dark:text-[var(--text-secondary)] transition-colors text-sm font-bold"
+                     className="w-full flex items-center gap-3 px-4 py-3 hover:bg-[var(--surface-card)] text-[var(--text-secondary)] transition-colors text-sm font-bold"
                    >
-                      <UserCircle size={16} className="text-slate-400 dark:text-[var(--text-tertiary)]" />
+                      <UserCircle size={16} className="text-[var(--text-tertiary)]" />
                       Visualizar perfil
                    </button>
 
@@ -1960,9 +1960,9 @@ export default function ChatInternalPage() {
                           setFindChatsWithUserId(otherUserId);
                           closeContextMenu();
                        }}
-                       className="w-full flex items-center gap-3 px-4 py-3 hover:bg-slate-50 dark:hover:bg-[var(--surface-card)] text-slate-700 dark:text-[var(--text-secondary)] transition-colors text-sm font-bold"
+                       className="w-full flex items-center gap-3 px-4 py-3 hover:bg-[var(--surface-card)] text-[var(--text-secondary)] transition-colors text-sm font-bold"
                      >
-                        <SearchIcon size={16} className="text-slate-400 dark:text-[var(--text-tertiary)]" />
+                        <SearchIcon size={16} className="text-[var(--text-tertiary)]" />
                         Encontrar conversas
                      </button>
                    )}
@@ -1973,18 +1973,18 @@ export default function ChatInternalPage() {
                         closeContextMenu();
                      }}
                      className={cn(
-                       "w-full flex items-center gap-3 px-4 py-3 hover:bg-rose-50 dark:hover:bg-[var(--surface-danger)] text-rose-600 dark:text-[var(--text-danger)] transition-colors text-sm font-bold",
-                       room.hiddenBy?.includes(currentUser?.id || '') && "text-indigo-600 dark:text-[var(--accent-text)] hover:bg-indigo-50 dark:hover:bg-[var(--accent)]/10"
+                       "w-full flex items-center gap-3 px-4 py-3 hover:bg-[var(--surface-danger)] text-[var(--text-danger)] transition-colors text-sm font-bold",
+                       room.hiddenBy?.includes(currentUser?.id || '') && "text-[var(--accent-text)] hover:bg-[var(--accent)]/10"
                      )}
                    >
                       {room.hiddenBy?.includes(currentUser?.id || '') ? (
                         <>
-                          <Eye size={16} className="text-indigo-400 dark:text-[var(--accent-text)]" />
+                          <Eye size={16} className="text-[var(--accent-text)]" />
                           Exibir conversa
                         </>
                       ) : (
                         <>
-                          <EyeOff size={16} className="text-rose-400 dark:text-[var(--text-danger)]" />
+                          <EyeOff size={16} className="text-[var(--text-danger)]" />
                           Ocultar
                         </>
                       )}

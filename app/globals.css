@@ -16,6 +16,42 @@
   --background-start-rgb: 214, 219, 220;
   --background-end-rgb: 255, 255, 255;
   color-scheme: light;
+
+  /* Marca */
+  --brand-primary: #0D3A69;
+  --brand-primary-hover: #15558A;
+  --brand-primary-strong: #1D6AA5;
+  --accent: #18C7A8;
+  --accent-hover: #14B8A6;
+  --accent-strong: #0FAFA8;
+  --accent-text: #0E7C74;
+
+  /* Superfícies */
+  --surface-page: #F8FAFC;
+  --surface-sidebar: #0D3A69;
+  --surface-card: #FFFFFF;
+  --surface-pill: #F1F5F9;
+  --border-default: #E2E8F0;
+  --border-strong: #CBD5E1;
+
+  /* Tipografia */
+  --text-primary: #1E293B;
+  --text-secondary: #334155;
+  --text-tertiary: #64748B;
+
+  /* Estados e badges semânticos */
+  --surface-success: #F0FDF4;
+  --text-success: #16A34A;
+  --surface-info: #EFF6FF;
+  --text-info: #2563EB;
+  --surface-warning: #FFFBEB;
+  --text-warning: #D97706;
+  --text-warning-strong: #F59E0B;
+  --accent-warning-hover: #D97706;
+  --border-alert: #FDE68A;
+  --surface-danger: #FEF2F2;
+  --text-danger: #DC2626;
+  --text-pill: #475569;
 }
 
 :root.dark {
@@ -24,24 +60,34 @@
   --background-end-rgb: 15, 16, 19;
   color-scheme: dark;
 
+  /* Marca */
+  --brand-primary: #15558A;
+  --brand-primary-hover: #1D6AA5;
+  --brand-primary-strong: #1D6AA5;
+  --accent: #18C7A8;
+  --accent-hover: #14B8A6;
+  --accent-strong: #0FAFA8;
+  --accent-text: #5EEAD4;
+  --accent-soft-text: #99F6E4;
+
   /* Superfícies */
-  --surface-page: #15161a;
-  --surface-sidebar: #0f1013;
-  --surface-card: #1c1d22;
-  --surface-alert: #211d10;
-  --border-default: #2a2b30;
+  --surface-page: #0F172A;
+  --surface-sidebar: #081F3A;
+  --surface-card: #1E293B;
+  --border-default: #334155;
+  --border-strong: #475569;
   --border-alert: #3a3018;
 
   /* Tipografia */
-  --text-primary: #f2f2f4;
-  --text-secondary: #8b8d96;
-  --text-tertiary: #6b6d76;
+  --text-primary: #F8FAFC;
+  --text-secondary: #CBD5E1;
+  --text-tertiary: #94A3B8;
 
   /* Estados e badges semânticos */
   --surface-success: #12261e;
   --text-success: #5fd6a0;
   --surface-danger: #2a1418;
-  --text-danger: #e8798a;
+  --text-danger: #F87171;
   --surface-info: #1c2a4a;
   --text-info: #8fb3f0;
   --surface-warning: #241f10;
@@ -49,15 +95,8 @@
   --text-warning-strong: #e8a75f;
   --accent-warning-hover: #d1934f;
 
-  /* Destaque roxo (ação principal) */
-  --accent: #6a5cf0;
-  --accent-hover: #5949e0;
-  --accent-strong: #4a3fd6;
-  --accent-text: #a7a9ff;
-  --accent-soft-text: #d6d2ff;
-
   /* Pill neutra (contadores, chips) */
-  --surface-pill: #2a2b30;
+  --surface-pill: #273549;
   --text-pill: #c9cad0;
 }
 

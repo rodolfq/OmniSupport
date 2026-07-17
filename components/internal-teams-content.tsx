@@ -198,8 +198,8 @@ export function InternalTeamsContent() {
     return (
       <div className="flex items-center justify-center py-20">
         <div className="text-center">
-          <div className="w-12 h-12 border-4 border-amber-500 dark:border-[var(--text-warning-strong)] border-t-transparent rounded-full animate-spin mx-auto mb-4"></div>
-          <p className="text-sm text-slate-500 dark:text-[var(--text-tertiary)] font-bold uppercase tracking-widest">Carregando equipes...</p>
+          <div className="w-12 h-12 border-4 border-[var(--text-warning-strong)] border-t-transparent rounded-full animate-spin mx-auto mb-4"></div>
+          <p className="text-sm text-[var(--text-tertiary)] font-bold uppercase tracking-widest">Carregando equipes...</p>
         </div>
       </div>
     );
@@ -210,14 +210,14 @@ export function InternalTeamsContent() {
       {/* Header */}
       <div className="flex items-baseline justify-between">
         <div>
-          <h2 className="text-[22px] font-black text-slate-800 dark:text-[var(--text-primary)] uppercase tracking-tight">Equipes Internas</h2>
-          <p className="text-[11px] text-slate-500 dark:text-[var(--text-tertiary)] font-bold uppercase tracking-widest mt-1">
+          <h2 className="text-[22px] font-black text-[var(--text-primary)] uppercase tracking-tight">Equipes Internas</h2>
+          <p className="text-[11px] text-[var(--text-tertiary)] font-bold uppercase tracking-widest mt-1">
             Gerencie equipes de desenvolvimento, infraestrutura, QA e produto
           </p>
         </div>
         <button
           onClick={() => setShowNewModal(true)}
-          className="px-5 py-2.5 bg-gradient-to-b from-amber-500 to-amber-600 dark:bg-[var(--text-warning-strong)] text-white rounded-2xl text-[10px] font-black uppercase tracking-widest shadow-xl shadow-amber-500/20 hover:shadow-amber-500/30 transition-all flex items-center gap-2"
+          className="px-5 py-2.5 bg-gradient-to-b from-amber-500 to-amber-600 dark:bg-[var(--text-warning-strong)] text-white rounded-2xl text-[10px] font-semibold uppercase tracking-widest shadow-xl shadow-amber-500/20 hover:shadow-amber-500/30 transition-all flex items-center gap-2"
         >
           <Plus size={16} />
           Nova Equipe
@@ -226,57 +226,57 @@ export function InternalTeamsContent() {
 
       {/* Teams Grid */}
       {teams.length === 0 ? (
-        <div className="bg-white/60 dark:bg-[var(--surface-card)] backdrop-blur-xl rounded-3xl p-16 text-center border border-slate-200 dark:border-[var(--border-default)]">
+        <div className="bg-[var(--surface-card)] backdrop-blur-xl rounded-3xl p-16 text-center border border-[var(--border-default)]">
           <Shield size={64} className="mx-auto text-slate-200 mb-6" />
-          <h3 className="text-lg font-black text-slate-700 dark:text-[var(--text-secondary)] mb-2">Nenhuma equipe configurada</h3>
-          <p className="text-sm text-slate-500 dark:text-[var(--text-tertiary)] font-medium max-w-sm mx-auto">
+          <h3 className="text-lg font-black text-[var(--text-secondary)] mb-2">Nenhuma equipe configurada</h3>
+          <p className="text-sm text-[var(--text-tertiary)] font-medium max-w-sm mx-auto">
             Crie equipes para organizar os membros do Time Interno
           </p>
         </div>
       ) : (
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-5">
           {teams.map(team => (
-            <div 
-              key={team.id} 
-              className="group bg-white dark:bg-[var(--surface-card)] rounded-3xl border border-slate-200 dark:border-[var(--border-default)] p-6 hover:border-amber-300 hover:shadow-lg transition-all cursor-pointer"
+            <div
+              key={team.id}
+              className="group bg-[var(--surface-card)] rounded-3xl border border-[var(--border-default)] p-6 hover:border-amber-300 hover:shadow-lg transition-all cursor-pointer"
             >
               <div className="flex items-start justify-between mb-4">
                 <div className="flex items-center gap-3">
-                  <div className="w-10 h-10 bg-amber-100 dark:bg-[var(--surface-warning)] rounded-2xl flex items-center justify-center">
-                    <Users size={20} className="text-amber-600 dark:text-[var(--text-warning)]" />
+                  <div className="w-10 h-10 bg-[var(--surface-warning)] rounded-2xl flex items-center justify-center">
+                    <Users size={20} className="text-[var(--text-warning)]" />
                   </div>
                   <div>
-                    <h3 className="font-black text-slate-800 dark:text-[var(--text-primary)] text-[15px] uppercase tracking-tight">{team.name}</h3>
-                    <p className="text-[10px] text-slate-400 dark:text-[var(--text-tertiary)] font-bold uppercase">{team.memberIds.length} membros</p>
+                    <h3 className="font-black text-[var(--text-primary)] text-[15px] uppercase tracking-tight">{team.name}</h3>
+                    <p className="text-[10px] text-[var(--text-tertiary)] font-bold uppercase">{team.memberIds.length} membros</p>
                   </div>
                 </div>
                 <div className="flex gap-1 opacity-0 group-hover:opacity-100">
                   <button
                     onClick={() => openEditModal(team)}
-                    className="p-2 rounded-lg hover:bg-slate-100 dark:hover:bg-[var(--surface-pill)] transition-all"
+                    className="p-2 rounded-lg hover:bg-[var(--surface-pill)] transition-all"
                     title="Editar membros"
                   >
-                    <ChevronRight size={16} className="text-slate-500 dark:text-[var(--text-tertiary)]" />
+                    <ChevronRight size={16} className="text-[var(--text-tertiary)]" />
                   </button>
                   <button
                     onClick={() => confirmDeleteTeam(team)}
-                    className="p-2 rounded-lg hover:bg-red-100 dark:hover:bg-[var(--surface-danger)] text-red-500 dark:text-[var(--text-danger)] transition-all"
+                    className="p-2 rounded-lg hover:bg-[var(--surface-danger)] text-[var(--text-danger)] transition-all"
                     title="Excluir equipe"
                   >
                     <Trash2 size={16} />
                   </button>
                 </div>
               </div>
-              <p className="text-xs text-slate-500 dark:text-[var(--text-tertiary)] font-medium mb-4">{team.description || 'Equipe de desenvolvimento e manutenção'}</p>
-              
+              <p className="text-xs text-[var(--text-tertiary)] font-medium mb-4">{team.description || 'Equipe de desenvolvimento e manutenção'}</p>
+
 {team.memberIds.length > 0 && (
                   <div className="flex -space-x-2">
                     {team.memberIds.slice(0, 4).map((memberId) => {
                       const member = allUsers.find(u => u.id === memberId);
                       return (
-                        <div 
+                        <div
                           key={memberId}
-                          className="w-8 h-8 rounded-full bg-amber-100 dark:bg-[var(--surface-warning)] border-2 border-white flex items-center justify-center text-xs font-black text-amber-600 dark:text-[var(--text-warning)] overflow-hidden"
+                          className="w-8 h-8 rounded-full bg-[var(--surface-warning)] border-2 border-white flex items-center justify-center text-xs font-black text-[var(--text-warning)] overflow-hidden"
                           title={member?.name || 'Membro'}
                         >
                           {member?.avatarUrl ? (
@@ -288,7 +288,7 @@ export function InternalTeamsContent() {
                       );
                     })}
                   {team.memberIds.length > 4 && (
-                    <div className="w-8 h-8 rounded-full bg-slate-100 dark:bg-[var(--surface-pill)] border-2 border-white flex items-center justify-center text-[10px] font-black text-slate-500 dark:text-[var(--text-tertiary)]">
+                    <div className="w-8 h-8 rounded-full bg-[var(--surface-pill)] border-2 border-white flex items-center justify-center text-[10px] font-black text-[var(--text-tertiary)]">
                       +{team.memberIds.length - 4}
                     </div>
                   )}
@@ -303,70 +303,70 @@ export function InternalTeamsContent() {
       {showNewModal && (
         <div className="fixed inset-0 z-[100] flex items-center justify-center p-4">
           <div className="absolute inset-0 bg-slate-900/70 backdrop-blur-md" onClick={() => setShowNewModal(false)} />
-          <div className="relative bg-white dark:bg-[var(--surface-card)] w-full max-w-lg rounded-[2.5rem] shadow-2xl p-8 flex flex-col gap-6">
+          <div className="relative bg-[var(--surface-card)] w-full max-w-lg rounded-[2.5rem] shadow-2xl p-8 flex flex-col gap-6">
             <div className="flex items-center gap-4">
-              <div className="w-12 h-12 bg-amber-100 dark:bg-[var(--surface-warning)] rounded-2xl flex items-center justify-center">
-                <Plus size={24} className="text-amber-600 dark:text-[var(--text-warning)]" />
+              <div className="w-12 h-12 bg-[var(--surface-warning)] rounded-2xl flex items-center justify-center">
+                <Plus size={24} className="text-[var(--text-warning)]" />
               </div>
               <div>
-                <h2 className="text-xl font-black text-slate-800 dark:text-[var(--text-primary)] uppercase tracking-tight">Nova Equipe Interna</h2>
-                <p className="text-[10px] text-slate-500 dark:text-[var(--text-tertiary)] font-bold uppercase">Criar equipe de desenvolvimento</p>
+                <h2 className="text-xl font-black text-[var(--text-primary)] uppercase tracking-tight">Nova Equipe Interna</h2>
+                <p className="text-[10px] text-[var(--text-tertiary)] font-bold uppercase">Criar equipe de desenvolvimento</p>
               </div>
             </div>
 
             <div className="space-y-5">
               <div className="space-y-1.5">
-                <label className="text-[10px] font-black uppercase text-slate-400 dark:text-[var(--text-tertiary)] ml-1">Nome da Equipe *</label>
+                <label className="text-[10px] font-black uppercase text-[var(--text-tertiary)] ml-1">Nome da Equipe *</label>
                 <input
                   value={newTeamName}
                   onChange={(e) => setNewTeamName(e.target.value)}
                   placeholder="Desenvolvimento, Infraestrutura..."
-                  className="w-full px-4 py-3 rounded-xl border border-slate-200 dark:border-[var(--border-default)] focus:border-amber-400 dark:focus:border-[var(--text-warning-strong)] outline-none font-medium"
-                />
-              </div>
-              
-              <div className="space-y-1.5">
-                <label className="text-[10px] font-black uppercase text-slate-400 dark:text-[var(--text-tertiary)] ml-1">Descrição</label>
-                <textarea
-                  value={newTeamDescription}
-                  onChange={(e) => setNewTeamDescription(e.target.value)}
-                  placeholder="Responsabilidades da equipe..."
-                  className="w-full px-4 py-3 rounded-xl border border-slate-200 dark:border-[var(--border-default)] focus:border-amber-400 dark:focus:border-[var(--text-warning-strong)] outline-none font-medium min-h-[100px]"
+                  className="w-full px-4 py-3 rounded-xl border border-[var(--border-default)] focus:border-[var(--text-warning-strong)] outline-none font-medium"
                 />
               </div>
 
               <div className="space-y-1.5">
-                <label className="text-[10px] font-black uppercase text-slate-400 dark:text-[var(--text-tertiary)] ml-1">Membros Iniciais</label>
+                <label className="text-[10px] font-black uppercase text-[var(--text-tertiary)] ml-1">Descrição</label>
+                <textarea
+                  value={newTeamDescription}
+                  onChange={(e) => setNewTeamDescription(e.target.value)}
+                  placeholder="Responsabilidades da equipe..."
+                  className="w-full px-4 py-3 rounded-xl border border-[var(--border-default)] focus:border-[var(--text-warning-strong)] outline-none font-medium min-h-[100px]"
+                />
+              </div>
+
+              <div className="space-y-1.5">
+                <label className="text-[10px] font-black uppercase text-[var(--text-tertiary)] ml-1">Membros Iniciais</label>
                 <div className="relative">
-                  <Search size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400 dark:text-[var(--text-tertiary)]" />
+                  <Search size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-[var(--text-tertiary)]" />
                   <input
                     value={searchTerm}
                     onChange={(e) => setSearchTerm(e.target.value)}
                     placeholder="Buscar membros..."
-                    className="w-full pl-9 pr-3 py-2 rounded-lg border border-slate-200 dark:border-[var(--border-default)] text-sm focus:border-amber-400 dark:focus:border-[var(--text-warning-strong)] outline-none"
+                    className="w-full pl-9 pr-3 py-2 rounded-lg border border-[var(--border-default)] text-sm focus:border-[var(--text-warning-strong)] outline-none"
                   />
                 </div>
-                <div className="max-h-40 overflow-y-auto border border-slate-100 dark:border-[var(--border-default)] rounded-xl p-2 space-y-1 mt-2">
+                <div className="max-h-40 overflow-y-auto border border-[var(--border-default)] rounded-xl p-2 space-y-1 mt-2">
                   {filteredUsers.map(u => (
                     <button
                       key={u.id}
                       onClick={() => {
-                        setNewSelectedMembers(prev => 
-                          prev.includes(u.id) 
-                            ? prev.filter(id => id !== u.id) 
+                        setNewSelectedMembers(prev =>
+                          prev.includes(u.id)
+                            ? prev.filter(id => id !== u.id)
                             : [...prev, u.id]
                         );
                       }}
                       className={cn(
                         "w-full flex items-center gap-2 px-3 py-2 rounded-lg text-sm font-medium transition-all",
-                        newSelectedMembers.includes(u.id) 
-                          ? "bg-amber-100 dark:bg-[var(--surface-warning)] text-amber-700 dark:text-[var(--text-warning)]" 
-                          : "hover:bg-slate-50 dark:hover:bg-[var(--surface-card)] text-slate-700 dark:text-[var(--text-secondary)]"
+                        newSelectedMembers.includes(u.id)
+                          ? "bg-[var(--surface-warning)] text-[var(--text-warning)]"
+                          : "hover:bg-[var(--surface-card)] text-[var(--text-secondary)]"
                       )}
                     >
                       <div className={cn(
                         "w-4 h-4 rounded border flex items-center justify-center",
-                        newSelectedMembers.includes(u.id) ? "bg-amber-500 dark:bg-[var(--text-warning-strong)] border-amber-500 dark:border-[var(--text-warning-strong)]" : "border-slate-300 dark:border-[var(--border-default)]"
+                        newSelectedMembers.includes(u.id) ? "bg-[var(--text-warning-strong)] border-[var(--text-warning-strong)]" : "border-[var(--border-default)]"
                       )}>
                         {newSelectedMembers.includes(u.id) && <Check size={12} className="text-white" />}
                       </div>
@@ -380,14 +380,14 @@ export function InternalTeamsContent() {
             <div className="flex gap-3">
               <button
                 onClick={() => setShowNewModal(false)}
-                className="flex-1 py-3 rounded-xl text-[10px] font-black uppercase tracking-widest text-slate-500 dark:text-[var(--text-tertiary)] border border-slate-200 dark:border-[var(--border-default)] hover:bg-slate-50 dark:hover:bg-[var(--surface-card)] transition-all"
+                className="flex-1 py-3 rounded-xl text-[10px] font-semibold uppercase tracking-widest text-[var(--text-tertiary)] border border-[var(--border-default)] hover:bg-[var(--surface-card)] transition-all"
               >
                 Cancelar
               </button>
               <button
                 onClick={handleCreateTeam}
                 disabled={!newTeamName.trim()}
-                className="flex-1 py-3 rounded-xl bg-amber-500 dark:bg-[var(--text-warning-strong)] text-white font-black uppercase tracking-widest hover:bg-amber-600 dark:hover:bg-[var(--accent-warning-hover)] transition-all shadow-lg shadow-amber-500/20 disabled:opacity-50"
+                className="flex-1 py-3 rounded-xl bg-[var(--text-warning-strong)] text-white font-black uppercase tracking-widest hover:bg-[var(--accent-warning-hover)] transition-all shadow-lg shadow-amber-500/20 disabled:opacity-50"
               >
                 Criar Equipe
               </button>
@@ -400,62 +400,62 @@ export function InternalTeamsContent() {
       {editingTeam && (
         <div className="fixed inset-0 z-[100] flex items-center justify-center p-4">
           <div className="absolute inset-0 bg-slate-900/70 backdrop-blur-md" onClick={() => setEditingTeam(null)} />
-          <div className="relative bg-white dark:bg-[var(--surface-card)] w-full max-w-md rounded-[2.5rem] shadow-2xl p-8 flex flex-col gap-6">
+          <div className="relative bg-[var(--surface-card)] w-full max-w-md rounded-[2.5rem] shadow-2xl p-8 flex flex-col gap-6">
             <div className="flex items-center justify-between">
               <div className="flex items-center gap-4">
-                <div className="w-12 h-12 bg-amber-100 dark:bg-[var(--surface-warning)] rounded-2xl flex items-center justify-center">
-                  <Users size={20} className="text-amber-600 dark:text-[var(--text-warning)]" />
+                <div className="w-12 h-12 bg-[var(--surface-warning)] rounded-2xl flex items-center justify-center">
+                  <Users size={20} className="text-[var(--text-warning)]" />
                 </div>
                 <div>
-                  <h2 className="text-xl font-black text-slate-800 dark:text-[var(--text-primary)] uppercase tracking-tight">{editingTeam.name}</h2>
-                  <p className="text-[10px] text-slate-500 dark:text-[var(--text-tertiary)] font-bold uppercase">Editar membros da equipe</p>
+                  <h2 className="text-xl font-black text-[var(--text-primary)] uppercase tracking-tight">{editingTeam.name}</h2>
+                  <p className="text-[10px] text-[var(--text-tertiary)] font-bold uppercase">Editar membros da equipe</p>
                 </div>
               </div>
-              <button 
+              <button
                 onClick={() => setEditingTeam(null)}
-                className="p-2 rounded-lg hover:bg-slate-100 dark:hover:bg-[var(--surface-pill)] transition-all"
+                className="p-2 rounded-lg hover:bg-[var(--surface-pill)] transition-all"
               >
-                <X size={20} className="text-slate-500 dark:text-[var(--text-tertiary)]" />
+                <X size={20} className="text-[var(--text-tertiary)]" />
               </button>
             </div>
 
             <div className="space-y-4">
               <div className="relative">
-                <Search size={16} className="absolute left-4 top-1/2 -translate-y-1/2 text-slate-400 dark:text-[var(--text-tertiary)]" />
+                <Search size={16} className="absolute left-4 top-1/2 -translate-y-1/2 text-[var(--text-tertiary)]" />
                 <input
                   value={searchTerm}
                   onChange={(e) => setSearchTerm(e.target.value)}
                   placeholder="Buscar membros por nome ou email..."
-                  className="w-full pl-12 pr-4 py-3 rounded-2xl border border-slate-200 dark:border-[var(--border-default)] focus:border-amber-400 dark:focus:border-[var(--text-warning-strong)] outline-none font-medium"
+                  className="w-full pl-12 pr-4 py-3 rounded-2xl border border-[var(--border-default)] focus:border-[var(--text-warning-strong)] outline-none font-medium"
                 />
               </div>
 
               <div className="max-h-72 overflow-y-auto space-y-2 py-2">
                 {filteredUsers.length === 0 ? (
-                  <p className="text-center py-8 text-slate-400 dark:text-[var(--text-tertiary)] text-sm">Nenhum membro encontrado</p>
+                  <p className="text-center py-8 text-[var(--text-tertiary)] text-sm">Nenhum membro encontrado</p>
                 ) : (
                   filteredUsers.map(u => (
                     <button
                       key={u.id}
                       onClick={() => {
-                        setEditSelectedMembers(prev => 
-                          prev.includes(u.id) 
-                            ? prev.filter(id => id !== u.id) 
+                        setEditSelectedMembers(prev =>
+                          prev.includes(u.id)
+                            ? prev.filter(id => id !== u.id)
                             : [...prev, u.id]
                         );
                       }}
                       className={cn(
                         "w-full flex items-center gap-3 px-4 py-3 rounded-2xl text-sm font-medium transition-all border",
-                        editSelectedMembers.includes(u.id) 
-                          ? "bg-amber-50 dark:bg-[var(--surface-warning)] border-amber-200 dark:border-[var(--border-alert)]" 
-                          : "hover:bg-slate-50 dark:hover:bg-[var(--surface-card)] border-transparent"
+                        editSelectedMembers.includes(u.id)
+                          ? "bg-[var(--surface-warning)] border-[var(--border-alert)]"
+                          : "hover:bg-[var(--surface-card)] border-transparent"
                       )}
                     >
 <div className={cn(
                          "w-10 h-10 rounded-xl flex items-center justify-center font-black text-sm overflow-hidden",
-                         editSelectedMembers.includes(u.id) 
-                           ? "bg-amber-500 dark:bg-[var(--text-warning-strong)] text-white" 
-                           : "bg-slate-100 dark:bg-[var(--surface-pill)] text-slate-600 dark:text-[var(--text-secondary)]"
+                         editSelectedMembers.includes(u.id)
+                           ? "bg-[var(--text-warning-strong)] text-white"
+                           : "bg-[var(--surface-pill)] text-[var(--text-secondary)]"
                        )}>
                         {u.avatarUrl ? (
                           <img src={u.avatarUrl} alt={u.name} className="w-full h-full object-cover" />
@@ -464,11 +464,11 @@ export function InternalTeamsContent() {
                         )}
                       </div>
                       <div className="flex-1 text-left">
-                        <p className="font-bold text-slate-800 dark:text-[var(--text-primary)]">{u.name || 'Sem nome'}</p>
-                        <p className="text-[10px] text-slate-500 dark:text-[var(--text-tertiary)] font-medium">{u.email}</p>
+                        <p className="font-bold text-[var(--text-primary)]">{u.name || 'Sem nome'}</p>
+                        <p className="text-[10px] text-[var(--text-tertiary)] font-medium">{u.email}</p>
                       </div>
                       {editSelectedMembers.includes(u.id) && (
-                        <Check size={18} className="text-amber-500 dark:text-[var(--text-warning-strong)]" />
+                        <Check size={18} className="text-[var(--text-warning-strong)]" />
                       )}
                     </button>
                   ))
@@ -479,13 +479,13 @@ export function InternalTeamsContent() {
             <div className="flex gap-3">
               <button
                 onClick={() => setEditingTeam(null)}
-                className="flex-1 py-3 rounded-xl text-[10px] font-black uppercase tracking-widest text-slate-500 dark:text-[var(--text-tertiary)] border border-slate-200 dark:border-[var(--border-default)] hover:bg-slate-50 dark:hover:bg-[var(--surface-card)] transition-all"
+                className="flex-1 py-3 rounded-xl text-[10px] font-semibold uppercase tracking-widest text-[var(--text-tertiary)] border border-[var(--border-default)] hover:bg-[var(--surface-card)] transition-all"
               >
                 Cancelar
               </button>
               <button
                 onClick={() => handleSaveMembers(editingTeam.id)}
-                className="flex-1 py-3 rounded-xl bg-amber-500 dark:bg-[var(--text-warning-strong)] text-white font-black uppercase tracking-widest hover:bg-amber-600 dark:hover:bg-[var(--accent-warning-hover)] transition-all shadow-lg shadow-amber-500/20"
+                className="flex-1 py-3 rounded-xl bg-[var(--text-warning-strong)] text-white font-black uppercase tracking-widest hover:bg-[var(--accent-warning-hover)] transition-all shadow-lg shadow-amber-500/20"
               >
                 Salvar Membros
               </button>

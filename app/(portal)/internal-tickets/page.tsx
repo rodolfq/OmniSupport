@@ -22,23 +22,23 @@ interface InternalTicketItem extends InternalTicket {
 const ITEMS_PER_PAGE = 20;
 
 const priorityConfig = {
-  1: { label: "Baixa", color: "bg-slate-100 dark:bg-[var(--surface-pill)] text-slate-700 dark:text-[var(--text-secondary)]", icon: "●" },
-  2: { label: "Média", color: "bg-amber-100 dark:bg-[var(--surface-warning)] text-amber-700 dark:text-[var(--text-warning)]", icon: "●●" },
-  3: { label: "Alta", color: "bg-red-100 dark:bg-[var(--surface-danger)] text-red-700 dark:text-[var(--text-danger)]", icon: "●●●" },
+  1: { label: "Baixa", color: "bg-[var(--surface-pill)] text-[var(--text-secondary)]", icon: "●" },
+  2: { label: "Média", color: "bg-[var(--surface-warning)] text-[var(--text-warning)]", icon: "●●" },
+  3: { label: "Alta", color: "bg-[var(--surface-danger)] text-[var(--text-danger)]", icon: "●●●" },
 };
 
 const KANBAN_STATUSES = [
-  { value: "Novo", label: "Novo", color: "bg-blue-100 dark:bg-[var(--surface-info)] text-blue-700 dark:text-[var(--text-info)]", icon: "●" },
-  { value: "Em Andamento", label: "Em Andamento", color: "bg-amber-100 dark:bg-[var(--surface-warning)] text-amber-700 dark:text-[var(--text-warning)]", icon: "●●" },
-  { value: "Em Espera", label: "Em Espera", color: "bg-slate-100 dark:bg-[var(--surface-pill)] text-slate-700 dark:text-[var(--text-secondary)]", icon: "●●●" },
-  { value: "Concluído", label: "Concluído", color: "bg-emerald-100 dark:bg-[var(--surface-success)] text-emerald-700 dark:text-[var(--text-success)]", icon: "✓" },
+  { value: "Novo", label: "Novo", color: "bg-[var(--surface-info)] text-[var(--text-info)]", icon: "●" },
+  { value: "Em Andamento", label: "Em Andamento", color: "bg-[var(--surface-warning)] text-[var(--text-warning)]", icon: "●●" },
+  { value: "Em Espera", label: "Em Espera", color: "bg-[var(--surface-pill)] text-[var(--text-secondary)]", icon: "●●●" },
+  { value: "Concluído", label: "Concluído", color: "bg-[var(--surface-success)] text-[var(--text-success)]", icon: "✓" },
 ];
 
 // Default team options (will be replaced by DB values)
 const DEFAULT_TEAM_OPTIONS = [
-  { value: "Desenvolvimento", label: "Desenvolvimento", color: "bg-indigo-100 dark:bg-[var(--accent)]/20 text-indigo-700 dark:text-[var(--accent-text)]" },
-  { value: "Infraestrutura", label: "Infraestrutura", color: "bg-emerald-100 dark:bg-[var(--surface-success)] text-emerald-700 dark:text-[var(--text-success)]" },
-  { value: "QA / Testes", label: "QA / Testes", color: "bg-amber-100 dark:bg-[var(--surface-warning)] text-amber-700 dark:text-[var(--text-warning)]" },
+  { value: "Desenvolvimento", label: "Desenvolvimento", color: "bg-[var(--accent)]/20 text-[var(--accent-text)]" },
+  { value: "Infraestrutura", label: "Infraestrutura", color: "bg-[var(--surface-success)] text-[var(--text-success)]" },
+  { value: "QA / Testes", label: "QA / Testes", color: "bg-[var(--surface-warning)] text-[var(--text-warning)]" },
   { value: "Produto", label: "Produto", color: "bg-purple-100 dark:bg-purple-500/20 text-purple-700 dark:text-purple-300" },
 ];
 
@@ -201,7 +201,7 @@ if (filterAssignee) query = query.eq("assignee_id", filterAssignee);
         setTeams(data.map((t: any) => ({ 
           value: t.name, 
           label: t.name, 
-          color: "bg-indigo-100 dark:bg-[var(--accent)]/20 text-indigo-700 dark:text-[var(--accent-text)]" 
+          color: "bg-[var(--accent)]/20 text-[var(--accent-text)]" 
         })));
       }
     } catch (error) {
@@ -295,23 +295,23 @@ const openEditModal = (ticket: InternalTicketItem) => {
   if (!hasPermission(Permission.INTERNAL_TICKETS_VIEW)) {
     return (
       <div className="flex items-center justify-center h-full">
-        <div className="text-center p-8 bg-white dark:bg-[var(--surface-card)] rounded-2xl shadow-lg">
+        <div className="text-center p-8 bg-[var(--surface-card)] rounded-2xl shadow-lg">
           <Lock size={48} className="mx-auto text-slate-300 mb-4" />
-          <h2 className="text-xl font-bold text-slate-700 dark:text-[var(--text-secondary)] mb-2">Acesso Negado</h2>
-          <p className="text-slate-500 dark:text-[var(--text-tertiary)]">Você não tem permissão para visualizar tickets internos.</p>
+          <h2 className="text-xl font-bold text-[var(--text-secondary)] mb-2">Acesso Negado</h2>
+          <p className="text-[var(--text-tertiary)]">Você não tem permissão para visualizar tickets internos.</p>
         </div>
       </div>
     );
   }
 
   return (
-    <div className="flex flex-col h-full bg-slate-50/30 dark:bg-[var(--surface-card)]/30">
+    <div className="flex flex-col h-full bg-[var(--surface-card)]/30">
       {/* Header */}
-      <div className="p-6 bg-white dark:bg-[var(--surface-card)] border-b border-slate-200 dark:border-[var(--border-default)]">
+      <div className="p-6 bg-[var(--surface-card)] border-b border-[var(--border-default)]">
         <div className="flex items-center justify-between mb-4">
           <div>
-            <h1 className="text-2xl font-black text-slate-800 dark:text-[var(--text-primary)]">Tickets Internos</h1>
-            <p className="text-sm text-slate-500 dark:text-[var(--text-tertiary)] mt-1">Gerencie tickets internos de desenvolvimento e manutenção</p>
+            <h1 className="text-2xl font-black text-[var(--text-primary)]">Tickets Internos</h1>
+            <p className="text-sm text-[var(--text-tertiary)] mt-1">Gerencie tickets internos de desenvolvimento e manutenção</p>
           </div>
           <div className="flex items-center gap-3">
             {hasPermission(Permission.INTERNAL_TICKETS_EDIT) && (
@@ -320,7 +320,7 @@ const openEditModal = (ticket: InternalTicketItem) => {
                   resetForm();
                   setShowNewModal(true);
                 }}
-                className="px-4 py-2 bg-amber-500 dark:bg-[var(--text-warning-strong)] text-white rounded-xl text-xs font-black uppercase tracking-widest hover:bg-amber-600 dark:hover:bg-[var(--accent-warning-hover)] transition-all flex items-center gap-2"
+                className="px-4 py-2 bg-[var(--text-warning-strong)] text-white rounded-xl text-xs font-semibold uppercase tracking-widest hover:bg-[var(--accent-warning-hover)] transition-all flex items-center gap-2"
               >
                 <Plus size={16} />
                 Novo Ticket
@@ -332,23 +332,23 @@ const openEditModal = (ticket: InternalTicketItem) => {
         {/* Search + View Switcher */}
         <div className="flex items-center gap-3 mb-4">
           <div className="flex-1 relative">
-            <Search size={18} className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400 dark:text-[var(--text-tertiary)]" />
+            <Search size={18} className="absolute left-3 top-1/2 -translate-y-1/2 text-[var(--text-tertiary)]" />
             <input
               type="text"
               placeholder="Buscar por título..."
               value={searchTerm}
               onChange={(e) => setSearchTerm(e.target.value)}
-              className="w-full pl-10 pr-4 py-2.5 rounded-xl border border-slate-200 dark:border-[var(--border-default)] focus:border-amber-400 dark:focus:border-[var(--text-warning-strong)] outline-none text-sm font-medium"
+              className="w-full pl-10 pr-4 py-2.5 rounded-xl border border-[var(--border-default)] focus:border-[var(--text-warning-strong)] outline-none text-sm font-medium"
             />
           </div>
           
           {/* View Switcher */}
-          <div className="flex items-center gap-1 bg-slate-100 dark:bg-[var(--surface-pill)] p-1 rounded-xl">
+          <div className="flex items-center gap-1 bg-[var(--surface-pill)] p-1 rounded-xl">
             <button
               onClick={() => setViewMode("cards")}
               className={cn(
-                "px-3 py-1.5 rounded-lg text-xs font-black uppercase tracking-widest transition-all",
-                viewMode === "cards" ? "bg-white dark:bg-[var(--surface-card)] text-amber-600 dark:text-[var(--text-warning)] shadow-sm" : "text-slate-500 dark:text-[var(--text-tertiary)] hover:text-slate-700 dark:hover:text-[var(--text-secondary)]"
+                "px-3 py-1.5 rounded-lg text-xs font-semibold uppercase tracking-widest transition-all",
+                viewMode === "cards" ? "bg-[var(--surface-card)] text-[var(--text-warning)] shadow-sm" : "text-[var(--text-tertiary)] hover:text-[var(--text-secondary)]"
               )}
               title="Cards"
             >
@@ -357,8 +357,8 @@ const openEditModal = (ticket: InternalTicketItem) => {
             <button
               onClick={() => setViewMode("table")}
               className={cn(
-                "px-3 py-1.5 rounded-lg text-xs font-black uppercase tracking-widest transition-all",
-                viewMode === "table" ? "bg-white dark:bg-[var(--surface-card)] text-amber-600 dark:text-[var(--text-warning)] shadow-sm" : "text-slate-500 dark:text-[var(--text-tertiary)] hover:text-slate-700 dark:hover:text-[var(--text-secondary)]"
+                "px-3 py-1.5 rounded-lg text-xs font-semibold uppercase tracking-widest transition-all",
+                viewMode === "table" ? "bg-[var(--surface-card)] text-[var(--text-warning)] shadow-sm" : "text-[var(--text-tertiary)] hover:text-[var(--text-secondary)]"
               )}
               title="Tabela"
             >
@@ -367,8 +367,8 @@ const openEditModal = (ticket: InternalTicketItem) => {
             <button
               onClick={() => setViewMode("kanban")}
               className={cn(
-                "px-3 py-1.5 rounded-lg text-xs font-black uppercase tracking-widest transition-all",
-                viewMode === "kanban" ? "bg-white dark:bg-[var(--surface-card)] text-amber-600 dark:text-[var(--text-warning)] shadow-sm" : "text-slate-500 dark:text-[var(--text-tertiary)] hover:text-slate-700 dark:hover:text-[var(--text-secondary)]"
+                "px-3 py-1.5 rounded-lg text-xs font-semibold uppercase tracking-widest transition-all",
+                viewMode === "kanban" ? "bg-[var(--surface-card)] text-[var(--text-warning)] shadow-sm" : "text-[var(--text-tertiary)] hover:text-[var(--text-secondary)]"
               )}
               title="Kanban"
             >
@@ -379,8 +379,8 @@ const openEditModal = (ticket: InternalTicketItem) => {
           <button
             onClick={() => setShowFilters(!showFilters)}
             className={cn(
-              "px-4 py-2 rounded-xl text-xs font-black uppercase tracking-widest transition-all flex items-center gap-2",
-              showFilters ? "bg-amber-500 dark:bg-[var(--text-warning-strong)] text-white" : "bg-slate-100 dark:bg-[var(--surface-pill)] text-slate-600 dark:text-[var(--text-secondary)] hover:bg-slate-200 dark:hover:bg-[var(--border-default)]"
+              "px-4 py-2 rounded-xl text-xs font-semibold uppercase tracking-widest transition-all flex items-center gap-2",
+              showFilters ? "bg-[var(--text-warning-strong)] text-white" : "bg-[var(--surface-pill)] text-[var(--text-secondary)] hover:bg-[var(--border-default)]"
             )}
           >
             <Filter size={16} />
@@ -397,11 +397,11 @@ const openEditModal = (ticket: InternalTicketItem) => {
               exit={{ opacity: 0, height: 0 }}
               className="overflow-hidden"
             >
-              <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-3 pt-3 border-t border-slate-100 dark:border-[var(--border-default)]">
+              <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-3 pt-3 border-t border-[var(--border-default)]">
                 <StyledSelect
                   value={filterTeam}
                   onChange={(e) => setFilterTeam(e.target.value)}
-                  className="px-3 py-2 rounded-lg border border-slate-200 dark:border-[var(--border-default)] text-sm font-medium bg-white dark:bg-[var(--surface-card)]"
+                  className="px-3 py-2 rounded-lg border border-[var(--border-default)] text-sm font-medium bg-[var(--surface-card)]"
                 >
                   <option value="">Todas Equipes</option>
                   {teams.map((t) => (
@@ -412,7 +412,7 @@ const openEditModal = (ticket: InternalTicketItem) => {
                 <StyledSelect
                   value={filterAssignee}
                   onChange={(e) => setFilterAssignee(e.target.value)}
-                  className="px-3 py-2 rounded-lg border border-slate-200 dark:border-[var(--border-default)] text-sm font-medium bg-white dark:bg-[var(--surface-card)]"
+                  className="px-3 py-2 rounded-lg border border-[var(--border-default)] text-sm font-medium bg-[var(--surface-card)]"
                 >
                   <option value="">Todos Responsáveis</option>
                   {analysts.map((a) => (
@@ -423,7 +423,7 @@ const openEditModal = (ticket: InternalTicketItem) => {
 <StyledSelect
                    value={filterPriority}
                    onChange={(e) => setFilterPriority(e.target.value)}
-                   className="px-3 py-2 rounded-lg border border-slate-200 dark:border-[var(--border-default)] text-sm font-medium bg-white dark:bg-[var(--surface-card)]"
+                   className="px-3 py-2 rounded-lg border border-[var(--border-default)] text-sm font-medium bg-[var(--surface-card)]"
                  >
                    <option value="">Todas Prioridades</option>
                    <option value="3">Alta</option>
@@ -434,7 +434,7 @@ const openEditModal = (ticket: InternalTicketItem) => {
                  <StyledSelect
                    value={filterStatus}
                    onChange={(e) => setFilterStatus(e.target.value)}
-                   className="px-3 py-2 rounded-lg border border-slate-200 dark:border-[var(--border-default)] text-sm font-medium bg-white dark:bg-[var(--surface-card)]"
+                   className="px-3 py-2 rounded-lg border border-[var(--border-default)] text-sm font-medium bg-[var(--surface-card)]"
                  >
                    <option value="">Todos Status</option>
                    {KANBAN_STATUSES.map((s) => (
@@ -446,7 +446,7 @@ const openEditModal = (ticket: InternalTicketItem) => {
                   type="date"
                   value={dateFrom}
                   onChange={(e) => setDateFrom(e.target.value)}
-                  className="px-3 py-2 rounded-lg border border-slate-200 dark:border-[var(--border-default)] text-sm font-medium"
+                  className="px-3 py-2 rounded-lg border border-[var(--border-default)] text-sm font-medium"
                   placeholder="Data início"
                 />
 
@@ -454,7 +454,7 @@ const openEditModal = (ticket: InternalTicketItem) => {
                   type="date"
                   value={dateTo}
                   onChange={(e) => setDateTo(e.target.value)}
-                  className="px-3 py-2 rounded-lg border border-slate-200 dark:border-[var(--border-default)] text-sm font-medium"
+                  className="px-3 py-2 rounded-lg border border-[var(--border-default)] text-sm font-medium"
                   placeholder="Data fim"
                 />
               </div>
@@ -467,13 +467,13 @@ const openEditModal = (ticket: InternalTicketItem) => {
       <div className="flex-1 overflow-y-auto p-6">
 {loading ? (
               <div className="flex items-center justify-center py-20">
-                <Loader2 className="w-8 h-8 text-amber-500 dark:text-[var(--text-warning-strong)] animate-spin" />
+                <Loader2 className="w-8 h-8 text-[var(--text-warning-strong)] animate-spin" />
               </div>
             ) : tickets.length === 0 ? (
-              <div className="text-center py-20 bg-white dark:bg-[var(--surface-card)] rounded-2xl border border-slate-200 dark:border-[var(--border-default)]">
+              <div className="text-center py-20 bg-[var(--surface-card)] rounded-2xl border border-[var(--border-default)]">
                 <Lock size={48} className="mx-auto text-slate-300 mb-4" />
-                <h3 className="text-lg font-bold text-slate-700 dark:text-[var(--text-secondary)] mb-2">Nenhum ticket interno encontrado</h3>
-                <p className="text-slate-500 dark:text-[var(--text-tertiary)] text-sm">Crie um novo ticket ou ajuste os filtros.</p>
+                <h3 className="text-lg font-bold text-[var(--text-secondary)] mb-2">Nenhum ticket interno encontrado</h3>
+                <p className="text-[var(--text-tertiary)] text-sm">Crie um novo ticket ou ajuste os filtros.</p>
               </div>
             ) : viewMode === "cards" ? (
               <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-3">
@@ -527,13 +527,13 @@ function TicketCard({ ticket, onEdit, teams = DEFAULT_TEAM_OPTIONS }: { ticket: 
     <motion.div
       initial={{ opacity: 0, y: 10 }}
       animate={{ opacity: 1, y: 0 }}
-      className="bg-white dark:bg-[var(--surface-card)] rounded-2xl border border-slate-200 dark:border-[var(--border-default)] p-5 hover:shadow-lg hover:border-amber-300 transition-all group cursor-pointer"
+      className="bg-[var(--surface-card)] rounded-2xl border border-[var(--border-default)] p-5 hover:shadow-lg hover:border-amber-300 transition-all group cursor-pointer"
       onClick={onEdit}
     >
       <div className="flex items-start justify-between mb-3">
 <div className="flex items-center gap-2">
-           <span className="text-[10px] font-black text-amber-600 dark:text-[var(--text-warning)] uppercase">{ticket.id?.startsWith("int-") ? ticket.id : `#${ticket.internalTicketNumber?.toString().padStart(4, "0")}`}</span>
-           <span className={cn("text-[10px] font-black px-2 py-1 rounded-full", priorityInfo.color)}>
+           <span className="text-[10px] font-semibold text-[var(--text-warning)] uppercase">{ticket.id?.startsWith("int-") ? ticket.id : `#${ticket.internalTicketNumber?.toString().padStart(4, "0")}`}</span>
+           <span className={cn("text-[10px] font-semibold px-2 py-1 rounded-full", priorityInfo.color)}>
              {priorityInfo.icon}
            </span>
          </div>
@@ -542,15 +542,15 @@ function TicketCard({ ticket, onEdit, teams = DEFAULT_TEAM_OPTIONS }: { ticket: 
              e.stopPropagation();
              onEdit();
            }}
-           className="opacity-0 group-hover:opacity-100 p-1.5 rounded-lg hover:bg-slate-100 dark:hover:bg-[var(--surface-pill)] transition-all"
+           className="opacity-0 group-hover:opacity-100 p-1.5 rounded-lg hover:bg-[var(--surface-pill)] transition-all"
          >
-           <Edit3 size={14} className="text-slate-500 dark:text-[var(--text-tertiary)]" />
+           <Edit3 size={14} className="text-[var(--text-tertiary)]" />
         </button>
       </div>
 
-      <h3 className="text-sm font-black text-slate-800 dark:text-[var(--text-primary)] mb-2 line-clamp-2">{ticket.title}</h3>
+      <h3 className="text-sm font-black text-[var(--text-primary)] mb-2 line-clamp-2">{ticket.title}</h3>
       
-      <p className="text-xs text-slate-500 dark:text-[var(--text-tertiary)] mb-3 line-clamp-2">
+      <p className="text-xs text-[var(--text-tertiary)] mb-3 line-clamp-2">
         {(() => {
           const html = ticket.description || '';
           return html.replace(/<[^>]*>/g, '').replace(/&nbsp;/g, ' ').trim();
@@ -559,13 +559,13 @@ function TicketCard({ ticket, onEdit, teams = DEFAULT_TEAM_OPTIONS }: { ticket: 
 
       {/* Meta row */}
       <div className="flex items-center justify-between text-[10px] font-medium">
-        <span className={cn("px-2 py-1 rounded-full font-black uppercase", teamOption.color)}>
+        <span className={cn("px-2 py-1 rounded-full font-semibold uppercase", teamOption.color)}>
           {teamOption.label}
         </span>
         {ticket.slaRemaining && (
           <span className={cn(
             "flex items-center gap-1 font-bold",
-            ticket.slaRemaining === "Expirado" ? "text-red-600 dark:text-[var(--text-danger)]" : "text-slate-600 dark:text-[var(--text-secondary)]"
+            ticket.slaRemaining === "Expirado" ? "text-[var(--text-danger)]" : "text-[var(--text-secondary)]"
           )}>
             <Clock size={12} />
             {ticket.slaRemaining}
@@ -575,14 +575,14 @@ function TicketCard({ ticket, onEdit, teams = DEFAULT_TEAM_OPTIONS }: { ticket: 
 
       {/* Linked tickets */}
       {ticket.linkedTicketTitles && ticket.linkedTicketTitles.length > 0 && (
-        <div className="mt-3 pt-3 border-t border-slate-100 dark:border-[var(--border-default)]">
-          <div className="flex items-center gap-1 text-[10px] text-slate-500 dark:text-[var(--text-tertiary)] mb-1">
+        <div className="mt-3 pt-3 border-t border-[var(--border-default)]">
+          <div className="flex items-center gap-1 text-[10px] text-[var(--text-tertiary)] mb-1">
             <Tag size={12} />
-            <span className="font-black uppercase">Vinculados:</span>
+            <span className="font-semibold uppercase">Vinculados:</span>
           </div>
           <div className="flex flex-wrap gap-1">
             {ticket.linkedTicketTitles.map((title, idx) => (
-              <span key={idx} className="text-[10px] bg-slate-50 dark:bg-[var(--surface-card)] px-2 py-0.5 rounded border border-slate-200 dark:border-[var(--border-default)]">
+              <span key={idx} className="text-[10px] bg-[var(--surface-card)] px-2 py-0.5 rounded border border-[var(--border-default)]">
                 {title}
               </span>
             ))}
@@ -598,43 +598,43 @@ function TicketTable({ tickets, onEdit, teams = DEFAULT_TEAM_OPTIONS }: { ticket
    const priorityInfo = priorityConfig[1];
 
   return (
-    <div className="bg-white dark:bg-[var(--surface-card)] rounded-2xl border border-slate-200 dark:border-[var(--border-default)] overflow-hidden">
+    <div className="bg-[var(--surface-card)] rounded-2xl border border-[var(--border-default)] overflow-hidden">
       <table className="w-full">
-        <thead className="bg-slate-50/50 dark:bg-[var(--surface-card)]/50 border-b border-slate-200 dark:border-[var(--border-default)]">
+        <thead className="bg-[var(--surface-card)]/50 border-b border-[var(--border-default)]">
           <tr>
-            <th className="px-4 py-3 text-left text-[10px] font-black uppercase text-slate-400 dark:text-[var(--text-tertiary)]">Número</th>
-            <th className="px-4 py-3 text-left text-[10px] font-black uppercase text-slate-400 dark:text-[var(--text-tertiary)]">Título</th>
-            <th className="px-4 py-3 text-left text-[10px] font-black uppercase text-slate-400 dark:text-[var(--text-tertiary)]">Equipe</th>
-            <th className="px-4 py-3 text-left text-[10px] font-black uppercase text-slate-400 dark:text-[var(--text-tertiary)]">Prioridade</th>
-            <th className="px-4 py-3 text-left text-[10px] font-black uppercase text-slate-400 dark:text-[var(--text-tertiary)]">Responsável</th>
-            <th className="px-4 py-3 text-left text-[10px] font-black uppercase text-slate-400 dark:text-[var(--text-tertiary)]">SLA</th>
-            <th className="px-4 py-3 text-left text-[10px] font-black uppercase text-slate-400 dark:text-[var(--text-tertiary)]">Vinculados</th>
+            <th className="px-4 py-3 text-left text-[10px] font-semibold uppercase text-[var(--text-tertiary)]">Número</th>
+            <th className="px-4 py-3 text-left text-[10px] font-semibold uppercase text-[var(--text-tertiary)]">Título</th>
+            <th className="px-4 py-3 text-left text-[10px] font-semibold uppercase text-[var(--text-tertiary)]">Equipe</th>
+            <th className="px-4 py-3 text-left text-[10px] font-semibold uppercase text-[var(--text-tertiary)]">Prioridade</th>
+            <th className="px-4 py-3 text-left text-[10px] font-semibold uppercase text-[var(--text-tertiary)]">Responsável</th>
+            <th className="px-4 py-3 text-left text-[10px] font-semibold uppercase text-[var(--text-tertiary)]">SLA</th>
+            <th className="px-4 py-3 text-left text-[10px] font-semibold uppercase text-[var(--text-tertiary)]">Vinculados</th>
           </tr>
         </thead>
-        <tbody className="divide-y divide-slate-50 dark:divide-[var(--border-default)]">
+        <tbody className="divide-y divide-[var(--border-default)]">
 {tickets.map((it) => {
              const teamOpt = teams.find((t) => t.value === it.teamId) || teams[0];
              const prio = priorityConfig[it.priority as keyof typeof priorityConfig] || priorityConfig[1];
             return (
-              <tr key={it.id} className="hover:bg-slate-50/50 dark:hover:bg-[var(--surface-card)]/50 transition-colors cursor-pointer" onClick={() => onEdit(it)}>
-                <td className="px-4 py-3 text-[10px] font-black text-amber-600 dark:text-[var(--text-warning)]">{it.id?.startsWith("int-") ? it.id : `#${it.internalTicketNumber?.toString().padStart(4, "0")}`}</td>
-                <td className="px-4 py-3 text-sm font-bold text-slate-800 dark:text-[var(--text-primary)]">{it.title}</td>
+              <tr key={it.id} className="hover:bg-[var(--surface-card)]/50 transition-colors cursor-pointer" onClick={() => onEdit(it)}>
+                <td className="px-4 py-3 text-[10px] font-semibold text-[var(--text-warning)]">{it.id?.startsWith("int-") ? it.id : `#${it.internalTicketNumber?.toString().padStart(4, "0")}`}</td>
+                <td className="px-4 py-3 text-sm font-bold text-[var(--text-primary)]">{it.title}</td>
                 <td className="px-4 py-3">
-                  <span className={cn("text-[10px] font-black px-2 py-1 rounded-full uppercase", teamOpt.color)}>
+                  <span className={cn("text-[10px] font-semibold px-2 py-1 rounded-full uppercase", teamOpt.color)}>
                     {teamOpt.label}
                   </span>
                 </td>
                 <td className="px-4 py-3">
-                  <span className={cn("text-[10px] font-black px-2 py-1 rounded-full", prio.color)}>
+                  <span className={cn("text-[10px] font-semibold px-2 py-1 rounded-full", prio.color)}>
                     {prio.label}
                   </span>
                 </td>
-                <td className="px-4 py-3 text-sm text-slate-600 dark:text-[var(--text-secondary)]">{it.assigneeName || "-"}</td>
+                <td className="px-4 py-3 text-sm text-[var(--text-secondary)]">{it.assigneeName || "-"}</td>
                 <td className={cn("px-4 py-3 text-[10px] font-bold", 
-                  it.slaRemaining === "Expirado" ? "text-red-600 dark:text-[var(--text-danger)]" : "text-slate-600 dark:text-[var(--text-secondary)]")}>
+                  it.slaRemaining === "Expirado" ? "text-[var(--text-danger)]" : "text-[var(--text-secondary)]")}>
                   {it.slaRemaining || "-"}
                 </td>
-                <td className="px-4 py-3 text-sm text-slate-500 dark:text-[var(--text-tertiary)]">
+                <td className="px-4 py-3 text-sm text-[var(--text-tertiary)]">
                   {it.linkedTicketTitles?.length || 0} ticket(s)
                 </td>
               </tr>
@@ -696,41 +696,41 @@ function TicketModal({
         initial={{ scale: 0.9, opacity: 0 }}
         animate={{ scale: 1, opacity: 1 }}
         exit={{ scale: 0.9, opacity: 0 }}
-        className="bg-white dark:bg-[var(--surface-card)] rounded-2xl p-6 max-w-lg w-full"
+        className="bg-[var(--surface-card)] rounded-2xl p-6 max-w-lg w-full"
         onClick={(e) => e.stopPropagation()}
       >
-        <h2 className="text-lg font-black text-slate-800 dark:text-[var(--text-primary)] mb-4 uppercase">
+        <h2 className="text-lg font-black text-[var(--text-primary)] mb-4 uppercase">
           {isEdit ? "Editar Ticket" : "Novo Ticket Interno"}
         </h2>
 
         <div className="space-y-4">
           <div>
-            <label className="text-[10px] font-black text-slate-600 dark:text-[var(--text-secondary)] uppercase mb-1 block">Título *</label>
+            <label className="text-[10px] font-semibold text-[var(--text-secondary)] uppercase mb-1 block">Título *</label>
             <input
               value={formTitle}
               onChange={(e) => setFormTitle(e.target.value)}
               placeholder="Título do ticket"
-              className="w-full px-3 py-2 rounded-lg border border-slate-200 dark:border-[var(--border-default)] focus:border-amber-400 dark:focus:border-[var(--text-warning-strong)] outline-none text-sm font-medium"
+              className="w-full px-3 py-2 rounded-lg border border-[var(--border-default)] focus:border-[var(--text-warning-strong)] outline-none text-sm font-medium"
             />
           </div>
 
           <div>
-            <label className="text-[10px] font-black text-slate-600 dark:text-[var(--text-secondary)] uppercase mb-1 block">Descrição</label>
+            <label className="text-[10px] font-semibold text-[var(--text-secondary)] uppercase mb-1 block">Descrição</label>
             <textarea
               value={formDescription}
               onChange={(e) => setFormDescription(e.target.value)}
               placeholder="Detalhes técnicos..."
-              className="w-full px-3 py-2 rounded-lg border border-slate-200 dark:border-[var(--border-default)] focus:border-amber-400 dark:focus:border-[var(--text-warning-strong)] outline-none text-sm min-h-[100px]"
+              className="w-full px-3 py-2 rounded-lg border border-[var(--border-default)] focus:border-[var(--text-warning-strong)] outline-none text-sm min-h-[100px]"
             />
           </div>
 
           <div className="grid grid-cols-2 gap-4">
             <div>
-              <label className="text-[10px] font-black text-slate-600 dark:text-[var(--text-secondary)] uppercase mb-1 block">Equipe</label>
+              <label className="text-[10px] font-semibold text-[var(--text-secondary)] uppercase mb-1 block">Equipe</label>
 <StyledSelect
                  value={formTeam}
                  onChange={(e) => setFormTeam(e.target.value)}
-                 className="w-full px-3 py-2 rounded-lg border border-slate-200 dark:border-[var(--border-default)] text-sm font-medium bg-white dark:bg-[var(--surface-card)]"
+                 className="w-full px-3 py-2 rounded-lg border border-[var(--border-default)] text-sm font-medium bg-[var(--surface-card)]"
                >
                  {teams.map((t) => (
                    <option key={t.value} value={t.value}>{t.label}</option>
@@ -739,11 +739,11 @@ function TicketModal({
             </div>
 
             <div>
-              <label className="text-[10px] font-black text-slate-600 dark:text-[var(--text-secondary)] uppercase mb-1 block">Prioridade</label>
+              <label className="text-[10px] font-semibold text-[var(--text-secondary)] uppercase mb-1 block">Prioridade</label>
               <StyledSelect
                 value={formPriority}
                 onChange={(e) => setFormPriority(Number(e.target.value))}
-                className="w-full px-3 py-2 rounded-lg border border-slate-200 dark:border-[var(--border-default)] text-sm font-medium bg-white dark:bg-[var(--surface-card)]"
+                className="w-full px-3 py-2 rounded-lg border border-[var(--border-default)] text-sm font-medium bg-[var(--surface-card)]"
               >
                 <option value={1}>Baixa</option>
                 <option value={2}>Média</option>
@@ -753,11 +753,11 @@ function TicketModal({
           </div>
 
           <div>
-            <label className="text-[10px] font-black text-slate-600 dark:text-[var(--text-secondary)] uppercase mb-1 block">Responsável</label>
+            <label className="text-[10px] font-semibold text-[var(--text-secondary)] uppercase mb-1 block">Responsável</label>
             <StyledSelect
               value={formAssignee}
               onChange={(e) => setFormAssignee(e.target.value)}
-              className="w-full px-3 py-2 rounded-lg border border-slate-200 dark:border-[var(--border-default)] text-sm font-medium bg-white dark:bg-[var(--surface-card)]"
+              className="w-full px-3 py-2 rounded-lg border border-[var(--border-default)] text-sm font-medium bg-[var(--surface-card)]"
             >
               <option value="">Não atribuído</option>
               {analysts.map((a) => (
@@ -770,14 +770,14 @@ function TicketModal({
         <div className="flex gap-3 mt-6">
           <button
             onClick={onClose}
-            className="flex-1 px-4 py-2 rounded-lg border border-slate-200 dark:border-[var(--border-default)] text-slate-600 dark:text-[var(--text-secondary)] hover:bg-slate-50 dark:hover:bg-[var(--surface-card)] transition-all text-sm font-bold"
+            className="flex-1 px-4 py-2 rounded-lg border border-[var(--border-default)] text-[var(--text-secondary)] hover:bg-[var(--surface-card)] transition-all text-sm font-bold"
           >
             Cancelar
           </button>
           <button
             onClick={onSubmit}
             disabled={!formTitle}
-            className="flex-1 px-4 py-2 rounded-lg bg-amber-500 dark:bg-[var(--text-warning-strong)] text-white font-black uppercase tracking-widest hover:bg-amber-600 dark:hover:bg-[var(--accent-warning-hover)] transition-all disabled:opacity-50 text-sm"
+            className="flex-1 px-4 py-2 rounded-lg bg-[var(--text-warning-strong)] text-white font-black uppercase tracking-widest hover:bg-[var(--accent-warning-hover)] transition-all disabled:opacity-50 text-sm"
           >
             {isEdit ? "Salvar" : "Criar"}
           </button>
@@ -810,18 +810,18 @@ function KanbanBoard({
   return (
     <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
       {columns.map((col) => (
-        <div key={col.value} className="bg-slate-50 dark:bg-[var(--surface-card)] rounded-2xl p-3">
+        <div key={col.value} className="bg-[var(--surface-card)] rounded-2xl p-3">
           <div className="flex items-center gap-2 mb-3 px-2">
-            <span className={cn("text-xs font-black px-2 py-1 rounded-full", col.color)}>
+            <span className={cn("text-xs font-semibold px-2 py-1 rounded-full", col.color)}>
               {col.icon}
             </span>
-            <h3 className="text-sm font-bold text-slate-700 dark:text-[var(--text-secondary)]">{col.label}</h3>
-            <span className="text-xs text-slate-400 dark:text-[var(--text-tertiary)] ml-auto">({col.tickets.length})</span>
+            <h3 className="text-sm font-bold text-[var(--text-secondary)]">{col.label}</h3>
+            <span className="text-xs text-[var(--text-tertiary)] ml-auto">({col.tickets.length})</span>
           </div>
           
           <div className="space-y-3 min-h-[200px]">
             {col.tickets.length === 0 ? (
-              <div className="text-center py-8 text-slate-400 dark:text-[var(--text-tertiary)]">
+              <div className="text-center py-8 text-[var(--text-tertiary)]">
                 <p className="text-xs">Vazio</p>
               </div>
             ) : (
@@ -855,11 +855,11 @@ function KanbanBoard({
 
   return (
     <div 
-      className="bg-white dark:bg-[var(--surface-card)] rounded-xl p-4 border border-slate-200 dark:border-[var(--border-default)] hover:shadow-md hover:border-amber-300 transition-all cursor-pointer group"
+      className="bg-[var(--surface-card)] rounded-xl p-4 border border-[var(--border-default)] hover:shadow-md hover:border-amber-300 transition-all cursor-pointer group"
       onClick={() => onEdit(ticket)}
     >
       <div className="flex items-start justify-between mb-2">
-        <span className="text-[10px] font-black text-amber-600 dark:text-[var(--text-warning)]">
+        <span className="text-[10px] font-semibold text-[var(--text-warning)]">
           {ticket.id?.startsWith("int-") ? ticket.id : `#${ticket.internalTicketNumber?.toString().padStart(4, "0")}`}
         </span>
         <button 
@@ -867,23 +867,23 @@ function KanbanBoard({
             e.stopPropagation();
             onEdit(ticket);
           }}
-          className="opacity-0 group-hover:opacity-100 p-1 rounded hover:bg-slate-100 dark:hover:bg-[var(--surface-pill)] transition-all"
+          className="opacity-0 group-hover:opacity-100 p-1 rounded hover:bg-[var(--surface-pill)] transition-all"
         >
-          <ChevronRight size={14} className="text-slate-500 dark:text-[var(--text-tertiary)]" />
+          <ChevronRight size={14} className="text-[var(--text-tertiary)]" />
         </button>
       </div>
       
-      <h4 className="font-bold text-slate-800 dark:text-[var(--text-primary)] text-sm mb-2 line-clamp-2" title={ticket.title}>
+      <h4 className="font-bold text-[var(--text-primary)] text-sm mb-2 line-clamp-2" title={ticket.title}>
         {ticket.title}
       </h4>
       
       <div className="flex items-center justify-between">
-        <span className={cn("text-[10px] font-black px-2 py-1 rounded-full", priorityInfo.color)}>
+        <span className={cn("text-[10px] font-semibold px-2 py-1 rounded-full", priorityInfo.color)}>
           {priorityInfo.icon}
         </span>
         
         {ticket.assigneeName && (
-          <span className="text-[10px] text-slate-500 dark:text-[var(--text-tertiary)] truncate max-w-[100px]" title={ticket.assigneeName}>
+          <span className="text-[10px] text-[var(--text-tertiary)] truncate max-w-[100px]" title={ticket.assigneeName}>
             {ticket.assigneeName}
           </span>
         )}
@@ -898,7 +898,7 @@ function KanbanBoard({
             onStatusChange(ticket.uuid || '', e.target.value);
           }}
           onClick={(e) => e.stopPropagation()}
-          className="w-full mt-2 text-[10px] border border-slate-200 dark:border-[var(--border-default)] rounded px-2 py-1 bg-slate-50 dark:bg-[var(--surface-card)]"
+          className="w-full mt-2 text-[10px] border border-[var(--border-default)] rounded px-2 py-1 bg-[var(--surface-card)]"
         >
           {KANBAN_STATUSES.map(s => (
             <option key={s.value} value={s.value}>{s.label}</option>
@@ -907,8 +907,8 @@ function KanbanBoard({
       )}
       
       {ticket.linkedTicketTitles && ticket.linkedTicketTitles.length > 0 && (
-        <div className="mt-2 pt-2 border-t border-slate-100 dark:border-[var(--border-default)]">
-          <span className="text-[10px] text-slate-400 dark:text-[var(--text-tertiary)] truncate" title={ticket.linkedTicketTitles.join(", ")}>
+        <div className="mt-2 pt-2 border-t border-[var(--border-default)]">
+          <span className="text-[10px] text-[var(--text-tertiary)] truncate" title={ticket.linkedTicketTitles.join(", ")}>
             {ticket.linkedTicketTitles[0]}
           </span>
         </div>
