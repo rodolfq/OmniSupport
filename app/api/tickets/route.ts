@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { query } from '@/lib/db';
 import { CLOSED_TICKET_STATUSES } from '@/lib/ticket-status';
 import { verifyJWT } from '@/lib/jwt';
+import { handleTicketCreated, handleTicketUpdated, handleTicketMessageCreated } from '@/lib/services/automation-service';
 
 async function getTicketActor(request: NextRequest) {
   const token = request.cookies.get('token')?.value;
@@ -81,6 +82,7 @@ export async function GET(request: Request) {
         ticketNumber: data.public_ticket_number,
         companyId: data.company_id,
         customerId: data.customer_id,
+        employeeIds: data.employee_ids || [],
         attachments: data.attachments_data || [],
         createdAt: data.created_at,
         updatedAt: data.updated_at
@@ -114,6 +116,7 @@ export async function GET(request: Request) {
         companyId: t.company_id,
         customerId: t.customer_id,
         customerName: customerMap.get(t.customer_id),
+        employeeIds: t.employee_ids || [],
         attachments: t.attachments_data || [],
         createdAt: t.created_at,
         updatedAt: t.updated_at
@@ -163,8 +166,8 @@ export async function POST(request: Request) {
       }
 
       const res = await query(
-        `INSERT INTO public.tickets (title, description, status, priority, category, company_id, customer_id, created_by, attachments_data)
-         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
+        `INSERT INTO public.tickets (title, description, status, priority, category, company_id, customer_id, created_by, attachments_data, employee_ids)
+         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
          RETURNING *`,
         [
           ticket.title,
@@ -175,11 +178,13 @@ export async function POST(request: Request) {
           companyId,
           userId,
           userId,
-          JSON.stringify(ticket.attachments || [])
+          JSON.stringify(ticket.attachments || []),
+          ticket.employeeIds || []
         ]
       );
 
       const newTicket = res.rows[0];
+      handleTicketCreated(newTicket);
 
       // Se o usuário for "Time Interno", criar ticket interno automaticamente
       if (userRole === 'Time Interno') {
@@ -223,6 +228,13 @@ export async function POST(request: Request) {
         [message.ticketId]
       );
 
+      const newMessage = res.rows[0];
+      if (newMessage.is_visible_to_customer && newMessage.type !== 'internal') {
+        query('SELECT * FROM public.tickets WHERE id = $1', [message.ticketId])
+          .then(ticketRes => handleTicketMessageCreated(newMessage, ticketRes.rows[0]))
+          .catch(err => console.error('[automation] Falha ao buscar chamado para create-message:', err));
+      }
+
       return NextResponse.json(res.rows[0]);
     }
 
@@ -244,7 +256,10 @@ export async function PUT(request: Request) {
   try {
     const ticket = await request.json();
 
-    await query(
+    const oldRes = await query('SELECT * FROM public.tickets WHERE id = $1', [id]);
+    const oldTicket = oldRes.rows[0];
+
+    const updateRes = await query(
       `UPDATE public.tickets
        SET title = COALESCE($1, title),
            description = COALESCE($2, description),
@@ -254,7 +269,8 @@ export async function PUT(request: Request) {
            customer_id = COALESCE($6, customer_id),
            assignee_id = $7,
            updated_at = NOW()
-       WHERE id = $8`,
+       WHERE id = $8
+       RETURNING *`,
       [
         ticket.title || null,
         ticket.description || null,
@@ -266,6 +282,8 @@ export async function PUT(request: Request) {
         id
       ]
     );
+
+    handleTicketUpdated(oldTicket, updateRes.rows[0]);
 
     return NextResponse.json({ success: true });
   } catch (error: any) {
@@ -319,20 +337,29 @@ export async function PATCH(request: Request) {
     if (setClauses.length === 0) {
       return NextResponse.json({ error: 'Nenhuma alteração informada.' }, { status: 400 });
     }
-    
+
     setClauses.push(`updated_at = NOW()`);
-    
+
     const idParamsStart = paramIndex;
     const idPlaceholders = ids.map((_, i) => `$${idParamsStart + i}`).join(',');
     params.push(...ids);
-    
+
+    const selectIdPlaceholders = ids.map((_: any, i: number) => `$${i + 1}`).join(',');
+    const oldRes = await query(`SELECT * FROM public.tickets WHERE id IN (${selectIdPlaceholders})`, ids);
+    const oldById = new Map(oldRes.rows.map((r: any) => [r.id, r]));
+
     const sql = `
       UPDATE public.tickets
       SET ${setClauses.join(', ')}
       WHERE id IN (${idPlaceholders})
+      RETURNING *
     `;
-    
-    await query(sql, params);
+
+    const updateRes = await query(sql, params);
+    for (const newTicket of updateRes.rows) {
+      handleTicketUpdated(oldById.get(newTicket.id), newTicket);
+    }
+
     return NextResponse.json({ success: true });
   } catch (error: any) {
     console.error('Error in tickets PATCH:', error);

@@ -4,7 +4,7 @@ import React, { useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { useApp } from '@/app/app-context';
 
-import { Headset, Mail, Lock, ArrowRight, Eye, EyeOff, Sun, Moon } from 'lucide-react';
+import { Mail, Lock, ArrowRight, Eye, EyeOff, Sun, Moon } from 'lucide-react';
 import Link from 'next/link';
 import { toast } from 'sonner';
 import { UserRole } from '@/lib/types';
@@ -94,11 +94,19 @@ export default function LoginPage() {
       </button>
       <div className="w-full max-w-md">
         <div className="text-center mb-10">
-          <div className="bg-[var(--accent)] w-16 h-16 rounded-2xl flex items-center justify-center text-white shadow-xl shadow-indigo-100 mx-auto mb-6">
-            <Headset size={32} />
+          <div className="relative inline-flex mb-8">
+            <div className="absolute -inset-8 bg-[var(--accent)]/25 blur-3xl rounded-full" aria-hidden="true" />
+            <div className="relative inline-flex items-center justify-center bg-white rounded-[2rem] shadow-2xl shadow-slate-300/50 dark:shadow-black/40 ring-1 ring-black/5 px-10 py-8 sm:px-14 sm:py-10">
+              <div
+                className="logo-shine"
+                style={{ ['--logo-shine-mask' as string]: "url('/branding/logo.png')" }}
+              >
+                <img src="/branding/logo.png" alt="SSX Resolve" className="h-20 sm:h-24 w-auto select-none" draggable={false} />
+              </div>
+            </div>
           </div>
           <h1 className="text-3xl font-black text-[var(--text-primary)] tracking-tight">Bem-vindo de volta</h1>
-          <p className="text-[var(--text-tertiary)] font-medium mt-2">Acesse sua conta OmniSupport</p>
+          <p className="text-[var(--text-tertiary)] font-medium mt-2">Acesse sua conta SSX Resolve</p>
         </div>
 
         <div className="bg-[var(--surface-card)] p-8 rounded-3xl border border-[var(--border-default)] shadow-xl shadow-slate-200/50">

@@ -22,10 +22,15 @@ const THEME_INIT_SCRIPT = `
 const inter = Inter({ subsets: ["latin"] });
 
 export const metadata: Metadata = {
-  title: "OmniSupport - Redefinindo o Atendimento",
+  title: "SSX Resolve - Redefinindo o Atendimento",
   description: "Plataforma avançada de suporte ao cliente com IA",
   icons: {
-    icon: "/favicon.svg",
+    icon: [
+      { url: "/favicon-32x32.png", sizes: "32x32", type: "image/png" },
+      { url: "/favicon-16x16.png", sizes: "16x16", type: "image/png" },
+      { url: "/favicon.png", sizes: "512x512", type: "image/png" }
+    ],
+    apple: "/apple-touch-icon.png"
   }
 };
 

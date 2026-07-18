@@ -1,8 +1,8 @@
 'use client';
 
 import React, { useState, useEffect } from 'react';
-import { 
-  Shield, User, Lock, Save, Plus, Key, Globe, Edit2, Bell, Database, Loader2, Clock, Users
+import {
+  Shield, User, Lock, Save, Plus, Key, Globe, Edit2, Bell, Database, Loader2, Clock, Users, MessageCircleMore
 } from 'lucide-react';
 import { cn, maskPhone, safeJsonStringify } from '@/lib/utils';
 import { supabase } from '@/lib/supabase';
@@ -11,6 +11,7 @@ import { UserService } from '@/lib/services/user-service';
 import { useApp } from '@/app/app-context';
 import { NotificationSettingsContent } from '@/components/notification-settings';
 import { SystemConfigContent } from '@/components/system-config-content';
+import { AutomatedMessagesContent } from '@/components/automated-messages-content';
 import { StatusHistoryPanel } from '@/components/status-history-panel';
 import { TagManager } from '@/components/tag-manager';
 import { ChangePasswordModal } from '@/components/change-password-modal';
@@ -20,7 +21,7 @@ import { getWhatsappInstances, saveWhatsappInstance } from '@/app/actions';
 import { InternalTeamsContent } from '@/components/internal-teams-content';
 import { ConfirmDialog } from '@/components/confirm-dialog';
 
-type Tab = 'profile' | 'security' | 'whatsapp' | 'notifications' | 'system' | 'history' | 'teams';
+type Tab = 'profile' | 'security' | 'whatsapp' | 'notifications' | 'system' | 'history' | 'teams' | 'automated-messages';
 
 
 export default function SettingsPage() {
@@ -59,13 +60,16 @@ export default function SettingsPage() {
   const [confirmingDisconnect, setConfirmingDisconnect] = useState(false);
   const [categories, setCategories] = useState<any[]>([]);
   const [priorities, setPriorities] = useState<any[]>([]);
+  const [surveySettings, setSurveySettings] = useState<any>(null);
 
   useEffect(() => {
     const fetchSystemConfig = async () => {
       const { data: cat } = await supabase.from('config_categories').select('*');
       const { data: prio } = await supabase.from('config_priorities').select('*');
+      const { data: survey } = await supabase.from('config_survey_settings').select('*');
       setCategories(cat || []);
       setPriorities(prio || []);
+      setSurveySettings((survey && survey[0]) || null);
     }
     fetchSystemConfig();
   }, []);
@@ -262,6 +266,9 @@ export default function SettingsPage() {
            {hasPermission(Permission.SETTINGS_SYSTEM) && (
              <SettingsNavLink icon={<Database size={18} />} label="Geral do Sistema" active={activeTab === 'system'} onClick={() => setActiveTab('system')} />
            )}
+           {hasPermission(Permission.SETTINGS_SYSTEM) && (
+             <SettingsNavLink icon={<MessageCircleMore size={18} />} label="Mensagens Automáticas" active={activeTab === 'automated-messages'} onClick={() => setActiveTab('automated-messages')} />
+           )}
         </aside>
 
         <div className="md:col-span-9 lg:col-span-10 space-y-6">
@@ -271,13 +278,20 @@ export default function SettingsPage() {
 
 {activeTab === 'system' && hasPermission(Permission.SETTINGS_SYSTEM) && (
              <div className="space-y-6 animate-in fade-in slide-in-from-bottom-4 duration-300">
-                <SystemConfigContent 
-                  categories={categories} 
-                  priorities={priorities} 
-                  setCategories={setCategories} 
-                  setPriorities={setPriorities} 
+                <SystemConfigContent
+                  categories={categories}
+                  priorities={priorities}
+                  setCategories={setCategories}
+                  setPriorities={setPriorities}
+                  surveySettings={surveySettings}
+                  setSurveySettings={setSurveySettings}
                 />
                 <TagManager />
+             </div>
+           )}
+           {activeTab === 'automated-messages' && hasPermission(Permission.SETTINGS_SYSTEM) && (
+             <div className="animate-in fade-in slide-in-from-bottom-4 duration-300">
+                <AutomatedMessagesContent />
              </div>
            )}
            {activeTab === 'teams' && currentUser?.role === UserRole.ADMIN && (
@@ -596,7 +610,7 @@ export default function SettingsPage() {
                     <label className="text-[10px] font-black uppercase text-[var(--text-tertiary)] tracking-widest">Bio</label>
                     <textarea 
                       className="w-full bg-[var(--surface-card)] border border-[var(--border-default)] rounded-xl px-4 py-2.5 text-sm min-h-[100px]" 
-                      defaultValue={currentUser.role === 'Administrador' ? "Lead Product Designer focado em experiências escaláveis." : "Colaborador da equipe OmniSupport."} 
+                      defaultValue={currentUser.role === 'Administrador' ? "Lead Product Designer focado em experiências escaláveis." : "Colaborador da equipe SSX Resolve."}
                     />
                   </div>
                 </div>

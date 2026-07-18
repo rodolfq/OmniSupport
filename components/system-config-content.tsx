@@ -5,7 +5,7 @@ import { Plus, Trash2, Star } from 'lucide-react';
 import { supabase } from '@/lib/supabase';
 import { toast } from 'sonner';
 
-export function SystemConfigContent({ categories, priorities, setCategories, setPriorities }: any) {
+export function SystemConfigContent({ categories, priorities, setCategories, setPriorities, surveySettings, setSurveySettings }: any) {
   const [newCatLabel, setNewCatLabel] = React.useState('');
 
   const addCategory = async () => {
@@ -72,26 +72,57 @@ export function SystemConfigContent({ categories, priorities, setCategories, set
 
   const priorityLabels = ['Baixa', 'Média', 'Alta', 'Urgente'];
 
+  const [surveyEnabled, setSurveyEnabled] = React.useState(true);
+  const [surveyMessage, setSurveyMessage] = React.useState('');
+  const [surveyWindowHours, setSurveyWindowHours] = React.useState(24);
+
+  React.useEffect(() => {
+    if (surveySettings) {
+      setSurveyEnabled(surveySettings.enabled ?? true);
+      setSurveyMessage(surveySettings.message ?? '');
+      setSurveyWindowHours(surveySettings.response_window_hours ?? surveySettings.responseWindowHours ?? 24);
+    }
+  }, [surveySettings]);
+
+  const handleSaveSurvey = async () => {
+    const { data, error } = await supabase
+      .from('config_survey_settings')
+      .update({
+        enabled: surveyEnabled,
+        message: surveyMessage,
+        response_window_hours: surveyWindowHours
+      })
+      .eq('id', 1)
+      .select();
+    if (error) {
+      toast.error('Erro ao salvar pesquisa de satisfação');
+    } else {
+      setSurveySettings((data && data[0]) || null);
+      toast.success('Pesquisa de satisfação atualizada');
+    }
+  };
+
   return (
-    <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-8 border-t border-[var(--border-default)] pt-8 mt-8">
+    <>
+    <div className="grid grid-cols-1 md:grid-cols-2 gap-8 border-t border-[var(--border-default)] pt-8 mt-8">
       <div className="space-y-4">
-        <h4 className="text-sm font-black text-[var(--text-primary)] uppercase tracking-tight">Categorias</h4>
-        <div className="flex gap-2">
+        <h4 className="text-sm font-semibold text-[var(--text-primary)] uppercase tracking-tight">Categorias</h4>
+        <div className="flex items-center gap-2">
           <input value={newCatLabel} onChange={e => setNewCatLabel(e.target.value)} placeholder="Nova categoria..." className="flex-1 bg-[var(--surface-card)] border border-[var(--border-default)] rounded-xl px-4 py-2 text-sm" />
-          <button onClick={addCategory} className="bg-slate-900 text-white p-2 rounded-xl"><Plus size={18}/></button>
+          <button onClick={addCategory} className="shrink-0 bg-[var(--accent)] hover:bg-[var(--accent-hover)] text-white p-2 rounded-xl transition-colors"><Plus size={18}/></button>
         </div>
         <div className="bg-[var(--surface-card)] rounded-2xl p-4 space-y-2">
           {categories.map((c: any) => (
             <div key={c.id} className="flex justify-between items-center bg-[var(--surface-card)] p-3 rounded-lg border border-[var(--border-default)] text-sm font-medium">
               {c.label}
-              <button onClick={() => deleteCategory(c.id)} className="text-[var(--text-danger)]"><Trash2 size={16}/></button>
+              <button onClick={() => deleteCategory(c.id)} className="text-[var(--text-danger)] hover:opacity-70 transition-opacity"><Trash2 size={16}/></button>
             </div>
           ))}
         </div>
       </div>
 
       <div className="space-y-4">
-        <h4 className="text-sm font-black text-[var(--text-primary)] uppercase tracking-tight">Prioridades (SLA)</h4>
+        <h4 className="text-sm font-semibold text-[var(--text-primary)] uppercase tracking-tight">Prioridades (SLA)</h4>
         <div className="bg-[var(--surface-card)] rounded-2xl p-4 space-y-3">
           {priorityLabels.map((label, index) => {
             const priority = priorities.find((p: any) => p.label === label);
@@ -99,39 +130,39 @@ export function SystemConfigContent({ categories, priorities, setCategories, set
             const currentVal = slaValues[label] ?? Math.round(rawSlaHours / 24);
 
             return (
-              <div key={label} className="bg-[var(--surface-card)] p-4 rounded-xl border border-[var(--border-default)] flex items-center justify-between shadow-sm">
-                <div className="flex items-center gap-3">
+              <div key={label} className="bg-[var(--surface-card)] p-4 rounded-xl border border-[var(--border-default)] flex items-center justify-between gap-4 shadow-sm">
+                <div className="flex items-center gap-3 shrink-0">
                   <div className="flex">
                     {[0, 1, 2, 3].map((s) => (
-                      <Star 
-                        key={s} 
-                        size={14} 
-                        className={index >= s ? "fill-amber-400 text-[var(--text-warning)]" : "text-slate-200"} 
+                      <Star
+                        key={s}
+                        size={14}
+                        className={index >= s ? "fill-amber-400 text-[var(--text-warning)]" : "text-[var(--border-strong)]"}
                       />
                     ))}
                   </div>
                   <span className="text-xs font-bold text-[var(--text-secondary)]">{label}</span>
                 </div>
-                
-                <div className="flex items-center gap-2">
-                  <div className="flex items-center gap-2 bg-[var(--surface-card)] border border-[var(--border-default)] rounded-lg px-2 shrink-0">
-                    <input 
-                       type="number" 
+
+                <div className="flex items-center gap-2 shrink-0">
+                  <div className="flex items-center gap-2 bg-[var(--surface-card)] border border-[var(--border-default)] rounded-lg px-2.5 py-1.5">
+                    <input
+                       type="number"
                        step="1"
                        min="1"
-                       value={currentVal} 
+                       value={currentVal}
                        onChange={(e) => {
                          const val = parseInt(e.target.value) || 1;
                          setSlaValues(prev => ({ ...prev, [label]: val }));
                        }}
-                       className="w-10 bg-transparent text-xs font-bold py-1 focus:outline-none"
+                       className="w-8 bg-transparent text-xs font-bold focus:outline-none"
                     />
-                    <span className="text-[10px] font-bold text-[var(--text-tertiary)] uppercase">dias</span>
+                    <span className="text-[10px] font-semibold text-[var(--text-tertiary)] uppercase">dias</span>
                   </div>
-                  
-                  <button 
+
+                  <button
                     onClick={() => handleSaveSLA(label)}
-                    className="text-[10px] font-black uppercase text-[var(--accent-text)] hover:bg-[var(--accent)]/10 px-3 py-1.5 rounded-lg border border-[var(--accent)]/20 transition-colors"
+                    className="text-[10px] font-semibold uppercase text-[var(--accent-text)] hover:bg-[var(--accent)]/10 px-3 py-1.5 rounded-lg border border-[var(--accent)]/20 transition-colors"
                   >
                     Salvar
                   </button>
@@ -145,6 +176,55 @@ export function SystemConfigContent({ categories, priorities, setCategories, set
         </p>
       </div>
     </div>
+
+    <div className="border-t border-[var(--border-default)] pt-8 mt-8 space-y-4">
+      <div className="flex items-center justify-between">
+        <h4 className="text-sm font-semibold text-[var(--text-primary)] uppercase tracking-tight">Pesquisa de Satisfação</h4>
+        <label className="flex items-center gap-2 text-xs font-semibold text-[var(--text-secondary)] cursor-pointer select-none">
+          <input
+            type="checkbox"
+            checked={surveyEnabled}
+            onChange={(e) => setSurveyEnabled(e.target.checked)}
+            className="w-4 h-4 accent-[var(--accent)]"
+          />
+          Ativar ao finalizar conversa
+        </label>
+      </div>
+      <div className="bg-[var(--surface-card)] rounded-2xl p-4 space-y-4 border border-[var(--border-default)]">
+        <div className="space-y-2">
+          <label className="text-[10px] font-semibold uppercase tracking-widest text-[var(--text-tertiary)]">Mensagem enviada ao cliente</label>
+          <textarea
+            value={surveyMessage}
+            onChange={(e) => setSurveyMessage(e.target.value)}
+            rows={4}
+            className="w-full bg-[var(--surface-card)] border border-[var(--border-default)] rounded-xl px-4 py-3 text-sm resize-y"
+          />
+        </div>
+        <div className="flex items-center justify-between gap-4">
+          <div className="flex items-center gap-2 bg-[var(--surface-card)] border border-[var(--border-default)] rounded-lg px-2.5 py-1.5">
+            <input
+              type="number"
+              step="1"
+              min="1"
+              value={surveyWindowHours}
+              onChange={(e) => setSurveyWindowHours(parseInt(e.target.value) || 1)}
+              className="w-14 bg-transparent text-xs font-bold focus:outline-none"
+            />
+            <span className="text-[10px] font-semibold text-[var(--text-tertiary)] uppercase">horas para aceitar resposta</span>
+          </div>
+          <button
+            onClick={handleSaveSurvey}
+            className="text-[10px] font-semibold uppercase text-[var(--accent-text)] hover:bg-[var(--accent)]/10 px-3 py-1.5 rounded-lg border border-[var(--accent)]/20 transition-colors"
+          >
+            Salvar
+          </button>
+        </div>
+      </div>
+      <p className="text-[10px] text-[var(--text-tertiary)] font-medium px-2 italic">
+        * Enviada por WhatsApp junto com o aviso de encerramento. O cliente responde "1" (satisfeito) ou "0" (poderia ser melhor) dentro do prazo configurado.
+      </p>
+    </div>
+    </>
   );
 }
 

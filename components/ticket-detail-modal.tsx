@@ -475,66 +475,83 @@ const handleSendMessage = async (isInternal: boolean) => {
         {/* Left Side: Ticket Info */}
         <div className="flex-1 flex flex-col min-w-0 bg-[var(--surface-card)]">
           {/* Header Bar */}
-          <div className="px-8 py-4 border-b border-[var(--border-default)] flex items-center justify-between bg-[var(--surface-card)]/50">
-            <div className="flex items-center gap-3">
-              <span className="text-xs font-black text-[var(--accent-text)] bg-[var(--accent)]/10 px-2 py-0.5 rounded tracking-widest">#{ticket.ticketNumber ? String(ticket.ticketNumber).padStart(4, '0') : ticket.id.slice(0, 8)}</span>
-              <span className="text-[var(--text-tertiary)] font-bold">/</span>
-              <span className="text-sm font-bold text-[var(--text-primary)] truncate max-w-md">{ticket.title}</span>
-            </div>
-            <div className="flex items-center gap-4">
-              {!isCustomer && (
-                <div className="flex bg-[var(--surface-pill)] p-0.5 rounded-lg">
-                    {statuses.map((s) => (
-                    <button 
-                      key={s.id}
-                      onClick={() => {
-                        setTicketStatus(s.label as any);
-                        handleUpdateMainTicket({ status: s.label as any });
-                      }}
-                      className={cn(
-                        "px-3 py-1 text-[10px] font-semibold uppercase rounded-md transition-all",
-                        ticketStatus === s.label ? "bg-[var(--surface-card)] text-[var(--accent-text)] shadow-sm" : "text-[var(--text-tertiary)] hover:bg-[var(--border-default)]/50"
-                      )}
+          <div className="border-b border-[var(--border-default)] bg-[var(--surface-card)]/50">
+            {/* Linha 1: identidade do chamado + ações */}
+            <div className="px-8 pt-4 pb-2 flex items-center justify-between gap-6">
+              <div className="flex items-center gap-3 min-w-0 flex-1">
+                <span className="text-xs font-black text-[var(--accent-text)] bg-[var(--accent)]/10 px-2 py-0.5 rounded tracking-widest shrink-0">#{ticket.ticketNumber ? String(ticket.ticketNumber).padStart(4, '0') : ticket.id.slice(0, 8)}</span>
+                <span className="text-[var(--text-tertiary)] font-bold shrink-0">/</span>
+                <span className="text-sm font-bold text-[var(--text-primary)] truncate min-w-0">{ticket.title}</span>
+              </div>
+              <div className="flex items-center gap-3 shrink-0">
+                {!isCustomer && (
+                  <div className="flex items-center gap-2 pr-3 border-r border-[var(--border-default)]">
+                    {!assigneeId && (
+                      <button
+                        onClick={handleTakeTicket}
+                        className="px-4 py-2 bg-[var(--accent)] hover:bg-[var(--accent-hover)] text-white rounded-xl text-xs font-black uppercase tracking-widest shadow-lg shadow-amber-100 transition-all"
+                      >
+                        Assumir
+                      </button>
+                    )}
+                    {!isClosedTicketStatus(ticketStatus) && (
+                      <button
+                        onClick={handleCompleteTicket}
+                        className="px-4 py-2 bg-[var(--text-success)] hover:bg-emerald-700 text-white rounded-xl text-xs font-black uppercase tracking-widest shadow-lg shadow-emerald-100 transition-all"
+                      >
+                        Finalizar
+                      </button>
+                    )}
+                    <button
+                      onClick={() => handleUpdateMainTicket()}
+                      className="flex items-center gap-2 px-4 py-2 bg-[var(--accent)] hover:bg-[var(--accent-hover)] text-white rounded-xl text-xs font-black uppercase tracking-widest shadow-lg shadow-indigo-100 transition-all"
                     >
-                      {s.label}
+                      <Save size={16} />
+                      Salvar
                     </button>
-                  ))}
-                </div>
-              )}
-              {!isCustomer && (
-                <div className="flex items-center gap-2">
-                  {!assigneeId && (
-                    <button 
-                      onClick={handleTakeTicket}
-                      className="px-4 py-2 bg-[var(--accent)] hover:bg-[var(--accent-hover)] text-white rounded-xl text-xs font-black uppercase tracking-widest shadow-lg shadow-amber-100 transition-all"
-                    >
-                      Assumir
-                    </button>
-                  )}
-                  {!isClosedTicketStatus(ticketStatus) && (
-                    <button 
-                      onClick={handleCompleteTicket}
-                      className="px-4 py-2 bg-[var(--text-success)] hover:bg-emerald-700 text-white rounded-xl text-xs font-black uppercase tracking-widest shadow-lg shadow-emerald-100 transition-all"
-                    >
-                      Finalizar
-                    </button>
-                  )}
-                  <button 
-                    onClick={() => handleUpdateMainTicket()}
-                    className="flex items-center gap-2 px-4 py-2 bg-[var(--accent)] hover:bg-[var(--accent-hover)] text-white rounded-xl text-xs font-black uppercase tracking-widest shadow-lg shadow-indigo-100 transition-all"
-                  >
-                    <Save size={16} />
-                    Salvar
+                  </div>
+                )}
+                <div className="flex items-center gap-1">
+                  <button onClick={() => setIsFocused(!isFocused)} className="p-2 hover:bg-[var(--border-default)] rounded-xl transition-all text-[var(--text-tertiary)]">
+                    {isFocused ? <Minimize2 size={18} /> : <Maximize2 size={18} />}
+                  </button>
+                  <button onClick={onClose} className="p-2 hover:bg-[var(--surface-danger)] rounded-xl transition-all text-[var(--text-tertiary)] hover:text-[var(--text-danger)]">
+                    <X size={18} />
                   </button>
                 </div>
-              )}
-              <button onClick={() => setIsFocused(!isFocused)} className="p-2 hover:bg-[var(--border-default)] rounded-xl transition-all text-[var(--text-tertiary)]">
-                {isFocused ? <Minimize2 size={18} /> : <Maximize2 size={18} />}
-              </button>
-              <button onClick={onClose} className="p-2 hover:bg-[var(--surface-danger)] rounded-xl transition-all text-[var(--text-tertiary)] hover:text-[var(--text-danger)]">
-                <X size={18} />
-              </button>
+              </div>
             </div>
+
+            {/* Linha 2: status do chamado (linha própria, sem disputar espaço com os botões) */}
+            {!isCustomer && (
+              <div className="px-8 pb-3">
+                {statuses.length > 0 ? (
+                  <div className="inline-flex bg-[var(--surface-pill)] p-0.5 rounded-lg">
+                    {statuses.map((s) => (
+                      <button
+                        key={s.id}
+                        onClick={() => {
+                          setTicketStatus(s.label as any);
+                          handleUpdateMainTicket({ status: s.label as any });
+                        }}
+                        className={cn(
+                          "px-3 py-1 text-[10px] font-semibold uppercase rounded-md transition-all whitespace-nowrap",
+                          ticketStatus === s.label ? "bg-[var(--surface-card)] text-[var(--accent-text)] shadow-sm" : "text-[var(--text-tertiary)] hover:bg-[var(--border-default)]/50"
+                        )}
+                      >
+                        {s.label}
+                      </button>
+                    ))}
+                  </div>
+                ) : (
+                  <div className="inline-flex items-center gap-1.5 px-2 py-1.5 rounded-lg bg-[var(--surface-pill)] animate-pulse">
+                    <div className="w-9 h-3 rounded bg-[var(--border-default)]" />
+                    <div className="w-9 h-3 rounded bg-[var(--border-default)]" />
+                    <div className="w-9 h-3 rounded bg-[var(--border-default)]" />
+                  </div>
+                )}
+              </div>
+            )}
           </div>
 
           <div className="flex-1 overflow-y-auto">
@@ -587,22 +604,22 @@ const handleSendMessage = async (isInternal: boolean) => {
                                "text-sm font-bold",
                                (() => {
                                    const config = priorities.find(p => p.label === mainPriority);
-                                   if (!config || !config.slaHours) return false;
-                                   const limit = new Date(new Date(ticket.createdAt).getTime() + config.slaHours * 60 * 60 * 1000);
+                                   if (!config || !(config.sla_hours ?? config.slaHours)) return false;
+                                   const limit = new Date(new Date(ticket.createdAt).getTime() + (config.sla_hours ?? config.slaHours) * 60 * 60 * 1000);
                                    return limit < new Date() && !isClosedTicketStatus(ticketStatus);
                                  })() ? "text-[var(--text-danger)]" : "text-[var(--text-secondary)]"
                              )}>
                                {(() => {
                                  const config = priorities.find(p => p.label === mainPriority);
-                                 if (!config || !config.slaHours) return '---';
-                                 const limit = new Date(new Date(ticket.createdAt).getTime() + config.slaHours * 60 * 60 * 1000);
+                                 if (!config || !(config.sla_hours ?? config.slaHours)) return '---';
+                                 const limit = new Date(new Date(ticket.createdAt).getTime() + (config.sla_hours ?? config.slaHours) * 60 * 60 * 1000);
                                  return limit.toLocaleString('pt-BR', { day: '2-digit', month: '2-digit', year: 'numeric', hour: '2-digit', minute: '2-digit' });
                                })()}
                              </span>
                              {(() => {
                                const config = priorities.find(p => p.label === mainPriority);
-                               if (!config || !config.slaHours) return false;
-                               const limit = new Date(new Date(ticket.createdAt).getTime() + config.slaHours * 60 * 60 * 1000);
+                               if (!config || !(config.sla_hours ?? config.slaHours)) return false;
+                               const limit = new Date(new Date(ticket.createdAt).getTime() + (config.sla_hours ?? config.slaHours) * 60 * 60 * 1000);
                                return limit < new Date() && !isClosedTicketStatus(ticketStatus);
                              })() && (
                                <span className="text-[10px] font-semibold text-[var(--text-danger)] uppercase tracking-tight">Prazo ultrapassado</span>
@@ -824,12 +841,14 @@ const handleSendMessage = async (isInternal: boolean) => {
                        <div className="space-y-4">
 <div className="flex items-center justify-between">
                               <h3 className="text-xs font-black uppercase text-[var(--text-tertiary)] tracking-widest">Descrição do Chamado</h3>
-                              <button 
-                                onClick={() => isEditingDescription ? saveMainTicketDescription() : setIsEditingDescription(true)}
-                                className="text-xs font-black text-[var(--accent-text)] uppercase hover:underline"
-                              >
-                                {isEditingDescription ? 'Salvar' : 'Editar'}
-                              </button>
+                              {currentUser?.role !== UserRole.EMPLOYEE && (
+                                <button
+                                  onClick={() => isEditingDescription ? saveMainTicketDescription() : setIsEditingDescription(true)}
+                                  className="text-xs font-black text-[var(--accent-text)] uppercase hover:underline"
+                                >
+                                  {isEditingDescription ? 'Salvar' : 'Editar'}
+                                </button>
+                              )}
                            </div>
                            {isEditingDescription ? (
                              <RichEditor content={ticketDescription} onChange={setTicketDescription} minHeight="300px" />

@@ -177,6 +177,15 @@ export async function pushChatMessage(sessionId: string, message: ChatMessage): 
   await ChatService.pushMessage(sessionId, message);
 }
 
+export async function submitSurveyResponse(sessionId: string, rating: 0 | 1, message: ChatMessage): Promise<void> {
+  const res = await fetch('/api/chats', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ action: 'submit-survey-response', sessionId, rating, message })
+  });
+  if (!res.ok) throw new Error('Error submitting survey response via API');
+}
+
 export async function createChatSession(session: ChatSession): Promise<string> {
   const res = await fetch('/api/chats', {
     method: 'POST',

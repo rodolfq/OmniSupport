@@ -1,4 +1,4 @@
-import { CategoryConfig, PriorityConfig, StatusConfig, TagConfig, QuickNote } from '../types';
+import { CategoryConfig, PriorityConfig, StatusConfig, TagConfig, QuickNote, SurveySettings } from '../types';
 
 export class ConfigService {
   static async getCategories(): Promise<CategoryConfig[]> {
@@ -80,6 +80,25 @@ export class ConfigService {
     });
     if (!res.ok) throw new Error('Error deleting quick note via API');
   }
+
+  static async getSurveySettings(): Promise<SurveySettings> {
+    const res = await fetch('/api/config?type=survey-settings');
+    const data = await res.json();
+    return {
+      enabled: data?.enabled ?? true,
+      message: data?.message ?? '',
+      responseWindowHours: data?.response_window_hours ?? data?.responseWindowHours ?? 24
+    };
+  }
+
+  static async saveSurveySettings(settings: SurveySettings): Promise<void> {
+    const res = await fetch('/api/config', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ type: 'survey-settings', settings })
+    });
+    if (!res.ok) throw new Error('Error saving survey settings via API');
+  }
 }
 
 // Migrated compatibility functions for app/actions and components
@@ -87,9 +106,13 @@ export class ConfigService {
 export async function fetchPriorities(signal?: AbortSignal): Promise<any[]> {
   try {
     const data = await ConfigService.getPriorities();
-    return data.map(p => ({
+    // A API de config retorna a coluna do Postgres (sla_hours); alguns
+    // consumidores esperam o nome do tipo PriorityConfig (slaHours).
+    // Preenchemos os dois para não depender de qual já veio populado.
+    return data.map((p: any) => ({
       ...p,
-      sla_hours: p.slaHours
+      slaHours: p.slaHours ?? p.sla_hours,
+      sla_hours: p.sla_hours ?? p.slaHours
     }));
   } catch (err) {
     console.error("Error fetching priorities:", err);
@@ -113,6 +136,15 @@ export async function fetchAnalystStatuses(signal?: AbortSignal): Promise<any[]>
   } catch (err) {
     console.error("Error fetching analyst statuses:", err);
     return [];
+  }
+}
+
+export async function fetchSurveySettings(signal?: AbortSignal): Promise<SurveySettings | null> {
+  try {
+    return await ConfigService.getSurveySettings();
+  } catch (err) {
+    console.error("Error fetching survey settings:", err);
+    return null;
   }
 }
 

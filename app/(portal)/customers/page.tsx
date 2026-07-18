@@ -3,7 +3,7 @@
 import React, { useState, useEffect, useMemo } from 'react';
 import { getUsers, getCompanies, deleteCompany } from '@/app/actions';
 import { Company, User, UserRole } from '@/lib/types';
-import { Building2, User as UserIcon, Mail, Phone, Plus, MessageCircle, Ticket, ShieldCheck, Search, X, Check } from 'lucide-react';
+import { Building2, User as UserIcon, Mail, Phone, Plus, MessageCircle, Ticket, ShieldCheck, ShieldOff, Search, X, Check } from 'lucide-react';
 import { cn, normalizeString, maskPhone } from '@/lib/utils';
 import { NewEmployeeModal } from '@/components/new-employee-modal';
 import { EditEmployeeModal } from '@/components/edit-employee-modal';
@@ -135,7 +135,7 @@ export default function CustomersPage() {
   const isCustomerAdmin = currentUser?.role === UserRole.CUSTOMER;
   const canManageCompanies = currentUser?.role === UserRole.ADMIN;
   const canCreateEmployees = canManageCompanies || isCustomerAdmin;
-  const canEditEmployees = canManageCompanies;
+  const canEditEmployees = canManageCompanies || isCustomerAdmin;
 
   const handleOpenTicket = (user: User) => {
     setPreselectedUserId(user.id);
@@ -338,9 +338,15 @@ if (isCompanyPortalUser) {
                           <ShieldCheck size={10} /> Admin Cliente
                         </div>
                       )}
-                      <div className="flex items-center gap-1 text-[9px] font-semibold uppercase text-[var(--text-success)] bg-[var(--surface-success)] px-2 py-0.5 rounded-full border border-green-100">
-                        <ShieldCheck size={10} /> Login Autorizado
-                      </div>
+                      {employee.isActive === false ? (
+                        <div className="flex items-center gap-1 text-[9px] font-semibold uppercase text-[var(--text-danger)] bg-[var(--surface-danger)] px-2 py-0.5 rounded-full border border-[var(--text-danger)]/20">
+                          <ShieldOff size={10} /> Login Bloqueado
+                        </div>
+                      ) : (
+                        <div className="flex items-center gap-1 text-[9px] font-semibold uppercase text-[var(--text-success)] bg-[var(--surface-success)] px-2 py-0.5 rounded-full border border-[var(--text-success)]/20">
+                          <ShieldCheck size={10} /> Login Autorizado
+                        </div>
+                      )}
                     </div>
 
                     <div className="flex items-center gap-4 mb-6">

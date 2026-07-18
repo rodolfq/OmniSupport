@@ -35,7 +35,7 @@ export async function GET(request: Request) {
       })));
     } else {
       const res = await query(
-        "SELECT id, name, email, role, company_id, phone, view_all_company_tickets, must_change_password, is_admin, avatar_url, internal_team_ids FROM public.profiles"
+        "SELECT id, name, email, role, company_id, phone, view_all_company_tickets, must_change_password, is_admin, avatar_url, internal_team_ids, is_active FROM public.profiles"
       );
       return NextResponse.json(res.rows.map(r => ({
         id: r.id,
@@ -48,7 +48,8 @@ export async function GET(request: Request) {
         mustChangePassword: r.must_change_password,
         isAdmin: r.is_admin,
         avatarUrl: r.avatar_url,
-        internalTeamIds: r.internal_team_ids
+        internalTeamIds: r.internal_team_ids,
+        isActive: r.is_active
       })));
     }
   } catch (error: any) {
@@ -130,8 +131,9 @@ export async function PUT(request: Request) {
            view_all_company_tickets = COALESCE($7, view_all_company_tickets),
            is_admin = COALESCE($8, is_admin),
            avatar_url = $9,
-           internal_team_ids = $10
-       WHERE id = $11`,
+           internal_team_ids = $10,
+           is_active = COALESCE($11, is_active)
+       WHERE id = $12`,
       [
         user.name,
         user.email,
@@ -143,6 +145,7 @@ export async function PUT(request: Request) {
         user.isAdmin,
         user.avatarUrl || null,
         user.internalTeamIds || '{}',
+        user.isActive,
         user.id
       ]
     );

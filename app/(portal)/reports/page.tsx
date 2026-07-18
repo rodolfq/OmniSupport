@@ -2,9 +2,25 @@
 
 import React from 'react';
 import { AreaChart, Area, XAxis, YAxis, Tooltip, ResponsiveContainer, PieChart, Pie, Cell } from 'recharts';
-import { TrendingUp, Clock, Calendar, Users } from 'lucide-react';
+import { TrendingUp, Clock, Calendar, Users, ThumbsUp, ThumbsDown, MessageSquareText } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { useTheme } from '@/app/theme-provider';
+
+interface SurveyResponse {
+  id: string;
+  customerName: string;
+  ticketNumber: number | null;
+  rating: number;
+  finishedAt: string;
+}
+
+interface SurveyReport {
+  total: number;
+  satisfied: number;
+  toImprove: number;
+  satisfactionRate: number;
+  responses: SurveyResponse[];
+}
 
 const dataByDay = [
   { name: 'Seg', total: 40 },
@@ -29,6 +45,22 @@ export default function ReportsPage() {
   const tooltipStyle = theme === 'dark'
     ? { borderRadius: '12px', border: '1px solid #334155', background: '#1e293b', color: '#e2e8f0', boxShadow: '0 10px 15px -3px rgb(0 0 0 / 0.3)' }
     : { borderRadius: '12px', border: 'none', boxShadow: '0 10px 15px -3px rgb(0 0 0 / 0.1)' };
+
+  const [surveyReport, setSurveyReport] = React.useState<SurveyReport | null>(null);
+
+  React.useEffect(() => {
+    const controller = new AbortController();
+    fetch('/api/reports/survey', { signal: controller.signal })
+      .then(res => res.json())
+      .then(data => setSurveyReport(data))
+      .catch(() => {});
+    return () => controller.abort();
+  }, []);
+
+  const surveyPieData = surveyReport ? [
+    { name: 'Satisfeitos', value: surveyReport.satisfied, color: '#22c55e' },
+    { name: 'A Melhorar', value: surveyReport.toImprove, color: '#ef4444' },
+  ] : [];
 
   return (
     <div className="space-y-8">
@@ -67,6 +99,58 @@ export default function ReportsPage() {
                 <Tooltip contentStyle={tooltipStyle} />
               </PieChart>
             </ResponsiveContainer>
+          </div>
+        </div>
+      </div>
+
+      <div className="space-y-6">
+        <h2 className="text-xl font-black text-[var(--text-primary)] tracking-tight">Pesquisa de Satisfação</h2>
+        <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+          <MetricCard label="Respostas" value={String(surveyReport?.total ?? 0)} icon={<MessageSquareText className="text-[var(--accent-text)]" />} />
+          <MetricCard label="% Satisfação" value={surveyReport ? `${Math.round(surveyReport.satisfactionRate * 100)}%` : '0%'} icon={<ThumbsUp size={24} className="text-white" />} accent />
+          <MetricCard label="A Melhorar" value={String(surveyReport?.toImprove ?? 0)} icon={<ThumbsDown className="text-[var(--accent-text)]" />} />
+        </div>
+
+        <div className="grid grid-cols-1 lg:grid-cols-2 gap-8">
+          <div className="bg-[var(--surface-card)] p-8 rounded-2xl border border-[var(--border-default)] shadow-sm">
+            <h3 className="font-bold mb-8 uppercase text-[10px] tracking-[0.2em] text-[var(--text-tertiary)]">Satisfeitos x A Melhorar</h3>
+            <div className="h-64">
+              {surveyReport && surveyReport.total > 0 ? (
+                <ResponsiveContainer width="100%" height="100%">
+                  <PieChart>
+                    <Pie data={surveyPieData} innerRadius={60} outerRadius={80} paddingAngle={8} dataKey="value" stroke="none">
+                      {surveyPieData.map((e, i) => <Cell key={i} fill={e.color} />)}
+                    </Pie>
+                    <Tooltip contentStyle={tooltipStyle} />
+                  </PieChart>
+                </ResponsiveContainer>
+              ) : (
+                <div className="h-full flex items-center justify-center text-sm text-[var(--text-tertiary)]">Nenhuma resposta ainda</div>
+              )}
+            </div>
+          </div>
+
+          <div className="bg-[var(--surface-card)] p-8 rounded-2xl border border-[var(--border-default)] shadow-sm">
+            <h3 className="font-bold mb-4 uppercase text-[10px] tracking-[0.2em] text-[var(--text-tertiary)]">Respostas Recentes</h3>
+            <div className="h-64 overflow-y-auto space-y-2">
+              {surveyReport?.responses.length ? surveyReport.responses.map(r => (
+                <div key={r.id} className="flex items-center justify-between gap-3 p-3 rounded-xl border border-[var(--border-default)] text-sm">
+                  <div className="min-w-0">
+                    <p className="font-semibold text-[var(--text-primary)] truncate">{r.customerName || 'Cliente'}</p>
+                    <p className="text-[10px] text-[var(--text-tertiary)] uppercase tracking-widest">
+                      {r.ticketNumber ? `Conversa #${String(r.ticketNumber).padStart(4, '0')}` : ''} · {new Date(r.finishedAt).toLocaleDateString('pt-BR')}
+                    </p>
+                  </div>
+                  {r.rating === 1 ? (
+                    <ThumbsUp size={16} className="text-[var(--text-success)] shrink-0" />
+                  ) : (
+                    <ThumbsDown size={16} className="text-[var(--text-danger)] shrink-0" />
+                  )}
+                </div>
+              )) : (
+                <div className="h-full flex items-center justify-center text-sm text-[var(--text-tertiary)]">Nenhuma resposta ainda</div>
+              )}
+            </div>
           </div>
         </div>
       </div>

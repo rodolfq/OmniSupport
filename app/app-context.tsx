@@ -28,6 +28,7 @@ export interface NotificationSettings {
   ticket_closed: boolean;
   chat_new: boolean;
   chat_message: boolean;
+  osNotificationsEnabled: boolean;
 }
 
 interface AppContextType {
@@ -58,6 +59,8 @@ interface AppContextType {
   playSound: (type: 'system' | 'chat') => void;
   notificationSettings: NotificationSettings;
   updateNotificationSettings: (settings: Partial<NotificationSettings>) => void;
+  osNotificationPermission: NotificationPermission | 'unsupported';
+  requestOsNotificationPermission: () => Promise<void>;
   whatsappStatus: 'connected' | 'disconnected' | 'connecting' | 'error';
   setWhatsappStatus: (status: 'connected' | 'disconnected' | 'connecting' | 'error') => void;
   dbStatus: 'connected' | 'disconnected' | 'error';
@@ -81,7 +84,14 @@ const DEFAULT_SETTINGS: NotificationSettings = {
   ticket_closed: true,
   chat_new: true,
   chat_message: true,
+  osNotificationsEnabled: true,
 };
+
+function getNotificationTargetHref(notif: Pick<AppNotification, 'type' | 'targetId'>, isCompanyUser: boolean): string | null {
+  if (!notif.targetId) return null;
+  if (notif.type.startsWith('chat_')) return `${isCompanyUser ? '/my-tickets' : '/dashboard'}?chat=${notif.targetId}`;
+  return `${isCompanyUser ? '/my-tickets' : '/dashboard'}?ticket=${notif.targetId}`;
+}
 
 function stripNotificationHtml(value: string) {
   return value
@@ -118,6 +128,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
 
   const [notificationSettings, setNotificationSettings] = useState<NotificationSettings>(DEFAULT_SETTINGS);
   const settingsRef = useRef<NotificationSettings>(DEFAULT_SETTINGS);
+  const [osNotificationPermission, setOsNotificationPermission] = useState<NotificationPermission | 'unsupported'>('default');
 
   const [notifications, setNotifications] = useState<AppNotification[]>([]);
   const lastCheckTimeRef = useRef<string>(new Date().toISOString());
@@ -260,6 +271,34 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
         description: newNotif.message,
         duration: 4000
       });
+
+      // Notificação nativa do Windows: só quando a aba não está em primeiro
+      // plano (senão duplicaria o toast acima) — é justamente o caso que o
+      // toast sozinho não cobre hoje (janela minimizada / outro app em foco).
+      if (
+        settingsRef.current.osNotificationsEnabled &&
+        typeof window !== 'undefined' &&
+        'Notification' in window &&
+        Notification.permission === 'granted' &&
+        document.visibilityState !== 'visible'
+      ) {
+        try {
+          const isCompanyUser = [UserRole.CUSTOMER, UserRole.EMPLOYEE].includes(userRef.current?.role as UserRole);
+          const osNotif = new Notification(notif.title, {
+            body: newNotif.message,
+            icon: '/branding/icon.png',
+            tag: newNotif.sourceId || newNotif.id
+          });
+          osNotif.onclick = () => {
+            window.focus();
+            const href = getNotificationTargetHref(newNotif, isCompanyUser);
+            if (href) window.location.href = href;
+            osNotif.close();
+          };
+        } catch (e) {
+          console.error('Error showing OS notification:', e);
+        }
+      }
     }
   }, [playSound]);
 
@@ -375,14 +414,17 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
   useEffect(() => {
     if (!authInitialized || !currentUser?.id) return;
 
-    const checkWhenVisible = () => {
-      if (document.visibilityState === 'visible') checkNotifications();
-    };
-    const interval = setInterval(checkWhenVisible, 10000);
-    document.addEventListener('visibilitychange', checkWhenVisible);
+    // Sempre verifica, mesmo com a aba em segundo plano/minimizada — antes o
+    // polling só rodava com document.visibilityState === 'visible', que é
+    // exatamente por que nada chegava com a janela minimizada. Navegadores
+    // ainda podem limitar (throttle) intervalos em abas em segundo plano por
+    // muito tempo, mas isso é bem melhor que nunca verificar.
+    const interval = setInterval(checkNotifications, 10000);
+    const onVisible = () => { if (document.visibilityState === 'visible') checkNotifications(); };
+    document.addEventListener('visibilitychange', onVisible);
     return () => {
       clearInterval(interval);
-      document.removeEventListener('visibilitychange', checkWhenVisible);
+      document.removeEventListener('visibilitychange', onVisible);
     };
   }, [authInitialized, currentUser?.id, checkNotifications]);
 
@@ -409,7 +451,11 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
         if (typeof parsed.ticket_new === 'object') {
            setNotificationSettings(DEFAULT_SETTINGS);
         } else {
-           setNotificationSettings(parsed);
+           // Mescla com os defaults (não substitui) para que campos novos
+           // (ex: osNotificationsEnabled) adicionados depois que o usuário já
+           // tinha uma preferência salva continuem com o valor padrão em vez
+           // de undefined/false.
+           setNotificationSettings({ ...DEFAULT_SETTINGS, ...parsed });
         }
       } catch (e) {
         console.error('Error loading settings', e);
@@ -427,6 +473,24 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       } catch (e) {
         console.error('Error loading notifications', e);
       }
+    }
+  }, []);
+
+  useEffect(() => {
+    if (typeof window === 'undefined' || !('Notification' in window)) {
+      setOsNotificationPermission('unsupported');
+      return;
+    }
+    setOsNotificationPermission(Notification.permission);
+  }, []);
+
+  const requestOsNotificationPermission = React.useCallback(async () => {
+    if (typeof window === 'undefined' || !('Notification' in window)) return;
+    try {
+      const result = await Notification.requestPermission();
+      setOsNotificationPermission(result);
+    } catch (e) {
+      console.error('Error requesting OS notification permission:', e);
     }
   }, []);
 
@@ -548,6 +612,8 @@ return (
       playSound,
       notificationSettings,
       updateNotificationSettings,
+      osNotificationPermission,
+      requestOsNotificationPermission,
       whatsappStatus,
       setWhatsappStatus,
       dbStatus,

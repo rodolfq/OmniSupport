@@ -18,6 +18,14 @@ export const pool = new Pool({
   connectionTimeoutMillis: 5000, // Tempo limite de conexão inicial
 });
 
+// Sem esse listener, um erro em um client ocioso do pool (conexão resetada
+// pela rede/banco) vira uma exceção não tratada e derruba o processo do
+// Next.js inteiro — o que explica os 500 intermitentes em rotas de API
+// aparentemente não relacionadas entre si.
+pool.on('error', (err) => {
+  console.error('⚠️ Erro inesperado em client ocioso do pool Postgres:', err);
+});
+
 export async function query(text: string, params?: any[]) {
   return pool.query(text, params);
 }

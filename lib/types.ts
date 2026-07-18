@@ -61,6 +61,7 @@ export interface User {
   password?: string;
   mustChangePassword?: boolean;
   viewAllCompanyTickets?: boolean;
+  isActive?: boolean;
   internalTeamIds?: string[];
   status?: 'online' | 'away' | 'offline';
   statusReason?: string;
@@ -84,6 +85,9 @@ export interface PriorityConfig {
   id: string;
   label: string;
   slaHours: number;
+  // A API/compat layer do Supabase retorna a coluna do Postgres sem
+  // transformação (sla_hours); alguns consumidores leem esse nome direto.
+  sla_hours?: number;
   slaDays?: number;
   color: string;
 }
@@ -229,6 +233,23 @@ export interface ChatSession {
   messages: ChatMessage[];
   startedAt: string;
   lastMessageAt: string;
+  awaitingSurveyUntil?: string;
+}
+
+export interface SurveySettings {
+  enabled: boolean;
+  message: string;
+  responseWindowHours: number;
+}
+
+export interface AutomationSetting {
+  event_key: string;
+  enabled: boolean;
+  message: string;
+  delay_minutes: number;
+  first_occurrence_only: boolean;
+  trigger_status: string | null;
+  updated_at: string;
 }
 
 export interface InternalGroup {

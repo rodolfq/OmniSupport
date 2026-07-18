@@ -155,11 +155,17 @@ async function findChatSessionByPhone(jid: string, instanceId = 'default') {
   const variants = expandContactLookupVariants(jid, instanceId);
   if (!variants.length) return null;
 
+  // Só reaproveita uma sessão fechada enquanto a janela da pesquisa de
+  // satisfação dela ainda estiver aberta (resposta "1"/"0" chegando
+  // atrasada pelo WhatsApp) — fora disso, uma mensagem nova do mesmo
+  // telefone é outro atendimento, com número de conversa novo, não uma
+  // reabertura silenciosa do anterior.
   const placeHolders = variants.map((_, i) => `$${i + 1}`).join(',');
   const res = await query(
-    `SELECT id, customer_phone, customer_id, customer_name, updated_at
+    `SELECT id, customer_phone, customer_id, customer_name, updated_at, status, awaiting_survey_until
      FROM public.chat_sessions
      WHERE customer_phone IN (${placeHolders})
+       AND (status != 'closed' OR (awaiting_survey_until IS NOT NULL AND awaiting_survey_until > NOW()))
      ORDER BY updated_at DESC`,
     variants
   );
@@ -363,7 +369,7 @@ export class WhatsAppService {
         version,
         auth: authState,
         logger: log,
-        browser: ['OmniSupport', 'Desktop', '1.0.0'],
+        browser: ['SSX Resolve', 'Desktop', '1.0.0'],
         connectTimeoutMs: 60000,
         defaultQueryTimeoutMs: 60000,
         keepAliveIntervalMs: 30000,
@@ -762,6 +768,27 @@ export class WhatsAppService {
         'UPDATE public.chat_sessions SET last_message_at = NOW(), updated_at = NOW() WHERE id = $1',
         [session.id]
       );
+
+      // Captura da resposta da pesquisa de satisfação enviada ao finalizar a conversa
+      // (ver handleFinishChat em chat-widget.tsx). Só conta se a sessão segue fechada e
+      // dentro do prazo configurado pelo admin; fora disso é tratado como mensagem normal.
+      const answer = text.trim();
+      if (
+        session.status === 'closed' &&
+        session.awaiting_survey_until &&
+        new Date(session.awaiting_survey_until) > new Date() &&
+        (answer === '1' || answer === '0')
+      ) {
+        await query(
+          `UPDATE public.chat_histories SET rating = $1
+           WHERE id = (SELECT id FROM public.chat_histories WHERE session_id = $2 ORDER BY created_at DESC LIMIT 1)`,
+          [parseInt(answer, 10), session.id]
+        );
+        await query(
+          'UPDATE public.chat_sessions SET awaiting_survey_until = NULL WHERE id = $1',
+          [session.id]
+        );
+      }
     } catch (e) {
       console.error('[WhatsApp:Incoming] Error inserting message in Postgres:', e);
     }

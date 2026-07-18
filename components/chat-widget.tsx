@@ -45,8 +45,8 @@ import {
   Company,
   Attachment
 } from '@/lib/types';
-import { fetchChatSessions, pushChatMessage, createChatSession, saveChatHistory, findExistingChatSessionByPhone } from '@/lib/services/chat-service';
-import { fetchQuickNotes, fetchAnalystStatuses, fetchCompanies, fetchUsers, fetchQueues } from '@/lib/services/config-service';
+import { fetchChatSessions, pushChatMessage, createChatSession, saveChatHistory, findExistingChatSessionByPhone, submitSurveyResponse } from '@/lib/services/chat-service';
+import { fetchQuickNotes, fetchAnalystStatuses, fetchCompanies, fetchUsers, fetchQueues, fetchSurveySettings } from '@/lib/services/config-service';
 import { cn, maskPhone, matchPhones, safeJsonStringify } from '@/lib/utils';
 import { useApp } from '@/app/app-context';
 import { supabase } from '@/lib/supabase';
@@ -724,6 +724,8 @@ useEffect(() => {
     console.log('[DEBUG] handleSendMessage called', { message, selectedChatId, hasCurrentUser: !!currentUser, attachments: chatAttachments.length });
     if ((!message?.trim() && chatAttachments.length === 0) || !selectedChatId || !currentUser) return;
 
+    const trimmedText = message.trim();
+
     const newMessage: ChatMessage = {
       id: crypto.randomUUID(),
       senderId: currentUser.id,
@@ -755,10 +757,27 @@ useEffect(() => {
         setMessage('');
         setChatAttachments([]);
 
-        // Save via Supabase first, then attempt WhatsApp delivery
-        await pushChatMessage(selectedChatId, newMessage);
+        // Resposta à pesquisa de satisfação enviada ao encerrar a conversa: cliente
+        // logado respondendo "1"/"0" direto pelo widget (equivalente ao que já é
+        // tratado no lado do WhatsApp em lib/services/whatsapp-service.ts). Vai por
+        // um caminho separado do push-message normal porque este último reabre
+        // sessões fechadas (status closed -> pending) — responder a pesquisa não
+        // deve fazer o atendimento parecer uma conversa nova para o analista.
+        const isSurveyResponse =
+          isCustomer &&
+          session.status === 'closed' &&
+          session.awaitingSurveyUntil &&
+          new Date(session.awaitingSurveyUntil) > new Date() &&
+          (trimmedText === '0' || trimmedText === '1');
 
-        if (session.customerPhone) {
+        if (isSurveyResponse) {
+          await submitSurveyResponse(selectedChatId, trimmedText === '1' ? 1 : 0, newMessage);
+        } else {
+          // Save via Supabase first, then attempt WhatsApp delivery
+          await pushChatMessage(selectedChatId, newMessage);
+        }
+
+        if (!isSurveyResponse && session.customerPhone) {
           const queue = allQueues.find((q: any) => q.id === session.queueId);
           const instanceId = queue?.whatsapp_instance_id || queue?.whatsappInstanceId || 'default';
           const phone = session.customerPhone.replace(/\D/g, '');
@@ -892,19 +911,30 @@ useEffect(() => {
     }
   };
 
-  const handleFinishChat = async () => {
+  const handleGenerateTicket = async (closeChat: boolean) => {
     if (!selectedChat || !ticketTitle || !currentUser) return;
 
+    // Já existe um chamado vinculado a esta conversa (gerado antes, sem
+    // finalizar) — "Gerar Chamado" de novo criaria um duplicado, então só
+    // avisa e não faz nada; para finalizar usando esse mesmo chamado, o
+    // fluxo abaixo (closeChat === true) já reaproveita automaticamente.
+    if (!closeChat && selectedChat.ticketId) {
+      toast.warning(`Este atendimento já possui o chamado #${String(selectedChat.ticketNumber ?? '').padStart(4, '0')} vinculado.`);
+      return;
+    }
+
     try {
+      const hadExistingTicket = !!selectedChat.ticketId;
+
       // Create Ticket via Supabase - format chat history
       const formattedChatLog = selectedChat.messages?.map(m => {
         const time = new Date(m.timestamp).toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' });
         return `[${time}] ${m.senderName}: ${m.text}`;
       }).join('\n') || '';
-      
+
       // Convert newlines to <br> for HTML display, while keeping plain text readable
-      const chatHistoryText = `===== HISTÓRICO DO CHAT =====\n${formattedChatLog}\n===== FIM DO HISTÓRICO =====\n\nChat finalizado em: ${new Date().toLocaleString('pt-BR')}`;
-      
+      const chatHistoryText = `===== HISTÓRICO DO CHAT =====\n${formattedChatLog}\n===== FIM DO HISTÓRICO =====\n\n${closeChat ? `Chat finalizado em: ${new Date().toLocaleString('pt-BR')}` : `Chamado gerado em: ${new Date().toLocaleString('pt-BR')} (atendimento continua em aberto)`}`;
+
       // Create HTML version for display (with <br> tags)
       const chatHistoryHtml = chatHistoryText
         .replace(/&/g, '&amp;')
@@ -912,27 +942,99 @@ useEffect(() => {
         .replace(/>/g, '&gt;')
         .replace(/\n/g, '<br>');
 
-      const { data: createdTicket, error: ticketError } = await supabase.from('tickets').insert({
-        title: ticketTitle,
-        description: chatHistoryHtml,
-        status: closeTicketImmediately ? TicketStatus.CLOSED : TicketStatus.NEW,
-        priority: TicketPriority.MEDIUM,
-        category: 'Atendimento Chat',
-        customer_id: selectedChat.customerId,
-        assignee_id: currentUser.id,
-        created_at: new Date().toISOString(),
-        updated_at: new Date().toISOString()
-      });
+      let createdTicketId: any = selectedChat.ticketId || null;
+      let createdTicketNumber: any = selectedChat.ticketNumber || null;
 
-      if (ticketError) {
-        console.error('Error creating ticket from chat:', ticketError);
-        toast.error('Erro ao criar chamado.');
-        return;
+      if (hadExistingTicket) {
+        // Reaproveita o chamado já gerado nesta conversa — só ajusta o status
+        // se "Fechar Imediatamente" estiver marcado ao finalizar.
+        if (closeChat && closeTicketImmediately) {
+          const { error: updateError } = await supabase
+            .from('tickets')
+            .update({ status: TicketStatus.CLOSED, updated_at: new Date().toISOString() })
+            .eq('id', createdTicketId);
+          if (updateError) {
+            console.error('Error updating existing ticket status:', updateError);
+          }
+        }
+      } else {
+        const { data: createdTicket, error: ticketError } = await supabase.from('tickets').insert({
+          title: ticketTitle,
+          description: chatHistoryHtml,
+          status: closeTicketImmediately ? TicketStatus.CLOSED : TicketStatus.NEW,
+          priority: TicketPriority.MEDIUM,
+          category: 'Atendimento Chat',
+          customer_id: selectedChat.customerId,
+          assignee_id: currentUser.id,
+          created_at: new Date().toISOString(),
+          updated_at: new Date().toISOString()
+        });
+
+        if (ticketError) {
+          console.error('Error creating ticket from chat:', ticketError);
+          toast.error('Erro ao criar chamado.');
+          return;
+        }
+
+        const createdTicketData = Array.isArray(createdTicket) ? createdTicket[0] : createdTicket;
+        createdTicketId = createdTicketData?.id || null;
+        createdTicketNumber = createdTicketData?.public_ticket_number || null;
       }
 
-      const createdTicketData = Array.isArray(createdTicket) ? createdTicket[0] : createdTicket;
-      const createdTicketId = createdTicketData?.id || null;
-      const createdTicketNumber = createdTicketData?.public_ticket_number || null;
+      if (!closeChat) {
+        // Só vincula o chamado à conversa em andamento — não mexe em status,
+        // histórico ou mensagem de encerramento/pesquisa, já que o atendimento
+        // continua aberto.
+        const { error: linkError } = await supabase
+          .from('chat_sessions')
+          .update({ ticket_id: createdTicketId, ticket_number: createdTicketNumber })
+          .eq('id', selectedChat.id);
+
+        if (linkError) {
+          console.error('Error linking ticket to session:', linkError);
+          toast.error('Chamado criado, mas não foi possível vincular à conversa.');
+        }
+
+        // Avisa o cliente, dentro da própria conversa, que um chamado foi
+        // aberto — sempre registrado no chat (visível pro cliente logado ou
+        // via WhatsApp) e, adicionalmente, encaminhado pelo WhatsApp quando
+        // há telefone.
+        const ticketNoticeMessage: ChatMessage = {
+          id: crypto.randomUUID(),
+          senderId: currentUser.id,
+          senderName: 'SSX Resolve',
+          text: `📄 Novo chamado gerado #${String(createdTicketNumber).padStart(4, '0')}`,
+          timestamp: new Date().toISOString(),
+          type: 'text'
+        };
+        try {
+          await pushChatMessage(selectedChat.id, ticketNoticeMessage);
+          if (selectedChat.customerPhone) {
+            const phone = selectedChat.customerPhone.replace(/\D/g, '');
+            if (phone) {
+              const queue = allQueues.find((q: any) => q.id === selectedChat.queueId);
+              const instanceId = queue?.whatsapp_instance_id || queue?.whatsappInstanceId || 'default';
+              const sendRes = await fetch('/api/whatsapp/send', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: safeJsonStringify({ instanceId, to: phone, message: ticketNoticeMessage.text }),
+              });
+              if (!sendRes.ok) {
+                toast.warning('Chamado avisado no chat, mas não foi enviado via WhatsApp.');
+              }
+            }
+          }
+        } catch (msgError) {
+          console.error('Failed to notify customer about ticket creation:', msgError);
+        }
+
+        setIsFinishModalOpen(false);
+        const sessions = await fetchChatSessions();
+        setCustomerSessions(sessions);
+        setTicketTitle('');
+        toast.success('Chamado criado com sucesso! O atendimento continua em aberto.');
+        return;
+      }
 
       // Calculate timing metrics
       const startedAt = selectedChat.startedAt ? new Date(selectedChat.startedAt) : new Date();
@@ -970,13 +1072,58 @@ useEffect(() => {
         // Don't block the ticket creation
       });
 
+      // Send closing notice + satisfaction survey. Always registered as a chat
+      // message (visible in-app for a logged-in customer, and for anyone reading
+      // the transcript) and, additionally, pushed via WhatsApp when a phone number
+      // is available. Inserted BEFORE the session is marked 'closed' below, so it
+      // doesn't trip the closed->pending auto-reopen side effect in push-message.
+      let awaitingSurveyUntil: string | null = null;
+      try {
+        const surveySettings = await fetchSurveySettings();
+        if (surveySettings?.enabled && surveySettings.message) {
+          const conversationNumber = String(createdTicketNumber ?? selectedChat.ticketNumber ?? '').padStart(4, '0');
+          const closingMessage = `Sua conversa #${conversationNumber} foi finalizada.\n\n${surveySettings.message}`;
+
+          const closingChatMessage: ChatMessage = {
+            id: crypto.randomUUID(),
+            senderId: currentUser.id,
+            senderName: 'SSX Resolve',
+            text: closingMessage,
+            timestamp: new Date().toISOString(),
+            type: 'text'
+          };
+          await pushChatMessage(selectedChat.id, closingChatMessage);
+          awaitingSurveyUntil = new Date(Date.now() + surveySettings.responseWindowHours * 3600_000).toISOString();
+
+          if (selectedChat.customerPhone) {
+            const phone = selectedChat.customerPhone.replace(/\D/g, '');
+            if (phone) {
+              const queue = allQueues.find((q: any) => q.id === selectedChat.queueId);
+              const instanceId = queue?.whatsapp_instance_id || queue?.whatsappInstanceId || 'default';
+              const sendRes = await fetch('/api/whatsapp/send', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: safeJsonStringify({ instanceId, to: phone, message: closingMessage }),
+              });
+              if (!sendRes.ok) {
+                toast.warning('Mensagem de encerramento registrada no chat, mas não foi enviada via WhatsApp.');
+              }
+            }
+          }
+        }
+      } catch (surveyError) {
+        console.error('Failed to send closing survey:', surveyError);
+        toast.warning('Chamado finalizado, mas a mensagem de encerramento/pesquisa não foi registrada.');
+      }
+
       // Close Session via Supabase
       const { error: closeError } = await supabase
         .from('chat_sessions')
         .update({
           status: 'closed',
           ticket_id: createdTicketId,
-          ticket_number: createdTicketNumber
+          ticket_number: createdTicketNumber,
+          awaiting_survey_until: awaitingSurveyUntil
         })
         .eq('id', selectedChat.id);
 
@@ -991,7 +1138,7 @@ useEffect(() => {
       const sessions = await fetchChatSessions();
       setCustomerSessions(sessions);
       setTicketTitle('');
-      toast.success('Chamado criado com sucesso!');
+      toast.success(hadExistingTicket ? `Atendimento finalizado! Chamado #${String(createdTicketNumber).padStart(4, '0')} mantido.` : 'Chamado criado com sucesso!');
     } catch (error) {
       console.error('Failed to finish chat:', error);
       toast.error('Erro ao criar chamado.');
@@ -1001,7 +1148,7 @@ useEffect(() => {
   const handleInputChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     const val = e.target.value;
     setMessage(val);
-    if (val.startsWith('/')) {
+    if (val.startsWith('/') && currentUser?.role !== UserRole.EMPLOYEE) {
       setShowQuickNoteSearch(true);
     } else {
       setShowQuickNoteSearch(false);
@@ -1226,19 +1373,19 @@ useEffect(() => {
         {!isMinimized && (
           <motion.div 
             initial={{ opacity: 0, y: 50, scale: 0.9 }}
-            animate={{ 
-              opacity: 1, 
-              y: 0, 
+            animate={{
+              opacity: 1,
+              y: 0,
               scale: 1,
-              width: isExpanded ? '90vw' : '400px',
-              height: isExpanded ? '85vh' : '600px',
+              width: isExpanded ? '90vw' : 'min(400px, calc(100vw - 2rem))',
+              height: isExpanded ? '85vh' : 'min(600px, calc(100vh - 6rem))',
               right: isExpanded ? 'calc(5vw - 24px)' : '0',
               bottom: isExpanded ? 'calc(7.5vh - 24px)' : '80px',
             }}
             exit={{ opacity: 0, y: 50, scale: 0.9 }}
             className={cn(
               "bg-[var(--surface-card)] border border-[var(--border-default)] shadow-2xl flex flex-col overflow-hidden absolute",
-              isExpanded ? "rounded-[3rem] z-[210]" : "rounded-[2.5rem] z-[205]"
+              isExpanded ? "rounded-3xl z-[210]" : "rounded-2xl z-[205]"
             )}
           >
             {/* Header */}
@@ -1278,7 +1425,7 @@ useEffect(() => {
               </div>
             </div>
 
-            <div className="flex-1 flex overflow-hidden bg-[var(--surface-card)]/30">
+            <div className="flex-1 flex overflow-hidden bg-[var(--surface-card)]/30 min-w-0">
               {/* Sidebar (List) - Hide for customer */}
               {(!isCustomer && (!selectedChatId || isExpanded)) && (
                 <div className={cn(
@@ -1395,7 +1542,7 @@ useEffect(() => {
 
               {/* Chat Content */}
               {selectedChatId ? (
-                <div className="flex-1 flex flex-col bg-[var(--surface-card)]">
+                <div className="flex-1 flex flex-col bg-[var(--surface-card)] min-w-0">
                   {/* Chat Header */}
                   <div className="px-5 py-3 bg-[var(--surface-card)] border-b border-[var(--border-default)] flex flex-wrap items-center justify-between gap-y-2">
                     <div className="flex items-center gap-2 min-w-0">
@@ -1706,7 +1853,7 @@ useEffect(() => {
                         <button
                           type="button"
                           onClick={stopRecordingAndAttach}
-                          className="w-12 h-12 shrink-0 bg-[var(--accent)] text-white rounded-2xl hover:bg-[var(--accent-hover)] transition-all shadow-xl shadow-indigo-100 flex items-center justify-center"
+                          className="w-11 h-11 shrink-0 bg-[var(--accent)] text-white rounded-2xl hover:bg-[var(--accent-hover)] transition-all shadow-sm flex items-center justify-center"
                           title="Parar e anexar"
                         >
                           <Square size={16} fill="currentColor" />
@@ -1747,9 +1894,9 @@ useEffect(() => {
                       <button
                         type="submit"
                         disabled={!message.trim() && chatAttachments.length === 0}
-                        className="w-12 h-12 shrink-0 bg-[var(--accent)] text-white rounded-2xl hover:bg-[var(--accent-hover)] transition-all shadow-xl shadow-indigo-100 flex items-center justify-center disabled:opacity-50 disabled:cursor-not-allowed"
+                        className="w-11 h-11 shrink-0 bg-[var(--accent)] text-white rounded-2xl hover:bg-[var(--accent-hover)] transition-all shadow-sm flex items-center justify-center disabled:opacity-50 disabled:cursor-not-allowed"
                       >
-                        <Send size={18} />
+                        <Send size={17} />
                       </button>
                     </form>
                     )}
@@ -1951,27 +2098,27 @@ useEffect(() => {
           <div className="fixed inset-0 z-[250] flex items-center justify-center p-4">
              <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} onClick={() => setIsFinishModalOpen(false)} className="absolute inset-0 bg-slate-900/40 backdrop-blur-sm" />
              <motion.div initial={{ scale: 0.9, opacity: 0 }} animate={{ scale: 1, opacity: 1 }} exit={{ scale: 0.9, opacity: 0 }} className="relative bg-[var(--surface-card)] w-full max-w-sm rounded-[2.5rem] shadow-2xl p-8">
-                <h3 className="text-xl font-black text-[var(--text-primary)] uppercase tracking-tight mb-2">Finalizar Chat</h3>
+                <h3 className="text-xl font-black text-[var(--text-primary)] uppercase tracking-tight mb-2">Gerar Chamado</h3>
                 <p className="text-xs text-[var(--text-tertiary)] font-medium mb-6">Transforme esta conversa em um chamado para Histórico.</p>
-                
+
                 <div className="space-y-4">
                    <div className="space-y-1.5">
                       <label className="text-[10px] font-semibold uppercase text-[var(--text-tertiary)] tracking-widest">Título do Chamado</label>
-                      <input 
-                        type="text" 
-                        value={ticketTitle} 
-                        onChange={e => setTicketTitle(e.target.value)} 
-                        placeholder="Ex: Suporte técnico - Erro no login" 
-                        className="w-full bg-[var(--surface-card)] border border-[var(--border-default)] rounded-2xl px-4 py-3 text-sm font-bold focus:ring-4 focus:ring-[var(--accent)]/10 outline-none" 
+                      <input
+                        type="text"
+                        value={ticketTitle}
+                        onChange={e => setTicketTitle(e.target.value)}
+                        placeholder="Ex: Suporte técnico - Erro no login"
+                        className="w-full bg-[var(--surface-card)] border border-[var(--border-default)] rounded-2xl px-4 py-3 text-sm font-bold focus:ring-4 focus:ring-[var(--accent)]/10 outline-none"
                       />
                    </div>
-                   
+
                    <label className="flex items-center gap-3 p-4 bg-[var(--surface-card)] border border-[var(--border-default)] rounded-2xl cursor-pointer hover:bg-[var(--surface-pill)] transition-all">
-                      <input 
-                        type="checkbox" 
-                        checked={closeTicketImmediately} 
+                      <input
+                        type="checkbox"
+                        checked={closeTicketImmediately}
                         onChange={e => setCloseTicketImmediately(e.target.checked)}
-                        className="w-5 h-5 rounded-lg border-[var(--border-default)] text-[var(--accent-text)] focus:ring-[var(--accent)]" 
+                        className="w-5 h-5 rounded-lg border-[var(--border-default)] text-[var(--accent-text)] focus:ring-[var(--accent)]"
                       />
                       <div className="flex flex-col">
                          <span className="text-xs font-black uppercase text-[var(--text-secondary)] tracking-tight">Fechar Imediatamente</span>
@@ -1979,9 +2126,17 @@ useEffect(() => {
                       </div>
                    </label>
 
-                   <button 
-                     onClick={handleFinishChat} 
-                     className="w-full mt-4 py-4 bg-slate-900 text-white rounded-2xl text-[11px] font-semibold uppercase tracking-widest shadow-xl hover:bg-slate-800 transition-all"
+                   <button
+                     onClick={() => handleGenerateTicket(false)}
+                     className="w-full mt-2 py-4 bg-[var(--surface-card)] border-2 border-[var(--border-default)] text-[var(--text-primary)] rounded-2xl text-[11px] font-semibold uppercase tracking-widest hover:border-[var(--accent)]/40 hover:bg-[var(--surface-pill)] transition-all"
+                   >
+                     Gerar Chamado
+                   </button>
+                   <p className="text-[9px] text-[var(--text-tertiary)] font-medium text-center -mt-2">O chat continua aberto, sem enviar mensagem de encerramento.</p>
+
+                   <button
+                     onClick={() => handleGenerateTicket(true)}
+                     className="w-full py-4 bg-slate-900 text-white rounded-2xl text-[11px] font-semibold uppercase tracking-widest shadow-xl hover:bg-slate-800 transition-all"
                    >
                      Gerar Chamado & Finalizar
                    </button>

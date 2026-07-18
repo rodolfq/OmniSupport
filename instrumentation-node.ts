@@ -1,6 +1,7 @@
 import { PHASE_PRODUCTION_BUILD } from 'next/constants';
 import { query } from './lib/db';
 import { WhatsAppService } from './lib/services/whatsapp-service';
+import { startAutomationScheduler } from './lib/services/automation-scheduler';
 
 (async () => {
   if (process.env.NEXT_PHASE === PHASE_PRODUCTION_BUILD) return;
@@ -17,4 +18,6 @@ import { WhatsAppService } from './lib/services/whatsapp-service';
   } catch (err) {
     console.error('[WhatsApp] Falha ao carregar instâncias para reconexão automática:', err);
   }
+
+  startAutomationScheduler();
 })();

@@ -118,13 +118,13 @@ export default function MyTicketsPage() {
       {/* Header */}
       <div className="flex flex-col md:flex-row md:items-center justify-between gap-6">
         <div>
-          <h2 className="text-3xl font-black text-[var(--text-primary)] uppercase tracking-tight">Meus Chamados</h2>
+          <h2 className="text-2xl font-bold text-[var(--text-primary)] tracking-tight">Meus Chamados</h2>
           <p className="text-[var(--text-tertiary)] font-medium mt-1">Acompanhe suas solicitações e interaja com o suporte.</p>
         </div>
-        
-        <button 
+
+        <button
           onClick={() => setIsNewTicketModalOpen(true)}
-          className="bg-[var(--accent)] text-white px-8 py-4 rounded-[2rem] text-sm font-black uppercase tracking-widest shadow-2xl shadow-indigo-100 hover:bg-[var(--accent-hover)] transition-all flex items-center justify-center gap-3 active:scale-95"
+          className="bg-[var(--accent)] hover:bg-[var(--accent-hover)] text-white px-6 py-2.5 rounded-lg text-sm font-semibold shadow-md transition-all flex items-center justify-center gap-2 active:scale-95 focus:outline-none focus:ring-2 focus:ring-[var(--accent)]/40"
         >
           <Plus size={18} />
           Novo Chamado
@@ -132,22 +132,22 @@ export default function MyTicketsPage() {
       </div>
 
       {/* Filters Bar */}
-      <div className="bg-[var(--surface-card)] p-4 rounded-[2rem] border border-[var(--border-default)] shadow-xl shadow-slate-200/50 flex flex-wrap items-center gap-4">
+      <div className="bg-[var(--surface-card)] p-4 rounded-2xl border border-[var(--border-default)] shadow-sm flex flex-wrap items-center gap-4">
         <div className="relative flex-1 min-w-[200px]">
           <Search className="absolute left-4 top-1/2 -translate-y-1/2 text-[var(--text-tertiary)]" size={18} />
-          <input 
-            type="text" 
-            placeholder="Pesquisar por assunto ou ID..." 
+          <input
+            type="text"
+            placeholder="Pesquisar por assunto ou ID..."
             value={search}
             onChange={e => {
               setSearch(e.target.value);
               setVisibleCount(12);
             }}
-            className="w-full bg-[var(--surface-card)] border border-[var(--border-default)] rounded-2xl py-3 pl-12 pr-4 text-sm font-bold focus:bg-[var(--surface-card)] focus:ring-4 focus:ring-[var(--accent)]/10 outline-none transition-all"
+            className="w-full bg-[var(--surface-card)] border border-[var(--border-default)] rounded-xl py-2.5 pl-12 pr-4 text-sm font-medium focus:ring-2 focus:ring-[var(--accent)]/20 focus:border-[var(--accent)] outline-none transition-all"
           />
         </div>
 
-        <div className="flex items-center gap-2 p-1 bg-[var(--surface-card)] rounded-2xl border border-[var(--border-default)] overflow-x-auto max-w-full scrollbar-hidden">
+        <div className="flex items-center gap-2 p-1 bg-[var(--surface-pill)] rounded-xl border border-[var(--border-default)] overflow-x-auto max-w-full scrollbar-hidden">
           {CUSTOMER_STATUS_FILTERS.map(s => (
             <button
               key={s.value}
@@ -156,8 +156,8 @@ export default function MyTicketsPage() {
                 setVisibleCount(12);
               }}
               className={cn(
-                "px-4 py-2 rounded-xl text-[10px] font-semibold uppercase tracking-widest transition-all whitespace-nowrap",
-                filter === s.value ? "bg-[var(--surface-card)] text-[var(--accent-text)] shadow-md" : "text-[var(--text-tertiary)] hover:text-[var(--text-secondary)]"
+                "px-3 py-1.5 rounded-lg text-[10px] font-semibold uppercase tracking-widest transition-all whitespace-nowrap",
+                filter === s.value ? "bg-[var(--surface-card)] text-[var(--accent-text)] shadow-sm" : "text-[var(--text-tertiary)] hover:text-[var(--text-secondary)]"
               )}
             >
               {s.label}
@@ -166,11 +166,11 @@ export default function MyTicketsPage() {
         </div>
 
         <div className="flex items-center gap-2 border-l border-[var(--border-default)] pl-4 ml-2">
-           <button onClick={() => setView('grid')} className={cn("p-2.5 rounded-xl transition-all", view === 'grid' ? "bg-[var(--accent)] text-white shadow-lg shadow-indigo-100" : "text-[var(--text-tertiary)] hover:bg-[var(--surface-card)]")}>
-             <LayoutGrid size={18} />
+           <button onClick={() => setView('grid')} className={cn("p-2 rounded-lg transition-all", view === 'grid' ? "bg-[var(--accent)] text-white shadow-sm" : "text-[var(--text-tertiary)] hover:bg-[var(--surface-pill)]")}>
+             <LayoutGrid size={16} />
            </button>
-           <button onClick={() => setView('list')} className={cn("p-2.5 rounded-xl transition-all", view === 'list' ? "bg-[var(--accent)] text-white shadow-lg shadow-indigo-100" : "text-[var(--text-tertiary)] hover:bg-[var(--surface-card)]")}>
-             <ListIcon size={18} />
+           <button onClick={() => setView('list')} className={cn("p-2 rounded-lg transition-all", view === 'list' ? "bg-[var(--accent)] text-white shadow-sm" : "text-[var(--text-tertiary)] hover:bg-[var(--surface-pill)]")}>
+             <ListIcon size={16} />
            </button>
         </div>
       </div>
@@ -184,43 +184,43 @@ export default function MyTicketsPage() {
               view === 'grid' ? "grid-cols-1 md:grid-cols-2 lg:grid-cols-3" : "grid-cols-1"
             )}>
               {visibleTickets.map(ticket => (
-                <motion.div 
+                <motion.div
                   key={ticket.id}
                   layout
                   initial={{ opacity: 0, y: 20 }}
                   animate={{ opacity: 1, y: 0 }}
-                  whileHover={{ y: -4 }}
+                  whileHover={{ y: -2 }}
                   onClick={() => setSelectedTicket(ticket)}
                   className={cn(
-                    "bg-[var(--surface-card)] border border-[var(--border-default)] rounded-[2.5rem] p-8 shadow-lg shadow-slate-200/40 cursor-pointer transition-all hover:shadow-2xl hover:shadow-indigo-100 group flex flex-col",
-                    view === 'list' && "flex-row items-center gap-8 py-6 rounded-[2rem]"
+                    "bg-[var(--surface-card)] border border-[var(--border-default)] rounded-2xl p-6 shadow-sm cursor-pointer transition-all hover:shadow-md hover:border-[var(--accent)]/40 group flex flex-col",
+                    view === 'list' && "flex-row items-center gap-6 py-4"
                   )}
                 >
                   <div className={cn(
-                    "flex-1",
-                    view === 'list' && "flex items-center gap-8 flex-1"
+                    "flex-1 min-w-0",
+                    view === 'list' && "flex items-center gap-6 flex-1"
                   )}>
-                    <div className="flex items-center justify-between mb-4">
+                    <div className="flex items-center justify-between mb-3">
                       <span className="text-[10px] font-semibold uppercase tracking-widest text-[var(--text-tertiary)]">#{ticket.ticketNumber ? String(ticket.ticketNumber).padStart(4, '0') : ticket.id.slice(0, 8)}</span>
-                      <span className={cn("px-4 py-1.5 rounded-full text-[9px] font-semibold uppercase tracking-widest", getStatusColor(ticket.status))}>
+                      <span className={cn("px-3 py-1 rounded-full text-[9px] font-semibold uppercase tracking-widest", getStatusColor(ticket.status))}>
                         {getCustomerStatusLabel(ticket.status)}
                       </span>
                     </div>
-                    
-                    <h3 className="text-lg font-black text-[var(--text-primary)] uppercase tracking-tight mb-2 group-hover:text-[var(--accent-text)] transition-colors leading-tight truncate">
+
+                    <h3 className="text-sm font-bold text-[var(--text-primary)] tracking-tight mb-1.5 group-hover:text-[var(--accent-text)] transition-colors leading-tight truncate">
                       {ticket.title}
                     </h3>
-                    
-                    <p className="text-sm text-[var(--text-tertiary)] font-medium line-clamp-2 mb-6">
+
+                    <p className="text-sm text-[var(--text-tertiary)] font-medium line-clamp-2 mb-4">
                       {(() => {
                         const html = ticket.description || '';
                         return html.replace(/<[^>]*>/g, '').replace(/&nbsp;/g, ' ').trim();
                       })()}
                     </p>
 
-                    <div className="flex flex-wrap gap-2 mb-6">
+                    <div className="flex flex-wrap gap-2 mb-4">
                       {ticket.tags?.map(tag => (
-                        <span key={tag} className="bg-[var(--surface-card)] text-[var(--text-tertiary)] px-3 py-1 rounded-lg text-[9px] font-semibold uppercase tracking-widest flex items-center gap-1.5">
+                        <span key={tag} className="bg-[var(--surface-pill)] text-[var(--text-tertiary)] px-2 py-1 rounded-md text-[9px] font-semibold uppercase tracking-widest flex items-center gap-1.5">
                           <Tag size={10} />
                           {tag}
                         </span>
@@ -229,52 +229,52 @@ export default function MyTicketsPage() {
                   </div>
 
                   <div className={cn(
-                    "flex items-center justify-between pt-6 border-t border-[var(--border-default)]",
+                    "flex items-center justify-between pt-4 border-t border-[var(--border-default)]",
                     view === 'list' && "border-t-0 pt-0"
                   )}>
-                    <div className="flex items-center gap-6">
-                      <div className="flex items-center gap-2 text-[var(--text-tertiary)]">
-                        <Clock size={14} />
+                    <div className="flex items-center gap-4">
+                      <div className="flex items-center gap-1.5 text-[var(--text-tertiary)]">
+                        <Clock size={13} />
                         <span className="text-[10px] font-semibold uppercase">
                           {new Date(ticket.createdAt).toLocaleDateString('pt-BR')}
                         </span>
                       </div>
-                      <div className="flex items-center gap-2 text-[var(--text-tertiary)]">
-                        <MessageSquare size={14} />
+                      <div className="flex items-center gap-1.5 text-[var(--text-tertiary)]">
+                        <MessageSquare size={13} />
                         <span className="text-[10px] font-semibold uppercase">
                           -
                         </span>
                       </div>
                     </div>
-                    <ChevronRight className="text-slate-300 group-hover:text-[var(--accent-text)] transition-all transform group-hover:translate-x-1" size={20} />
+                    <ChevronRight className="text-[var(--text-tertiary)] group-hover:text-[var(--accent-text)] transition-all transform group-hover:translate-x-1" size={18} />
                   </div>
                 </motion.div>
               ))}
             </div>
 
             {filteredTickets.length > visibleCount && (
-              <div className="text-center py-8">
-                <button 
+              <div className="text-center py-6">
+                <button
                   onClick={() => setVisibleCount(prev => prev + 12)}
-                  className="bg-[var(--surface-card)] border border-[var(--border-default)] text-[var(--text-secondary)] px-8 py-3 rounded-2xl text-[10px] font-semibold uppercase tracking-widest hover:bg-[var(--surface-card)] hover:border-indigo-300 hover:text-[var(--accent-text)] transition-all shadow-md group active:scale-95"
+                  className="bg-[var(--surface-card)] border border-[var(--border-default)] text-[var(--text-secondary)] px-6 py-2.5 rounded-xl text-[10px] font-semibold uppercase tracking-widest hover:border-[var(--accent)]/40 hover:text-[var(--accent-text)] transition-all shadow-sm group active:scale-95"
                 >
-                  Carregar mais chamados <span className="text-[var(--accent-text)] group-hover:text-[var(--accent-text)] ml-1">({filteredTickets.length - visibleCount})</span>
+                  Carregar mais chamados <span className="text-[var(--accent-text)] ml-1">({filteredTickets.length - visibleCount})</span>
                 </button>
               </div>
             )}
           </>
         ) : (
-          <div className="bg-[var(--surface-card)] border-2 border-dashed border-[var(--border-default)] rounded-[3rem] p-20 text-center animate-in fade-in duration-700">
-            <div className="w-24 h-24 bg-[var(--surface-card)] rounded-[2rem] flex items-center justify-center mx-auto mb-8 text-slate-300">
-               <TicketIcon size={48} />
+          <div className="bg-[var(--surface-card)] border-2 border-dashed border-[var(--border-default)] rounded-2xl p-12 text-center animate-in fade-in duration-700">
+            <div className="w-16 h-16 bg-[var(--surface-pill)] rounded-xl flex items-center justify-center mx-auto mb-6 text-[var(--text-tertiary)]">
+               <TicketIcon size={32} />
             </div>
-            <h3 className="text-2xl font-black text-[var(--text-primary)] uppercase tracking-tight mb-2">Sem chamados por aqui</h3>
-            <p className="text-[var(--text-tertiary)] font-medium mb-8">Nenhum chamado corresponde aos filtros selecionados ou você ainda não abriu solicitações.</p>
-            <button 
+            <h3 className="text-lg font-bold text-[var(--text-primary)] tracking-tight mb-2">Sem chamados por aqui</h3>
+            <p className="text-[var(--text-tertiary)] font-medium mb-6">Nenhum chamado corresponde aos filtros selecionados ou você ainda não abriu solicitações.</p>
+            <button
               onClick={() => setIsNewTicketModalOpen(true)}
-              className="inline-flex items-center gap-3 bg-slate-900 text-white px-10 py-5 rounded-3xl text-sm font-black uppercase tracking-widest hover:bg-[var(--accent)] transition-all shadow-xl hover:shadow-indigo-100"
+              className="inline-flex items-center gap-2 bg-[var(--accent)] hover:bg-[var(--accent-hover)] text-white px-6 py-2.5 rounded-lg text-sm font-semibold shadow-md transition-all focus:outline-none focus:ring-2 focus:ring-[var(--accent)]/40"
             >
-              <Plus size={20} />
+              <Plus size={18} />
               Abrir Primeiro Chamado
             </button>
           </div>

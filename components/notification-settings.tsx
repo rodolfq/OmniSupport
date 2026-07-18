@@ -2,7 +2,7 @@
 
 import React from 'react';
 import { StyledSelect } from '@/components/styled-select';
-import { Volume2 } from 'lucide-react';
+import { Volume2, Monitor, BellOff, CheckCircle2, AlertTriangle } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { useApp } from '@/app/app-context';
 import { UserRole } from '@/lib/types';
@@ -18,11 +18,13 @@ const ALL_NOTIFICATION_TOGGLES = [
 const COMPANY_NOTIFICATION_ORDER = ['chat_message', 'ticket_closed', 'ticket_update'];
 
 export function NotificationSettingsContent() {
-  const { 
+  const {
     currentUser,
     notificationSettings,
     updateNotificationSettings,
-    playSound 
+    playSound,
+    osNotificationPermission,
+    requestOsNotificationPermission
   } = useApp();
   const isCompanyUser = [UserRole.CUSTOMER, UserRole.EMPLOYEE].includes(currentUser?.role as UserRole);
   const visibleToggles = ALL_NOTIFICATION_TOGGLES
@@ -31,6 +33,56 @@ export function NotificationSettingsContent() {
 
   return (
     <div className="space-y-8 animate-in fade-in slide-in-from-bottom-4 duration-300">
+       <div className="p-6 bg-[var(--surface-card)] rounded-2xl border border-[var(--border-default)] flex flex-col gap-4">
+          <h4 className="text-[10px] font-black uppercase text-[var(--text-primary)] tracking-widest flex items-center gap-2">
+            <Monitor size={14} className="text-[var(--accent-text)]" /> Notificações do Windows
+          </h4>
+          <p className="text-xs text-[var(--text-tertiary)] font-medium -mt-2">
+            Receba um aviso do sistema mesmo com esta janela minimizada ou outro app em primeiro plano — funciona enquanto o navegador continuar aberto.
+          </p>
+
+          {osNotificationPermission === 'unsupported' && (
+            <div className="flex items-center gap-2 text-xs font-bold text-[var(--text-tertiary)]">
+              <AlertTriangle size={16} /> Este navegador não suporta notificações do sistema.
+            </div>
+          )}
+
+          {osNotificationPermission === 'granted' && (
+            <>
+              <div className="flex items-center gap-2 text-xs font-bold text-[var(--text-success)]">
+                <CheckCircle2 size={16} /> Ativadas neste navegador.
+              </div>
+              <div className="flex items-center justify-between px-4 py-3 bg-[var(--surface-card)] border border-[var(--border-default)] rounded-xl">
+                 <span className="text-xs font-bold text-[var(--text-secondary)]">Enviar notificações do Windows</span>
+                 <button
+                   onClick={() => updateNotificationSettings({ osNotificationsEnabled: !notificationSettings.osNotificationsEnabled })}
+                   className={cn(
+                     "w-10 h-6 rounded-full transition-all flex items-center px-1",
+                     notificationSettings.osNotificationsEnabled ? "bg-[var(--text-success)] justify-end" : "bg-[var(--border-default)] justify-start"
+                   )}
+                 >
+                    <div className="w-4 h-4 bg-[var(--surface-card)] rounded-full shadow-sm" />
+                 </button>
+              </div>
+            </>
+          )}
+
+          {osNotificationPermission === 'default' && (
+            <button
+              onClick={requestOsNotificationPermission}
+              className="self-start flex items-center gap-2 bg-[var(--accent)] hover:bg-[var(--accent-hover)] text-white text-xs font-bold uppercase px-4 py-2.5 rounded-xl transition-colors"
+            >
+              <Monitor size={14} /> Ativar notificações do Windows
+            </button>
+          )}
+
+          {osNotificationPermission === 'denied' && (
+            <div className="flex items-center gap-2 text-xs font-bold text-[var(--text-danger)]">
+              <BellOff size={16} /> Bloqueadas pelo navegador. Habilite manualmente nas permissões do site (ícone de cadeado na barra de endereço) e recarregue a página.
+            </div>
+          )}
+       </div>
+
        <div className="grid grid-cols-1 md:grid-cols-2 gap-8">
           {/* Som dos Alertas */}
           <div className="space-y-6">

@@ -34,11 +34,14 @@ export async function GET(request: NextRequest) {
       );
       // Conversas fechadas já têm o histórico salvo em chat_histories (texto) e não
       // aparecem na fila/lista ativa — não há motivo para reenviar seus anexos (áudio/
-      // imagem em base64) a cada polling do widget de chat.
+      // imagem em base64) a cada polling do widget de chat. Exceção: enquanto a janela
+      // da pesquisa de satisfação estiver aberta, a sessão fechada ainda precisa expor
+      // a mensagem de encerramento (e uma eventual resposta "1"/"0") no widget.
       const messagesRes = await query(
         `SELECT m.* FROM public.chat_messages m
          JOIN public.chat_sessions s ON s.id = m.session_id
          WHERE s.status != 'closed'
+            OR (s.awaiting_survey_until IS NOT NULL AND s.awaiting_survey_until > NOW())
          ORDER BY m.created_at ASC`
       );
       
@@ -70,6 +73,7 @@ export async function GET(request: NextRequest) {
         ticketNumber: s.ticket_number,
         startedAt: s.created_at,
         lastMessageAt: s.last_message_at || s.created_at,
+        awaitingSurveyUntil: s.awaiting_survey_until,
         messages: messagesBySession.get(s.id) || []
       }));
 
@@ -261,9 +265,15 @@ export async function POST(request: Request) {
       }
 
       if (lookupClauses.length > 0) {
+        // Só reaproveita uma sessão fechada enquanto a janela da pesquisa de
+        // satisfação dela ainda estiver aberta (resposta "1"/"0" chegando
+        // atrasada) — fora disso, "fechada" significa fechada de verdade: um
+        // novo contato do mesmo cliente é outro atendimento, com número de
+        // conversa novo, não uma reabertura silenciosa do anterior.
         const existing = await query(
           `SELECT id FROM public.chat_sessions
-           WHERE ${lookupClauses.map(c => `(${c})`).join(' OR ')}
+           WHERE (${lookupClauses.map(c => `(${c})`).join(' OR ')})
+             AND (status != 'closed' OR (awaiting_survey_until IS NOT NULL AND awaiting_survey_until > NOW()))
            ORDER BY updated_at DESC, created_at DESC
            LIMIT 1`,
           lookupParams
@@ -331,6 +341,46 @@ export async function POST(request: Request) {
              updated_at = NOW()
          WHERE id = $2`,
         [message.timestamp, sessionId]
+      );
+      return NextResponse.json({ success: true });
+    }
+
+    if (action === 'submit-survey-response') {
+      const { sessionId, rating, message } = body;
+
+      // Grava a resposta ("1"/"0") como mensagem normal, mas via INSERT direto
+      // (sem passar pelo fluxo de push-message) para NÃO acionar o
+      // reabre-sessão-fechada — responder a pesquisa não deve reabrir o
+      // atendimento como se fosse uma nova conversa.
+      if (message) {
+        await query(
+          `INSERT INTO public.chat_messages (id, session_id, sender_id, sender_name, text, type, metadata, created_at)
+           VALUES ($1, $2, $3, $4, $5, $6, $7::jsonb, $8)`,
+          [
+            message.id,
+            sessionId,
+            message.senderId || null,
+            message.senderName || null,
+            message.text,
+            message.type || 'text',
+            JSON.stringify({}),
+            message.timestamp
+          ]
+        );
+        await query(
+          'UPDATE public.chat_sessions SET last_message_at = $1, updated_at = NOW() WHERE id = $2',
+          [message.timestamp, sessionId]
+        );
+      }
+
+      await query(
+        `UPDATE public.chat_histories SET rating = $1
+         WHERE id = (SELECT id FROM public.chat_histories WHERE session_id = $2 ORDER BY created_at DESC LIMIT 1)`,
+        [rating, sessionId]
+      );
+      await query(
+        'UPDATE public.chat_sessions SET awaiting_survey_until = NULL WHERE id = $1',
+        [sessionId]
       );
       return NextResponse.json({ success: true });
     }

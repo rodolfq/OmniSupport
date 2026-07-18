@@ -25,6 +25,7 @@ export class TicketService {
       customerName: t.customer?.name,
       assigneeId: t.assignee_id,
       assigneeName: t.assignee?.name,
+      employeeIds: t.employee_ids || [],
       createdAt: t.created_at,
       updatedAt: t.updated_at
     })) as Ticket[];
@@ -57,6 +58,7 @@ export class TicketService {
       customerName: data.customer?.name,
       assigneeId: data.assignee_id,
       assigneeName: data.assignee?.name,
+      employeeIds: data.employee_ids || [],
       createdAt: data.created_at,
       updatedAt: data.updated_at
     } as Ticket;
@@ -78,7 +80,8 @@ export class TicketService {
       category: ticket.category || 'Geral',
       customer_id: userId,
       assignee_id: ticket.assigneeId || null,
-      company_id: ticket.companyId || null
+      company_id: ticket.companyId || null,
+      employee_ids: ticket.employeeIds || []
     });
 
     if (error) throw error;
@@ -96,6 +99,7 @@ export class TicketService {
         company_id: ticket.companyId,
         customer_id: ticket.customerId,
         assignee_id: ticket.assigneeId,
+        employee_ids: ticket.employeeIds,
         updated_at: new Date().toISOString()
       })
       .eq('id', ticket.id);

@@ -1,5 +1,6 @@
 import { NextResponse } from 'next/server';
 import { query } from '@/lib/db';
+import { getAutomationSettings, saveAutomationSetting } from '@/lib/services/automation-service';
 
 export async function GET(request: Request) {
   const { searchParams } = new URL(request.url);
@@ -27,6 +28,12 @@ export async function GET(request: Request) {
     } else if (type === 'analyst-statuses') {
       const res = await query('SELECT * FROM public.analyst_status');
       return NextResponse.json(res.rows);
+    } else if (type === 'survey-settings') {
+      const res = await query('SELECT * FROM public.config_survey_settings WHERE id = 1');
+      return NextResponse.json(res.rows[0] || null);
+    } else if (type === 'automation-settings') {
+      const settings = await getAutomationSettings();
+      return NextResponse.json(settings);
     } else {
       return NextResponse.json({ error: 'Tipo não especificado ou inválido' }, { status: 400 });
     }
@@ -135,6 +142,23 @@ export async function POST(request: Request) {
         await query('DELETE FROM public.quick_notes WHERE id = $1', [note.id]);
         return NextResponse.json({ success: true });
       }
+    } else if (type === 'survey-settings') {
+      const { settings } = body;
+      const res = await query(
+        `UPDATE public.config_survey_settings
+         SET enabled = $1,
+             message = $2,
+             response_window_hours = $3,
+             updated_at = now()
+         WHERE id = 1
+         RETURNING *`,
+        [settings.enabled, settings.message, settings.responseWindowHours]
+      );
+      return NextResponse.json(res.rows[0]);
+    } else if (type === 'automation-settings') {
+      const { eventKey, settings } = body;
+      const saved = await saveAutomationSetting(eventKey, settings);
+      return NextResponse.json(saved);
     }
 
     return NextResponse.json({ error: 'Action or type not supported' }, { status: 400 });

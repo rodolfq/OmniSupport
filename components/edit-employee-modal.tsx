@@ -2,7 +2,7 @@
 
 import React, { useState, useEffect } from 'react';
 import { StyledSelect } from '@/components/styled-select';
-import { X, Save, Mail, Phone, Shield, Lock, Eye, EyeOff, Plus, Trash2, AlertTriangle } from 'lucide-react';
+import { X, Save, Mail, Phone, ShieldCheck, ShieldOff, Lock, Eye, EyeOff, Plus, Trash2, AlertTriangle, Copy, Check } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import { UserRole, type User, type Company } from '@/lib/types';
 import { UserService } from '@/lib/services/user-service';
@@ -18,10 +18,12 @@ export function EditEmployeeModal({ isOpen, onClose, user, onSuccess }: { isOpen
   const [companyId, setCompanyId] = useState('');
   const [companies, setCompanies] = useState<Company[]>([]);
   const [viewAllCompanyTickets, setViewAllCompanyTickets] = useState(false);
+  const [isActive, setIsActive] = useState(true);
 
   const [loading, setLoading] = useState(false);
   const [saveSuccess, setSaveSuccess] = useState(false);
   const [generatedPassword, setGeneratedPassword] = useState('');
+  const [passwordCopied, setPasswordCopied] = useState(false);
   const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
   const [deleteLoading, setDeleteLoading] = useState(false);
 
@@ -42,6 +44,7 @@ export function EditEmployeeModal({ isOpen, onClose, user, onSuccess }: { isOpen
       setPhones(userPhones);
       
       setViewAllCompanyTickets(user.viewAllCompanyTickets || false);
+      setIsActive(user.isActive ?? true);
     }
   }, [user]);
 
@@ -58,7 +61,8 @@ export function EditEmployeeModal({ isOpen, onClose, user, onSuccess }: { isOpen
         phones,
         phone: phones[0] || '', // Keep single phone for compatibility
         companyId,
-        viewAllCompanyTickets
+        viewAllCompanyTickets,
+        isActive
       };
       await UserService.save(updatedUser);
       setSaveSuccess(true);
@@ -97,12 +101,24 @@ export function EditEmployeeModal({ isOpen, onClose, user, onSuccess }: { isOpen
 
       console.log('Password reset successful.');
       setGeneratedPassword(result.password);
+      setPasswordCopied(false);
       if (onSuccess) onSuccess();
     } catch (e: any) {
       console.error('Erro ao reiniciar senha:', e);
       alert('Erro ao reiniciar senha: ' + e.message);
     } finally {
       setLoading(false);
+    }
+  };
+
+  const handleCopyPassword = async () => {
+    if (!generatedPassword) return;
+    try {
+      await navigator.clipboard.writeText(generatedPassword);
+      setPasswordCopied(true);
+      setTimeout(() => setPasswordCopied(false), 2000);
+    } catch (e) {
+      console.error('Erro ao copiar senha:', e);
     }
   };
 
@@ -137,9 +153,9 @@ export function EditEmployeeModal({ isOpen, onClose, user, onSuccess }: { isOpen
             initial={{ opacity: 0, scale: 0.95, y: 20 }}
             animate={{ opacity: 1, scale: 1, y: 0 }}
             exit={{ opacity: 0, scale: 0.95, y: 20 }}
-            className="relative bg-[var(--surface-card)] w-full max-w-lg rounded-3xl shadow-2xl overflow-hidden border border-[var(--border-default)]"
+            className="relative bg-[var(--surface-card)] w-full max-w-lg max-h-[90vh] rounded-3xl shadow-2xl overflow-hidden border border-[var(--border-default)] flex flex-col"
           >
-            <div className="bg-slate-900 px-8 py-6 text-white flex items-center justify-between">
+            <div className="bg-slate-900 px-8 py-6 text-white flex items-center justify-between shrink-0">
               <div>
                 <h3 className="text-xl font-black tracking-tight text-white m-0">Editar Colaborador</h3>
                 <p className="text-[10px] text-[var(--text-tertiary)] font-bold uppercase tracking-widest mt-1">Configure as permissões de {user.name}</p>
@@ -149,7 +165,7 @@ export function EditEmployeeModal({ isOpen, onClose, user, onSuccess }: { isOpen
               </button>
             </div>
 
-            <form onSubmit={handleSubmit} className="p-8 space-y-5">
+            <form onSubmit={handleSubmit} className="p-8 space-y-5 overflow-y-auto min-h-0">
               <div className="space-y-2">
                 <label className="text-[10px] font-semibold uppercase tracking-widest text-[var(--text-tertiary)] ml-1">Nome Completo</label>
                 <input
@@ -177,31 +193,21 @@ export function EditEmployeeModal({ isOpen, onClose, user, onSuccess }: { isOpen
                 </div>
               </div>
 
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                <div className="space-y-2">
-                  <label className="text-[10px] font-semibold uppercase tracking-widest text-[var(--text-tertiary)] ml-1">Empresa</label>
-                  <div className="relative">
-                    <Globe className="absolute left-4 top-1/2 -translate-y-1/2 text-[var(--text-tertiary)]" size={16} />
-                    <StyledSelect
-                      value={companyId}
-                      onChange={(e) => setCompanyId(e.target.value)}
-                      className="w-full bg-[var(--surface-card)] border border-[var(--border-default)] rounded-xl pl-12 pr-4 py-3 text-sm font-medium focus:ring-2 focus:ring-[var(--accent)]/20 focus:border-[var(--accent)] outline-none transition-all appearance-none"
-                      required
-                    >
-                      <option value="">Selecione uma empresa</option>
-                      {companies.map(c => (
-                        <option key={c.id} value={c.id}>{c.name}</option>
-                      ))}
-                    </StyledSelect>
-                  </div>
-                </div>
-
-                <div className="space-y-2">
-                   <label className="text-[10px] font-semibold uppercase tracking-widest text-[var(--text-tertiary)] ml-1">Perfil de Acesso</label>
-                   <div className="bg-[var(--accent)]/10 border border-[var(--accent)]/20 rounded-xl px-4 py-3 flex items-center gap-2">
-                      <Shield size={14} className="text-[var(--accent-text)]" />
-                      <span className="text-xs font-black text-[var(--accent-text)] uppercase tracking-widest">Colaborador</span>
-                   </div>
+              <div className="space-y-2">
+                <label className="text-[10px] font-semibold uppercase tracking-widest text-[var(--text-tertiary)] ml-1">Empresa</label>
+                <div className="relative">
+                  <Globe className="absolute left-4 top-1/2 -translate-y-1/2 text-[var(--text-tertiary)]" size={16} />
+                  <StyledSelect
+                    value={companyId}
+                    onChange={(e) => setCompanyId(e.target.value)}
+                    className="w-full bg-[var(--surface-card)] border border-[var(--border-default)] rounded-xl pl-12 pr-4 py-3 text-sm font-medium focus:ring-2 focus:ring-[var(--accent)]/20 focus:border-[var(--accent)] outline-none transition-all appearance-none"
+                    required
+                  >
+                    <option value="">Selecione uma empresa</option>
+                    {companies.map(c => (
+                      <option key={c.id} value={c.id}>{c.name}</option>
+                    ))}
+                  </StyledSelect>
                 </div>
               </div>
 
@@ -265,11 +271,44 @@ export function EditEmployeeModal({ isOpen, onClose, user, onSuccess }: { isOpen
                     </button>
                   </div>
                   {generatedPassword && (
-                    <div className="bg-[var(--surface-success)] text-[var(--text-success)] border border-[var(--text-success)]/30 px-3 py-2 rounded-lg flex items-center justify-center font-mono text-xs font-bold shadow-sm mt-2">
-                      Nova senha: {generatedPassword}
+                    <div className="bg-[var(--surface-success)] text-[var(--text-success)] border border-[var(--text-success)]/30 px-3 py-2 rounded-lg flex items-center justify-center gap-2 font-mono text-xs font-bold shadow-sm mt-2">
+                      <span>Nova senha: {generatedPassword}</span>
+                      <button
+                        type="button"
+                        onClick={handleCopyPassword}
+                        title="Copiar senha"
+                        className="p-1 rounded-md hover:bg-[var(--text-success)]/20 transition-colors shrink-0"
+                      >
+                        {passwordCopied ? <Check size={13} /> : <Copy size={13} />}
+                      </button>
                     </div>
                   )}
                 </div>
+
+                <div className="h-px bg-[var(--border-default)] w-full" />
+
+                <div className="flex items-center justify-between">
+                  <div className="flex items-center gap-3">
+                    <div className="w-8 h-8 rounded-lg bg-[var(--surface-card)] border border-[var(--border-default)] flex items-center justify-center text-[var(--text-secondary)] shadow-sm">
+                      {isActive ? <ShieldCheck size={14} /> : <ShieldOff size={14} />}
+                    </div>
+                    <div>
+                      <p className="text-[11px] font-black text-[var(--text-primary)] uppercase tracking-wider">Usuário Ativo</p>
+                      <p className="text-[10px] text-[var(--text-tertiary)] font-bold uppercase tracking-widest">Login Autorizado</p>
+                    </div>
+                  </div>
+                  <div
+                    onClick={() => setIsActive(!isActive)}
+                    className={`w-12 h-6 rounded-full p-1 cursor-pointer transition-all ${isActive ? 'bg-[var(--text-success)]' : 'bg-[var(--border-default)]'}`}
+                  >
+                    <div className={`w-4 h-4 rounded-full bg-[var(--surface-card)] shadow-sm transition-transform ${isActive ? 'translate-x-6' : 'translate-x-0'}`} />
+                  </div>
+                </div>
+                <p className="text-[9px] text-[var(--text-tertiary)] font-bold uppercase leading-relaxed">
+                  {isActive
+                    ? "Login autorizado. O usuário pode acessar o sistema normalmente."
+                    : "Login bloqueado. O usuário não conseguirá mais acessar o sistema."}
+                </p>
 
                 <div className="h-px bg-[var(--border-default)] w-full" />
 

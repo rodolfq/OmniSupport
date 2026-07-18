@@ -18,6 +18,9 @@ DROP TABLE IF EXISTS public.whatsapp_instances CASCADE;
 DROP TABLE IF EXISTS public.config_categories CASCADE;
 DROP TABLE IF EXISTS public.config_priorities CASCADE;
 DROP TABLE IF EXISTS public.config_tags CASCADE;
+DROP TABLE IF EXISTS public.config_survey_settings CASCADE;
+DROP TABLE IF EXISTS public.automation_dispatches CASCADE;
+DROP TABLE IF EXISTS public.automation_settings CASCADE;
 DROP TABLE IF EXISTS public.config_statuses CASCADE;
 DROP TABLE IF EXISTS public.quick_notes CASCADE;
 DROP TABLE IF EXISTS public.queues CASCADE;
@@ -147,6 +150,52 @@ CREATE TABLE public.config_tags (
   created_at TIMESTAMP WITH TIME ZONE DEFAULT now() NOT NULL
 );
 
+-- Config Survey Settings (linha única) - pesquisa de satisfação enviada ao finalizar conversa
+CREATE TABLE public.config_survey_settings (
+  id INTEGER PRIMARY KEY DEFAULT 1,
+  enabled BOOLEAN NOT NULL DEFAULT true,
+  message TEXT NOT NULL DEFAULT 'Diga-nos como nos saímos.
+
+Basta enviar 1, se você estiver satisfeito, ou 0, se poderíamos fazer melhor.',
+  response_window_hours INTEGER NOT NULL DEFAULT 24,
+  updated_at TIMESTAMP WITH TIME ZONE DEFAULT now() NOT NULL,
+  CONSTRAINT config_survey_settings_single_row CHECK (id = 1)
+);
+
+-- Mensagens Automáticas: notificações por WhatsApp para ações do analista no chamado.
+-- Seed dos 11 eventos (textos padrão) vive em migrations/add_automated_messages.sql;
+-- novos eventos futuros só precisam de uma entrada no catálogo TS
+-- (lib/automation-events.ts) + auto-seed on-read, sem alterar esta tabela.
+CREATE TABLE public.automation_settings (
+  event_key TEXT PRIMARY KEY,
+  enabled BOOLEAN NOT NULL DEFAULT true,
+  message TEXT NOT NULL,
+  delay_minutes INTEGER NOT NULL DEFAULT 0,
+  first_occurrence_only BOOLEAN NOT NULL DEFAULT false,
+  trigger_status TEXT,
+  updated_at TIMESTAMP WITH TIME ZONE DEFAULT now() NOT NULL
+);
+
+-- Fila de envio atrasado (status='pending') e histórico/auditoria
+-- (status='sent'|'failed'|'skipped') na mesma tabela.
+CREATE TABLE public.automation_dispatches (
+  id UUID PRIMARY KEY DEFAULT (md5(random()::text || clock_timestamp()::text)::uuid),
+  event_key TEXT NOT NULL,
+  ticket_id TEXT REFERENCES public.tickets(id) ON DELETE CASCADE,
+  recipient_id UUID REFERENCES public.profiles(id) ON DELETE SET NULL,
+  recipient_name TEXT,
+  recipient_phone TEXT,
+  message TEXT NOT NULL,
+  status TEXT NOT NULL DEFAULT 'pending',
+  error TEXT,
+  send_at TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT now(),
+  sent_at TIMESTAMP WITH TIME ZONE,
+  created_at TIMESTAMP WITH TIME ZONE DEFAULT now() NOT NULL
+);
+
+CREATE INDEX IF NOT EXISTS idx_automation_dispatches_pending ON public.automation_dispatches(status, send_at) WHERE status = 'pending';
+CREATE INDEX IF NOT EXISTS idx_automation_dispatches_ticket_event ON public.automation_dispatches(ticket_id, event_key, status);
+
 -- Tickets Table
 CREATE TABLE public.tickets (
   id TEXT PRIMARY KEY DEFAULT (md5(random()::text || clock_timestamp()::text)::text),
@@ -193,7 +242,8 @@ CREATE TABLE public.chat_sessions (
   ticket_number BIGINT,
   created_at TIMESTAMP WITH TIME ZONE DEFAULT now() NOT NULL,
   updated_at TIMESTAMP WITH TIME ZONE DEFAULT now() NOT NULL,
-  last_message_at TIMESTAMP WITH TIME ZONE
+  last_message_at TIMESTAMP WITH TIME ZONE,
+  awaiting_survey_until TIMESTAMP WITH TIME ZONE
 );
 
 -- Chat Participants
@@ -393,12 +443,14 @@ INSERT INTO public.config_priorities (label, sla_hours, color) VALUES
 ON CONFLICT (label) DO NOTHING;
 
 -- Seed Default Statuses
-INSERT INTO public.config_statuses (label, color) VALUES 
+INSERT INTO public.config_statuses (label, color) VALUES
 ('Novo', 'bg-blue-50 text-blue-700'),
 ('Em Atendimento', 'bg-amber-50 text-amber-700'),
 ('Pendente', 'bg-slate-50 text-slate-700'),
 ('Resolvido', 'bg-emerald-50 text-emerald-700'),
-('Fechado', 'bg-slate-100 text-slate-500')
+('Fechado', 'bg-slate-100 text-slate-500'),
+('Aguardando Cliente', 'bg-amber-100 text-amber-700'),
+('Aguardando Aprovação', 'bg-purple-100 text-purple-700')
 ON CONFLICT (label) DO NOTHING;
 
 -- Seed Default Categories

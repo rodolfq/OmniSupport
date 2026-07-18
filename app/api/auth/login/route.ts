@@ -15,7 +15,7 @@ export async function POST(request: Request) {
     const result = await query(
       `SELECT p.id, p.name, p.email, p.role, p.password, p.must_change_password,
               p.company_id, p.phone, p.avatar_url, p.view_all_company_tickets,
-              p.is_admin, p.lives_in_squad,
+              p.is_admin, p.lives_in_squad, p.is_active,
               COALESCE(rp.permissions, '{}'::text[]) AS permissions
        FROM public.profiles p
        LEFT JOIN public.role_permissions rp ON rp.role = p.role
@@ -33,6 +33,10 @@ export async function POST(request: Request) {
     const isPasswordValid = verifyPassword(password, user.password);
     if (!isPasswordValid) {
       return NextResponse.json({ error: 'Usuário ou senha incorretos.' }, { status: 401 });
+    }
+
+    if (user.is_active === false) {
+      return NextResponse.json({ error: 'Este usuário está desativado. Entre em contato com o administrador.' }, { status: 403 });
     }
 
     // Assinar token JWT

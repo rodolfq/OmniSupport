@@ -10,9 +10,8 @@ import {
    Ticket, 
    Users, 
    PieChart, 
-   Settings, 
-   LogOut, 
-   Headset,
+   Settings,
+   LogOut,
    UserCog,
    Shield,
    MessageSquare,
@@ -134,8 +133,8 @@ export function Sidebar() {
 
   return (
     <div className="w-20 bg-[var(--surface-sidebar)] flex flex-col items-center py-6 gap-8 border-r border-white/10 shadow-xl h-screen sticky top-0 z-20">
-      <div className="w-10 h-10 bg-[var(--accent)] rounded-xl flex items-center justify-center mb-4">
-        <Headset size={22} className="text-white" />
+      <div className="w-10 h-10 bg-white rounded-xl flex items-center justify-center mb-4 p-1.5 shadow-sm" title="SSX Resolve">
+        <img src="/branding/icon.png" alt="SSX Resolve" className="w-full h-full object-contain" draggable={false} />
       </div>
 
       <div className="flex-1 flex flex-col gap-4">
@@ -248,21 +247,23 @@ export function Sidebar() {
       </div>
 
       <div className="mt-auto flex flex-col items-center gap-4">
-        <div
-          className={cn(
-            "p-2 rounded-lg transition-all relative flex flex-col items-center gap-1",
-            dbStatus === 'connected' ? "text-emerald-400 bg-white/5" :
-            dbStatus === 'error' ? "text-red-400 bg-white/5 animate-pulse" : "text-white/40 bg-white/5"
-          )}
-          title={`Banco de Dados: ${dbStatus === 'connected' ? 'Conectado' : dbStatus === 'error' ? 'Erro de Conexão' : 'Desconectado'}`}
-        >
-          <Database size={18} />
-          <div className={cn(
-            "w-1.5 h-1.5 rounded-full",
-            dbStatus === 'connected' ? "bg-emerald-400" :
-            dbStatus === 'error' ? "bg-red-400" : "bg-white/40"
-          )} />
-        </div>
+        {![UserRole.CUSTOMER, UserRole.EMPLOYEE].includes(currentUser?.role as UserRole) && (
+          <div
+            className={cn(
+              "p-2 rounded-lg transition-all relative flex flex-col items-center gap-1",
+              dbStatus === 'connected' ? "text-emerald-400 bg-white/5" :
+              dbStatus === 'error' ? "text-red-400 bg-white/5 animate-pulse" : "text-white/40 bg-white/5"
+            )}
+            title={`Banco de Dados: ${dbStatus === 'connected' ? 'Conectado' : dbStatus === 'error' ? 'Erro de Conexão' : 'Desconectado'}`}
+          >
+            <Database size={18} />
+            <div className={cn(
+              "w-1.5 h-1.5 rounded-full",
+              dbStatus === 'connected' ? "bg-emerald-400" :
+              dbStatus === 'error' ? "bg-red-400" : "bg-white/40"
+            )} />
+          </div>
+        )}
 
         <div className={cn(
           "w-10 h-10 rounded-full bg-white/10 border-2 flex items-center justify-center text-white/80 text-xs font-bold overflow-hidden cursor-help",

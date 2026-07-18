@@ -219,7 +219,8 @@ export async function getUsers() {
       phone: u.phone || undefined,
       avatarUrl: u.avatar_url || undefined,
       viewAllCompanyTickets: u.view_all_company_tickets,
-      isAdmin: u.is_admin
+      isAdmin: u.is_admin,
+      isActive: u.is_active
     }));
   } catch (err) {
     console.error("Error getting users in actions:", err);

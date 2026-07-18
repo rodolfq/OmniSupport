@@ -28,6 +28,9 @@ DROP TABLE IF EXISTS public.whatsapp_instances CASCADE;
 DROP TABLE IF EXISTS public.config_categories CASCADE;
 DROP TABLE IF EXISTS public.config_priorities CASCADE;
 DROP TABLE IF EXISTS public.config_tags CASCADE;
+DROP TABLE IF EXISTS public.config_survey_settings CASCADE;
+DROP TABLE IF EXISTS public.automation_dispatches CASCADE;
+DROP TABLE IF EXISTS public.automation_settings CASCADE;
 DROP TABLE IF EXISTS public.config_statuses CASCADE;
 DROP TABLE IF EXISTS public.quick_notes CASCADE;
 DROP TABLE IF EXISTS public.queues CASCADE;
@@ -191,6 +194,46 @@ CREATE TABLE public.config_tags (
   created_at TIMESTAMP WITH TIME ZONE DEFAULT now() NOT NULL
 );
 
+-- Config Survey Settings (linha única) - pesquisa de satisfação enviada ao finalizar conversa
+CREATE TABLE public.config_survey_settings (
+  id INTEGER PRIMARY KEY DEFAULT 1,
+  enabled BOOLEAN NOT NULL DEFAULT true,
+  message TEXT NOT NULL DEFAULT 'Diga-nos como nos saímos.
+
+Basta enviar 1, se você estiver satisfeito, ou 0, se poderíamos fazer melhor.',
+  response_window_hours INTEGER NOT NULL DEFAULT 24,
+  updated_at TIMESTAMP WITH TIME ZONE DEFAULT now() NOT NULL,
+  CONSTRAINT config_survey_settings_single_row CHECK (id = 1)
+);
+
+-- Mensagens Automáticas: notificações por WhatsApp para ações do analista no chamado.
+-- Seed dos 11 eventos vive em migrations/add_automated_messages.sql; novos eventos
+-- futuros só precisam de entrada no catálogo TS (lib/automation-events.ts) + auto-seed.
+CREATE TABLE public.automation_settings (
+  event_key TEXT PRIMARY KEY,
+  enabled BOOLEAN NOT NULL DEFAULT true,
+  message TEXT NOT NULL,
+  delay_minutes INTEGER NOT NULL DEFAULT 0,
+  first_occurrence_only BOOLEAN NOT NULL DEFAULT false,
+  trigger_status TEXT,
+  updated_at TIMESTAMP WITH TIME ZONE DEFAULT now() NOT NULL
+);
+
+CREATE TABLE public.automation_dispatches (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  event_key TEXT NOT NULL,
+  ticket_id TEXT REFERENCES public.tickets(id) ON DELETE CASCADE,
+  recipient_id UUID REFERENCES public.profiles(id) ON DELETE SET NULL,
+  recipient_name TEXT,
+  recipient_phone TEXT,
+  message TEXT NOT NULL,
+  status TEXT NOT NULL DEFAULT 'pending',
+  error TEXT,
+  send_at TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT now(),
+  sent_at TIMESTAMP WITH TIME ZONE,
+  created_at TIMESTAMP WITH TIME ZONE DEFAULT now() NOT NULL
+);
+
 -- 8. Tickets Table
 CREATE TABLE public.tickets (
   id TEXT PRIMARY KEY DEFAULT gen_random_uuid()::text,
@@ -255,7 +298,8 @@ CREATE TABLE public.chat_sessions (
   ticket_number BIGINT,
   created_at TIMESTAMP WITH TIME ZONE DEFAULT now() NOT NULL,
   updated_at TIMESTAMP WITH TIME ZONE DEFAULT now() NOT NULL,
-  last_message_at TIMESTAMP WITH TIME ZONE
+  last_message_at TIMESTAMP WITH TIME ZONE,
+  awaiting_survey_until TIMESTAMP WITH TIME ZONE
 );
 
 -- 11. Chat Participants
@@ -409,12 +453,14 @@ INSERT INTO public.config_priorities (label, sla_hours, color) VALUES
 ON CONFLICT (label) DO NOTHING;
 
 -- Seed Default Statuses
-INSERT INTO public.config_statuses (label, color) VALUES 
+INSERT INTO public.config_statuses (label, color) VALUES
 ('Novo', 'bg-blue-50 text-blue-700'),
 ('Em Atendimento', 'bg-amber-50 text-amber-700'),
 ('Pendente', 'bg-slate-50 text-slate-700'),
 ('Resolvido', 'bg-emerald-50 text-emerald-700'),
-('Fechado', 'bg-slate-100 text-slate-500')
+('Fechado', 'bg-slate-100 text-slate-500'),
+('Aguardando Cliente', 'bg-amber-100 text-amber-700'),
+('Aguardando Aprovação', 'bg-purple-100 text-purple-700')
 ON CONFLICT (label) DO NOTHING;
 
 -- Seed Default Categories
@@ -432,6 +478,9 @@ INSERT INTO public.config_tags (label, color, domain) VALUES
 ('Melhoria', 'bg-blue-100 text-blue-700', 'ticket'), 
 ('Urgente', 'bg-rose-100 text-rose-700', 'ticket')
 ON CONFLICT (label) DO NOTHING;
+
+-- Seed Default Survey Settings (linha única)
+INSERT INTO public.config_survey_settings (id) VALUES (1) ON CONFLICT (id) DO NOTHING;
 
 -- Seed Default Absence Reasons
 INSERT INTO public.absence_reasons (label) VALUES 
@@ -472,6 +521,9 @@ ALTER TABLE public.config_statuses DISABLE ROW LEVEL SECURITY;
 ALTER TABLE public.config_categories DISABLE ROW LEVEL SECURITY;
 ALTER TABLE public.config_priorities DISABLE ROW LEVEL SECURITY;
 ALTER TABLE public.config_tags DISABLE ROW LEVEL SECURITY;
+ALTER TABLE public.config_survey_settings DISABLE ROW LEVEL SECURITY;
+ALTER TABLE public.automation_settings DISABLE ROW LEVEL SECURITY;
+ALTER TABLE public.automation_dispatches DISABLE ROW LEVEL SECURITY;
 ALTER TABLE public.tickets DISABLE ROW LEVEL SECURITY;
 ALTER TABLE public.ticket_messages DISABLE ROW LEVEL SECURITY;
 ALTER TABLE public.chat_sessions DISABLE ROW LEVEL SECURITY;
@@ -506,6 +558,9 @@ SELECT public.create_permissive_policy('config_statuses');
 SELECT public.create_permissive_policy('config_categories');
 SELECT public.create_permissive_policy('config_priorities');
 SELECT public.create_permissive_policy('config_tags');
+SELECT public.create_permissive_policy('config_survey_settings');
+SELECT public.create_permissive_policy('automation_settings');
+SELECT public.create_permissive_policy('automation_dispatches');
 SELECT public.create_permissive_policy('tickets');
 SELECT public.create_permissive_policy('ticket_messages');
 SELECT public.create_permissive_policy('chat_sessions');
