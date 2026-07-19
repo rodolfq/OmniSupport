@@ -209,7 +209,7 @@ async function findOrCreateChatSession(jid: string, pushName: string | undefined
     const customerName = profile?.name || pushName || 'Contato WhatsApp';
 
     const queue = await resolveQueueForInstance(instanceId);
-    const assigneeId = queue ? await pickNextQueueAssignee(queue.id, queue.memberIds) : null;
+    const assigneeId = queue ? await pickNextQueueAssignee(queue) : null;
     const status = assigneeId ? 'active' : 'pending';
 
     // ON CONFLICT como segunda rede de segurança (ver migrations/chat_sessions_

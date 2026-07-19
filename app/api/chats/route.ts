@@ -4,7 +4,7 @@ import { verifyJWT } from '@/lib/jwt';
 import { emitChatEvent, excludeActiveViewers } from '@/lib/chat-events';
 import { notifyUser } from '@/lib/services/push-service';
 import { getChatRecipientIds, isTeamRole } from '@/lib/services/notification-recipients';
-import { resolveQueueForInstance, pickNextQueueAssignee } from '@/lib/services/queue-routing';
+import { resolveCombinedQueuePool, pickNextQueueAssignee } from '@/lib/services/queue-routing';
 
 function normalizePhone(value?: string | null): string {
   return (value || '').replace(/\D/g, '');
@@ -358,19 +358,18 @@ export async function POST(request: Request) {
       let queueId: string | null = null;
       let assigneeId: string | null = null;
 
-      // Distribuição automática por fila: só entra em ação quando a conversa
-      // chega como 'pending' (é o caso do widget abrindo sozinho o chat de um
-      // usuário logado, chat-widget.tsx) — se já veio 'active' é porque um
-      // agente iniciou a conversa manualmente (ex.: "Novo WhatsApp"), e nesse
-      // caso o próprio agente já é quem está assumindo, sem round-robin.
-      // Usa a fila marcada "Nenhuma (Chat Interno apenas)" nas Configurações
-      // de Filas, já que essa conversa não chegou por nenhuma instância de
-      // WhatsApp específica.
+      // Distribuição automática: só entra em ação quando a conversa chega como
+      // 'pending' (é o caso do widget abrindo sozinho o chat de um usuário
+      // logado, chat-widget.tsx) — se já veio 'active' é porque um agente
+      // iniciou a conversa manualmente (ex.: "Novo WhatsApp"), e nesse caso o
+      // próprio agente já é quem está assumindo, sem round-robin. Como essa
+      // conversa não chegou por nenhuma instância de WhatsApp específica, usa
+      // o pool combinado de todas as filas (mesmo comportamento/rodízio das
+      // conversas de WhatsApp, só que somando os analistas de todas as filas).
       if (status === 'pending') {
-        const queue = await resolveQueueForInstance(null);
-        if (queue) {
-          queueId = queue.id;
-          assigneeId = await pickNextQueueAssignee(queue.id, queue.memberIds);
+        const pool = await resolveCombinedQueuePool();
+        if (pool) {
+          assigneeId = await pickNextQueueAssignee(pool);
           if (assigneeId) status = 'active';
         }
       }
