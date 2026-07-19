@@ -4,7 +4,7 @@ import { verifyJWT } from '@/lib/jwt';
 import { emitChatEvent, excludeActiveViewers } from '@/lib/chat-events';
 import { notifyUser } from '@/lib/services/push-service';
 import { getChatRecipientIds, isTeamRole } from '@/lib/services/notification-recipients';
-import { resolveCombinedQueuePool, pickNextQueueAssignee } from '@/lib/services/queue-routing';
+import { resolveCombinedQueuePool, pickNextQueueAssignee, RoutingQueue } from '@/lib/services/queue-routing';
 import { transcribeMessageAudio, isAudioAttachment, isTranscriptionEnabled } from '@/lib/services/transcription-service';
 import { Attachment } from '@/lib/types';
 
@@ -132,6 +132,48 @@ export async function GET(request: NextRequest) {
       });
 
       return NextResponse.json(sessions);
+    }
+
+    if (action === 'session-messages') {
+      // Histórico ao vivo de UMA sessão específica, pra tela de detalhe do
+      // chamado vinculado (ver chatSessionId em app/api/tickets/route.ts) —
+      // ao contrário de `sessions`, inclui as mensagens mesmo com a sessão
+      // fechada, já que aqui o objetivo é exatamente ver o que já aconteceu.
+      const sessionId = searchParams.get('sessionId');
+      if (!sessionId) return NextResponse.json({ error: 'sessionId é obrigatório' }, { status: 400 });
+
+      const sessionRes = await query(
+        `SELECT id, customer_name, customer_phone, status, created_at, last_message_at
+         FROM public.chat_sessions WHERE id = $1`,
+        [sessionId]
+      );
+      const session = sessionRes.rows[0];
+      if (!session) return NextResponse.json({ error: 'Sessão não encontrada' }, { status: 404 });
+
+      const messagesRes = await query(
+        `SELECT * FROM public.chat_messages WHERE session_id = $1 ORDER BY created_at ASC`,
+        [sessionId]
+      );
+
+      return NextResponse.json({
+        session: {
+          id: session.id,
+          customerName: session.customer_name,
+          customerPhone: session.customer_phone,
+          status: session.status,
+          startedAt: session.created_at,
+          lastMessageAt: session.last_message_at || session.created_at
+        },
+        messages: messagesRes.rows.map(m => ({
+          id: m.id,
+          senderId: m.sender_id,
+          senderName: m.sender_name,
+          text: m.text,
+          timestamp: m.created_at,
+          type: m.type,
+          attachments: m.metadata?.attachments || []
+        }))
+      });
     }
 
     if (action === 'histories') {
@@ -395,13 +437,56 @@ export async function POST(request: Request) {
 
     if (action === 'push-message') {
       const { sessionId, message } = body;
+
+      const sessionRes = await query(
+        `SELECT id, customer_id, customer_name, customer_phone, status, queue_id, awaiting_survey_until
+         FROM public.chat_sessions WHERE id = $1`,
+        [sessionId]
+      );
+      const session = sessionRes.rows[0];
+      if (!session) {
+        return NextResponse.json({ error: 'Sessão não encontrada' }, { status: 404 });
+      }
+
+      const withinSurveyWindow = !!session.awaiting_survey_until && new Date(session.awaiting_survey_until) > new Date();
+      let targetSessionId = sessionId;
+
+      if (session.status === 'closed') {
+        if (withinSurveyWindow) {
+          // Ainda dentro da janela de pesquisa de satisfação — mesma conversa,
+          // só volta a ficar pendente (resposta atrasada / mensagem extra do
+          // cliente logo após o encerramento).
+          await query(`UPDATE public.chat_sessions SET status = 'pending' WHERE id = $1`, [sessionId]);
+        } else {
+          // Atendimento anterior está de fato encerrado: mensagem nova é outro
+          // atendimento, com número de conversa novo — nunca uma reabertura
+          // silenciosa do anterior (mesma regra de create-session e
+          // findOrCreateChatSession, aplicada aqui pro funil do widget).
+          let queue: RoutingQueue | null = null;
+          if (session.queue_id) {
+            const queueRes = await query('SELECT id, member_ids FROM public.queues WHERE id = $1', [session.queue_id]);
+            if (queueRes.rows[0]) queue = { id: queueRes.rows[0].id, memberIds: queueRes.rows[0].member_ids || [] };
+          }
+          if (!queue) queue = await resolveCombinedQueuePool();
+          const assigneeId = queue ? await pickNextQueueAssignee(queue) : null;
+
+          const newId = crypto.randomUUID();
+          await query(
+            `INSERT INTO public.chat_sessions (id, customer_id, customer_name, customer_phone, status, queue_id, assignee_id, created_at, updated_at)
+             VALUES ($1, $2, $3, $4, $5, $6, $7, NOW(), NOW())`,
+            [newId, session.customer_id, session.customer_name, session.customer_phone, assigneeId ? 'active' : 'pending', queue?.id || null, assigneeId]
+          );
+          targetSessionId = newId;
+        }
+      }
+
       const metadata = { ...(message.metadata || {}), attachments: message.attachments || message.metadata?.attachments || [] };
       await query(
         `INSERT INTO public.chat_messages (id, session_id, sender_id, sender_name, text, type, metadata, created_at)
          VALUES ($1, $2, $3, $4, $5, $6, $7::jsonb, $8)`,
         [
           message.id,
-          sessionId,
+          targetSessionId,
           message.senderId || null,
           message.senderName || null,
           message.text,
@@ -411,16 +496,12 @@ export async function POST(request: Request) {
         ]
       );
       await query(
-        `UPDATE public.chat_sessions
-         SET last_message_at = $1,
-             status = CASE WHEN status = 'closed' THEN 'pending' ELSE status END,
-             updated_at = NOW()
-         WHERE id = $2`,
-        [message.timestamp, sessionId]
+        `UPDATE public.chat_sessions SET last_message_at = $1, updated_at = NOW() WHERE id = $2`,
+        [message.timestamp, targetSessionId]
       );
-      emitChatEvent(sessionId, {
+      emitChatEvent(targetSessionId, {
         type: 'message',
-        sessionId,
+        sessionId: targetSessionId,
         message: {
           id: message.id,
           senderId: message.senderId || null,
@@ -435,23 +516,19 @@ export async function POST(request: Request) {
 
       (async () => {
         try {
-          const [senderRoleRes, sessionRes] = await Promise.all([
-            message.senderId
-              ? query('SELECT role FROM public.profiles WHERE id = $1', [message.senderId])
-              : Promise.resolve({ rows: [] as any[] }),
-            query('SELECT customer_id, customer_name FROM public.chat_sessions WHERE id = $1', [sessionId])
-          ]);
+          const senderRoleRes = message.senderId
+            ? await query('SELECT role FROM public.profiles WHERE id = $1', [message.senderId])
+            : { rows: [] as any[] };
           const senderIsTeam = isTeamRole(senderRoleRes.rows[0]?.role);
-          const session = sessionRes.rows[0];
-          const recipients = await getChatRecipientIds({ customerId: session?.customer_id }, message.senderId || null, senderIsTeam);
+          const recipients = await getChatRecipientIds({ customerId: session.customer_id }, message.senderId || null, senderIsTeam);
           // Não manda push pra quem já está com essa conversa aberta (conectado
           // ao SSE dela agora) — mesmo espírito do WhatsApp.
-          const toNotify = await excludeActiveViewers(sessionId, recipients);
+          const toNotify = await excludeActiveViewers(targetSessionId, recipients);
 
           await Promise.all(toNotify.map(id => notifyUser(id, {
-            title: `Nova mensagem de ${message.senderName || session?.customer_name || 'Cliente'}`,
+            title: `Nova mensagem de ${message.senderName || session.customer_name || 'Cliente'}`,
             body: message.text || 'Anexo enviado',
-            url: `/chat?chat=${sessionId}`,
+            url: `/chat?chat=${targetSessionId}`,
             tag: `chat_message:${message.id}`
           })));
         } catch (err) {
@@ -459,7 +536,7 @@ export async function POST(request: Request) {
         }
       })();
 
-      return NextResponse.json({ success: true });
+      return NextResponse.json({ success: true, sessionId: targetSessionId });
     }
 
     if (action === 'transcribe-audio') {

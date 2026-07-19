@@ -15,6 +15,7 @@ import { AttachmentGallery, AttachmentPreviewModal, isImageAttachment, openAttac
 import { LinkInternalTicketModal } from './link-internal-ticket-modal';
 import { ClientTime } from './client-time';
 import { TicketService, MessageService, InternalTicketService } from '@/lib/services/ticket-service';
+import { fetchSessionMessages, SessionMessagesResult } from '@/lib/services/chat-service';
 import { UserService } from '@/lib/services/user-service';
 import { CompanyService } from '@/lib/services/company-service';
 import { ConfigService } from '@/lib/services/config-service';
@@ -32,7 +33,9 @@ export function TicketDetailModal({ ticket, onClose }: TicketDetailModalProps) {
   
   // States
   const [isFocused, setIsFocused] = useState(false);
-  const [activeTab, setActiveTab] = useState<'description' | 'internal' | 'history' | 'attachments'>('description');
+  const [activeTab, setActiveTab] = useState<'description' | 'internal' | 'history' | 'attachments' | 'chat'>('description');
+  const [chatSessionData, setChatSessionData] = useState<SessionMessagesResult | null>(null);
+  const [isLoadingChatSession, setIsLoadingChatSession] = useState(false);
   const [historyTab, setHistoryTab] = useState<'customer' | 'internal'>('customer');
   // Só usado <md: os dois painéis (dados/conversa) não cabem lado a lado numa
   // tela de celular — alterna entre eles em vez de espremer os dois.
@@ -138,6 +141,7 @@ export function TicketDetailModal({ ticket, onClose }: TicketDetailModalProps) {
     setEmployeeIds(ticket.employeeIds || []);
     loadMessages();
     loadInternalTicket();
+    setChatSessionData(null);
     
     // Set default history tab based on role and permissions
     if (currentUser?.role === UserRole.EMPLOYEE) {
@@ -177,6 +181,23 @@ const loadMessages = async () => {
      if (ticket) {
        const msgs = await MessageService.getByTicket(ticket.id);
        setMessages(msgs);
+     }
+   };
+
+   // Busca sob demanda (só quando a aba "Conversa" é aberta) — a maioria dos
+   // chamados nunca chega a ter essa aba clicada, então não faz sentido buscar
+   // o histórico do chat vinculado em todo carregamento do modal.
+   const loadChatSessionMessages = async () => {
+     if (!ticket?.chatSessionId || chatSessionData || isLoadingChatSession) return;
+     setIsLoadingChatSession(true);
+     try {
+       const data = await fetchSessionMessages(ticket.chatSessionId);
+       setChatSessionData(data);
+     } catch (err) {
+       console.error('Error loading linked chat session messages:', err);
+       toast.error('Erro ao carregar o histórico da conversa.');
+     } finally {
+       setIsLoadingChatSession(false);
      }
    };
 
@@ -862,6 +883,17 @@ const handleSendMessage = async (isInternal: boolean) => {
                       >
                         <Paperclip size={12} /> {allAttachments.length > 0 && <span className="w-1.5 h-1.5 rounded-full bg-[var(--accent)] animate-pulse" />} Anexos
                       </button>
+                      {ticket.chatSessionId && (
+                        <button
+                          onClick={() => { setActiveTab('chat'); loadChatSessionMessages(); }}
+                          className={cn(
+                            "px-6 py-3 text-[11px] font-semibold uppercase tracking-widest border-b-2 transition-all flex items-center gap-2",
+                            activeTab === 'chat' ? "border-[var(--accent)] text-[var(--accent-text)]" : "border-transparent text-[var(--text-tertiary)] hover:text-[var(--text-secondary)]"
+                          )}
+                        >
+                          <MessageCircle size={12} /> Conversa
+                        </button>
+                      )}
                   </div>
 
                   {/* Tab Content */}
@@ -890,6 +922,38 @@ const handleSendMessage = async (isInternal: boolean) => {
                      {activeTab === 'attachments' && (
                         <div className="animate-in fade-in slide-in-from-bottom-2 duration-300">
                            <AttachmentGallery attachments={allAttachments} />
+                        </div>
+                      )}
+
+                      {activeTab === 'chat' && (
+                        <div className="space-y-4 animate-in fade-in slide-in-from-bottom-2 duration-300">
+                          <h3 className="text-xs font-black uppercase text-[var(--text-tertiary)] tracking-widest">Histórico da Conversa</h3>
+                          {isLoadingChatSession ? (
+                            <p className="text-sm text-[var(--text-tertiary)] font-medium">Carregando...</p>
+                          ) : !chatSessionData ? (
+                            <p className="text-sm text-[var(--text-tertiary)] font-medium">Não foi possível carregar a conversa vinculada.</p>
+                          ) : chatSessionData.messages.length === 0 ? (
+                            <p className="text-sm text-[var(--text-tertiary)] font-medium">Esse atendimento não tem mensagens registradas.</p>
+                          ) : (
+                            <div className="space-y-3 max-h-[28rem] overflow-y-auto pr-1">
+                              {chatSessionData.messages.map(m => (
+                                <div key={m.id} className="p-4 bg-[var(--surface-card)] border border-[var(--border-default)] rounded-2xl">
+                                  <div className="flex items-center justify-between mb-1">
+                                    <span className="text-[11px] font-black uppercase text-[var(--text-secondary)]">{m.senderName || 'Cliente'}</span>
+                                    <span className="text-[10px] text-[var(--text-tertiary)] font-semibold">
+                                      <ClientTime date={m.timestamp} />
+                                    </span>
+                                  </div>
+                                  <p className="text-sm text-[var(--text-secondary)] leading-relaxed whitespace-pre-wrap break-words">{m.text}</p>
+                                  {m.attachments && m.attachments.length > 0 && (
+                                    <p className="mt-2 text-[10px] font-semibold uppercase text-[var(--text-tertiary)]">
+                                      {m.attachments.length} anexo(s)
+                                    </p>
+                                  )}
+                                </div>
+                              ))}
+                            </div>
+                          )}
                         </div>
                       )}
 

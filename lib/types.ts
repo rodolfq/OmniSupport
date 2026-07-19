@@ -154,6 +154,10 @@ export interface Ticket {
   history?: any[];
   internalTicketId?: string;
   slaLimit?: string;
+  // Sessão de chat que originou este chamado (ver saveTicketFromChatSession em
+  // app/actions.ts) — usada pra buscar o histórico da conversa ao vivo em vez
+  // de duplicá-lo em `description`.
+  chatSessionId?: string;
 }
 
 export interface Message {

@@ -21,13 +21,20 @@ export class ChatService {
     if (!res.ok) throw new Error('Error saving chat session via API');
   }
 
-  static async pushMessage(sessionId: string, message: ChatMessage): Promise<void> {
+  // Devolve o id da sessão que efetivamente recebeu a mensagem — normalmente o
+  // mesmo sessionId enviado, mas pode ser um id NOVO quando a sessão original
+  // já estava encerrada de verdade (fora da janela de pesquisa): nesse caso o
+  // servidor cria um novo atendimento em vez de reabrir o antigo, e quem
+  // chamou precisa atualizar a conversa ativa pra esse novo id.
+  static async pushMessage(sessionId: string, message: ChatMessage): Promise<string> {
     const res = await fetch('/api/chats', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ action: 'push-message', sessionId, message })
     });
     if (!res.ok) throw new Error('Error pushing message via API');
+    const data = await res.json().catch(() => ({}));
+    return data.sessionId || sessionId;
   }
 }
 
@@ -173,8 +180,8 @@ export async function fetchChatSessions(signal?: AbortSignal): Promise<ChatSessi
   }
 }
 
-export async function pushChatMessage(sessionId: string, message: ChatMessage): Promise<void> {
-  await ChatService.pushMessage(sessionId, message);
+export async function pushChatMessage(sessionId: string, message: ChatMessage): Promise<string> {
+  return ChatService.pushMessage(sessionId, message);
 }
 
 export async function submitSurveyResponse(sessionId: string, rating: 0 | 1, message: ChatMessage): Promise<void> {
@@ -214,6 +221,30 @@ export async function getChatHistories(signal?: AbortSignal): Promise<any[]> {
     console.error("Error fetching chat histories:", err);
     return [];
   }
+}
+
+export interface SessionMessagesResult {
+  session: {
+    id: string;
+    customerName?: string;
+    customerPhone?: string;
+    status: string;
+    startedAt: string;
+    lastMessageAt: string;
+  };
+  messages: ChatMessage[];
+}
+
+// Histórico ao vivo de uma sessão específica (inclusive fechada) — usado pela
+// aba "Conversa" do chamado vinculado, em vez de duplicar o transcript em
+// tickets.description (ver saveTicketFromChatSession em app/actions.ts).
+export async function fetchSessionMessages(sessionId: string): Promise<SessionMessagesResult> {
+  const res = await fetch(`/api/chats?action=session-messages&sessionId=${sessionId}`);
+  if (!res.ok) {
+    const body = await res.json().catch(() => ({}));
+    throw new Error(body.error || 'Error fetching session messages via API');
+  }
+  return res.json();
 }
 
 export async function transcribeChatAudio(sessionId: string, messageId: string, attachmentId: string): Promise<string> {

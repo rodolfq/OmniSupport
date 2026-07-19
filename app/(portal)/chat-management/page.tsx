@@ -8,9 +8,7 @@ import {
   User,
   UserRole,
   Company,
-  QuickNote,
-  TicketStatus,
-  TicketPriority
+  QuickNote
 } from '@/lib/types';
 import {
   MessageSquare,
@@ -43,7 +41,7 @@ import { AssignChatMenu } from '@/components/assign-chat-menu';
 import { ConfirmDialog } from '@/components/confirm-dialog';
 import { supabase } from '@/lib/supabase';
 import { fetchChatSessions, saveChatHistory } from '@/lib/services/chat-service';
-import { getQuickNotes, saveQuickNote as saveQuickNoteAction, deleteQuickNote, getAnalysts, getCompanies, updateUserStatus } from '@/app/actions';
+import { getQuickNotes, saveQuickNote as saveQuickNoteAction, deleteQuickNote, getAnalysts, getCompanies, updateUserStatus, saveTicketFromChatSession, closeChatSessionAfterTicket } from '@/app/actions';
 
 export default function ChatManagementPage() {
   const { currentUser, setActiveOmniChatId, setIsOmniChatOpen, refreshTrigger, userStatus, getContactPhoto, ensureContactPhoto } = useApp();
@@ -366,17 +364,15 @@ const handleDeleteNote = async () => {
 
   const finishSession = async (session: ChatSession): Promise<boolean> => {
     try {
+      // Histórico em texto puro só pro registro de métricas em chat_histories —
+      // o chamado em si não recebe cópia da conversa (ver saveTicketFromChatSession
+      // em app/actions.ts): ele só guarda a referência, e quem quiser ver a
+      // conversa busca ao vivo em chat_messages pela sessão vinculada.
       const formattedChatLog = session.messages?.map(m => {
         const time = new Date(m.timestamp).toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' });
         return `[${time}] ${m.senderName}: ${m.text}`;
       }).join('\n') || '';
-
       const chatHistoryText = `===== HISTÓRICO DO CHAT =====\n${formattedChatLog}\n===== FIM DO HISTÓRICO =====\n\nChat finalizado em: ${new Date().toLocaleString('pt-BR')}`;
-      const chatHistoryHtml = chatHistoryText
-        .replace(/&/g, '&amp;')
-        .replace(/</g, '&lt;')
-        .replace(/>/g, '&gt;')
-        .replace(/\n/g, '<br>');
 
       const now = new Date();
       const datePrefix = now.toLocaleDateString('pt-BR');
@@ -384,37 +380,11 @@ const handleDeleteNote = async () => {
       const ticketTitle = `Atendimento ${datePrefix} ${timePrefix}: ${session.customerName || 'Cliente'}`;
       const assigneeId = session.assigneeId || currentUser?.id || null;
 
-      let companyId: string | null = null;
-      if (session.customerId) {
-        const { data: customerProfile } = await supabase
-          .from('profiles')
-          .select('company_id')
-          .eq('id', session.customerId)
-          .maybeSingle();
-        companyId = customerProfile?.company_id || null;
-      }
-
-      const { data: createdTicket, error: ticketError } = await supabase.from('tickets').insert({
-        title: ticketTitle,
-        description: chatHistoryHtml,
-        status: TicketStatus.NEW,
-        priority: TicketPriority.MEDIUM,
-        category: 'Atendimento Chat',
-        company_id: companyId,
-        customer_id: session.customerId,
-        assignee_id: assigneeId,
-        created_at: new Date().toISOString(),
-        updated_at: new Date().toISOString()
-      });
-
-      if (ticketError) {
-        console.error('Error creating ticket from session', session.id, ticketError);
+      const ticketResult = await saveTicketFromChatSession(session.id, ticketTitle, true);
+      if ('error' in ticketResult) {
+        console.error('Error creating ticket from session', session.id, ticketResult.error);
         return false;
       }
-
-      const createdTicketData = Array.isArray(createdTicket) ? createdTicket[0] : createdTicket;
-      const createdTicketId = createdTicketData?.id || null;
-      const createdTicketNumber = createdTicketData?.public_ticket_number || null;
 
       const startedAt = session.startedAt ? new Date(session.startedAt) : new Date();
       const finishedAt = new Date();
@@ -445,17 +415,9 @@ const handleDeleteNote = async () => {
         transcript: chatHistoryText
       }).catch(err => console.error('Non-critical error saving chat history:', session.id, err));
 
-      const { error: closeError } = await supabase
-        .from('chat_sessions')
-        .update({
-          status: 'closed',
-          ticket_id: createdTicketId,
-          ticket_number: createdTicketNumber
-        })
-        .eq('id', session.id);
-
-      if (closeError) {
-        console.error('Error closing session', session.id, closeError);
+      const closeResult = await closeChatSessionAfterTicket(session.id, null);
+      if ('error' in closeResult) {
+        console.error('Error closing session', session.id, closeResult.error);
         return false;
       }
 

@@ -35,20 +35,19 @@ import {
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import { 
-  ChatMessage, 
-  ChatSession, 
-  QuickNote, 
+  ChatMessage,
+  ChatSession,
+  QuickNote,
   AnalystStatus,
   User as UserType,
   UserRole,
-  TicketStatus,
-  TicketPriority,
   Ticket,
   Company,
   Attachment
 } from '@/lib/types';
 import { fetchChatSessions, pushChatMessage, createChatSession, saveChatHistory, findExistingChatSessionByPhone, submitSurveyResponse, transcribeChatAudio } from '@/lib/services/chat-service';
 import { fetchQuickNotes, fetchAnalystStatuses, fetchCompanies, fetchUsers, fetchQueues, fetchSurveySettings } from '@/lib/services/config-service';
+import { saveTicketFromChatSession, closeChatSessionAfterTicket } from '@/app/actions';
 import { cn, maskPhone, matchPhones, safeJsonStringify } from '@/lib/utils';
 import { useApp } from '@/app/app-context';
 import { supabase } from '@/lib/supabase';
@@ -822,11 +821,17 @@ useEffect(() => {
           new Date(session.awaitingSurveyUntil) > new Date() &&
           (trimmedText === '0' || trimmedText === '1');
 
+        let effectiveSessionId = selectedChatId;
         if (isSurveyResponse) {
           await submitSurveyResponse(selectedChatId, trimmedText === '1' ? 1 : 0, newMessage);
         } else {
-          // Save via Supabase first, then attempt WhatsApp delivery
-          await pushChatMessage(selectedChatId, newMessage);
+          // Save via Supabase first, then attempt WhatsApp delivery. Se a sessão
+          // já estava encerrada de verdade, o servidor cria um atendimento novo
+          // e devolve o id dele — precisa acompanhar a conversa ativa pra lá.
+          effectiveSessionId = await pushChatMessage(selectedChatId, newMessage);
+          if (effectiveSessionId !== selectedChatId) {
+            setSelectedChatId(effectiveSessionId);
+          }
         }
 
         if (!isSurveyResponse && session.customerPhone) {
@@ -874,9 +879,9 @@ useEffect(() => {
         // Refresh sessions from Supabase
         const refreshedSessions = await fetchChatSessions();
         setCustomerSessions(refreshedSessions);
-        
+
         // Clear notifications for this session on respond
-        markNotificationsAsReadByTarget(selectedChatId);
+        markNotificationsAsReadByTarget(effectiveSessionId);
       } catch (error) {
         console.error('Failed to send message:', error);
         toast.error('Erro ao enviar mensagem.');
@@ -900,8 +905,11 @@ useEffect(() => {
         setCustomerSessions(prev => [optimisticSession, ...prev.filter(s => s.id !== selectedChatId)]);
         setMessage('');
         setChatAttachments([]);
-        
-        await pushChatMessage(selectedChatId, newMessage);
+
+        const effectiveSessionId = await pushChatMessage(selectedChatId, newMessage);
+        if (effectiveSessionId !== selectedChatId) {
+          setSelectedChatId(effectiveSessionId);
+        }
         const refreshedSessions = await fetchChatSessions();
         setCustomerSessions(refreshedSessions);
       } catch (error) {
@@ -978,85 +986,31 @@ useEffect(() => {
     try {
       const hadExistingTicket = !!selectedChat.ticketId;
 
-      // Create Ticket via Supabase - format chat history
+      // Histórico em texto puro só pro registro de métricas em chat_histories
+      // (saveChatHistory, mais abaixo) — o chamado em si NÃO recebe mais uma
+      // cópia da conversa: ele só guarda a referência (ticket_id/ticket_number
+      // em chat_sessions, definido por saveTicketFromChatSession), e quem
+      // quiser ver a conversa busca ao vivo em chat_messages pela sessão
+      // vinculada, evitando duplicar o dado (e ele ficar desatualizado).
       const formattedChatLog = selectedChat.messages?.map(m => {
         const time = new Date(m.timestamp).toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' });
         return `[${time}] ${m.senderName}: ${m.text}`;
       }).join('\n') || '';
-
-      // Convert newlines to <br> for HTML display, while keeping plain text readable
       const chatHistoryText = `===== HISTÓRICO DO CHAT =====\n${formattedChatLog}\n===== FIM DO HISTÓRICO =====\n\n${closeChat ? `Chat finalizado em: ${new Date().toLocaleString('pt-BR')}` : `Chamado gerado em: ${new Date().toLocaleString('pt-BR')} (atendimento continua em aberto)`}`;
 
-      // Create HTML version for display (with <br> tags)
-      const chatHistoryHtml = chatHistoryText
-        .replace(/&/g, '&amp;')
-        .replace(/</g, '&lt;')
-        .replace(/>/g, '&gt;')
-        .replace(/\n/g, '<br>');
-
-      let createdTicketId: any = selectedChat.ticketId || null;
-      let createdTicketNumber: any = selectedChat.ticketNumber || null;
-
-      if (hadExistingTicket) {
-        // Reaproveita o chamado já gerado nesta conversa — só ajusta o status
-        // se "Fechar Imediatamente" estiver marcado ao finalizar.
-        if (closeChat && closeTicketImmediately) {
-          const { error: updateError } = await supabase
-            .from('tickets')
-            .update({ status: TicketStatus.CLOSED, updated_at: new Date().toISOString() })
-            .eq('id', createdTicketId);
-          if (updateError) {
-            console.error('Error updating existing ticket status:', updateError);
-          }
-        }
-      } else {
-        let companyId: string | null = null;
-        if (selectedChat.customerId) {
-          const { data: customerProfile } = await supabase
-            .from('profiles')
-            .select('company_id')
-            .eq('id', selectedChat.customerId)
-            .maybeSingle();
-          companyId = customerProfile?.company_id || null;
-        }
-
-        const { data: createdTicket, error: ticketError } = await supabase.from('tickets').insert({
-          title: ticketTitle,
-          description: chatHistoryHtml,
-          status: closeTicketImmediately ? TicketStatus.CLOSED : TicketStatus.NEW,
-          priority: TicketPriority.MEDIUM,
-          category: 'Atendimento Chat',
-          company_id: companyId,
-          customer_id: selectedChat.customerId,
-          assignee_id: selectedChat.assigneeId || currentUser.id,
-          created_at: new Date().toISOString(),
-          updated_at: new Date().toISOString()
-        });
-
-        if (ticketError) {
-          console.error('Error creating ticket from chat:', ticketError);
-          toast.error('Erro ao criar chamado.');
-          return;
-        }
-
-        const createdTicketData = Array.isArray(createdTicket) ? createdTicket[0] : createdTicket;
-        createdTicketId = createdTicketData?.id || null;
-        createdTicketNumber = createdTicketData?.public_ticket_number || null;
+      const ticketResult = await saveTicketFromChatSession(selectedChat.id, ticketTitle, closeTicketImmediately);
+      if ('error' in ticketResult) {
+        console.error('Error saving ticket from chat session:', ticketResult.error);
+        toast.error('Erro ao criar chamado.');
+        return;
       }
+      const createdTicketId = ticketResult.ticketId;
+      const createdTicketNumber = ticketResult.ticketNumber;
 
       if (!closeChat) {
-        // Só vincula o chamado à conversa em andamento — não mexe em status,
-        // histórico ou mensagem de encerramento/pesquisa, já que o atendimento
-        // continua aberto.
-        const { error: linkError } = await supabase
-          .from('chat_sessions')
-          .update({ ticket_id: createdTicketId, ticket_number: createdTicketNumber })
-          .eq('id', selectedChat.id);
-
-        if (linkError) {
-          console.error('Error linking ticket to session:', linkError);
-          toast.error('Chamado criado, mas não foi possível vincular à conversa.');
-        }
+        // O vínculo com a conversa em andamento já foi feito dentro de
+        // saveTicketFromChatSession — aqui só falta avisar o cliente, sem
+        // mexer em status/histórico já que o atendimento continua aberto.
 
         // Avisa o cliente, dentro da própria conversa, que um chamado foi
         // aberto — sempre registrado no chat (visível pro cliente logado ou
@@ -1179,19 +1133,11 @@ useEffect(() => {
         toast.warning('Chamado finalizado, mas a mensagem de encerramento/pesquisa não foi registrada.');
       }
 
-      // Close Session via Supabase
-      const { error: closeError } = await supabase
-        .from('chat_sessions')
-        .update({
-          status: 'closed',
-          ticket_id: createdTicketId,
-          ticket_number: createdTicketNumber,
-          awaiting_survey_until: awaitingSurveyUntil
-        })
-        .eq('id', selectedChat.id);
-
-      if (closeError) {
-        console.error('Error closing session:', closeError);
+      // ticket_id/ticket_number já foram vinculados por saveTicketFromChatSession —
+      // aqui só falta marcar a sessão como encerrada.
+      const closeResult = await closeChatSessionAfterTicket(selectedChat.id, awaitingSurveyUntil);
+      if ('error' in closeResult) {
+        console.error('Error closing session:', closeResult.error);
         toast.error('Erro ao fechar conversa.');
         return;
       }

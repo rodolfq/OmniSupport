@@ -419,6 +419,94 @@ export async function saveWhatsappInstance(id: string | null, name: string, phon
   }
 }
 
+// Cria (ou reaproveita) o chamado de um atendimento de chat, vinculando-o via
+// chat_sessions.ticket_id em vez de copiar o histórico da conversa pra dentro
+// de tickets.description — o histórico continua vivendo só em chat_messages;
+// quem quiser ver a conversa busca pela sessão vinculada (ver aba "Conversa"
+// no chamado), sem duplicar dado nem correr o risco de description ficar
+// desatualizada em relação ao chat.
+export async function saveTicketFromChatSession(
+  sessionId: string,
+  ticketTitle: string,
+  closeTicketImmediately: boolean
+) {
+  try {
+    const actor = await getCurrentActionUser();
+    if (!actor) return { error: 'Não autenticado.' };
+
+    const sessionRes = await query(
+      `SELECT customer_id, assignee_id, ticket_id, ticket_number
+       FROM public.chat_sessions WHERE id = $1`,
+      [sessionId]
+    );
+    const session = sessionRes.rows[0];
+    if (!session) return { error: 'Atendimento não encontrado.' };
+
+    // Já existe um chamado vinculado a este atendimento — reaproveita em vez
+    // de criar um segundo chamado pro mesmo atendimento.
+    if (session.ticket_id) {
+      if (closeTicketImmediately) {
+        await query(`UPDATE public.tickets SET status = 'Fechado', updated_at = NOW() WHERE id = $1`, [session.ticket_id]);
+      }
+      return { ticketId: session.ticket_id, ticketNumber: session.ticket_number };
+    }
+
+    let companyId: string | null = null;
+    if (session.customer_id) {
+      const profileRes = await query('SELECT company_id FROM public.profiles WHERE id = $1', [session.customer_id]);
+      companyId = profileRes.rows[0]?.company_id || null;
+    }
+
+    const client = await pool.connect();
+    try {
+      await client.query('BEGIN');
+      const ticketRes = await client.query(
+        `INSERT INTO public.tickets (title, description, status, priority, category, company_id, customer_id, assignee_id, created_by)
+         VALUES ($1, '', $2, 'Média', 'Atendimento Chat', $3, $4, $5, $6)
+         RETURNING id, public_ticket_number`,
+        [
+          ticketTitle,
+          closeTicketImmediately ? 'Fechado' : 'Novo',
+          companyId,
+          session.customer_id || null,
+          session.assignee_id || actor.id,
+          actor.id
+        ]
+      );
+      const { id: ticketId, public_ticket_number: ticketNumber } = ticketRes.rows[0];
+
+      await client.query(
+        `UPDATE public.chat_sessions SET ticket_id = $1, ticket_number = $2 WHERE id = $3`,
+        [ticketId, ticketNumber, sessionId]
+      );
+
+      await client.query('COMMIT');
+      return { ticketId, ticketNumber };
+    } catch (err) {
+      await client.query('ROLLBACK');
+      throw err;
+    } finally {
+      client.release();
+    }
+  } catch (err: any) {
+    console.error("Error saving ticket from chat session in actions:", err);
+    return { error: err.message || 'Erro ao gerar chamado a partir do atendimento.' };
+  }
+}
+
+export async function closeChatSessionAfterTicket(sessionId: string, awaitingSurveyUntil: string | null) {
+  try {
+    await query(
+      `UPDATE public.chat_sessions SET status = 'closed', awaiting_survey_until = $1, updated_at = NOW() WHERE id = $2`,
+      [awaitingSurveyUntil, sessionId]
+    );
+    return { success: true };
+  } catch (err: any) {
+    console.error("Error closing chat session in actions:", err);
+    return { error: err.message || 'Erro ao fechar o atendimento.' };
+  }
+}
+
 export async function getQuickNotes() {
   try {
     const res = await query('SELECT * FROM public.quick_notes ORDER BY shortcut ASC');

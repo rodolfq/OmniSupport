@@ -99,7 +99,9 @@ export async function GET(request: Request) {
 
     if (id) {
       const res = await query(
-        'SELECT * FROM public.tickets WHERE id = $1',
+        `SELECT t.*,
+                (SELECT cs.id FROM public.chat_sessions cs WHERE cs.ticket_id = t.id ORDER BY cs.created_at DESC LIMIT 1) AS chat_session_id
+         FROM public.tickets t WHERE t.id = $1`,
         [id]
       );
       if (res.rowCount === 0) {
@@ -114,22 +116,28 @@ export async function GET(request: Request) {
         customerId: data.customer_id,
         employeeIds: data.employee_ids || [],
         attachments: data.attachments_data || [],
+        chatSessionId: data.chat_session_id,
         createdAt: data.created_at,
         updatedAt: data.updated_at
       });
     } else {
-      // Obter todos os tickets que não estão concluídos/fechados
+      // Obter todos os tickets que não estão concluídos/fechados. O
+      // chat_session_id vinculado (ver saveTicketFromChatSession em
+      // app/actions.ts) usa o índice idx_chat_sessions_ticket_id — permite à
+      // tela de detalhe mostrar o histórico do chat ao vivo em vez de duplicar
+      // o conteúdo em tickets.description.
+      const chatSessionSelect = `(SELECT cs.id FROM public.chat_sessions cs WHERE cs.ticket_id = t.id ORDER BY cs.created_at DESC LIMIT 1) AS chat_session_id`;
       const closedStatusPlaceholders = CLOSED_TICKET_STATUSES.map((_, i) => `$${i + 1}`).join(',');
       const ticketsRes = includeClosed
-        ? await query('SELECT * FROM public.tickets ORDER BY created_at DESC')
+        ? await query(`SELECT t.*, ${chatSessionSelect} FROM public.tickets t ORDER BY t.created_at DESC`)
         : await query(
-            `SELECT * FROM public.tickets WHERE status NOT IN (${closedStatusPlaceholders}) ORDER BY created_at DESC`,
+            `SELECT t.*, ${chatSessionSelect} FROM public.tickets t WHERE t.status NOT IN (${closedStatusPlaceholders}) ORDER BY t.created_at DESC`,
             [...CLOSED_TICKET_STATUSES]
           );
-      
+
       const customerIds = [...new Set(ticketsRes.rows.map(t => t.customer_id).filter(Boolean))];
       const customerMap = new Map<string, string>();
-      
+
       if (customerIds.length > 0) {
         const placeHolders = customerIds.map((_, i) => `$${i + 1}`).join(',');
         const customersRes = await query(
@@ -148,6 +156,7 @@ export async function GET(request: Request) {
         customerName: customerMap.get(t.customer_id),
         employeeIds: t.employee_ids || [],
         attachments: t.attachments_data || [],
+        chatSessionId: t.chat_session_id,
         createdAt: t.created_at,
         updatedAt: t.updated_at
       }));
