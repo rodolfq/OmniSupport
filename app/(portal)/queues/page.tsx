@@ -37,6 +37,7 @@ export default function QueuesManagementPage() {
   const [description, setDescription] = useState('');
   const [selectedWhatsappId, setSelectedWhatsappId] = useState('');
   const [selectedMemberIds, setSelectedMemberIds] = useState<string[]>([]);
+  const [includeInternalChats, setIncludeInternalChats] = useState(true);
   const [deletingQueue, setDeletingQueue] = useState<Queue | null>(null);
 
   const { currentUser } = useApp();
@@ -58,6 +59,7 @@ export default function QueuesManagementPage() {
           description: q.description || '',
           whatsappInstanceId: q.whatsappInstanceId || '',
           memberIds: q.memberIds || [],
+          includeInternalChats: q.includeInternalChats !== false,
           createdAt: (q as any).createdAt
         })));
       }
@@ -83,12 +85,14 @@ export default function QueuesManagementPage() {
       setDescription(queue.description || '');
       setSelectedWhatsappId(queue.whatsappInstanceId || '');
       setSelectedMemberIds(queue.memberIds);
+      setIncludeInternalChats(queue.includeInternalChats !== false);
     } else {
       setSelectedQueue(null);
       setName('');
       setDescription('');
       setSelectedWhatsappId('');
       setSelectedMemberIds([]);
+      setIncludeInternalChats(true);
     }
     setIsModalOpen(true);
   };
@@ -102,7 +106,8 @@ export default function QueuesManagementPage() {
       name,
       description,
       selectedWhatsappId || null,
-      selectedMemberIds
+      selectedMemberIds,
+      includeInternalChats
     );
 
     if (res && (res as any).error) {
@@ -247,6 +252,11 @@ export default function QueuesManagementPage() {
                                  <div className="flex items-center gap-2 px-3 py-1.5 rounded-full bg-[var(--accent)]/10 text-[var(--accent-text)] border border-[var(--accent)]/20 text-[10px] font-semibold uppercase tracking-widest">
                                     <Users size={12} /> {queue.memberIds.length} Analistas
                                  </div>
+                                 {queue.includeInternalChats === false && (
+                                   <div className="flex items-center gap-2 px-3 py-1.5 rounded-full bg-[var(--surface-card)] text-[var(--text-tertiary)] border border-[var(--border-default)] text-[10px] font-semibold uppercase tracking-widest">
+                                      <XCircle size={12} /> Sem Chat Interno
+                                   </div>
+                                 )}
                               </div>
                            </div>
                         </div>
@@ -362,6 +372,28 @@ export default function QueuesManagementPage() {
                                ))}
                             </StyledSelect>
                          </div>
+                      </div>
+                      <div className="space-y-1.5">
+                         <label className="text-[10px] font-semibold uppercase text-[var(--text-tertiary)] tracking-widest ml-1">Chats Internos (Widget)</label>
+                         <button
+                           type="button"
+                           onClick={() => setIncludeInternalChats(prev => !prev)}
+                           className={cn(
+                             "w-full flex items-center justify-between gap-3 p-4 rounded-2xl border text-left transition-all",
+                             includeInternalChats
+                               ? "bg-[var(--accent)]/10 border-[var(--accent)]/30"
+                               : "bg-[var(--surface-card)] border-[var(--border-default)]"
+                           )}
+                         >
+                            <div className="flex items-center gap-3">
+                               <Globe size={18} className={includeInternalChats ? "text-[var(--accent-text)]" : "text-[var(--text-tertiary)]"} />
+                               <div>
+                                  <p className="text-xs font-black uppercase text-[var(--text-primary)] leading-none mb-1">Recebe chats internos</p>
+                                  <p className="text-[10px] text-[var(--text-tertiary)] font-medium">Conversas de usuário logado no portal, além do WhatsApp vinculado</p>
+                               </div>
+                            </div>
+                            {includeInternalChats ? <CheckCircle2 size={18} className="text-[var(--accent-text)] shrink-0" /> : <XCircle size={18} className="text-[var(--text-tertiary)] shrink-0" />}
+                         </button>
                       </div>
                       <div className="space-y-1.5">
                          <label className="text-[10px] font-semibold uppercase text-[var(--text-tertiary)] tracking-widest ml-1">Descrição / Notas Internas</label>

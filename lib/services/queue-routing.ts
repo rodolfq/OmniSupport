@@ -19,10 +19,11 @@ export async function resolveQueueForInstance(instanceId: string): Promise<Routi
 // Conversas de usuário logado (widget do portal) não chegam por nenhum número
 // de WhatsApp, então não há uma fila única pra escolher — em vez de exigir
 // configurar uma fila especial, junta os membros de TODAS as filas
-// configuradas num único pool e faz o mesmo rodízio, com o mesmo
+// configuradas (que não tenham optado por ficar de fora, via
+// include_internal_chats) num único pool e faz o mesmo rodízio, com o mesmo
 // comportamento (só quem está online participa) das conversas de WhatsApp.
 export async function resolveCombinedQueuePool(): Promise<RoutingQueue | null> {
-  const res = await query('SELECT member_ids FROM public.queues');
+  const res = await query('SELECT member_ids FROM public.queues WHERE include_internal_chats = true');
   const memberIds = Array.from(new Set(res.rows.flatMap((r: any) => (r.member_ids || []) as string[])));
   if (!memberIds.length) return null;
   return { id: null, memberIds };

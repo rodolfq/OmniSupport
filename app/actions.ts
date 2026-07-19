@@ -331,7 +331,8 @@ export async function getQueues() {
       name: q.name,
       description: q.description,
       whatsappInstanceId: q.whatsapp_instance_id,
-      memberIds: q.member_ids || []
+      memberIds: q.member_ids || [],
+      includeInternalChats: q.include_internal_chats !== false
     }));
   } catch (err) {
     console.error("Error getting queues in actions:", err);
@@ -344,7 +345,8 @@ export async function saveQueue(
   name: string,
   description: string | null,
   whatsappInstanceId: string | null,
-  memberIds: string[]
+  memberIds: string[],
+  includeInternalChats: boolean = true
 ) {
   try {
     if (id) {
@@ -352,17 +354,17 @@ export async function saveQueue(
       // setá-la aqui derrubava todo o UPDATE com "column does not exist".
       await query(
         `UPDATE public.queues
-         SET name = $1, description = $2, whatsapp_instance_id = $3, member_ids = $4
-         WHERE id = $5`,
-        [name, description, whatsappInstanceId, memberIds, id]
+         SET name = $1, description = $2, whatsapp_instance_id = $3, member_ids = $4, include_internal_chats = $5
+         WHERE id = $6`,
+        [name, description, whatsappInstanceId, memberIds, includeInternalChats, id]
       );
       return { id };
     } else {
       const newId = crypto.randomUUID();
       await query(
-        `INSERT INTO public.queues (id, name, description, whatsapp_instance_id, member_ids)
-         VALUES ($1, $2, $3, $4, $5)`,
-        [newId, name, description, whatsappInstanceId, memberIds]
+        `INSERT INTO public.queues (id, name, description, whatsapp_instance_id, member_ids, include_internal_chats)
+         VALUES ($1, $2, $3, $4, $5, $6)`,
+        [newId, name, description, whatsappInstanceId, memberIds, includeInternalChats]
       );
       return { id: newId };
     }
