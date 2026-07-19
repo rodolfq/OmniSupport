@@ -34,6 +34,9 @@ export function TicketDetailModal({ ticket, onClose }: TicketDetailModalProps) {
   const [isFocused, setIsFocused] = useState(false);
   const [activeTab, setActiveTab] = useState<'description' | 'internal' | 'history' | 'attachments'>('description');
   const [historyTab, setHistoryTab] = useState<'customer' | 'internal'>('customer');
+  // Só usado <md: os dois painéis (dados/conversa) não cabem lado a lado numa
+  // tela de celular — alterna entre eles em vez de espremer os dois.
+  const [mobilePanel, setMobilePanel] = useState<'details' | 'chat'>('details');
   const [message, setMessage] = useState('');
    const [messageAttachments, setMessageAttachments] = useState<Attachment[]>([]);
    const [previewAttachment, setPreviewAttachment] = useState<Attachment | null>(null);
@@ -468,12 +471,38 @@ const handleSendMessage = async (isInternal: boolean) => {
         exit={{ x: '100%' }}
         transition={{ type: 'spring', damping: 25, stiffness: 200 }}
         className={cn(
-          "relative bg-[var(--surface-card)] h-full shadow-2xl border-l border-[var(--border-default)] flex flex-row transition-all duration-500 ease-in-out",
-          isFocused ? "w-full" : "w-full max-w-[90vw]"
+          "relative bg-[var(--surface-card)] h-full shadow-2xl border-l border-[var(--border-default)] flex flex-col md:flex-row transition-all duration-500 ease-in-out",
+          isFocused ? "w-full" : "w-full md:max-w-[90vw]"
         )}
       >
+        {/* Alternador Detalhes/Conversa — só em telas <md, onde os dois
+            painéis não cabem lado a lado */}
+        <div className="md:hidden flex bg-[var(--surface-pill)] p-1 gap-1 border-b border-[var(--border-default)] shrink-0">
+          <button
+            onClick={() => setMobilePanel('details')}
+            className={cn(
+              "flex-1 py-2.5 rounded-lg text-[10px] font-black uppercase tracking-widest transition-all",
+              mobilePanel === 'details' ? "bg-[var(--surface-card)] text-[var(--accent-text)] shadow-sm" : "text-[var(--text-tertiary)]"
+            )}
+          >
+            Detalhes
+          </button>
+          <button
+            onClick={() => setMobilePanel('chat')}
+            className={cn(
+              "flex-1 py-2.5 rounded-lg text-[10px] font-black uppercase tracking-widest transition-all",
+              mobilePanel === 'chat' ? "bg-[var(--surface-card)] text-[var(--accent-text)] shadow-sm" : "text-[var(--text-tertiary)]"
+            )}
+          >
+            Conversa
+          </button>
+        </div>
+
         {/* Left Side: Ticket Info */}
-        <div className="flex-1 flex flex-col min-w-0 bg-[var(--surface-card)]">
+        <div className={cn(
+          "flex-1 flex-col min-w-0 bg-[var(--surface-card)] overflow-y-auto md:overflow-visible",
+          mobilePanel === 'details' ? "flex" : "hidden md:flex"
+        )}>
           {/* Header Bar */}
           <div className="border-b border-[var(--border-default)] bg-[var(--surface-card)]/50">
             {/* Linha 1: identidade do chamado + ações */}
@@ -561,7 +590,7 @@ const handleSendMessage = async (isInternal: boolean) => {
 
                {/* Grid Info (Odoo style) */}
                {!isCustomer && hasPermission(Permission.TICKETS_READ) && (
-                 <div className="grid grid-cols-2 gap-x-12 gap-y-4">
+                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-x-12 gap-y-4">
                     {/* Column 1 */}
                     <div className="space-y-3">
                        <div className="flex items-start gap-4">
@@ -761,7 +790,7 @@ const handleSendMessage = async (isInternal: boolean) => {
                )}
 
                {isCustomer && (
-                  <div className="grid grid-cols-2 gap-x-12 gap-y-4">
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-x-12 gap-y-4">
                      <div className="space-y-3">
                         <div className="flex items-start gap-4">
                            <span className="text-[11px] font-semibold uppercase text-[var(--text-tertiary)] w-24 pt-0.5">Status</span>
@@ -887,7 +916,7 @@ const handleSendMessage = async (isInternal: boolean) => {
                                )}
 
                                {/* Internal Ticket Fields */}
-                               <div className="grid grid-cols-2 gap-x-12 gap-y-6 p-6 bg-[var(--surface-card)] border border-[var(--border-default)] rounded-2xl shadow-inner">
+                               <div className="grid grid-cols-1 sm:grid-cols-2 gap-x-12 gap-y-6 p-6 bg-[var(--surface-card)] border border-[var(--border-default)] rounded-2xl shadow-inner">
 <div className="space-y-4">
                                       <div className="flex flex-col gap-1.5">
                                          <label className="text-[10px] font-semibold uppercase text-[var(--text-tertiary)]">Ticket Interno #</label>
@@ -1055,7 +1084,10 @@ const handleSendMessage = async (isInternal: boolean) => {
         </div>
 
         {/* Right Side: Activity/Chat Panel */}
-        <div className="w-[450px] border-l border-[var(--border-default)] flex flex-col bg-[var(--surface-card)]/50">
+        <div className={cn(
+          "w-full md:w-[450px] border-l border-[var(--border-default)] flex-col bg-[var(--surface-card)]/50 min-h-0",
+          mobilePanel === 'chat' ? "flex" : "hidden md:flex"
+        )}>
            {/* Top Tabs */}
            <div className="px-6 py-4 border-b border-[var(--border-default)] bg-[var(--surface-card)] flex items-center justify-between">
               <div className="flex gap-4">

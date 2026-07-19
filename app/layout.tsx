@@ -1,10 +1,10 @@
 ﻿import React, { Suspense } from "react";
-import type { Metadata } from "next";
+import type { Metadata, Viewport } from "next";
 import { Inter } from "next/font/google";
 import "./globals.css";
 import { AppProvider } from "./app-context";
 import { ThemeProvider } from "./theme-provider";
-import { ChatWidget } from "@/components/chat-widget";
+import { PwaRegister } from "@/components/pwa-register";
 
 const THEME_INIT_SCRIPT = `
 (function() {
@@ -24,6 +24,7 @@ const inter = Inter({ subsets: ["latin"] });
 export const metadata: Metadata = {
   title: "SSX Resolve - Redefinindo o Atendimento",
   description: "Plataforma avançada de suporte ao cliente com IA",
+  manifest: "/manifest.webmanifest",
   icons: {
     icon: [
       { url: "/favicon-32x32.png", sizes: "32x32", type: "image/png" },
@@ -31,7 +32,19 @@ export const metadata: Metadata = {
       { url: "/favicon.png", sizes: "512x512", type: "image/png" }
     ],
     apple: "/apple-touch-icon.png"
+  },
+  appleWebApp: {
+    capable: true,
+    statusBarStyle: "default",
+    title: "SSX Resolve"
   }
+};
+
+export const viewport: Viewport = {
+  width: "device-width",
+  initialScale: 1,
+  viewportFit: "cover",
+  themeColor: "#0D3A69"
 };
 
 import { Toaster } from "sonner";
@@ -55,9 +68,9 @@ export default function RootLayout({
           <AppProvider>
             <Suspense fallback={null}>
               {children}
-              <ChatWidget />
             </Suspense>
             <Toaster position="top-right" richColors />
+            <PwaRegister />
           </AppProvider>
         </ThemeProvider>
       </body>

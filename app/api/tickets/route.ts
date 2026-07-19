@@ -3,6 +3,36 @@ import { query } from '@/lib/db';
 import { CLOSED_TICKET_STATUSES } from '@/lib/ticket-status';
 import { verifyJWT } from '@/lib/jwt';
 import { handleTicketCreated, handleTicketUpdated, handleTicketMessageCreated } from '@/lib/services/automation-service';
+import { notifyUser } from '@/lib/services/push-service';
+import { getTeamUserIds, getTicketRecipients } from '@/lib/services/notification-recipients';
+
+function ticketLabel(ticketNumber?: number | string | null, id?: string) {
+  return ticketNumber ? `#${String(ticketNumber).padStart(4, '0')}` : `#${String(id || '').slice(0, 8)}`;
+}
+
+async function pushToTicketRecipients(
+  recipients: { teamIds: string[]; customerIds: string[] },
+  payload: { title: string; body: string; ticketId: string; tag: string }
+) {
+  try {
+    await Promise.all([
+      ...recipients.teamIds.map(id => notifyUser(id, {
+        title: payload.title,
+        body: payload.body,
+        url: `/tickets?ticket=${payload.ticketId}`,
+        tag: payload.tag
+      })),
+      ...recipients.customerIds.map(id => notifyUser(id, {
+        title: payload.title,
+        body: payload.body,
+        url: `/my-tickets?ticket=${payload.ticketId}`,
+        tag: payload.tag
+      }))
+    ]);
+  } catch (err) {
+    console.error('[push] Falha ao notificar chamado:', err);
+  }
+}
 
 async function getTicketActor(request: NextRequest) {
   const token = request.cookies.get('token')?.value;
@@ -186,6 +216,13 @@ export async function POST(request: Request) {
       const newTicket = res.rows[0];
       handleTicketCreated(newTicket);
 
+      getTeamUserIds().then(teamIds => Promise.all(teamIds.map(teamId => notifyUser(teamId, {
+        title: `Novo chamado ${ticketLabel(newTicket.public_ticket_number, newTicket.id)}`,
+        body: newTicket.title,
+        url: `/tickets?ticket=${newTicket.id}`,
+        tag: `ticket_new:${newTicket.id}`
+      })))).catch(err => console.error('[push] Falha ao notificar novo chamado:', err));
+
       // Se o usuário for "Time Interno", criar ticket interno automaticamente
       if (userRole === 'Time Interno') {
         await query(
@@ -231,7 +268,24 @@ export async function POST(request: Request) {
       const newMessage = res.rows[0];
       if (newMessage.is_visible_to_customer && newMessage.type !== 'internal') {
         query('SELECT * FROM public.tickets WHERE id = $1', [message.ticketId])
-          .then(ticketRes => handleTicketMessageCreated(newMessage, ticketRes.rows[0]))
+          .then(ticketRes => {
+            const relatedTicket = ticketRes.rows[0];
+            handleTicketMessageCreated(newMessage, relatedTicket);
+            if (relatedTicket) {
+              const recipients = getTicketRecipients({
+                assigneeId: relatedTicket.assignee_id,
+                createdBy: relatedTicket.created_by,
+                customerId: relatedTicket.customer_id,
+                employeeIds: relatedTicket.employee_ids
+              }, newMessage.author_id);
+              pushToTicketRecipients(recipients, {
+                title: `Atualização no chamado ${ticketLabel(relatedTicket.public_ticket_number, relatedTicket.id)}`,
+                body: newMessage.content || relatedTicket.title,
+                ticketId: relatedTicket.id,
+                tag: `ticket_message:${newMessage.id}`
+              });
+            }
+          })
           .catch(err => console.error('[automation] Falha ao buscar chamado para create-message:', err));
       }
 
@@ -283,7 +337,21 @@ export async function PUT(request: Request) {
       ]
     );
 
-    handleTicketUpdated(oldTicket, updateRes.rows[0]);
+    const newTicket = updateRes.rows[0];
+    handleTicketUpdated(oldTicket, newTicket);
+
+    const recipients = getTicketRecipients({
+      assigneeId: newTicket.assignee_id,
+      createdBy: newTicket.created_by,
+      customerId: newTicket.customer_id,
+      employeeIds: newTicket.employee_ids
+    });
+    pushToTicketRecipients(recipients, {
+      title: `Chamado atualizado ${ticketLabel(newTicket.public_ticket_number, newTicket.id)}`,
+      body: newTicket.title,
+      ticketId: newTicket.id,
+      tag: `ticket_update:${newTicket.id}:${new Date(newTicket.updated_at).getTime()}`
+    });
 
     return NextResponse.json({ success: true });
   } catch (error: any) {
@@ -358,6 +426,19 @@ export async function PATCH(request: Request) {
     const updateRes = await query(sql, params);
     for (const newTicket of updateRes.rows) {
       handleTicketUpdated(oldById.get(newTicket.id), newTicket);
+
+      const recipients = getTicketRecipients({
+        assigneeId: newTicket.assignee_id,
+        createdBy: newTicket.created_by,
+        customerId: newTicket.customer_id,
+        employeeIds: newTicket.employee_ids
+      });
+      pushToTicketRecipients(recipients, {
+        title: `Chamado atualizado ${ticketLabel(newTicket.public_ticket_number, newTicket.id)}`,
+        body: newTicket.title,
+        ticketId: newTicket.id,
+        tag: `ticket_update:${newTicket.id}:${new Date(newTicket.updated_at).getTime()}`
+      });
     }
 
     return NextResponse.json({ success: true });

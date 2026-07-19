@@ -179,6 +179,44 @@ async function findChatSessionByPhone(jid: string, instanceId = 'default') {
   return dialable || res.rows[0];
 }
 
+// Fila vinculada à instância de WhatsApp que recebeu a mensagem (se houver).
+async function resolveQueueForInstance(instanceId: string): Promise<{ id: string; memberIds: string[] } | null> {
+  const res = await query(
+    `SELECT id, member_ids FROM public.queues WHERE whatsapp_instance_id = $1 LIMIT 1`,
+    [instanceId]
+  );
+  const row = res.rows[0];
+  if (!row) return null;
+  return { id: row.id, memberIds: row.member_ids || [] };
+}
+
+// Distribuição round-robin entre os analistas da fila que estão online agora:
+// pega quem foi atribuído por último num atendimento dessa fila e passa para o
+// próximo da lista (na ordem salva em member_ids), pulando quem não está online.
+// Sem alguém online na fila, devolve null e o atendimento cai como 'pending' para
+// atribuição manual, igual ao comportamento anterior.
+async function pickNextQueueAssignee(queueId: string, memberIds: string[]): Promise<string | null> {
+  if (!memberIds.length) return null;
+
+  const onlineRes = await query(
+    `SELECT user_id FROM public.analyst_status WHERE user_id = ANY($1::uuid[]) AND is_online = true`,
+    [memberIds]
+  );
+  const onlineIds = new Set(onlineRes.rows.map((r: any) => r.user_id));
+  const rotation = memberIds.filter(id => onlineIds.has(id));
+  if (!rotation.length) return null;
+
+  const lastRes = await query(
+    `SELECT assignee_id FROM public.chat_sessions
+     WHERE queue_id = $1 AND assignee_id IS NOT NULL
+     ORDER BY created_at DESC LIMIT 1`,
+    [queueId]
+  );
+  const lastAssignee = lastRes.rows[0]?.assignee_id;
+  const lastIndex = lastAssignee ? rotation.indexOf(lastAssignee) : -1;
+  return rotation[(lastIndex + 1) % rotation.length];
+}
+
 async function findOrCreateChatSession(jid: string, pushName: string | undefined, instanceId = 'default') {
   const existing = await findChatSessionByPhone(jid, instanceId);
   if (existing) return existing;
@@ -199,11 +237,15 @@ async function findOrCreateChatSession(jid: string, pushName: string | undefined
 
   const customerName = profile?.name || pushName || 'Contato WhatsApp';
 
+  const queue = await resolveQueueForInstance(instanceId);
+  const assigneeId = queue ? await pickNextQueueAssignee(queue.id, queue.memberIds) : null;
+  const status = assigneeId ? 'active' : 'pending';
+
   const insertRes = await query(
-    `INSERT INTO public.chat_sessions (customer_id, customer_name, customer_phone, status, created_at, updated_at)
-     VALUES ($1, $2, $3, 'pending', NOW(), NOW())
+    `INSERT INTO public.chat_sessions (customer_id, customer_name, customer_phone, status, queue_id, assignee_id, created_at, updated_at)
+     VALUES ($1, $2, $3, $4, $5, $6, NOW(), NOW())
      RETURNING id, customer_phone, customer_id, customer_name, updated_at`,
-    [profile?.id || null, customerName, digits]
+    [profile?.id || null, customerName, digits, status, queue?.id || null, assigneeId]
   );
 
   return insertRes.rows[0] || null;

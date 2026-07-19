@@ -4,36 +4,13 @@ import React, { useState, useMemo } from 'react';
 import Link from 'next/link';
 import { usePathname, useRouter } from 'next/navigation';
 import { Permission, UserRole } from '@/lib/types';
-import { UserService } from '@/lib/services/user-service';
-import { 
-   LayoutDashboard, 
-   Ticket, 
-   Users, 
-   PieChart, 
-   Settings,
+import { getNavItems, getUserPermissions } from '@/lib/nav-items';
+import {
    LogOut,
-   UserCog,
-   Shield,
-   MessageSquare,
-   UserCircle,
-   Key,
-   MessageCircle,
-   Library,
    Database,
-   FileText,
-   History
  } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { useApp } from '@/app/app-context';
-
-interface MenuItem {
-  name: string;
-  icon: any;
-  href?: string;
-  permission?: Permission;
-  action?: () => void;
-  subItems?: MenuItem[];
-}
 import { ChangePasswordModal } from './change-password-modal';
 
 export function Sidebar() {
@@ -55,84 +32,15 @@ export function Sidebar() {
   const [isPasswordModalOpen, setIsPasswordModalOpen] = useState(false);
   const [openSubmenu, setOpenSubmenu] = useState<string | null>(null);
 
-  const menuItems: MenuItem[] = useMemo(() => {
-    const isCustomer = [UserRole.CUSTOMER, UserRole.EMPLOYEE].includes(currentUser?.role as UserRole);
-    
-    if (isCustomer) {
-      return [
-        { 
-          name: 'Chamados', 
-          icon: Ticket, 
-          subItems: [
-            { name: 'Meus Chamados', icon: UserCircle, href: '/my-tickets' },
-          ]
-        },
-        ...(currentUser?.role === UserRole.CUSTOMER ? [
-          { name: 'Empresa', icon: Users, href: '/customers' },
-        ] : []),
-        { 
-          name: 'Configurações', 
-          icon: Settings, 
-          href: '/settings',
-          subItems: [
-            { name: 'Perfil', icon: Settings, href: '/settings' },
-            { name: 'Alterar Senha', icon: Key, action: () => setIsPasswordModalOpen(true) },
-          ]
-        },
-      ];
-    }
+  const menuItems = useMemo(
+    () => getNavItems(currentUser, () => setIsPasswordModalOpen(true)),
+    [currentUser]
+  );
 
-    return [
-      { 
-        name: 'Dashboard', 
-        icon: LayoutDashboard, 
-        permission: Permission.DASHBOARD_VIEW,
-        subItems: [
-          { name: 'Geral', icon: LayoutDashboard, href: '/dashboard', permission: Permission.DASHBOARD_VIEW },
-          { name: 'Relatórios', icon: PieChart, href: '/reports', permission: Permission.REPORTS_READ },
-        ]
-      },
-{ 
-        name: 'Chamados', 
-        icon: Ticket, 
-        permission: Permission.TICKETS_READ,
-        subItems: [
-          { name: 'Todos os Chamados', icon: Ticket, href: '/tickets', permission: Permission.TICKETS_READ },
-          { name: 'Meus Chamados', icon: UserCircle, href: '/my-tickets' },
-          { name: 'Painel Chat', icon: MessageSquare, href: '/chat-management', permission: Permission.OUTSIDE_QUEUE_VIEW },
-          { name: 'Histórico de Conversas', icon: History, href: '/chat-history', permission: Permission.TICKETS_READ },
-          { name: 'Tickets Internos', icon: FileText, href: '/internal-tickets', permission: Permission.INTERNAL_TICKETS_VIEW },
-        ]
-      },
-      { name: 'Chat Interno', icon: MessageCircle, href: '/chat-internal', permission: Permission.CHAT_INTERNAL_VIEW },
-      { name: 'WhatsApp', icon: MessageSquare, href: '/whatsapp', permission: Permission.OUTSIDE_QUEUE_VIEW },
-      { name: 'Clientes', icon: Users, href: '/customers', permission: Permission.CUSTOMERS_READ },
-      { 
-        name: 'Configurações', 
-        icon: Settings, 
-        href: '/settings',
-        subItems: [
-          { name: 'Configurações', icon: Settings, href: '/settings' },
-          { name: 'Equipe', icon: UserCog, href: '/team', permission: Permission.TEAM_READ },
-          { name: 'Perfil de Acesso', icon: Shield, href: '/permissions', permission: Permission.SETTINGS_WRITE },
-          { name: 'Filas', icon: Library, href: '/queues', permission: Permission.SETTINGS_WRITE },
-          { name: 'Alterar Senha', icon: Key, action: () => setIsPasswordModalOpen(true) },
-        ]
-      },
-    ];
-  }, [currentUser]);
-
-  const userPermissions = useMemo(() => {
-    if (!currentUser) return [];
-    // Super Admin bypass
-    if (currentUser.role === UserRole.ADMIN) {
-      return Object.values(Permission);
-    }
-    return currentUser.permissions || UserService.getPermissionsByRole(currentUser.role);
-  }, [currentUser]);
+  const userPermissions = useMemo(() => getUserPermissions(currentUser), [currentUser]);
 
   return (
-    <div className="w-20 bg-[var(--surface-sidebar)] flex flex-col items-center py-6 gap-8 border-r border-white/10 shadow-xl h-screen sticky top-0 z-20">
+    <div className="hidden md:flex w-20 bg-[var(--surface-sidebar)] flex-col items-center py-6 gap-8 border-r border-white/10 shadow-xl h-screen sticky top-0 z-20">
       <div className="w-10 h-10 bg-white rounded-xl flex items-center justify-center mb-4 p-1.5 shadow-sm" title="SSX Resolve">
         <img src="/branding/icon.png" alt="SSX Resolve" className="w-full h-full object-contain" draggable={false} />
       </div>

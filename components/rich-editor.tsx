@@ -68,7 +68,7 @@ export function RichEditor({ content, onChange, placeholder = 'Comece a digitar.
     editorProps: {
       attributes: {
         class: cn(
-          "prose prose-sm max-w-none focus:outline-none focus:ring-0 p-4",
+          "prose prose-sm max-w-none text-base focus:outline-none focus:ring-0 p-4",
           "prose-headings:font-black prose-headings:tracking-tighter",
           "prose-p:text-[var(--text-secondary)] prose-p:font-medium leading-relaxed",
           "prose-a:text-[var(--accent-text)] prose-a:underline"

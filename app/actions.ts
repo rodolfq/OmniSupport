@@ -356,13 +356,13 @@ export async function saveQueue(
       );
       return { id };
     } else {
-      const res = await query(
-        `INSERT INTO public.queues (name, description, whatsapp_instance_id, member_ids)
-         VALUES ($1, $2, $3, $4)
-         RETURNING id`,
-        [name, description, whatsappInstanceId, memberIds]
+      const newId = crypto.randomUUID();
+      await query(
+        `INSERT INTO public.queues (id, name, description, whatsapp_instance_id, member_ids)
+         VALUES ($1, $2, $3, $4, $5)`,
+        [newId, name, description, whatsappInstanceId, memberIds]
       );
-      return { id: res.rows[0].id };
+      return { id: newId };
     }
   } catch (err) {
     console.error("Error saving queue in actions:", err);

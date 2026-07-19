@@ -157,8 +157,8 @@ export function ModernSearchBar({ onSearch, loading }: ModernSearchBarProps) {
   return (
     <div className="space-y-4">
       {/* Main Search Bar */}
-      <div className="flex items-center gap-3">
-        <div className="relative flex-1 max-w-2xl">
+      <div className="flex flex-wrap items-center gap-3">
+        <div className="relative flex-1 min-w-[200px] max-w-2xl">
           <Search size={20} className="absolute left-4 top-1/2 -translate-y-1/2 text-[var(--text-tertiary)]" />
           <input
             ref={inputRef}

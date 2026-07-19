@@ -829,7 +829,8 @@ export default function TicketsPage() {
         loading={loading}
       />
 
-      <div className="bg-[var(--surface-card)] border border-[var(--border-default)] rounded-3xl overflow-hidden shadow-sm shadow-slate-200/50 overflow-x-auto">
+      <div className="bg-[var(--surface-card)] border border-[var(--border-default)] rounded-3xl overflow-hidden shadow-sm shadow-slate-200/50">
+        <div className="hidden md:block overflow-x-auto">
         <DndContext
           sensors={sensors}
           collisionDetection={closestCenter}
@@ -929,6 +930,105 @@ export default function TicketsPage() {
             </tbody>
           </table>
         </DndContext>
+        </div>
+
+        {/* Lista em cards <md — a tabela com colunas reordenáveis por
+            arrasto não é uma boa experiência de toque numa tela estreita. */}
+        <div className="md:hidden divide-y divide-[var(--border-default)]">
+          {loading ? (
+            <div className="flex flex-col items-center gap-4 text-[var(--text-tertiary)] px-6 py-12">
+              <Loader2 size={32} className="animate-spin text-[var(--accent-text)]" />
+              <p className="text-sm font-bold uppercase tracking-widest text-[10px]">Carregando chamados...</p>
+            </div>
+          ) : visibleTickets.length === 0 ? (
+            <div className="flex flex-col items-center gap-2 text-[var(--text-tertiary)] px-6 py-12">
+              <FileText size={48} className="opacity-20" />
+              <p className="text-sm font-bold">Nenhum chamado encontrado com esses filtros</p>
+            </div>
+          ) : (
+            visibleTickets.map((t) => {
+              const company = companies.find((c) => c.id === t.companyId);
+              const assignee = users.find((u) => u.id === t.assigneeId);
+              const sla = getSLAStatus(t);
+              const priorityLabels = ["Baixa", "Média", "Alta", "Urgente"];
+              const currentPriority = priorityLabels.indexOf(t.priority as string) + 1;
+
+              return (
+                <div
+                  key={t.id}
+                  onClick={() => setSelectedTicket(t)}
+                  className={cn(
+                    "px-5 py-4 active:bg-[var(--surface-card)]/80 transition-colors",
+                    sla.isOverdue && "bg-[var(--surface-danger)]/30"
+                  )}
+                >
+                  <div className="flex items-start gap-3">
+                    <button
+                      onClick={(e) => { e.stopPropagation(); toggleSelectTicket(t.id); }}
+                      className="p-1 mt-0.5 shrink-0 text-slate-300"
+                    >
+                      {selectedTickets.includes(t.id) ? (
+                        <CheckSquare size={18} className="text-[var(--accent-text)]" />
+                      ) : (
+                        <Square size={18} />
+                      )}
+                    </button>
+                    <div className="min-w-0 flex-1">
+                      <div className="flex items-center justify-between gap-2">
+                        <span className="font-mono text-[10px] font-semibold text-[var(--accent-text)] bg-[var(--accent)]/10 px-2 py-0.5 rounded shrink-0">
+                          #{t.ticketNumber ? String(t.ticketNumber).padStart(4, '0') : t.id.slice(0, 8)}
+                        </span>
+                        <span
+                          className={cn(
+                            "px-2.5 py-1 rounded-full text-[9px] font-semibold uppercase tracking-tighter shrink-0",
+                            t.status === TicketStatus.NEW
+                              ? "bg-[var(--surface-info)] text-[var(--text-info)]"
+                              : isInProgressTicketStatus(t.status)
+                                ? "bg-[var(--surface-warning)] text-[var(--text-warning)]"
+                                : isClosedTicketStatus(t.status)
+                                  ? "bg-[var(--surface-success)] text-[var(--text-success)]"
+                                  : "bg-[var(--surface-pill)] text-[var(--text-secondary)]"
+                          )}
+                        >
+                          {t.status}
+                        </span>
+                      </div>
+                      <p className="font-bold text-[var(--text-primary)] text-sm italic mt-1.5 truncate">{t.title}</p>
+                      <p className="text-[10px] text-[var(--text-tertiary)] font-medium">{company?.name || t.category}</p>
+                      <div className="flex items-center justify-between mt-2.5">
+                        <div className="flex items-center gap-1.5 min-w-0">
+                          {assignee ? (
+                            <>
+                              <div className="w-5 h-5 rounded-full bg-[var(--border-default)] flex items-center justify-center text-[8px] font-semibold text-[var(--text-secondary)] shrink-0">
+                                {assignee.name.charAt(0)}
+                              </div>
+                              <span className="text-[11px] font-medium text-[var(--text-secondary)] truncate">{assignee.name}</span>
+                            </>
+                          ) : (
+                            <span className="text-[11px] text-slate-300 italic">Disponível</span>
+                          )}
+                        </div>
+                        <div className="flex items-center gap-0.5 shrink-0">
+                          {[1, 2, 3, 4].map((star) => (
+                            <Star
+                              key={star}
+                              size={11}
+                              className={cn(star <= currentPriority ? "fill-amber-400 text-[var(--text-warning)]" : "text-slate-200")}
+                            />
+                          ))}
+                        </div>
+                      </div>
+                      {sla.isOverdue && (
+                        <p className="text-[9px] font-semibold text-[var(--text-danger)] uppercase tracking-tighter mt-1.5">SLA Vencido</p>
+                      )}
+                    </div>
+                    <ChevronRight size={18} className="text-slate-300 shrink-0 mt-1" />
+                  </div>
+                </div>
+              );
+            })
+          )}
+        </div>
 
         {!loading && (
           <div className="flex flex-col gap-4 border-t border-[var(--border-default)] px-6 py-5 sm:flex-row sm:items-center sm:justify-between">

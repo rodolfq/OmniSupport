@@ -2,30 +2,23 @@
 
 import React, { useState, Suspense } from 'react';
 import { Sidebar } from '@/components/sidebar';
-import { Bell, Check, Clock, MessageCircle, Ticket, ChevronDown, Sun, Moon } from 'lucide-react';
+import { Bell, ChevronDown, Sun, Moon } from 'lucide-react';
 import { useApp } from '@/app/app-context';
 import { useTheme } from '@/app/theme-provider';
 import { usePathname, useRouter } from 'next/navigation';
 import { NewTicketModal } from '@/components/new-ticket-modal';
 import { ChatWidget } from '@/components/chat-widget';
 import { ForcePasswordChange } from '@/components/force-password-change';
+import { MobileHeader } from '@/components/mobile-header';
+import { MobileBottomNav } from '@/components/mobile-bottom-nav';
+import { NotificationPanel } from '@/components/notification-panel';
 import { cn } from '@/lib/utils';
-import Link from 'next/link';
 import { UserRole } from '@/lib/types';
 
-function stripNotificationHtml(value: string) {
-  return value
-    .replace(/<style[\s\S]*?<\/style>/gi, ' ')
-    .replace(/<script[\s\S]*?<\/script>/gi, ' ')
-    .replace(/<[^>]*>/g, ' ')
-    .replace(/&nbsp;/g, ' ')
-    .replace(/&amp;/g, '&')
-    .replace(/&lt;/g, '<')
-    .replace(/&gt;/g, '>')
-    .replace(/&quot;/g, '"')
-    .replace(/&#39;/g, "'")
-    .replace(/\s+/g, ' ')
-    .trim();
+function formatCountdown(totalSeconds: number): string {
+  const minutes = Math.floor(totalSeconds / 60);
+  const seconds = totalSeconds % 60;
+  return `${minutes}:${String(seconds).padStart(2, '0')}`;
 }
 
 export default function PortalLayout({ children }: { children: React.ReactNode }) {
@@ -39,6 +32,7 @@ export default function PortalLayout({ children }: { children: React.ReactNode }
     whatsappStatus,
     userStatus,
     userStatusReason,
+    lunchSecondsRemaining,
     absenceReasons,
     setUserStatus
   } = useApp();
@@ -87,21 +81,12 @@ export default function PortalLayout({ children }: { children: React.ReactNode }
 
   const unreadCount = notifications.filter(n => !n.read).length;
   const isTeam = [UserRole.ADMIN, UserRole.SUPPORT, UserRole.INTERNAL].includes(currentUser.role as UserRole);
-  const getNotificationIcon = (type: string) => {
-    if (type.startsWith('chat_')) return <MessageCircle size={14} />;
-    if (type === 'ticket_closed') return <Check size={14} />;
-    return <Ticket size={14} />;
-  };
-  const getNotificationColor = (type: string) => {
-    if (type.startsWith('chat_')) return 'bg-[var(--surface-success)] text-[var(--text-success)]';
-    if (type === 'ticket_closed') return 'bg-[var(--surface-success)] text-[var(--text-success)]';
-    return 'bg-[var(--accent)]/15 text-[var(--accent-text)]';
-  };
   return (
     <div className="flex bg-[var(--surface-page)] min-h-screen">
       <Sidebar />
       <div className="flex-1 flex flex-col min-w-0 overflow-hidden">
-        <header className="h-16 bg-[var(--surface-card)] border-b border-[var(--border-default)] flex items-center justify-between px-8 shadow-sm sticky top-0 z-[100]">
+        <MobileHeader />
+        <header className="hidden md:flex h-16 bg-[var(--surface-card)] border-b border-[var(--border-default)] items-center justify-between px-8 shadow-sm sticky top-0 z-[100]">
 <div className="flex items-center gap-4">
             <h1 className="text-lg font-semibold text-[var(--text-primary)] tracking-tight">Portal SSX Resolve</h1>
             <div className="h-4 w-px bg-[var(--border-default)]"></div>
@@ -122,7 +107,11 @@ export default function PortalLayout({ children }: { children: React.ReactNode }
                     )} />
                     <span className="text-[10px] font-semibold uppercase tracking-tighter text-[var(--text-tertiary)]">
                       {userStatus === 'online' ? 'Disponível' :
-                       userStatus === 'away' ? `Ausente ${userStatusReason ? `> ${userStatusReason}` : ''}` : 'Offline'}
+                       userStatus === 'away' ? `Ausente ${userStatusReason ? `> ${userStatusReason}` : ''}${
+                         userStatusReason === 'Almoço' && lunchSecondsRemaining !== null
+                           ? ` (${formatCountdown(lunchSecondsRemaining)})`
+                           : ''
+                       }` : 'Offline'}
                     </span>
                     <ChevronDown size={10} className={cn("transition-transform", isStatusMenuOpen && "rotate-180")} />
                   </button>
@@ -225,69 +214,12 @@ export default function PortalLayout({ children }: { children: React.ReactNode }
                       className="fixed inset-0 z-[110]"
                       onClick={() => setIsNotificationsOpen(false)}
                     />
-                    <div className="absolute right-0 mt-2 w-80 bg-[var(--surface-card)] border border-[var(--border-default)] rounded-2xl shadow-2xl z-[120] overflow-hidden transform origin-top-right transition-all animate-in fade-in zoom-in-95 duration-200">
-                      <div className="p-4 border-b border-[var(--border-default)] flex items-center justify-between bg-[var(--surface-pill)]/50">
-                        <h3 className="text-[10px] font-semibold uppercase tracking-widest text-[var(--text-primary)]">Notificações</h3>
-                        <button
-                          onClick={() => {
-                            notifications.forEach(n => markNotificationRead(n.id));
-                          }}
-                          className="text-[9px] font-semibold uppercase text-[var(--text-tertiary)] hover:text-[var(--text-danger)] transition-all flex items-center gap-1"
-                        >
-                          <Check size={10} /> Marcar Lidas
-                        </button>
-                      </div>
-                      <div className="max-h-[400px] overflow-y-auto">
-                        {notifications.length === 0 ? (
-                          <div className="p-10 text-center text-[var(--text-tertiary)]">
-                            <Bell size={32} className="mx-auto mb-3 opacity-20" />
-                            <p className="text-xs font-medium">Nenhuma notificação</p>
-                          </div>
-                        ) : (
-                          notifications.map(notif => (
-                            <div
-                              key={notif.id}
-                              onClick={() => {
-                                markNotificationRead(notif.id);
-                                setIsNotificationsOpen(false);
-                              }}
-                              className={cn(
-                                "p-4 border-b border-[var(--border-default)] hover:bg-[var(--surface-pill)] transition-all cursor-pointer relative group",
-                                !notif.read && "bg-[var(--accent)]/5"
-                              )}
-                            >
-                              <div className="flex items-start gap-3">
-                                <div className={cn(
-                                  "w-8 h-8 rounded-full flex items-center justify-center shrink-0",
-                                  getNotificationColor(notif.type)
-                                )}>
-                                  {getNotificationIcon(notif.type)}
-                                </div>
-                                <div className="min-w-0 flex-1">
-                                  <p className="text-[11px] font-semibold text-[var(--text-primary)] truncate">{notif.title}</p>
-                                  <p className="text-[10px] text-[var(--text-tertiary)] mt-0.5 line-clamp-2">{stripNotificationHtml(notif.message)}</p>
-                                  <div className="flex items-center gap-1.5 mt-2 text-[9px] text-[var(--text-tertiary)] font-medium">
-                                    <Clock size={10} />
-                                    {new Date(notif.timestamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
-                                  </div>
-                                </div>
-                                {!notif.read && (
-                                  <div className="w-2 h-2 rounded-full bg-[var(--accent)] shrink-0 mt-1" />
-                                )}
-                              </div>
-                            </div>
-                          ))
-                        )}
-                      </div>
-                      <div className="p-3 bg-[var(--surface-pill)]/50 text-center border-t border-[var(--border-default)]">
-                        <Link
-                          href="/activities"
-                          onClick={() => setIsNotificationsOpen(false)}
-                          className="text-[10px] font-semibold uppercase text-[var(--accent-text)] hover:opacity-80 tracing-widest block w-full py-1"
-                        >
-                          Ver todas as atividades
-                        </Link>
-                      </div>
+                    <div className="absolute right-0 mt-2 w-80 max-h-[520px] bg-[var(--surface-card)] border border-[var(--border-default)] rounded-2xl shadow-2xl z-[120] overflow-hidden transform origin-top-right transition-all animate-in fade-in zoom-in-95 duration-200">
+                      <NotificationPanel
+                        notifications={notifications}
+                        onMarkRead={markNotificationRead}
+                        onItemClick={() => setIsNotificationsOpen(false)}
+                      />
                     </div>
                   </>
                 )}
@@ -295,13 +227,14 @@ export default function PortalLayout({ children }: { children: React.ReactNode }
             </div>
           </div>
         </header>
-        <main className="flex-1 p-8 overflow-y-auto">
+        <main className="flex-1 p-4 md:p-8 pb-24 md:pb-8 overflow-y-auto">
           <Suspense fallback={null}>
             {children}
           </Suspense>
         </main>
         <NewTicketModal />
         <ChatWidget />
+        <MobileBottomNav />
       </div>
       <ForcePasswordChange />
     </div>

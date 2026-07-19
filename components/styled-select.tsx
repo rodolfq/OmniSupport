@@ -5,6 +5,7 @@ import { createPortal } from "react-dom";
 import { AnimatePresence, motion } from "motion/react";
 import { Check, ChevronDown, Search } from "lucide-react";
 import { cn } from "@/lib/utils";
+import { useIsMobile } from "@/hooks/use-mobile";
 
 type SelectOption = {
   value: string;
@@ -49,6 +50,7 @@ export function StyledSelect({
   "aria-label": ariaLabel,
   ...selectProps
 }: StyledSelectProps) {
+  const isMobileViewport = useIsMobile();
   const triggerRef = useRef<HTMLButtonElement>(null);
   const selectRef = useRef<HTMLSelectElement>(null);
   const searchInputRef = useRef<HTMLInputElement>(null);
@@ -157,6 +159,40 @@ export function StyledSelect({
     } while (filteredOptions[next]?.disabled && next !== activeIndex);
     setActiveIndex(next);
   };
+
+  // Em telas de celular, o dropdown customizado (portal + campo de busca que
+  // auto-foca e abre o teclado virtual) atrapalha mais do que ajuda — usamos
+  // o <select> nativo de verdade, com o picker do próprio SO. Nenhum call
+  // site precisa mudar: o <select> abaixo já existia (só ficava invisível).
+  if (isMobileViewport) {
+    return (
+      <div className={cn("relative inline-flex min-w-0", className?.includes("w-full") && "w-full", className?.includes("flex-1") && "flex-1")}>
+        <select
+          {...selectProps}
+          id={id}
+          name={name}
+          required={required}
+          disabled={disabled}
+          value={currentValue}
+          onChange={(event) => {
+            if (value === undefined) setInternalValue(event.target.value);
+            onChange?.(event);
+          }}
+          onBlur={onBlur}
+          onFocus={onFocus}
+          aria-label={ariaLabel}
+          className={cn(
+            "min-h-9 min-w-0 w-full cursor-pointer bg-[var(--surface-card)]",
+            "focus-visible:ring-4 focus-visible:ring-[var(--accent)]/10 focus-visible:border-[var(--accent)]",
+            "disabled:cursor-not-allowed disabled:opacity-60",
+            className,
+          )}
+        >
+          {children}
+        </select>
+      </div>
+    );
+  }
 
   return (
     <div className={cn("relative inline-flex min-w-0", className?.includes("w-full") && "w-full", className?.includes("flex-1") && "flex-1")}>

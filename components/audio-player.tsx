@@ -109,7 +109,7 @@ export function AudioPlayer({ src, name, isOwnMessage }: AudioPlayerProps) {
         type="button"
         onClick={togglePlay}
         className={cn(
-          "shrink-0 w-9 h-9 rounded-full flex items-center justify-center transition-all",
+          "shrink-0 w-11 h-11 rounded-full flex items-center justify-center transition-all",
           own ? "bg-[var(--surface-card)] text-[var(--accent-text)]" : "bg-[var(--accent)] text-white"
         )}
         title={isPlaying ? 'Pausar' : 'Reproduzir'}
@@ -149,7 +149,7 @@ export function AudioPlayer({ src, name, isOwnMessage }: AudioPlayerProps) {
         download={name || 'audio.webm'}
         onClick={(e) => e.stopPropagation()}
         className={cn(
-          "shrink-0 w-8 h-8 rounded-full flex items-center justify-center transition-all",
+          "shrink-0 w-11 h-11 rounded-full flex items-center justify-center transition-all",
           own ? "text-white/80 hover:bg-white/15" : "text-[var(--text-tertiary)] hover:bg-[var(--border-default)]"
         )}
         title="Baixar áudio"

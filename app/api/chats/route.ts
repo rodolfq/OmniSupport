@@ -1,6 +1,9 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { query } from '@/lib/db';
 import { verifyJWT } from '@/lib/jwt';
+import { emitChatEvent } from '@/lib/chat-events';
+import { notifyUser } from '@/lib/services/push-service';
+import { getChatRecipientIds, isTeamRole } from '@/lib/services/notification-recipients';
 
 function normalizePhone(value?: string | null): string {
   return (value || '').replace(/\D/g, '');
@@ -78,8 +81,56 @@ export async function GET(request: NextRequest) {
       }));
 
       return NextResponse.json(sessions);
-    } 
-    
+    }
+
+    if (action === 'sessions-summary') {
+      // Versão leve de `sessions`: sem o array de mensagens completo (que inclui
+      // anexos em base64) — pensada para a lista de conversas em conexões
+      // móveis, onde baixar o histórico inteiro de toda sessão aberta a cada
+      // poll é desnecessário. Mensagens completas continuam vindo só da ação
+      // `sessions` (ou do SSE), buscadas quando uma conversa é de fato aberta.
+      const sessionsRes = await query(
+        `SELECT * FROM public.chat_sessions
+         WHERE customer_phone IS NULL OR length(regexp_replace(customer_phone, '\\D', '', 'g')) <= 15
+         ORDER BY COALESCE(last_message_at, updated_at, created_at) DESC`
+      );
+
+      const lastMessagesRes = await query(
+        `SELECT DISTINCT ON (session_id) session_id, id, sender_id, sender_name, text, type, created_at
+         FROM public.chat_messages
+         ORDER BY session_id, created_at DESC`
+      );
+      const lastMessageBySession = new Map(lastMessagesRes.rows.map(m => [m.session_id, m]));
+
+      const sessions = sessionsRes.rows.map(s => {
+        const lastMessage = lastMessageBySession.get(s.id);
+        return {
+          id: s.id,
+          customerId: s.customer_id,
+          customerName: s.customer_name,
+          customerPhone: s.customer_phone,
+          assigneeId: s.assignee_id,
+          queueId: s.queue_id,
+          status: s.status,
+          ticketId: s.ticket_id,
+          ticketNumber: s.ticket_number,
+          startedAt: s.created_at,
+          lastMessageAt: s.last_message_at || s.created_at,
+          awaitingSurveyUntil: s.awaiting_survey_until,
+          lastMessage: lastMessage ? {
+            id: lastMessage.id,
+            senderId: lastMessage.sender_id,
+            senderName: lastMessage.sender_name,
+            text: lastMessage.text,
+            timestamp: lastMessage.created_at,
+            type: lastMessage.type
+          } : null
+        };
+      });
+
+      return NextResponse.json(sessions);
+    }
+
     if (action === 'histories') {
       const res = await query(
         `SELECT h.*, p1.name as customer_profile_name, p2.name as assignee_profile_name 
@@ -342,6 +393,44 @@ export async function POST(request: Request) {
          WHERE id = $2`,
         [message.timestamp, sessionId]
       );
+      emitChatEvent(sessionId, {
+        type: 'message',
+        sessionId,
+        message: {
+          id: message.id,
+          senderId: message.senderId || null,
+          senderName: message.senderName || null,
+          text: message.text,
+          timestamp: message.timestamp,
+          type: message.type || 'text',
+          metadata,
+          attachments: metadata.attachments || []
+        }
+      });
+
+      (async () => {
+        try {
+          const [senderRoleRes, sessionRes] = await Promise.all([
+            message.senderId
+              ? query('SELECT role FROM public.profiles WHERE id = $1', [message.senderId])
+              : Promise.resolve({ rows: [] as any[] }),
+            query('SELECT customer_id, customer_name FROM public.chat_sessions WHERE id = $1', [sessionId])
+          ]);
+          const senderIsTeam = isTeamRole(senderRoleRes.rows[0]?.role);
+          const session = sessionRes.rows[0];
+          const recipients = await getChatRecipientIds({ customerId: session?.customer_id }, message.senderId || null, senderIsTeam);
+
+          await Promise.all(recipients.map(id => notifyUser(id, {
+            title: `Nova mensagem de ${message.senderName || session?.customer_name || 'Cliente'}`,
+            body: message.text || 'Anexo enviado',
+            url: `/chat?chat=${sessionId}`,
+            tag: `chat_message:${message.id}`
+          })));
+        } catch (err) {
+          console.error('[push] Falha ao notificar mensagem de chat:', err);
+        }
+      })();
+
       return NextResponse.json({ success: true });
     }
 
@@ -371,6 +460,20 @@ export async function POST(request: Request) {
           'UPDATE public.chat_sessions SET last_message_at = $1, updated_at = NOW() WHERE id = $2',
           [message.timestamp, sessionId]
         );
+        emitChatEvent(sessionId, {
+          type: 'survey-response',
+          sessionId,
+          message: {
+            id: message.id,
+            senderId: message.senderId || null,
+            senderName: message.senderName || null,
+            text: message.text,
+            timestamp: message.timestamp,
+            type: message.type || 'text',
+            metadata: {},
+            attachments: []
+          }
+        });
       }
 
       await query(

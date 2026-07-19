@@ -384,12 +384,23 @@ const handleDeleteNote = async () => {
       const ticketTitle = `Atendimento ${datePrefix} ${timePrefix}: ${session.customerName || 'Cliente'}`;
       const assigneeId = session.assigneeId || currentUser?.id || null;
 
+      let companyId: string | null = null;
+      if (session.customerId) {
+        const { data: customerProfile } = await supabase
+          .from('profiles')
+          .select('company_id')
+          .eq('id', session.customerId)
+          .maybeSingle();
+        companyId = customerProfile?.company_id || null;
+      }
+
       const { data: createdTicket, error: ticketError } = await supabase.from('tickets').insert({
         title: ticketTitle,
         description: chatHistoryHtml,
         status: TicketStatus.NEW,
         priority: TicketPriority.MEDIUM,
         category: 'Atendimento Chat',
+        company_id: companyId,
         customer_id: session.customerId,
         assignee_id: assigneeId,
         created_at: new Date().toISOString(),
@@ -739,7 +750,7 @@ const handleDeleteNote = async () => {
                       </div>
                    </div>
                    <p className="text-[10px] text-[var(--text-tertiary)] font-medium leading-relaxed">
-                      A distribuição justa está ativa. Novos atendimentos são alocados automaticamente para analistas com menor carga de trabalho.
+                      A distribuição está ativa. Novos atendimentos que chegarem pelo WhatsApp de uma fila são atribuídos automaticamente em rodízio (round-robin) entre os analistas online dessa fila.
                    </p>
                 </div>
              </div>

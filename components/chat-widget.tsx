@@ -55,6 +55,7 @@ import { LinkContactModal } from '@/components/link-contact-modal';
 import { ClientTime } from '@/components/client-time';
 import { AssignChatMenu } from '@/components/assign-chat-menu';
 import { AudioPlayer } from '@/components/audio-player';
+import { useIsMobile } from '@/hooks/use-mobile';
 import { toast } from 'sonner';
 
 const URL_PATTERN = /(https?:\/\/[^\s<]+|www\.[^\s<]+)/gi;
@@ -198,7 +199,8 @@ export function ChatWidget() {
     userStatus
   } = useApp();
   const searchParams = useSearchParams();
-  
+  const isMobileViewport = useIsMobile();
+
   const [customerSessions, setCustomerSessions] = useState<ChatSession[]>([]);
   const [sessionsLoaded, setSessionsLoaded] = useState(false);
 
@@ -577,79 +579,68 @@ export function ChatWidget() {
     };
   }, [currentUser?.id, isOmniChatOpen]);
 
-  const isSubscribedRef = useRef<string | null>(null);
-
+  // Tempo real de verdade via SSE para a conversa aberta (substitui o antigo
+  // supabase.channel(...).on('postgres_changes', ...), que nunca funcionou de
+  // fato — o shim em lib/supabase.ts não implementa pub/sub, só REST). O
+  // poller de 30s logo acima continua rodando como rede de segurança (o
+  // EventSource também reconecta sozinho em caso de queda de conexão).
   useEffect(() => {
-    if (selectedChatId && supabase) {
-      // 1. Prevent duplicate subscription for the SAME sessionId
-      if (isSubscribedRef.current === selectedChatId) return;
+    if (!selectedChatId) return;
 
-      // 2. Clear previous subscription if switching sessions
-      if (messagesChannelRef.current) {
-        console.log(`§¹ Limpando canal anterior: ${isSubscribedRef.current}`);
-        supabase.removeChannel(messagesChannelRef.current);
-        messagesChannelRef.current = null;
-      }
+    const eventSource = new EventSource(`/api/chats/stream?sessionId=${selectedChatId}`);
+    messagesChannelRef.current = eventSource;
 
-      console.log(`“¡ Inscrição realtime p/ sessão: ${selectedChatId}`);
-      isSubscribedRef.current = selectedChatId;
-      
-      // 3. Define channel and event listeners BEFORE subscribe
-      // We use a timestamp to ensure the channel name is unique and prevent reusing a channel that might already be subscribed
-      const channelName = `chat-session-${selectedChatId}-${Date.now()}`;
-      const channel = supabase.channel(channelName)
-        .on(
-          'postgres_changes',
-          {
-            event: 'INSERT',
-            schema: 'public',
-            table: 'chat_messages',
-            filter: `session_id=eq.${selectedChatId}`
-          },
-          async (payload) => {
-            console.log('“© Nova mensagem detectada via realtime:', payload.new.id);
-            const newMessage = payload.new;
-            
-            // Play sound and add notification if message is NOT from current user
-            if (newMessage.sender_id !== currentUser?.id) {
-              playSound('chat');
-              
-              const session = customerSessions.find(s => s.id === selectedChatId);
-              addNotification({
-                sourceId: `chat_message:${newMessage.id}`,
-                title: `Nova mensagem de ${session?.customerName || 'Cliente'}`,
-                message: newMessage.text,
-                type: 'chat_message',
-                targetId: selectedChatId
-              }, currentUser!.id);
-            }
+    eventSource.addEventListener('chat-event', (event: MessageEvent) => {
+      try {
+        const payload = JSON.parse(event.data);
+        const raw = payload?.message;
+        if (!raw) return;
 
-            // Refresh sessions from Supabase
-            await triggerRefresh();
-            const refreshedSessions = await fetchChatSessions();
-            setCustomerSessions(refreshedSessions);
-          }
-        );
+        const newMessage: ChatMessage = {
+          id: raw.id,
+          senderId: raw.senderId,
+          senderName: raw.senderName,
+          text: raw.text,
+          timestamp: raw.timestamp,
+          type: raw.type || 'text',
+          metadata: raw.metadata,
+          attachments: raw.attachments || []
+        };
 
-      // 4. Finally subscribe
-      channel.subscribe((status: string) => {
-        if (status === 'SUBSCRIBED') {
-          console.log(`✅ Conectado ao chat realtime: ${channelName}`);
+        setCustomerSessions(prev => prev.map(s => {
+          if (s.id !== payload.sessionId) return s;
+          if (s.messages?.some(m => m.id === newMessage.id)) return s;
+          return { ...s, messages: [...(s.messages || []), newMessage], lastMessageAt: newMessage.timestamp };
+        }));
+
+        if (newMessage.senderId !== currentUser?.id) {
+          playSound('chat');
+          const session = customerSessions.find(s => s.id === payload.sessionId);
+          addNotification({
+            sourceId: `chat_message:${newMessage.id}`,
+            title: `Nova mensagem de ${session?.customerName || 'Cliente'}`,
+            message: newMessage.text,
+            type: 'chat_message',
+            targetId: payload.sessionId
+          }, currentUser!.id);
         }
-      });
+      } catch (err) {
+        console.error('Erro processando evento SSE do chat:', err);
+      }
+    });
 
-      messagesChannelRef.current = channel;
-    }
+    eventSource.onerror = () => {
+      // O EventSource já tenta reconectar sozinho; o poller de 30s cobre o
+      // intervalo até a reconexão (ou até o próximo ciclo, se ela falhar).
+    };
 
     return () => {
-      if (messagesChannelRef.current && supabase) {
-        console.log(`š« Desconectando realtime sessão: ${isSubscribedRef.current}`);
-        supabase.removeChannel(messagesChannelRef.current);
+      eventSource.close();
+      if (messagesChannelRef.current === eventSource) {
         messagesChannelRef.current = null;
-        isSubscribedRef.current = null;
       }
     };
-  }, [selectedChatId]);
+  }, [selectedChatId, currentUser?.id]);
 
   useEffect(() => {
     if (selectedChatId && !isMinimized) {
@@ -958,14 +949,25 @@ useEffect(() => {
           }
         }
       } else {
+        let companyId: string | null = null;
+        if (selectedChat.customerId) {
+          const { data: customerProfile } = await supabase
+            .from('profiles')
+            .select('company_id')
+            .eq('id', selectedChat.customerId)
+            .maybeSingle();
+          companyId = customerProfile?.company_id || null;
+        }
+
         const { data: createdTicket, error: ticketError } = await supabase.from('tickets').insert({
           title: ticketTitle,
           description: chatHistoryHtml,
           status: closeTicketImmediately ? TicketStatus.CLOSED : TicketStatus.NEW,
           priority: TicketPriority.MEDIUM,
           category: 'Atendimento Chat',
+          company_id: companyId,
           customer_id: selectedChat.customerId,
-          assignee_id: currentUser.id,
+          assignee_id: selectedChat.assigneeId || currentUser.id,
           created_at: new Date().toISOString(),
           updated_at: new Date().toISOString()
         });
@@ -1061,7 +1063,7 @@ useEffect(() => {
         customerId: selectedChat.customerId,
         customerName: selectedChat.customerName,
         customerPhone: selectedChat.customerPhone,
-        assigneeId: currentUser.id,
+        assigneeId: selectedChat.assigneeId || currentUser.id,
         startedAt: startedAt.toISOString(),
         finishedAt: finishedAt.toISOString(),
         durationSeconds,
@@ -1364,32 +1366,43 @@ useEffect(() => {
   if (!mounted || !currentUser) return null;
   if (isOmniChatExpanded && (!isExpanded || isMinimized)) return null;
 
+  const isMobileFullScreen = isMobileViewport && !isMinimized;
+
   return (
     <div
-      className="omni-chat-shell fixed bottom-6 right-6 z-[200] flex flex-col items-end"
+      className={cn(
+        "omni-chat-shell fixed flex flex-col items-end",
+        // Em tela cheia no celular precisa ficar acima da bottom nav (z-[200]
+        // em mobile-bottom-nav.tsx) — ela já se esconde sozinha enquanto o
+        // chat está aberto, mas isso é reforço para não depender só disso.
+        isMobileFullScreen ? "inset-0 z-[250]" : "bottom-6 right-6 z-[200]"
+      )}
       data-expanded={isExpanded && !isMinimized ? 'true' : 'false'}
     >
       <AnimatePresence>
         {!isMinimized && (
-          <motion.div 
+          <motion.div
             initial={{ opacity: 0, y: 50, scale: 0.9 }}
             animate={{
               opacity: 1,
               y: 0,
               scale: 1,
-              width: isExpanded ? '90vw' : 'min(400px, calc(100vw - 2rem))',
-              height: isExpanded ? '85vh' : 'min(600px, calc(100vh - 6rem))',
-              right: isExpanded ? 'calc(5vw - 24px)' : '0',
-              bottom: isExpanded ? 'calc(7.5vh - 24px)' : '80px',
+              width: isMobileFullScreen ? '100vw' : (isExpanded ? '90vw' : 'min(400px, calc(100vw - 2rem))'),
+              height: isMobileFullScreen ? '100dvh' : (isExpanded ? '85vh' : 'min(600px, calc(100vh - 6rem))'),
+              right: isMobileFullScreen ? 0 : (isExpanded ? 'calc(5vw - 24px)' : '0'),
+              bottom: isMobileFullScreen ? 0 : (isExpanded ? 'calc(7.5vh - 24px)' : '80px'),
             }}
             exit={{ opacity: 0, y: 50, scale: 0.9 }}
             className={cn(
               "bg-[var(--surface-card)] border border-[var(--border-default)] shadow-2xl flex flex-col overflow-hidden absolute",
-              isExpanded ? "rounded-3xl z-[210]" : "rounded-2xl z-[205]"
+              isMobileFullScreen ? "rounded-none z-[210] border-none" : isExpanded ? "rounded-3xl z-[210]" : "rounded-2xl z-[205]"
             )}
           >
             {/* Header */}
-            <div className="bg-[var(--accent)] px-5 py-4 flex justify-between items-center text-white">
+            <div
+              className="bg-[var(--accent)] px-5 py-4 flex justify-between items-center text-white shrink-0"
+              style={isMobileFullScreen ? { paddingTop: 'calc(1rem + env(safe-area-inset-top))' } : undefined}
+            >
               <div className="flex items-center gap-2.5">
                 <div className="w-8 h-8 bg-white/20 rounded-xl flex items-center justify-center backdrop-blur-md">
                   <MessageCircle size={16} />
@@ -1406,7 +1419,7 @@ useEffect(() => {
               <div className="flex items-center gap-1">
                 <button
                   onClick={() => setIsExpanded(!isExpanded)}
-                  className="p-1.5 hover:bg-white/10 rounded-lg transition-all"
+                  className="hidden md:block p-1.5 hover:bg-white/10 rounded-lg transition-all"
                 >
                   {isExpanded ? <Minimize2 size={16} /> : <Maximize2 size={16} />}
                 </button>
@@ -1760,7 +1773,10 @@ useEffect(() => {
                   </div>
 
                   {/* Input Area */}
-                  <div className="p-4 bg-[var(--surface-card)] border-t border-[var(--border-default)] relative">
+                  <div
+                    className="p-4 bg-[var(--surface-card)] border-t border-[var(--border-default)] relative shrink-0"
+                    style={isMobileFullScreen ? { paddingBottom: 'calc(1rem + env(safe-area-inset-bottom))' } : undefined}
+                  >
                     <AnimatePresence>
                       {showNewMessageIndicator && (
                         <motion.button 
@@ -1865,6 +1881,7 @@ useEffect(() => {
                         ref={chatFileInputRef}
                         type="file"
                         multiple
+                        accept="image/*,video/*,application/pdf,.doc,.docx"
                         onChange={handleChatFileUpload}
                         className="hidden"
                       />
@@ -1889,7 +1906,7 @@ useEffect(() => {
                         value={message}
                         onChange={handleInputChange}
                         placeholder="Resposta padrão '/' para atalhos..."
-                        className="flex-1 min-w-0 bg-[var(--surface-card)] border border-[var(--border-default)] rounded-2xl px-4 py-3.5 text-sm font-bold focus:ring-4 focus:ring-[var(--accent)]/10 outline-none transition-all"
+                        className="flex-1 min-w-0 bg-[var(--surface-card)] border border-[var(--border-default)] rounded-2xl px-4 py-3.5 text-base font-bold focus:ring-4 focus:ring-[var(--accent)]/10 outline-none transition-all"
                       />
                       <button
                         type="submit"

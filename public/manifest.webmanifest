@@ -1,0 +1,24 @@
+{
+  "name": "SSX Resolve",
+  "short_name": "SSX Resolve",
+  "description": "Plataforma de atendimento e suporte SSX Resolve",
+  "start_url": "/dashboard",
+  "display": "standalone",
+  "background_color": "#0D3A69",
+  "theme_color": "#0D3A69",
+  "orientation": "portrait-primary",
+  "icons": [
+    {
+      "src": "/favicon.png",
+      "sizes": "512x512",
+      "type": "image/png",
+      "purpose": "any"
+    },
+    {
+      "src": "/apple-touch-icon.png",
+      "sizes": "180x180",
+      "type": "image/png",
+      "purpose": "any"
+    }
+  ]
+}

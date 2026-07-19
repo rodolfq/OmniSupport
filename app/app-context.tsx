@@ -6,6 +6,7 @@ import { safeJsonStringify } from '@/lib/utils';
 import { toast } from 'sonner';
 import { UserService } from '@/lib/services/user-service';
 import { AbsenceReasonService, AnalystService } from '@/lib/services/chat-service';
+import { subscribeToPush } from '@/hooks/use-push-subscription';
 
 export interface AppNotification {
   id: string;
@@ -66,6 +67,7 @@ interface AppContextType {
   dbStatus: 'connected' | 'disconnected' | 'error';
   userStatus: 'online' | 'away' | 'offline';
   userStatusReason: string | null;
+  lunchSecondsRemaining: number | null;
   absenceReasons: AbsenceReason[];
   setUserStatus: (status: 'online' | 'away' | 'offline', reason?: string) => void;
   refreshAbsenceReasons: () => Promise<void>;
@@ -138,6 +140,8 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
   const [dbStatus, setDbStatus] = useState<'connected' | 'disconnected' | 'error'>('disconnected');
   const [userStatus, setUserStatusState] = useState<'online' | 'away' | 'offline'>('online');
   const [userStatusReason, setUserStatusReason] = useState<string | null>(null);
+  const [userStatusSince, setUserStatusSince] = useState<string | null>(null);
+  const [lunchSecondsRemaining, setLunchSecondsRemaining] = useState<number | null>(null);
   const [absenceReasons, setAbsenceReasons] = useState<AbsenceReason[]>([]);
 
   // Cache compartilhado da foto de contato do WhatsApp: um único fetch/estado
@@ -349,11 +353,86 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
   const setUserStatus = React.useCallback((status: 'online' | 'away' | 'offline', reason?: string) => {
     setUserStatusState(status);
     setUserStatusReason(reason || null);
+    setUserStatusSince(new Date().toISOString());
   }, []);
+
+  const notifyLunchOver = React.useCallback(() => {
+    const title = 'Fim do horário de almoço';
+    const message = 'Seus 60 minutos de almoço terminaram.';
+
+    toast(title, { description: message, duration: 8000 });
+    playSound('system');
+
+    // Mesma regra da notificação nativa em addNotification: só dispara quando a
+    // aba não está em primeiro plano, senão duplicaria o toast acima.
+    if (
+      settingsRef.current.osNotificationsEnabled &&
+      typeof window !== 'undefined' &&
+      'Notification' in window &&
+      Notification.permission === 'granted' &&
+      document.visibilityState !== 'visible'
+    ) {
+      try {
+        const osNotif = new Notification(title, {
+          body: message,
+          icon: '/branding/icon.png',
+          tag: 'lunch-timer'
+        });
+        osNotif.onclick = () => {
+          window.focus();
+          osNotif.close();
+        };
+      } catch (e) {
+        console.error('Error showing lunch OS notification:', e);
+      }
+    }
+  }, [playSound]);
 
   useEffect(() => {
     refreshAbsenceReasons();
   }, [refreshAbsenceReasons]);
+
+  // Contador de 60 minutos do almoço: começa quando o motivo de ausência
+  // selecionado é "Almoço" e dispara uma notificação (toast + som + nativa do
+  // SO) ao terminar. A duração é calculada a partir de userStatusSince (não de
+  // um cronômetro em memória) para sobreviver a um F5/nova aba no meio do
+  // almoço. A chave em localStorage evita notificar de novo a cada reload
+  // depois que os 60 minutos já passaram.
+  useEffect(() => {
+    if (userStatus !== 'away' || userStatusReason !== 'Almoço' || !userStatusSince || !currentUser?.id) {
+      setLunchSecondsRemaining(null);
+      return;
+    }
+
+    const LUNCH_DURATION_MS = 60 * 60 * 1000;
+    const endsAt = new Date(userStatusSince).getTime() + LUNCH_DURATION_MS;
+    const notifiedKey = `omni_lunch_notified:${currentUser.id}:${userStatusSince}`;
+
+    const tick = () => {
+      setLunchSecondsRemaining(Math.max(0, Math.round((endsAt - Date.now()) / 1000)));
+    };
+    tick();
+    const interval = setInterval(tick, 1000);
+
+    let timeout: ReturnType<typeof setTimeout> | undefined;
+    const msUntilEnd = endsAt - Date.now();
+    if (!localStorage.getItem(notifiedKey)) {
+      if (msUntilEnd <= 0) {
+        notifyLunchOver();
+        localStorage.setItem(notifiedKey, '1');
+      } else {
+        timeout = setTimeout(() => {
+          notifyLunchOver();
+          localStorage.setItem(notifiedKey, '1');
+        }, msUntilEnd);
+      }
+    }
+
+    return () => {
+      clearInterval(interval);
+      if (timeout) clearTimeout(timeout);
+    };
+  }, [userStatus, userStatusReason, userStatusSince, currentUser?.id, notifyLunchOver]);
 
   useEffect(() => {
     let isMounted = true;
@@ -371,6 +450,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
             if (data.user.status) {
               setUserStatusState(data.user.status);
               setUserStatusReason(data.user.statusReason || null);
+              setUserStatusSince(data.user.statusSince || null);
             }
             initialStatusLoadedRef.current = true;
             setCurrentUser({
@@ -489,6 +569,9 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     try {
       const result = await Notification.requestPermission();
       setOsNotificationPermission(result);
+      if (result === 'granted') {
+        subscribeToPush().catch(e => console.error('Error subscribing to push:', e));
+      }
     } catch (e) {
       console.error('Error requesting OS notification permission:', e);
     }
@@ -619,6 +702,7 @@ return (
       dbStatus,
       userStatus,
       userStatusReason,
+      lunchSecondsRemaining,
       absenceReasons,
       setUserStatus,
       refreshAbsenceReasons,
