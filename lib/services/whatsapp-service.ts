@@ -7,6 +7,10 @@ import { normalizePhone } from '../utils';
 import { useSupabaseAuthState, sessionDataCache } from '../supabase-auth';
 import { whatsappQuery as query } from '../whatsapp-db';
 import { Attachment } from '../types';
+import { emitChatEvent } from '../chat-events';
+import { notifyUser } from './push-service';
+import { getChatRecipientIds } from './notification-recipients';
+import { runExclusive } from '../key-mutex';
 
 const log = pino({ level: (process.env.WHATSAPP_LOG_LEVEL as any) || 'warn' });
 
@@ -218,37 +222,50 @@ async function pickNextQueueAssignee(queueId: string, memberIds: string[]): Prom
 }
 
 async function findOrCreateChatSession(jid: string, pushName: string | undefined, instanceId = 'default') {
-  const existing = await findChatSessionByPhone(jid, instanceId);
-  if (existing) return existing;
-
   const digits = normalizePhone(jid.split('@')[0] || jid);
   if (!digits) return null;
 
-  const profileVariants = phoneLookupVariants(jid, instanceId);
-  let profile: { id: string; name: string } | undefined;
-  if (profileVariants.length) {
-    const placeHolders = profileVariants.map((_, i) => `$${i + 1}`).join(',');
-    const profileRes = await query(
-      `SELECT id, name FROM public.profiles WHERE phone IN (${placeHolders}) LIMIT 1`,
-      profileVariants
+  // Tudo dentro do lock: da checagem de sessão existente até o insert, para
+  // que uma segunda mensagem do mesmo telefone (evento separado, quase
+  // simultâneo) espere esta terminar em vez de rodar em paralelo.
+  return runExclusive(`session:${digits}`, async () => {
+    const existing = await findChatSessionByPhone(jid, instanceId);
+    if (existing) return existing;
+
+    const profileVariants = phoneLookupVariants(jid, instanceId);
+    let profile: { id: string; name: string } | undefined;
+    if (profileVariants.length) {
+      const placeHolders = profileVariants.map((_, i) => `$${i + 1}`).join(',');
+      const profileRes = await query(
+        `SELECT id, name FROM public.profiles WHERE phone IN (${placeHolders}) LIMIT 1`,
+        profileVariants
+      );
+      profile = profileRes.rows[0];
+    }
+
+    const customerName = profile?.name || pushName || 'Contato WhatsApp';
+
+    const queue = await resolveQueueForInstance(instanceId);
+    const assigneeId = queue ? await pickNextQueueAssignee(queue.id, queue.memberIds) : null;
+    const status = assigneeId ? 'active' : 'pending';
+
+    // ON CONFLICT como segunda rede de segurança (ver migrations/chat_sessions_
+    // unique_open_phone.sql): cobre corrida entre processos/instâncias diferentes,
+    // que o lock em memória (só vale dentro deste processo Node) não alcança.
+    const insertRes = await query(
+      `INSERT INTO public.chat_sessions (customer_id, customer_name, customer_phone, status, queue_id, assignee_id, created_at, updated_at)
+       VALUES ($1, $2, $3, $4, $5, $6, NOW(), NOW())
+       ON CONFLICT (customer_phone) WHERE status <> 'closed' AND customer_phone IS NOT NULL
+       DO NOTHING
+       RETURNING id, customer_phone, customer_id, customer_name, updated_at`,
+      [profile?.id || null, customerName, digits, status, queue?.id || null, assigneeId]
     );
-    profile = profileRes.rows[0];
-  }
 
-  const customerName = profile?.name || pushName || 'Contato WhatsApp';
+    if (insertRes.rows[0]) return insertRes.rows[0];
 
-  const queue = await resolveQueueForInstance(instanceId);
-  const assigneeId = queue ? await pickNextQueueAssignee(queue.id, queue.memberIds) : null;
-  const status = assigneeId ? 'active' : 'pending';
-
-  const insertRes = await query(
-    `INSERT INTO public.chat_sessions (customer_id, customer_name, customer_phone, status, queue_id, assignee_id, created_at, updated_at)
-     VALUES ($1, $2, $3, $4, $5, $6, NOW(), NOW())
-     RETURNING id, customer_phone, customer_id, customer_name, updated_at`,
-    [profile?.id || null, customerName, digits, status, queue?.id || null, assigneeId]
-  );
-
-  return insertRes.rows[0] || null;
+    // Perdeu a corrida contra outro processo — usa a sessão que venceu.
+    return await findChatSessionByPhone(jid, instanceId);
+  });
 }
 
 export class WhatsAppService {
@@ -793,23 +810,56 @@ export class WhatsAppService {
     };
 
     try {
-      await query(
+      const senderName = msg.pushName || session.customer_name || 'Contato WhatsApp';
+      const messageRes = await query(
         `INSERT INTO public.chat_messages (session_id, sender_id, sender_name, text, type, metadata, created_at)
-         VALUES ($1, $2, $3, $4, $5, $6, NOW())`,
+         VALUES ($1, $2, $3, $4, $5, $6, NOW())
+         RETURNING id, created_at`,
         [
           session.id,
           session.customer_id || null,
-          msg.pushName || session.customer_name || 'Contato WhatsApp',
+          senderName,
           text,
           mediaData ? 'file' : 'text',
           JSON.stringify(metadata)
         ]
       );
+      const savedMessage = messageRes.rows[0];
 
       await query(
         'UPDATE public.chat_sessions SET last_message_at = NOW(), updated_at = NOW() WHERE id = $1',
         [session.id]
       );
+
+      // Mesma notificação em tempo real (SSE) e push que uma mensagem enviada
+      // pelo widget web já dispara (app/api/chats/route.ts) — sem isso, uma
+      // mensagem de WhatsApp só aparecia no próximo poll de 30s (ou nunca, com
+      // o app em segundo plano no celular).
+      if (savedMessage) {
+        emitChatEvent(session.id, {
+          type: 'message',
+          sessionId: session.id,
+          message: {
+            id: savedMessage.id,
+            senderId: session.customer_id || null,
+            senderName,
+            text,
+            timestamp: savedMessage.created_at,
+            type: mediaData ? 'file' : 'text',
+            metadata,
+            attachments: mediaData ? [mediaData] : []
+          }
+        });
+
+        getChatRecipientIds({ customerId: session.customer_id }, null, false)
+          .then(recipients => Promise.all(recipients.map(id => notifyUser(id, {
+            title: `Nova mensagem de ${senderName}`,
+            body: text || 'Anexo enviado',
+            url: `/chat?chat=${session.id}`,
+            tag: `chat_message:${savedMessage.id}`
+          }))))
+          .catch(err => console.error(`[WhatsApp:${instanceId}] Falha ao notificar mensagem via push:`, err));
+      }
 
       // Captura da resposta da pesquisa de satisfação enviada ao finalizar a conversa
       // (ver handleFinishChat em chat-widget.tsx). Só conta se a sessão segue fechada e

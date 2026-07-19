@@ -348,9 +348,11 @@ export async function saveQueue(
 ) {
   try {
     if (id) {
+      // Tabela `queues` não tem coluna `updated_at` (ver schema_postgres.sql) —
+      // setá-la aqui derrubava todo o UPDATE com "column does not exist".
       await query(
         `UPDATE public.queues
-         SET name = $1, description = $2, whatsapp_instance_id = $3, member_ids = $4, updated_at = NOW()
+         SET name = $1, description = $2, whatsapp_instance_id = $3, member_ids = $4
          WHERE id = $5`,
         [name, description, whatsappInstanceId, memberIds, id]
       );
