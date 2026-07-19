@@ -24,8 +24,11 @@ self.addEventListener('push', (event) => {
   const title = payload.title || 'SSX Resolve';
   const options = {
     body: payload.body || '',
-    icon: '/favicon.png',
-    badge: '/favicon.png',
+    // Logo sem fundo (transparente) — o favicon com fundo branco/navy fica
+    // ótimo na aba do Chrome, mas na notificação do celular o quadrado sólido
+    // destoava do fundo do sistema; aqui a marca se adapta ao tema do SO.
+    icon: '/branding/iconnobg.png',
+    badge: '/branding/iconnobg.png',
     tag: payload.tag || 'ssx-resolve',
     data: { url: payload.url || '/dashboard' }
   };
