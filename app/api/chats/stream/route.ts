@@ -5,6 +5,11 @@ import { subscribeToChatEvents } from '@/lib/chat-events';
 
 // Precisa rodar em runtime Node (não edge) porque `query()` usa o driver `pg`.
 export const dynamic = 'force-dynamic';
+// Na Vercel, funções serverless têm um limite de duração — sem isso, o
+// padrão é bem curto (ex.: 10s no plano Hobby) e a conexão SSE cai quase
+// imediatamente. Fora da Vercel (servidor próprio) esse valor é ignorado,
+// sem efeito nenhum. Ajuste conforme o teto do seu plano.
+export const maxDuration = 60;
 
 const HEARTBEAT_MS = 25000;
 const TEAM_ROLES = ['Administrador', 'Equipe', 'Time Interno'];
