@@ -2,10 +2,12 @@
 
 import React from 'react';
 import { StyledSelect } from '@/components/styled-select';
-import { Volume2, Monitor, BellOff, CheckCircle2, AlertTriangle } from 'lucide-react';
+import { Volume2, Bell, BellOff, CheckCircle2, AlertTriangle, Download, Share, RefreshCw } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { useApp } from '@/app/app-context';
 import { UserRole } from '@/lib/types';
+import { usePwaInstall } from '@/lib/pwa-install';
+import { subscribeToPush, useHasPushSubscription } from '@/hooks/use-push-subscription';
 
 const ALL_NOTIFICATION_TOGGLES = [
   { key: 'ticket_new', label: 'Novos Chamados', audience: 'team' },
@@ -26,20 +28,49 @@ export function NotificationSettingsContent() {
     osNotificationPermission,
     requestOsNotificationPermission
   } = useApp();
+  const { canInstall, isIOS, isStandalone, promptInstall } = usePwaInstall();
+  const { hasSubscription, checking: checkingSubscription, refresh: refreshSubscription } = useHasPushSubscription();
+  const [retrying, setRetrying] = React.useState(false);
   const isCompanyUser = [UserRole.CUSTOMER, UserRole.EMPLOYEE].includes(currentUser?.role as UserRole);
   const visibleToggles = ALL_NOTIFICATION_TOGGLES
     .filter(toggle => !isCompanyUser || toggle.audience === 'all')
     .sort((a, b) => isCompanyUser ? COMPANY_NOTIFICATION_ORDER.indexOf(a.key) - COMPANY_NOTIFICATION_ORDER.indexOf(b.key) : 0);
 
+  const retrySubscription = async () => {
+    setRetrying(true);
+    try {
+      await subscribeToPush();
+      await refreshSubscription();
+    } finally {
+      setRetrying(false);
+    }
+  };
+
   return (
     <div className="space-y-8 animate-in fade-in slide-in-from-bottom-4 duration-300">
        <div className="p-6 bg-[var(--surface-card)] rounded-2xl border border-[var(--border-default)] flex flex-col gap-4">
           <h4 className="text-[10px] font-black uppercase text-[var(--text-primary)] tracking-widest flex items-center gap-2">
-            <Monitor size={14} className="text-[var(--accent-text)]" /> Notificações do Windows
+            <Bell size={14} className="text-[var(--accent-text)]" /> Notificações Push
           </h4>
           <p className="text-xs text-[var(--text-tertiary)] font-medium -mt-2">
-            Receba um aviso do sistema mesmo com esta janela minimizada ou outro app em primeiro plano — funciona enquanto o navegador continuar aberto.
+            Recebe um aviso na barra de notificações mesmo com o app fechado ou o celular bloqueado (no computador, funciona com o navegador minimizado). No celular, precisa instalar o app primeiro.
           </p>
+
+          {isIOS && !isStandalone && (
+            <div className="flex items-start gap-2 text-xs font-bold text-[var(--text-warning)] bg-[var(--surface-warning)] border border-[var(--border-alert)] rounded-xl px-4 py-3">
+              <Share size={16} className="shrink-0 mt-0.5" />
+              <span>No iPhone, o Safari só entrega notificações para o app instalado: toque em Compartilhar e depois em &quot;Adicionar à Tela de Início&quot; antes de ativar.</span>
+            </div>
+          )}
+
+          {!isIOS && canInstall && !isStandalone && (
+            <button
+              onClick={promptInstall}
+              className="self-start flex items-center gap-2 bg-[var(--surface-pill)] border border-[var(--border-default)] hover:border-[var(--accent)]/40 text-[var(--text-secondary)] text-xs font-bold uppercase px-4 py-2.5 rounded-xl transition-colors"
+            >
+              <Download size={14} /> Instalar App
+            </button>
+          )}
 
           {osNotificationPermission === 'unsupported' && (
             <div className="flex items-center gap-2 text-xs font-bold text-[var(--text-tertiary)]">
@@ -50,10 +81,24 @@ export function NotificationSettingsContent() {
           {osNotificationPermission === 'granted' && (
             <>
               <div className="flex items-center gap-2 text-xs font-bold text-[var(--text-success)]">
-                <CheckCircle2 size={16} /> Ativadas neste navegador.
+                <CheckCircle2 size={16} /> Permissão concedida neste navegador.
               </div>
+
+              {!checkingSubscription && hasSubscription === false && (
+                <div className="flex items-center justify-between gap-3 text-xs font-bold text-[var(--text-warning)] bg-[var(--surface-warning)] border border-[var(--border-alert)] rounded-xl px-4 py-3">
+                  <span className="flex items-center gap-2"><AlertTriangle size={16} className="shrink-0" /> Permissão OK, mas a assinatura push ainda não foi concluída.</span>
+                  <button
+                    onClick={retrySubscription}
+                    disabled={retrying}
+                    className="shrink-0 flex items-center gap-1.5 bg-[var(--accent)] text-white px-3 py-1.5 rounded-lg uppercase tracking-wide disabled:opacity-50"
+                  >
+                    <RefreshCw size={12} className={cn(retrying && "animate-spin")} /> Tentar de novo
+                  </button>
+                </div>
+              )}
+
               <div className="flex items-center justify-between px-4 py-3 bg-[var(--surface-card)] border border-[var(--border-default)] rounded-xl">
-                 <span className="text-xs font-bold text-[var(--text-secondary)]">Enviar notificações do Windows</span>
+                 <span className="text-xs font-bold text-[var(--text-secondary)]">Enviar notificações do sistema</span>
                  <button
                    onClick={() => updateNotificationSettings({ osNotificationsEnabled: !notificationSettings.osNotificationsEnabled })}
                    className={cn(
@@ -72,7 +117,7 @@ export function NotificationSettingsContent() {
               onClick={requestOsNotificationPermission}
               className="self-start flex items-center gap-2 bg-[var(--accent)] hover:bg-[var(--accent-hover)] text-white text-xs font-bold uppercase px-4 py-2.5 rounded-xl transition-colors"
             >
-              <Monitor size={14} /> Ativar notificações do Windows
+              <Bell size={14} /> Ativar notificações
             </button>
           )}
 

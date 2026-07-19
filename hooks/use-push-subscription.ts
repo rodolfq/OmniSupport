@@ -1,5 +1,7 @@
 'use client';
 
+import { useCallback, useEffect, useState } from 'react';
+
 function urlBase64ToUint8Array(base64String: string): Uint8Array {
   const padding = '='.repeat((4 - (base64String.length % 4)) % 4);
   const base64 = (base64String + padding).replace(/-/g, '+').replace(/_/g, '/');
@@ -43,6 +45,38 @@ export async function subscribeToPush(): Promise<boolean> {
     console.error('Falha ao assinar push:', err);
     return false;
   }
+}
+
+// Estado reativo de "já existe uma assinatura push salva neste
+// navegador/dispositivo" — diferente de "permissão concedida": dá pra ter
+// permissão do navegador sem nunca ter completado a assinatura (ex.: VAPID
+// não configurado no momento, ou falha de rede na hora de assinar).
+export function useHasPushSubscription() {
+  const [hasSubscription, setHasSubscription] = useState<boolean | null>(null);
+  const [checking, setChecking] = useState(false);
+
+  const refresh = useCallback(async () => {
+    if (typeof window === 'undefined' || !('serviceWorker' in navigator) || !('PushManager' in window)) {
+      setHasSubscription(false);
+      return;
+    }
+    setChecking(true);
+    try {
+      const registration = await navigator.serviceWorker.ready;
+      const subscription = await registration.pushManager.getSubscription();
+      setHasSubscription(!!subscription);
+    } catch {
+      setHasSubscription(false);
+    } finally {
+      setChecking(false);
+    }
+  }, []);
+
+  useEffect(() => {
+    refresh();
+  }, [refresh]);
+
+  return { hasSubscription, checking, refresh };
 }
 
 export async function unsubscribeFromPush(): Promise<void> {
