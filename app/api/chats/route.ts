@@ -4,6 +4,7 @@ import { verifyJWT } from '@/lib/jwt';
 import { emitChatEvent, excludeActiveViewers } from '@/lib/chat-events';
 import { notifyUser } from '@/lib/services/push-service';
 import { getChatRecipientIds, isTeamRole } from '@/lib/services/notification-recipients';
+import { resolveQueueForInstance, pickNextQueueAssignee } from '@/lib/services/queue-routing';
 
 function normalizePhone(value?: string | null): string {
   return (value || '').replace(/\D/g, '');
@@ -353,19 +354,42 @@ export async function POST(request: Request) {
       }
 
       const id = session.id || crypto.randomUUID();
+      let status = session.status || 'pending';
+      let queueId: string | null = null;
+      let assigneeId: string | null = null;
+
+      // Distribuição automática por fila: só entra em ação quando a conversa
+      // chega como 'pending' (é o caso do widget abrindo sozinho o chat de um
+      // usuário logado, chat-widget.tsx) — se já veio 'active' é porque um
+      // agente iniciou a conversa manualmente (ex.: "Novo WhatsApp"), e nesse
+      // caso o próprio agente já é quem está assumindo, sem round-robin.
+      // Usa a fila marcada "Nenhuma (Chat Interno apenas)" nas Configurações
+      // de Filas, já que essa conversa não chegou por nenhuma instância de
+      // WhatsApp específica.
+      if (status === 'pending') {
+        const queue = await resolveQueueForInstance(null);
+        if (queue) {
+          queueId = queue.id;
+          assigneeId = await pickNextQueueAssignee(queue.id, queue.memberIds);
+          if (assigneeId) status = 'active';
+        }
+      }
+
       await query(
-        `INSERT INTO public.chat_sessions (id, customer_id, customer_name, customer_phone, status, created_at, updated_at)
-         VALUES ($1, $2, $3, $4, $5, $6, NOW())`,
+        `INSERT INTO public.chat_sessions (id, customer_id, customer_name, customer_phone, status, queue_id, assignee_id, created_at, updated_at)
+         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, NOW())`,
         [
           id,
           session.customerId || null,
           session.customerName || null,
           session.customerPhone || null,
-          session.status,
+          status,
+          queueId,
+          assigneeId,
           session.startedAt
         ]
       );
-      return NextResponse.json({ id });
+      return NextResponse.json({ id, assigneeId });
     }
 
     if (action === 'push-message') {

@@ -403,13 +403,13 @@ export async function saveWhatsappInstance(id: string | null, name: string, phon
       );
       return { id };
     } else {
-      const res = await query(
-        `INSERT INTO public.whatsapp_instances (name, phone, status)
-         VALUES ($1, $2, $3)
-         RETURNING id`,
-        [name, phone, status]
+      const newId = crypto.randomUUID();
+      await query(
+        `INSERT INTO public.whatsapp_instances (id, name, phone, status)
+         VALUES ($1, $2, $3, $4)`,
+        [newId, name, phone, status]
       );
-      return { id: res.rows[0].id };
+      return { id: newId };
     }
   } catch (err) {
     console.error("Error saving WhatsApp instance in actions:", err);
