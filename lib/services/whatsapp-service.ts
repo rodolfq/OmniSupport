@@ -7,7 +7,7 @@ import { normalizePhone } from '../utils';
 import { useSupabaseAuthState, sessionDataCache } from '../supabase-auth';
 import { whatsappQuery as query } from '../whatsapp-db';
 import { Attachment } from '../types';
-import { emitChatEvent, isViewerActive } from '../chat-events';
+import { emitChatEvent, excludeActiveViewers } from '../chat-events';
 import { notifyUser } from './push-service';
 import { getChatRecipientIds } from './notification-recipients';
 import { runExclusive } from '../key-mutex';
@@ -852,7 +852,7 @@ export class WhatsAppService {
         });
 
         getChatRecipientIds({ customerId: session.customer_id }, null, false)
-          .then(recipients => recipients.filter(id => !isViewerActive(session.id, id)))
+          .then(recipients => excludeActiveViewers(session.id, recipients))
           .then(recipients => Promise.all(recipients.map(id => notifyUser(id, {
             title: `Nova mensagem de ${senderName}`,
             body: text || 'Anexo enviado',

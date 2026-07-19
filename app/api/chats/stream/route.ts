@@ -49,7 +49,7 @@ export async function GET(request: NextRequest) {
   };
 
   const stream = new ReadableStream({
-    start(controller) {
+    async start(controller) {
       const send = (event: string, data: unknown) => {
         try {
           controller.enqueue(encoder.encode(`event: ${event}\ndata: ${JSON.stringify(data)}\n\n`));
@@ -62,8 +62,9 @@ export async function GET(request: NextRequest) {
 
       // Enquanto essa conexão SSE existir, este usuário conta como "olhando
       // esta conversa agora" — usado para não mandar push duplicado pra quem
-      // já está vendo a mensagem chegar na tela.
-      markViewerActive(sessionId, authenticatedUser.id);
+      // já está vendo a mensagem chegar na tela. Renovado a cada heartbeat
+      // (ver abaixo) pra não expirar numa conversa longa.
+      await markViewerActive(sessionId, authenticatedUser.id);
 
       unsubscribe = subscribeToChatEvents(sessionId, (payload) => {
         send('chat-event', payload);
@@ -74,7 +75,9 @@ export async function GET(request: NextRequest) {
           controller.enqueue(encoder.encode(': ping\n\n'));
         } catch {
           cleanup();
+          return;
         }
+        markViewerActive(sessionId, authenticatedUser.id);
       }, HEARTBEAT_MS);
     },
     cancel: cleanup

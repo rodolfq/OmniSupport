@@ -1,7 +1,7 @@
 import axios from 'axios';
 import { query } from '../db';
 import { runExclusive } from '../key-mutex';
-import { emitChatEvent, isViewerActive } from '../chat-events';
+import { emitChatEvent, excludeActiveViewers } from '../chat-events';
 import { notifyUser } from './push-service';
 import { getChatRecipientIds } from './notification-recipients';
 
@@ -178,7 +178,7 @@ export class MetaWhatsAppService {
       });
 
       getChatRecipientIds({ customerId: session.customer_id }, null, false)
-        .then(recipients => recipients.filter(id => !isViewerActive(session.id, id)))
+        .then(recipients => excludeActiveViewers(session.id, recipients))
         .then(recipients => Promise.all(recipients.map(id => notifyUser(id, {
           title: `Nova mensagem de ${name}`,
           body: text || 'Anexo enviado',

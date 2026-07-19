@@ -1,4 +1,5 @@
 import { EventEmitter } from 'events';
+import { query } from './db';
 
 // Fan-out em memória para o SSE de chat (app/api/chats/stream/route.ts).
 // Não há Redis/pub-sub no projeto — isso só alcança clientes conectados a
@@ -34,29 +35,65 @@ export function subscribeToChatEvents(sessionId: string, listener: (payload: Cha
 // Quem está com a conversa aberta agora (conectado ao SSE dela) — usado para
 // não mandar push pra quem já está olhando a mensagem chegar na hora, do
 // mesmo jeito que o WhatsApp não notifica a conversa que você já tem aberta.
-// Só vale dentro deste processo: numa implantação com várias instâncias
-// (ex.: Vercel serverless) a instância que despacha o push pode não ser a
-// mesma que tem a conexão SSE — nesse caso simplesmente não há supressão
-// (o push ainda é enviado), sem quebrar nada.
-const activeViewers = new Map<string, Set<string>>();
+//
+// Persistido no banco (não em memória do processo): numa implantação
+// serverless (ex.: Vercel), a conexão SSE e o disparo do push podem cair em
+// instâncias isoladas sem nenhuma memória em comum — um Map local nunca
+// seria visto pela instância que despacha o push. A tabela
+// chat_session_viewers (ver migrations/chat_session_viewers.sql) é o único
+// lugar que todas as instâncias realmente compartilham. A rota SSE
+// (app/api/chats/stream/route.ts) renova o "last_seen_at" a cada heartbeat;
+// aqui só se considera "ativo" quem foi visto há pouco tempo — se a conexão
+// cair (aba fechada, processo reciclado no meio) o registro expira sozinho
+// sem precisar de um "adeus" explícito.
+const VIEWER_FRESHNESS_SECONDS = 45;
 
-export function markViewerActive(sessionId: string, userId: string) {
-  let viewers = activeViewers.get(sessionId);
-  if (!viewers) {
-    viewers = new Set();
-    activeViewers.set(sessionId, viewers);
-  }
-  viewers.add(userId);
+export async function markViewerActive(sessionId: string, userId: string): Promise<void> {
+  await query(
+    `INSERT INTO public.chat_session_viewers (session_id, user_id, last_seen_at)
+     VALUES ($1, $2, NOW())
+     ON CONFLICT (session_id, user_id) DO UPDATE SET last_seen_at = NOW()`,
+    [sessionId, userId]
+  ).catch(err => console.error('[chat-events] Falha ao marcar viewer ativo:', err));
 }
 
-export function markViewerInactive(sessionId: string, userId: string) {
-  const viewers = activeViewers.get(sessionId);
-  if (!viewers) return;
-  viewers.delete(userId);
-  if (viewers.size === 0) activeViewers.delete(sessionId);
+export async function markViewerInactive(sessionId: string, userId: string): Promise<void> {
+  await query(
+    `DELETE FROM public.chat_session_viewers WHERE session_id = $1 AND user_id = $2`,
+    [sessionId, userId]
+  ).catch(err => console.error('[chat-events] Falha ao marcar viewer inativo:', err));
 }
 
-export function isViewerActive(sessionId: string, userId: string | null | undefined): boolean {
+export async function isViewerActive(sessionId: string, userId: string | null | undefined): Promise<boolean> {
   if (!userId) return false;
-  return activeViewers.get(sessionId)?.has(userId) ?? false;
+  try {
+    const res = await query(
+      `SELECT 1 FROM public.chat_session_viewers
+       WHERE session_id = $1 AND user_id = $2 AND last_seen_at > NOW() - INTERVAL '${VIEWER_FRESHNESS_SECONDS} seconds'`,
+      [sessionId, userId]
+    );
+    return (res.rowCount ?? 0) > 0;
+  } catch (err) {
+    console.error('[chat-events] Falha ao checar viewer ativo:', err);
+    return false;
+  }
+}
+
+// Dado um sessionId e uma lista de destinatários de push, devolve só quem
+// NÃO está vendo a conversa agora (uma consulta só, em vez de uma por
+// destinatário).
+export async function excludeActiveViewers(sessionId: string, userIds: string[]): Promise<string[]> {
+  if (!userIds.length) return [];
+  try {
+    const res = await query(
+      `SELECT user_id FROM public.chat_session_viewers
+       WHERE session_id = $1 AND user_id = ANY($2::uuid[]) AND last_seen_at > NOW() - INTERVAL '${VIEWER_FRESHNESS_SECONDS} seconds'`,
+      [sessionId, userIds]
+    );
+    const activeIds = new Set(res.rows.map((r: any) => r.user_id));
+    return userIds.filter(id => !activeIds.has(id));
+  } catch (err) {
+    console.error('[chat-events] Falha ao filtrar viewers ativos:', err);
+    return userIds;
+  }
 }
