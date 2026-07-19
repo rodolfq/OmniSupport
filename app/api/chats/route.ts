@@ -7,6 +7,7 @@ import { getChatRecipientIds, isTeamRole } from '@/lib/services/notification-rec
 import { resolveCombinedQueuePool, pickNextQueueAssignee, RoutingQueue } from '@/lib/services/queue-routing';
 import { transcribeMessageAudio, isAudioAttachment, isTranscriptionEnabled } from '@/lib/services/transcription-service';
 import { Attachment } from '@/lib/types';
+import { runExclusive } from '@/lib/key-mutex';
 
 function normalizePhone(value?: string | null): string {
   return (value || '').replace(/\D/g, '');
@@ -359,24 +360,31 @@ export async function POST(request: Request) {
         lookupClauses.push(`regexp_replace(COALESCE(customer_phone, ''), '\\D', '', 'g') IN (${placeholders})`);
         lookupParams.push(...phoneVariants);
       }
+      const lookupWhere = lookupClauses.map(c => `(${c})`).join(' OR ');
 
-      if (lookupClauses.length > 0) {
-        // Só reaproveita uma sessão fechada enquanto a janela da pesquisa de
-        // satisfação dela ainda estiver aberta (resposta "1"/"0" chegando
-        // atrasada) — fora disso, "fechada" significa fechada de verdade: um
-        // novo contato do mesmo cliente é outro atendimento, com número de
-        // conversa novo, não uma reabertura silenciosa do anterior.
-        const existing = await query(
-          `SELECT id FROM public.chat_sessions
-           WHERE (${lookupClauses.map(c => `(${c})`).join(' OR ')})
-             AND (status != 'closed' OR (awaiting_survey_until IS NOT NULL AND awaiting_survey_until > NOW()))
-           ORDER BY updated_at DESC, created_at DESC
-           LIMIT 1`,
+      async function findOpenExisting() {
+        if (!lookupClauses.length) return null;
+        const res = await query(
+          `SELECT id, assignee_id FROM public.chat_sessions WHERE (${lookupWhere}) AND status != 'closed' ORDER BY updated_at DESC, created_at DESC LIMIT 1`,
           lookupParams
         );
+        return res.rows[0] || null;
+      }
 
-        if ((existing.rowCount || 0) > 0) {
-          const existingId = existing.rows[0].id;
+      // Tudo dentro do lock (checagem + insert), pra uma segunda chamada quase
+      // simultânea do mesmo cliente (ex.: widget montando duas vezes, aba
+      // duplicada) esperar esta terminar em vez de rodar em paralelo — mesma
+      // proteção que já existia pro lado do WhatsApp, agora também aqui.
+      const mutexKey = session.customerId || phoneVariants[0] || `anon:${session.id || 'new'}`;
+      const result = await runExclusive(`create-session:${mutexKey}`, async () => {
+        // "Fechada" significa fechada de verdade: um novo contato do mesmo
+        // cliente é sempre outro atendimento, com sessão (e número de
+        // conversa) novos — nunca uma reabertura silenciosa da anterior, nem
+        // durante a janela de resposta da pesquisa de satisfação (é só o
+        // widget quem decide, olhando o estado já carregado, se um "0"/"1"
+        // deve ir para submit-survey-response em vez de criar sessão nova).
+        const existing = await findOpenExisting();
+        if (existing) {
           await query(
             `UPDATE public.chat_sessions
              SET customer_id = COALESCE($1, customer_id),
@@ -390,56 +398,63 @@ export async function POST(request: Request) {
               session.customerName || null,
               session.customerPhone || null,
               session.status || 'active',
-              existingId
+              existing.id
             ]
           );
-          return NextResponse.json({ id: existingId, reused: true });
+          return { id: existing.id, assigneeId: existing.assignee_id, reused: true };
         }
-      }
 
-      const id = session.id || crypto.randomUUID();
-      let status = session.status || 'pending';
-      let queueId: string | null = null;
-      let assigneeId: string | null = null;
+        const id = session.id || crypto.randomUUID();
+        let status = session.status || 'pending';
+        let assigneeId: string | null = null;
 
-      // Distribuição automática: só entra em ação quando a conversa chega como
-      // 'pending' (é o caso do widget abrindo sozinho o chat de um usuário
-      // logado, chat-widget.tsx) — se já veio 'active' é porque um agente
-      // iniciou a conversa manualmente (ex.: "Novo WhatsApp"), e nesse caso o
-      // próprio agente já é quem está assumindo, sem round-robin. Como essa
-      // conversa não chegou por nenhuma instância de WhatsApp específica, usa
-      // o pool combinado de todas as filas (mesmo comportamento/rodízio das
-      // conversas de WhatsApp, só que somando os analistas de todas as filas).
-      if (status === 'pending') {
-        const pool = await resolveCombinedQueuePool();
-        if (pool) {
-          assigneeId = await pickNextQueueAssignee(pool);
-          if (assigneeId) status = 'active';
+        // Distribuição automática: só entra em ação quando a conversa chega como
+        // 'pending' (é o caso do widget abrindo sozinho o chat de um usuário
+        // logado, chat-widget.tsx) — se já veio 'active' é porque um agente
+        // iniciou a conversa manualmente (ex.: "Novo WhatsApp"), e nesse caso o
+        // próprio agente já é quem está assumindo, sem round-robin. Como essa
+        // conversa não chegou por nenhuma instância de WhatsApp específica, usa
+        // o pool combinado de todas as filas (mesmo comportamento/rodízio das
+        // conversas de WhatsApp, só que somando os analistas de todas as filas).
+        if (status === 'pending') {
+          const pool = await resolveCombinedQueuePool();
+          if (pool) {
+            assigneeId = await pickNextQueueAssignee(pool);
+            if (assigneeId) status = 'active';
+          }
         }
-      }
 
-      await query(
-        `INSERT INTO public.chat_sessions (id, customer_id, customer_name, customer_phone, status, queue_id, assignee_id, created_at, updated_at)
-         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, NOW())`,
-        [
-          id,
-          session.customerId || null,
-          session.customerName || null,
-          session.customerPhone || null,
-          status,
-          queueId,
-          assigneeId,
-          session.startedAt
-        ]
-      );
-      return NextResponse.json({ id, assigneeId });
+        // ON CONFLICT sem alvo explícito cobre tanto o índice único de
+        // telefone aberto quanto o de customer_id aberto — segunda rede de
+        // segurança pra corrida entre processos/instâncias diferentes (o
+        // mutex acima só vale dentro deste processo Node).
+        const insertRes = await query(
+          `INSERT INTO public.chat_sessions (id, customer_id, customer_name, customer_phone, status, queue_id, assignee_id, created_at, updated_at)
+           VALUES ($1, $2, $3, $4, $5, NULL, $6, $7, NOW())
+           ON CONFLICT DO NOTHING
+           RETURNING id, assignee_id`,
+          [id, session.customerId || null, session.customerName || null, session.customerPhone || null, status, assigneeId, session.startedAt]
+        );
+
+        if (insertRes.rows[0]) {
+          return { id: insertRes.rows[0].id, assigneeId: insertRes.rows[0].assignee_id };
+        }
+
+        // Perdeu a corrida contra outro processo — usa a sessão que venceu.
+        const winner = await findOpenExisting();
+        return winner
+          ? { id: winner.id, assigneeId: winner.assignee_id, reused: true }
+          : { id, assigneeId: null };
+      });
+
+      return NextResponse.json(result);
     }
 
     if (action === 'push-message') {
       const { sessionId, message } = body;
 
       const sessionRes = await query(
-        `SELECT id, customer_id, customer_name, customer_phone, status, queue_id, awaiting_survey_until
+        `SELECT id, customer_id, customer_name, customer_phone, status, queue_id
          FROM public.chat_sessions WHERE id = $1`,
         [sessionId]
       );
@@ -448,36 +463,32 @@ export async function POST(request: Request) {
         return NextResponse.json({ error: 'Sessão não encontrada' }, { status: 404 });
       }
 
-      const withinSurveyWindow = !!session.awaiting_survey_until && new Date(session.awaiting_survey_until) > new Date();
       let targetSessionId = sessionId;
 
       if (session.status === 'closed') {
-        if (withinSurveyWindow) {
-          // Ainda dentro da janela de pesquisa de satisfação — mesma conversa,
-          // só volta a ficar pendente (resposta atrasada / mensagem extra do
-          // cliente logo após o encerramento).
-          await query(`UPDATE public.chat_sessions SET status = 'pending' WHERE id = $1`, [sessionId]);
-        } else {
-          // Atendimento anterior está de fato encerrado: mensagem nova é outro
-          // atendimento, com número de conversa novo — nunca uma reabertura
-          // silenciosa do anterior (mesma regra de create-session e
-          // findOrCreateChatSession, aplicada aqui pro funil do widget).
-          let queue: RoutingQueue | null = null;
-          if (session.queue_id) {
-            const queueRes = await query('SELECT id, member_ids FROM public.queues WHERE id = $1', [session.queue_id]);
-            if (queueRes.rows[0]) queue = { id: queueRes.rows[0].id, memberIds: queueRes.rows[0].member_ids || [] };
-          }
-          if (!queue) queue = await resolveCombinedQueuePool();
-          const assigneeId = queue ? await pickNextQueueAssignee(queue) : null;
-
-          const newId = crypto.randomUUID();
-          await query(
-            `INSERT INTO public.chat_sessions (id, customer_id, customer_name, customer_phone, status, queue_id, assignee_id, created_at, updated_at)
-             VALUES ($1, $2, $3, $4, $5, $6, $7, NOW(), NOW())`,
-            [newId, session.customer_id, session.customer_name, session.customer_phone, assigneeId ? 'active' : 'pending', queue?.id || null, assigneeId]
-          );
-          targetSessionId = newId;
+        // Atendimento anterior está de fato encerrado: mensagem nova é outro
+        // atendimento, com sessão (e número de conversa) novos — nunca uma
+        // reabertura silenciosa do anterior, mesmo que ainda esteja na janela
+        // de resposta da pesquisa de satisfação (isso é tratado à parte, pelo
+        // widget, antes de chamar esta ação — ver isSurveyResponse em
+        // chat-widget.tsx e a ação submit-survey-response). Mesma regra de
+        // create-session e findOrCreateChatSession, aplicada aqui pro funil
+        // de mensagens do widget.
+        let queue: RoutingQueue | null = null;
+        if (session.queue_id) {
+          const queueRes = await query('SELECT id, member_ids FROM public.queues WHERE id = $1', [session.queue_id]);
+          if (queueRes.rows[0]) queue = { id: queueRes.rows[0].id, memberIds: queueRes.rows[0].member_ids || [] };
         }
+        if (!queue) queue = await resolveCombinedQueuePool();
+        const assigneeId = queue ? await pickNextQueueAssignee(queue) : null;
+
+        const newId = crypto.randomUUID();
+        await query(
+          `INSERT INTO public.chat_sessions (id, customer_id, customer_name, customer_phone, status, queue_id, assignee_id, created_at, updated_at)
+           VALUES ($1, $2, $3, $4, $5, $6, $7, NOW(), NOW())`,
+          [newId, session.customer_id, session.customer_name, session.customer_phone, assigneeId ? 'active' : 'pending', queue?.id || null, assigneeId]
+        );
+        targetSessionId = newId;
       }
 
       const metadata = { ...(message.metadata || {}), attachments: message.attachments || message.metadata?.attachments || [] };
