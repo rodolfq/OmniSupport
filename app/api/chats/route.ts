@@ -5,6 +5,8 @@ import { emitChatEvent, excludeActiveViewers } from '@/lib/chat-events';
 import { notifyUser } from '@/lib/services/push-service';
 import { getChatRecipientIds, isTeamRole } from '@/lib/services/notification-recipients';
 import { resolveCombinedQueuePool, pickNextQueueAssignee } from '@/lib/services/queue-routing';
+import { transcribeMessageAudio, isAudioAttachment, isTranscriptionEnabled } from '@/lib/services/transcription-service';
+import { Attachment } from '@/lib/types';
 
 function normalizePhone(value?: string | null): string {
   return (value || '').replace(/\D/g, '');
@@ -458,6 +460,32 @@ export async function POST(request: Request) {
       })();
 
       return NextResponse.json({ success: true });
+    }
+
+    if (action === 'transcribe-audio') {
+      if (!isTranscriptionEnabled()) {
+        return NextResponse.json({ error: 'Transcrição desativada neste servidor' }, { status: 403 });
+      }
+
+      const { sessionId, messageId, attachmentId } = body;
+      const msgRes = await query('SELECT metadata FROM public.chat_messages WHERE id = $1 AND session_id = $2', [messageId, sessionId]);
+      const row = msgRes.rows[0];
+      if (!row) {
+        return NextResponse.json({ error: 'Mensagem não encontrada' }, { status: 404 });
+      }
+
+      const attachments: Attachment[] = row.metadata?.attachments || [];
+      const attachment = attachments.find(a => a.id === attachmentId);
+      if (!attachment || !isAudioAttachment(attachment)) {
+        return NextResponse.json({ error: 'Anexo de áudio não encontrado' }, { status: 404 });
+      }
+
+      const transcription = await transcribeMessageAudio({ messageId, sessionId, attachment });
+      if (!transcription) {
+        return NextResponse.json({ error: 'Não foi possível transcrever o áudio' }, { status: 500 });
+      }
+
+      return NextResponse.json({ success: true, transcription });
     }
 
     if (action === 'submit-survey-response') {

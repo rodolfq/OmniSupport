@@ -173,6 +173,9 @@ export interface Attachment {
   type: string;
   url: string;
   size: number;
+  // Preenchido de forma assíncrona depois do envio, quando a transcrição
+  // local de áudio está habilitada (ver lib/services/transcription-service.ts).
+  transcription?: string;
 }
 
 export interface WhatsappInstance {
@@ -189,6 +192,7 @@ export interface Queue {
   description?: string;
   whatsappInstanceId?: string;
   memberIds: string[];
+  includeInternalChats: boolean;
   createdAt: string;
 }
 

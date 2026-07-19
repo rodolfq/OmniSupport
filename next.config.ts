@@ -61,7 +61,11 @@ const nextConfig: NextConfig = {
     'bufferutil',
     'utf-8-validate',
     'postgres',
-    'pg'
+    'pg',
+    '@huggingface/transformers',
+    'onnxruntime-node',
+    'sharp',
+    'ffmpeg-static'
   ],
   eslint: {
     ignoreDuringBuilds: true,

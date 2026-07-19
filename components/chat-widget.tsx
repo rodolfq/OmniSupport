@@ -29,7 +29,9 @@ import {
   Download,
   Mic,
   Square,
-  Trash2
+  Trash2,
+  Captions,
+  Loader2
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import { 
@@ -45,7 +47,7 @@ import {
   Company,
   Attachment
 } from '@/lib/types';
-import { fetchChatSessions, pushChatMessage, createChatSession, saveChatHistory, findExistingChatSessionByPhone, submitSurveyResponse } from '@/lib/services/chat-service';
+import { fetchChatSessions, pushChatMessage, createChatSession, saveChatHistory, findExistingChatSessionByPhone, submitSurveyResponse, transcribeChatAudio } from '@/lib/services/chat-service';
 import { fetchQuickNotes, fetchAnalystStatuses, fetchCompanies, fetchUsers, fetchQueues, fetchSurveySettings } from '@/lib/services/config-service';
 import { cn, maskPhone, matchPhones, safeJsonStringify } from '@/lib/utils';
 import { useApp } from '@/app/app-context';
@@ -315,6 +317,41 @@ export function ChatWidget() {
       setCustomerSessions(refreshedSessions);
     } else {
       toast.error('Erro ao atualizar o atendimento.');
+    }
+  };
+
+  const [transcribingIds, setTranscribingIds] = useState<Set<string>>(new Set());
+
+  const handleTranscribeAudio = async (sessionId: string, messageId: string, attachmentId: string) => {
+    const key = `${messageId}:${attachmentId}`;
+    if (transcribingIds.has(key)) return;
+    setTranscribingIds(prev => new Set(prev).add(key));
+    try {
+      const transcription = await transcribeChatAudio(sessionId, messageId, attachmentId);
+      setCustomerSessions(prev => prev.map(s => {
+        if (s.id !== sessionId) return s;
+        return {
+          ...s,
+          messages: (s.messages || []).map(m => {
+            if (m.id !== messageId) return m;
+            return {
+              ...m,
+              attachments: (m.attachments || []).map(a =>
+                a.id === attachmentId ? { ...a, transcription } : a
+              )
+            };
+          })
+        };
+      }));
+    } catch (err) {
+      console.error('Erro ao transcrever áudio:', err);
+      toast.error('Não foi possível transcrever o áudio.');
+    } finally {
+      setTranscribingIds(prev => {
+        const next = new Set(prev);
+        next.delete(key);
+        return next;
+      });
     }
   };
 
@@ -592,6 +629,29 @@ export function ChatWidget() {
     eventSource.addEventListener('chat-event', (event: MessageEvent) => {
       try {
         const payload = JSON.parse(event.data);
+
+        if (payload?.type === 'transcription') {
+          // Transcrição de um áudio chega depois, de forma assíncrona — só
+          // preenche o campo no anexo já existente, sem criar mensagem nova
+          // nem disparar som/notificação.
+          setCustomerSessions(prev => prev.map(s => {
+            if (s.id !== payload.sessionId) return s;
+            return {
+              ...s,
+              messages: (s.messages || []).map(m => {
+                if (m.id !== payload.messageId) return m;
+                return {
+                  ...m,
+                  attachments: (m.attachments || []).map(a =>
+                    a.id === payload.attachmentId ? { ...a, transcription: payload.transcription } : a
+                  )
+                };
+              })
+            };
+          }));
+          return;
+        }
+
         const raw = payload?.message;
         if (!raw) return;
 
@@ -1731,13 +1791,43 @@ useEffect(() => {
                                   }
 
                                   if (isAudioAttachment(attachment)) {
+                                    const transcribeKey = `${m.id}:${attachment.id}`;
+                                    const isTranscribing = transcribingIds.has(transcribeKey);
                                     return (
-                                      <AudioPlayer
-                                        key={attachmentKey}
-                                        src={attachment.url}
-                                        name={attachment.name}
-                                        isOwnMessage={isOwnMessage}
-                                      />
+                                      <div key={attachmentKey} className="space-y-1.5">
+                                        <AudioPlayer
+                                          src={attachment.url}
+                                          name={attachment.name}
+                                          isOwnMessage={isOwnMessage}
+                                        />
+                                        {attachment.transcription ? (
+                                          <p className={cn(
+                                            "text-xs italic leading-snug px-1",
+                                            isOwnMessage ? "text-white/70" : "text-[var(--text-tertiary)]"
+                                          )}>
+                                            &quot;{attachment.transcription}&quot;
+                                          </p>
+                                        ) : (
+                                          process.env.NEXT_PUBLIC_ENABLE_AUDIO_TRANSCRIPTION === 'true' && attachment.id && (
+                                            <button
+                                              type="button"
+                                              onClick={() => handleTranscribeAudio(selectedChat!.id, m.id, attachment.id!)}
+                                              disabled={isTranscribing}
+                                              className={cn(
+                                                "flex items-center gap-1.5 text-[10px] font-semibold uppercase tracking-widest px-1 py-0.5 rounded transition-all disabled:opacity-60",
+                                                isOwnMessage ? "text-white/70 hover:text-white" : "text-[var(--text-tertiary)] hover:text-[var(--accent-text)]"
+                                              )}
+                                            >
+                                              {isTranscribing ? (
+                                                <Loader2 size={12} className="animate-spin" />
+                                              ) : (
+                                                <Captions size={12} />
+                                              )}
+                                              {isTranscribing ? 'Transcrevendo...' : 'Transcrever'}
+                                            </button>
+                                          )
+                                        )}
+                                      </div>
                                     );
                                   }
 

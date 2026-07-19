@@ -215,3 +215,14 @@ export async function getChatHistories(signal?: AbortSignal): Promise<any[]> {
     return [];
   }
 }
+
+export async function transcribeChatAudio(sessionId: string, messageId: string, attachmentId: string): Promise<string> {
+  const res = await fetch('/api/chats', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ action: 'transcribe-audio', sessionId, messageId, attachmentId })
+  });
+  const data = await res.json().catch(() => ({}));
+  if (!res.ok || !data.transcription) throw new Error(data.error || 'Error transcribing audio via API');
+  return data.transcription;
+}

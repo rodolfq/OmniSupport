@@ -6,3 +6,7 @@ coverage/
 *.log
 .env*
 !.env.example
+
+# Modelo Whisper baixado por lib/services/transcription-service.ts (cache local,
+# nao deve ir pro git — cada servidor baixa a sua copia na primeira transcricao)
+.cache/
