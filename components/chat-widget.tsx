@@ -178,10 +178,9 @@ export function ChatWidget() {
     setMounted(true);
   }, []);
 
-  const { 
-    currentUser, 
-    playSound, 
-    notificationSettings, 
+  const {
+    currentUser,
+    notificationSettings,
     notifications, 
     addNotification,
     markNotificationRead,
@@ -614,7 +613,9 @@ export function ChatWidget() {
         }));
 
         if (newMessage.senderId !== currentUser?.id) {
-          playSound('chat');
+          // addNotification já toca o som internamente (e decide sozinha se
+          // deve notificar ou não, incluindo o caso desta própria conversa
+          // estar aberta na tela agora) — nada de tocar som aqui também.
           const session = customerSessions.find(s => s.id === payload.sessionId);
           addNotification({
             sourceId: `chat_message:${newMessage.id}`,

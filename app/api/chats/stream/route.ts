@@ -1,7 +1,7 @@
 import { NextRequest } from 'next/server';
 import { verifyJWT } from '@/lib/jwt';
 import { query } from '@/lib/db';
-import { subscribeToChatEvents } from '@/lib/chat-events';
+import { subscribeToChatEvents, markViewerActive, markViewerInactive } from '@/lib/chat-events';
 
 // Precisa rodar em runtime Node (não edge) porque `query()` usa o driver `pg`.
 export const dynamic = 'force-dynamic';
@@ -45,6 +45,7 @@ export async function GET(request: NextRequest) {
   const cleanup = () => {
     unsubscribe?.();
     if (heartbeat) clearInterval(heartbeat);
+    markViewerInactive(sessionId, authenticatedUser.id);
   };
 
   const stream = new ReadableStream({
@@ -58,6 +59,11 @@ export async function GET(request: NextRequest) {
       };
 
       send('connected', { sessionId });
+
+      // Enquanto essa conexão SSE existir, este usuário conta como "olhando
+      // esta conversa agora" — usado para não mandar push duplicado pra quem
+      // já está vendo a mensagem chegar na tela.
+      markViewerActive(sessionId, authenticatedUser.id);
 
       unsubscribe = subscribeToChatEvents(sessionId, (payload) => {
         send('chat-event', payload);

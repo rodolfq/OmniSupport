@@ -248,6 +248,22 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       return;
     }
 
+    // Mesmo comportamento do WhatsApp: mensagem da conversa que a pessoa já
+    // está olhando agora (widget aberto, não minimizado, é essa mesma
+    // conversa selecionada, aba em primeiro plano) não gera toast/som/sino —
+    // ela só aparece na tela, sem interromper. Sai da conversa, minimiza o
+    // widget, ou troca de aba, e volta a notificar normalmente.
+    if (
+      notif.type === 'chat_message' &&
+      notif.targetId &&
+      notif.targetId === activeChatRef.current &&
+      chatOpenRef.current &&
+      typeof document !== 'undefined' &&
+      document.visibilityState === 'visible'
+    ) {
+      return;
+    }
+
     const isEnabled = settingsRef.current[notif.type as keyof NotificationSettings];
     
     if (isEnabled) {

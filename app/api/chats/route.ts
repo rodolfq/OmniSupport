@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { query } from '@/lib/db';
 import { verifyJWT } from '@/lib/jwt';
-import { emitChatEvent } from '@/lib/chat-events';
+import { emitChatEvent, isViewerActive } from '@/lib/chat-events';
 import { notifyUser } from '@/lib/services/push-service';
 import { getChatRecipientIds, isTeamRole } from '@/lib/services/notification-recipients';
 
@@ -419,8 +419,11 @@ export async function POST(request: Request) {
           const senderIsTeam = isTeamRole(senderRoleRes.rows[0]?.role);
           const session = sessionRes.rows[0];
           const recipients = await getChatRecipientIds({ customerId: session?.customer_id }, message.senderId || null, senderIsTeam);
+          // Não manda push pra quem já está com essa conversa aberta (conectado
+          // ao SSE dela agora) — mesmo espírito do WhatsApp.
+          const toNotify = recipients.filter(id => !isViewerActive(sessionId, id));
 
-          await Promise.all(recipients.map(id => notifyUser(id, {
+          await Promise.all(toNotify.map(id => notifyUser(id, {
             title: `Nova mensagem de ${message.senderName || session?.customer_name || 'Cliente'}`,
             body: message.text || 'Anexo enviado',
             url: `/chat?chat=${sessionId}`,
