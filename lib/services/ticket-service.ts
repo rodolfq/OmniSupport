@@ -350,12 +350,7 @@ export class InternalTicketService {
       creator_id: ticket.creatorId,
       description: ticket.description || '',
     };
-    
-    // If parent ticket number provided, use it as internal_ticket_number
-    if (parentTicketNumber) {
-      payload.internal_ticket_number = parentTicketNumber;
-    }
-    
+
     console.log('InternalTicketService.saveWithDetails payload:', payload);
     
     try {
@@ -378,21 +373,22 @@ export class InternalTicketService {
         savedUuid = data?.id;
         savedNumber = data?.internal_ticket_number;
       } else {
-        // Get next internal ticket number if not provided
-        if (!parentTicketNumber) {
-          console.log('Getting next internal ticket number');
-          const { data: existing } = await supabase
-            .from('internal_tickets')
-            .select('internal_ticket_number')
-            .not('internal_ticket_number', 'is', null)
-            .order('internal_ticket_number', { ascending: false })
-            .limit(1);
-          
-          const maxUsed = existing?.[0]?.internal_ticket_number || 0;
-          payload.internal_ticket_number = maxUsed + 1;
-          console.log('Calculated next internal ticket number:', payload.internal_ticket_number);
-        }
-        
+        // Ticket interno sempre tira o número da própria sequência — nunca
+        // reaproveita o número público do chamado pai. Reaproveitar quebrava
+        // assim que um ticket interno passava a valer para mais de um
+        // chamado (N:N), que é o modelo suportado por ticket_internal_links.
+        console.log('Getting next internal ticket number');
+        const { data: existing } = await supabase
+          .from('internal_tickets')
+          .select('internal_ticket_number')
+          .not('internal_ticket_number', 'is', null)
+          .order('internal_ticket_number', { ascending: false })
+          .limit(1);
+
+        const maxUsed = existing?.[0]?.internal_ticket_number || 0;
+        payload.internal_ticket_number = maxUsed + 1;
+        console.log('Calculated next internal ticket number:', payload.internal_ticket_number);
+
         // Insert new record
         console.log('Inserting new internal ticket');
         const { data, error } = await supabase.from('internal_tickets')
@@ -426,17 +422,48 @@ export class InternalTicketService {
       }
       
       console.log('InternalTicketService.saveWithDetails created:', { savedUuid, savedNumber });
-      
-      // Return formatted internal ticket ID
-      // If created from parent ticket, return just the number (no prefix)
-      // If standalone, return "int-XXXX"
-      const formattedId = parentTicketNumber 
-        ? savedNumber?.toString().padStart(4, '0') || savedUuid
-        : `int-${savedNumber?.toString().padStart(4, '0') || savedUuid}`;
+
+      const formattedId = `int-${savedNumber?.toString().padStart(4, '0') || savedUuid}`;
       return { uuid: savedUuid, id: formattedId };
     } catch (e: any) {
       console.error('InternalTicketService.saveWithDetails exception:', e?.message || e);
       throw e;
     }
+  }
+
+  // Vincula um ticket interno já existente (criado solto ou por outro
+  // chamado) a mais um chamado — é o que sustenta o N:N: um ticket interno
+  // pode cobrir vários chamados, e este é o segundo (ou terceiro...) vínculo.
+  static async linkExisting(ticketId: string, internalTicketId: string): Promise<void> {
+    const { error } = await supabase.from('ticket_internal_links').insert({
+      ticket_id: ticketId,
+      internal_ticket_id: internalTicketId
+    });
+    if (error && !error.message?.includes('duplicate')) throw error;
+  }
+
+  static async unlink(ticketId: string, internalTicketId: string): Promise<void> {
+    const { error } = await supabase
+      .from('ticket_internal_links')
+      .delete()
+      .eq('ticket_id', ticketId)
+      .eq('internal_ticket_id', internalTicketId);
+    if (error) throw error;
+  }
+
+  // Registra uma entrada de sistema (status mudou, responsável mudou...) na
+  // própria thread de mensagens do ticket interno — mesma ideia do type
+  // 'system' já usado no chat (ver assignChatSession em app/actions.ts).
+  // Isso faz o histórico do ticket interno ficar unificado (comentário e
+  // evento no mesmo feed) e alimenta a notificação de status sem precisar
+  // de nenhuma tabela nova.
+  static async logEvent(internalTicketId: string, authorId: string | undefined, text: string): Promise<void> {
+    const { error } = await supabase.from('internal_ticket_messages').insert({
+      internal_ticket_id: internalTicketId,
+      author_id: authorId || null,
+      content: text,
+      type: 'system'
+    });
+    if (error) console.error('InternalTicketService.logEvent error:', error);
   }
 }

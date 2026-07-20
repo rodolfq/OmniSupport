@@ -28,9 +28,31 @@ interface TicketDetailModalProps {
   onClose: () => void;
 }
 
+// Mesmo vocabulário de cor do Kanban em /internal-tickets — não inventa
+// paleta nova pro mesmo conceito de status.
+function internalStatusMeta(status?: string | null) {
+  switch (status) {
+    case 'Em Andamento':
+    case 'Em Atendimento':
+      return { label: 'Andamento', color: 'bg-[var(--surface-warning)] text-[var(--text-warning)]' };
+    case 'Em Espera':
+    case 'Pendente':
+      return { label: status, color: 'bg-[var(--surface-pill)] text-[var(--text-secondary)]' };
+    case 'Concluído':
+    case 'Resolvido':
+    case 'Fechado':
+    case 'Encerrado':
+      return { label: status, color: 'bg-[var(--surface-success)] text-[var(--text-success)]' };
+    case 'Cancelado':
+      return { label: status, color: 'bg-[var(--surface-danger)] text-[var(--text-danger)]' };
+    default:
+      return { label: status || 'Novo', color: 'bg-[var(--surface-info)] text-[var(--text-info)]' };
+  }
+}
+
 export function TicketDetailModal({ ticket, onClose }: TicketDetailModalProps) {
   const scrollRef = useRef<HTMLDivElement>(null);
-  const { currentUser, hasPermission, triggerRefresh, suppressTicketAssignedNotification } = useApp();
+  const { currentUser, hasPermission, triggerRefresh, suppressTicketAssignedNotification, notifications } = useApp();
   const isCustomer = currentUser?.role === UserRole.CUSTOMER;
   
   // States
@@ -93,15 +115,15 @@ export function TicketDetailModal({ ticket, onClose }: TicketDetailModalProps) {
   const savedBadgeTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const DEBOUNCE_MS = 1200;
 
-  // Internal Ticket States
-  const [internalTicket, setInternalTicket] = useState<InternalTicket | null>(null);
+  // Internal Ticket States — um chamado pode ter vários tickets internos
+  // vinculados (N:N via ticket_internal_links), então isso é sempre uma
+  // lista, nunca um registro único.
+  const [internalTickets, setInternalTickets] = useState<InternalTicket[]>([]);
+  const [showCreatePanel, setShowCreatePanel] = useState(false);
   const [itTitle, setItTitle] = useState('');
-  const [itTeam, setItTeam] = useState('Suporte');
+  const [itTeam, setItTeam] = useState('Desenvolvimento');
   const [itAssignee, setItAssignee] = useState('');
   const [itPriority, setItPriority] = useState(1);
-  const [itTags, setItTags] = useState<string[]>([]);
-  const [itDescription, setItDescription] = useState('');
-  const [itSla, setItSla] = useState('');
   const [showLinkModal, setShowLinkModal] = useState(false);
 
   // Evita vazar os timers do autosave se o componente desmontar com uma
@@ -161,7 +183,7 @@ export function TicketDetailModal({ ticket, onClose }: TicketDetailModalProps) {
     setCompanyId(ticket.companyId || '');
     setEmployeeIds(ticket.employeeIds || []);
     loadMessages();
-    loadInternalTicket();
+    loadInternalTickets();
     setChatSessionData(null);
     
     // Set default history tab based on role and permissions
@@ -231,34 +253,22 @@ const loadMessages = async () => {
      (updater) => setChatSessionData(prev => prev ? { ...prev, messages: updater(prev.messages) } : prev)
    );
 
-   const loadInternalTicket = async () => {
+   const loadInternalTickets = async () => {
      if (!ticket) return;
-const it = await InternalTicketService.getByParent(ticket.id);
-      if (it) {
-        setInternalTicket(it);
-        setItTitle(it.title);
-        setItTeam(it.teamId || 'Desenvolvimento');
-        setItAssignee(it.assigneeId || '');
-       setItPriority(it.priority);
-       setItTags(it.tags);
-       setItDescription(it.description);
-       setItSla(it.slaLimit || '');
-     } else {
-       setInternalTicket(null);
-       setItTitle(`Interno: ${ticket.title}`);
-       setItTeam('Desenvolvimento');
-       setItAssignee('');
-       setItPriority(1);
-       setItTags([]);
-       setItDescription('');
-       setItSla('');
-     }
+     const list = await InternalTicketService.getByParentAll(ticket.id);
+     setInternalTickets(list);
    };
 
-const handleCreateInternalTicket = async () => {
-      if (!currentUser || !ticket) return;
+   const resetCreateForm = () => {
+     setItTitle(`Interno: ${ticket?.title || ''}`);
+     setItTeam('Desenvolvimento');
+     setItAssignee('');
+     setItPriority(1);
+   };
+
+   const handleCreateInternalTicket = async () => {
+      if (!currentUser || !ticket || !itTitle.trim()) return;
       const team = internalTeams.find(t => t.name === itTeam);
-      const ticketNumber = ticket?.ticketNumber;
       const newIT: InternalTicket = {
         id: undefined,
         parentTicketId: ticket.id,
@@ -268,64 +278,36 @@ const handleCreateInternalTicket = async () => {
         internalTeamId: team ? team.id : undefined,
         assigneeId: itAssignee || undefined,
         priority: itPriority,
-        tags: itTags,
+        tags: [],
         creatorId: currentUser.id,
-        description: itDescription,
+        description: '',
         createdAt: new Date().toISOString(),
         updatedAt: new Date().toISOString(),
-        slaLimit: itSla || undefined
       };
-      const savedInternalTicketId = await InternalTicketService.save(newIT, ticket.id, ticketNumber);
-      // Fetch the created ticket to get its UUID
-      const created = await InternalTicketService.getByParent(ticket.id);
-      setInternalTicket(created || { ...newIT, id: savedInternalTicketId });
+      const savedId = await InternalTicketService.save(newIT, ticket.id);
 
       const msg: Message = {
         id: Math.random().toString(36).substr(2, 9),
         ticketId: ticket.id,
         senderId: currentUser.id,
-        text: `Criou o ticket interno ${savedInternalTicketId}`,
+        text: `Criou o ticket interno ${savedId}`,
         timestamp: new Date().toISOString(),
         isVisibleToCustomer: false,
         type: 'internal'
       };
       await MessageService.create(msg);
       loadMessages();
-    };
-
-const handleUpdateInternalTicket = async () => {
-      if (!internalTicket) return;
-      
-      // Find internal team ID by name
-      const team = internalTeams.find(t => t.name === itTeam);
-      const internalTeamId = team ? team.id : internalTicket.internalTeamId;
-      
-      const updatedIT: InternalTicket = {
-        ...internalTicket,
-        uuid: internalTicket.uuid, // Keep UUID for update
-        title: itTitle,
-        teamId: itTeam,
-        internalTeamId: internalTeamId,
-        assigneeId: itAssignee,
-        priority: itPriority,
-        tags: itTags,
-        description: itDescription,
-        updatedAt: new Date().toISOString(),
-        slaLimit: itSla || undefined
-      };
-      await InternalTicketService.save(updatedIT);
-      setInternalTicket(updatedIT);
+      await loadInternalTickets();
+      setShowCreatePanel(false);
+      toast.success('Ticket interno criado');
     };
 
     const handleLinkInternalTicket = async (internalTicketId: string) => {
       if (!ticket || !currentUser) return;
 
-      const { error } = await supabase.from('ticket_internal_links').insert({
-        ticket_id: ticket.id,
-        internal_ticket_id: internalTicketId
-      });
-
-      if (error && !error.message?.includes('duplicate')) {
+      try {
+        await InternalTicketService.linkExisting(ticket.id, internalTicketId);
+      } catch (error) {
         toast.error('Erro ao vincular ticket interno');
         return;
       }
@@ -341,9 +323,33 @@ const handleUpdateInternalTicket = async () => {
       };
       await MessageService.create(msg);
       loadMessages();
-      loadInternalTicket();
+      await loadInternalTickets();
       setShowLinkModal(false);
       toast.success('Ticket interno vinculado com sucesso');
+    };
+
+    const handleUnlinkInternalTicket = async (internalTicketId: string, label: string) => {
+      if (!ticket || !currentUser) return;
+      try {
+        await InternalTicketService.unlink(ticket.id, internalTicketId);
+      } catch (error) {
+        toast.error('Erro ao desvincular ticket interno');
+        return;
+      }
+
+      const msg: Message = {
+        id: Math.random().toString(36).substr(2, 9),
+        ticketId: ticket.id,
+        senderId: currentUser.id,
+        text: `Desvinculou o ticket interno ${label}`,
+        timestamp: new Date().toISOString(),
+        isVisibleToCustomer: false,
+        type: 'internal'
+      };
+      await MessageService.create(msg);
+      loadMessages();
+      await loadInternalTickets();
+      toast.success('Ticket interno desvinculado');
     };
 
 const handleSendMessage = async (isInternal: boolean) => {
@@ -511,8 +517,6 @@ const handleSendMessage = async (isInternal: boolean) => {
       toast.error('Erro ao salvar descrição. Tente novamente.');
     }
   };
-
-  const itCreator = internalTicket ? allUsers.find(u => u.id === internalTicket.creatorId) : null;
 
   const handleTakeTicket = async () => {
     if (!currentUser || !ticket) return;
@@ -1035,156 +1039,133 @@ const handleSendMessage = async (isInternal: boolean) => {
                       )}
 
                       {activeTab === 'internal' && (
-                       <div className="space-y-8 animate-in fade-in slide-in-from-bottom-2 duration-300">
-                          {internalTicket ? (
-                            <div className="space-y-8">
-                               {/* SLA Indicator */}
-                               {itSla && (
-                                 <div className={cn(
-                                   "p-4 rounded-xl flex items-center justify-between",
-                                   new Date(itSla) < new Date() ? "bg-[var(--surface-danger)] border border-[var(--text-danger)]/20" : "bg-[var(--surface-success)] border border-[var(--text-success)]/20"
-                                 )}>
-                                   <div className="flex items-center gap-3">
-                                      <Clock className={cn(new Date(itSla) < new Date() ? "text-[var(--text-danger)]" : "text-[var(--text-success)]")} size={20} />
-                                      <div>
-                                         <p className="text-[10px] font-semibold uppercase tracking-widest text-[var(--text-tertiary)]">Tempo de SLA</p>
-                                         <p className={cn("text-sm font-black", new Date(itSla) < new Date() ? "text-[var(--text-danger)]" : "text-[var(--text-success)]")}>
-                                            {new Date(itSla) < new Date() ? "SLA VENCIDO" : `Expira em: ${new Date(itSla).toLocaleString()}`}
-                                         </p>
-                                      </div>
-                                   </div>
-                                 </div>
-                               )}
-
-                               {/* Internal Ticket Fields */}
-                               <div className="grid grid-cols-1 sm:grid-cols-2 gap-x-12 gap-y-6 p-6 bg-[var(--surface-card)] border border-[var(--border-default)] rounded-2xl shadow-inner">
-<div className="space-y-4">
-                                      <div className="flex flex-col gap-1.5">
-                                         <label className="text-[10px] font-semibold uppercase text-[var(--text-tertiary)]">Ticket Interno #</label>
-                                         <div className="text-sm font-black text-[var(--text-warning)]">#{internalTicket?.internalTicketNumber?.toString().padStart(4, '0') || '----'}</div>
-                                      </div>
-                                      <div className="flex flex-col gap-1.5">
-                                         <label className="text-[10px] font-semibold uppercase text-[var(--text-tertiary)]">Título Interno</label>
-                                         <input
-                                          value={itTitle}
-                                          onChange={(e) => setItTitle(e.target.value)}
-                                          onBlur={handleUpdateInternalTicket}
-                                          className="bg-[var(--surface-card)] border border-[var(--border-default)] rounded-lg px-3 py-2 text-sm font-bold text-[var(--text-secondary)] focus:border-[var(--text-warning-strong)] outline-none"
-                                        />
-                                     </div>
-<div className="flex flex-col gap-1.5">
-                                         <label className="text-[10px] font-semibold uppercase text-[var(--text-tertiary)]">Equipe Responsável</label>
-                                         <StyledSelect 
-                                           value={itTeam}
-                                           onChange={(e) => {
-                                             setItTeam(e.target.value);
-                                             setTimeout(handleUpdateInternalTicket, 0);
-                                           }}
-                                           className="bg-[var(--surface-card)] border border-[var(--border-default)] rounded-lg px-3 py-2 text-xs font-bold text-[var(--text-secondary)] focus:border-[var(--text-warning-strong)] outline-none"
-                                         >
-                                           {internalTeams.map(t => (
-                                             <option key={t.id} value={t.name}>{t.name}</option>
-                                           ))}
-                                           <option value="">Sem equipe</option>
-                                         </StyledSelect>
-                                      </div>
-                                      <div className="flex flex-col gap-1.5">
-                                         <label className="text-[10px] font-semibold uppercase text-[var(--text-tertiary)]">Vencimento SLA</label>
-                                         <input 
-                                           type="datetime-local"
-                                           value={itSla}
-                                           onChange={(e) => {
-                                             setItSla(e.target.value);
-                                             setTimeout(handleUpdateInternalTicket, 0);
-                                           }}
-                                           className="bg-[var(--surface-card)] border border-[var(--border-default)] rounded-lg px-3 py-2 text-xs font-bold text-[var(--text-secondary)] focus:border-[var(--text-warning-strong)] outline-none"
-                                         />
-                                      </div>
-                                   </div>
-
-                                   <div className="space-y-4">
-                                      <div className="flex flex-col gap-1.5">
-                                         <label className="text-[10px] font-semibold uppercase text-[var(--text-tertiary)]">Criado por</label>
-                                         <div className="flex items-center gap-2 py-2">
-                                            <div className="w-5 h-5 rounded-full bg-[var(--text-tertiary)] text-[8px] flex items-center justify-center font-black text-white">{itCreator?.name.charAt(0)}</div>
-                                            <span className="text-xs font-bold text-[var(--text-secondary)]">{itCreator?.name}</span>
-                                         </div>
-                                      </div>
-                                      <div className="flex flex-col gap-1.5">
-                                         <label className="text-[10px] font-semibold uppercase text-[var(--text-tertiary)]">Responsável Interno</label>
-                                         <StyledSelect 
-                                           value={itAssignee}
-                                           onChange={(e) => {
-                                             setItAssignee(e.target.value);
-                                             setTimeout(handleUpdateInternalTicket, 0);
-                                           }}
-                                           className="bg-[var(--surface-card)] border border-[var(--border-default)] rounded-lg px-3 py-2 text-xs font-bold text-[var(--text-secondary)] focus:border-[var(--text-warning-strong)] outline-none"
-                                         >
-                                           <option value="">Nenhum</option>
-{analysts
-                                              .filter(a => !itTeam || (a as any).internal_team_ids?.includes(
-                                                internalTeams.find(t => t.name === itTeam)?.id || ''
-                                              ))
-                                              .map(a => <option key={a.id} value={a.id}>{a.name}</option>)}
-                                         </StyledSelect>
-                                      </div>
-                                     <div className="flex flex-col gap-1.5 font-sans">
-                                        <label className="text-[10px] font-semibold uppercase text-[var(--text-tertiary)]">Prioridade</label>
-                                        <div className="flex items-center gap-1 py-1">
-                                           {[1, 2, 3].map((star) => (
-                                             <button 
-                                               key={star} 
-                                               onClick={() => {
-                                                  const newPrio = star === itPriority && star === 1 ? 0 : star;
-                                                  setItPriority(newPrio);
-                                                  setTimeout(async () => {
-                                                      if (internalTicket) {
-                                                        const updatedIT = { ...internalTicket, priority: newPrio };
-                                                        await InternalTicketService.save(updatedIT);
-                                                        setInternalTicket(updatedIT);
-                                                     }
-                                                  }, 0);
-                                               }}
-                                               className="hover:scale-125 transition-all"
-                                             >
-                                               <Star size={18} className={cn(star <= itPriority ? "fill-amber-400 text-[var(--text-warning)]" : "text-slate-200")} />
-                                             </button>
-                                           ))}
-                                        </div>
-                                     </div>
-                                  </div>
-
-                                  <div className="col-span-2 space-y-2">
-                                     <label className="text-[10px] font-semibold uppercase text-[var(--text-tertiary)]">Descrição Técnica / Notas do Desenvolvedor</label>
-                                     <textarea 
-                                       value={itDescription}
-                                       onChange={(e) => setItDescription(e.target.value)}
-                                       onBlur={handleUpdateInternalTicket}
-                                       placeholder="Adicione detalhes técnicos, bugs reportados ou requisitos..."
-                                       className="w-full min-h-[120px] bg-[var(--surface-card)] border border-[var(--border-default)] rounded-xl p-4 text-sm font-medium outline-none focus:border-[var(--text-warning-strong)] shadow-sm"
-                                     />
-                                  </div>
-                               </div>
-                            </div>
-                          ) : (
-                            <div className="text-center py-20 border-2 border-dashed border-[var(--border-default)] rounded-3xl group hover:border-amber-300 transition-all">
-                               <Lock className="mx-auto text-slate-200 mb-4 group-hover:text-[var(--text-warning)] transition-all" size={48} />
-                               <h3 className="text-lg font-black text-[var(--text-primary)] uppercase tracking-tight">Criar Ticket Interno</h3>
-<p className="text-sm font-medium text-[var(--text-tertiary)] mt-2 mb-6 max-w-sm mx-auto uppercase">Vincule um ticket de desenvolvimento ou manutenção técnica a este chamado do cliente.</p>
-                                <button 
-                                  onClick={handleCreateInternalTicket}
-                                  className="px-6 py-3 bg-[var(--text-warning-strong)] text-white rounded-2xl text-xs font-black uppercase tracking-widest hover:bg-[var(--accent-warning-hover)] transition-all shadow-lg shadow-amber-100"
-                                >
-                                  Iniciar Fluxo Interno
-                                </button>
-                                <button 
+                       <div className="space-y-4 animate-in fade-in slide-in-from-bottom-2 duration-300">
+                          <div className="flex items-center justify-between">
+                             <h3 className="text-xs font-black uppercase text-[var(--text-tertiary)] tracking-widest">
+                                {internalTickets.length > 0 ? `${internalTickets.length} Ticket${internalTickets.length > 1 ? 's' : ''} Interno${internalTickets.length > 1 ? 's' : ''} Vinculado${internalTickets.length > 1 ? 's' : ''}` : 'Nenhum Ticket Interno Vinculado'}
+                             </h3>
+                             <div className="flex items-center gap-2">
+                                <button
                                   onClick={() => setShowLinkModal(true)}
-                                  className="px-6 py-3 bg-[var(--border-default)] text-[var(--text-secondary)] rounded-2xl text-xs font-black uppercase tracking-widest hover:bg-[var(--text-tertiary)] transition-all shadow-lg ml-2"
+                                  className="px-3 py-1.5 rounded-lg text-[10px] font-black uppercase tracking-widest border border-[var(--border-default)] text-[var(--text-secondary)] hover:bg-[var(--surface-pill)] transition-all"
                                 >
                                   Vincular Existente
                                 </button>
+                                <button
+                                  onClick={() => { resetCreateForm(); setShowCreatePanel(true); }}
+                                  className="px-3 py-1.5 rounded-lg text-[10px] font-black uppercase tracking-widest bg-[var(--text-warning-strong)] text-white hover:bg-[var(--accent-warning-hover)] transition-all"
+                                >
+                                  + Criar Novo
+                                </button>
                              </div>
-                           )}
+                          </div>
+
+                          {internalTickets.length === 0 && !showCreatePanel && (
+                            <div className="text-center py-16 border-2 border-dashed border-[var(--border-default)] rounded-3xl">
+                               <Lock className="mx-auto text-slate-200 mb-3" size={40} />
+                               <p className="text-sm font-medium text-[var(--text-tertiary)] max-w-sm mx-auto">Nenhum ticket interno vinculado ainda. Crie um para acionar o time técnico ou vincule um já existente.</p>
+                            </div>
+                          )}
+
+                          {internalTickets.map((it) => {
+                            const meta = internalStatusMeta(it.status);
+                            const assignee = allUsers.find(u => u.id === it.assigneeId);
+                            const creator = allUsers.find(u => u.id === it.creatorId);
+                            const unread = it.uuid ? notifications.some(n => n.targetId === it.uuid && !n.read) : false;
+                            return (
+                              <div key={it.uuid} className="relative p-4 rounded-2xl border border-[var(--border-default)] bg-[var(--surface-card)] hover:border-[var(--text-warning-strong)]/40 transition-all">
+                                {unread && <span className="absolute top-3 right-3 w-2 h-2 rounded-full bg-[var(--text-danger)]" />}
+                                <div className="flex items-start justify-between gap-3 mb-2 pr-4">
+                                   <div className="flex items-center gap-2 min-w-0">
+                                      <span className="text-[10px] font-black text-[var(--text-warning)] shrink-0">INT-{it.internalTicketNumber?.toString().padStart(4, '0') || '----'}</span>
+                                      <span className={cn("text-[9px] font-bold uppercase px-2 py-0.5 rounded-full shrink-0", meta.color)}>{meta.label}</span>
+                                   </div>
+                                   <button
+                                     onClick={() => it.uuid && handleUnlinkInternalTicket(it.uuid, `INT-${it.internalTicketNumber?.toString().padStart(4, '0') || ''}`)}
+                                     title="Desvincular deste chamado"
+                                     className="text-[var(--text-tertiary)] hover:text-[var(--text-danger)] transition-colors shrink-0"
+                                   >
+                                     <X size={14} />
+                                   </button>
+                                </div>
+                                <p className="text-sm font-bold text-[var(--text-primary)] mb-2 line-clamp-2">{it.title}</p>
+                                <div className="flex items-center justify-between text-[10px] text-[var(--text-tertiary)] font-medium">
+                                   <span>{it.teamId || 'Sem equipe'} {assignee ? `· ${assignee.name}` : ''}</span>
+                                   <span>{creator ? `por ${creator.name}` : ''}</span>
+                                </div>
+                                <a
+                                  href={`/internal-tickets/${it.uuid}`}
+                                  target="_blank"
+                                  rel="noopener noreferrer"
+                                  className="mt-3 inline-flex items-center gap-1 text-[10px] font-black uppercase tracking-widest text-[var(--accent-text)] hover:underline"
+                                >
+                                  Abrir ticket completo →
+                                </a>
+                              </div>
+                            );
+                          })}
+
+                          {showCreatePanel && (
+                            <div className="p-5 rounded-2xl border border-[var(--border-alert)] bg-[var(--surface-warning)]/40 space-y-4">
+                               <div className="flex flex-col gap-1.5">
+                                  <label className="text-[10px] font-semibold uppercase text-[var(--text-tertiary)]">Título</label>
+                                  <input
+                                    autoFocus
+                                    value={itTitle}
+                                    onChange={(e) => setItTitle(e.target.value)}
+                                    className="bg-[var(--surface-card)] border border-[var(--border-default)] rounded-lg px-3 py-2 text-sm font-bold text-[var(--text-secondary)] focus:border-[var(--text-warning-strong)] outline-none"
+                                  />
+                               </div>
+                               <div className="grid grid-cols-2 gap-4">
+                                  <div className="flex flex-col gap-1.5">
+                                     <label className="text-[10px] font-semibold uppercase text-[var(--text-tertiary)]">Equipe</label>
+                                     <StyledSelect
+                                       value={itTeam}
+                                       onChange={(e) => setItTeam(e.target.value)}
+                                       className="bg-[var(--surface-card)] border border-[var(--border-default)] rounded-lg px-3 py-2 text-xs font-bold text-[var(--text-secondary)] focus:border-[var(--text-warning-strong)] outline-none"
+                                     >
+                                       {internalTeams.map(t => (
+                                         <option key={t.id} value={t.name}>{t.name}</option>
+                                       ))}
+                                       <option value="">Sem equipe</option>
+                                     </StyledSelect>
+                                  </div>
+                                  <div className="flex flex-col gap-1.5">
+                                     <label className="text-[10px] font-semibold uppercase text-[var(--text-tertiary)]">Responsável</label>
+                                     <StyledSelect
+                                       value={itAssignee}
+                                       onChange={(e) => setItAssignee(e.target.value)}
+                                       className="bg-[var(--surface-card)] border border-[var(--border-default)] rounded-lg px-3 py-2 text-xs font-bold text-[var(--text-secondary)] focus:border-[var(--text-warning-strong)] outline-none"
+                                     >
+                                       <option value="">Não atribuído</option>
+                                       {analysts
+                                          .filter(a => !itTeam || (a as any).internal_team_ids?.includes(internalTeams.find(t => t.name === itTeam)?.id || ''))
+                                          .map(a => <option key={a.id} value={a.id}>{a.name}</option>)}
+                                     </StyledSelect>
+                                  </div>
+                               </div>
+                               <div className="flex flex-col gap-1.5">
+                                  <label className="text-[10px] font-semibold uppercase text-[var(--text-tertiary)]">Prioridade</label>
+                                  <div className="flex items-center gap-1">
+                                     {[1, 2, 3].map((star) => (
+                                       <button key={star} onClick={() => setItPriority(star === itPriority && star === 1 ? 0 : star)} className="hover:scale-125 transition-all">
+                                         <Star size={18} className={cn(star <= itPriority ? "fill-amber-400 text-[var(--text-warning)]" : "text-slate-200")} />
+                                       </button>
+                                     ))}
+                                  </div>
+                               </div>
+                               <div className="flex justify-end gap-2">
+                                  <button onClick={() => setShowCreatePanel(false)} className="px-4 py-2 rounded-lg text-xs font-bold text-[var(--text-secondary)] hover:bg-[var(--surface-card)]">Cancelar</button>
+                                  <button
+                                    onClick={handleCreateInternalTicket}
+                                    disabled={!itTitle.trim()}
+                                    className="px-4 py-2 rounded-lg text-xs font-black uppercase tracking-widest bg-[var(--text-warning-strong)] text-white hover:bg-[var(--accent-warning-hover)] disabled:opacity-50"
+                                  >
+                                    Criar Ticket Interno
+                                  </button>
+                               </div>
+                            </div>
+                          )}
                        </div>
                      )}
 
@@ -1394,6 +1375,7 @@ const handleSendMessage = async (isInternal: boolean) => {
       isOpen={showLinkModal}
       onClose={() => setShowLinkModal(false)}
       onLink={handleLinkInternalTicket}
+      excludeIds={internalTickets.map(it => it.uuid).filter(Boolean) as string[]}
     />
     <AttachmentPreviewModal attachment={previewAttachment} onClose={() => setPreviewAttachment(null)} />
   </>

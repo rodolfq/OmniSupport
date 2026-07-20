@@ -84,7 +84,11 @@ export async function GET(request: Request) {
     }
 
     if (action === 'internal-links') {
-      const res = await query('SELECT ticket_id FROM public.ticket_internal_links');
+      const res = await query(
+        `SELECT til.ticket_id, til.internal_ticket_id, it.status, it.internal_ticket_number
+         FROM public.ticket_internal_links til
+         JOIN public.internal_tickets it ON it.id = til.internal_ticket_id`
+      );
       return NextResponse.json(res.rows);
     }
     

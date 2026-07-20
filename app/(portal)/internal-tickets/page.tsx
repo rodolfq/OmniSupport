@@ -64,6 +64,7 @@ export default function InternalTicketsPage() {
   
   // Teams state (fetched from DB)
   const [teams, setTeams] = useState(DEFAULT_TEAM_OPTIONS);
+  const [teamsRaw, setTeamsRaw] = useState<Array<{ id: string; name: string }>>([]);
   
 // Modal states
   const [showNewModal, setShowNewModal] = useState(false);
@@ -149,13 +150,11 @@ if (filterAssignee) query = query.eq("assignee_id", filterAssignee);
           }
         }
         
-        // Determine if this is a linked internal ticket (created from parent ticket)
-        const isLinkedToParent = linkedIds.length > 0;
-        
-        // ID format: "int-XXXX" for standalone, "XXXX" for linked
-        const formattedId = isLinkedToParent
-          ? it.internal_ticket_number?.toString().padStart(4, '0') || it.id.slice(0, 8)
-          : `int-${it.internal_ticket_number?.toString().padStart(4, '0') || it.id.slice(0, 8)}`;
+        // Sempre INT-XXXX, vinculado ou não — o número vem da própria
+        // sequência do ticket interno, nunca do chamado (ver
+        // InternalTicketService.saveWithDetails), então não faz sentido
+        // variar o formato dependendo do vínculo.
+        const formattedId = `int-${it.internal_ticket_number?.toString().padStart(4, '0') || it.id.slice(0, 8)}`;
 
         return {
           ...it,
@@ -198,10 +197,11 @@ if (filterAssignee) query = query.eq("assignee_id", filterAssignee);
         .order("name");
       if (error) throw error;
       if (data && data.length > 0) {
-        setTeams(data.map((t: any) => ({ 
-          value: t.name, 
-          label: t.name, 
-          color: "bg-[var(--accent)]/20 text-[var(--accent-text)]" 
+        setTeamsRaw(data.map((t: any) => ({ id: t.id, name: t.name })));
+        setTeams(data.map((t: any) => ({
+          value: t.name,
+          label: t.name,
+          color: "bg-[var(--accent)]/20 text-[var(--accent-text)]"
         })));
       }
     } catch (error) {
@@ -249,6 +249,7 @@ if (filterAssignee) query = query.eq("assignee_id", filterAssignee);
         title: formTitle,
         description: formDescription,
         teamId: formTeam,
+        internalTeamId: teamsRaw.find(t => t.name === formTeam)?.id,
         priority: formPriority,
         assigneeId: formAssignee || undefined,
         creatorId: currentUser.id,
@@ -281,11 +282,15 @@ const openEditModal = (ticket: InternalTicketItem) => {
    
    const handleStatusChange = async (ticketUuid: string, newStatus: string) => {
      try {
+       const previousStatus = tickets.find(t => t.uuid === ticketUuid)?.status || 'Novo';
        const { error } = await supabase
          .from('internal_tickets')
          .update({ status: newStatus, updated_at: new Date().toISOString() })
          .eq('id', ticketUuid);
        if (error) throw error;
+       if (newStatus !== previousStatus) {
+         await InternalTicketService.logEvent(ticketUuid, currentUser?.id, `Status alterado de "${previousStatus}" para "${newStatus}"`);
+       }
        fetchTickets(1);
      } catch (error) {
        console.error('Error updating status:', error);

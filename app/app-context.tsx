@@ -13,7 +13,7 @@ export interface AppNotification {
   sourceId?: string;
   title: string;
   message: string;
-  type: 'ticket_new' | 'ticket_update' | 'ticket_assigned' | 'ticket_closed' | 'chat_new' | 'chat_message';
+  type: 'ticket_new' | 'ticket_update' | 'ticket_assigned' | 'ticket_closed' | 'chat_new' | 'chat_message' | 'internal_ticket_message' | 'internal_ticket_status';
   targetId?: string;
   recipientId: string;
   timestamp: string;
@@ -29,6 +29,8 @@ export interface NotificationSettings {
   ticket_closed: boolean;
   chat_new: boolean;
   chat_message: boolean;
+  internal_ticket_message: boolean;
+  internal_ticket_status: boolean;
   osNotificationsEnabled: boolean;
 }
 
@@ -87,12 +89,15 @@ const DEFAULT_SETTINGS: NotificationSettings = {
   ticket_closed: true,
   chat_new: true,
   chat_message: true,
+  internal_ticket_message: true,
+  internal_ticket_status: true,
   osNotificationsEnabled: true,
 };
 
 function getNotificationTargetHref(notif: Pick<AppNotification, 'type' | 'targetId'>, isCompanyUser: boolean): string | null {
   if (!notif.targetId) return null;
   if (notif.type.startsWith('chat_')) return `${isCompanyUser ? '/my-tickets' : '/dashboard'}?chat=${notif.targetId}`;
+  if (notif.type.startsWith('internal_ticket_')) return `/internal-tickets/${notif.targetId}`;
   return `${isCompanyUser ? '/my-tickets' : '/dashboard'}?ticket=${notif.targetId}`;
 }
 

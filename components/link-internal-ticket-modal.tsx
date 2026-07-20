@@ -11,9 +11,12 @@ interface LinkInternalTicketModalProps {
   isOpen: boolean;
   onClose: () => void;
   onLink: (internalTicketId: string) => void;
+  // Tickets internos já vinculados a este chamado — não faz sentido
+  // oferecer "vincular" de novo algo que já está vinculado.
+  excludeIds?: string[];
 }
 
-export function LinkInternalTicketModal({ isOpen, onClose, onLink }: LinkInternalTicketModalProps) {
+export function LinkInternalTicketModal({ isOpen, onClose, onLink, excludeIds = [] }: LinkInternalTicketModalProps) {
   const [allTickets, setAllTickets] = useState<InternalTicket[]>([]);
   const [teams, setTeams] = useState<Array<{id: string, name: string}>>([]);
   const [search, setSearch] = useState('');
@@ -68,7 +71,7 @@ export function LinkInternalTicketModal({ isOpen, onClose, onLink }: LinkInterna
       if (error) {
         console.error('Error fetching internal tickets:', error.message);
       }
-      setAllTickets((data || []).map((it: any) => ({
+      setAllTickets((data || []).filter((it: any) => !excludeIds.includes(it.id)).map((it: any) => ({
         id: it.id,
         title: it.title,
         teamId: it.team_id,

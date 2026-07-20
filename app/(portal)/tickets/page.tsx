@@ -27,6 +27,7 @@ import {
   X,
   GitMerge,
   Tag,
+  Link2,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { AnimatePresence, motion } from "motion/react";
@@ -124,8 +125,25 @@ function SortableHeader({
   );
 }
 
+// Mesmo vocabulário de cor do Kanban em /internal-tickets — o anel do chip
+// usa a cor do status mais urgente entre os tickets internos vinculados.
+const INTERNAL_STATUS_RANK: Record<string, number> = { 'Em Andamento': 0, 'Novo': 1, 'Em Espera': 2, 'Concluído': 3 };
+const INTERNAL_STATUS_DOT: Record<string, string> = {
+  'Novo': 'bg-[var(--text-info)]',
+  'Em Andamento': 'bg-[var(--text-warning)]',
+  'Em Espera': 'bg-[var(--text-secondary)]',
+  'Concluído': 'bg-[var(--text-success)]',
+};
+
+interface InternalLinkRow {
+  ticket_id: string;
+  internal_ticket_id: string;
+  status: string;
+}
+
 export default function TicketsPage() {
-  const { currentUser, hasPermission } = useApp();
+  const { currentUser, hasPermission, notifications } = useApp();
+  const [internalLinks, setInternalLinks] = useState<InternalLinkRow[]>([]);
   const [filteredTickets, setFilteredTickets] = useState<Ticket[]>([]);
   const [selectedTicket, setSelectedTicket] = useState<Ticket | null>(null);
   const [ticketToDelete, setTicketToDelete] = useState<Ticket | null>(null);
@@ -296,6 +314,33 @@ export default function TicketsPage() {
 
     loadReferenceData();
   }, [currentUser?.id]);
+
+  // Chip de "tickets internos vinculados" na lista — só busca pra quem
+  // efetivamente enxerga a tela de tickets internos.
+  useEffect(() => {
+    if (!currentUser?.id || !hasPermission(Permission.INTERNAL_TICKETS_VIEW)) return;
+    fetch('/api/tickets?action=internal-links')
+      .then(r => r.json())
+      .then(setInternalLinks)
+      .catch(() => {});
+  }, [currentUser?.id, hasPermission]);
+
+  const internalLinksByTicket = useMemo(() => {
+    const map = new Map<string, InternalLinkRow[]>();
+    internalLinks.forEach((l) => {
+      if (!map.has(l.ticket_id)) map.set(l.ticket_id, []);
+      map.get(l.ticket_id)!.push(l);
+    });
+    return map;
+  }, [internalLinks]);
+
+  const getInternalChip = (ticketId: string) => {
+    const items = internalLinksByTicket.get(ticketId);
+    if (!items || items.length === 0) return null;
+    const worst = [...items].sort((a, b) => (INTERNAL_STATUS_RANK[a.status] ?? 1) - (INTERNAL_STATUS_RANK[b.status] ?? 1))[0];
+    const unread = items.some((it) => notifications.some((n) => n.targetId === it.internal_ticket_id && !n.read));
+    return { count: items.length, status: worst.status, unread };
+  };
 
   const handleDeleteTicket = async () => {
     if (!ticketToDelete || isDeletingTicket) return;
@@ -607,30 +652,47 @@ export default function TicketsPage() {
 
   const renderCell = (columnId: string, ticket: Ticket) => {
     switch (columnId) {
-      case "id":
+      case "id": {
         // ID column - checkbox is rendered separately in the row
+        const chip = getInternalChip(ticket.id);
         return (
           <td key="id" className="px-6 py-5">
-            <span className="font-mono text-[10px] font-semibold text-[var(--accent-text)] bg-[var(--accent)]/10 px-2 py-1 rounded">
-              #{ticket.ticketNumber ? String(ticket.ticketNumber).padStart(4, '0') : ticket.id.slice(0, 8)}
-            </span>
+            <div className="flex items-center gap-2">
+              <span className="font-mono text-[10px] font-semibold text-[var(--accent-text)] bg-[var(--accent)]/10 px-2 py-1 rounded">
+                #{ticket.ticketNumber ? String(ticket.ticketNumber).padStart(4, '0') : ticket.id.slice(0, 8)}
+              </span>
+              {chip && (
+                <span
+                  title={`${chip.count} ticket${chip.count > 1 ? 's' : ''} interno${chip.count > 1 ? 's' : ''} · ${chip.status}`}
+                  className="relative inline-flex items-center gap-1 bg-[var(--surface-pill)] border border-[var(--border-default)] rounded-full pl-1.5 pr-2 py-0.5 text-[10px] font-semibold text-[var(--text-secondary)]"
+                >
+                  <Link2 size={10} />
+                  {chip.count}
+                  <span className={cn("w-1.5 h-1.5 rounded-full", INTERNAL_STATUS_DOT[chip.status] || "bg-[var(--text-info)]")} />
+                  {chip.unread && (
+                    <span className="absolute -top-1 -right-1 w-2 h-2 rounded-full bg-[var(--text-danger)]" />
+                  )}
+                </span>
+              )}
+            </div>
           </td>
         );
+      }
       case "title":
         return (
           <td key="title" className="px-6 py-5">
             <div className="flex flex-col">
-              <div className="flex flex-wrap items-center gap-2">
-                <span className="font-bold text-[var(--text-primary)] text-sm italic">
+              <div className="flex items-center gap-2">
+                <span className="font-bold text-[var(--text-primary)] text-[13px] italic whitespace-nowrap">
                   {ticket.title}
                 </span>
                 {ticket.id === "ex-ticket-payment-error" && (
-                  <span className="text-[9px] font-semibold uppercase tracking-tight text-[var(--accent-text)] bg-[var(--accent)]/10 border border-[var(--accent)]/30 px-1.5 py-0.5 rounded shadow-sm animate-pulse select-none">
+                  <span className="text-[9px] font-semibold uppercase tracking-tight text-[var(--accent-text)] bg-[var(--accent)]/10 border border-[var(--accent)]/30 px-1.5 py-0.5 rounded shadow-sm animate-pulse select-none whitespace-nowrap">
                     Chamado Exemplo (Sem Banco)
                   </span>
                 )}
               </div>
-              <span className="text-[10px] text-[var(--text-tertiary)] font-medium">
+              <span className="text-[10px] text-[var(--text-tertiary)] font-medium whitespace-nowrap">
                 {ticket.category}
               </span>
             </div>
@@ -978,6 +1040,18 @@ export default function TicketsPage() {
                         <span className="font-mono text-[10px] font-semibold text-[var(--accent-text)] bg-[var(--accent)]/10 px-2 py-0.5 rounded shrink-0">
                           #{t.ticketNumber ? String(t.ticketNumber).padStart(4, '0') : t.id.slice(0, 8)}
                         </span>
+                        {(() => {
+                          const chip = getInternalChip(t.id);
+                          if (!chip) return null;
+                          return (
+                            <span className="relative inline-flex items-center gap-1 bg-[var(--surface-pill)] border border-[var(--border-default)] rounded-full pl-1.5 pr-2 py-0.5 text-[9px] font-semibold text-[var(--text-secondary)] shrink-0">
+                              <Link2 size={9} />
+                              {chip.count}
+                              <span className={cn("w-1.5 h-1.5 rounded-full", INTERNAL_STATUS_DOT[chip.status] || "bg-[var(--text-info)]")} />
+                              {chip.unread && <span className="absolute -top-1 -right-1 w-2 h-2 rounded-full bg-[var(--text-danger)]" />}
+                            </span>
+                          );
+                        })()}
                         <span
                           className={cn(
                             "px-2.5 py-1 rounded-full text-[9px] font-semibold uppercase tracking-tighter shrink-0",

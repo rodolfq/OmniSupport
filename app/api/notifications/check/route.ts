@@ -15,6 +15,10 @@ function ticketNumberLabel(ticketNumber?: number | string | null, id?: string) {
   return ticketNumber ? `#${String(ticketNumber).padStart(4, '0')}` : `#${String(id || '').slice(0, 8)}`;
 }
 
+function internalTicketLabel(ticketNumber?: number | string | null, id?: string) {
+  return ticketNumber ? `INT-${String(ticketNumber).padStart(4, '0')}` : `INT-${String(id || '').slice(0, 8)}`;
+}
+
 export async function GET(request: NextRequest) {
   try {
     const token = request.cookies.get('token')?.value;
@@ -34,7 +38,7 @@ export async function GET(request: NextRequest) {
       : new Date(Date.now() - 30_000).toISOString();
 
     const userResult = await query(
-      'SELECT id, name, role, company_id, phone, view_all_company_tickets FROM public.profiles WHERE id = $1',
+      'SELECT id, name, role, company_id, phone, view_all_company_tickets, internal_team_ids FROM public.profiles WHERE id = $1',
       [decoded.id]
     );
 
@@ -155,6 +159,45 @@ export async function GET(request: NextRequest) {
           type: 'ticket_new',
           targetId: ticket.id,
           createdAt: ticket.created_at
+        });
+      });
+
+      // Tickets internos são só pra quem atende ou dá suporte (Administrador/
+      // Equipe/Time Interno) — clientes/funcionários nunca enxergam essa
+      // tela, então nem vale a pena consultar pra eles.
+      const internalMessages = await query(
+        `SELECT m.id, m.internal_ticket_id, m.content, m.type AS msg_type, m.created_at,
+                it.internal_ticket_number
+         FROM public.internal_ticket_messages m
+         JOIN public.internal_tickets it ON it.id = m.internal_ticket_id
+         WHERE m.created_at > $1
+           AND (m.author_id IS NULL OR m.author_id <> $2::uuid)
+           AND (
+             it.assignee_id = $2::uuid
+             OR it.creator_id = $2::uuid
+             OR it.internal_team_id = ANY($3::uuid[])
+             OR EXISTS (
+               SELECT 1 FROM public.ticket_internal_links til
+               JOIN public.tickets t ON t.id = til.ticket_id
+               WHERE til.internal_ticket_id = it.id
+                 AND (t.assignee_id = $2::uuid OR t.created_by = $2::uuid OR $2::uuid = ANY(COALESCE(t.employee_ids, '{}'::uuid[])))
+             )
+           )
+         ORDER BY m.created_at ASC
+         LIMIT 50`,
+        [since, user.id, user.internal_team_ids || []]
+      );
+
+      internalMessages.rows.forEach((message) => {
+        const label = internalTicketLabel(message.internal_ticket_number, message.internal_ticket_id);
+        const isStatusEvent = message.msg_type === 'system';
+        events.push({
+          sourceId: `internal_ticket_${isStatusEvent ? 'status' : 'message'}:${message.id}`,
+          title: isStatusEvent ? `Status atualizado em ${label}` : `Nova mensagem em ${label}`,
+          message: message.content,
+          type: isStatusEvent ? 'internal_ticket_status' : 'internal_ticket_message',
+          targetId: message.internal_ticket_id,
+          createdAt: message.created_at
         });
       });
     }

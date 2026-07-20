@@ -2,19 +2,21 @@
 
 import React from 'react';
 import Link from 'next/link';
-import { Bell, Check, Clock, MessageCircle, Ticket } from 'lucide-react';
+import { Bell, Check, Clock, Link2, MessageCircle, Ticket } from 'lucide-react';
 import type { AppNotification } from '@/app/app-context';
 import { cn, stripNotificationHtml } from '@/lib/utils';
 
 function getNotificationIcon(type: string) {
   if (type.startsWith('chat_')) return <MessageCircle size={14} />;
   if (type === 'ticket_closed') return <Check size={14} />;
+  if (type.startsWith('internal_ticket_')) return <Link2 size={14} />;
   return <Ticket size={14} />;
 }
 
 function getNotificationColor(type: string) {
   if (type.startsWith('chat_')) return 'bg-[var(--surface-success)] text-[var(--text-success)]';
   if (type === 'ticket_closed') return 'bg-[var(--surface-success)] text-[var(--text-success)]';
+  if (type.startsWith('internal_ticket_')) return 'bg-[var(--surface-warning)] text-[var(--text-warning)]';
   return 'bg-[var(--accent)]/15 text-[var(--accent-text)]';
 }
 
