@@ -162,9 +162,13 @@ export async function transcribeAudio(dataUrl: string): Promise<string | null> {
 
 // Ponto de integração: transcreve o anexo de áudio de uma mensagem já salva,
 // grava o texto de volta no metadata (mesmo anexo, campo `transcription`) e
-// avisa quem estiver com a conversa aberta agora via SSE. Disparado sob
-// demanda (botão "Transcrever" no player de áudio), não automaticamente —
-// devolve o texto pra rota que chamou poder responder na hora, sem precisar
+// avisa quem estiver com a conversa aberta agora via SSE. Disparado
+// automaticamente logo após qualquer mensagem de áudio ser salva (ver
+// app/api/chats/route.ts ação `push-message` e
+// lib/services/whatsapp-service.ts `processIncomingMessage`) — o botão
+// "Transcrever" no player de áudio (chat-widget.tsx) chama a mesma função
+// como fallback manual, caso a automática não tenha rodado ou tenha falhado.
+// Devolve o texto pra quem chamou poder responder na hora, sem precisar
 // esperar o SSE.
 export async function transcribeMessageAudio(params: {
   messageId: string;

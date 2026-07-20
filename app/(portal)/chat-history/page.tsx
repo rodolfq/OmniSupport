@@ -3,11 +3,13 @@
 import React, { useState, useEffect, useMemo, useRef } from 'react';
 import { StyledSelect } from '@/components/styled-select';
 import { useApp } from '@/app/app-context';
-import { UserRole, Permission } from '@/lib/types';
-import { getChatHistories } from '@/lib/services/chat-service';
+import { UserRole, Permission, ChatMessage, Attachment } from '@/lib/types';
+import { isImageAttachment, isAudioAttachment, isVideoAttachment } from '@/lib/attachment-kind';
+import { getChatHistories, fetchSessionMessages, SessionMessagesResult } from '@/lib/services/chat-service';
 import { fetchUsers, fetchQueues } from '@/lib/services/config-service';
 import { CompanyService } from '@/lib/services/company-service';
 import { parseTranscript } from '@/lib/transcript-format';
+import { ChatAttachmentList } from '@/components/chat-attachment-list';
 import {
   Search, Clock, User, MessageSquare, ThumbsUp, ThumbsDown, Minus, Filter,
   ChevronDown, X, FileText, FileDown, Archive, Ticket as TicketIcon, Building2,
@@ -133,8 +135,11 @@ function buildTxtContent(h: any): string {
 // PDF gerado no navegador (jsPDF), sem depender de nada no servidor — os
 // nomes de quem fala (funcionário do cliente x equipe interna) ficam em
 // negrito/cores diferentes pra facilitar a leitura de quem está por fora da
-// conversa.
-async function buildHistoryPdfBlob(h: any): Promise<Blob> {
+// conversa. Quando `messages` (de fetchSessionMessages) é passado, usa a
+// versão rica — imagem embutida, transcrição de áudio como texto, vídeo/
+// arquivo como link elegante de download. Sem `messages`, cai no texto puro
+// de sempre (h.transcript) — comportamento 100% preservado.
+async function buildHistoryPdfBlob(h: any, messages?: ChatMessage[]): Promise<Blob> {
   const { jsPDF } = await import('jspdf');
   const doc = new jsPDF({ unit: 'pt', format: 'a4' });
   const marginX = 40;
@@ -174,6 +179,111 @@ async function buildHistoryPdfBlob(h: any): Promise<Blob> {
   doc.setDrawColor(210);
   doc.line(marginX, y, pageWidth - marginX, y);
   y += 20;
+
+  if (messages && messages.length > 0) {
+    const addWrappedParagraph = (text: string, color: [number, number, number], italic = false) => {
+      doc.setFont('helvetica', italic ? 'italic' : 'normal');
+      doc.setTextColor(...color);
+      const wrapped = doc.splitTextToSize(text, maxWidth - 12);
+      ensureSpace(wrapped.length);
+      doc.text(wrapped, marginX + 12, y);
+      y += wrapped.length * 13;
+    };
+
+    const addElegantFileBox = (label: string, name: string, size: number | undefined, downloadUrl: string) => {
+      const boxHeight = 46;
+      ensureSpace(Math.ceil(boxHeight / 13) + 1, 13);
+      doc.setDrawColor(220);
+      doc.setFillColor(248, 250, 252);
+      doc.roundedRect(marginX, y, maxWidth, boxHeight, 6, 6, 'FD');
+      doc.setFont('helvetica', 'bold');
+      doc.setFontSize(9);
+      doc.setTextColor(30);
+      doc.text(`${label} · ${name || 'arquivo'}`, marginX + 12, y + 17);
+      doc.setFont('helvetica', 'normal');
+      doc.setFontSize(8);
+      doc.setTextColor(120);
+      doc.text(size ? `${Math.ceil(size / 1024)} KB` : '', marginX + 12, y + 29);
+      doc.setFont('helvetica', 'bold');
+      doc.setFontSize(9);
+      doc.setTextColor(16, 130, 110);
+      doc.textWithLink('Baixar arquivo →', marginX + 12, y + 41, { url: downloadUrl });
+      doc.setFontSize(10);
+      y += boxHeight + 10;
+    };
+
+    const addImageBlock = async (attachment: Attachment): Promise<boolean> => {
+      try {
+        const dims = await new Promise<{ w: number; h: number }>((resolve, reject) => {
+          const img = new window.Image();
+          img.onload = () => resolve({ w: img.naturalWidth, h: img.naturalHeight });
+          img.onerror = () => reject(new Error('Falha ao carregar imagem'));
+          img.src = attachment.url;
+        });
+        if (!dims.w || !dims.h) throw new Error('Dimensões inválidas');
+
+        let drawWidth = Math.min(maxWidth, 260);
+        let drawHeight = drawWidth * (dims.h / dims.w);
+        if (drawHeight > 260) {
+          drawHeight = 260;
+          drawWidth = drawHeight * (dims.w / dims.h);
+        }
+        ensureSpace(Math.ceil(drawHeight / 13) + 2, 13);
+        const format = (attachment.url.match(/^data:image\/(\w+)/)?.[1] || 'JPEG').toUpperCase().replace('JPG', 'JPEG');
+        doc.addImage(attachment.url, format, marginX, y, drawWidth, drawHeight);
+        y += drawHeight + 10;
+        return true;
+      } catch {
+        return false;
+      }
+    };
+
+    const attachmentDownloadUrl = (messageId: string, attachment: Attachment) =>
+      `${window.location.origin}/api/chats/attachment?messageId=${encodeURIComponent(messageId)}&attachmentId=${encodeURIComponent(attachment.id || '')}`;
+
+    const renderAttachment = async (messageId: string, attachment: Attachment) => {
+      if (isImageAttachment(attachment) && (await addImageBlock(attachment))) return;
+
+      if (isAudioAttachment(attachment)) {
+        if (attachment.transcription) {
+          addWrappedParagraph(`"${attachment.transcription}"`, [90, 90, 90], true);
+          y += 4;
+          return;
+        }
+        addElegantFileBox('Áudio', attachment.name, attachment.size, attachmentDownloadUrl(messageId, attachment));
+        return;
+      }
+
+      addElegantFileBox(isVideoAttachment(attachment) ? 'Vídeo' : 'Arquivo', attachment.name, attachment.size, attachmentDownloadUrl(messageId, attachment));
+    };
+
+    doc.setFontSize(10);
+    for (const m of messages as any[]) {
+      const senderName = m.senderName || 'Cliente';
+      const isCustomer = !!h.customerName && senderName.trim().toLowerCase() === String(h.customerName).trim().toLowerCase();
+      const color: [number, number, number] = isCustomer ? [13, 58, 105] : [16, 130, 110];
+      const time = m.timestamp ? new Date(m.timestamp).toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' }) : '';
+
+      ensureSpace(1);
+      doc.setFont('helvetica', 'bold');
+      doc.setTextColor(...color);
+      doc.text(`${time ? '[' + time + '] ' : ''}${senderName}:`, marginX, y);
+      y += 15;
+
+      if (m.text) {
+        addWrappedParagraph(m.text, [40, 40, 40], false);
+        y += 4;
+      }
+
+      const attachments: Attachment[] = m.attachments || m.metadata?.attachments || [];
+      for (const attachment of attachments) {
+        await renderAttachment(m.id, attachment);
+      }
+      y += 6;
+    }
+
+    return doc.output('blob');
+  }
 
   const lines = parseTranscript(h.transcript, h.customerName);
   doc.setFontSize(10);
@@ -241,6 +351,41 @@ function TranscriptView({ transcript, customerName }: { transcript: string; cust
   );
 }
 
+// Versão rica da conversa (imagem/áudio com transcrição/vídeo/arquivo), a
+// partir das mensagens ao vivo de chat_messages — ver useEffect de
+// sessionMessages. TranscriptView (acima) continua sendo o fallback pra
+// histórico sem sessionId ou quando a busca falha.
+function RichHistoryMessages({ messages, customerName }: { messages: ChatMessage[]; customerName?: string }) {
+  const normalizedCustomer = customerName?.trim().toLowerCase();
+
+  return (
+    <div className="space-y-3">
+      {messages.map(m => {
+        const isCustomer = !!normalizedCustomer && (m.senderName || '').trim().toLowerCase() === normalizedCustomer;
+        return (
+          <div key={m.id} className="p-4 bg-[var(--surface-card)] border border-[var(--border-default)] rounded-2xl">
+            <div className="flex items-center justify-between mb-1 gap-3">
+              <span className={cn(
+                "text-[11px] font-black uppercase tracking-tight",
+                isCustomer ? "text-[var(--accent-text)]" : "text-[var(--text-success)]"
+              )}>
+                {m.senderName || 'Cliente'}
+              </span>
+              <span className="text-[10px] text-[var(--text-tertiary)] font-mono shrink-0">
+                {formatDateTime(m.timestamp)}
+              </span>
+            </div>
+            {m.text && (
+              <p className="text-xs text-[var(--text-secondary)] leading-relaxed whitespace-pre-wrap break-words">{m.text}</p>
+            )}
+            <ChatAttachmentList attachments={(m as any).attachments || (m as any).metadata?.attachments || []} />
+          </div>
+        );
+      })}
+    </div>
+  );
+}
+
 function SortableColumnHeader({ id, label }: { id: string; label: string }) {
   const { attributes, listeners, setNodeRef, transform, transition, isDragging } = useSortable({ id });
   const style = {
@@ -285,6 +430,12 @@ export default function ChatHistoryPage() {
   const [queueFilter, setQueueFilter] = useState<string>('all');
   const [selectedHistory, setSelectedHistory] = useState<any | null>(null);
   const [isBulkDownloading, setIsBulkDownloading] = useState(false);
+  // Mensagens "ao vivo" (com anexos e transcrição) da sessão da conversa
+  // selecionada — busca em chat_messages, que nunca é apagado quando a
+  // conversa fecha (ver fetchSessionMessages). Quando não tem sessionId ou a
+  // busca falha, a tela/PDF caem pro texto achatado de sempre (transcript).
+  const [sessionMessages, setSessionMessages] = useState<SessionMessagesResult | null>(null);
+  const [loadingSessionMessages, setLoadingSessionMessages] = useState(false);
 
   const [columnOrder, setColumnOrder] = useState<string[]>(() => loadColumnPrefs().order);
   const [hiddenColumns, setHiddenColumns] = useState<string[]>(() => loadColumnPrefs().hidden);
@@ -311,6 +462,23 @@ export default function ChatHistoryPage() {
   useEffect(() => {
     localStorage.setItem(COLUMN_PREFS_STORAGE_KEY, JSON.stringify({ order: columnOrder, hidden: hiddenColumns }));
   }, [columnOrder, hiddenColumns]);
+
+  useEffect(() => {
+    if (!selectedHistory?.sessionId) {
+      setSessionMessages(null);
+      return;
+    }
+    let cancelled = false;
+    setLoadingSessionMessages(true);
+    fetchSessionMessages(selectedHistory.sessionId)
+      .then(data => { if (!cancelled) setSessionMessages(data); })
+      .catch(err => {
+        console.error('Error loading rich session messages for history:', err);
+        if (!cancelled) setSessionMessages(null);
+      })
+      .finally(() => { if (!cancelled) setLoadingSessionMessages(false); });
+    return () => { cancelled = true; };
+  }, [selectedHistory?.sessionId]);
 
   useEffect(() => {
     if (!isColumnPickerOpen) return;
@@ -406,7 +574,18 @@ export default function ChatHistoryPage() {
 
   const handleDownloadPdf = async (h: any) => {
     try {
-      const blob = await buildHistoryPdfBlob(h);
+      // Reaproveita as mensagens já buscadas pro modal (ver useEffect de
+      // sessionMessages); se o histórico não tiver sessionId ou a busca
+      // ainda não tiver terminado, busca na hora antes de gerar o PDF.
+      let messages = sessionMessages?.messages;
+      if (!messages && h.sessionId) {
+        try {
+          messages = (await fetchSessionMessages(h.sessionId)).messages;
+        } catch {
+          messages = undefined;
+        }
+      }
+      const blob = await buildHistoryPdfBlob(h, messages);
       downloadBlob(`${historyFileBaseName(h)}.pdf`, blob);
     } catch (err) {
       console.error('Error generating PDF:', err);
@@ -744,7 +923,13 @@ export default function ChatHistoryPage() {
               </div>
 
               <div className="flex-1 overflow-y-auto p-8 bg-[var(--surface-card)]/30">
-                <TranscriptView transcript={selectedHistory.transcript} customerName={selectedHistory.customerName} />
+                {loadingSessionMessages ? (
+                  <p className="text-xs text-[var(--text-tertiary)] font-medium">Carregando conversa...</p>
+                ) : sessionMessages && sessionMessages.messages.length > 0 ? (
+                  <RichHistoryMessages messages={sessionMessages.messages} customerName={selectedHistory.customerName} />
+                ) : (
+                  <TranscriptView transcript={selectedHistory.transcript} customerName={selectedHistory.customerName} />
+                )}
               </div>
 
               <div className="p-6 border-t border-[var(--border-default)] flex items-center gap-3 shrink-0">

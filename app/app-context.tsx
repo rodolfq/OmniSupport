@@ -58,6 +58,7 @@ interface AppContextType {
   clearNotifications: () => void;
   pruneStaleChatNotifications: (validSessionIds: string[]) => void;
   playSound: (type: 'system' | 'chat') => void;
+  suppressTicketAssignedNotification: (ticketId: string) => void;
   notificationSettings: NotificationSettings;
   updateNotificationSettings: (settings: Partial<NotificationSettings>) => void;
   osNotificationPermission: NotificationPermission | 'unsupported';
@@ -135,6 +136,11 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
   const [notifications, setNotifications] = useState<AppNotification[]>([]);
   const lastCheckTimeRef = useRef<string>(new Date().toISOString());
   const notificationSourceIdsRef = useRef<Set<string>>(new Set());
+  // Chamados que o próprio usuário acabou de se auto-atribuir (botão
+  // "Assumir" ou selecionar a si mesmo no responsável): suprime o toast de
+  // "Chamado atribuído" gerado pelo polling pra essa mudança específica, sem
+  // afetar a notificação legítima de quando OUTRA pessoa te atribui.
+  const suppressedAssignedTicketIdsRef = useRef<Set<string>>(new Set());
 
   const [whatsappStatus, setWhatsappStatus] = useState<'connected' | 'disconnected' | 'connecting' | 'error'>('disconnected');
   const [dbStatus, setDbStatus] = useState<'connected' | 'disconnected' | 'error'>('disconnected');
@@ -243,6 +249,14 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     }
   }, []);
 
+  // Janela maior que o intervalo de polling (10s, ver useEffect mais abaixo)
+  // pra garantir que a mudança seja detectada e suprimida antes de expirar.
+  const SUPPRESS_ASSIGNED_WINDOW_MS = 15000;
+  const suppressTicketAssignedNotification = React.useCallback((ticketId: string) => {
+    suppressedAssignedTicketIdsRef.current.add(ticketId);
+    setTimeout(() => suppressedAssignedTicketIdsRef.current.delete(ticketId), SUPPRESS_ASSIGNED_WINDOW_MS);
+  }, []);
+
   const addNotification = React.useCallback((notif: Omit<AppNotification, 'id' | 'timestamp' | 'read' | 'recipientId'>, recipientId: string) => {
     if (notif.sourceId && notificationSourceIdsRef.current.has(`${recipientId}:${notif.sourceId}`)) {
       return;
@@ -260,6 +274,17 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       chatOpenRef.current &&
       typeof document !== 'undefined' &&
       document.visibilityState === 'visible'
+    ) {
+      return;
+    }
+
+    // Não notifica o próprio usuário sobre um auto-atribuição que ele
+    // acabou de fazer (ver suppressTicketAssignedNotification) — quem
+    // atribuiu o chamado a outra pessoa continua sendo avisado normalmente.
+    if (
+      notif.type === 'ticket_assigned' &&
+      notif.targetId &&
+      suppressedAssignedTicketIdsRef.current.has(notif.targetId)
     ) {
       return;
     }
@@ -709,6 +734,7 @@ return (
       clearNotifications,
       pruneStaleChatNotifications,
       playSound,
+      suppressTicketAssignedNotification,
       notificationSettings,
       updateNotificationSettings,
       osNotificationPermission,

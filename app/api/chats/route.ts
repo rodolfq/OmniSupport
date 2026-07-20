@@ -540,6 +540,18 @@ export async function POST(request: Request) {
         }
       });
 
+      // Transcrição automática: dispara pra qualquer anexo de áudio, enviado
+      // por quem for (agente ou cliente, via widget) — não espera clique no
+      // botão "Transcrever" (que continua existindo como fallback/retry).
+      if (isTranscriptionEnabled()) {
+        const audioAttachments: Attachment[] = (metadata.attachments || []).filter((a: Attachment) => isAudioAttachment(a));
+        audioAttachments.forEach((attachment: Attachment) => {
+          transcribeMessageAudio({ messageId: message.id, sessionId: targetSessionId, attachment }).catch(err => {
+            console.error('[transcription] Falha ao transcrever áudio automaticamente:', err);
+          });
+        });
+      }
+
       (async () => {
         try {
           const senderRoleRes = message.senderId

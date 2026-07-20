@@ -12,6 +12,7 @@ import { notifyUser } from './push-service';
 import { getChatRecipientIds } from './notification-recipients';
 import { runExclusive } from '../key-mutex';
 import { resolveQueueForInstance, pickNextQueueAssignee } from './queue-routing';
+import { transcribeMessageAudio, isAudioAttachment, isTranscriptionEnabled } from './transcription-service';
 
 const log = pino({ level: (process.env.WHATSAPP_LOG_LEVEL as any) || 'warn' });
 
@@ -900,6 +901,15 @@ export class WhatsAppService {
             tag: `chat_message:${savedMessage.id}`
           }))))
           .catch(err => console.error(`[WhatsApp:${instanceId}] Falha ao notificar mensagem via push:`, err));
+
+        // Transcrição automática de áudio recebido pelo WhatsApp — mesmo
+        // gatilho fire-and-forget usado em app/api/chats/route.ts pro áudio
+        // enviado pelo widget, pra cobrir os dois lados (enviado/recebido).
+        if (mediaData && isTranscriptionEnabled() && isAudioAttachment(mediaData)) {
+          transcribeMessageAudio({ messageId: savedMessage.id, sessionId: session.id, attachment: mediaData }).catch(err => {
+            console.error(`[WhatsApp:${instanceId}] Falha ao transcrever áudio automaticamente:`, err);
+          });
+        }
       }
     } catch (e) {
       console.error('[WhatsApp:Incoming] Error inserting message in Postgres:', e);

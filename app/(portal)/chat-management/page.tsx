@@ -8,8 +8,10 @@ import {
   User,
   UserRole,
   Company,
-  QuickNote
+  QuickNote,
+  Attachment
 } from '@/lib/types';
+import { isAudioAttachment } from '@/lib/attachment-kind';
 import {
   MessageSquare,
   Users,
@@ -373,7 +375,12 @@ const handleDeleteNote = async () => {
       // conversa busca ao vivo em chat_messages pela sessão vinculada.
       const formattedChatLog = session.messages?.map(m => {
         const time = new Date(m.timestamp).toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' });
-        return `[${time}] ${m.senderName}: ${m.text}`;
+        // Mesmo tratamento de components/chat-widget.tsx: usa a transcrição
+        // do áudio se ela já estiver pronta nesse instante.
+        const attachments: Attachment[] = (m as any).attachments || (m as any).metadata?.attachments || [];
+        const transcribedAudio = attachments.find(a => isAudioAttachment(a) && a.transcription);
+        const text = transcribedAudio ? `[Áudio] "${transcribedAudio.transcription}"` : m.text;
+        return `[${time}] ${m.senderName}: ${text}`;
       }).join('\n') || '';
       const chatHistoryText = `===== HISTÓRICO DO CHAT =====\n${formattedChatLog}\n===== FIM DO HISTÓRICO =====\n\nChat finalizado em: ${new Date().toLocaleString('pt-BR')}`;
 

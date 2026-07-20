@@ -56,6 +56,7 @@ import { LinkContactModal } from '@/components/link-contact-modal';
 import { ClientTime } from '@/components/client-time';
 import { AssignChatMenu } from '@/components/assign-chat-menu';
 import { AudioPlayer } from '@/components/audio-player';
+import { isImageAttachment, isAudioAttachment, isVideoAttachment } from '@/lib/attachment-kind';
 import { useIsMobile } from '@/hooks/use-mobile';
 import { toast } from 'sonner';
 
@@ -83,14 +84,6 @@ function renderLinkedText(text: string, isOwnMessage: boolean) {
       </a>
     );
   });
-}
-
-function isImageAttachment(attachment: Attachment): boolean {
-  return attachment.type?.startsWith('image/') || /\.(png|jpe?g|gif|webp|bmp|svg)$/i.test(attachment.name || attachment.url || '');
-}
-
-function isAudioAttachment(attachment: Attachment): boolean {
-  return attachment.type?.startsWith('audio/') || /\.(webm|ogg|opus|mp3|m4a|wav|aac)$/i.test(attachment.name || attachment.url || '');
 }
 
 function fileToDataUrl(file: Blob): Promise<string> {
@@ -991,7 +984,15 @@ useEffect(() => {
       // vinculada, evitando duplicar o dado (e ele ficar desatualizado).
       const formattedChatLog = selectedChat.messages?.map(m => {
         const time = new Date(m.timestamp).toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' });
-        return `[${time}] ${m.senderName}: ${m.text}`;
+        // Se o áudio já tiver transcrição nesse instante, usa o texto
+        // transcrito em vez do placeholder "[Áudio]" cru — melhora o caso
+        // comum, mas não é garantia: a versão "ao vivo" (Histórico de
+        // Conversas, busca em chat_messages) sempre reflete a transcrição
+        // mais atual, mesmo que ela termine depois deste snapshot.
+        const attachments: Attachment[] = (m as any).attachments || (m as any).metadata?.attachments || [];
+        const transcribedAudio = attachments.find(a => isAudioAttachment(a) && a.transcription);
+        const text = transcribedAudio ? `[Áudio] "${transcribedAudio.transcription}"` : m.text;
+        return `[${time}] ${m.senderName}: ${text}`;
       }).join('\n') || '';
       const chatHistoryText = `===== HISTÓRICO DO CHAT =====\n${formattedChatLog}\n===== FIM DO HISTÓRICO =====\n\n${closeChat ? `Chat finalizado em: ${new Date().toLocaleString('pt-BR')}` : `Chamado gerado em: ${new Date().toLocaleString('pt-BR')} (atendimento continua em aberto)`}`;
 
@@ -1788,6 +1789,18 @@ useEffect(() => {
                                           )
                                         )}
                                       </div>
+                                    );
+                                  }
+
+                                  if (isVideoAttachment(attachment)) {
+                                    return (
+                                      <video
+                                        key={attachmentKey}
+                                        src={attachment.url}
+                                        controls
+                                        preload="metadata"
+                                        className="max-h-64 w-full rounded-xl bg-black"
+                                      />
                                     );
                                   }
 

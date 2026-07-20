@@ -2,7 +2,7 @@
 
 import React, { useState, useEffect, useRef } from 'react';
 import { StyledSelect } from '@/components/styled-select';
-import { X, User, MessageCircle, Clock, Link2, Paperclip, Save, Maximize2, Minimize2, Send, Lock, History, Download, File, Image as ImageIcon, Film } from 'lucide-react';
+import { X, User, MessageCircle, Clock, Link2, Paperclip, Save, Maximize2, Minimize2, Send, Lock, History, Download, File, Image as ImageIcon, Film, Loader2, Check } from 'lucide-react';
 import { motion } from 'motion/react';
 import { Ticket, TicketStatus, User as UserType, Message, UserRole, StatusConfig, Company, Attachment, PriorityConfig, CategoryConfig, InternalTicket, Permission } from '@/lib/types';
 import { supabase } from '@/lib/supabase';
@@ -13,6 +13,7 @@ import { toast } from 'sonner';
 import { RichEditor } from './rich-editor';
 import { AttachmentGallery, AttachmentPreviewModal, isImageAttachment, openAttachmentInNewTab } from './attachment-gallery';
 import { LinkInternalTicketModal } from './link-internal-ticket-modal';
+import { ChatAttachmentList } from './chat-attachment-list';
 import { ClientTime } from './client-time';
 import { TicketService, MessageService, InternalTicketService } from '@/lib/services/ticket-service';
 import { fetchSessionMessages, SessionMessagesResult } from '@/lib/services/chat-service';
@@ -28,7 +29,7 @@ interface TicketDetailModalProps {
 
 export function TicketDetailModal({ ticket, onClose }: TicketDetailModalProps) {
   const scrollRef = useRef<HTMLDivElement>(null);
-  const { currentUser, hasPermission, triggerRefresh } = useApp();
+  const { currentUser, hasPermission, triggerRefresh, suppressTicketAssignedNotification } = useApp();
   const isCustomer = currentUser?.role === UserRole.CUSTOMER;
   
   // States
@@ -81,6 +82,16 @@ export function TicketDetailModal({ ticket, onClose }: TicketDetailModalProps) {
   const [companies, setCompanies] = useState<any[]>([]);
   const [internalTeams, setInternalTeams] = useState<Array<{id: string, name: string}>>([]);
 
+  // Autosave do chamado principal: edições de campo (status, prioridade,
+  // categoria, responsável, empresa, contato, colaboradores, tags) são
+  // agrupadas por DEBOUNCE_MS antes de gravar, em vez de uma gravação (e uma
+  // mensagem automática de WhatsApp pro cliente) por campo alterado.
+  const [saveStatus, setSaveStatus] = useState<'idle' | 'saving' | 'saved' | 'error'>('idle');
+  const pendingOverridesRef = useRef<Partial<Ticket>>({});
+  const saveTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const savedBadgeTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const DEBOUNCE_MS = 1200;
+
   // Internal Ticket States
   const [internalTicket, setInternalTicket] = useState<InternalTicket | null>(null);
   const [itTitle, setItTitle] = useState('');
@@ -92,9 +103,18 @@ export function TicketDetailModal({ ticket, onClose }: TicketDetailModalProps) {
   const [itSla, setItSla] = useState('');
   const [showLinkModal, setShowLinkModal] = useState(false);
 
+  // Evita vazar os timers do autosave se o componente desmontar com uma
+  // gravação agendada ainda não disparada.
+  useEffect(() => {
+    return () => {
+      if (saveTimerRef.current) clearTimeout(saveTimerRef.current);
+      if (savedBadgeTimerRef.current) clearTimeout(savedBadgeTimerRef.current);
+    };
+  }, []);
+
   useEffect(() => {
     if (!ticket) return;
-    
+
     async function fetchConfigs() {
       const { data: profiles } = await supabase.from('profiles').select('*, internal_team_ids');
       const { data: statusList } = await supabase.from('config_statuses').select('*');
@@ -383,39 +403,39 @@ const handleSendMessage = async (isInternal: boolean) => {
       }
     };
 
-  const handleUpdateMainTicket = async (overrides: Partial<Ticket> = {}) => {
+  const flashSaved = () => {
+    setSaveStatus('saved');
+    if (savedBadgeTimerRef.current) clearTimeout(savedBadgeTimerRef.current);
+    savedBadgeTimerRef.current = setTimeout(() => setSaveStatus('idle'), 2500);
+  };
+
+  // Grava de fato no banco, usando os overrides acumulados em pendingOverridesRef
+  // (mesclados com qualquer override passado na hora, para chamadas explícitas
+  // que precisam garantir um valor específico mesmo que o debounce não tenha
+  // capturado o evento ainda).
+  const commitTicketSave = async (overrides: Partial<Ticket> = {}) => {
     if (!ticket) return;
+
+    const merged = { ...pendingOverridesRef.current, ...overrides };
+    pendingOverridesRef.current = {};
+    if (saveTimerRef.current) {
+      clearTimeout(saveTimerRef.current);
+      saveTimerRef.current = null;
+    }
 
     // Use values from overrides if provided, otherwise fallback to local state
     // We prioritize overrides to handle immediate updates from onChange events
-    const statusToSave = overrides.status || ticketStatus;
-    const priorityToSave = overrides.priority || mainPriority;
-    const categoryToSave = overrides.category || mainTeam;
-    const assigneeToSave = 'assigneeId' in overrides ? overrides.assigneeId : assigneeId;
-    const companyToSave = overrides.companyId || companyId;
-    const customerToSave = overrides.customerId || customerId;
-    const employeesToSave = overrides.employeeIds || employeeIds;
-    const descriptionToSave = overrides.description !== undefined ? overrides.description : ticketDescription;
+    const statusToSave = merged.status || ticketStatus;
+    const priorityToSave = merged.priority || mainPriority;
+    const categoryToSave = merged.category || mainTeam;
+    const assigneeToSave = 'assigneeId' in merged ? merged.assigneeId : assigneeId;
+    const companyToSave = merged.companyId || companyId;
+    const customerToSave = merged.customerId || customerId;
+    const employeesToSave = merged.employeeIds || employeeIds;
+    const descriptionToSave = merged.description !== undefined ? merged.description : ticketDescription;
 
-    // Detect changes for history
-    const changes: string[] = [];
-    if (ticket.status !== statusToSave) changes.push(`Status: ${ticket.status} âž” ${statusToSave}`);
-    if (ticket.priority !== priorityToSave) changes.push(`Prioridade: ${ticket.priority} âž” ${priorityToSave}`);
-    if (ticket.category !== categoryToSave) changes.push(`Categoria: ${ticket.category} âž” ${categoryToSave}`);
-    
-    const oldAssigneeId = ticket.assigneeId === '' ? undefined : ticket.assigneeId;
-    const newAssigneeId = assigneeToSave === '' ? undefined : assigneeToSave;
-    
-    if (oldAssigneeId !== newAssigneeId) {
-      const oldAnalyst = allUsers.find(u => u.id === oldAssigneeId)?.name || 'Ninguém';
-      const newAnalyst = allUsers.find(u => u.id === newAssigneeId)?.name || 'Ninguém';
-      changes.push(`Responsável: ${oldAnalyst} → ${newAnalyst}`);
-    }
-    
-    if (ticket.description !== descriptionToSave) changes.push('Descrição alterada');
-
-    const updated: Ticket = { 
-      ...ticket, 
+    const updated: Ticket = {
+      ...ticket,
       category: categoryToSave as string,
       priority: priorityToSave as any,
       assigneeId: assigneeToSave || undefined,
@@ -425,18 +445,41 @@ const handleSendMessage = async (isInternal: boolean) => {
       status: statusToSave as any,
       description: descriptionToSave,
       tags: mainTags,
-      updatedAt: new Date().toISOString() 
+      updatedAt: new Date().toISOString()
     };
 
-    const historyEntry = changes.length > 0 ? {
-      action: 'update',
-      description: changes.join(', '),
-      author: currentUser?.name || 'Sistema'
-    } : undefined;
+    setSaveStatus('saving');
+    try {
+      await TicketService.update(updated);
+      triggerRefresh();
+      flashSaved();
+    } catch (err) {
+      console.error('Erro ao salvar chamado:', err);
+      setSaveStatus('error');
+      toast.error('Erro ao salvar chamado. Tente novamente.');
+    }
+  };
 
-    await TicketService.update(updated);
-    triggerRefresh();
-    toast.success('Ticket atualizado');
+  // Edições "silenciosas" (troca de campo em selects/botões): acumula e
+  // espera DEBOUNCE_MS de inatividade antes de gravar, pra várias trocas em
+  // sequência (ex.: categoria, depois responsável, depois prioridade) virarem
+  // uma gravação só — e um evento de automação só, não um por campo.
+  const scheduleTicketSave = (overrides: Partial<Ticket>) => {
+    pendingOverridesRef.current = { ...pendingOverridesRef.current, ...overrides };
+    setSaveStatus('saving');
+    if (saveTimerRef.current) clearTimeout(saveTimerRef.current);
+    saveTimerRef.current = setTimeout(() => { commitTicketSave(); }, DEBOUNCE_MS);
+  };
+
+  // Ações explícitas (botão Salvar, Assumir, Finalizar, fechar com edição
+  // pendente): grava imediatamente, incorporando qualquer alteração ainda
+  // não commitada pelo debounce.
+  const flushTicketSave = (overrides: Partial<Ticket> = {}) => {
+    if (saveTimerRef.current) {
+      clearTimeout(saveTimerRef.current);
+      saveTimerRef.current = null;
+    }
+    return commitTicketSave(overrides);
   };
 
   const saveMainTicketDescription = async () => {
@@ -445,11 +488,18 @@ const handleSendMessage = async (isInternal: boolean) => {
       return;
     }
 
-    const updated: Ticket = { ...ticket, description: ticketDescription, updatedAt: new Date().toISOString() };
-    await TicketService.update(updated);
-    triggerRefresh();
-    setIsEditingDescription(false);
-    toast.success('Descrição atualizada');
+    setSaveStatus('saving');
+    try {
+      const updated: Ticket = { ...ticket, description: ticketDescription, updatedAt: new Date().toISOString() };
+      await TicketService.update(updated);
+      triggerRefresh();
+      setIsEditingDescription(false);
+      flashSaved();
+    } catch (err) {
+      console.error('Erro ao salvar descrição:', err);
+      setSaveStatus('error');
+      toast.error('Erro ao salvar descrição. Tente novamente.');
+    }
   };
 
   const itCreator = internalTicket ? allUsers.find(u => u.id === internalTicket.creatorId) : null;
@@ -459,9 +509,10 @@ const handleSendMessage = async (isInternal: boolean) => {
     const nextStatus = ticket.status === TicketStatus.NEW ? TicketStatus.IN_PROGRESS : ticket.status;
     setAssigneeId(currentUser.id);
     setTicketStatus(nextStatus);
-    handleUpdateMainTicket({ 
+    suppressTicketAssignedNotification(ticket.id);
+    flushTicketSave({
       assigneeId: currentUser.id,
-      status: nextStatus 
+      status: nextStatus
     });
   };
 
@@ -469,10 +520,19 @@ const handleSendMessage = async (isInternal: boolean) => {
     if (!ticket || !currentUser) return;
     const closedStatus = getDefaultClosedTicketStatus(statuses.map(s => s.label));
     setTicketStatus(closedStatus as any);
-    handleUpdateMainTicket({ 
-      status: closedStatus as any, 
-      completedAt: new Date().toISOString() 
+    await flushTicketSave({
+      status: closedStatus as any,
+      completedAt: new Date().toISOString()
     });
+    onClose();
+  };
+
+  // Se houver uma edição agendada pelo debounce ainda não gravada, garante
+  // que ela seja enviada antes de fechar o modal (em vez de perdê-la).
+  const handleRequestClose = () => {
+    if (saveTimerRef.current || Object.keys(pendingOverridesRef.current).length > 0) {
+      flushTicketSave();
+    }
     onClose();
   };
 
@@ -483,7 +543,7 @@ const handleSendMessage = async (isInternal: boolean) => {
         initial={{ opacity: 0 }}
         animate={{ opacity: 1 }}
         exit={{ opacity: 0 }}
-        onClick={onClose}
+        onClick={handleRequestClose}
         className="absolute inset-0 bg-slate-900/40 backdrop-blur-sm"
       />
       <motion.div
@@ -553,19 +613,29 @@ const handleSendMessage = async (isInternal: boolean) => {
                       </button>
                     )}
                     <button
-                      onClick={() => handleUpdateMainTicket()}
+                      onClick={() => flushTicketSave()}
                       className="flex items-center gap-2 px-4 py-2 bg-[var(--accent)] hover:bg-[var(--accent-hover)] text-white rounded-xl text-xs font-black uppercase tracking-widest shadow-lg shadow-indigo-100 transition-all"
                     >
                       <Save size={16} />
                       Salvar
                     </button>
+                    {saveStatus === 'saving' && (
+                      <span className="flex items-center gap-1.5 text-[10px] font-bold text-[var(--text-tertiary)]">
+                        <Loader2 size={12} className="animate-spin" /> Salvando...
+                      </span>
+                    )}
+                    {saveStatus === 'saved' && (
+                      <span className="flex items-center gap-1.5 text-[10px] font-bold text-[var(--text-success)] animate-in fade-in">
+                        <Check size={12} /> Salvo
+                      </span>
+                    )}
                   </div>
                 )}
                 <div className="flex items-center gap-1">
                   <button onClick={() => setIsFocused(!isFocused)} className="p-2 hover:bg-[var(--border-default)] rounded-xl transition-all text-[var(--text-tertiary)]">
                     {isFocused ? <Minimize2 size={18} /> : <Maximize2 size={18} />}
                   </button>
-                  <button onClick={onClose} className="p-2 hover:bg-[var(--surface-danger)] rounded-xl transition-all text-[var(--text-tertiary)] hover:text-[var(--text-danger)]">
+                  <button onClick={handleRequestClose} className="p-2 hover:bg-[var(--surface-danger)] rounded-xl transition-all text-[var(--text-tertiary)] hover:text-[var(--text-danger)]">
                     <X size={18} />
                   </button>
                 </div>
@@ -582,7 +652,7 @@ const handleSendMessage = async (isInternal: boolean) => {
                         key={s.id}
                         onClick={() => {
                           setTicketStatus(s.label as any);
-                          handleUpdateMainTicket({ status: s.label as any });
+                          scheduleTicketSave({ status: s.label as any });
                         }}
                         className={cn(
                           "px-3 py-1 text-[10px] font-semibold uppercase rounded-md transition-all whitespace-nowrap",
@@ -621,7 +691,7 @@ const handleSendMessage = async (isInternal: boolean) => {
                             onChange={(e) => {
                               const val = e.target.value;
                               setMainTeam(val);
-                              handleUpdateMainTicket({ category: val });
+                              scheduleTicketSave({ category: val });
                             }}
                             className="text-sm font-bold text-[var(--text-secondary)] bg-transparent border-none outline-none focus:ring-2 focus:ring-[var(--accent)]/10 rounded px-1 -ml-1 cursor-pointer hover:bg-[var(--surface-card)] transition-all"
                           >
@@ -638,7 +708,8 @@ const handleSendMessage = async (isInternal: boolean) => {
                                onChange={(e) => {
                                  const val = e.target.value;
                                  setAssigneeId(val);
-                                 handleUpdateMainTicket({ assigneeId: val });
+                                 if (val && val === currentUser?.id) suppressTicketAssignedNotification(ticket.id);
+                                 scheduleTicketSave({ assigneeId: val });
                                }}
                                className="text-sm font-bold text-[var(--text-secondary)] bg-transparent border-none outline-none focus:ring-2 focus:ring-[var(--accent)]/10 rounded px-1 -ml-1 cursor-pointer hover:bg-[var(--surface-card)] transition-all"
                              >
@@ -692,7 +763,7 @@ const handleSendMessage = async (isInternal: boolean) => {
                                     if (nextLabel === mainPriority) return;
 
                                     setMainPriority(nextLabel);
-                                    handleUpdateMainTicket({ priority: nextLabel as any });
+                                    scheduleTicketSave({ priority: nextLabel as any });
                                   }}
                                   className="hover:scale-110 transition-all focus:outline-none"
                                 >
@@ -725,7 +796,7 @@ const handleSendMessage = async (isInternal: boolean) => {
                                  newCustomerId = '';
                                  setCustomerId('');
                                }
-                               handleUpdateMainTicket({ companyId: val, customerId: newCustomerId });
+                               scheduleTicketSave({ companyId: val, customerId: newCustomerId });
                              }}
                              className="text-sm font-bold text-[var(--text-secondary)] bg-transparent border-none outline-none focus:ring-2 focus:ring-[var(--accent)]/10 rounded px-1 -ml-1 cursor-pointer hover:bg-[var(--surface-card)] transition-all"
                           >
@@ -740,7 +811,7 @@ const handleSendMessage = async (isInternal: boolean) => {
                               onChange={(e) => {
                                const val = e.target.value;
                                setCustomerId(val);
-                               handleUpdateMainTicket({ customerId: val });
+                               scheduleTicketSave({ customerId: val });
                              }}
                              className="text-sm font-bold text-[var(--text-secondary)] bg-transparent border-none outline-none focus:ring-2 focus:ring-[var(--accent)]/10 rounded px-1 -ml-1 cursor-pointer hover:bg-[var(--surface-card)] transition-all"
                           >
@@ -767,7 +838,7 @@ const handleSendMessage = async (isInternal: boolean) => {
                                            onClick={() => {
                                               const next = employeeIds.filter(id => id !== empId);
                                               setEmployeeIds(next);
-                                              setTimeout(() => handleUpdateMainTicket(), 0);
+                                              scheduleTicketSave({ employeeIds: next });
                                            }}
                                            className="hover:text-[var(--text-danger)]"
                                          >
@@ -783,7 +854,7 @@ const handleSendMessage = async (isInternal: boolean) => {
                                    if (!employeeIds.includes(e.target.value)) {
                                       const next = [...employeeIds, e.target.value];
                                       setEmployeeIds(next);
-                                      setTimeout(() => handleUpdateMainTicket(), 0);
+                                      scheduleTicketSave({ employeeIds: next });
                                    }
                                    e.target.value = "";
                                 }}
@@ -801,7 +872,7 @@ const handleSendMessage = async (isInternal: boolean) => {
 <input 
                               value={mainTags.join(', ')}
                               onChange={(e) => setMainTags(e.target.value.split(',').map(s => s.trim()).filter(s => !!s))}
-                              onBlur={() => handleUpdateMainTicket()}
+                              onBlur={() => scheduleTicketSave({})}
                               placeholder="tags..."
                               className="text-sm font-bold text-[var(--text-secondary)] bg-transparent border-none outline-none focus:ring-2 focus:ring-[var(--accent)]/10 rounded px-1 -ml-1 flex-1 hover:bg-[var(--surface-card)] transition-all"
                            />
@@ -945,11 +1016,7 @@ const handleSendMessage = async (isInternal: boolean) => {
                                     </span>
                                   </div>
                                   <p className="text-sm text-[var(--text-secondary)] leading-relaxed whitespace-pre-wrap break-words">{m.text}</p>
-                                  {m.attachments && m.attachments.length > 0 && (
-                                    <p className="mt-2 text-[10px] font-semibold uppercase text-[var(--text-tertiary)]">
-                                      {m.attachments.length} anexo(s)
-                                    </p>
-                                  )}
+                                  <ChatAttachmentList attachments={m.attachments || []} />
                                 </div>
                               ))}
                             </div>
