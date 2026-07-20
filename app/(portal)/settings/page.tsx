@@ -2,7 +2,7 @@
 
 import React, { useState, useEffect } from 'react';
 import {
-  Shield, User, Lock, Save, Plus, Key, Globe, Edit2, Bell, Database, Loader2, Clock, Users, MessageCircleMore
+  Shield, User, Lock, Save, Plus, Key, Globe, Edit2, Bell, Database, Loader2, Clock, Users, MessageCircleMore, Plug
 } from 'lucide-react';
 import { cn, maskPhone, safeJsonStringify } from '@/lib/utils';
 import { supabase } from '@/lib/supabase';
@@ -20,8 +20,9 @@ import { toast } from 'sonner';
 import { getWhatsappInstances, saveWhatsappInstance } from '@/app/actions';
 import { InternalTeamsContent } from '@/components/internal-teams-content';
 import { ConfirmDialog } from '@/components/confirm-dialog';
+import { IntegrationsContent } from '@/components/integrations-content';
 
-type Tab = 'profile' | 'security' | 'whatsapp' | 'notifications' | 'system' | 'history' | 'teams' | 'automated-messages';
+type Tab = 'profile' | 'security' | 'whatsapp' | 'notifications' | 'system' | 'history' | 'teams' | 'automated-messages' | 'integrations';
 
 
 export default function SettingsPage() {
@@ -269,6 +270,9 @@ export default function SettingsPage() {
            {hasPermission(Permission.SETTINGS_SYSTEM) && (
              <SettingsNavLink icon={<MessageCircleMore size={18} />} label="Mensagens Automáticas" active={activeTab === 'automated-messages'} onClick={() => setActiveTab('automated-messages')} />
            )}
+           {hasPermission(Permission.SETTINGS_SYSTEM) && (
+             <SettingsNavLink icon={<Plug size={18} />} label="Integrações" active={activeTab === 'integrations'} onClick={() => setActiveTab('integrations')} />
+           )}
         </aside>
 
         <div className="md:col-span-9 lg:col-span-10 space-y-6">
@@ -293,6 +297,9 @@ export default function SettingsPage() {
              <div className="animate-in fade-in slide-in-from-bottom-4 duration-300">
                 <AutomatedMessagesContent />
              </div>
+           )}
+           {activeTab === 'integrations' && hasPermission(Permission.SETTINGS_SYSTEM) && (
+             <IntegrationsContent />
            )}
            {activeTab === 'teams' && currentUser?.role === UserRole.ADMIN && (
              <div className="animate-in fade-in slide-in-from-bottom-4 duration-300">
