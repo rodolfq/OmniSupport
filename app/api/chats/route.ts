@@ -178,20 +178,31 @@ export async function GET(request: NextRequest) {
     }
 
     if (action === 'histories') {
+      // "Cliente" = a empresa contratante (companies.name, via profiles.company_id
+      // do usuário que conversou) — não confundir com "Funcionário", que é a
+      // PESSOA do lado do cliente que efetivamente conversou (customer_name),
+      // nem com "Equipe", que é quem da equipe interna atendeu (assignee_name).
       const res = await query(
-        `SELECT h.*, p1.name as customer_profile_name, p2.name as assignee_profile_name 
+        `SELECT h.*, p1.name as customer_profile_name, p1.company_id as customer_company_id,
+                co.name as company_name, p2.name as assignee_profile_name,
+                s.ticket_id, s.ticket_number, s.queue_id, q.name as queue_name
          FROM public.chat_histories h
          LEFT JOIN public.profiles p1 ON h.customer_id = p1.id
+         LEFT JOIN public.companies co ON co.id = p1.company_id
          LEFT JOIN public.profiles p2 ON h.assignee_id = p2.id
+         LEFT JOIN public.chat_sessions s ON s.id = h.session_id
+         LEFT JOIN public.queues q ON q.id = s.queue_id
          ORDER BY h.finished_at DESC`
       );
-      
+
       return NextResponse.json(res.rows.map(h => ({
         id: h.id,
         sessionId: h.session_id,
         customerId: h.customer_id,
         customerName: h.customer_name || h.customer_profile_name,
         customerPhone: h.customer_phone,
+        companyId: h.customer_company_id,
+        companyName: h.company_name,
         assigneeId: h.assignee_id,
         assigneeName: h.assignee_profile_name,
         startedAt: h.started_at,
@@ -199,7 +210,11 @@ export async function GET(request: NextRequest) {
         durationSeconds: h.duration_seconds,
         firstResponseSeconds: h.first_response_seconds,
         rating: h.rating,
-        transcript: h.transcript
+        transcript: h.transcript,
+        ticketId: h.ticket_id,
+        ticketNumber: h.ticket_number,
+        queueId: h.queue_id,
+        queueName: h.queue_name
       })));
     }
 
