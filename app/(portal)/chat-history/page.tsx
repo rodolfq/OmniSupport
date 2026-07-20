@@ -10,6 +10,7 @@ import { fetchUsers, fetchQueues } from '@/lib/services/config-service';
 import { CompanyService } from '@/lib/services/company-service';
 import { parseTranscript } from '@/lib/transcript-format';
 import { ChatAttachmentList } from '@/components/chat-attachment-list';
+import { useAutoTranscribeMissingAudio } from '@/hooks/use-auto-transcribe-missing-audio';
 import {
   Search, Clock, User, MessageSquare, ThumbsUp, ThumbsDown, Minus, Filter,
   ChevronDown, X, FileText, FileDown, Archive, Ticket as TicketIcon, Building2,
@@ -245,11 +246,15 @@ async function buildHistoryPdfBlob(h: any, messages?: ChatMessage[]): Promise<Bl
       if (isImageAttachment(attachment) && (await addImageBlock(attachment))) return;
 
       if (isAudioAttachment(attachment)) {
-        if (attachment.transcription) {
-          addWrappedParagraph(`"${attachment.transcription}"`, [90, 90, 90], true);
-          y += 4;
-          return;
-        }
+        // Todo áudio no PDF sempre traz os dois: o texto da transcrição (ou
+        // um aviso de que não há uma) e o link de download do arquivo
+        // original — nunca só um ou outro.
+        addWrappedParagraph(
+          attachment.transcription ? `"${attachment.transcription}"` : '(transcrição indisponível)',
+          [90, 90, 90],
+          true
+        );
+        y += 4;
         addElegantFileBox('Áudio', attachment.name, attachment.size, attachmentDownloadUrl(messageId, attachment));
         return;
       }
@@ -479,6 +484,16 @@ export default function ChatHistoryPage() {
       .finally(() => { if (!cancelled) setLoadingSessionMessages(false); });
     return () => { cancelled = true; };
   }, [selectedHistory?.sessionId]);
+
+  // Transcreve sozinho qualquer áudio dessa conversa que ainda não tenha
+  // transcrição (mensagem antiga, ou uma tentativa automática que falhou) —
+  // a tela (e um PDF gerado depois) já saem com o texto, sem precisar de
+  // clique manual em lugar nenhum.
+  useAutoTranscribeMissingAudio(
+    selectedHistory?.sessionId,
+    sessionMessages?.messages,
+    (updater) => setSessionMessages(prev => prev ? { ...prev, messages: updater(prev.messages) } : prev)
+  );
 
   useEffect(() => {
     if (!isColumnPickerOpen) return;

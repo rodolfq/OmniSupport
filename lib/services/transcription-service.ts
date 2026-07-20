@@ -5,7 +5,9 @@ import os from 'os';
 import path from 'path';
 import ffmpegPath from 'ffmpeg-static';
 import { query } from '@/lib/db';
-import { emitChatEvent } from '@/lib/chat-events';
+import { emitChatEvent, excludeActiveViewers } from '@/lib/chat-events';
+import { getTeamUserIds } from '@/lib/services/notification-recipients';
+import { notifyUser } from '@/lib/services/push-service';
 import type { Attachment } from '@/lib/types';
 
 // Transcrição de áudio 100% local (Whisper open-source rodando no próprio
@@ -33,6 +35,23 @@ const SILENCE_RMS_THRESHOLD = 0.004;
 // tem muitas palavras mas pouquíssimas são únicas (ex.: "o que é" repetido
 // 80 vezes), é sinal de que não havia fala real para transcrever.
 const MIN_UNIQUE_WORD_RATIO = 0.2;
+
+// Teto de duração: acima disso o ffmpeg simplesmente para de decodificar
+// (-t), então um áudio de 20min só vira 10min de PCM — bounded o pior caso
+// de tempo de processamento (a fila só roda 1 transcrição por vez) sem
+// rejeitar o áudio inteiro.
+const MAX_DURATION_SECONDS = 600; // 10 minutos
+
+// A decodificação normalmente leva segundos, não minutos — se passar disso é
+// sinal de arquivo corrompido/travado, não de áudio longo (esse caso já é
+// limitado pelo MAX_DURATION_SECONDS acima).
+const FFMPEG_TIMEOUT_MS = 60_000;
+
+// Orçamento de tempo pra inferência do Whisper: uma base generosa (cobre
+// baixar/carregar o modelo na primeíssima transcrição do servidor) mais uma
+// margem por segundo de áudio já limitado pelo teto de duração.
+const TRANSCRIBE_BASE_TIMEOUT_MS = 300_000; // 5 minutos
+const TRANSCRIBE_PER_SECOND_BUDGET_MS = 4_000;
 
 function isSilentAudio(samples: Float32Array): boolean {
   if (samples.length === 0) return true;
@@ -103,15 +122,33 @@ async function decodeToPcm16k(dataUrl: string): Promise<Float32Array> {
         '-hide_banner', '-loglevel', 'error',
         '-y',
         '-i', inputPath,
+        '-t', String(MAX_DURATION_SECONDS),
         '-ar', '16000',
         '-ac', '1',
         '-f', 's16le',
         outputPath
       ]);
       let stderr = '';
+      let settled = false;
+
+      const timer = setTimeout(() => {
+        if (settled) return;
+        settled = true;
+        ffmpeg.kill('SIGKILL');
+        reject(new Error(`ffmpeg excedeu ${FFMPEG_TIMEOUT_MS / 1000}s decodificando o áudio (processo encerrado)`));
+      }, FFMPEG_TIMEOUT_MS);
+
       ffmpeg.stderr.on('data', (chunk) => { stderr += chunk.toString(); });
-      ffmpeg.on('error', reject);
+      ffmpeg.on('error', (err) => {
+        if (settled) return;
+        settled = true;
+        clearTimeout(timer);
+        reject(err);
+      });
       ffmpeg.on('close', (code) => {
+        if (settled) return;
+        settled = true;
+        clearTimeout(timer);
         if (code === 0) resolve();
         else reject(new Error(`ffmpeg saiu com código ${code}: ${stderr.slice(0, 500)}`));
       });
@@ -131,33 +168,78 @@ async function decodeToPcm16k(dataUrl: string): Promise<Float32Array> {
   }
 }
 
-// Transcreve um áudio (data URL) e devolve o texto, ou null se a
-// transcrição estiver desligada ou falhar por qualquer motivo — é um recurso
-// complementar, uma falha aqui nunca deve derrubar o envio/recebimento da
-// mensagem em si.
+function withTimeout<T>(promise: Promise<T>, ms: number, message: string): Promise<T> {
+  return new Promise((resolve, reject) => {
+    const timer = setTimeout(() => reject(new Error(message)), ms);
+    promise.then(
+      (value) => { clearTimeout(timer); resolve(value); },
+      (err) => { clearTimeout(timer); reject(err); }
+    );
+  });
+}
+
+// Transcreve um áudio (data URL) e devolve o texto, ou null se a transcrição
+// estiver desligada. Diferente de antes, um erro real (ffmpeg travado,
+// timeout na inferência, etc.) agora é relançado em vez de virar `null`
+// silencioso — quem chama (transcribeMessageAudio) decide como alertar.
 export async function transcribeAudio(dataUrl: string): Promise<string | null> {
   if (!ENABLED) return null;
 
   return enqueue(async () => {
-    try {
-      const samples = await decodeToPcm16k(dataUrl);
-      if (isSilentAudio(samples)) return NO_SPEECH_TEXT;
+    const samples = await decodeToPcm16k(dataUrl);
+    if (isSilentAudio(samples)) return NO_SPEECH_TEXT;
 
-      const transcriber = await getTranscriber();
-      const result = await transcriber(samples, {
+    const durationSeconds = samples.length / 16000;
+    const transcriber = await getTranscriber();
+    const inferenceTimeoutMs = TRANSCRIBE_BASE_TIMEOUT_MS + durationSeconds * TRANSCRIBE_PER_SECOND_BUDGET_MS;
+
+    // Promise.race não mata de fato uma inferência nativa em andamento (não
+    // tem um handle pra cancelar, ao contrário do processo do ffmpeg acima)
+    // — mas libera a vaga da fila pro próximo áudio em vez de travar tudo
+    // atrás de um caso patológico, que é o que importa pra não empacar o
+    // servidor inteiro.
+    const result = await withTimeout<any>(
+      transcriber(samples, {
         language: 'portuguese',
         task: 'transcribe',
         chunk_length_s: 30,
         stride_length_s: 5
-      });
-      const text = (Array.isArray(result) ? result[0]?.text : result?.text)?.trim();
-      if (!text) return null;
-      return looksLikeHallucinatedLoop(text) ? NO_SPEECH_TEXT : text;
-    } catch (err) {
-      console.error('[transcription-service] Falha ao transcrever áudio:', err);
-      return null;
-    }
+      }),
+      inferenceTimeoutMs,
+      `Transcrição excedeu ${Math.round(inferenceTimeoutMs / 1000)}s`
+    );
+    const text = (Array.isArray(result) ? result[0]?.text : result?.text)?.trim();
+    if (!text) return null;
+    return looksLikeHallucinatedLoop(text) ? NO_SPEECH_TEXT : text;
   });
+}
+
+// Avisa a equipe (push) quando uma transcrição falha de verdade (erro ou
+// timeout — nunca pra "desligado" ou "sem fala identificada", que não são
+// falhas). Quem já está com essa conversa aberta agora recebe o aviso via
+// SSE (transcription-error, ver emitChatEvent logo abaixo) e fica de fora do
+// push — mesma regra de excludeActiveViewers já usada pras notificações de
+// mensagem nova.
+async function alertTranscriptionFailure(params: {
+  sessionId: string;
+  messageId: string;
+  attachment: Attachment;
+  error: unknown;
+}) {
+  try {
+    const { sessionId, messageId, attachment, error } = params;
+    const reason = error instanceof Error ? error.message : 'Erro desconhecido';
+    const teamIds = await getTeamUserIds();
+    const toNotify = await excludeActiveViewers(sessionId, teamIds);
+    await Promise.all(toNotify.map(id => notifyUser(id, {
+      title: 'Falha ao transcrever áudio',
+      body: `"${attachment.name || 'áudio'}" não pôde ser transcrito: ${reason}`,
+      url: `/chat?chat=${sessionId}`,
+      tag: `transcription_error:${messageId}:${attachment.id}`
+    })));
+  } catch (err) {
+    console.error('[transcription-service] Falha ao enviar alerta de erro de transcrição:', err);
+  }
 }
 
 // Ponto de integração: transcreve o anexo de áudio de uma mensagem já salva,
@@ -179,7 +261,15 @@ export async function transcribeMessageAudio(params: {
   const { messageId, sessionId, attachment } = params;
   if (!isAudioAttachment(attachment) || !attachment.url) return null;
 
-  const text = await transcribeAudio(attachment.url);
+  let text: string | null;
+  try {
+    text = await transcribeAudio(attachment.url);
+  } catch (err) {
+    console.error('[transcription-service] Falha ao transcrever áudio:', err);
+    emitChatEvent(sessionId, { type: 'transcription-error', sessionId, messageId, attachmentId: attachment.id });
+    await alertTranscriptionFailure({ sessionId, messageId, attachment, error: err });
+    return null;
+  }
   if (!text) return null;
 
   try {

@@ -17,6 +17,7 @@ import { ChatAttachmentList } from './chat-attachment-list';
 import { ClientTime } from './client-time';
 import { TicketService, MessageService, InternalTicketService } from '@/lib/services/ticket-service';
 import { fetchSessionMessages, SessionMessagesResult } from '@/lib/services/chat-service';
+import { useAutoTranscribeMissingAudio } from '@/hooks/use-auto-transcribe-missing-audio';
 import { UserService } from '@/lib/services/user-service';
 import { CompanyService } from '@/lib/services/company-service';
 import { ConfigService } from '@/lib/services/config-service';
@@ -220,6 +221,15 @@ const loadMessages = async () => {
        setIsLoadingChatSession(false);
      }
    };
+
+   // Mesma ideia do Histórico de Conversas: qualquer áudio dessa conversa
+   // ainda sem transcrição é transcrito sozinho assim que a aba "Conversa" é
+   // carregada, sem depender de clique manual.
+   useAutoTranscribeMissingAudio(
+     ticket?.chatSessionId,
+     chatSessionData?.messages,
+     (updater) => setChatSessionData(prev => prev ? { ...prev, messages: updater(prev.messages) } : prev)
+   );
 
    const loadInternalTicket = async () => {
      if (!ticket) return;

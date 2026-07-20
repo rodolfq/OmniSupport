@@ -310,6 +310,13 @@ export function ChatWidget() {
   };
 
   const [transcribingIds, setTranscribingIds] = useState<Set<string>>(new Set());
+  // A transcrição em si roda sozinha em segundo plano assim que o áudio é
+  // salvo (ver lib/services/transcription-service.ts) — mas no chat ao vivo
+  // o texto só aparece quando o operador clicar, pra não poluir a tela com
+  // texto que ninguém pediu pra ler ainda. O clique só "revela" o que já foi
+  // transcrito (instantâneo); só chama a API de verdade se por algum motivo
+  // ainda não houver transcrição pronta.
+  const [revealedTranscriptions, setRevealedTranscriptions] = useState<Set<string>>(new Set());
 
   const handleTranscribeAudio = async (sessionId: string, messageId: string, attachmentId: string) => {
     const key = `${messageId}:${attachmentId}`;
@@ -332,6 +339,7 @@ export function ChatWidget() {
           })
         };
       }));
+      setRevealedTranscriptions(prev => new Set(prev).add(key));
     } catch (err) {
       console.error('Erro ao transcrever áudio:', err);
       toast.error('Não foi possível transcrever o áudio.');
@@ -638,6 +646,22 @@ export function ChatWidget() {
               })
             };
           }));
+          return;
+        }
+
+        if (payload?.type === 'transcription-error') {
+          // Libera o botão de "Transcrevendo..." se essa transcrição tinha
+          // sido pedida manualmente por essa aba — o aviso principal (pra
+          // quem não está olhando essa conversa agora) é o push pro time,
+          // disparado no servidor (ver transcription-service.ts).
+          setTranscribingIds(prev => {
+            const key = `${payload.messageId}:${payload.attachmentId}`;
+            if (!prev.has(key)) return prev;
+            const next = new Set(prev);
+            next.delete(key);
+            return next;
+          });
+          toast.error('Não foi possível transcrever um áudio desta conversa.');
           return;
         }
 
@@ -1179,15 +1203,15 @@ useEffect(() => {
     }
   };
 
-  const handleChatFileUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
-    const files = Array.from(e.target.files || []);
-    if (files.length === 0) return;
-
+  // Compartilhado entre o seletor de arquivo (input) e o colar (Ctrl+V) de
+  // print/arquivo — mesmas regras (limite de 8MB, conversão pra data URL)
+  // pros dois caminhos, pra cliente e operador igual (é o mesmo componente).
+  const addFilesAsChatAttachments = async (files: File[]) => {
     for (const file of files) {
       const fileId = crypto.randomUUID();
 
       if (file.size > MAX_CHAT_ATTACHMENT_SIZE) {
-        toast.error(`${file.name} excede o limite de 8 MB.`);
+        toast.error(`${file.name || 'Arquivo'} excede o limite de 8 MB.`);
         continue;
       }
 
@@ -1196,22 +1220,47 @@ useEffect(() => {
         dataUrl = await fileToDataUrl(file);
       } catch (error) {
         console.error('Error reading chat attachment:', error);
-        toast.error(`Erro ao anexar ${file.name}`);
+        toast.error(`Erro ao anexar ${file.name || 'arquivo'}`);
         continue;
       }
 
       setChatAttachments(prev => [...prev, {
         id: fileId,
-        name: file.name,
+        name: file.name || `colado-${Date.now()}.png`,
         type: file.type || 'application/octet-stream',
         url: dataUrl,
         size: file.size
       }]);
     }
+  };
 
+  const handleChatFileUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const files = Array.from(e.target.files || []);
+    if (files.length === 0) return;
+    await addFilesAsChatAttachments(files);
     if (chatFileInputRef.current) {
       chatFileInputRef.current.value = '';
     }
+  };
+
+  // Cola direto do clipboard (print de tela, ou arquivo copiado no SO) sem
+  // precisar abrir o seletor de arquivo — funciona tanto pro cliente quanto
+  // pro operador, já que os dois usam este mesmo componente de chat. Só
+  // intercepta quando há de fato um arquivo/imagem colado; colar texto
+  // normal continua funcionando sem interferência.
+  const handleChatPaste = async (e: React.ClipboardEvent<HTMLInputElement>) => {
+    const items = e.clipboardData?.items;
+    if (!items || items.length === 0) return;
+
+    const files = Array.from(items)
+      .filter(item => item.kind === 'file')
+      .map(item => item.getAsFile())
+      .filter((f): f is File => !!f);
+
+    if (files.length === 0) return;
+
+    e.preventDefault();
+    await addFilesAsChatAttachments(files);
   };
 
   const startRecording = async () => {
@@ -1609,6 +1658,23 @@ useEffect(() => {
                             Conversa #{String(selectedChat.ticketNumber).padStart(4, '0')}
                           </p>
                         )}
+                        {/* Visível só pra equipe — pra qualquer analista que abrir essa
+                            conversa saber de cara quem é o responsável, sem precisar
+                            checar a fila. Nome resolvido contra allUsers (já carregado
+                            pra o AssignChatMenu), sem precisar de rota nova. */}
+                        {!isCustomer && selectedChat && 'assigneeId' in selectedChat && (
+                          <p className="text-[9px] font-semibold uppercase tracking-widest mt-0.5">
+                            <span className="text-[var(--text-tertiary)]">Responsável: </span>
+                            <span className={cn(
+                              "font-black",
+                              selectedChat.assigneeId ? "text-[var(--accent-text)]" : "text-[var(--text-warning-strong)]"
+                            )}>
+                              {selectedChat.assigneeId
+                                ? (allUsers.find(u => u.id === selectedChat.assigneeId)?.name || 'Carregando...')
+                                : 'Não atribuído'}
+                            </span>
+                          </p>
+                        )}
                         {(() => {
                            if (isCustomer) return (
                              <span className="text-[10px] text-[var(--text-success)] font-semibold uppercase tracking-tighter">
@@ -1754,6 +1820,7 @@ useEffect(() => {
                                   if (isAudioAttachment(attachment)) {
                                     const transcribeKey = `${m.id}:${attachment.id}`;
                                     const isTranscribing = transcribingIds.has(transcribeKey);
+                                    const isRevealed = revealedTranscriptions.has(transcribeKey);
                                     return (
                                       <div key={attachmentKey} className="space-y-1.5">
                                         <AudioPlayer
@@ -1761,7 +1828,7 @@ useEffect(() => {
                                           name={attachment.name}
                                           isOwnMessage={isOwnMessage}
                                         />
-                                        {attachment.transcription ? (
+                                        {attachment.transcription && isRevealed ? (
                                           <p className={cn(
                                             "text-xs italic leading-snug px-1",
                                             isOwnMessage ? "text-white/70" : "text-[var(--text-tertiary)]"
@@ -1772,7 +1839,14 @@ useEffect(() => {
                                           process.env.NEXT_PUBLIC_ENABLE_AUDIO_TRANSCRIPTION === 'true' && attachment.id && (
                                             <button
                                               type="button"
-                                              onClick={() => handleTranscribeAudio(selectedChat!.id, m.id, attachment.id!)}
+                                              onClick={() => {
+                                                if (attachment.transcription) {
+                                                  // Já transcrito em segundo plano — só revela, sem chamar a API de novo.
+                                                  setRevealedTranscriptions(prev => new Set(prev).add(transcribeKey));
+                                                } else {
+                                                  handleTranscribeAudio(selectedChat!.id, m.id, attachment.id!);
+                                                }
+                                              }}
                                               disabled={isTranscribing}
                                               className={cn(
                                                 "flex items-center gap-1.5 text-[10px] font-semibold uppercase tracking-widest px-1 py-0.5 rounded transition-all disabled:opacity-60",
@@ -1784,7 +1858,7 @@ useEffect(() => {
                                               ) : (
                                                 <Captions size={12} />
                                               )}
-                                              {isTranscribing ? 'Transcrevendo...' : 'Transcrever'}
+                                              {isTranscribing ? 'Transcrevendo...' : attachment.transcription ? 'Ver transcrição' : 'Transcrever'}
                                             </button>
                                           )
                                         )}
@@ -1969,7 +2043,8 @@ useEffect(() => {
                         type="text"
                         value={message}
                         onChange={handleInputChange}
-                        placeholder="Resposta padrão '/' para atalhos..."
+                        onPaste={handleChatPaste}
+                        placeholder="Resposta padrão '/' para atalhos... (Ctrl+V cola prints e arquivos)"
                         className="flex-1 min-w-0 bg-[var(--surface-card)] border border-[var(--border-default)] rounded-2xl px-4 py-3.5 text-base font-bold focus:ring-4 focus:ring-[var(--accent)]/10 outline-none transition-all"
                       />
                       <button

@@ -13,7 +13,7 @@ const emitter = new EventEmitter();
 emitter.setMaxListeners(0);
 
 export interface ChatEventPayload {
-  type: 'message' | 'survey-response' | 'transcription';
+  type: 'message' | 'survey-response' | 'transcription' | 'transcription-error';
   sessionId: string;
   [key: string]: unknown;
 }
