@@ -132,3 +132,25 @@ export async function PATCH(request: NextRequest) {
     return NextResponse.json({ error: 'Erro ao atualizar chave.' }, { status: 500 });
   }
 }
+
+export async function DELETE(request: NextRequest) {
+  const actor = await getActor(request);
+  if (!actor) return NextResponse.json({ error: 'Sessão inválida ou expirada.' }, { status: 401 });
+  if (!canManageIntegrations(actor)) return NextResponse.json({ error: 'Sem permissão para gerenciar integrações.' }, { status: 403 });
+
+  const id = request.nextUrl.searchParams.get('id');
+  if (!id) {
+    return NextResponse.json({ error: 'id é obrigatório.' }, { status: 400 });
+  }
+
+  try {
+    const res = await query('DELETE FROM public.integration_api_keys WHERE id = $1 RETURNING id', [id]);
+    if (res.rowCount === 0) {
+      return NextResponse.json({ error: 'Chave não encontrada.' }, { status: 404 });
+    }
+    return NextResponse.json({ success: true });
+  } catch (error: any) {
+    console.error('[integrations/keys] Erro no DELETE:', error);
+    return NextResponse.json({ error: 'Erro ao excluir chave.' }, { status: 500 });
+  }
+}

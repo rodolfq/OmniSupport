@@ -166,41 +166,18 @@ body {
   .text-balance {
     text-wrap: balance;
   }
-
-  .custom-scrollbar::-webkit-scrollbar {
-    width: 6px;
-    height: 6px;
-  }
-  .custom-scrollbar::-webkit-scrollbar-track {
-    background: transparent;
-  }
-  .custom-scrollbar::-webkit-scrollbar-thumb {
-    background: #e2e8f0;
-    border-radius: 10px;
-  }
-  .custom-scrollbar::-webkit-scrollbar-thumb:hover {
-    background: #cbd5e1;
-  }
-
-  .dark .custom-scrollbar::-webkit-scrollbar-thumb {
-    background: var(--border-default);
-  }
-  .dark .custom-scrollbar::-webkit-scrollbar-thumb:hover {
-    background: var(--text-tertiary);
-  }
 }
 
-/* Minimal scrollbar for all elements */
+/* Barra de rolagem minimalista para todo o sistema: fina, trilho invisível,
+   sem seta/borda, e usando as variáveis de tema (--border-default/-strong)
+   em vez de cor fixa — já se adapta sozinha ao dark mode via :root.dark,
+   sem precisar de seletores .dark duplicados. .custom-scrollbar continua
+   funcionando nas telas que a usam (fica idêntica ao padrão global). */
 * {
   scrollbar-width: thin;
-  scrollbar-color: #e2e8f0 transparent;
-}
-
-.dark * {
   scrollbar-color: var(--border-default) transparent;
 }
 
-/* Webkit scrollbar */
 ::-webkit-scrollbar {
   width: 6px;
   height: 6px;
@@ -211,18 +188,15 @@ body {
 }
 
 ::-webkit-scrollbar-thumb {
-  background: #e2e8f0;
-  border-radius: 10px;
+  background: var(--border-default);
+  border-radius: 9999px;
+  border: none;
 }
 
 ::-webkit-scrollbar-thumb:hover {
-  background: #cbd5e1;
+  background: var(--border-strong);
 }
 
-.dark ::-webkit-scrollbar-thumb {
-  background: var(--border-default);
-}
-
-.dark ::-webkit-scrollbar-thumb:hover {
-  background: var(--text-tertiary);
+::-webkit-scrollbar-corner {
+  background: transparent;
 }

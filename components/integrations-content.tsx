@@ -3,7 +3,7 @@
 import React, { useState, useEffect, useMemo } from 'react';
 import {
   Key, Plus, Copy, Check, ShieldOff, ShieldCheck, Loader2, ChevronRight, Play,
-  Eye, EyeOff, Zap, Clock, Terminal
+  Eye, EyeOff, Zap, Clock, Terminal, Trash2
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { toast } from 'sonner';
@@ -86,6 +86,7 @@ export function IntegrationsContent() {
   const [revealedKey, setRevealedKey] = useState<string | null>(null);
   const [copied, setCopied] = useState(false);
   const [revokingKey, setRevokingKey] = useState<ApiKeyRow | null>(null);
+  const [deletingKey, setDeletingKey] = useState<ApiKeyRow | null>(null);
   const [baseUrl, setBaseUrl] = useState('');
 
   // Explorador/testador de endpoints
@@ -163,6 +164,18 @@ export function IntegrationsContent() {
       toast.success(isActive ? 'Chave reativada.' : 'Chave revogada.');
     } catch (err: any) {
       toast.error(err.message || 'Erro ao atualizar chave.');
+    }
+  };
+
+  const handleDeleteKey = async (key: ApiKeyRow) => {
+    try {
+      const res = await fetch(`/api/integrations/keys?id=${key.id}`, { method: 'DELETE' });
+      const json = await res.json();
+      if (!res.ok) throw new Error(json.error);
+      setKeys(prev => prev.filter(k => k.id !== key.id));
+      toast.success('Chave excluída.');
+    } catch (err: any) {
+      toast.error(err.message || 'Erro ao excluir chave.');
     }
   };
 
@@ -302,6 +315,13 @@ export function IntegrationsContent() {
                     )}
                   >
                     {key.isActive ? <><ShieldOff size={14} /> Revogar</> : <><ShieldCheck size={14} /> Reativar</>}
+                  </button>
+                  <button
+                    onClick={() => setDeletingKey(key)}
+                    title="Excluir chave"
+                    className="p-2.5 rounded-xl text-[var(--text-tertiary)] hover:bg-[var(--surface-danger)] hover:text-[var(--text-danger)] border border-[var(--border-default)] transition-all"
+                  >
+                    <Trash2 size={14} />
                   </button>
                 </div>
               </div>
@@ -634,8 +654,21 @@ export function IntegrationsContent() {
           setRevokingKey(null);
         }}
         title="Revogar Chave"
-        description={`Deseja realmente revogar a chave "${revokingKey?.name}"? A plataforma externa perderá acesso imediatamente.`}
+        description={`Deseja realmente revogar a chave "${revokingKey?.name}"? A plataforma externa perderá acesso imediatamente. Você pode reativá-la depois, se precisar.`}
         confirmLabel="Revogar"
+        variant="danger"
+      />
+
+      <ConfirmDialog
+        isOpen={!!deletingKey}
+        onClose={() => setDeletingKey(null)}
+        onConfirm={() => {
+          if (deletingKey) handleDeleteKey(deletingKey);
+          setDeletingKey(null);
+        }}
+        title="Excluir Chave"
+        description={`Excluir a chave "${deletingKey?.name}" é permanente e não pode ser desfeito — diferente de revogar, ela some da lista e não poderá ser reativada. A plataforma externa perde o acesso imediatamente.`}
+        confirmLabel="Excluir"
         variant="danger"
       />
     </div>
