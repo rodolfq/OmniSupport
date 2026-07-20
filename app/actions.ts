@@ -4,6 +4,9 @@ import { pool, query } from '@/lib/db';
 import { hashPassword } from '@/lib/auth-utils';
 import { verifyJWT } from '@/lib/jwt';
 import { cookies } from 'next/headers';
+import { emitChatEvent, excludeActiveViewers } from '@/lib/chat-events';
+import { notifyUser } from '@/lib/services/push-service';
+import { getChatRecipientIds } from '@/lib/services/notification-recipients';
 
 async function getCurrentActionUser() {
   const token = (await cookies()).get('token')?.value;
@@ -416,6 +419,84 @@ export async function saveWhatsappInstance(id: string | null, name: string, phon
   } catch (err) {
     console.error("Error saving WhatsApp instance in actions:", err);
     return { error: 'Erro ao salvar instância.' };
+  }
+}
+
+// Assume/transfere um atendimento (usado tanto pelo widget quanto pela fila
+// em /chat-management, individual ou em lote) — centraliza a lógica antes
+// duplicada nos dois lugares e, quando o responsável realmente muda, registra
+// uma mensagem automática de apresentação ("Você está falando com Fulano"),
+// pro cliente saber com quem está falando assim que alguém aceita a
+// conversa, do mesmo jeito que qualquer outro aviso do sistema no chat.
+export async function assignChatSession(sessionId: string, assigneeId: string) {
+  try {
+    const sessionRes = await query(
+      `SELECT customer_id, assignee_id FROM public.chat_sessions WHERE id = $1`,
+      [sessionId]
+    );
+    const session = sessionRes.rows[0];
+    if (!session) return { error: 'Atendimento não encontrado.' };
+
+    const assigneeChanged = session.assignee_id !== assigneeId;
+
+    await query(
+      `UPDATE public.chat_sessions SET assignee_id = $1, status = 'active', updated_at = NOW() WHERE id = $2`,
+      [assigneeId, sessionId]
+    );
+
+    if (assigneeChanged) {
+      const agentRes = await query('SELECT name FROM public.profiles WHERE id = $1', [assigneeId]);
+      const agentName = agentRes.rows[0]?.name;
+
+      if (agentName) {
+        const messageId = crypto.randomUUID();
+        const text = `👋 Você está falando com ${agentName}.`;
+        const timestamp = new Date().toISOString();
+
+        // type 'system' (não 'text'): identifica esta como uma mensagem
+        // automática, não uma resposta real do analista — usado pra não
+        // contar como "1ª resposta" na métrica de tempo de atendimento.
+        await query(
+          `INSERT INTO public.chat_messages (id, session_id, sender_id, sender_name, text, type, metadata, created_at)
+           VALUES ($1, $2, NULL, 'SSX Resolve', $3, 'system', '{}'::jsonb, $4)`,
+          [messageId, sessionId, text, timestamp]
+        );
+        await query('UPDATE public.chat_sessions SET last_message_at = $1 WHERE id = $2', [timestamp, sessionId]);
+
+        emitChatEvent(sessionId, {
+          type: 'message',
+          sessionId,
+          message: {
+            id: messageId,
+            senderId: null,
+            senderName: 'SSX Resolve',
+            text,
+            timestamp,
+            type: 'system',
+            metadata: {},
+            attachments: []
+          }
+        });
+
+        try {
+          const recipients = await getChatRecipientIds({ customerId: session.customer_id }, null, true);
+          const toNotify = await excludeActiveViewers(sessionId, recipients);
+          await Promise.all(toNotify.map(id => notifyUser(id, {
+            title: `Você está falando com ${agentName}`,
+            body: text,
+            url: `/chat?chat=${sessionId}`,
+            tag: `chat_message:${messageId}`
+          })));
+        } catch (err) {
+          console.error('Error notifying about chat assignment intro message:', err);
+        }
+      }
+    }
+
+    return { success: true };
+  } catch (err: any) {
+    console.error('Error assigning chat session in actions:', err);
+    return { error: err.message || 'Erro ao atualizar o atendimento.' };
   }
 }
 

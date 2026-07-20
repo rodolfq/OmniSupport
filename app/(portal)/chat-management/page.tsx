@@ -41,7 +41,8 @@ import { AssignChatMenu } from '@/components/assign-chat-menu';
 import { ConfirmDialog } from '@/components/confirm-dialog';
 import { supabase } from '@/lib/supabase';
 import { fetchChatSessions, saveChatHistory } from '@/lib/services/chat-service';
-import { getQuickNotes, saveQuickNote as saveQuickNoteAction, deleteQuickNote, getAnalysts, getCompanies, updateUserStatus, saveTicketFromChatSession, closeChatSessionAfterTicket } from '@/app/actions';
+import { fetchUsers } from '@/lib/services/config-service';
+import { getQuickNotes, saveQuickNote as saveQuickNoteAction, deleteQuickNote, getAnalysts, getCompanies, updateUserStatus, saveTicketFromChatSession, closeChatSessionAfterTicket, assignChatSession } from '@/app/actions';
 
 export default function ChatManagementPage() {
   const { currentUser, setActiveOmniChatId, setIsOmniChatOpen, refreshTrigger, userStatus, getContactPhoto, ensureContactPhoto } = useApp();
@@ -112,9 +113,14 @@ export default function ChatManagementPage() {
     const analystsData = await getAnalysts();
     setAnalysts(analystsData);
     
-    // Get customers (users with role 'Cliente')
-    const { data: customersData } = await supabase.from('profiles').select('id, name, email, role, company_id, phone, phones').eq('role', 'Cliente');
-    setCustomers(customersData || []);
+    // Get customers (users with role 'Cliente') via /api/users — o select cru
+    // do shim do Supabase devolve as colunas em snake_case (avatar_url), sem
+    // mapear pra avatarUrl como o resto do app espera; isso fazia a foto do
+    // contato sempre cair no ícone genérico aqui, mesmo quando o perfil tinha
+    // avatar_url cadastrado (o widget de chat, que já usa fetchUsers, mostrava
+    // a foto certinho — a inconsistência era só nesta tela).
+    const allUsersData = await fetchUsers();
+    setCustomers((allUsersData || []).filter((u: any) => u.role === UserRole.CUSTOMER));
     
     // Get companies
     const companiesData = await getCompanies();
@@ -283,12 +289,9 @@ const handleDeleteNote = async () => {
       toast.error('Você precisa estar Online para assumir atendimentos!');
       return;
     }
-    const { error } = await supabase.from('chat_sessions').update({
-      assignee_id: assigneeId,
-      status: 'active'
-    }).eq('id', sessionId);
+    const result = await assignChatSession(sessionId, assigneeId);
 
-    if (!error) {
+    if (!('error' in result)) {
       refreshData();
       toast.success(targetUserId ? 'Atendimento transferido com sucesso!' : 'Atendimento assumido com sucesso!');
     } else {
@@ -337,15 +340,15 @@ const handleDeleteNote = async () => {
       return;
     }
 
-    const { error } = await supabase.from('chat_sessions').update({
-      assignee_id: assigneeId,
-      status: 'active'
-    }).in('id', idsToAssign);
+    const results = await Promise.all(idsToAssign.map(id => assignChatSession(id, assigneeId)));
+    const failures = results.filter(r => 'error' in r).length;
 
-    if (!error) {
-      setSelectedSessionIds(new Set());
-      refreshData();
+    setSelectedSessionIds(new Set());
+    refreshData();
+    if (failures === 0) {
       toast.success(`${idsToAssign.length} atendimento(s) ${targetUserId ? 'transferido(s)' : 'assumido(s)'} com sucesso!`);
+    } else if (failures < idsToAssign.length) {
+      toast.warning(`${idsToAssign.length - failures} de ${idsToAssign.length} atendimento(s) atualizado(s). Alguns falharam.`);
     } else {
       toast.error('Erro ao atualizar os atendimentos selecionados.');
     }
@@ -390,10 +393,14 @@ const handleDeleteNote = async () => {
       const finishedAt = new Date();
       const durationSeconds = Math.floor((finishedAt.getTime() - startedAt.getTime()) / 1000);
 
+      // Mensagens automáticas (type 'system': apresentação do operador, aviso
+      // de chamado, encerramento/pesquisa) não contam como resposta real do
+      // analista pra essa métrica.
       let firstResponseSeconds: number | undefined;
       if (session.messages && session.messages.length > 0) {
         const firstAnalystMsg = session.messages.find(m =>
           m.senderId !== session.customerId &&
+          m.type !== 'system' &&
           m.text &&
           !m.text.includes('criou o grupo')
         );

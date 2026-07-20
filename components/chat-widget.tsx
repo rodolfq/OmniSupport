@@ -47,7 +47,7 @@ import {
 } from '@/lib/types';
 import { fetchChatSessions, pushChatMessage, createChatSession, saveChatHistory, findExistingChatSessionByPhone, submitSurveyResponse, transcribeChatAudio } from '@/lib/services/chat-service';
 import { fetchQuickNotes, fetchAnalystStatuses, fetchCompanies, fetchUsers, fetchQueues, fetchSurveySettings } from '@/lib/services/config-service';
-import { saveTicketFromChatSession, closeChatSessionAfterTicket } from '@/app/actions';
+import { saveTicketFromChatSession, closeChatSessionAfterTicket, assignChatSession } from '@/app/actions';
 import { cn, maskPhone, matchPhones, safeJsonStringify } from '@/lib/utils';
 import { useApp } from '@/app/app-context';
 import { supabase } from '@/lib/supabase';
@@ -305,12 +305,9 @@ export function ChatWidget() {
       toast.error('Você precisa estar Online para assumir atendimentos!');
       return;
     }
-    const { error } = await supabase.from('chat_sessions').update({
-      assignee_id: assigneeId,
-      status: 'active'
-    }).eq('id', sessionId);
+    const result = await assignChatSession(sessionId, assigneeId);
 
-    if (!error) {
+    if (!('error' in result)) {
       toast.success(targetUserId ? 'Atendimento transferido com sucesso!' : 'Atendimento assumido com sucesso!');
       const refreshedSessions = await fetchChatSessions();
       setCustomerSessions(refreshedSessions);
@@ -971,7 +968,7 @@ useEffect(() => {
     }
   };
 
-  const handleGenerateTicket = async (closeChat: boolean) => {
+  const handleGenerateTicket = async (closeChat: boolean, closeAsSpam: boolean = false) => {
     if (!selectedChat || !ticketTitle || !currentUser) return;
 
     // Já existe um chamado vinculado a esta conversa (gerado antes, sem
@@ -1022,7 +1019,7 @@ useEffect(() => {
           senderName: 'SSX Resolve',
           text: `📄 Novo chamado gerado #${String(createdTicketNumber).padStart(4, '0')}`,
           timestamp: new Date().toISOString(),
-          type: 'text'
+          type: 'system'
         };
         try {
           await pushChatMessage(selectedChat.id, ticketNoticeMessage);
@@ -1058,12 +1055,18 @@ useEffect(() => {
       const finishedAt = new Date();
       const durationSeconds = Math.floor((finishedAt.getTime() - startedAt.getTime()) / 1000);
       
-      // Find first response time (first non-system, non-same-user message)
+      // Find first response time (first non-system, non-same-user message) —
+      // mensagens automáticas (apresentação do operador, aviso de chamado,
+      // encerramento/pesquisa) têm type 'system' e não contam como resposta
+      // real do analista, senão o tempo de 1ª resposta ficaria artificialmente
+      // baixo (ou zerado) sempre que essas mensagens automáticas dispararem
+      // antes de o analista digitar algo de fato.
       let firstResponseSeconds: number | undefined;
       if (selectedChat.messages && selectedChat.messages.length > 0) {
-        const firstAnalystMsg = selectedChat.messages.find(m => 
-          m.senderId !== selectedChat.customerId && 
-          m.text && 
+        const firstAnalystMsg = selectedChat.messages.find(m =>
+          m.senderId !== selectedChat.customerId &&
+          m.type !== 'system' &&
+          m.text &&
           !m.text.includes('criou o grupo')
         );
         if (firstAnalystMsg?.timestamp) {
@@ -1094,43 +1097,54 @@ useEffect(() => {
       // the transcript) and, additionally, pushed via WhatsApp when a phone number
       // is available. Inserted BEFORE the session is marked 'closed' below, so it
       // doesn't trip the closed->pending auto-reopen side effect in push-message.
+      //
+      // "Fechar como Spam" pula esse bloco inteiro de propósito: alguns clientes
+      // têm um bot que responde automaticamente a QUALQUER mensagem recebida
+      // (inclusive a pesquisa de satisfação) — isso criava um loop, já que uma
+      // resposta automática do bot (texto qualquer, não "0"/"1") sempre vira um
+      // atendimento novo (ver push-message), que ao ser fechado de novo dispara
+      // outra pesquisa, e por aí vai. Fechando como spam, o chamado é criado
+      // normalmente, mas nada é enviado ao cliente — se ele mandar uma mensagem
+      // de verdade depois, o fluxo normal (sessão nova) cuida disso sozinho.
       let awaitingSurveyUntil: string | null = null;
-      try {
-        const surveySettings = await fetchSurveySettings();
-        if (surveySettings?.enabled && surveySettings.message) {
-          const conversationNumber = String(createdTicketNumber ?? selectedChat.ticketNumber ?? '').padStart(4, '0');
-          const closingMessage = `Sua conversa #${conversationNumber} foi finalizada.\n\n${surveySettings.message}`;
+      if (!closeAsSpam) {
+        try {
+          const surveySettings = await fetchSurveySettings();
+          if (surveySettings?.enabled && surveySettings.message) {
+            const conversationNumber = String(createdTicketNumber ?? selectedChat.ticketNumber ?? '').padStart(4, '0');
+            const closingMessage = `Sua conversa #${conversationNumber} foi finalizada.\n\n${surveySettings.message}`;
 
-          const closingChatMessage: ChatMessage = {
-            id: crypto.randomUUID(),
-            senderId: currentUser.id,
-            senderName: 'SSX Resolve',
-            text: closingMessage,
-            timestamp: new Date().toISOString(),
-            type: 'text'
-          };
-          await pushChatMessage(selectedChat.id, closingChatMessage);
-          awaitingSurveyUntil = new Date(Date.now() + surveySettings.responseWindowHours * 3600_000).toISOString();
+            const closingChatMessage: ChatMessage = {
+              id: crypto.randomUUID(),
+              senderId: currentUser.id,
+              senderName: 'SSX Resolve',
+              text: closingMessage,
+              timestamp: new Date().toISOString(),
+              type: 'system'
+            };
+            await pushChatMessage(selectedChat.id, closingChatMessage);
+            awaitingSurveyUntil = new Date(Date.now() + surveySettings.responseWindowHours * 3600_000).toISOString();
 
-          if (selectedChat.customerPhone) {
-            const phone = selectedChat.customerPhone.replace(/\D/g, '');
-            if (phone) {
-              const queue = allQueues.find((q: any) => q.id === selectedChat.queueId);
-              const instanceId = queue?.whatsapp_instance_id || queue?.whatsappInstanceId || 'default';
-              const sendRes = await fetch('/api/whatsapp/send', {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: safeJsonStringify({ instanceId, to: phone, message: closingMessage }),
-              });
-              if (!sendRes.ok) {
-                toast.warning('Mensagem de encerramento registrada no chat, mas não foi enviada via WhatsApp.');
+            if (selectedChat.customerPhone) {
+              const phone = selectedChat.customerPhone.replace(/\D/g, '');
+              if (phone) {
+                const queue = allQueues.find((q: any) => q.id === selectedChat.queueId);
+                const instanceId = queue?.whatsapp_instance_id || queue?.whatsappInstanceId || 'default';
+                const sendRes = await fetch('/api/whatsapp/send', {
+                  method: 'POST',
+                  headers: { 'Content-Type': 'application/json' },
+                  body: safeJsonStringify({ instanceId, to: phone, message: closingMessage }),
+                });
+                if (!sendRes.ok) {
+                  toast.warning('Mensagem de encerramento registrada no chat, mas não foi enviada via WhatsApp.');
+                }
               }
             }
           }
+        } catch (surveyError) {
+          console.error('Failed to send closing survey:', surveyError);
+          toast.warning('Chamado finalizado, mas a mensagem de encerramento/pesquisa não foi registrada.');
         }
-      } catch (surveyError) {
-        console.error('Failed to send closing survey:', surveyError);
-        toast.warning('Chamado finalizado, mas a mensagem de encerramento/pesquisa não foi registrada.');
       }
 
       // ticket_id/ticket_number já foram vinculados por saveTicketFromChatSession —
@@ -2194,6 +2208,14 @@ useEffect(() => {
                    >
                      Gerar Chamado & Finalizar
                    </button>
+
+                   <button
+                     onClick={() => handleGenerateTicket(true, true)}
+                     className="w-full py-3.5 bg-[var(--surface-card)] border-2 border-[var(--text-danger)]/20 text-[var(--text-danger)] rounded-2xl text-[10px] font-semibold uppercase tracking-widest hover:bg-[var(--surface-danger)] transition-all"
+                   >
+                     Fechar como Spam
+                   </button>
+                   <p className="text-[9px] text-[var(--text-tertiary)] font-medium text-center -mt-2">Gera o chamado e encerra, mas não envia nenhuma mensagem ao cliente — use quando um bot dele responder automaticamente à pesquisa e reabrir o chat em loop.</p>
                 </div>
              </motion.div>
           </div>
