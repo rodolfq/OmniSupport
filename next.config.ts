@@ -60,7 +60,6 @@ const nextConfig: NextConfig = {
     'ws',
     'bufferutil',
     'utf-8-validate',
-    'postgres',
     'pg',
     '@huggingface/transformers',
     'onnxruntime-node',
