@@ -290,11 +290,17 @@ export default function InternalTicketDetailPage() {
       if (changes.length > 0) {
         await InternalTicketService.logEvent(ticket.uuid, currentUser?.id, formatChangeMessage(changes));
       }
+      // Edição de descrição é registrada, mas não vira mensagem no feed —
+      // só entra na aba Histórico ('system_log', filtrado do feed principal).
+      const descriptionChanged = formDescription !== ticket.description;
+      if (descriptionChanged) {
+        await InternalTicketService.logEvent(ticket.uuid, currentUser?.id, 'Descrição atualizada', 'system_log');
+      }
 
       setFormStatus(nextStatus);
       setFormAssignee(nextAssignee);
-      setTicket(prev => prev ? { ...prev, status: nextStatus as InternalTicketWithExtras['status'], assigneeId: nextAssignee, tags, teamId: formTeam, priority: formPriority, title: formTitle, slaLimit: slaIso, expectedPublishDate: expectedPublishIso } : prev);
-      if (changes.length > 0) loadMessages();
+      setTicket(prev => prev ? { ...prev, status: nextStatus as InternalTicketWithExtras['status'], assigneeId: nextAssignee, tags, teamId: formTeam, priority: formPriority, title: formTitle, slaLimit: slaIso, expectedPublishDate: expectedPublishIso, description: formDescription } : prev);
+      if (changes.length > 0 || descriptionChanged) loadMessages();
       toast.success('Ticket atualizado');
       triggerRefresh();
     } catch (error) {
@@ -507,7 +513,7 @@ export default function InternalTicketDetailPage() {
             {activeTab === 'history' && (
               <div className="min-h-96">
                 {(() => {
-                  const changeLog = messages.filter(m => m.type === 'system');
+                  const changeLog = messages.filter(m => m.type === 'system' || m.type === 'system_log');
                   return changeLog.length === 0 ? (
                     <div className="text-center py-12">
                       <History size={32} className="mx-auto text-slate-300 mb-2" />
@@ -548,7 +554,11 @@ export default function InternalTicketDetailPage() {
             </span>
           </div>
           <div className="flex-1 overflow-y-auto p-3">
-            {messages.length === 0 ? (
+            {(() => {
+              // Edição de descrição ('system_log') não aparece aqui — só na
+              // aba Histórico, junto com o resto.
+              const visibleMessages = messages.filter(m => m.type !== 'system_log');
+              return visibleMessages.length === 0 ? (
               <div className="flex items-center justify-center h-full">
                 <div className="text-center">
                   <div className="w-12 h-12 bg-[var(--surface-pill)] rounded-full flex items-center justify-center mx-auto mb-2">
@@ -559,7 +569,7 @@ export default function InternalTicketDetailPage() {
               </div>
             ) : (
               <div className="space-y-3">
-                {messages.map((msg) => {
+                {visibleMessages.map((msg) => {
                   const isSystem = msg.type === 'system';
                   const sender = analysts.find(a => a.id === msg.senderId);
                   return (
@@ -578,7 +588,8 @@ export default function InternalTicketDetailPage() {
                   );
                 })}
               </div>
-            )}
+            );
+            })()}
           </div>
           <div className="p-4 border-t border-[var(--border-default)]">
             <RichEditor content={input} onChange={setInput} placeholder="Digite sua nota interna..." minHeight="80px" />

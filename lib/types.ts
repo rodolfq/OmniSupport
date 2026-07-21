@@ -192,7 +192,11 @@ export interface Message {
   text: string;
   timestamp: string;
   isVisibleToCustomer: boolean;
-  type: 'text' | 'system' | 'internal';
+  // 'system_log' é igual a 'system' (evento automático, não digitado por
+  // ninguém) mas nunca aparece na conversa/feed visível — só na aba
+  // Histórico. Usado pra edição de descrição, que é "gravada" mas não vira
+  // mensagem (ver ticket-diff / handleUpdateTicket / saveMainTicketDescription).
+  type: 'text' | 'system' | 'internal' | 'system_log';
   attachments?: Attachment[];
 }
 

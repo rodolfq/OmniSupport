@@ -558,6 +558,21 @@ const handleSendMessage = async (isInternal: boolean) => {
     try {
       const updated: Ticket = { ...ticket, description: ticketDescription, updatedAt: new Date().toISOString() };
       await TicketService.update(updated);
+      lastSavedRef.current = updated;
+      // Fica registrado, mas não vira mensagem visível — só entra na aba
+      // Histórico ('system_log', igual ao ticket interno).
+      if (currentUser) {
+        await MessageService.create({
+          id: Math.random().toString(36).substr(2, 9),
+          ticketId: ticket.id,
+          senderId: currentUser.id,
+          text: 'Descrição atualizada',
+          timestamp: new Date().toISOString(),
+          isVisibleToCustomer: false,
+          type: 'system_log'
+        });
+        loadMessages();
+      }
       triggerRefresh();
       setIsEditingDescription(false);
       flashSaved();
@@ -1232,7 +1247,7 @@ const handleSendMessage = async (isInternal: boolean) => {
                          </div>
                          <div className="space-y-4">
                            {(() => {
-                             const changeLog = messages.filter(m => m.type === 'system');
+                             const changeLog = messages.filter(m => m.type === 'system' || m.type === 'system_log');
                              if (changeLog.length === 0) {
                                return (
                                  <div className="text-center py-12 bg-[var(--surface-card)]/50 rounded-2xl border border-dashed border-[var(--border-default)]">
@@ -1304,7 +1319,7 @@ const handleSendMessage = async (isInternal: boolean) => {
            {/* Messages Scroll Area */}
            <div ref={scrollRef} className="flex-1 overflow-y-auto p-6 space-y-6">
               {messages
-                .filter(m => m.type !== 'system' && (historyTab === 'customer' ? m.isVisibleToCustomer : !m.isVisibleToCustomer))
+                .filter(m => m.type !== 'system' && m.type !== 'system_log' && (historyTab === 'customer' ? m.isVisibleToCustomer : !m.isVisibleToCustomer))
                 .map((m) => {
                   const isInternal = m.type === 'internal' || !m.isVisibleToCustomer;
                   const sender = allUsers.find(u => u.id === m.senderId);
@@ -1362,8 +1377,8 @@ const handleSendMessage = async (isInternal: boolean) => {
                   );
               })}
               {(historyTab === 'customer'
-                ? messages.filter(m => m.type !== 'system' && m.isVisibleToCustomer).length
-                : messages.filter(m => m.type !== 'system' && !m.isVisibleToCustomer).length) === 0 && (
+                ? messages.filter(m => m.type !== 'system' && m.type !== 'system_log' && m.isVisibleToCustomer).length
+                : messages.filter(m => m.type !== 'system' && m.type !== 'system_log' && !m.isVisibleToCustomer).length) === 0 && (
                 <div className="text-center py-20">
                    <Clock className="mx-auto text-slate-200 mb-2" size={32} />
                    <p className="text-xs font-bold text-[var(--text-tertiary)] uppercase tracking-widest">Nenhuma atividade registrada</p>

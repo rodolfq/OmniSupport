@@ -465,12 +465,12 @@ export class InternalTicketService {
   // Isso faz o histórico do ticket interno ficar unificado (comentário e
   // evento no mesmo feed) e alimenta a notificação de status sem precisar
   // de nenhuma tabela nova.
-  static async logEvent(internalTicketId: string, authorId: string | undefined, text: string): Promise<void> {
+  static async logEvent(internalTicketId: string, authorId: string | undefined, text: string, type: 'system' | 'system_log' = 'system'): Promise<void> {
     const { error } = await supabase.from('internal_ticket_messages').insert({
       internal_ticket_id: internalTicketId,
       author_id: authorId || null,
       content: text,
-      type: 'system'
+      type
     });
     if (error) console.error('InternalTicketService.logEvent error:', error);
   }
