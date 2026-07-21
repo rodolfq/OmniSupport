@@ -583,7 +583,10 @@ export default function InternalTicketDetailPage() {
                           <ClientTime date={msg.timestamp} showDate={true} />
                         </span>
                       </div>
-                      <p className={cn("text-sm whitespace-pre-wrap", isSystem ? "text-[var(--text-tertiary)]" : "text-[var(--text-secondary)]")}>{msg.text}</p>
+                      <p
+                        className={cn("text-sm whitespace-pre-wrap", isSystem ? "text-[var(--text-tertiary)]" : "text-[var(--text-secondary)]")}
+                        dangerouslySetInnerHTML={{ __html: msg.text }}
+                      />
                     </div>
                   );
                 })}
