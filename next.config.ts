@@ -67,6 +67,15 @@ const nextConfig: NextConfig = {
     'sharp',
     'ffmpeg-static'
   ],
+  // onnxruntime-node empacota binarios nativos para win32/darwin/linux dentro
+  // do mesmo pacote; o servidor de deploy roda Linux, entao os outros ~160MB
+  // sao mortos e so servem pra estourar o limite de 250MB da lambda.
+  outputFileTracingExcludes: {
+    '*': [
+      'node_modules/onnxruntime-node/bin/napi-v6/darwin/**',
+      'node_modules/onnxruntime-node/bin/napi-v6/win32/**',
+    ],
+  },
   eslint: {
     ignoreDuringBuilds: true,
   },
