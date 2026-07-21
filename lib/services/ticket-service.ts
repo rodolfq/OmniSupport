@@ -2,6 +2,7 @@ import { supabase } from '../supabase';
 import { Ticket, Message, InternalTicket, TicketStatus } from '../types';
 import { Permission } from '../types';
 import { CLOSED_TICKET_STATUSES } from '../ticket-status';
+import { computeInternalTicketSla } from '../sla';
 
 export class TicketService {
   static async getAll(signal?: AbortSignal): Promise<Ticket[]> {
@@ -388,6 +389,13 @@ export class InternalTicketService {
         const maxUsed = existing?.[0]?.internal_ticket_number || 0;
         payload.internal_ticket_number = maxUsed + 1;
         console.log('Calculated next internal ticket number:', payload.internal_ticket_number);
+
+        // Prazo já nasce calculado a partir da prioridade escolhida + SLA
+        // configurado em Configurações — mesma lógica usada ao reprocessar
+        // o prazo quando a prioridade muda depois (ver handleUpdateTicket).
+        const { data: priorityConfigs } = await supabase.from('config_priorities').select('label, sla_hours');
+        const nowIso = new Date().toISOString();
+        payload.sla_limit = computeInternalTicketSla(payload.priority, nowIso, priorityConfigs || []);
 
         // Insert new record
         console.log('Inserting new internal ticket');

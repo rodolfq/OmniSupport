@@ -152,6 +152,7 @@ export interface InternalTicket {
   createdAt?: string;
   updatedAt?: string;
   slaLimit?: string | null;
+  expectedPublishDate?: string | null;
   status?: "Novo" | "Em Andamento" | "Em Atendimento" | "Em Espera" | "Pendente" | "Resolvido" | "Concluído" | "Fechado" | "Encerrado" | "Cancelado";
 }
 

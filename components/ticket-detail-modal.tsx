@@ -22,6 +22,7 @@ import { UserService } from '@/lib/services/user-service';
 import { CompanyService } from '@/lib/services/company-service';
 import { ConfigService } from '@/lib/services/config-service';
 import { getDefaultClosedTicketStatus, isClosedTicketStatus } from '@/lib/ticket-status';
+import { FieldChange, formatChangeMessage } from '@/lib/ticket-diff';
 
 interface TicketDetailModalProps {
   ticket: Ticket | null;
@@ -112,6 +113,11 @@ export function TicketDetailModal({ ticket, onClose }: TicketDetailModalProps) {
   const [saveStatus, setSaveStatus] = useState<'idle' | 'saving' | 'saved' | 'error'>('idle');
   const pendingOverridesRef = useRef<Partial<Ticket>>({});
   const saveTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  // "De onde" o diff do histórico compara — começa no ticket recebido e
+  // avança a cada gravação bem-sucedida, pra uma sequência de edições na
+  // mesma sessão (A→B, depois B→A) gerar os dois registros corretos em vez
+  // de comparar sempre contra o valor de quando o modal abriu.
+  const lastSavedRef = useRef<Ticket | null>(ticket);
   const savedBadgeTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const DEBOUNCE_MS = 1200;
 
@@ -181,6 +187,7 @@ export function TicketDetailModal({ ticket, onClose }: TicketDetailModalProps) {
     setMainTags(ticket.tags || []);
     setCustomerId(ticket.customerId);
     setCompanyId(ticket.companyId || '');
+    lastSavedRef.current = ticket;
     setEmployeeIds(ticket.employeeIds || []);
     loadMessages();
     loadInternalTickets();
@@ -464,9 +471,52 @@ const handleSendMessage = async (isInternal: boolean) => {
       updatedAt: new Date().toISOString()
     };
 
+    // Diff contra o último estado salvo nesta sessão (não contra o ticket de
+    // quando o modal abriu) — vira uma mensagem de sistema na aba Histórico
+    // (não aparece na Conversa, só registra pra consulta).
+    const prev = lastSavedRef.current || ticket;
+    const changes: FieldChange[] = [];
+    if (statusToSave !== prev.status) {
+      changes.push({ label: 'Estágio', from: prev.status, to: statusToSave as string });
+    }
+    if (priorityToSave !== prev.priority) {
+      changes.push({ label: 'Prioridade', from: prev.priority, to: priorityToSave as string });
+    }
+    if (categoryToSave !== prev.category) {
+      changes.push({ label: 'Equipe', from: prev.category || 'Sem equipe', to: categoryToSave || 'Sem equipe' });
+    }
+    if ((assigneeToSave || '') !== (prev.assigneeId || '')) {
+      const fromName = prev.assigneeId ? (analysts.find(a => a.id === prev.assigneeId)?.name || 'alguém') : 'Não atribuído';
+      const toName = assigneeToSave ? (analysts.find(a => a.id === assigneeToSave)?.name || 'alguém') : 'Não atribuído';
+      changes.push({ label: 'Responsável', from: fromName, to: toName });
+    }
+    if ((companyToSave || '') !== (prev.companyId || '')) {
+      const fromName = prev.companyId ? (companies.find(c => c.id === prev.companyId)?.name || 'alguém') : 'Nenhuma';
+      const toName = companyToSave ? (companies.find(c => c.id === companyToSave)?.name || 'alguém') : 'Nenhuma';
+      changes.push({ label: 'Cliente', from: fromName, to: toName });
+    }
+    if ((customerToSave || '') !== (prev.customerId || '')) {
+      const fromName = prev.customerId ? (allUsers.find(u => u.id === prev.customerId)?.name || 'alguém') : 'Nenhum';
+      const toName = customerToSave ? (allUsers.find(u => u.id === customerToSave)?.name || 'alguém') : 'Nenhum';
+      changes.push({ label: 'Contato', from: fromName, to: toName });
+    }
+
     setSaveStatus('saving');
     try {
       await TicketService.update(updated);
+      lastSavedRef.current = updated;
+      if (changes.length > 0 && currentUser) {
+        await MessageService.create({
+          id: Math.random().toString(36).substr(2, 9),
+          ticketId: ticket.id,
+          senderId: currentUser.id,
+          text: formatChangeMessage(changes),
+          timestamp: new Date().toISOString(),
+          isVisibleToCustomer: false,
+          type: 'system'
+        });
+        loadMessages();
+      }
       triggerRefresh();
       flashSaved();
     } catch (err) {
@@ -1181,27 +1231,34 @@ const handleSendMessage = async (isInternal: boolean) => {
                             <h3 className="text-xs font-black uppercase text-[var(--text-tertiary)] tracking-widest">Logs de Alteração</h3>
                          </div>
                          <div className="space-y-4">
-                           {ticket?.history && ticket.history.length > 0 ? (
-                             [...ticket.history].reverse().map((entry: any, idx) => (
-                               <div key={idx} className="flex gap-4 p-4 rounded-xl border border-[var(--border-default)] bg-[var(--surface-card)]/30">
-                                 <div className="w-8 h-8 rounded-full bg-[var(--surface-pill)] flex items-center justify-center shrink-0">
-                                   <History size={14} className="text-[var(--text-tertiary)]" />
+                           {(() => {
+                             const changeLog = messages.filter(m => m.type === 'system');
+                             if (changeLog.length === 0) {
+                               return (
+                                 <div className="text-center py-12 bg-[var(--surface-card)]/50 rounded-2xl border border-dashed border-[var(--border-default)]">
+                                    <History size={24} className="mx-auto text-slate-300 mb-3" />
+                                    <p className="text-xs font-bold text-[var(--text-tertiary)] uppercase tracking-widest">Nenhuma alteração registrada</p>
                                  </div>
-                                 <div className="flex-1 min-w-0">
-                                    <div className="flex items-center justify-between gap-4 mb-1">
-                                      <span className="text-xs font-bold text-[var(--text-primary)] truncate">{entry.author}</span>
-                                      <span className="text-[10px] font-medium text-[var(--text-tertiary)] shrink-0"><ClientTime date={entry.timestamp} showDate={true} /></span>
-                                    </div>
-                                    <p className="text-xs text-[var(--text-secondary)] leading-relaxed">{entry.description}</p>
+                               );
+                             }
+                             return [...changeLog].reverse().map((entry) => {
+                               const author = allUsers.find(u => u.id === entry.senderId)?.name || 'Sistema';
+                               return (
+                                 <div key={entry.id} className="flex gap-4 p-4 rounded-xl border border-[var(--border-default)] bg-[var(--surface-card)]/30">
+                                   <div className="w-8 h-8 rounded-full bg-[var(--surface-pill)] flex items-center justify-center shrink-0">
+                                     <History size={14} className="text-[var(--text-tertiary)]" />
+                                   </div>
+                                   <div className="flex-1 min-w-0">
+                                      <div className="flex items-center justify-between gap-4 mb-1">
+                                        <span className="text-xs font-bold text-[var(--text-primary)] truncate">{author}</span>
+                                        <span className="text-[10px] font-medium text-[var(--text-tertiary)] shrink-0"><ClientTime date={entry.timestamp} showDate={true} /></span>
+                                      </div>
+                                      <p className="text-xs text-[var(--text-secondary)] leading-relaxed whitespace-pre-wrap">{entry.text}</p>
+                                   </div>
                                  </div>
-                               </div>
-                             ))
-                           ) : (
-                             <div className="text-center py-12 bg-[var(--surface-card)]/50 rounded-2xl border border-dashed border-[var(--border-default)]">
-                                <History size={24} className="mx-auto text-slate-300 mb-3" />
-                                <p className="text-xs font-bold text-[var(--text-tertiary)] uppercase tracking-widest">Nenhuma alteração registrada</p>
-                             </div>
-                           )}
+                               );
+                             });
+                           })()}
                          </div>
                        </div>
                      )}
@@ -1247,7 +1304,7 @@ const handleSendMessage = async (isInternal: boolean) => {
            {/* Messages Scroll Area */}
            <div ref={scrollRef} className="flex-1 overflow-y-auto p-6 space-y-6">
               {messages
-                .filter(m => historyTab === 'customer' ? m.isVisibleToCustomer : !m.isVisibleToCustomer)
+                .filter(m => m.type !== 'system' && (historyTab === 'customer' ? m.isVisibleToCustomer : !m.isVisibleToCustomer))
                 .map((m) => {
                   const isInternal = m.type === 'internal' || !m.isVisibleToCustomer;
                   const sender = allUsers.find(u => u.id === m.senderId);
@@ -1304,9 +1361,9 @@ const handleSendMessage = async (isInternal: boolean) => {
                     </div>
                   );
               })}
-              {(historyTab === 'customer' 
-                ? messages.filter(m => m.isVisibleToCustomer).length 
-                : messages.filter(m => !m.isVisibleToCustomer).length) === 0 && (
+              {(historyTab === 'customer'
+                ? messages.filter(m => m.type !== 'system' && m.isVisibleToCustomer).length
+                : messages.filter(m => m.type !== 'system' && !m.isVisibleToCustomer).length) === 0 && (
                 <div className="text-center py-20">
                    <Clock className="mx-auto text-slate-200 mb-2" size={32} />
                    <p className="text-xs font-bold text-[var(--text-tertiary)] uppercase tracking-widest">Nenhuma atividade registrada</p>

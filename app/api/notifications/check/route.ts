@@ -92,6 +92,7 @@ export async function GET(request: NextRequest) {
        JOIN public.tickets t ON t.id = m.ticket_id
        WHERE m.created_at > $1
          AND (m.author_id IS NULL OR m.author_id <> $2::uuid)
+         AND m.type <> 'system'
          AND (${isCompanyUser(user.role) ? 'm.is_visible_to_customer = true' : 'true'})
          AND ${relevantTicketClause}
        ORDER BY m.created_at ASC

@@ -16,11 +16,15 @@ import {
   Clock,
   Link2,
   Search,
-  X
+  X,
+  History
 } from 'lucide-react';
 import { RichEditor } from '@/components/rich-editor';
 import { toast } from 'sonner';
 import { ClientTime } from '@/components/client-time';
+import { FieldChange, formatChangeMessage } from '@/lib/ticket-diff';
+import { INTERNAL_PRIORITY_LABELS, computeInternalTicketSla } from '@/lib/sla';
+import { fetchPriorities } from '@/lib/services/config-service';
 
 interface Attachment {
   id: string;
@@ -56,13 +60,13 @@ interface InternalTicketWithExtras extends InternalTicket {
   creatorName?: string;
 }
 
-// Formato datetime-local (sem timezone) a partir de um ISO string, e volta.
-function toDateTimeLocal(iso?: string | null) {
+// Formato de campo <input type="date"> (sem hora) a partir de um ISO string, e volta.
+function toDateOnly(iso?: string | null) {
   if (!iso) return '';
   const d = new Date(iso);
   if (isNaN(d.getTime())) return '';
   const pad = (n: number) => String(n).padStart(2, '0');
-  return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}`;
+  return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`;
 }
 
 export default function InternalTicketDetailPage() {
@@ -76,7 +80,7 @@ export default function InternalTicketDetailPage() {
   const [input, setInput] = useState('');
   const [isUploading, setIsUploading] = useState(false);
   const [previewAttachments, setPreviewAttachments] = useState<Attachment[]>([]);
-  const [activeTab, setActiveTab] = useState<'description' | 'linked' | 'attachments'>('description');
+  const [activeTab, setActiveTab] = useState<'description' | 'linked' | 'attachments' | 'history'>('description');
   const fileInputRef = React.useRef<HTMLInputElement>(null);
 
   const [formTitle, setFormTitle] = useState('');
@@ -86,8 +90,9 @@ export default function InternalTicketDetailPage() {
   const [formAssignee, setFormAssignee] = useState('');
   const [formStatus, setFormStatus] = useState('Novo');
   const [formTags, setFormTags] = useState('');
-  const [formSla, setFormSla] = useState('');
+  const [formExpectedPublish, setFormExpectedPublish] = useState('');
   const [analysts, setAnalysts] = useState<User[]>([]);
+  const [priorities, setPriorities] = useState<any[]>([]);
 
   // Vincular chamado existente a este ticket interno
   const [showLinkTicketModal, setShowLinkTicketModal] = useState(false);
@@ -136,6 +141,7 @@ export default function InternalTicketDetailPage() {
         createdAt: data.created_at,
         updatedAt: data.updated_at,
         slaLimit: data.sla_limit,
+        expectedPublishDate: data.expected_publish_date,
         status: data.status || 'Novo',
         assigneeName: data.assignee_id ? profileMap.get(data.assignee_id) || null : null,
         creatorName: data.creator_id ? profileMap.get(data.creator_id) || null : null,
@@ -147,7 +153,7 @@ export default function InternalTicketDetailPage() {
       setFormAssignee(data.assignee_id || '');
       setFormStatus(data.status || 'Novo');
       setFormTags((data.tags || []).join(', '));
-      setFormSla(toDateTimeLocal(data.sla_limit));
+      setFormExpectedPublish(toDateOnly(data.expected_publish_date));
     } catch (error) { console.error('Error loading ticket:', error); toast.error('Erro ao carregar ticket'); }
     finally { setLoading(false); }
   }, [ticketId, currentUser]);
@@ -157,13 +163,18 @@ export default function InternalTicketDetailPage() {
     if (!error) setAnalysts(data || []);
   }, []);
 
+  const fetchPriorityConfig = useCallback(async () => {
+    const data = await fetchPriorities();
+    setPriorities(data || []);
+  }, []);
+
   const loadMessages = useCallback(async () => {
     if (!ticket?.uuid) return;
     try { const msgs = await MessageService.getByInternalTicket(ticket.uuid); setMessages(msgs); }
     catch (error) { console.error('Error loading messages:', error); }
   }, [ticket?.uuid]);
 
-  useEffect(() => { fetchTicket(); fetchAnalysts(); }, [fetchTicket, fetchAnalysts]);
+  useEffect(() => { fetchTicket(); fetchAnalysts(); fetchPriorityConfig(); }, [fetchTicket, fetchAnalysts, fetchPriorityConfig]);
   useEffect(() => { if (ticket) loadMessages(); }, [ticket?.uuid]);
 
   useEffect(() => {
@@ -218,7 +229,11 @@ export default function InternalTicketDetailPage() {
     const nextStatus = overrides.status ?? formStatus;
     const nextAssignee = 'assigneeId' in overrides ? (overrides.assigneeId || '') : formAssignee;
     const tags = formTags.split(',').map(s => s.trim()).filter(Boolean);
-    const slaIso = formSla ? new Date(formSla).toISOString() : null;
+    // Vencimento nunca é digitado — reflete a prioridade atual, calculada a
+    // partir do SLA (em horas) configurado em Configurações > Prioridades,
+    // contado desde a criação do ticket.
+    const slaIso = computeInternalTicketSla(formPriority, ticket.createdAt || new Date().toISOString(), priorities);
+    const expectedPublishIso = formExpectedPublish ? new Date(`${formExpectedPublish}T00:00:00`).toISOString() : null;
 
     try {
       const { error } = await supabase.from('internal_tickets').update({
@@ -230,26 +245,56 @@ export default function InternalTicketDetailPage() {
         status: nextStatus,
         tags,
         sla_limit: slaIso,
+        expected_publish_date: expectedPublishIso,
         updated_at: new Date().toISOString()
       }).eq('id', ticket.uuid);
       if (error) throw error;
 
-      const events: string[] = [];
+      // Mensagem única com todos os campos alterados nessa gravação (formato
+      // "de → para (Campo)"), em vez de um evento por campo — assim uma
+      // sequência de edições (status, depois responsável, depois prioridade)
+      // que o debounce/blur juntou numa gravação só vira um post só também.
+      const changes: FieldChange[] = [];
       if (nextStatus !== (ticket.status || 'Novo')) {
-        events.push(`Status alterado de "${ticket.status || 'Novo'}" para "${nextStatus}"`);
+        changes.push({ label: 'Estágio', from: ticket.status || 'Novo', to: nextStatus });
       }
       if (nextAssignee !== (ticket.assigneeId || '')) {
-        const name = analysts.find(a => a.id === nextAssignee)?.name;
-        events.push(nextAssignee ? `Responsável definido como ${name || 'alguém'}` : 'Responsável removido');
+        const fromName = ticket.assigneeId ? (analysts.find(a => a.id === ticket.assigneeId)?.name || 'alguém') : 'Não atribuído';
+        const toName = nextAssignee ? (analysts.find(a => a.id === nextAssignee)?.name || 'alguém') : 'Não atribuído';
+        changes.push({ label: 'Responsável', from: fromName, to: toName });
       }
-      for (const text of events) {
-        await InternalTicketService.logEvent(ticket.uuid, currentUser?.id, text);
+      if (formTeam !== (ticket.teamId || '')) {
+        changes.push({ label: 'Equipe', from: ticket.teamId || 'Sem equipe', to: formTeam || 'Sem equipe' });
+      }
+      if (formPriority !== ticket.priority) {
+        changes.push({ label: 'Prioridade', from: INTERNAL_PRIORITY_LABELS[ticket.priority] || String(ticket.priority), to: INTERNAL_PRIORITY_LABELS[formPriority] || String(formPriority) });
+      }
+      if (formTitle !== ticket.title) {
+        changes.push({ label: 'Título', from: ticket.title, to: formTitle });
+      }
+      const prevTags = (ticket.tags || []).join(', ');
+      const nextTags = tags.join(', ');
+      if (prevTags !== nextTags) {
+        changes.push({ label: 'Marcadores', from: prevTags || 'Nenhum', to: nextTags || 'Nenhum' });
+      }
+      const fmtDateTime = (iso: string | null) => iso ? new Date(iso).toLocaleString('pt-BR', { day: '2-digit', month: '2-digit', year: 'numeric', hour: '2-digit', minute: '2-digit' }) : 'Sem prazo';
+      const prevSla = ticket.slaLimit || null;
+      if (slaIso !== prevSla) {
+        changes.push({ label: 'Vencimento', from: fmtDateTime(prevSla), to: fmtDateTime(slaIso) });
+      }
+      const prevExpectedPublish = ticket.expectedPublishDate || null;
+      if (expectedPublishIso !== prevExpectedPublish) {
+        const fmtDate = (iso: string | null) => iso ? new Date(iso).toLocaleDateString('pt-BR', { day: '2-digit', month: '2-digit', year: 'numeric' }) : 'Não definida';
+        changes.push({ label: 'Publicação Prevista', from: fmtDate(prevExpectedPublish), to: fmtDate(expectedPublishIso) });
+      }
+      if (changes.length > 0) {
+        await InternalTicketService.logEvent(ticket.uuid, currentUser?.id, formatChangeMessage(changes));
       }
 
       setFormStatus(nextStatus);
       setFormAssignee(nextAssignee);
-      setTicket(prev => prev ? { ...prev, status: nextStatus as InternalTicketWithExtras['status'], assigneeId: nextAssignee, tags } : prev);
-      if (events.length > 0) loadMessages();
+      setTicket(prev => prev ? { ...prev, status: nextStatus as InternalTicketWithExtras['status'], assigneeId: nextAssignee, tags, teamId: formTeam, priority: formPriority, title: formTitle, slaLimit: slaIso, expectedPublishDate: expectedPublishIso } : prev);
+      if (changes.length > 0) loadMessages();
       toast.success('Ticket atualizado');
       triggerRefresh();
     } catch (error) {
@@ -334,16 +379,15 @@ export default function InternalTicketDetailPage() {
                   {analysts.map(a => <option key={a.id} value={a.id}>{a.name}</option>)}
                 </StyledSelect></div>
               <div><p className="text-[10px] text-[var(--text-tertiary)] font-bold uppercase mb-1">Vencimento</p>
-                <input
-                  type="datetime-local"
-                  value={formSla}
-                  onChange={(e) => setFormSla(e.target.value)}
-                  onBlur={() => handleUpdateTicket()}
-                  className={cn(
-                    "w-full bg-[var(--surface-card)] border border-[var(--border-default)] rounded-lg px-3 py-2 text-xs font-bold",
-                    formSla && new Date(formSla) < new Date() ? "text-[var(--text-danger)]" : "text-[var(--text-primary)]"
-                  )}
-                />
+                {(() => {
+                  const computedSla = computeInternalTicketSla(formPriority, ticket.createdAt || new Date().toISOString(), priorities);
+                  const overdue = computedSla && new Date(computedSla) < new Date();
+                  return (
+                    <p className={cn("text-xs font-bold px-1 py-2", overdue ? "text-[var(--text-danger)]" : "text-[var(--text-primary)]")} title="Calculado a partir da prioridade e do SLA configurado em Configurações">
+                      {computedSla ? new Date(computedSla).toLocaleString('pt-BR', { day: '2-digit', month: '2-digit', year: 'numeric', hour: '2-digit', minute: '2-digit' }) : 'Sem SLA configurado'}
+                    </p>
+                  );
+                })()}
               </div>
               <div><p className="text-[10px] text-[var(--text-tertiary)] font-bold uppercase mb-1">Prioridade</p>
                 <div className="flex items-center gap-1">{[1, 2, 3, 4].map(star => (
@@ -355,6 +399,15 @@ export default function InternalTicketDetailPage() {
             <div className="space-y-3">
               <div><p className="text-[10px] text-[var(--text-tertiary)] font-bold uppercase mb-1">Criado por</p>
                 <p className="text-xs font-bold text-[var(--text-primary)]">{ticket.creatorName || '—'}</p></div>
+              <div><p className="text-[10px] text-[var(--text-tertiary)] font-bold uppercase mb-1">Publicação Prevista</p>
+                <input
+                  type="date"
+                  value={formExpectedPublish}
+                  onChange={(e) => setFormExpectedPublish(e.target.value)}
+                  onBlur={() => handleUpdateTicket()}
+                  className="w-full bg-[var(--surface-card)] border border-[var(--border-default)] rounded-lg px-3 py-2 text-xs font-bold text-[var(--text-primary)]"
+                />
+              </div>
               <div><p className="text-[10px] text-[var(--text-tertiary)] font-bold uppercase mb-1">Marcadores</p>
                 <input
                   value={formTags}
@@ -378,7 +431,8 @@ export default function InternalTicketDetailPage() {
             {[
               { key: 'description', label: 'DESCRIÇÃO' },
               { key: 'linked', label: 'CHAMADOS VINCULADOS', icon: Link2 },
-              { key: 'attachments', label: 'ANEXOS', icon: Paperclip }
+              { key: 'attachments', label: 'ANEXOS', icon: Paperclip },
+              { key: 'history', label: 'HISTÓRICO', icon: History }
             ].map(tab => {
               const TabIcon = tab.icon;
               return (<button key={tab.key} onClick={() => setActiveTab(tab.key as any)} className={cn("text-[10px] font-bold uppercase pb-2 border-b-2 transition-all flex items-center gap-1", activeTab === tab.key ? "text-[var(--text-warning)] border-[var(--text-warning-strong)]" : "text-[var(--text-tertiary)] border-transparent hover:text-[var(--text-secondary)]")}>
@@ -450,6 +504,39 @@ export default function InternalTicketDetailPage() {
                 })()}
               </div>
             )}
+            {activeTab === 'history' && (
+              <div className="min-h-96">
+                {(() => {
+                  const changeLog = messages.filter(m => m.type === 'system');
+                  return changeLog.length === 0 ? (
+                    <div className="text-center py-12">
+                      <History size={32} className="mx-auto text-slate-300 mb-2" />
+                      <p className="text-xs text-[var(--text-tertiary)]">Nenhuma alteração registrada</p>
+                    </div>
+                  ) : (
+                    <div className="space-y-3 max-h-[32rem] overflow-y-auto pr-1">
+                      {[...changeLog].reverse().map((entry) => {
+                        const author = analysts.find(a => a.id === entry.senderId)?.name || 'Sistema';
+                        return (
+                          <div key={entry.id} className="flex gap-3 p-3 rounded-xl border border-dashed border-[var(--border-default)] bg-[var(--surface-pill)]/50">
+                            <div className="w-8 h-8 rounded-full bg-[var(--surface-card)] flex items-center justify-center shrink-0">
+                              <History size={14} className="text-[var(--text-tertiary)]" />
+                            </div>
+                            <div className="flex-1 min-w-0">
+                              <div className="flex items-center justify-between gap-4 mb-1">
+                                <span className="text-xs font-bold text-[var(--text-primary)] truncate">{author}</span>
+                                <span className="text-[10px] font-medium text-[var(--text-tertiary)] shrink-0"><ClientTime date={entry.timestamp} showDate={true} /></span>
+                              </div>
+                              <p className="text-xs text-[var(--text-secondary)] leading-relaxed whitespace-pre-wrap">{entry.text}</p>
+                            </div>
+                          </div>
+                        );
+                      })}
+                    </div>
+                  );
+                })()}
+              </div>
+            )}
           </div>
         </div>
 
@@ -481,12 +568,12 @@ export default function InternalTicketDetailPage() {
                       isSystem ? "bg-[var(--surface-pill)] border-[var(--border-default)] border-dashed" : "bg-[var(--surface-card)] border-[var(--border-default)]"
                     )}>
                       <div className="flex items-center gap-2 mb-1">
-                        {!isSystem && sender && <span className="text-[10px] font-bold text-[var(--text-primary)]">{sender.name}</span>}
+                        {sender && <span className="text-[10px] font-bold text-[var(--text-primary)]">{sender.name}</span>}
                         <span className="text-[10px] font-bold text-[var(--text-warning)]">
                           <ClientTime date={msg.timestamp} showDate={true} />
                         </span>
                       </div>
-                      <p className={cn("text-sm", isSystem ? "text-[var(--text-tertiary)] italic" : "text-[var(--text-secondary)]")}>{msg.text}</p>
+                      <p className={cn("text-sm whitespace-pre-wrap", isSystem ? "text-[var(--text-tertiary)]" : "text-[var(--text-secondary)]")}>{msg.text}</p>
                     </div>
                   );
                 })}

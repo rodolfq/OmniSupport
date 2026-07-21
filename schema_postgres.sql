@@ -333,7 +333,8 @@ CREATE TABLE public.internal_tickets (
   status TEXT DEFAULT 'Novo',
   created_at TIMESTAMP WITH TIME ZONE DEFAULT now() NOT NULL,
   updated_at TIMESTAMP WITH TIME ZONE DEFAULT now() NOT NULL,
-  sla_limit TIMESTAMP WITH TIME ZONE
+  sla_limit TIMESTAMP WITH TIME ZONE, -- calculado a partir da prioridade + SLA configurado em Configurações (ver InternalTicketService.saveWithDetails / handleUpdateTicket), não editado manualmente
+  expected_publish_date TIMESTAMP WITH TIME ZONE -- "Publicação prevista": estimativa do dev, independente do SLA
 );
 
 CREATE INDEX IF NOT EXISTS idx_internal_tickets_number ON public.internal_tickets(internal_ticket_number);
