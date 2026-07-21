@@ -23,13 +23,47 @@ async function getCurrentActionUser() {
   return result.rows[0] || null;
 }
 
+// Equipes que o ator administra (internal_teams.admin_ids contém o id
+// dele) — base de toda a autorização de "admin de setor" abaixo: fora do
+// Administrador do sistema, ninguém mexe em usuário/perfil de acesso que
+// não esteja em uma dessas equipes.
+async function getAdminTeamIds(actorId: string): Promise<string[]> {
+  const res = await query('SELECT id FROM public.internal_teams WHERE $1 = ANY(admin_ids)', [actorId]);
+  return res.rows.map(r => r.id);
+}
+
+// Um perfil de acesso só pode ser editado/renomeado/excluído por: o
+// Administrador do sistema, ou um admin da equipe à qual o perfil está
+// escopado. Perfis de sistema (is_system) e perfis globais (sem equipe)
+// nunca são editáveis por admin de equipe.
+async function assertProfileEditable(actor: { id: string; role: string }, profileId: string): Promise<{ ok: true } | { ok: false; error: string }> {
+  if (actor.role === 'Administrador') return { ok: true };
+
+  const res = await query('SELECT internal_team_id, is_system FROM public.role_permissions WHERE id = $1', [profileId]);
+  const profile = res.rows[0];
+  if (!profile || profile.is_system || !profile.internal_team_id) {
+    return { ok: false, error: 'Você não tem permissão para editar este perfil.' };
+  }
+
+  const adminTeamIds = await getAdminTeamIds(actor.id);
+  if (!adminTeamIds.includes(profile.internal_team_id)) {
+    return { ok: false, error: 'Você não administra essa equipe.' };
+  }
+  return { ok: true };
+}
+
 export async function createUser(
   email: string,
   name: string,
   role: string,
   companyId: string | null,
   phones: string[],
-  viewAllCompanyTickets: boolean
+  viewAllCompanyTickets: boolean,
+  // Perfil de Acesso escolhido e equipe(s) internas — só usados pra quem
+  // não é Cliente; um admin de equipe só consegue passar por aqui se
+  // accessProfileId apontar pra um perfil da própria equipe (checado abaixo).
+  accessProfileId?: string,
+  internalTeamIds?: string[]
 ) {
   try {
     const actor = await getCurrentActionUser();
@@ -38,39 +72,83 @@ export async function createUser(
     }
 
     const actorIsCustomer = actor.role === 'Cliente';
+    const actorIsSystemAdmin = actor.role === 'Administrador';
+    let finalRole = role;
+    let finalProfileId: string | null = accessProfileId || null;
+    let finalTeamIds: string[] = internalTeamIds || [];
+
     if (actorIsCustomer) {
       if (role !== 'Funcionário' || companyId !== actor.company_id) {
         return { error: 'Você só pode criar funcionários da sua própria empresa.' };
       }
       viewAllCompanyTickets = false;
-    } else if (actor.role !== 'Administrador') {
-      return { error: 'Você não tem permissão para criar usuários.' };
+      finalTeamIds = [];
+    } else if (actorIsSystemAdmin) {
+      // Administrador do sistema: livre, respeita o que veio do formulário.
+      if (finalProfileId && finalTeamIds.length === 0) {
+        const p = await query('SELECT internal_team_id FROM public.role_permissions WHERE id = $1', [finalProfileId]);
+        if (p.rows[0]?.internal_team_id) finalTeamIds = [p.rows[0].internal_team_id];
+      }
+    } else {
+      // Não é Administrador nem Cliente: só passa se for admin de uma
+      // equipe e o perfil escolhido pertencer a essa mesma equipe. O time
+      // estrutural (role) e a equipe atribuída vêm sempre do perfil, nunca
+      // do que o formulário mandou — evita escalar pra Administrador/Equipe
+      // globais ou atribuir a outra equipe.
+      if (!finalProfileId) {
+        return { error: 'Você não tem permissão para criar usuários.' };
+      }
+      const p = await query('SELECT internal_team_id, is_system FROM public.role_permissions WHERE id = $1', [finalProfileId]);
+      const profile = p.rows[0];
+      if (!profile || profile.is_system || !profile.internal_team_id) {
+        return { error: 'Você só pode atribuir perfis de acesso da sua equipe.' };
+      }
+      const adminTeamIds = await getAdminTeamIds(actor.id);
+      if (!adminTeamIds.includes(profile.internal_team_id)) {
+        return { error: 'Você não administra essa equipe.' };
+      }
+      finalRole = 'Time Interno';
+      companyId = null;
+      viewAllCompanyTickets = false;
+      finalTeamIds = [profile.internal_team_id];
+    }
+
+    // Fluxos antigos que só mandam `role` (sem accessProfileId) — inclui
+    // Cliente criando Funcionário: assume o perfil de sistema
+    // correspondente, preservando o comportamento de antes da migração pra
+    // Perfil de Acesso (sem isso, o novo usuário ficaria sem NENHUMA
+    // permissão pra sempre, mesmo que o perfil "Funcionário" tenha alguma).
+    if (!finalProfileId) {
+      const p = await query('SELECT id FROM public.role_permissions WHERE role = $1 AND is_system = true', [finalRole]);
+      finalProfileId = p.rows[0]?.id || null;
     }
 
     const checkRes = await query('SELECT id FROM public.profiles WHERE email = $1', [email]);
     if ((checkRes.rowCount ?? 0) > 0) {
       return { error: 'Usuário com este e-mail já existe.' };
     }
-    
+
     const newId = crypto.randomUUID();
     const defaultPass = hashPassword('Mudar@123');
-    const isAdmin = role === 'Administrador';
-    const livesInSquad = role === 'Administrador' || role === 'Equipe';
-    
+    const isAdmin = finalRole === 'Administrador';
+    const livesInSquad = finalRole === 'Administrador' || finalRole === 'Equipe';
+
     await query(
-      `INSERT INTO public.profiles (id, email, name, role, company_id, phone, view_all_company_tickets, password, is_admin, lives_in_squad)
-       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)`,
+      `INSERT INTO public.profiles (id, email, name, role, company_id, phone, view_all_company_tickets, password, is_admin, lives_in_squad, access_profile_id, internal_team_ids)
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)`,
       [
         newId,
         email,
         name,
-        role,
+        finalRole,
         companyId || null,
         phones[0] || null,
         !!viewAllCompanyTickets,
         defaultPass,
         isAdmin,
-        livesInSquad
+        livesInSquad,
+        finalProfileId,
+        finalTeamIds
       ]
     );
     return { id: newId };
@@ -223,7 +301,9 @@ export async function getUsers() {
       avatarUrl: u.avatar_url || undefined,
       viewAllCompanyTickets: u.view_all_company_tickets,
       isAdmin: u.is_admin,
-      isActive: u.is_active
+      isActive: u.is_active,
+      internalTeamIds: u.internal_team_ids || [],
+      accessProfileId: u.access_profile_id || undefined
     }));
   } catch (err) {
     console.error("Error getting users in actions:", err);
@@ -231,8 +311,40 @@ export async function getUsers() {
   }
 }
 
+// Um admin de equipe só pode agir sobre usuários que já pertencem a uma
+// equipe que ele administra (nunca sobre um Administrador do sistema).
+async function assertUserManageable(actor: { id: string; role: string; company_id?: string | null }, targetId: string): Promise<{ ok: true; target: any } | { ok: false; error: string }> {
+  const res = await query('SELECT id, role, company_id, internal_team_ids FROM public.profiles WHERE id = $1', [targetId]);
+  const target = res.rows[0];
+  if (!target) return { ok: false, error: 'Usuário não encontrado.' };
+  if (actor.role === 'Administrador') return { ok: true, target };
+
+  if (actor.role === 'Cliente') {
+    if (target.company_id !== actor.company_id || target.role !== 'Funcionário') {
+      return { ok: false, error: 'Você só pode gerenciar funcionários da sua própria empresa.' };
+    }
+    return { ok: true, target };
+  }
+
+  if (target.role === 'Administrador') {
+    return { ok: false, error: 'Você não tem permissão para gerenciar este usuário.' };
+  }
+  const adminTeamIds = await getAdminTeamIds(actor.id);
+  const targetTeamIds: string[] = target.internal_team_ids || [];
+  if (adminTeamIds.length === 0 || !targetTeamIds.some(t => adminTeamIds.includes(t))) {
+    return { ok: false, error: 'Você não tem permissão para gerenciar este usuário.' };
+  }
+  return { ok: true, target };
+}
+
 export async function deleteUser(id: string) {
   try {
+    const actor = await getCurrentActionUser();
+    if (!actor) return { error: 'Sessão inválida.' };
+
+    const check = await assertUserManageable(actor, id);
+    if (!check.ok) return { error: check.error };
+
     await query('DELETE FROM public.profiles WHERE id = $1', [id]);
     return { success: true };
   } catch (err) {
@@ -247,15 +359,71 @@ export async function updateUser(
   email: string,
   role: string,
   companyId?: string | null,
-  viewAllCompanyTickets?: boolean
+  viewAllCompanyTickets?: boolean,
+  accessProfileId?: string,
+  internalTeamIds?: string[]
 ) {
   try {
-    await query(
-      `UPDATE public.profiles
-       SET name = $1, email = $2, role = $3, company_id = $4, view_all_company_tickets = $5, updated_at = NOW()
-       WHERE id = $6`,
-      [name, email, role, companyId || null, !!viewAllCompanyTickets, id]
-    );
+    const actor = await getCurrentActionUser();
+    if (!actor) return { error: 'Sessão inválida.' };
+
+    const check = await assertUserManageable(actor, id);
+    if (!check.ok) return { error: check.error };
+    const target = check.target;
+
+    let finalRole = role;
+    let finalProfileId = accessProfileId;
+    let finalTeamIds = internalTeamIds;
+
+    if (actor.role === 'Cliente') {
+      finalRole = target.role; // cliente não muda o role de um funcionário
+      finalProfileId = target.access_profile_id;
+      finalTeamIds = [];
+    } else if (actor.role !== 'Administrador') {
+      // admin de equipe: só pode trocar pra um perfil da própria equipe;
+      // não pode promover a Administrador nem tirar da própria equipe. Se
+      // não veio um perfil novo (ex: só corrigindo o nome), preserva o role
+      // estrutural que o usuário já tinha — forçar 'Time Interno' aqui
+      // rebaixaria silenciosamente um 'Equipe' existente a cada edição.
+      if (finalProfileId) {
+        const p = await query('SELECT internal_team_id, is_system FROM public.role_permissions WHERE id = $1', [finalProfileId]);
+        const profile = p.rows[0];
+        const adminTeamIds = await getAdminTeamIds(actor.id);
+        if (!profile || profile.is_system || !profile.internal_team_id || !adminTeamIds.includes(profile.internal_team_id)) {
+          return { error: 'Você só pode atribuir perfis de acesso da sua equipe.' };
+        }
+        finalTeamIds = [profile.internal_team_id];
+        finalRole = 'Time Interno';
+      } else {
+        finalTeamIds = target.internal_team_ids || [];
+        finalRole = target.role;
+      }
+      companyId = target.company_id;
+      viewAllCompanyTickets = false;
+    } else if (finalProfileId && finalTeamIds === undefined) {
+      // Administrador do sistema trocando o perfil sem informar equipe
+      // explicitamente: se o perfil escolhido é de uma equipe, o usuário
+      // passa a fazer parte dela automaticamente — sem isso, a pessoa ficava
+      // com o perfil certo mas de fora da equipe pra todo o resto do
+      // sistema (filtro de tickets internos, listagem de membros etc).
+      const p = await query('SELECT internal_team_id FROM public.role_permissions WHERE id = $1', [finalProfileId]);
+      const teamId = p.rows[0]?.internal_team_id;
+      if (teamId) {
+        const existing: string[] = target.internal_team_ids || [];
+        finalTeamIds = existing.includes(teamId) ? existing : [...existing, teamId];
+      }
+    }
+
+    // profiles não tem coluna updated_at (diferente de whatsapp_instances,
+    // chat_sessions etc.) — incluir aqui já quebrava esse UPDATE antes desta
+    // correção, só ninguém tinha salvo uma edição de analista até agora.
+    const setClauses = ['name = $1', 'email = $2', 'role = $3', 'company_id = $4', 'view_all_company_tickets = $5'];
+    const params: any[] = [name, email, finalRole, companyId || null, !!viewAllCompanyTickets];
+    if (finalProfileId !== undefined) { params.push(finalProfileId); setClauses.push(`access_profile_id = $${params.length}`); }
+    if (finalTeamIds !== undefined) { params.push(finalTeamIds); setClauses.push(`internal_team_ids = $${params.length}`); }
+    params.push(id);
+
+    await query(`UPDATE public.profiles SET ${setClauses.join(', ')} WHERE id = $${params.length}`, params);
     return { success: true };
   } catch (err: any) {
     console.error("Error updating user in actions:", err);
@@ -643,24 +811,34 @@ export async function getInternalTickets() {
   }
 }
 
+// "Perfil de Acesso" — fonte única de telas/permissões (ver profiles.access_profile_id).
+// Identidade é sempre por id (nunca por name/role) desde aqui pra cima.
 export async function getRolePermissions() {
   try {
-    const res = await query('SELECT * FROM public.role_permissions');
-    return res.rows;
+    const res = await query('SELECT id, name, role, permissions, internal_team_id, is_system FROM public.role_permissions ORDER BY is_system DESC, name ASC');
+    return res.rows.map(r => ({
+      id: r.id,
+      name: r.name,
+      role: r.role,
+      permissions: r.permissions || [],
+      internalTeamId: r.internal_team_id,
+      isSystem: r.is_system
+    }));
   } catch (err) {
     console.error("Error getting role permissions in actions:", err);
     return [];
   }
 }
 
-export async function saveRolePermissions(roleId: string, permissions: string[]) {
+export async function saveRolePermissionsById(profileId: string, permissions: string[]) {
   try {
-    await query(
-      `INSERT INTO public.role_permissions (name, role, permissions)
-       VALUES ($1, $1, $2)
-       ON CONFLICT (name) DO UPDATE SET permissions = EXCLUDED.permissions`,
-      [roleId, permissions]
-    );
+    const actor = await getCurrentActionUser();
+    if (!actor) return { error: 'Sessão inválida.' };
+
+    const check = await assertProfileEditable(actor, profileId);
+    if (!check.ok) return { error: check.error };
+
+    await query('UPDATE public.role_permissions SET permissions = $1 WHERE id = $2', [permissions, profileId]);
     return { success: true };
   } catch (err) {
     console.error("Error saving role permissions in actions:", err);
@@ -668,9 +846,65 @@ export async function saveRolePermissions(roleId: string, permissions: string[])
   }
 }
 
-export async function deleteRolePermission(roleId: string) {
+export async function renameAccessProfile(profileId: string, name: string) {
   try {
-    await query('DELETE FROM public.role_permissions WHERE id::text = $1 OR name = $1', [roleId]);
+    const actor = await getCurrentActionUser();
+    if (!actor) return { error: 'Sessão inválida.' };
+
+    const check = await assertProfileEditable(actor, profileId);
+    if (!check.ok) return { error: check.error };
+
+    await query('UPDATE public.role_permissions SET name = $1 WHERE id = $2', [name.trim(), profileId]);
+    return { success: true };
+  } catch (err: any) {
+    if (err.code === '23505') return { error: 'Já existe um perfil com esse nome.' };
+    console.error("Error renaming access profile in actions:", err);
+    return { error: 'Erro ao renomear perfil.' };
+  }
+}
+
+// Cria um novo Perfil de Acesso. Administrador do sistema pode criar
+// global (internalTeamId nulo) ou escopado a qualquer equipe; quem não é
+// Administrador só passa se administrar a equipe informada — nunca cria
+// perfil global.
+export async function createAccessProfile(name: string, internalTeamId?: string | null) {
+  try {
+    const actor = await getCurrentActionUser();
+    if (!actor) return { error: 'Sessão inválida.' };
+
+    const teamId = internalTeamId || null;
+    if (actor.role !== 'Administrador') {
+      if (!teamId) return { error: 'Você só pode criar perfis para uma equipe que administra.' };
+      const adminTeamIds = await getAdminTeamIds(actor.id);
+      if (!adminTeamIds.includes(teamId)) return { error: 'Você não administra essa equipe.' };
+    }
+
+    const res = await query(
+      `INSERT INTO public.role_permissions (name, role, permissions, internal_team_id, is_system)
+       VALUES ($1, $1, '{}', $2, false)
+       RETURNING id`,
+      [name.trim(), teamId]
+    );
+    return { id: res.rows[0].id };
+  } catch (err: any) {
+    if (err.code === '23505') return { error: 'Já existe um perfil com esse nome.' };
+    console.error("Error creating access profile in actions:", err);
+    return { error: 'Erro ao criar perfil.' };
+  }
+}
+
+export async function deleteRolePermission(profileId: string) {
+  try {
+    const actor = await getCurrentActionUser();
+    if (!actor) return { error: 'Sessão inválida.' };
+
+    const check = await assertProfileEditable(actor, profileId);
+    if (!check.ok) return { error: check.error };
+
+    // Usuários que estavam nesse perfil ficam sem Perfil de Acesso (sem
+    // permissões) em vez de a exclusão falhar por causa da FK.
+    await query('UPDATE public.profiles SET access_profile_id = NULL WHERE access_profile_id = $1', [profileId]);
+    await query('DELETE FROM public.role_permissions WHERE id = $1', [profileId]);
     return { success: true };
   } catch (err) {
     console.error("Error deleting role permission in actions:", err);

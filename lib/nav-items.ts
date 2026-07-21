@@ -16,7 +16,6 @@ import {
   History
 } from 'lucide-react';
 import { Permission, UserRole, User } from './types';
-import { UserService } from './services/user-service';
 
 export interface NavItem {
   name: string;
@@ -79,7 +78,7 @@ export function getNavItems(currentUser: User | null, onChangePassword: () => vo
       ]
     },
     { name: 'Chat Interno', icon: MessageCircle, href: '/chat-internal', permission: Permission.CHAT_INTERNAL_VIEW },
-    { name: 'WhatsApp', icon: MessageSquare, href: '/whatsapp', permission: Permission.OUTSIDE_QUEUE_VIEW },
+    { name: 'WhatsApp', icon: MessageSquare, href: '/whatsapp', permission: Permission.WHATSAPP_MANAGE },
     { name: 'Clientes', icon: Users, href: '/customers', permission: Permission.CUSTOMERS_READ },
     {
       name: 'Configurações',
@@ -88,8 +87,8 @@ export function getNavItems(currentUser: User | null, onChangePassword: () => vo
       subItems: [
         { name: 'Configurações', icon: Settings, href: '/settings' },
         { name: 'Equipe', icon: UserCog, href: '/team', permission: Permission.TEAM_READ },
-        { name: 'Perfil de Acesso', icon: Shield, href: '/permissions', permission: Permission.SETTINGS_WRITE },
-        { name: 'Filas', icon: Library, href: '/queues', permission: Permission.SETTINGS_WRITE },
+        { name: 'Equipes & Permissões', icon: Shield, href: '/permissions', permission: Permission.SETTINGS_WRITE },
+        { name: 'Filas', icon: Library, href: '/queues', permission: Permission.QUEUES_MANAGE },
         { name: 'Alterar Senha', icon: Key, action: onChangePassword },
       ]
     },
@@ -101,7 +100,7 @@ export function getUserPermissions(currentUser: User | null): Permission[] {
   if (currentUser.role === UserRole.ADMIN) {
     return Object.values(Permission);
   }
-  return currentUser.permissions || UserService.getPermissionsByRole(currentUser.role);
+  return currentUser.permissions || [];
 }
 
 // Filtra a árvore de navegação pelas permissões do usuário, preservando um

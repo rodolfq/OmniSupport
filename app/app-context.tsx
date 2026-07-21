@@ -4,7 +4,6 @@ import React, { createContext, useContext, useState, useEffect, useRef } from 'r
 import { User, UserRole, Permission, AbsenceReason } from '@/lib/types';
 import { safeJsonStringify } from '@/lib/utils';
 import { toast } from 'sonner';
-import { UserService } from '@/lib/services/user-service';
 import { AbsenceReasonService, AnalystService } from '@/lib/services/chat-service';
 import { subscribeToPush } from '@/hooks/use-push-subscription';
 
@@ -512,6 +511,9 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
               mustChangePassword: data.user.mustChangePassword,
               isAdmin: data.user.isAdmin,
               livesInSquad: data.user.livesInSquad,
+              internalTeamIds: data.user.internalTeamIds,
+              accessProfileId: data.user.accessProfileId,
+              adminOfTeamIds: data.user.adminOfTeamIds,
               status: data.user.status,
               statusReason: data.user.statusReason
             });
@@ -697,15 +699,16 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     });
   }, []);
 
+  // Fonte única: o Perfil de Acesso do usuário (currentUser.permissions, já
+  // resolvido no login/`/api/auth/me` via profiles.access_profile_id). Sem
+  // fallback pra uma cópia hardcoded — se o perfil não carregou permissões,
+  // nega por padrão em vez de reafirmar um conjunto potencialmente
+  // desatualizado (ver auditoria: a cópia antiga em UserService podia
+  // divergir silenciosamente do que estava salvo no perfil real).
   const hasPermission = React.useCallback((permission: Permission) => {
     if (!currentUser) return false;
     if (currentUser.role === UserRole.ADMIN) return true;
-    if (Array.isArray(currentUser.permissions)) {
-      return currentUser.permissions.includes(permission);
-    }
-    const roleName = currentUser.role.toString();
-    const perms = UserService.getPermissionsByRole(roleName);
-    return perms.includes(permission);
+    return Array.isArray(currentUser.permissions) && currentUser.permissions.includes(permission);
   }, [currentUser]);
 
   const userNotifications = React.useMemo(() => 

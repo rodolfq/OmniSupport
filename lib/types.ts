@@ -20,19 +20,33 @@ export enum Permission {
   TICKETS_WRITE = 'tickets:write',
   TICKETS_DELETE = 'tickets:delete',
   TICKETS_ASSIGN = 'tickets:assign',
-  CUSTOMERS_READ = 'customers:read',
-  CUSTOMERS_WRITE = 'customers:write',
-  TEAM_READ = 'team:read',
-  TEAM_WRITE = 'team:write',
-  SETTINGS_READ = 'settings:read',
-  SETTINGS_WRITE = 'settings:write',
-  SETTINGS_SYSTEM = 'settings:system',
-  REPORTS_READ = 'reports:read',
+  // "Central de Atendimento": fila de chats do WhatsApp (widget + /chat-management).
+  OUTSIDE_QUEUE_VIEW = 'tickets:outside_queue',
   INTERNAL_TICKETS_VIEW = 'internal:view',
   INTERNAL_TICKETS_EDIT = 'internal:edit',
-  OUTSIDE_QUEUE_VIEW = 'tickets:outside_queue',
+  // Sem isto, quem tem internal:view só enxerga tickets internos da(s)
+  // própria(s) equipe(s) (internalTeamIds) — ver internal-tickets/page.tsx.
+  INTERNAL_TICKETS_VIEW_ALL = 'internal:view_all',
+  CUSTOMERS_READ = 'customers:read',
+  CUSTOMERS_WRITE = 'customers:write',
+  CHAT_INTERNAL_VIEW = 'chat:internal',
+  // Conectar/desconectar canais (QR code, Meta API) — mais sensível que só
+  // atender (OUTSIDE_QUEUE_VIEW), por isso é uma permissão separada.
+  WHATSAPP_MANAGE = 'whatsapp:manage',
+  TEAM_READ = 'team:read',
+  TEAM_WRITE = 'team:write',
+  // Ver/gerenciar status e histórico de ausência de OUTROS analistas
+  // (Configurações > Ausência/Histórico) — não é o próprio status de cada um.
+  TEAM_STATUS_MANAGE = 'team:status',
+  SETTINGS_WRITE = 'settings:write',
+  SETTINGS_SYSTEM = 'settings:system',
+  // Mensagens Automáticas e Integrações eram cobertas pela mesma permissão
+  // de SETTINGS_SYSTEM — separadas pra dar controle fino de verdade.
+  SETTINGS_AUTOMATION = 'settings:automation',
+  SETTINGS_INTEGRATIONS = 'settings:integrations',
+  QUEUES_MANAGE = 'queues:manage',
   DASHBOARD_VIEW = 'dashboard:view',
-  CHAT_INTERNAL_VIEW = 'chat:internal'
+  REPORTS_READ = 'reports:read'
 }
 
 export interface StatusConfig {
@@ -46,6 +60,10 @@ export interface RolePermission {
   name: string;
   role: string;
   permissions: Permission[];
+  // NULL/undefined = perfil global (do sistema); preenchido = perfil criado
+  // por/para uma equipe interna específica (ver internal_teams.admin_ids).
+  internalTeamId?: string | null;
+  isSystem?: boolean;
 }
 
 export interface User {
@@ -61,8 +79,14 @@ export interface User {
   password?: string;
   mustChangePassword?: boolean;
   viewAllCompanyTickets?: boolean;
+  livesInSquad?: boolean;
   isActive?: boolean;
   internalTeamIds?: string[];
+  accessProfileId?: string;
+  // Equipes que este usuário administra (internal_teams.admin_ids contém o
+  // id dele) — pode criar/editar usuários e perfis de acesso escopados a
+  // elas. Vazio/undefined para quem não administra nenhuma equipe.
+  adminOfTeamIds?: string[];
   status?: 'online' | 'away' | 'offline';
   statusReason?: string;
   isAdmin?: boolean;

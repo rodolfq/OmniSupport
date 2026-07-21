@@ -2,9 +2,11 @@
 
 import React from 'react';
 import { AreaChart, Area, XAxis, YAxis, Tooltip, ResponsiveContainer, PieChart, Pie, Cell } from 'recharts';
-import { TrendingUp, Clock, Calendar, Users, ThumbsUp, ThumbsDown, MessageSquareText } from 'lucide-react';
+import { TrendingUp, Clock, Calendar, Users, ThumbsUp, ThumbsDown, MessageSquareText, Lock } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { useTheme } from '@/app/theme-provider';
+import { useApp } from '@/app/app-context';
+import { Permission } from '@/lib/types';
 
 interface SurveyResponse {
   id: string;
@@ -40,6 +42,7 @@ const dataByCategory = [
 ];
 
 export default function ReportsPage() {
+  const { hasPermission } = useApp();
   const { theme } = useTheme();
   const axisColor = theme === 'dark' ? '#94a3b8' : '#64748b';
   const tooltipStyle = theme === 'dark'
@@ -61,6 +64,18 @@ export default function ReportsPage() {
     { name: 'Satisfeitos', value: surveyReport.satisfied, color: '#22c55e' },
     { name: 'A Melhorar', value: surveyReport.toImprove, color: '#ef4444' },
   ] : [];
+
+  if (!hasPermission(Permission.REPORTS_READ)) {
+    return (
+      <div className="flex items-center justify-center h-full">
+        <div className="text-center p-8 bg-[var(--surface-card)] rounded-2xl shadow-lg border border-[var(--border-default)]">
+          <Lock size={48} className="mx-auto text-slate-300 mb-4" />
+          <h2 className="text-xl font-bold text-[var(--text-secondary)] mb-2">Acesso Negado</h2>
+          <p className="text-[var(--text-tertiary)]">Você não tem permissão para visualizar relatórios.</p>
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div className="space-y-8">

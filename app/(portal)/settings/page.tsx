@@ -2,11 +2,11 @@
 
 import React, { useState, useEffect } from 'react';
 import {
-  Shield, User, Lock, Save, Plus, Key, Globe, Edit2, Bell, Database, Loader2, Clock, Users, MessageCircleMore, Plug
+  Shield, User, Lock, Save, Plus, Key, Globe, Edit2, Bell, Database, Loader2, Clock, MessageCircleMore, Plug
 } from 'lucide-react';
 import { cn, maskPhone, safeJsonStringify } from '@/lib/utils';
 import { supabase } from '@/lib/supabase';
-import { Permission, UserRole, type WhatsappInstance } from '@/lib/types';
+import { Permission, type WhatsappInstance } from '@/lib/types';
 import { UserService } from '@/lib/services/user-service';
 import { useApp } from '@/app/app-context';
 import { NotificationSettingsContent } from '@/components/notification-settings';
@@ -18,11 +18,10 @@ import { ChangePasswordModal } from '@/components/change-password-modal';
 import { fileToBase64, isValidImageUrl } from '@/lib/image-utils';
 import { toast } from 'sonner';
 import { getWhatsappInstances, saveWhatsappInstance } from '@/app/actions';
-import { InternalTeamsContent } from '@/components/internal-teams-content';
 import { ConfirmDialog } from '@/components/confirm-dialog';
 import { IntegrationsContent } from '@/components/integrations-content';
 
-type Tab = 'profile' | 'security' | 'whatsapp' | 'notifications' | 'system' | 'history' | 'teams' | 'automated-messages' | 'integrations';
+type Tab = 'profile' | 'security' | 'whatsapp' | 'notifications' | 'system' | 'history' | 'automated-messages' | 'integrations';
 
 
 export default function SettingsPage() {
@@ -257,26 +256,25 @@ export default function SettingsPage() {
           <SettingsNavLink icon={<User size={18} />} label="Perfil" active={activeTab === 'profile'} onClick={() => setActiveTab('profile')} />
           <SettingsNavLink icon={<Bell size={18} />} label="Notificações" active={activeTab === 'notifications'} onClick={() => setActiveTab('notifications')} />
           <SettingsNavLink icon={<Shield size={18} />} label="Segurança" active={activeTab === 'security'} onClick={() => setActiveTab('security')} />
-          {currentUser?.role === UserRole.ADMIN && (
-             <>
-               <SettingsNavLink icon={<Clock size={18} />} label="Ausência / Histórico" active={activeTab === 'history'} onClick={() => setActiveTab('history')} />
-               <SettingsNavLink icon={<Globe size={18} />} label="WhatsApp" active={activeTab === 'whatsapp'} onClick={() => setActiveTab('whatsapp')} />
-               <SettingsNavLink icon={<Users size={18} />} label="Equipes Internas" active={activeTab === 'teams'} onClick={() => setActiveTab('teams')} />
-             </>
-           )}
+          {hasPermission(Permission.TEAM_STATUS_MANAGE) && (
+            <SettingsNavLink icon={<Clock size={18} />} label="Ausência / Histórico" active={activeTab === 'history'} onClick={() => setActiveTab('history')} />
+          )}
+          {hasPermission(Permission.WHATSAPP_MANAGE) && (
+            <SettingsNavLink icon={<Globe size={18} />} label="WhatsApp" active={activeTab === 'whatsapp'} onClick={() => setActiveTab('whatsapp')} />
+          )}
            {hasPermission(Permission.SETTINGS_SYSTEM) && (
              <SettingsNavLink icon={<Database size={18} />} label="Geral do Sistema" active={activeTab === 'system'} onClick={() => setActiveTab('system')} />
            )}
-           {hasPermission(Permission.SETTINGS_SYSTEM) && (
+           {hasPermission(Permission.SETTINGS_AUTOMATION) && (
              <SettingsNavLink icon={<MessageCircleMore size={18} />} label="Mensagens Automáticas" active={activeTab === 'automated-messages'} onClick={() => setActiveTab('automated-messages')} />
            )}
-           {hasPermission(Permission.SETTINGS_SYSTEM) && (
+           {hasPermission(Permission.SETTINGS_INTEGRATIONS) && (
              <SettingsNavLink icon={<Plug size={18} />} label="Integrações" active={activeTab === 'integrations'} onClick={() => setActiveTab('integrations')} />
            )}
         </aside>
 
         <div className="md:col-span-9 lg:col-span-10 space-y-6">
-          {activeTab === 'history' && currentUser && (
+          {activeTab === 'history' && currentUser && hasPermission(Permission.TEAM_STATUS_MANAGE) && (
             <StatusHistoryPanel userId={currentUser.id} />
           )}
 
@@ -293,20 +291,15 @@ export default function SettingsPage() {
                 <TagManager />
              </div>
            )}
-           {activeTab === 'automated-messages' && hasPermission(Permission.SETTINGS_SYSTEM) && (
+           {activeTab === 'automated-messages' && hasPermission(Permission.SETTINGS_AUTOMATION) && (
              <div className="animate-in fade-in slide-in-from-bottom-4 duration-300">
                 <AutomatedMessagesContent />
              </div>
            )}
-           {activeTab === 'integrations' && hasPermission(Permission.SETTINGS_SYSTEM) && (
+           {activeTab === 'integrations' && hasPermission(Permission.SETTINGS_INTEGRATIONS) && (
              <IntegrationsContent />
            )}
-           {activeTab === 'teams' && currentUser?.role === UserRole.ADMIN && (
-             <div className="animate-in fade-in slide-in-from-bottom-4 duration-300">
-                <InternalTeamsContent />
-             </div>
-           )}
-          {activeTab === 'whatsapp' && currentUser?.role === UserRole.ADMIN && (
+          {activeTab === 'whatsapp' && hasPermission(Permission.WHATSAPP_MANAGE) && (
             <div className="bg-[var(--surface-card)] border border-[var(--border-default)] rounded-[2.5rem] p-12 shadow-sm">
                <div className="flex items-center justify-between mb-8">
                   <div className="flex items-center gap-4">

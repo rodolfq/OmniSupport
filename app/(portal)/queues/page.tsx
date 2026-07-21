@@ -2,7 +2,7 @@
 
 import React, { useState, useEffect } from 'react';
 import { StyledSelect } from '@/components/styled-select';
-import { User, UserRole, Queue, WhatsappInstance } from '@/lib/types';
+import { User, Queue, WhatsappInstance, Permission } from '@/lib/types';
 import { UserService } from '@/lib/services/user-service';
 import { getQueues, saveQueue, deleteQueue, getWhatsappInstances } from '@/app/actions';
 import { 
@@ -40,7 +40,7 @@ export default function QueuesManagementPage() {
   const [includeInternalChats, setIncludeInternalChats] = useState(true);
   const [deletingQueue, setDeletingQueue] = useState<Queue | null>(null);
 
-  const { currentUser } = useApp();
+  const { hasPermission } = useApp();
 
   useEffect(() => {
     loadData();
@@ -131,12 +131,12 @@ export default function QueuesManagementPage() {
     q.description?.toLowerCase().includes(search.toLowerCase())
   );
 
-  if (currentUser?.role !== UserRole.ADMIN) {
+  if (!hasPermission(Permission.QUEUES_MANAGE)) {
      return (
        <div className="flex flex-col items-center justify-center p-20 text-center">
          <XCircle size={48} className="text-[var(--text-danger)] mb-4" />
          <h2 className="text-2xl font-black text-[var(--text-primary)] uppercase tracking-tight">Acesso Negado</h2>
-         <p className="text-[var(--text-tertiary)]">Apenas administradores podem gerenciar as filas de atendimento.</p>
+         <p className="text-[var(--text-tertiary)]">Você não tem permissão para gerenciar as filas de atendimento.</p>
        </div>
      );
   }

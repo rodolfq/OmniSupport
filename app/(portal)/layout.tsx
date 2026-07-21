@@ -13,7 +13,7 @@ import { MobileHeader } from '@/components/mobile-header';
 import { MobileBottomNav } from '@/components/mobile-bottom-nav';
 import { NotificationPanel } from '@/components/notification-panel';
 import { cn } from '@/lib/utils';
-import { UserRole } from '@/lib/types';
+import { UserRole, Permission } from '@/lib/types';
 
 function formatCountdown(totalSeconds: number): string {
   const minutes = Math.floor(totalSeconds / 60);
@@ -24,17 +24,18 @@ function formatCountdown(totalSeconds: number): string {
 export default function PortalLayout({ children }: { children: React.ReactNode }) {
   const router = useRouter();
   const pathname = usePathname();
-  const { 
+  const {
     currentUser,
     authInitialized,
-    notifications, 
-    markNotificationRead, 
+    notifications,
+    markNotificationRead,
     whatsappStatus,
     userStatus,
     userStatusReason,
     lunchSecondsRemaining,
     absenceReasons,
-    setUserStatus
+    setUserStatus,
+    hasPermission
   } = useApp();
   const { theme, toggleTheme } = useTheme();
   const [isNotificationsOpen, setIsNotificationsOpen] = useState(false);
@@ -81,6 +82,13 @@ export default function PortalLayout({ children }: { children: React.ReactNode }
 
   const unreadCount = notifications.filter(n => !n.read).length;
   const isTeam = [UserRole.ADMIN, UserRole.SUPPORT, UserRole.INTERNAL].includes(currentUser.role as UserRole);
+  // O widget dá acesso à central de atendimento (filas, assumir/transferir
+  // conversa) pra quem é do time — isso é exatamente o que a permissão
+  // "Chat Central de Atendimento" (OUTSIDE_QUEUE_VIEW) já significa em
+  // Equipes & Permissões. Sem ela, um perfil de equipe (ex: Desenvolvimento)
+  // não deve ver conversa de cliente nenhuma. Cliente/Funcionário sempre
+  // veem — é o canal deles pra falar com o suporte.
+  const canUseChatWidget = !isTeam || hasPermission(Permission.OUTSIDE_QUEUE_VIEW);
   return (
     <div className="flex bg-[var(--surface-page)] min-h-screen">
       <Sidebar />
@@ -233,7 +241,7 @@ export default function PortalLayout({ children }: { children: React.ReactNode }
           </Suspense>
         </main>
         <NewTicketModal />
-        <ChatWidget />
+        {canUseChatWidget && <ChatWidget />}
         <MobileBottomNav />
       </div>
       <ForcePasswordChange />

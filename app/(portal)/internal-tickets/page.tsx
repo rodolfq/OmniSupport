@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useState, useEffect, useCallback } from "react";
+import React, { useState, useEffect, useCallback, useMemo } from "react";
 import { StyledSelect } from '@/components/styled-select';
 import { supabase } from "@/lib/supabase";
 import { cn } from "@/lib/utils";
@@ -8,9 +8,15 @@ import { motion, AnimatePresence } from "motion/react";
 import { useApp } from "@/app/app-context";
 import { InternalTicket, Permission, User } from "@/lib/types";
 import { InternalTicketService } from "@/lib/services/ticket-service";
-import { Plus, Search, Filter, Tag, Clock, Edit3, Lock, Loader2, Grid3X3, List, LayoutDashboard, ChevronRight } from "lucide-react";
-import Link from "next/link";
+import {
+  Plus, Search, Filter, Clock, Edit3, Lock, Loader2, Grid3X3, List, LayoutDashboard,
+  MessageCircle, Link2, User as UserIcon, Inbox, AlertTriangle, Flame
+} from "lucide-react";
 import { useRouter } from "next/navigation";
+import {
+  DndContext, DragOverlay, useDraggable, useDroppable, PointerSensor, useSensor, useSensors,
+  type DragStartEvent, type DragEndEvent
+} from "@dnd-kit/core";
 
 interface InternalTicketItem extends InternalTicket {
   linkedTicketTitles?: string[];
@@ -21,18 +27,87 @@ interface InternalTicketItem extends InternalTicket {
 
 const ITEMS_PER_PAGE = 20;
 
+// Prioridade como barras (Linear-style) em vez de bolinha repetida — lê mais
+// rápido num board cheio de cards e escala melhor visualmente.
 const priorityConfig = {
-  1: { label: "Baixa", color: "bg-[var(--surface-pill)] text-[var(--text-secondary)]", icon: "●" },
-  2: { label: "Média", color: "bg-[var(--surface-warning)] text-[var(--text-warning)]", icon: "●●" },
-  3: { label: "Alta", color: "bg-[var(--surface-danger)] text-[var(--text-danger)]", icon: "●●●" },
+  1: { label: "Baixa", dotColor: "bg-[var(--text-tertiary)]", textColor: "text-[var(--text-tertiary)]", bars: 1 },
+  2: { label: "Média", dotColor: "bg-[var(--text-warning-strong)]", textColor: "text-[var(--text-warning)]", bars: 2 },
+  3: { label: "Alta", dotColor: "bg-[var(--text-danger)]", textColor: "text-[var(--text-danger)]", bars: 3 },
 };
 
+function PriorityBars({ priority, size = "sm" }: { priority: number; size?: "sm" | "md" }) {
+  const cfg = priorityConfig[priority as keyof typeof priorityConfig] || priorityConfig[1];
+  const heights = size === "md" ? ["h-2.5", "h-3.5", "h-4.5"] : ["h-2", "h-3", "h-4"];
+  return (
+    <div className="flex items-end gap-[3px]" title={`Prioridade ${cfg.label}`}>
+      {[0, 1, 2].map(i => (
+        <div
+          key={i}
+          className={cn("w-[3px] rounded-full transition-colors", heights[i], i < cfg.bars ? cfg.dotColor : "bg-[var(--border-default)]")}
+        />
+      ))}
+    </div>
+  );
+}
+
 const KANBAN_STATUSES = [
-  { value: "Novo", label: "Novo", color: "bg-[var(--surface-info)] text-[var(--text-info)]", icon: "●" },
-  { value: "Em Andamento", label: "Em Andamento", color: "bg-[var(--surface-warning)] text-[var(--text-warning)]", icon: "●●" },
-  { value: "Em Espera", label: "Em Espera", color: "bg-[var(--surface-pill)] text-[var(--text-secondary)]", icon: "●●●" },
-  { value: "Concluído", label: "Concluído", color: "bg-[var(--surface-success)] text-[var(--text-success)]", icon: "✓" },
+  { value: "Novo", label: "Novo", color: "bg-[var(--surface-info)] text-[var(--text-info)]", dot: "bg-[var(--text-info)]", accent: "#2563EB" },
+  { value: "Em Andamento", label: "Em Andamento", color: "bg-[var(--surface-warning)] text-[var(--text-warning)]", dot: "bg-[var(--text-warning-strong)]", accent: "#D97706" },
+  { value: "Em Espera", label: "Em Espera", color: "bg-[var(--surface-pill)] text-[var(--text-secondary)]", dot: "bg-[var(--text-secondary)]", accent: "#64748B" },
+  { value: "Concluído", label: "Concluído", color: "bg-[var(--surface-success)] text-[var(--text-success)]", dot: "bg-[var(--text-success)]", accent: "#16A34A" },
 ];
+
+// Cor de avatar/tag consistente por texto (mesmo nome/tag sempre com a
+// mesma cor) — paleta com bom contraste em claro e escuro.
+const PALETTE = [
+  { bg: "bg-blue-100 dark:bg-blue-500/20", text: "text-blue-700 dark:text-blue-300" },
+  { bg: "bg-purple-100 dark:bg-purple-500/20", text: "text-purple-700 dark:text-purple-300" },
+  { bg: "bg-pink-100 dark:bg-pink-500/20", text: "text-pink-700 dark:text-pink-300" },
+  { bg: "bg-emerald-100 dark:bg-emerald-500/20", text: "text-emerald-700 dark:text-emerald-300" },
+  { bg: "bg-amber-100 dark:bg-amber-500/20", text: "text-amber-700 dark:text-amber-300" },
+  { bg: "bg-cyan-100 dark:bg-cyan-500/20", text: "text-cyan-700 dark:text-cyan-300" },
+  { bg: "bg-rose-100 dark:bg-rose-500/20", text: "text-rose-700 dark:text-rose-300" },
+  { bg: "bg-indigo-100 dark:bg-indigo-500/20", text: "text-indigo-700 dark:text-indigo-300" },
+];
+function colorFor(text: string) {
+  let hash = 0;
+  for (let i = 0; i < text.length; i++) hash = text.charCodeAt(i) + ((hash << 5) - hash);
+  return PALETTE[Math.abs(hash) % PALETTE.length];
+}
+
+function Avatar({ name, size = 24 }: { name?: string | null; size?: number }) {
+  if (!name) {
+    return (
+      <div
+        className="rounded-full bg-[var(--surface-pill)] border border-dashed border-[var(--border-default)] flex items-center justify-center text-[var(--text-tertiary)] shrink-0"
+        style={{ width: size, height: size }}
+        title="Não atribuído"
+      >
+        <UserIcon size={size * 0.55} />
+      </div>
+    );
+  }
+  const c = colorFor(name);
+  return (
+    <div
+      className={cn("rounded-full flex items-center justify-center font-black shrink-0", c.bg, c.text)}
+      style={{ width: size, height: size, fontSize: size * 0.4 }}
+      title={name}
+    >
+      {name.charAt(0).toUpperCase()}
+    </div>
+  );
+}
+
+function TagChip({ tag }: { tag: string }) {
+  const c = colorFor(tag);
+  return (
+    <span className={cn("px-2 py-0.5 rounded-md text-[9px] font-bold uppercase tracking-wide flex items-center gap-1", c.bg, c.text)}>
+      <span className="w-1.5 h-1.5 rounded-full bg-current opacity-70" />
+      {tag}
+    </span>
+  );
+}
 
 // Default team options (will be replaced by DB values)
 const DEFAULT_TEAM_OPTIONS = [
@@ -61,6 +136,10 @@ export default function InternalTicketsPage() {
   const [dateFrom, setDateFrom] = useState("");
   const [dateTo, setDateTo] = useState("");
   const [showFilters, setShowFilters] = useState(false);
+  // Chips de atalho — a mesma ideia do "Minhas tarefas"/"Sem responsável"
+  // que Jira/Linear/ClickUp sempre têm de cara, sem precisar abrir filtro
+  // avançado pra isso.
+  const [quickFilter, setQuickFilter] = useState<"all" | "mine" | "unassigned" | "overdue" | "high">("all");
   
   // Teams state (fetched from DB)
   const [teams, setTeams] = useState(DEFAULT_TEAM_OPTIONS);
@@ -103,6 +182,22 @@ if (filterAssignee) query = query.eq("assignee_id", filterAssignee);
        if (dateFrom) query = query.gte("created_at", `${dateFrom}T00:00:00`);
        if (dateTo) query = query.lte("created_at", `${dateTo}T23:59:59`);
 
+      // Sem permissão de ver todas as equipes (Administrador/Equipe por
+      // padrão): só enxerga tickets internos da(s) própria(s) equipe(s) —
+      // é a diferenciação dev/infra vs suporte pedida pro Perfil de Acesso.
+      const canViewAllTeams = hasPermission(Permission.INTERNAL_TICKETS_VIEW_ALL);
+      if (!canViewAllTeams) {
+        const myTeamIds = currentUser.internalTeamIds || [];
+        if (myTeamIds.length === 0) {
+          setTickets([]);
+          setTotalPages(1);
+          setLoading(false);
+          setLoadingMore(false);
+          return;
+        }
+        query = query.in("internal_team_id", myTeamIds);
+      }
+
       const { data: internalData, error, count } = await query;
 
       console.log("Internal tickets query result:", { data: internalData?.length, error, count });
@@ -130,11 +225,22 @@ if (filterAssignee) query = query.eq("assignee_id", filterAssignee);
       const { data: regularTickets } = await supabase.from("tickets").select("id, title, public_ticket_number");
       const ticketMap = new Map((regularTickets || []).map((t: any) => [t.id, `#${t.public_ticket_number || t.id.slice(0, 8)}`]));
 
+      // Quantos comentários cada ticket desta página já tem — dá pra ver de
+      // relance qual ticket teve conversa sem precisar abrir.
+      const pageIds = (internalData || []).map((it: any) => it.id);
+      const { data: messageRows } = pageIds.length
+        ? await supabase.from("internal_ticket_messages").select("internal_ticket_id").in("internal_ticket_id", pageIds)
+        : { data: [] as any[] };
+      const commentCountMap = new Map<string, number>();
+      (messageRows || []).forEach((m: any) => {
+        commentCountMap.set(m.internal_ticket_id, (commentCountMap.get(m.internal_ticket_id) || 0) + 1);
+      });
+
       setTickets((internalData || []).map((it: any) => {
         const linkedIds = (links || [])
           .filter((l: any) => l.internal_ticket_id === it.id)
           .map((l: any) => l.ticket_id);
-        
+
         // Calculate SLA remaining
         let slaRemaining = null;
         if (it.sla_limit) {
@@ -166,6 +272,8 @@ if (filterAssignee) query = query.eq("assignee_id", filterAssignee);
           assigneeName: it.assignee_id ? assigneeMap.get(it.assignee_id) || null : null,
           slaRemaining,
           status: it.status || "Novo",
+          tags: it.tags || [],
+          commentCount: commentCountMap.get(it.id) || 0,
         };
       }));
     } catch (error) {
@@ -229,7 +337,30 @@ if (filterAssignee) query = query.eq("assignee_id", filterAssignee);
     setFilterPriority("");
     setDateFrom("");
     setDateTo("");
+    setQuickFilter("all");
   };
+
+  // Aplicado sobre o que já veio do servidor — os filtros avançados (equipe,
+  // responsável, status, prioridade, data) já filtraram lá; os chips rápidos
+  // são um recorte adicional client-side, então trocar de chip não recarrega
+  // a lista inteira.
+  const displayTickets = useMemo(() => {
+    if (quickFilter === "all") return tickets;
+    return tickets.filter((t) => {
+      if (quickFilter === "mine") return t.assigneeId === currentUser?.id || t.creatorId === currentUser?.id;
+      if (quickFilter === "unassigned") return !t.assigneeId;
+      if (quickFilter === "overdue") return t.slaRemaining === "Expirado";
+      if (quickFilter === "high") return t.priority === 3;
+      return true;
+    });
+  }, [tickets, quickFilter, currentUser?.id]);
+
+  const quickFilterCounts = useMemo(() => ({
+    mine: tickets.filter(t => t.assigneeId === currentUser?.id || t.creatorId === currentUser?.id).length,
+    unassigned: tickets.filter(t => !t.assigneeId).length,
+    overdue: tickets.filter(t => t.slaRemaining === "Expirado").length,
+    high: tickets.filter(t => t.priority === 3).length,
+  }), [tickets, currentUser?.id]);
 
   const handleCreateOrUpdate = async () => {
     console.log("handleCreateOrUpdate called", { 
@@ -393,6 +524,34 @@ const openEditModal = (ticket: InternalTicketItem) => {
           </button>
         </div>
 
+        {/* Quick filter chips */}
+        <div className="flex items-center gap-2 flex-wrap mb-1">
+          {[
+            { key: "all" as const, label: "Todos", icon: Inbox, count: tickets.length },
+            { key: "mine" as const, label: "Minhas", icon: UserIcon, count: quickFilterCounts.mine },
+            { key: "unassigned" as const, label: "Sem responsável", icon: Inbox, count: quickFilterCounts.unassigned },
+            { key: "overdue" as const, label: "Atrasadas", icon: AlertTriangle, count: quickFilterCounts.overdue },
+            { key: "high" as const, label: "Alta prioridade", icon: Flame, count: quickFilterCounts.high },
+          ].map((chip) => (
+            <button
+              key={chip.key}
+              onClick={() => setQuickFilter(chip.key)}
+              className={cn(
+                "px-3 py-1.5 rounded-full text-[10px] font-bold uppercase tracking-wide transition-all flex items-center gap-1.5 border",
+                quickFilter === chip.key
+                  ? "bg-[var(--text-warning-strong)] border-[var(--text-warning-strong)] text-white shadow-sm"
+                  : "bg-[var(--surface-card)] border-[var(--border-default)] text-[var(--text-secondary)] hover:border-[var(--text-warning-strong)]/40"
+              )}
+            >
+              <chip.icon size={11} />
+              {chip.label}
+              <span className={cn("px-1.5 rounded-full text-[9px]", quickFilter === chip.key ? "bg-white/20" : "bg-[var(--surface-pill)]")}>
+                {chip.count}
+              </span>
+            </button>
+          ))}
+        </div>
+
         {/* Advanced Filters */}
         <AnimatePresence>
           {showFilters && (
@@ -474,22 +633,22 @@ const openEditModal = (ticket: InternalTicketItem) => {
               <div className="flex items-center justify-center py-20">
                 <Loader2 className="w-8 h-8 text-[var(--text-warning-strong)] animate-spin" />
               </div>
-            ) : tickets.length === 0 ? (
+            ) : displayTickets.length === 0 ? (
               <div className="text-center py-20 bg-[var(--surface-card)] rounded-2xl border border-[var(--border-default)]">
-                <Lock size={48} className="mx-auto text-slate-300 mb-4" />
+                <Inbox size={48} className="mx-auto text-slate-300 mb-4" />
                 <h3 className="text-lg font-bold text-[var(--text-secondary)] mb-2">Nenhum ticket interno encontrado</h3>
-                <p className="text-[var(--text-tertiary)] text-sm">Crie um novo ticket ou ajuste os filtros.</p>
+                <p className="text-[var(--text-tertiary)] text-sm">{tickets.length > 0 ? "Ajuste os filtros pra ver mais resultados." : "Crie um novo ticket ou ajuste os filtros."}</p>
               </div>
             ) : viewMode === "cards" ? (
               <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-3">
-                {tickets.map((it) => (
+                {displayTickets.map((it) => (
                   <TicketCard key={it.id} ticket={it} onEdit={() => openEditModal(it)} teams={teams} />
                 ))}
               </div>
             ) : viewMode === "table" ? (
-              <TicketTable tickets={tickets} onEdit={openEditModal} teams={teams} />
+              <TicketTable tickets={displayTickets} onEdit={openEditModal} teams={teams} />
             ) : (
-              <KanbanBoard tickets={tickets} onEdit={openEditModal} onStatusChange={handleStatusChange} />
+              <KanbanBoard tickets={displayTickets} onEdit={openEditModal} onStatusChange={handleStatusChange} />
             )}
           </div>
 
@@ -526,82 +685,88 @@ const openEditModal = (ticket: InternalTicketItem) => {
 // Ticket Card Component
 function TicketCard({ ticket, onEdit, teams = DEFAULT_TEAM_OPTIONS }: { ticket: InternalTicketItem; onEdit: () => void; teams?: typeof DEFAULT_TEAM_OPTIONS }) {
   const teamOption = teams.find((t) => t.value === ticket.teamId) || teams[0];
-  const priorityInfo = priorityConfig[ticket.priority as keyof typeof priorityConfig] || priorityConfig[1];
+  const statusMeta = KANBAN_STATUSES.find(s => s.value === (ticket.status || "Novo")) || KANBAN_STATUSES[0];
 
   return (
     <motion.div
       initial={{ opacity: 0, y: 10 }}
       animate={{ opacity: 1, y: 0 }}
-      className="bg-[var(--surface-card)] rounded-2xl border border-[var(--border-default)] p-5 hover:shadow-lg hover:border-amber-300 transition-all group cursor-pointer"
+      whileHover={{ y: -2 }}
+      className="relative bg-[var(--surface-card)] rounded-2xl border border-[var(--border-default)] pl-5 pr-5 py-5 hover:shadow-lg hover:border-[var(--text-warning-strong)]/40 transition-all group cursor-pointer overflow-hidden"
       onClick={onEdit}
     >
+      <div className="absolute left-0 top-0 bottom-0 w-1" style={{ backgroundColor: statusMeta.accent }} />
+
       <div className="flex items-start justify-between mb-3">
-<div className="flex items-center gap-2">
-           <span className="text-[10px] font-semibold text-[var(--text-warning)] uppercase">{ticket.id?.startsWith("int-") ? ticket.id : `#${ticket.internalTicketNumber?.toString().padStart(4, "0")}`}</span>
-           <span className={cn("text-[10px] font-semibold px-2 py-1 rounded-full", priorityInfo.color)}>
-             {priorityInfo.icon}
-           </span>
-         </div>
-<button
-           onClick={(e) => {
-             e.stopPropagation();
-             onEdit();
-           }}
-           className="opacity-0 group-hover:opacity-100 p-1.5 rounded-lg hover:bg-[var(--surface-pill)] transition-all"
-         >
-           <Edit3 size={14} className="text-[var(--text-tertiary)]" />
+        <div className="flex items-center gap-2">
+          <span className="text-[10px] font-semibold text-[var(--text-warning)] uppercase">{ticket.id?.startsWith("int-") ? ticket.id : `#${ticket.internalTicketNumber?.toString().padStart(4, "0")}`}</span>
+          <PriorityBars priority={ticket.priority || 1} />
+        </div>
+        <button
+          onClick={(e) => {
+            e.stopPropagation();
+            onEdit();
+          }}
+          className="opacity-0 group-hover:opacity-100 p-1.5 rounded-lg hover:bg-[var(--surface-pill)] transition-all"
+        >
+          <Edit3 size={14} className="text-[var(--text-tertiary)]" />
         </button>
       </div>
 
       <h3 className="text-sm font-black text-[var(--text-primary)] mb-2 line-clamp-2">{ticket.title}</h3>
-      
+
       <p className="text-xs text-[var(--text-tertiary)] mb-3 line-clamp-2">
         {(() => {
           const html = ticket.description || '';
           return html.replace(/<[^>]*>/g, '').replace(/&nbsp;/g, ' ').trim();
-        })()}
+        })() || "Sem descrição"}
       </p>
 
-      {/* Meta row */}
-      <div className="flex items-center justify-between text-[10px] font-medium">
-        <span className={cn("px-2 py-1 rounded-full font-semibold uppercase", teamOption.color)}>
-          {teamOption.label}
-        </span>
+      {(ticket.tags && ticket.tags.length > 0) && (
+        <div className="flex flex-wrap gap-1.5 mb-3">
+          {ticket.tags.slice(0, 4).map(tag => <TagChip key={tag} tag={tag} />)}
+        </div>
+      )}
+
+      <div className="flex items-center justify-between pt-3 border-t border-[var(--border-default)]">
+        <div className="flex items-center gap-2">
+          <span className={cn("px-2 py-1 rounded-full text-[9px] font-semibold uppercase", teamOption.color)}>
+            {teamOption.label}
+          </span>
+          <span className={cn("px-2 py-1 rounded-full text-[9px] font-semibold uppercase flex items-center gap-1", statusMeta.color)}>
+            <span className={cn("w-1.5 h-1.5 rounded-full", statusMeta.dot)} />
+            {statusMeta.label}
+          </span>
+        </div>
+        <Avatar name={ticket.assigneeName} size={24} />
+      </div>
+
+      <div className="flex items-center gap-3 mt-3 text-[var(--text-tertiary)]">
         {ticket.slaRemaining && (
-          <span className={cn(
-            "flex items-center gap-1 font-bold",
-            ticket.slaRemaining === "Expirado" ? "text-[var(--text-danger)]" : "text-[var(--text-secondary)]"
-          )}>
-            <Clock size={12} />
+          <span className={cn("flex items-center gap-1 text-[10px] font-bold", ticket.slaRemaining === "Expirado" ? "text-[var(--text-danger)]" : "text-[var(--text-tertiary)]")}>
+            <Clock size={11} />
             {ticket.slaRemaining}
           </span>
         )}
+        {!!ticket.commentCount && (
+          <span className="flex items-center gap-1 text-[10px] font-bold">
+            <MessageCircle size={11} />
+            {ticket.commentCount}
+          </span>
+        )}
+        {ticket.linkedTicketTitles && ticket.linkedTicketTitles.length > 0 && (
+          <span className="flex items-center gap-1 text-[10px] font-bold" title={ticket.linkedTicketTitles.join(", ")}>
+            <Link2 size={11} />
+            {ticket.linkedTicketTitles.length}
+          </span>
+        )}
       </div>
-
-      {/* Linked tickets */}
-      {ticket.linkedTicketTitles && ticket.linkedTicketTitles.length > 0 && (
-        <div className="mt-3 pt-3 border-t border-[var(--border-default)]">
-          <div className="flex items-center gap-1 text-[10px] text-[var(--text-tertiary)] mb-1">
-            <Tag size={12} />
-            <span className="font-semibold uppercase">Vinculados:</span>
-          </div>
-          <div className="flex flex-wrap gap-1">
-            {ticket.linkedTicketTitles.map((title, idx) => (
-              <span key={idx} className="text-[10px] bg-[var(--surface-card)] px-2 py-0.5 rounded border border-[var(--border-default)]">
-                {title}
-              </span>
-            ))}
-          </div>
-        </div>
-      )}
     </motion.div>
   );
 }
 
 // Ticket Table Component
 function TicketTable({ tickets, onEdit, teams = DEFAULT_TEAM_OPTIONS }: { tickets: InternalTicketItem[]; onEdit: (t: InternalTicketItem) => void; teams?: typeof DEFAULT_TEAM_OPTIONS }) {
-   const priorityInfo = priorityConfig[1];
-
   return (
     <div className="bg-[var(--surface-card)] rounded-2xl border border-[var(--border-default)] overflow-hidden">
       <table className="w-full">
@@ -609,38 +774,53 @@ function TicketTable({ tickets, onEdit, teams = DEFAULT_TEAM_OPTIONS }: { ticket
           <tr>
             <th className="px-4 py-3 text-left text-[10px] font-semibold uppercase text-[var(--text-tertiary)]">Número</th>
             <th className="px-4 py-3 text-left text-[10px] font-semibold uppercase text-[var(--text-tertiary)]">Título</th>
+            <th className="px-4 py-3 text-left text-[10px] font-semibold uppercase text-[var(--text-tertiary)]">Status</th>
             <th className="px-4 py-3 text-left text-[10px] font-semibold uppercase text-[var(--text-tertiary)]">Equipe</th>
             <th className="px-4 py-3 text-left text-[10px] font-semibold uppercase text-[var(--text-tertiary)]">Prioridade</th>
             <th className="px-4 py-3 text-left text-[10px] font-semibold uppercase text-[var(--text-tertiary)]">Responsável</th>
             <th className="px-4 py-3 text-left text-[10px] font-semibold uppercase text-[var(--text-tertiary)]">SLA</th>
-            <th className="px-4 py-3 text-left text-[10px] font-semibold uppercase text-[var(--text-tertiary)]">Vinculados</th>
+            <th className="px-4 py-3 text-left text-[10px] font-semibold uppercase text-[var(--text-tertiary)]"><MessageCircle size={12} /></th>
           </tr>
         </thead>
         <tbody className="divide-y divide-[var(--border-default)]">
-{tickets.map((it) => {
-             const teamOpt = teams.find((t) => t.value === it.teamId) || teams[0];
-             const prio = priorityConfig[it.priority as keyof typeof priorityConfig] || priorityConfig[1];
+          {tickets.map((it) => {
+            const teamOpt = teams.find((t) => t.value === it.teamId) || teams[0];
+            const statusMeta = KANBAN_STATUSES.find(s => s.value === (it.status || "Novo")) || KANBAN_STATUSES[0];
             return (
-              <tr key={it.id} className="hover:bg-[var(--surface-card)]/50 transition-colors cursor-pointer" onClick={() => onEdit(it)}>
-                <td className="px-4 py-3 text-[10px] font-semibold text-[var(--text-warning)]">{it.id?.startsWith("int-") ? it.id : `#${it.internalTicketNumber?.toString().padStart(4, "0")}`}</td>
-                <td className="px-4 py-3 text-sm font-bold text-[var(--text-primary)]">{it.title}</td>
+              <tr key={it.id} className="hover:bg-[var(--surface-card)]/50 transition-colors cursor-pointer group" onClick={() => onEdit(it)}>
+                <td className="px-4 py-3">
+                  <div className="flex items-center gap-2">
+                    <span className="w-1 h-4 rounded-full shrink-0" style={{ backgroundColor: statusMeta.accent }} />
+                    <span className="text-[10px] font-semibold text-[var(--text-warning)] whitespace-nowrap">{it.id?.startsWith("int-") ? it.id : `#${it.internalTicketNumber?.toString().padStart(4, "0")}`}</span>
+                  </div>
+                </td>
+                <td className="px-4 py-3 text-sm font-bold text-[var(--text-primary)] group-hover:text-[var(--text-warning)] transition-colors max-w-xs truncate">{it.title}</td>
+                <td className="px-4 py-3">
+                  <span className={cn("text-[10px] font-semibold px-2 py-1 rounded-full uppercase flex items-center gap-1 w-fit", statusMeta.color)}>
+                    <span className={cn("w-1.5 h-1.5 rounded-full", statusMeta.dot)} />
+                    {statusMeta.label}
+                  </span>
+                </td>
                 <td className="px-4 py-3">
                   <span className={cn("text-[10px] font-semibold px-2 py-1 rounded-full uppercase", teamOpt.color)}>
                     {teamOpt.label}
                   </span>
                 </td>
+                <td className="px-4 py-3"><PriorityBars priority={it.priority || 1} /></td>
                 <td className="px-4 py-3">
-                  <span className={cn("text-[10px] font-semibold px-2 py-1 rounded-full", prio.color)}>
-                    {prio.label}
-                  </span>
+                  <div className="flex items-center gap-2">
+                    <Avatar name={it.assigneeName} size={20} />
+                    <span className="text-sm text-[var(--text-secondary)] truncate max-w-[120px]">{it.assigneeName || "Não atribuído"}</span>
+                  </div>
                 </td>
-                <td className="px-4 py-3 text-sm text-[var(--text-secondary)]">{it.assigneeName || "-"}</td>
-                <td className={cn("px-4 py-3 text-[10px] font-bold", 
+                <td className={cn("px-4 py-3 text-[10px] font-bold whitespace-nowrap",
                   it.slaRemaining === "Expirado" ? "text-[var(--text-danger)]" : "text-[var(--text-secondary)]")}>
                   {it.slaRemaining || "-"}
                 </td>
                 <td className="px-4 py-3 text-sm text-[var(--text-tertiary)]">
-                  {it.linkedTicketTitles?.length || 0} ticket(s)
+                  {it.commentCount ? (
+                    <span className="flex items-center gap-1 text-[10px] font-bold"><MessageCircle size={11} />{it.commentCount}</span>
+                  ) : "-"}
                 </td>
               </tr>
             );
@@ -793,131 +973,157 @@ function TicketModal({
 }
 
 // Kanban Board Component
-function KanbanBoard({ 
-  tickets, 
+function KanbanBoard({
+  tickets,
   onEdit,
   onStatusChange
-}: { 
-  tickets: InternalTicketItem[]; 
+}: {
+  tickets: InternalTicketItem[];
   onEdit: (t: InternalTicketItem) => void;
   onStatusChange?: (ticketId: string, newStatus: string) => void;
 }) {
-  const handleStatusChange = async (ticketUuid: string, newStatus: string) => {
-    if (!onStatusChange) return;
-    onStatusChange(ticketUuid, newStatus);
-  };
+  const [activeTicket, setActiveTicket] = useState<InternalTicketItem | null>(null);
+  const sensors = useSensors(
+    useSensor(PointerSensor, { activationConstraint: { distance: 8 } })
+  );
 
   const columns = KANBAN_STATUSES.map(status => ({
     ...status,
     tickets: tickets.filter(t => (t.status || "Novo") === status.value)
   }));
 
+  const handleDragStart = (event: DragStartEvent) => {
+    const ticket = tickets.find(t => t.uuid === event.active.id);
+    setActiveTicket(ticket || null);
+  };
+
+  const handleDragEnd = (event: DragEndEvent) => {
+    setActiveTicket(null);
+    const { active, over } = event;
+    if (!over || !onStatusChange) return;
+    const ticket = tickets.find(t => t.uuid === active.id);
+    const targetStatus = String(over.id);
+    if (ticket && ticket.status !== targetStatus) {
+      onStatusChange(String(active.id), targetStatus);
+    }
+  };
+
   return (
-    <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
-      {columns.map((col) => (
-        <div key={col.value} className="bg-[var(--surface-card)] rounded-2xl p-3">
-          <div className="flex items-center gap-2 mb-3 px-2">
-            <span className={cn("text-xs font-semibold px-2 py-1 rounded-full", col.color)}>
-              {col.icon}
-            </span>
-            <h3 className="text-sm font-bold text-[var(--text-secondary)]">{col.label}</h3>
-            <span className="text-xs text-[var(--text-tertiary)] ml-auto">({col.tickets.length})</span>
+    <DndContext sensors={sensors} onDragStart={handleDragStart} onDragEnd={handleDragEnd}>
+      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4 items-start">
+        {columns.map((col) => (
+          <KanbanColumn key={col.value} col={col} onEdit={onEdit} />
+        ))}
+      </div>
+      <DragOverlay dropAnimation={{ duration: 180, easing: 'cubic-bezier(0.18, 0.67, 0.6, 1.22)' }}>
+        {activeTicket && <KanbanCard ticket={activeTicket} onEdit={() => {}} dragging />}
+      </DragOverlay>
+    </DndContext>
+  );
+}
+
+// Coluna do Kanban — área de soltar (droppable), com destaque visual
+// enquanto um card é arrastado sobre ela.
+function KanbanColumn({ col, onEdit }: { col: (typeof KANBAN_STATUSES)[number] & { tickets: InternalTicketItem[] }; onEdit: (t: InternalTicketItem) => void }) {
+  const { setNodeRef, isOver } = useDroppable({ id: col.value });
+
+  return (
+    <div
+      ref={setNodeRef}
+      className={cn(
+        "rounded-2xl border-t-4 transition-all overflow-hidden",
+        isOver ? "bg-[var(--surface-pill)] ring-2 ring-[var(--text-warning-strong)]/30" : "bg-[var(--surface-card)]"
+      )}
+      style={{ borderTopColor: col.accent }}
+    >
+      <div className="flex items-center gap-2 px-4 py-3 border-b border-[var(--border-default)]">
+        <span className={cn("w-2 h-2 rounded-full", col.dot)} />
+        <h3 className="text-xs font-black uppercase tracking-wide text-[var(--text-secondary)]">{col.label}</h3>
+        <span className="text-[10px] font-bold text-[var(--text-tertiary)] ml-auto bg-[var(--surface-pill)] px-2 py-0.5 rounded-full">
+          {col.tickets.length}
+        </span>
+      </div>
+
+      <div className="p-3 space-y-2.5 min-h-[120px]">
+        {col.tickets.length === 0 ? (
+          <div className={cn("text-center py-8 rounded-xl border-2 border-dashed transition-colors", isOver ? "border-[var(--text-warning-strong)]/40" : "border-[var(--border-default)]")}>
+            <p className="text-[10px] text-[var(--text-tertiary)] font-medium uppercase tracking-wide">Arraste um card aqui</p>
           </div>
-          
-          <div className="space-y-3 min-h-[200px]">
-            {col.tickets.length === 0 ? (
-              <div className="text-center py-8 text-[var(--text-tertiary)]">
-                <p className="text-xs">Vazio</p>
-              </div>
-            ) : (
-              col.tickets.map((ticket) => (
-                <KanbanCard 
-                  key={ticket.id} 
-                  ticket={ticket} 
-                  onEdit={onEdit}
-                  onStatusChange={handleStatusChange}
-                />
-              ))
-            )}
-          </div>
-        </div>
-      ))}
+        ) : (
+          col.tickets.map((ticket) => (
+            <DraggableKanbanCard key={ticket.uuid} ticket={ticket} onEdit={onEdit} />
+          ))
+        )}
+      </div>
     </div>
   );
-  }
+}
 
-  // KanbanCard Component
-  function KanbanCard({
-  ticket, 
-  onEdit,
-  onStatusChange
-}: { 
-  ticket: InternalTicketItem; 
-  onEdit: (t: InternalTicketItem) => void;
-  onStatusChange?: (ticketUuid: string, newStatus: string) => void;
-}) {
-  const priorityInfo = priorityConfig[ticket.priority as keyof typeof priorityConfig] || priorityConfig[1];
-
+function DraggableKanbanCard({ ticket, onEdit }: { ticket: InternalTicketItem; onEdit: (t: InternalTicketItem) => void }) {
+  const { attributes, listeners, setNodeRef, transform, isDragging } = useDraggable({ id: ticket.uuid || ticket.id || "" });
   return (
-    <div 
-      className="bg-[var(--surface-card)] rounded-xl p-4 border border-[var(--border-default)] hover:shadow-md hover:border-amber-300 transition-all cursor-pointer group"
-      onClick={() => onEdit(ticket)}
+    <div
+      ref={setNodeRef}
+      {...listeners}
+      {...attributes}
+      style={{ transform: transform ? `translate3d(${transform.x}px, ${transform.y}px, 0)` : undefined, opacity: isDragging ? 0.4 : 1 }}
+      className="touch-none"
+    >
+      <KanbanCard ticket={ticket} onEdit={onEdit} />
+    </div>
+  );
+}
+
+// KanbanCard Component
+function KanbanCard({ ticket, onEdit, dragging = false }: { ticket: InternalTicketItem; onEdit: (t: InternalTicketItem) => void; dragging?: boolean }) {
+  return (
+    <div
+      onClick={() => !dragging && onEdit(ticket)}
+      className={cn(
+        "bg-[var(--surface-card)] rounded-xl p-3.5 border border-[var(--border-default)] transition-all group",
+        dragging ? "shadow-2xl rotate-2 cursor-grabbing" : "hover:shadow-md hover:border-[var(--text-warning-strong)]/40 cursor-grab active:cursor-grabbing"
+      )}
     >
       <div className="flex items-start justify-between mb-2">
         <span className="text-[10px] font-semibold text-[var(--text-warning)]">
           {ticket.id?.startsWith("int-") ? ticket.id : `#${ticket.internalTicketNumber?.toString().padStart(4, "0")}`}
         </span>
-        <button 
-          onClick={(e) => {
-            e.stopPropagation();
-            onEdit(ticket);
-          }}
-          className="opacity-0 group-hover:opacity-100 p-1 rounded hover:bg-[var(--surface-pill)] transition-all"
-        >
-          <ChevronRight size={14} className="text-[var(--text-tertiary)]" />
-        </button>
+        <PriorityBars priority={ticket.priority || 1} />
       </div>
-      
-      <h4 className="font-bold text-[var(--text-primary)] text-sm mb-2 line-clamp-2" title={ticket.title}>
+
+      <h4 className="font-bold text-[var(--text-primary)] text-sm mb-2 line-clamp-2 leading-snug" title={ticket.title}>
         {ticket.title}
       </h4>
-      
-      <div className="flex items-center justify-between">
-        <span className={cn("text-[10px] font-semibold px-2 py-1 rounded-full", priorityInfo.color)}>
-          {priorityInfo.icon}
-        </span>
-        
-        {ticket.assigneeName && (
-          <span className="text-[10px] text-[var(--text-tertiary)] truncate max-w-[100px]" title={ticket.assigneeName}>
-            {ticket.assigneeName}
-          </span>
-        )}
-      </div>
-      
-      {/* Status dropdown for quick change */}
-      {onStatusChange && (
-        <StyledSelect
-          value={ticket.status || 'Novo'}
-          onChange={(e) => {
-            e.stopPropagation();
-            onStatusChange(ticket.uuid || '', e.target.value);
-          }}
-          onClick={(e) => e.stopPropagation()}
-          className="w-full mt-2 text-[10px] border border-[var(--border-default)] rounded px-2 py-1 bg-[var(--surface-card)]"
-        >
-          {KANBAN_STATUSES.map(s => (
-            <option key={s.value} value={s.value}>{s.label}</option>
-          ))}
-        </StyledSelect>
-      )}
-      
-      {ticket.linkedTicketTitles && ticket.linkedTicketTitles.length > 0 && (
-        <div className="mt-2 pt-2 border-t border-[var(--border-default)]">
-          <span className="text-[10px] text-[var(--text-tertiary)] truncate" title={ticket.linkedTicketTitles.join(", ")}>
-            {ticket.linkedTicketTitles[0]}
-          </span>
+
+      {ticket.tags && ticket.tags.length > 0 && (
+        <div className="flex flex-wrap gap-1 mb-2.5">
+          {ticket.tags.slice(0, 3).map(tag => <TagChip key={tag} tag={tag} />)}
         </div>
       )}
+
+      <div className="flex items-center justify-between">
+        <div className="flex items-center gap-2.5 text-[var(--text-tertiary)]">
+          {!!ticket.commentCount && (
+            <span className="flex items-center gap-1 text-[10px] font-bold">
+              <MessageCircle size={11} />
+              {ticket.commentCount}
+            </span>
+          )}
+          {ticket.linkedTicketTitles && ticket.linkedTicketTitles.length > 0 && (
+            <span className="flex items-center gap-1 text-[10px] font-bold" title={ticket.linkedTicketTitles.join(", ")}>
+              <Link2 size={11} />
+              {ticket.linkedTicketTitles.length}
+            </span>
+          )}
+          {ticket.slaRemaining && (
+            <span className={cn("flex items-center gap-1 text-[10px] font-bold", ticket.slaRemaining === "Expirado" ? "text-[var(--text-danger)]" : "")}>
+              <Clock size={11} />
+              {ticket.slaRemaining}
+            </span>
+          )}
+        </div>
+        <Avatar name={ticket.assigneeName} size={22} />
+      </div>
     </div>
   );
 }

@@ -9,7 +9,8 @@ import {
   UserRole,
   Company,
   QuickNote,
-  Attachment
+  Attachment,
+  Permission
 } from '@/lib/types';
 import { isAudioAttachment } from '@/lib/attachment-kind';
 import {
@@ -33,7 +34,8 @@ import {
   Check,
   Building2,
   Phone,
-  Ticket as TicketIcon
+  Ticket as TicketIcon,
+  Lock
 } from 'lucide-react';
 import { cn, normalizeString, maskPhone, matchPhones } from '@/lib/utils';
 import { motion, AnimatePresence } from 'motion/react';
@@ -47,7 +49,7 @@ import { fetchUsers } from '@/lib/services/config-service';
 import { getQuickNotes, saveQuickNote as saveQuickNoteAction, deleteQuickNote, getAnalysts, getCompanies, updateUserStatus, saveTicketFromChatSession, closeChatSessionAfterTicket, assignChatSession } from '@/app/actions';
 
 export default function ChatManagementPage() {
-  const { currentUser, setActiveOmniChatId, setIsOmniChatOpen, refreshTrigger, userStatus, getContactPhoto, ensureContactPhoto } = useApp();
+  const { currentUser, setActiveOmniChatId, setIsOmniChatOpen, refreshTrigger, userStatus, getContactPhoto, ensureContactPhoto, hasPermission } = useApp();
   const [sessions, setSessions] = useState<ChatSession[]>([]);
   const [statuses, setStatuses] = useState<AnalystStatus[]>([]);
   const [notes, setNotes] = useState<QuickNote[]>([]);
@@ -468,6 +470,18 @@ const handleDeleteNote = async () => {
       toast.error('Erro ao encerrar os atendimentos selecionados.');
     }
   };
+
+  if (!hasPermission(Permission.OUTSIDE_QUEUE_VIEW)) {
+    return (
+      <div className="flex items-center justify-center h-full">
+        <div className="text-center p-8 bg-[var(--surface-card)] rounded-2xl shadow-lg border border-[var(--border-default)]">
+          <Lock size={48} className="mx-auto text-slate-300 mb-4" />
+          <h2 className="text-xl font-bold text-[var(--text-secondary)] mb-2">Acesso Negado</h2>
+          <p className="text-[var(--text-tertiary)]">Você não tem permissão para acessar a central de atendimento.</p>
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div className="space-y-8">

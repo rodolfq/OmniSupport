@@ -717,19 +717,25 @@ const handleSendMessage = async (isInternal: boolean) => {
                        <div className="flex items-start gap-4">
                           <span className="text-[11px] font-semibold uppercase text-[var(--text-tertiary)] w-24 pt-0.5">Responsável</span>
                           <div className="flex items-center gap-2">
-                             <StyledSelect 
-                               value={assigneeId}
-                               onChange={(e) => {
-                                 const val = e.target.value;
-                                 setAssigneeId(val);
-                                 if (val && val === currentUser?.id) suppressTicketAssignedNotification(ticket.id);
-                                 scheduleTicketSave({ assigneeId: val });
-                               }}
-                               className="text-sm font-bold text-[var(--text-secondary)] bg-transparent border-none outline-none focus:ring-2 focus:ring-[var(--accent)]/10 rounded px-1 -ml-1 cursor-pointer hover:bg-[var(--surface-card)] transition-all"
-                             >
-                               <option value="">Não atribuído</option>
-                               {analysts.map(a => <option key={a.id} value={a.id}>{a.name}</option>)}
-                             </StyledSelect>
+                             {hasPermission(Permission.TICKETS_ASSIGN) ? (
+                               <StyledSelect
+                                 value={assigneeId}
+                                 onChange={(e) => {
+                                   const val = e.target.value;
+                                   setAssigneeId(val);
+                                   if (val && val === currentUser?.id) suppressTicketAssignedNotification(ticket.id);
+                                   scheduleTicketSave({ assigneeId: val });
+                                 }}
+                                 className="text-sm font-bold text-[var(--text-secondary)] bg-transparent border-none outline-none focus:ring-2 focus:ring-[var(--accent)]/10 rounded px-1 -ml-1 cursor-pointer hover:bg-[var(--surface-card)] transition-all"
+                               >
+                                 <option value="">Não atribuído</option>
+                                 {analysts.map(a => <option key={a.id} value={a.id}>{a.name}</option>)}
+                               </StyledSelect>
+                             ) : (
+                               <span className="text-sm font-bold text-[var(--text-secondary)]">
+                                 {analysts.find(a => a.id === assigneeId)?.name || 'Não atribuído'}
+                               </span>
+                             )}
                           </div>
                        </div>
 <div className="flex items-start gap-4">

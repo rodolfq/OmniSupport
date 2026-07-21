@@ -11,14 +11,20 @@ export async function POST(request: Request) {
       return NextResponse.json({ error: 'E-mail e senha são obrigatórios.' }, { status: 400 });
     }
 
-    // Buscar perfil no banco Postgres próprio
+    // Buscar perfil no banco Postgres próprio. Permissões vêm do Perfil de
+    // Acesso escolhido (access_profile_id), não mais de um join por nome de
+    // role — dois usuários com o mesmo role podem ter perfis diferentes.
     const result = await query(
       `SELECT p.id, p.name, p.email, p.role, p.password, p.must_change_password,
               p.company_id, p.phone, p.avatar_url, p.view_all_company_tickets,
-              p.is_admin, p.lives_in_squad, p.is_active,
-              COALESCE(rp.permissions, '{}'::text[]) AS permissions
+              p.is_admin, p.lives_in_squad, p.is_active, p.internal_team_ids, p.access_profile_id,
+              COALESCE(rp.permissions, '{}'::text[]) AS permissions,
+              COALESCE(
+                (SELECT array_agg(it.id) FROM public.internal_teams it WHERE p.id = ANY(it.admin_ids)),
+                '{}'::uuid[]
+              ) AS admin_of_team_ids
        FROM public.profiles p
-       LEFT JOIN public.role_permissions rp ON rp.role = p.role
+       LEFT JOIN public.role_permissions rp ON rp.id = p.access_profile_id
        WHERE p.email = $1`,
       [email]
     );
@@ -28,6 +34,17 @@ export async function POST(request: Request) {
     }
 
     const user = result.rows[0];
+
+    // Quem administra ao menos uma equipe interna sempre enxerga Equipe e
+    // Perfil de Acesso, mesmo que o perfil de acesso dele não inclua essas
+    // permissões — o acesso real a QUAIS usuários/perfis ele edita continua
+    // escopado à(s) própria(s) equipe(s) nas actions do servidor.
+    const effectivePermissions: string[] = user.permissions || [];
+    if ((user.admin_of_team_ids || []).length > 0) {
+      for (const p of ['team:read', 'settings:write']) {
+        if (!effectivePermissions.includes(p)) effectivePermissions.push(p);
+      }
+    }
 
     // Verificar a senha digitada contra o hash armazenado
     const isPasswordValid = verifyPassword(password, user.password);
@@ -53,13 +70,16 @@ export async function POST(request: Request) {
         name: user.name,
         email: user.email,
         role: user.role,
-        permissions: user.permissions || [],
+        permissions: effectivePermissions,
         companyId: user.company_id,
         phone: user.phone,
         avatarUrl: user.avatar_url,
         viewAllCompanyTickets: user.view_all_company_tickets,
         isAdmin: user.is_admin,
         livesInSquad: user.lives_in_squad,
+        internalTeamIds: user.internal_team_ids || [],
+        accessProfileId: user.access_profile_id,
+        adminOfTeamIds: user.admin_of_team_ids || [],
         mustChangePassword: user.must_change_password
       }
     });

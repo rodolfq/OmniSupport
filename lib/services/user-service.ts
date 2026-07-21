@@ -1,4 +1,4 @@
-import { User, UserRole, Permission } from "../types";
+import { User, UserRole } from "../types";
 
 export class UserService {
   static async getCurrentProfile(): Promise<User | null> {
@@ -51,55 +51,6 @@ export class UserService {
       companyId: data.companyId,
       phone: data.phones?.[0],
     };
-  }
-
-  static getPermissionsByRole(roleName: string): Permission[] {
-    const permissions: Record<string, Permission[]> = {
-      [UserRole.ADMIN]: [
-        Permission.TICKETS_READ,
-        Permission.TICKETS_WRITE,
-        Permission.TICKETS_DELETE,
-        Permission.TICKETS_ASSIGN,
-        Permission.CUSTOMERS_READ,
-        Permission.CUSTOMERS_WRITE,
-        Permission.TEAM_READ,
-        Permission.TEAM_WRITE,
-        Permission.SETTINGS_READ,
-        Permission.SETTINGS_WRITE,
-        Permission.SETTINGS_SYSTEM,
-        Permission.REPORTS_READ,
-        Permission.INTERNAL_TICKETS_VIEW,
-        Permission.INTERNAL_TICKETS_EDIT,
-        Permission.OUTSIDE_QUEUE_VIEW,
-        Permission.DASHBOARD_VIEW,
-        Permission.CHAT_INTERNAL_VIEW,
-      ],
-      [UserRole.SUPPORT]: [
-        Permission.DASHBOARD_VIEW,
-        Permission.TICKETS_READ,
-        Permission.TICKETS_WRITE,
-        Permission.CUSTOMERS_READ,
-        Permission.INTERNAL_TICKETS_VIEW,
-        Permission.INTERNAL_TICKETS_EDIT,
-        Permission.OUTSIDE_QUEUE_VIEW,
-        Permission.CHAT_INTERNAL_VIEW,
-      ],
-      [UserRole.CUSTOMER]: [
-        Permission.TICKETS_READ,
-        Permission.TICKETS_WRITE,
-        Permission.CUSTOMERS_READ,
-      ],
-      [UserRole.EMPLOYEE]: [
-        Permission.TICKETS_READ,
-        Permission.TICKETS_WRITE,
-      ],
-      [UserRole.INTERNAL]: [
-        Permission.INTERNAL_TICKETS_VIEW,
-        Permission.INTERNAL_TICKETS_EDIT,
-        Permission.CHAT_INTERNAL_VIEW,
-      ],
-    };
-    return permissions[roleName] || [];
   }
 
   static async save(user: Partial<User>): Promise<void> {

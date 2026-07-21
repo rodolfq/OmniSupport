@@ -2,7 +2,7 @@
 
 import React, { useState, useEffect, useMemo } from 'react';
 import { getUsers, getCompanies, deleteCompany } from '@/app/actions';
-import { Company, User, UserRole } from '@/lib/types';
+import { Company, User, UserRole, Permission } from '@/lib/types';
 import { Building2, User as UserIcon, Mail, Phone, Plus, MessageCircle, Ticket, ShieldCheck, ShieldOff, Search, X, Check } from 'lucide-react';
 import { cn, normalizeString, maskPhone } from '@/lib/utils';
 import { NewEmployeeModal } from '@/components/new-employee-modal';
@@ -117,7 +117,7 @@ function WhatsAppNumberModal({
 }
 
 export default function CustomersPage() {
-  const { currentUser, setIsNewTicketModalOpen, setPreselectedUserId, setPreselectedCompanyId } = useApp();
+  const { currentUser, setIsNewTicketModalOpen, setPreselectedUserId, setPreselectedCompanyId, hasPermission } = useApp();
   const [isLoading, setIsLoading] = useState(true);
   const [companies, setCompanies] = useState<Company[]>([]);
   const [users, setUsers] = useState<User[]>([]);
@@ -133,7 +133,7 @@ export default function CustomersPage() {
   const [searchQuery, setSearchQuery] = useState('');
   const isCompanyPortalUser = [UserRole.CUSTOMER, UserRole.EMPLOYEE].includes(currentUser?.role as UserRole);
   const isCustomerAdmin = currentUser?.role === UserRole.CUSTOMER;
-  const canManageCompanies = currentUser?.role === UserRole.ADMIN;
+  const canManageCompanies = hasPermission(Permission.CUSTOMERS_WRITE);
   const canCreateEmployees = canManageCompanies || isCustomerAdmin;
   const canEditEmployees = canManageCompanies || isCustomerAdmin;
 

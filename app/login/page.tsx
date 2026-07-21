@@ -67,7 +67,10 @@ export default function LoginPage() {
           avatarUrl: data.user.avatarUrl,
           viewAllCompanyTickets: data.user.viewAllCompanyTickets,
           mustChangePassword: data.user.mustChangePassword,
-          isAdmin: data.user.isAdmin
+          isAdmin: data.user.isAdmin,
+          internalTeamIds: data.user.internalTeamIds,
+          accessProfileId: data.user.accessProfileId,
+          adminOfTeamIds: data.user.adminOfTeamIds
         });
 
         setIsLoading(false);

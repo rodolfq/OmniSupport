@@ -58,7 +58,7 @@ CREATE TABLE public.profiles (
   company_id UUID REFERENCES public.companies(id) ON DELETE SET NULL,
   name TEXT NOT NULL,
   email TEXT NOT NULL UNIQUE,
-  role TEXT NOT NULL DEFAULT 'Funcionário', -- 'Funcionário', 'Equipe', 'Administrador', 'Cliente', 'Time Interno'
+  role TEXT NOT NULL DEFAULT 'Funcionário', -- 'Funcionário', 'Equipe', 'Administrador', 'Cliente', 'Time Interno' — tipo estrutural (portal, FKs), não decide mais permissões
   is_admin BOOLEAN DEFAULT FALSE,
   lives_in_squad BOOLEAN DEFAULT FALSE,
   internal_team_ids UUID[] DEFAULT '{}',
@@ -75,19 +75,31 @@ CREATE TABLE public.internal_teams (
   id UUID PRIMARY KEY DEFAULT (md5(random()::text || clock_timestamp()::text)::uuid),
   name TEXT NOT NULL UNIQUE,
   description TEXT,
+  admin_ids UUID[] DEFAULT '{}', -- usuários que administram esta equipe: podem criar/editar usuários e perfis de acesso escopados a ela
   created_at TIMESTAMP WITH TIME ZONE DEFAULT now() NOT NULL
 );
 
 CREATE INDEX IF NOT EXISTS idx_profiles_internal_teams ON public.profiles USING gin (internal_team_ids);
 
--- Role Permissions Table
+-- Role Permissions Table ("Perfil de Acesso" na UI) — fonte única de quais
+-- telas/ações um usuário tem. profiles.access_profile_id aponta pra cá; o
+-- antigo join por profiles.role = role_permissions.role foi descontinuado
+-- (role continua existindo em profiles só pro tipo estrutural do usuário).
 CREATE TABLE public.role_permissions (
   id UUID PRIMARY KEY DEFAULT (md5(random()::text || clock_timestamp()::text)::uuid),
   name TEXT NOT NULL UNIQUE,
   role TEXT NOT NULL,
   permissions TEXT[] DEFAULT '{}',
+  internal_team_id UUID REFERENCES public.internal_teams(id) ON DELETE CASCADE, -- NULL = perfil global/sistema; preenchido = perfil criado por/para uma equipe interna específica
+  is_system BOOLEAN DEFAULT FALSE, -- protege os perfis padrão (Administrador etc) de edição/exclusão por admins de equipe
   created_at TIMESTAMP WITH TIME ZONE DEFAULT now()
 );
+
+-- "Perfil de Acesso" do usuário — única fonte de permissões/telas. Fica como
+-- ALTER (não como coluna inline lá em cima) porque profiles é criada antes
+-- de role_permissions existir neste script.
+ALTER TABLE public.profiles
+  ADD COLUMN IF NOT EXISTS access_profile_id UUID REFERENCES public.role_permissions(id) ON DELETE SET NULL;
 
 -- Analyst Status
 CREATE TABLE public.analyst_status (

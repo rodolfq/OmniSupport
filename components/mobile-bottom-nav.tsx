@@ -42,7 +42,11 @@ export function MobileBottomNav() {
     if (userPermissions.includes(Permission.TICKETS_READ)) {
       items.push({ name: 'Chamados', icon: Ticket, href: '/tickets' });
     }
-    items.push({ name: 'Chat', icon: MessageSquare, href: '/chat' });
+    // Mesma permissão que já gate o widget de chat em si (ver layout.tsx) —
+    // sem ela essa aba abriria uma tela vazia, então nem faz sentido mostrar.
+    if (userPermissions.includes(Permission.OUTSIDE_QUEUE_VIEW)) {
+      items.push({ name: 'Chat', icon: MessageSquare, href: '/chat' });
+    }
     return items;
   }, [isCustomer, currentUser?.role, userPermissions]);
 

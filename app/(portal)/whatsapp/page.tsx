@@ -2,12 +2,27 @@
 
 import React, { useState } from 'react';
 import { WhatsAppConnect } from '@/components/whatsapp-connect';
-import { MessageSquare, Code, Key } from 'lucide-react';
+import { MessageSquare, Code, Key, Lock } from 'lucide-react';
 import { cn } from '@/lib/utils';
+import { useApp } from '@/app/app-context';
+import { Permission } from '@/lib/types';
 
 export default function WhatsAppPage() {
+  const { hasPermission } = useApp();
   const [activeTab, setActiveTab] = useState<'baileys' | 'meta'>('baileys');
-  
+
+  if (!hasPermission(Permission.WHATSAPP_MANAGE)) {
+    return (
+      <div className="flex items-center justify-center h-full">
+        <div className="text-center p-8 bg-[var(--surface-card)] rounded-2xl shadow-lg border border-[var(--border-default)]">
+          <Lock size={48} className="mx-auto text-slate-300 mb-4" />
+          <h2 className="text-xl font-bold text-[var(--text-secondary)] mb-2">Acesso Negado</h2>
+          <p className="text-[var(--text-tertiary)]">Você não tem permissão para conectar canais de WhatsApp.</p>
+        </div>
+      </div>
+    );
+  }
+
   return (
     <div className="space-y-8">
       <div className="flex items-center justify-between">

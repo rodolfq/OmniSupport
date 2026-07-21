@@ -266,6 +266,24 @@ export function ChatWidget() {
   }, [selectedChat?.messages]);
   const unreadCount = notifications.filter(n => !n.read && n.type.startsWith('chat_')).length;
   const isCustomer = [UserRole.CUSTOMER, UserRole.EMPLOYEE].includes(currentUser?.role as UserRole);
+  // Quantas conversas de verdade estão sem resposta da equipe — diferente de
+  // unreadCount (que conta NOTIFICAÇÕES não lidas, não chats: uma mesma
+  // conversa pode gerar várias notificações, ou nenhuma se a notificação foi
+  // suprimida por já estar aberta na hora, mesmo com a conversa ainda sem
+  // resposta). Uma conversa conta como "sem resposta" quando a ÚLTIMA
+  // mensagem foi do cliente (ninguém da equipe respondeu ainda) — cobre
+  // tanto atendimentos pendentes (fila) quanto ativos que ficaram sem
+  // resposta.
+  const chatsAwaitingResponseCount = React.useMemo(() => {
+    if (isCustomer) return 0;
+    return customerSessions.filter(s => {
+      if (s.status === 'closed') return false;
+      const msgs = s.messages || [];
+      if (msgs.length === 0) return false;
+      const last = msgs[msgs.length - 1];
+      return !last.senderId || last.senderId === s.customerId;
+    }).length;
+  }, [customerSessions, isCustomer]);
   const [lastViewedAt, setLastViewedAt] = useState<Record<string, string>>({});
   const [message, setMessage] = useState('');
   const [quickNotes, setQuickNotes] = useState<QuickNote[]>([]);
@@ -2335,14 +2353,25 @@ useEffect(() => {
           )}
         >
           {isMinimized ? <MessageSquare size={28} /> : <X size={28} />}
-          {isMinimized && (unreadCount > 0 || (!isCustomer && customerSessions.some(s => s.status === 'pending'))) && (
-            <span className={cn(
-              "absolute -top-1 -right-1 min-w-[24px] h-6 px-1 text-white text-[10px] font-black flex items-center justify-center rounded-full border-2 border-white",
-              unreadCount > 0 ? "bg-[var(--text-danger)]" : "bg-[var(--text-warning-strong)] animate-pulse"
-            )}>
-              {unreadCount > 0 ? (unreadCount > 9 ? '9+' : unreadCount) : '!'}
-            </span>
-          )}
+          {isMinimized && (() => {
+            // Pro operador, o número mostrado é chatsAwaitingResponseCount
+            // (conversas de verdade sem resposta) — não unreadCount, que é a
+            // contagem de notificações não lidas e pode divergir bastante
+            // disso (várias notificações pra 1 chat só, ou nenhuma se a
+            // notificação foi suprimida enquanto a conversa estava aberta).
+            // Pro cliente (só 1 atendimento por vez, sem essa noção de fila),
+            // continua sendo "tenho mensagem nova" via unreadCount.
+            const badgeCount = isCustomer ? unreadCount : chatsAwaitingResponseCount;
+            if (!(badgeCount > 0 || (!isCustomer && customerSessions.some(s => s.status === 'pending')))) return null;
+            return (
+              <span className={cn(
+                "absolute -top-1 -right-1 min-w-[24px] h-6 px-1 text-white text-[10px] font-black flex items-center justify-center rounded-full border-2 border-white",
+                badgeCount > 0 ? "bg-[var(--text-danger)]" : "bg-[var(--text-warning-strong)] animate-pulse"
+              )}>
+                {badgeCount > 0 ? (badgeCount > 9 ? '9+' : badgeCount) : '!'}
+              </span>
+            );
+          })()}
         </button>
       )}
     </div>

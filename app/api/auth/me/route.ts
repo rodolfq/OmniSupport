@@ -16,13 +16,19 @@ export async function GET(request: NextRequest) {
       return NextResponse.json({ user: null, error: 'Sessão inválida ou expirada' }, { status: 401 });
     }
 
-    // Buscar perfil no Postgres próprio
+    // Buscar perfil no Postgres próprio. Permissões vêm do Perfil de Acesso
+    // escolhido (access_profile_id), não mais de um join por nome de role.
     const result = await query(
       `SELECT p.id, p.name, p.email, p.role, p.company_id, p.phone, p.avatar_url,
               p.view_all_company_tickets, p.must_change_password, p.is_admin, p.lives_in_squad,
-              COALESCE(rp.permissions, '{}'::text[]) AS permissions
+              p.internal_team_ids, p.access_profile_id,
+              COALESCE(rp.permissions, '{}'::text[]) AS permissions,
+              COALESCE(
+                (SELECT array_agg(it.id) FROM public.internal_teams it WHERE p.id = ANY(it.admin_ids)),
+                '{}'::uuid[]
+              ) AS admin_of_team_ids
        FROM public.profiles p
-       LEFT JOIN public.role_permissions rp ON rp.role = p.role
+       LEFT JOIN public.role_permissions rp ON rp.id = p.access_profile_id
        WHERE p.id = $1`,
       [decoded.id]
     );
@@ -32,6 +38,15 @@ export async function GET(request: NextRequest) {
     }
 
     const profile = result.rows[0];
+
+    // Mesma regra do login: admin de equipe sempre enxerga Equipe e Perfil
+    // de Acesso, independente do que o perfil de acesso dele concede.
+    const effectivePermissions: string[] = profile.permissions || [];
+    if ((profile.admin_of_team_ids || []).length > 0) {
+      for (const p of ['team:read', 'settings:write']) {
+        if (!effectivePermissions.includes(p)) effectivePermissions.push(p);
+      }
+    }
 
     // Buscar status de analista
     const statusResult = await query(
@@ -47,7 +62,7 @@ export async function GET(request: NextRequest) {
         email: profile.email,
         name: profile.name,
         role: profile.role,
-        permissions: profile.permissions || [],
+        permissions: effectivePermissions,
         companyId: profile.company_id,
         phone: profile.phone,
         avatarUrl: profile.avatar_url,
@@ -55,6 +70,9 @@ export async function GET(request: NextRequest) {
         mustChangePassword: profile.must_change_password,
         isAdmin: profile.is_admin,
         livesInSquad: profile.lives_in_squad,
+        internalTeamIds: profile.internal_team_ids || [],
+        accessProfileId: profile.access_profile_id,
+        adminOfTeamIds: profile.admin_of_team_ids || [],
         status: status,
         statusReason: dbStatus?.current_reason || null,
         statusSince: dbStatus?.last_active || null

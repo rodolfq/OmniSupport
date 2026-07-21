@@ -10,10 +10,28 @@ import { cn } from '@/lib/utils';
 import { motion, AnimatePresence } from 'motion/react';
 import { useApp } from '@/app/app-context';
 import { NotificationSettingsContent } from '@/components/notification-settings';
-import { getUsers, createUser, updateUser, deleteUser, getCompanies } from '@/app/actions';
-import { Permission, UserRole, type User } from '@/lib/types';
+import { getUsers, createUser, updateUser, deleteUser, getCompanies, getRolePermissions } from '@/app/actions';
+import { Permission, UserRole, type User, type RolePermission } from '@/lib/types';
+import { supabase } from '@/lib/supabase';
 import { toast } from 'sonner';
 import { useRouter } from 'next/navigation';
+
+interface TeamOption {
+  id: string;
+  name: string;
+}
+
+// Mesma regra usada no servidor (app/actions.ts createUser/updateUser): o
+// tipo estrutural do usuário segue o Perfil de Acesso escolhido, não é mais
+// uma escolha separada — perfil de equipe sempre vira 'Time Interno'.
+function deriveStructuralRole(profile?: RolePermission | null): string {
+  if (!profile) return 'Equipe';
+  if (profile.isSystem && (profile.name === 'Administrador' || profile.name === 'Equipe' || profile.name === 'Time Interno')) {
+    return profile.name;
+  }
+  if (profile.internalTeamId) return 'Time Interno';
+  return 'Equipe';
+}
 
 export default function TeamManagementPage() {
   const [analysts, setAnalysts] = useState<any[]>([]);
@@ -34,11 +52,33 @@ export default function TeamManagementPage() {
   const [isSavingPassword, setIsSavingPassword] = useState(false);
   const [companies, setCompanies] = useState<any[]>([]);
   const [isSaving, setIsSaving] = useState(false);
-  
+  const [profiles, setProfiles] = useState<RolePermission[]>([]);
+  const [teams, setTeams] = useState<TeamOption[]>([]);
+  const [accessProfileId, setAccessProfileId] = useState<string>('');
+
   const { currentUser, authInitialized } = useApp();
   const router = useRouter();
-  const canViewTeam = currentUser?.role === UserRole.ADMIN ||
+  const isSystemAdmin = currentUser?.role === UserRole.ADMIN;
+  const myAdminTeamIds = currentUser?.adminOfTeamIds || [];
+  const canViewTeam = isSystemAdmin ||
     currentUser?.permissions?.includes(Permission.TEAM_READ) === true;
+  // Mesma regra que já vale no servidor (createUser/updateUser/deleteUser em
+  // app/actions.ts): Administrador e admin de equipe sempre podem; fora
+  // isso, só quem tem TEAM_WRITE no perfil de acesso.
+  const canManageTeam = isSystemAdmin || myAdminTeamIds.length > 0 ||
+    currentUser?.permissions?.includes(Permission.TEAM_WRITE) === true;
+
+  // Perfis que este usuário pode atribuir: Administrador do sistema escolhe
+  // qualquer um; admin de equipe só os perfis da(s) própria(s) equipe(s) —
+  // mesma regra aplicada (e reforçada) no servidor em createUser/updateUser.
+  const assignableProfiles = isSystemAdmin
+    ? profiles
+    : profiles.filter(p => p.internalTeamId && myAdminTeamIds.includes(p.internalTeamId));
+
+  const profileLabel = (p: RolePermission) => {
+    const team = teams.find(t => t.id === p.internalTeamId);
+    return team ? `${team.name} — ${p.name}` : `Sistema — ${p.name}`;
+  };
 
   useEffect(() => {
     if (!authInitialized || !currentUser || canViewTeam) return;
@@ -48,12 +88,16 @@ export default function TeamManagementPage() {
 
   const fetchUsers = async () => {
     try {
-      const [users, companiesList] = await Promise.all([
+      const [users, companiesList, profilesList, teamsRes] = await Promise.all([
         getUsers(),
-        getCompanies()
+        getCompanies(),
+        getRolePermissions(),
+        supabase.from('internal_teams').select('id, name').order('name')
       ]);
       setAnalysts(users || []);
       setCompanies(companiesList || []);
+      setProfiles((profilesList as RolePermission[]) || []);
+      setTeams(teamsRes.data || []);
     } catch (e) {
       console.error("Erro ao buscar usuários/empresas:", e);
     }
@@ -65,17 +109,14 @@ export default function TeamManagementPage() {
     }
   }, [authInitialized, canViewTeam]);
 
-  const filteredAnalysts = analysts.filter(a => 
-    [UserRole.ADMIN, UserRole.SUPPORT, UserRole.INTERNAL, 'Gestor'].includes(a.role) &&
-    (a.name.toLowerCase().includes(search.toLowerCase()) || 
+  const filteredAnalysts = analysts.filter(a =>
+    [UserRole.ADMIN, UserRole.SUPPORT, UserRole.INTERNAL].includes(a.role) &&
+    // Admin de equipe só vê/gerencia o próprio setor; Administrador do
+    // sistema vê todo mundo.
+    (isSystemAdmin || (a.internalTeamIds || []).some((t: string) => myAdminTeamIds.includes(t))) &&
+    (a.name.toLowerCase().includes(search.toLowerCase()) ||
     a.email.toLowerCase().includes(search.toLowerCase()))
   );
-
-  const roles = [
-    { id: '1', name: 'Equipe' },
-    { id: '2', name: 'Gestor' },
-    { id: '3', name: 'Administrador' }
-  ];
 
   const handleOpenModal = (user?: User) => {
     if (user) {
@@ -85,6 +126,7 @@ export default function TeamManagementPage() {
       setRole(user.role);
       setCompanyId(user.companyId);
       setViewAllCompanyTickets(user.viewAllCompanyTickets || false);
+      setAccessProfileId((user as any).accessProfileId || '');
     } else {
       setSelectedUser(null);
       setName('');
@@ -92,6 +134,7 @@ export default function TeamManagementPage() {
       setRole('Equipe');
       setCompanyId(undefined);
       setViewAllCompanyTickets(false);
+      setAccessProfileId(assignableProfiles[0]?.id || '');
     }
     setPassword('');
     setShowPassword(false);
@@ -117,14 +160,25 @@ export default function TeamManagementPage() {
       return;
     }
 
+    if (role !== UserRole.CUSTOMER && !accessProfileId) {
+      toast.error('Selecione um Perfil de Acesso.');
+      return;
+    }
+
+    // O tipo estrutural (role) segue o perfil escolhido — o servidor
+    // reforça isso de qualquer forma (ver createUser/updateUser), isso é só
+    // pra mandar um valor coerente quando quem está salvando é Administrador.
+    const chosenProfile = profiles.find(p => p.id === accessProfileId);
+    const effectiveRole = role === UserRole.CUSTOMER ? role : deriveStructuralRole(chosenProfile);
+
     setIsSaving(true);
     try {
       let result;
       if (selectedUser) {
         // Edit mode
         console.log('Modo edição para:', selectedUser.id);
-        result = await updateUser(selectedUser.id, name.trim(), email.trim(), role, companyId || null, viewAllCompanyTickets);
-        
+        result = await updateUser(selectedUser.id, name.trim(), email.trim(), effectiveRole, companyId || null, viewAllCompanyTickets, accessProfileId || undefined);
+
         if (result && result.error) {
           console.error('Erro retornado de updateUser:', result.error);
           toast.error('Erro ao atualizar usuário', {
@@ -133,13 +187,13 @@ export default function TeamManagementPage() {
           setIsSaving(false);
           return;
         }
-        
+
         toast.success('Usuário atualizado com sucesso!');
       } else {
         // Create mode
         console.log('Modo criação para:', email);
-        result = await createUser(email.trim(), name.trim(), role, companyId || null, [], viewAllCompanyTickets);
-        
+        result = await createUser(email.trim(), name.trim(), effectiveRole, companyId || null, [], viewAllCompanyTickets, accessProfileId || undefined);
+
         if (result && result.error) {
           console.error('Erro retornado de createUser:', result.error);
           toast.error('Erro ao criar usuário', {
@@ -148,7 +202,7 @@ export default function TeamManagementPage() {
           setIsSaving(false);
           return;
         }
-        
+
         toast.success('Usuário criado com sucesso!', {
           description: `${name.trim()} foi adicionado à equipe.`
         });
@@ -174,6 +228,7 @@ export default function TeamManagementPage() {
     setRole('Equipe');
     setCompanyId(undefined);
     setViewAllCompanyTickets(false);
+    setAccessProfileId('');
     setPassword('');
     setShowPassword(false);
     setIsChangingPassword(false);
@@ -253,13 +308,15 @@ export default function TeamManagementPage() {
             <Bell size={18} />
             Minhas Notificações
           </button>
-          <button
-            onClick={() => handleOpenModal()}
-            className="bg-[var(--accent)] hover:bg-[var(--accent-hover)] text-white px-6 py-3 rounded-2xl text-sm font-black uppercase tracking-widest shadow-lg shadow-indigo-200 transition-all flex items-center gap-2"
-          >
-            <UserPlus size={18} />
-            Adicionar Analista
-          </button>
+          {canManageTeam && (
+            <button
+              onClick={() => handleOpenModal()}
+              className="bg-[var(--accent)] hover:bg-[var(--accent-hover)] text-white px-6 py-3 rounded-2xl text-sm font-black uppercase tracking-widest shadow-lg shadow-indigo-200 transition-all flex items-center gap-2"
+            >
+              <UserPlus size={18} />
+              Adicionar Analista
+            </button>
+          )}
         </div>
       </div>
 
@@ -285,7 +342,7 @@ export default function TeamManagementPage() {
                 <th className="px-8 py-5 text-[10px] font-semibold uppercase text-[var(--text-tertiary)] tracking-widest">
                   Equipe / Analista
                 </th>
-                <th className="px-8 py-5 text-[10px] font-semibold uppercase text-[var(--text-tertiary)] tracking-widest">Cargo/Nível</th>
+                <th className="px-8 py-5 text-[10px] font-semibold uppercase text-[var(--text-tertiary)] tracking-widest">Perfil de Acesso</th>
                 <th className="px-8 py-5 text-[10px] font-semibold uppercase text-[var(--text-tertiary)] tracking-widest">Status</th>
                 <th className="px-8 py-5 text-[10px] font-semibold uppercase text-[var(--text-tertiary)] tracking-widest text-right">Ações</th>
               </tr>
@@ -314,12 +371,24 @@ export default function TeamManagementPage() {
                     </div>
                   </td>
                   <td className="px-8 py-5">
-                    <div className="flex items-center gap-2">
-                      <Shield size={14} className="text-[var(--accent-text)]" />
-                      <span className="px-3 py-1 rounded-full bg-[var(--accent)]/10 text-[var(--accent-text)] text-[10px] font-semibold uppercase tracking-widest">
-                        {user.role}
-                      </span>
-                    </div>
+                    {(() => {
+                      const profile = profiles.find(p => p.id === (user as any).accessProfileId);
+                      return (
+                        <div className="flex items-center gap-2">
+                          <Shield size={14} className="text-[var(--accent-text)]" />
+                          <div className="flex flex-col">
+                            <span className="px-3 py-1 rounded-full bg-[var(--accent)]/10 text-[var(--accent-text)] text-[10px] font-semibold uppercase tracking-widest w-fit">
+                              {profile ? profile.name : 'Sem perfil'}
+                            </span>
+                            {profile && (
+                              <span className="text-[9px] text-[var(--text-tertiary)] font-medium mt-1 ml-1">
+                                {profile.internalTeamId ? teams.find(t => t.id === profile.internalTeamId)?.name : 'Perfil do sistema'}
+                              </span>
+                            )}
+                          </div>
+                        </div>
+                      );
+                    })()}
                   </td>
                   <td className="px-8 py-5">
                     <div className={cn(
@@ -337,22 +406,26 @@ export default function TeamManagementPage() {
                     </div>
                   </td>
                   <td className="px-8 py-5 text-right">
-                    <div className="flex justify-end gap-2 opacity-0 group-hover:opacity-100 transition-opacity">
-                      <button
-                        onClick={() => handleOpenModal(user)}
-                        className="p-2 text-[var(--text-tertiary)] hover:text-[var(--accent-text)] hover:bg-[var(--accent)]/10 rounded-xl transition-all"
-                        title="Editar"
-                      >
-                        <Edit2 size={18} />
-                      </button>
-                      <button
-                        onClick={() => handleDelete(user.id)}
-                        className="p-2 text-[var(--text-tertiary)] hover:text-[var(--text-danger)] hover:bg-[var(--surface-danger)] rounded-xl transition-all"
-                        title="Remover"
-                      >
-                        <Trash2 size={18} />
-                      </button>
-                    </div>
+                    {canManageTeam ? (
+                      <div className="flex justify-end gap-2 opacity-0 group-hover:opacity-100 transition-opacity">
+                        <button
+                          onClick={() => handleOpenModal(user)}
+                          className="p-2 text-[var(--text-tertiary)] hover:text-[var(--accent-text)] hover:bg-[var(--accent)]/10 rounded-xl transition-all"
+                          title="Editar"
+                        >
+                          <Edit2 size={18} />
+                        </button>
+                        <button
+                          onClick={() => handleDelete(user.id)}
+                          className="p-2 text-[var(--text-tertiary)] hover:text-[var(--text-danger)] hover:bg-[var(--surface-danger)] rounded-xl transition-all"
+                          title="Remover"
+                        >
+                          <Trash2 size={18} />
+                        </button>
+                      </div>
+                    ) : (
+                      <span className="text-[10px] text-[var(--text-tertiary)] uppercase font-semibold">Somente leitura</span>
+                    )}
                   </td>
                 </tr>
               ))}
@@ -432,46 +505,20 @@ export default function TeamManagementPage() {
 
                 {role !== UserRole.CUSTOMER && (
                   <div className="space-y-1.5">
-                    <label className="text-[10px] font-semibold uppercase text-[var(--text-tertiary)] tracking-widest ml-1">Nível de Acesso</label>
-                    <div className="grid grid-cols-2 gap-3">
-                      {roles.map(r => (
-                        <button
-                          key={r.id}
-                          onClick={() => setRole(r.name)}
-                          className={cn(
-                            "px-4 py-3 rounded-2xl text-[10px] font-semibold uppercase tracking-widest border transition-all",
-                            role === r.name ? "bg-[var(--accent)] text-white border-[var(--accent)] shadow-md" : "bg-[var(--surface-card)] text-[var(--text-tertiary)] border-[var(--border-default)] hover:border-indigo-300"
-                          )}
-                        >
-                          {r.name}
-                        </button>
-                      ))}
-                    </div>
-                  </div>
-                )}
-
-                {role !== UserRole.CUSTOMER && (
-                  <div className="p-4 bg-[var(--accent)]/10 rounded-2xl border border-[var(--accent)]/20 flex items-center justify-between">
-                    <div className="flex items-center gap-3">
-                      <div className="w-8 h-8 rounded-lg bg-[var(--surface-card)] border border-[var(--accent)]/20 flex items-center justify-center text-[var(--accent-text)] shadow-sm">
-                        <Shield size={14} />
-                      </div>
-                      <div>
-                        <p className="text-[11px] font-black text-indigo-900 dark:text-[var(--accent-soft-text)] uppercase tracking-tight">Visualizar apenas chamados internos</p>
-                      </div>
-                    </div>
-                    <div
-                      onClick={() => setViewAllCompanyTickets(!viewAllCompanyTickets)}
-                      className={cn(
-                        "w-12 h-6 rounded-full p-1 cursor-pointer transition-all",
-                        viewAllCompanyTickets ? "bg-[var(--accent)]" : "bg-[var(--border-default)]"
-                      )}
+                    <label className="text-[10px] font-semibold uppercase text-[var(--text-tertiary)] tracking-widest ml-1">Perfil de Acesso</label>
+                    <StyledSelect
+                      value={accessProfileId}
+                      onChange={(e) => setAccessProfileId(e.target.value)}
+                      className="w-full bg-[var(--surface-card)] border border-[var(--border-default)] rounded-2xl px-4 py-3 text-sm font-bold focus:ring-4 focus:ring-[var(--accent)]/10 outline-none transition-all"
                     >
-                      <div className={cn(
-                        "w-4 h-4 rounded-full bg-[var(--surface-card)] shadow-sm transition-transform",
-                        viewAllCompanyTickets ? "translate-x-6" : "translate-x-0"
-                      )} />
-                    </div>
+                      <option value="">Selecione um perfil...</option>
+                      {assignableProfiles.map(p => (
+                        <option key={p.id} value={p.id}>{profileLabel(p)}</option>
+                      ))}
+                    </StyledSelect>
+                    {assignableProfiles.length === 0 && (
+                      <p className="text-[10px] text-[var(--text-tertiary)] font-medium ml-1">Nenhum perfil disponível — peça a um Administrador para criar um perfil para sua equipe.</p>
+                    )}
                   </div>
                 )}
 
