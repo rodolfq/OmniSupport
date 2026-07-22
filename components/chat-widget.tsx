@@ -50,6 +50,7 @@ import { fetchQuickNotes, fetchAnalystStatuses, fetchCompanies, fetchUsers, fetc
 import { saveTicketFromChatSession, closeChatSessionAfterTicket, assignChatSession, returnChatSessionToQueue } from '@/app/actions';
 import { cn, maskPhone, matchPhones, safeJsonStringify } from '@/lib/utils';
 import { useApp } from '@/app/app-context';
+import { isEvaluationSnoozed } from '@/lib/evaluation-snooze';
 import { supabase } from '@/lib/supabase';
 import { useSearchParams } from 'next/navigation';
 import { LinkContactModal } from '@/components/link-contact-modal';
@@ -189,7 +190,8 @@ export function ChatWidget() {
     triggerRefresh,
     getContactPhoto,
     ensureContactPhoto,
-    userStatus
+    userStatus,
+    openEvaluationModal
   } = useApp();
   const searchParams = useSearchParams();
   const isMobileViewport = useIsMobile();
@@ -1265,25 +1267,21 @@ useEffect(() => {
       // Convite pra avaliar a empresa-cliente (perfil interno, nunca visível
       // a ela) — só faz sentido pra um atendimento de verdade, com o contato
       // vinculado a uma empresa conhecida (sem isso não há em qual cadastro
-      // gravar a avaliação) e que não foi encerrado como spam. O analista
-      // pode ignorar o aviso ou clicar em "Não quero responder" no modal;
-      // nada é salvo até ele preencher e confirmar.
+      // gravar a avaliação), que não foi encerrado como spam, e que não
+      // esteja "silenciado" (ver botão Recusar por 1 semana no modal). Abre
+      // o modal direto — antes só disparava uma notificação no sino, que
+      // não deixava claro que dava pra agir ali mesmo.
       const evaluationCompany = selectedChatContact?.companyId
         ? companies.find(c => c.id === selectedChatContact.companyId)
         : null;
-      if (!closeAsSpam && evaluationCompany && currentUser) {
-        addNotification({
-          title: 'Avaliar cliente',
-          message: `Quer avaliar a ${evaluationCompany.name} agora que o atendimento foi encerrado?`,
-          type: 'customer_evaluation_prompt',
-          targetId: evaluationCompany.id,
-          meta: {
-            companyName: evaluationCompany.name,
-            chatSessionId: selectedChat.id,
-            contactId: selectedChatContact?.id,
-            contactName: selectedChatContact?.name
-          }
-        }, currentUser.id);
+      if (!closeAsSpam && evaluationCompany && currentUser && !isEvaluationSnoozed(currentUser.id, evaluationCompany.id)) {
+        openEvaluationModal({
+          companyId: evaluationCompany.id,
+          companyName: evaluationCompany.name,
+          chatSessionId: selectedChat.id,
+          contactId: selectedChatContact?.id,
+          contactName: selectedChatContact?.name
+        });
       }
 
       setIsFinishModalOpen(false);

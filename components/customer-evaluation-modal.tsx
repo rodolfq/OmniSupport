@@ -2,13 +2,14 @@
 
 import React, { useEffect, useState } from 'react';
 import { motion, AnimatePresence } from 'motion/react';
-import { X, ShieldCheck } from 'lucide-react';
+import { X, ShieldCheck, BellOff } from 'lucide-react';
 import { useApp } from '@/app/app-context';
 import { saveCustomerEvaluation } from '@/app/actions';
 import { CustomerEvaluationScores, CustomerProfileTag } from '@/lib/types';
 import { cn } from '@/lib/utils';
 import { toast } from 'sonner';
 import { StarRating } from '@/components/star-rating';
+import { snoozeEvaluation } from '@/lib/evaluation-snooze';
 
 const CRITERIA: { key: keyof CustomerEvaluationScores; label: string }[] = [
   { key: 'knowledgeScore', label: 'Conhecimento do sistema' },
@@ -94,6 +95,13 @@ export function CustomerEvaluationModal() {
     }
   };
 
+  const handleSnooze = () => {
+    if (!currentUser || !evaluationModalTarget) return;
+    snoozeEvaluation(currentUser.id, evaluationModalTarget.companyId, 7);
+    toast.success(`Você não será mais avisado sobre ${evaluationModalTarget.companyName} por 1 semana.`);
+    closeEvaluationModal();
+  };
+
   return (
     <AnimatePresence>
       {isOpen && evaluationModalTarget && (
@@ -171,13 +179,22 @@ export function CustomerEvaluationModal() {
               </div>
             </div>
 
-            <div className="px-8 py-5 border-t border-[var(--border-default)] flex items-center justify-between gap-3 shrink-0 bg-[var(--surface-card)]">
-              <button
-                onClick={closeEvaluationModal}
-                className="text-[10px] font-semibold uppercase tracking-widest text-[var(--text-tertiary)] hover:text-[var(--text-secondary)] transition-all"
-              >
-                Não quero responder
-              </button>
+            <div className="px-8 py-5 border-t border-[var(--border-default)] flex flex-wrap items-center justify-between gap-3 shrink-0 bg-[var(--surface-card)]">
+              <div className="flex flex-wrap items-center gap-x-4 gap-y-2">
+                <button
+                  onClick={closeEvaluationModal}
+                  className="text-[10px] font-semibold uppercase tracking-widest text-[var(--text-tertiary)] hover:text-[var(--text-secondary)] transition-all"
+                >
+                  Não quero responder
+                </button>
+                <button
+                  onClick={handleSnooze}
+                  className="text-[10px] font-semibold uppercase tracking-widest text-[var(--text-tertiary)] hover:text-[var(--text-danger)] transition-all flex items-center gap-1.5"
+                  title={`Não perguntar sobre ${evaluationModalTarget.companyName} pelos próximos 7 dias`}
+                >
+                  <BellOff size={12} /> Recusar por 1 semana
+                </button>
+              </div>
               <button
                 onClick={handleSave}
                 disabled={!allFilled || saving}
