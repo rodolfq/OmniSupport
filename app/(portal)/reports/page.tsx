@@ -2,11 +2,11 @@
 
 import React from 'react';
 import { AreaChart, Area, XAxis, YAxis, Tooltip, ResponsiveContainer, PieChart, Pie, Cell } from 'recharts';
-import { TrendingUp, Clock, Calendar, Users, ThumbsUp, ThumbsDown, MessageSquareText, Lock, Star, ClipboardList } from 'lucide-react';
+import { TrendingUp, Clock, Calendar, Users, ThumbsUp, ThumbsDown, MessageSquareText, Lock, Star, ClipboardList, AlertTriangle } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { useTheme } from '@/app/theme-provider';
 import { useApp } from '@/app/app-context';
-import { Permission } from '@/lib/types';
+import { Permission, MIN_RELIABLE_EVALUATION_COUNT } from '@/lib/types';
 
 interface SurveyResponse {
   id: string;
@@ -28,6 +28,8 @@ interface CustomerEvaluationRow {
   id: string;
   companyName: string;
   analystName: string;
+  contactName: string | null;
+  origin: 'chat_close' | 'manual';
   createdAt: string;
   knowledgeScore: number;
   autonomyScore: number;
@@ -43,8 +45,14 @@ interface CustomerEvaluationsReport {
   averages: Record<string, number>;
   overallAverage: number;
   tagDistribution: { technical: number; beginner: number; challenging: number };
+  countByOrigin: { chatClose: number; manual: number };
   evaluations: CustomerEvaluationRow[];
 }
+
+const ORIGIN_LABELS: Record<'chat_close' | 'manual', string> = {
+  chat_close: 'Atendimento',
+  manual: 'Manual'
+};
 
 const TAG_LABELS: Record<'technical' | 'beginner' | 'challenging', string> = {
   technical: '👨‍💻 Técnico',
@@ -223,6 +231,19 @@ export default function ReportsPage() {
           <MetricCard label="Clientes Desafiadores" value={String(evaluationsReport?.tagDistribution.challenging ?? 0)} icon={<ThumbsDown className="text-[var(--accent-text)]" />} />
         </div>
 
+        {evaluationsReport && evaluationsReport.count > 0 && (
+          <div className="flex flex-wrap items-center gap-x-4 gap-y-1 text-[10px] font-bold uppercase tracking-widest text-[var(--text-tertiary)]">
+            <span>
+              {evaluationsReport.countByOrigin.chatClose} de atendimento · {evaluationsReport.countByOrigin.manual} manual{evaluationsReport.countByOrigin.manual === 1 ? '' : 'is'}
+            </span>
+            {evaluationsReport.count < MIN_RELIABLE_EVALUATION_COUNT && (
+              <span className="flex items-center gap-1.5 text-[var(--text-warning)]">
+                <AlertTriangle size={11} /> Amostra pequena — a média geral ainda pode não ser representativa
+              </span>
+            )}
+          </div>
+        )}
+
         <div className="grid grid-cols-1 lg:grid-cols-2 gap-8">
           <div className="bg-[var(--surface-card)] p-8 rounded-2xl border border-[var(--border-default)] shadow-sm">
             <h3 className="font-bold mb-8 uppercase text-[10px] tracking-[0.2em] text-[var(--text-tertiary)]">Distribuição de Perfil</h3>
@@ -252,7 +273,7 @@ export default function ReportsPage() {
                     <div className="min-w-0">
                       <p className="font-semibold text-[var(--text-primary)] truncate">{e.companyName}</p>
                       <p className="text-[10px] text-[var(--text-tertiary)] uppercase tracking-widest">
-                        Por {e.analystName} · {new Date(e.createdAt).toLocaleDateString('pt-BR')}
+                        Por {e.analystName}{e.contactName && ` · Atendeu ${e.contactName}`} · {new Date(e.createdAt).toLocaleDateString('pt-BR')} · {ORIGIN_LABELS[e.origin]}
                         {e.profileTag && ` · ${TAG_LABELS[e.profileTag]}`}
                       </p>
                     </div>

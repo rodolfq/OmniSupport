@@ -39,10 +39,11 @@ export async function GET(request: NextRequest) {
       `SELECT
          e.id, e.created_at, e.knowledge_score, e.autonomy_score, e.learning_score,
          e.engagement_score, e.organization_score, e.communication_score, e.profile_tag,
-         c.name AS company_name, a.name AS analyst_name
+         e.origin, c.name AS company_name, a.name AS analyst_name, ct.name AS contact_name
        FROM public.customer_evaluations e
        LEFT JOIN public.companies c ON c.id = e.company_id
        LEFT JOIN public.profiles a ON a.id = e.analyst_id
+       LEFT JOIN public.profiles ct ON ct.id = e.contact_id
        ORDER BY e.created_at DESC`
     );
 
@@ -50,6 +51,8 @@ export async function GET(request: NextRequest) {
       id: r.id,
       companyName: r.company_name || 'Empresa removida',
       analystName: r.analyst_name || 'Analista removido',
+      contactName: r.contact_name as string | null,
+      origin: r.origin as 'chat_close' | 'manual',
       createdAt: r.created_at,
       knowledgeScore: r.knowledge_score,
       autonomyScore: r.autonomy_score,
@@ -61,6 +64,10 @@ export async function GET(request: NextRequest) {
     }));
 
     const count = evaluations.length;
+    const countByOrigin = {
+      chatClose: evaluations.filter(e => e.origin === 'chat_close').length,
+      manual: evaluations.filter(e => e.origin === 'manual').length
+    };
     const sum = (key: keyof typeof evaluations[number]) =>
       evaluations.reduce((acc, e) => acc + (e[key] as number), 0);
 
@@ -82,7 +89,7 @@ export async function GET(request: NextRequest) {
       challenging: evaluations.filter(e => e.profileTag === 'challenging').length
     };
 
-    return NextResponse.json({ count, averages, overallAverage, tagDistribution, evaluations });
+    return NextResponse.json({ count, averages, overallAverage, tagDistribution, countByOrigin, evaluations });
   } catch (error: any) {
     console.error('Error fetching customer evaluations report:', error);
     return NextResponse.json({ error: error.message }, { status: 500 });

@@ -79,7 +79,9 @@ export function CustomerEvaluationModal() {
         currentUser.id,
         scores,
         tag,
-        evaluationModalTarget.chatSessionId
+        evaluationModalTarget.chatSessionId,
+        'chat_close',
+        evaluationModalTarget.contactId
       );
       if ('error' in result) {
         toast.error('Erro ao salvar avaliação.');
@@ -114,6 +116,11 @@ export function CustomerEvaluationModal() {
                 <h3 className="text-lg font-black tracking-tight m-0">
                   Avaliar {evaluationModalTarget.companyName}
                 </h3>
+                {evaluationModalTarget.contactName && (
+                  <p className="text-[10px] text-white/60 font-semibold mt-0.5">
+                    Atendimento com {evaluationModalTarget.contactName}
+                  </p>
+                )}
                 <p className="text-[10px] text-white/60 font-bold uppercase tracking-widest mt-1 flex items-center gap-1.5">
                   <ShieldCheck size={12} /> Uso interno — o cliente nunca vê isso
                 </p>

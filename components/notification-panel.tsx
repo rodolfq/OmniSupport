@@ -41,7 +41,9 @@ export function NotificationPanel({ notifications, onMarkRead, onItemClick }: No
       openEvaluationModal({
         companyId: notif.targetId,
         companyName: notif.meta?.companyName || 'Cliente',
-        chatSessionId: notif.meta?.chatSessionId
+        chatSessionId: notif.meta?.chatSessionId,
+        contactId: notif.meta?.contactId,
+        contactName: notif.meta?.contactName
       });
     }
     onItemClick?.();

@@ -13,6 +13,7 @@ async function run() {
   const client = new Client({ connectionString: process.env.DATABASE_URL });
   let companyId: string | null = null;
   let analystId: string | null = null;
+  let contactId: string | null = null;
   try {
     await client.connect();
 
@@ -30,18 +31,31 @@ async function run() {
     analystId = analystRes.rows[0].id;
     console.log('✅ Analista de teste criado:', analystId);
 
+    const contactRes = await client.query(
+      `INSERT INTO public.profiles (name, email, role, password) VALUES ($1, $2, 'Cliente', 'x') RETURNING id`,
+      ['__smoke_test_contact__', `smoke_test_contact_${Date.now()}@example.invalid`]
+    );
+    contactId = contactRes.rows[0].id;
+    console.log('✅ Contato de teste criado:', contactId);
+
     // Mesma query de updateCompanyRadarSync
     await client.query(`UPDATE public.companies SET radar_sync = $1 WHERE id = $2`, [true, companyId]);
     console.log('✅ updateCompanyRadarSync (UPDATE) OK');
 
-    // Mesma query de saveCustomerEvaluation
+    // Mesma query de saveCustomerEvaluation — uma vinda de chat_close (com contato) e outra manual (sem)
     await client.query(
       `INSERT INTO public.customer_evaluations
-         (company_id, analyst_id, chat_session_id, knowledge_score, autonomy_score, learning_score, engagement_score, organization_score, communication_score, profile_tag)
-       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)`,
-      [companyId, analystId, null, 5, 4, 5, 3, 4, 5, 'technical']
+         (company_id, analyst_id, chat_session_id, knowledge_score, autonomy_score, learning_score, engagement_score, organization_score, communication_score, profile_tag, origin, contact_id)
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)`,
+      [companyId, analystId, null, 5, 4, 5, 3, 4, 5, 'technical', 'chat_close', contactId]
     );
-    console.log('✅ saveCustomerEvaluation (INSERT) OK');
+    await client.query(
+      `INSERT INTO public.customer_evaluations
+         (company_id, analyst_id, chat_session_id, knowledge_score, autonomy_score, learning_score, engagement_score, organization_score, communication_score, profile_tag, origin, contact_id)
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)`,
+      [companyId, analystId, null, 3, 3, 3, 3, 3, 3, null, 'manual', null]
+    );
+    console.log('✅ saveCustomerEvaluation (INSERT x2, chat_close + manual) OK');
 
     // Mesmas queries de getCustomerEvaluationSummary
     const avgRes = await client.query(
@@ -58,8 +72,22 @@ async function run() {
       [companyId]
     );
     const row = avgRes.rows[0];
-    if (row.count !== 1) throw new Error(`Esperava count=1, veio ${row.count}`);
+    if (row.count !== 2) throw new Error(`Esperava count=2, veio ${row.count}`);
     console.log('✅ getCustomerEvaluationSummary (AVG) OK:', JSON.stringify(row));
+
+    const originRes = await client.query(
+      `SELECT origin, COUNT(*)::int AS count FROM public.customer_evaluations WHERE company_id = $1 GROUP BY origin`,
+      [companyId]
+    );
+    const countByOrigin = { chatClose: 0, manual: 0 };
+    for (const r of originRes.rows) {
+      if (r.origin === 'chat_close') countByOrigin.chatClose = r.count;
+      else if (r.origin === 'manual') countByOrigin.manual = r.count;
+    }
+    if (countByOrigin.chatClose !== 1 || countByOrigin.manual !== 1) {
+      throw new Error('countByOrigin não bateu: ' + JSON.stringify(countByOrigin));
+    }
+    console.log('✅ getCustomerEvaluationSummary (countByOrigin) OK:', JSON.stringify(countByOrigin));
 
     const latestRes = await client.query(
       `SELECT knowledge_score, autonomy_score, learning_score, engagement_score, organization_score, communication_score, profile_tag
@@ -68,7 +96,7 @@ async function run() {
        ORDER BY created_at DESC LIMIT 1`,
       [companyId]
     );
-    if (latestRes.rows[0].profile_tag !== 'technical') throw new Error('profile_tag não bateu');
+    if (latestRes.rows[0].profile_tag !== null) throw new Error('profile_tag da mais recente (manual) deveria ser null');
     console.log('✅ getCustomerEvaluationSummary (latest) OK:', JSON.stringify(latestRes.rows[0]));
 
     const companyCheck = await client.query('SELECT radar_sync FROM public.companies WHERE id = $1', [companyId]);
@@ -77,17 +105,24 @@ async function run() {
 
     // Mesma query usada pelo endpoint de relatório /api/reports/customer-evaluations
     const reportRes = await client.query(
-      `SELECT e.id, c.name AS company_name, a.name AS analyst_name
+      `SELECT e.id, e.origin, c.name AS company_name, a.name AS analyst_name, ct.name AS contact_name
        FROM public.customer_evaluations e
        LEFT JOIN public.companies c ON c.id = e.company_id
        LEFT JOIN public.profiles a ON a.id = e.analyst_id
-       WHERE e.company_id = $1`,
+       LEFT JOIN public.profiles ct ON ct.id = e.contact_id
+       WHERE e.company_id = $1
+       ORDER BY e.created_at ASC`,
       [companyId]
     );
-    if (reportRes.rows.length !== 1 || reportRes.rows[0].company_name !== '__smoke_test_company__' || reportRes.rows[0].analyst_name !== '__smoke_test_analyst__') {
-      throw new Error('Query do relatório não retornou a linha esperada: ' + JSON.stringify(reportRes.rows));
+    if (reportRes.rows.length !== 2) throw new Error('Query do relatório não retornou as 2 linhas esperadas: ' + JSON.stringify(reportRes.rows));
+    const [chatCloseRow, manualRow] = reportRes.rows;
+    if (chatCloseRow.origin !== 'chat_close' || chatCloseRow.contact_name !== '__smoke_test_contact__') {
+      throw new Error('Linha chat_close não bateu: ' + JSON.stringify(chatCloseRow));
     }
-    console.log('✅ Query do relatório OK:', JSON.stringify(reportRes.rows[0]));
+    if (manualRow.origin !== 'manual' || manualRow.contact_name !== null) {
+      throw new Error('Linha manual não bateu: ' + JSON.stringify(manualRow));
+    }
+    console.log('✅ Query do relatório OK (origin + contact_name):', JSON.stringify(reportRes.rows));
 
     // Mesma query de getCompanies (staff) - confere que radarSync viria certo
     const getCompaniesRes = await client.query('SELECT * FROM public.companies WHERE id = $1', [companyId]);
@@ -101,6 +136,7 @@ async function run() {
     try {
       if (companyId) await client.query('DELETE FROM public.companies WHERE id = $1', [companyId]);
       if (analystId) await client.query('DELETE FROM public.profiles WHERE id = $1', [analystId]);
+      if (contactId) await client.query('DELETE FROM public.profiles WHERE id = $1', [contactId]);
       console.log('🧹 Dados de teste removidos.');
     } catch (cleanupErr: any) {
       console.error('⚠️ Falha ao limpar dados de teste (verificar manualmente):', cleanupErr.message);

@@ -20,7 +20,7 @@ export interface AppNotification {
   // Dados extras que não cabem em title/message — hoje só usado por
   // 'customer_evaluation_prompt' pra levar o nome da empresa e a sessão de
   // chat de origem até o modal de avaliação, sem precisar buscar de novo.
-  meta?: { companyName?: string; chatSessionId?: string };
+  meta?: { companyName?: string; chatSessionId?: string; contactId?: string; contactName?: string };
 }
 
 export interface NotificationSettings {
@@ -96,6 +96,10 @@ export interface EvaluationModalTarget {
   companyId: string;
   companyName: string;
   chatSessionId?: string;
+  // Contato (pessoa) que gerou o atendimento — opcional, só quando a
+  // avaliação nasce de um chat encerrado (ver chat-widget.tsx).
+  contactId?: string;
+  contactName?: string;
 }
 
 const AppContext = createContext<AppContextType | undefined>(undefined);

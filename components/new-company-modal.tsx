@@ -1,10 +1,10 @@
 ﻿'use client';
 
 import React, { useState } from 'react';
-import { X, Building2, Phone, Briefcase, Mail, Lock, UserPlus, RefreshCw, Eye, EyeOff, Radar, ShieldAlert } from 'lucide-react';
+import { X, Building2, Phone, Briefcase, Mail, Lock, UserPlus, RefreshCw, Eye, EyeOff, Radar, ShieldAlert, AlertTriangle } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import { saveCompany, getCustomerEvaluationSummary, updateCompanyRadarSync, saveCustomerEvaluation } from '@/app/actions';
-import { Company, type CustomerEvaluationScores, type CustomerEvaluationSummary, type CustomerProfileTag } from '@/lib/types';
+import { Company, type CustomerEvaluationScores, type CustomerEvaluationSummary, type CustomerProfileTag, MIN_RELIABLE_EVALUATION_COUNT } from '@/lib/types';
 import { maskPhone, cn } from '@/lib/utils';
 import { useApp } from '@/app/app-context';
 import { StarRating } from '@/components/star-rating';
@@ -144,7 +144,7 @@ export function NewCompanyModal({ isOpen, onClose, onSuccess, company, showInter
         const allScoresFilled = Object.values(evalScores).every(v => v > 0);
         if ((scoresChanged || tagChanged) && currentUser) {
           if (allScoresFilled) {
-            await saveCustomerEvaluation(company.id, currentUser.id, evalScores, evalTag);
+            await saveCustomerEvaluation(company.id, currentUser.id, evalScores, evalTag, undefined, 'manual');
           } else {
             toast.warning('Preencha todos os critérios (⭐) para registrar a avaliação.');
           }
@@ -416,9 +416,18 @@ export function NewCompanyModal({ isOpen, onClose, onSuccess, company, showInter
                       </div>
 
                       {evaluationSummary && evaluationSummary.count > 0 && (
-                        <p className="text-[9px] text-[var(--text-tertiary)] font-bold uppercase tracking-widest pt-1">
-                          Média geral: {evaluationSummary.overallAverage.toFixed(1)} ⭐ · baseado em {evaluationSummary.count} avaliaç{evaluationSummary.count === 1 ? 'ão' : 'ões'}
-                        </p>
+                        <div className="space-y-1.5 pt-1">
+                          <p className="text-[9px] text-[var(--text-tertiary)] font-bold uppercase tracking-widest">
+                            Média geral: {evaluationSummary.overallAverage.toFixed(1)} ⭐ · baseado em {evaluationSummary.count} avaliaç{evaluationSummary.count === 1 ? 'ão' : 'ões'}
+                            {' '}({evaluationSummary.countByOrigin.chatClose} de atendimento, {evaluationSummary.countByOrigin.manual} manual{evaluationSummary.countByOrigin.manual === 1 ? '' : 'is'})
+                          </p>
+                          {evaluationSummary.count < MIN_RELIABLE_EVALUATION_COUNT && (
+                            <p className="text-[9px] text-[var(--text-warning)] font-bold flex items-center gap-1.5">
+                              <AlertTriangle size={11} className="shrink-0" />
+                              Amostra pequena — a média ainda pode não ser representativa.
+                            </p>
+                          )}
+                        </div>
                       )}
                     </div>
                   )}

@@ -111,6 +111,15 @@ export interface CustomerEvaluationScores {
   communicationScore: number;
 }
 
+// 'chat_close': gerada pela pesquisa automática ao encerrar um chat.
+// 'manual': preenchida direto no cadastro da empresa, sem atendimento associado.
+export type CustomerEvaluationOrigin = 'chat_close' | 'manual';
+
+// Abaixo desse número de avaliações, a média não é confiável o bastante pra
+// guiar decisão — usado só pra decidir quando mostrar o aviso de amostra
+// pequena (não trava nada, é sempre visual/informativo).
+export const MIN_RELIABLE_EVALUATION_COUNT = 3;
+
 // Uma avaliação pontual da empresa-cliente feita por um analista (ex: ao
 // encerrar um chat) — nunca visível para o cliente. Vinculada à empresa
 // (companies), não a um contato/funcionário específico, já que descreve o
@@ -122,6 +131,11 @@ export interface CustomerEvaluation extends CustomerEvaluationScores {
   analystId?: string;
   analystName?: string;
   chatSessionId?: string;
+  // Contato (profiles.id) que gerou o atendimento por trás da avaliação —
+  // opcional, só pra contexto/rastreabilidade; não entra na média da empresa.
+  contactId?: string | null;
+  contactName?: string | null;
+  origin: CustomerEvaluationOrigin;
   profileTag?: CustomerProfileTag | null;
   createdAt: string;
 }
@@ -135,6 +149,10 @@ export interface CustomerEvaluationSummary {
   // partida quando o cadastro do cliente permite editar direto por cima da
   // última avaliação em vez de partir do zero.
   latestScores: CustomerEvaluationScores | null;
+  // Quantas avaliações vieram de atendimento real (chat_close) vs. ajuste
+  // manual no cadastro — dá pra ver de cara se a média reflete interações
+  // de verdade ou é maioria edição manual.
+  countByOrigin: { chatClose: number; manual: number };
 }
 
 export interface Company {

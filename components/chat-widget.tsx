@@ -1257,7 +1257,12 @@ useEffect(() => {
           message: `Quer avaliar a ${evaluationCompany.name} agora que o atendimento foi encerrado?`,
           type: 'customer_evaluation_prompt',
           targetId: evaluationCompany.id,
-          meta: { companyName: evaluationCompany.name, chatSessionId: selectedChat.id }
+          meta: {
+            companyName: evaluationCompany.name,
+            chatSessionId: selectedChat.id,
+            contactId: selectedChatContact?.id,
+            contactName: selectedChatContact?.name
+          }
         }, currentUser.id);
       }
 

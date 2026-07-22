@@ -8,7 +8,7 @@ import { emitChatEvent, excludeActiveViewers } from '@/lib/chat-events';
 import { notifyUser } from '@/lib/services/push-service';
 import { getChatRecipientIds, getTeamUserIds } from '@/lib/services/notification-recipients';
 import { pickNextQueueAssignee } from '@/lib/services/queue-routing';
-import { CustomerEvaluationScores, CustomerProfileTag, CustomerEvaluationSummary } from '@/lib/types';
+import { CustomerEvaluationScores, CustomerProfileTag, CustomerEvaluationSummary, CustomerEvaluationOrigin } from '@/lib/types';
 
 async function getCurrentActionUser() {
   const token = (await cookies()).get('token')?.value;
@@ -1150,13 +1150,15 @@ export async function saveCustomerEvaluation(
   analystId: string,
   scores: CustomerEvaluationScores,
   profileTag: CustomerProfileTag | null,
-  chatSessionId?: string | null
+  chatSessionId?: string | null,
+  origin: CustomerEvaluationOrigin = 'manual',
+  contactId?: string | null
 ) {
   try {
     await query(
       `INSERT INTO public.customer_evaluations
-         (company_id, analyst_id, chat_session_id, knowledge_score, autonomy_score, learning_score, engagement_score, organization_score, communication_score, profile_tag)
-       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)`,
+         (company_id, analyst_id, chat_session_id, knowledge_score, autonomy_score, learning_score, engagement_score, organization_score, communication_score, profile_tag, origin, contact_id)
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)`,
       [
         companyId,
         analystId,
@@ -1167,7 +1169,9 @@ export async function saveCustomerEvaluation(
         scores.engagementScore,
         scores.organizationScore,
         scores.communicationScore,
-        profileTag || null
+        profileTag || null,
+        origin,
+        contactId || null
       ]
     );
     return { success: true };
@@ -1196,6 +1200,18 @@ export async function getCustomerEvaluationSummary(companyId: string): Promise<C
     );
     const row = avgRes.rows[0];
     const count = row?.count || 0;
+
+    const originRes = count > 0
+      ? await query(
+          `SELECT origin, COUNT(*)::int AS count FROM public.customer_evaluations WHERE company_id = $1 GROUP BY origin`,
+          [companyId]
+        )
+      : { rows: [] as any[] };
+    const countByOrigin = { chatClose: 0, manual: 0 };
+    for (const r of originRes.rows) {
+      if (r.origin === 'chat_close') countByOrigin.chatClose = r.count;
+      else if (r.origin === 'manual') countByOrigin.manual = r.count;
+    }
 
     const latestRes = count > 0
       ? await query(
@@ -1232,7 +1248,8 @@ export async function getCustomerEvaluationSummary(companyId: string): Promise<C
         engagementScore: latestRow.engagement_score,
         organizationScore: latestRow.organization_score,
         communicationScore: latestRow.communication_score
-      } : null
+      } : null,
+      countByOrigin
     };
   } catch (err: any) {
     console.error('Error getting customer evaluation summary in actions:', err);
