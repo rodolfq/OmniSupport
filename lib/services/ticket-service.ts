@@ -18,7 +18,7 @@ export class TicketService {
 
     if (error) throw error;
 
-    return (data || []).map(t => ({
+    return (data || []).map((t: any) => ({
       ...t,
       ticketNumber: t.public_ticket_number,
       companyId: t.company_id,
@@ -148,7 +148,7 @@ export class MessageService {
       throw error;
     }
 
-    return (data || []).map(m => ({
+    return (data || []).map((m: any) => ({
       id: m.id,
       ticketId: m.ticket_id,
       senderId: m.author_id,
@@ -200,7 +200,7 @@ export class MessageService {
       throw error;
     }
 
-    return (data || []).map(m => ({
+    return (data || []).map((m: any) => ({
       id: m.id,
       ticketId: m.internal_ticket_id,
       senderId: m.author_id,
@@ -284,7 +284,7 @@ export class InternalTicketService {
       return [];
     }
 
-    const internalIds = (links || []).map(l => l.internal_ticket_id);
+    const internalIds = (links || []).map((l: any) => l.internal_ticket_id);
     if (internalIds.length === 0) return [];
 
     const { data, error } = await supabase

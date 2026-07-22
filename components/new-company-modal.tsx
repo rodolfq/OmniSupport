@@ -1,18 +1,46 @@
 ﻿'use client';
 
 import React, { useState } from 'react';
-import { X, Building2, Phone, Briefcase, Mail, Lock, UserPlus, RefreshCw, Eye, EyeOff } from 'lucide-react';
+import { X, Building2, Phone, Briefcase, Mail, Lock, UserPlus, RefreshCw, Eye, EyeOff, Radar, ShieldAlert } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
-import { saveCompany } from '@/app/actions';
-import { Company } from '@/lib/types';
-import { maskPhone } from '@/lib/utils';
+import { saveCompany, getCustomerEvaluationSummary, updateCompanyRadarSync, saveCustomerEvaluation } from '@/app/actions';
+import { Company, type CustomerEvaluationScores, type CustomerEvaluationSummary, type CustomerProfileTag } from '@/lib/types';
+import { maskPhone, cn } from '@/lib/utils';
+import { useApp } from '@/app/app-context';
+import { StarRating } from '@/components/star-rating';
+import { toast } from 'sonner';
 
 function generateTemporaryPassword() {
   const chars = 'ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz23456789@#$';
   return Array.from({ length: 10 }, () => chars[Math.floor(Math.random() * chars.length)]).join('');
 }
 
-export function NewCompanyModal({ isOpen, onClose, onSuccess, company }: { isOpen: boolean, onClose: () => void, onSuccess?: () => void, company?: Company | null }) {
+const CRITERIA_LABELS: { key: keyof CustomerEvaluationScores; label: string }[] = [
+  { key: 'knowledgeScore', label: 'Conhecimento do sistema' },
+  { key: 'autonomyScore', label: 'Autonomia' },
+  { key: 'learningScore', label: 'Facilidade de aprendizado' },
+  { key: 'engagementScore', label: 'Engajamento' },
+  { key: 'organizationScore', label: 'Organização das demandas' },
+  { key: 'communicationScore', label: 'Comunicação' }
+];
+
+const TAG_INFO: Record<CustomerProfileTag, { emoji: string; label: string }> = {
+  technical: { emoji: '👨‍💻', label: 'Cliente Técnico' },
+  beginner: { emoji: '🙋‍♂️', label: 'Cliente com Pouco Conhecimento' },
+  challenging: { emoji: '😤', label: 'Cliente com Atendimento Desafiador' }
+};
+
+const EMPTY_EVAL_SCORES: CustomerEvaluationScores = {
+  knowledgeScore: 0,
+  autonomyScore: 0,
+  learningScore: 0,
+  engagementScore: 0,
+  organizationScore: 0,
+  communicationScore: 0
+};
+
+export function NewCompanyModal({ isOpen, onClose, onSuccess, company, showInternalSection = false }: { isOpen: boolean, onClose: () => void, onSuccess?: () => void, company?: Company | null, showInternalSection?: boolean }) {
+  const { currentUser } = useApp();
   const [name, setName] = useState('');
   const [industry, setIndustry] = useState('');
   const [phone, setPhone] = useState('');
@@ -25,12 +53,23 @@ export function NewCompanyModal({ isOpen, onClose, onSuccess, company }: { isOpe
   const [isLoading, setIsLoading] = useState(false);
   const isEditing = !!company;
 
+  // Perfil interno — nunca exposto ao cliente, só faz sentido pra uma
+  // empresa que já existe (precisa de um id pra vincular as avaliações).
+  const [radarSync, setRadarSync] = useState(false);
+  const [evaluationSummary, setEvaluationSummary] = useState<CustomerEvaluationSummary | null>(null);
+  const [loadingSummary, setLoadingSummary] = useState(false);
+  const [evalScores, setEvalScores] = useState<CustomerEvaluationScores>(EMPTY_EVAL_SCORES);
+  const [evalTag, setEvalTag] = useState<CustomerProfileTag | null>(null);
+  const [baselineScores, setBaselineScores] = useState<CustomerEvaluationScores>(EMPTY_EVAL_SCORES);
+  const [baselineTag, setBaselineTag] = useState<CustomerProfileTag | null>(null);
+
   // Update input fields when company prop changes
   React.useEffect(() => {
     if (company) {
       setName(company.name || '');
       setIndustry(company.industry || '');
       setPhone(company.phone || '');
+      setRadarSync(company.radarSync || false);
     } else {
       setName('');
       setIndustry('');
@@ -39,8 +78,40 @@ export function NewCompanyModal({ isOpen, onClose, onSuccess, company }: { isOpe
       setAdminEmail('');
       setAdminPassword(generateTemporaryPassword());
       setAdminPhone('');
+      setRadarSync(false);
     }
   }, [company, isOpen]);
+
+  React.useEffect(() => {
+    if (!isOpen || !company || !showInternalSection) {
+      setEvaluationSummary(null);
+      setEvalScores(EMPTY_EVAL_SCORES);
+      setBaselineScores(EMPTY_EVAL_SCORES);
+      setEvalTag(null);
+      setBaselineTag(null);
+      return;
+    }
+    let cancelled = false;
+    setLoadingSummary(true);
+    getCustomerEvaluationSummary(company.id).then(result => {
+      if (cancelled) return;
+      if ('error' in result) {
+        setEvaluationSummary(null);
+        return;
+      }
+      setEvaluationSummary(result);
+      // Ponto de partida pra edição: a última avaliação registrada (não a
+      // média) — se ninguém avaliou ainda, começa zerado.
+      const starting = result.latestScores || EMPTY_EVAL_SCORES;
+      setEvalScores(starting);
+      setBaselineScores(starting);
+      setEvalTag(result.latestTag);
+      setBaselineTag(result.latestTag);
+    }).finally(() => {
+      if (!cancelled) setLoadingSummary(false);
+    });
+    return () => { cancelled = true; };
+  }, [isOpen, company, showInternalSection]);
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -64,7 +135,22 @@ export function NewCompanyModal({ isOpen, onClose, onSuccess, company }: { isOpe
       if (result.error) {
         throw new Error(result.error);
       }
-      
+
+      if (isEditing && showInternalSection && company) {
+        await updateCompanyRadarSync(company.id, radarSync);
+
+        const scoresChanged = JSON.stringify(evalScores) !== JSON.stringify(baselineScores);
+        const tagChanged = evalTag !== baselineTag;
+        const allScoresFilled = Object.values(evalScores).every(v => v > 0);
+        if ((scoresChanged || tagChanged) && currentUser) {
+          if (allScoresFilled) {
+            await saveCustomerEvaluation(company.id, currentUser.id, evalScores, evalTag);
+          } else {
+            toast.warning('Preencha todos os critérios (⭐) para registrar a avaliação.');
+          }
+        }
+      }
+
       if (onSuccess) onSuccess();
       
       onClose();
@@ -252,6 +338,90 @@ export function NewCompanyModal({ isOpen, onClose, onSuccess, company }: { isOpe
                       </button>
                     </div>
                   </div>
+                </div>
+              )}
+
+              {/* Perfil interno — nunca exposto ao cliente. Só aparece
+                  editando uma empresa que já existe (precisa de id) e pra
+                  quem tem Permission.CUSTOMERS_WRITE (ver showInternalSection
+                  em customers/page.tsx). */}
+              {isEditing && showInternalSection && (
+                <div className="p-4 bg-[var(--surface-card)] rounded-2xl border border-[var(--border-default)] space-y-4">
+                  <div className="flex items-center gap-2">
+                    <ShieldAlert size={14} className="text-[var(--text-warning)]" />
+                    <p className="text-[10px] font-black text-[var(--text-warning)] uppercase tracking-widest">Perfil interno — só a equipe vê</p>
+                  </div>
+
+                  <div className="flex items-center justify-between">
+                    <div className="flex items-center gap-3">
+                      <div className="w-8 h-8 rounded-lg bg-[var(--surface-card)] border border-[var(--border-default)] flex items-center justify-center text-[var(--text-secondary)] shadow-sm">
+                        <Radar size={14} />
+                      </div>
+                      <div>
+                        <p className="text-[11px] font-black text-[var(--text-primary)] uppercase tracking-wider">Sincronismo com Radar</p>
+                        <p className="text-[10px] text-[var(--text-tertiary)] font-bold uppercase tracking-widest">Uso futuro em integração</p>
+                      </div>
+                    </div>
+                    <div
+                      onClick={() => setRadarSync(!radarSync)}
+                      className={`w-12 h-6 rounded-full p-1 cursor-pointer transition-all shrink-0 ${radarSync ? 'bg-[var(--accent)]' : 'bg-[var(--border-default)]'}`}
+                    >
+                      <div className={`w-4 h-4 rounded-full bg-[var(--surface-card)] shadow-sm transition-transform ${radarSync ? 'translate-x-6' : 'translate-x-0'}`} />
+                    </div>
+                  </div>
+
+                  <div className="h-px bg-[var(--border-default)] w-full" />
+
+                  <div>
+                    <p className="text-[11px] font-black text-[var(--text-primary)] uppercase tracking-wider">Indicadores rápidos</p>
+                    <p className="text-[9px] text-[var(--text-tertiary)] font-bold uppercase tracking-widest">Editável aqui — vira uma nova avaliação ao salvar</p>
+                  </div>
+
+                  {loadingSummary ? (
+                    <p className="text-[10px] text-[var(--text-tertiary)] font-semibold uppercase tracking-widest">Carregando...</p>
+                  ) : (
+                    <div className="space-y-3">
+                      <div className="space-y-2">
+                        {CRITERIA_LABELS.map(c => (
+                          <div key={c.key} className="flex items-center justify-between gap-3">
+                            <span className="text-[10px] font-semibold text-[var(--text-secondary)]">{c.label}</span>
+                            <StarRating
+                              size={15}
+                              value={evalScores[c.key]}
+                              onChange={(v) => setEvalScores(prev => ({ ...prev, [c.key]: v }))}
+                            />
+                          </div>
+                        ))}
+                      </div>
+
+                      <div className="space-y-1.5">
+                        <p className="text-[9px] font-semibold uppercase tracking-widest text-[var(--text-tertiary)]">Perfil do cliente (opcional)</p>
+                        <div className="flex flex-wrap gap-1.5">
+                          {(Object.keys(TAG_INFO) as CustomerProfileTag[]).map(t => (
+                            <button
+                              key={t}
+                              type="button"
+                              onClick={() => setEvalTag(prev => prev === t ? null : t)}
+                              className={cn(
+                                "text-[9px] font-semibold uppercase tracking-widest px-2 py-1.5 rounded-lg border transition-all",
+                                evalTag === t
+                                  ? "border-[var(--accent)] bg-[var(--accent)]/10 text-[var(--accent-text)]"
+                                  : "border-[var(--border-default)] text-[var(--text-tertiary)] hover:border-[var(--accent)]/40"
+                              )}
+                            >
+                              {TAG_INFO[t].emoji} {TAG_INFO[t].label}
+                            </button>
+                          ))}
+                        </div>
+                      </div>
+
+                      {evaluationSummary && evaluationSummary.count > 0 && (
+                        <p className="text-[9px] text-[var(--text-tertiary)] font-bold uppercase tracking-widest pt-1">
+                          Média geral: {evaluationSummary.overallAverage.toFixed(1)} ⭐ · baseado em {evaluationSummary.count} avaliaç{evaluationSummary.count === 1 ? 'ão' : 'ões'}
+                        </p>
+                      )}
+                    </div>
+                  )}
                 </div>
               )}
 

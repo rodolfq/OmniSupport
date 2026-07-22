@@ -98,11 +98,54 @@ export interface User {
   };
 }
 
+// Classificação rápida e opcional atribuída pelo analista numa avaliação —
+// mostrada no cadastro como a mais recente registrada para o cliente.
+export type CustomerProfileTag = 'technical' | 'beginner' | 'challenging';
+
+export interface CustomerEvaluationScores {
+  knowledgeScore: number;
+  autonomyScore: number;
+  learningScore: number;
+  engagementScore: number;
+  organizationScore: number;
+  communicationScore: number;
+}
+
+// Uma avaliação pontual da empresa-cliente feita por um analista (ex: ao
+// encerrar um chat) — nunca visível para o cliente. Vinculada à empresa
+// (companies), não a um contato/funcionário específico, já que descreve o
+// relacionamento com a conta como um todo. O cadastro da empresa mostra a
+// média de todas as avaliações; o relatório lista o histórico completo.
+export interface CustomerEvaluation extends CustomerEvaluationScores {
+  id: string;
+  companyId: string;
+  analystId?: string;
+  analystName?: string;
+  chatSessionId?: string;
+  profileTag?: CustomerProfileTag | null;
+  createdAt: string;
+}
+
+export interface CustomerEvaluationSummary {
+  count: number;
+  averages: CustomerEvaluationScores;
+  overallAverage: number;
+  latestTag: CustomerProfileTag | null;
+  // Notas da avaliação mais recente (não a média) — usado como ponto de
+  // partida quando o cadastro do cliente permite editar direto por cima da
+  // última avaliação em vez de partir do zero.
+  latestScores: CustomerEvaluationScores | null;
+}
+
 export interface Company {
   id: string;
   name: string;
   industry?: string;
   phone?: string;
+  // Perfil interno da empresa-cliente (nunca exposto a ela): sincronismo com
+  // o Radar, usado numa integração futura. Ver CustomerEvaluation acima para
+  // o histórico de avaliações por trás da média mostrada no cadastro.
+  radarSync?: boolean;
 }
 
 export interface PriorityConfig {

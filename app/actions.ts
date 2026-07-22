@@ -8,6 +8,7 @@ import { emitChatEvent, excludeActiveViewers } from '@/lib/chat-events';
 import { notifyUser } from '@/lib/services/push-service';
 import { getChatRecipientIds, getTeamUserIds } from '@/lib/services/notification-recipients';
 import { pickNextQueueAssignee } from '@/lib/services/queue-routing';
+import { CustomerEvaluationScores, CustomerProfileTag, CustomerEvaluationSummary } from '@/lib/types';
 
 async function getCurrentActionUser() {
   const token = (await cookies()).get('token')?.value;
@@ -271,7 +272,10 @@ export async function getCompanies() {
       name: c.name,
       industry: c.industry || '',
       phone: c.phone || '',
-      createdAt: c.created_at
+      createdAt: c.created_at,
+      // Nunca inclui pra quem é da própria empresa (Cliente/Funcionário) —
+      // é perfil interno, não deve nem trafegar pro navegador do cliente.
+      radarSync: isCompanyUser ? undefined : (c.radar_sync || false)
     }));
   } catch (err) {
     console.error("Error getting companies in actions:", err);
@@ -1122,5 +1126,116 @@ export async function saveInternalChat(id: string | null, data: any) {
   } catch (err) {
     console.error("Error saving internal chat in actions:", err);
     return { error: 'Erro ao salvar chat interno.' };
+  }
+}
+
+// ===== Perfil interno da empresa-cliente (avaliação do analista) =====
+// Nunca confundir com a pesquisa de satisfação existente (cliente avaliando
+// o atendimento) — aqui é o inverso: o analista avaliando o cliente, pra uso
+// exclusivamente interno. Vinculado à empresa (companies), não a um contato
+// específico. Ver migrations/customer_evaluations_company_scope.sql.
+
+export async function updateCompanyRadarSync(companyId: string, radarSync: boolean) {
+  try {
+    await query(`UPDATE public.companies SET radar_sync = $1 WHERE id = $2`, [radarSync, companyId]);
+    return { success: true };
+  } catch (err: any) {
+    console.error('Error updating company radar sync in actions:', err);
+    return { error: err.message || 'Erro ao atualizar sincronismo com Radar.' };
+  }
+}
+
+export async function saveCustomerEvaluation(
+  companyId: string,
+  analystId: string,
+  scores: CustomerEvaluationScores,
+  profileTag: CustomerProfileTag | null,
+  chatSessionId?: string | null
+) {
+  try {
+    await query(
+      `INSERT INTO public.customer_evaluations
+         (company_id, analyst_id, chat_session_id, knowledge_score, autonomy_score, learning_score, engagement_score, organization_score, communication_score, profile_tag)
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)`,
+      [
+        companyId,
+        analystId,
+        chatSessionId || null,
+        scores.knowledgeScore,
+        scores.autonomyScore,
+        scores.learningScore,
+        scores.engagementScore,
+        scores.organizationScore,
+        scores.communicationScore,
+        profileTag || null
+      ]
+    );
+    return { success: true };
+  } catch (err: any) {
+    console.error('Error saving customer evaluation in actions:', err);
+    return { error: err.message || 'Erro ao salvar avaliação do cliente.' };
+  }
+}
+
+// Média por critério + tag mais recente — usado no cadastro da empresa
+// (resumo, sem listar cada avaliação individual; isso fica pro relatório).
+export async function getCustomerEvaluationSummary(companyId: string): Promise<CustomerEvaluationSummary | { error: string }> {
+  try {
+    const avgRes = await query(
+      `SELECT
+         COUNT(*)::int AS count,
+         AVG(knowledge_score) AS knowledge_avg,
+         AVG(autonomy_score) AS autonomy_avg,
+         AVG(learning_score) AS learning_avg,
+         AVG(engagement_score) AS engagement_avg,
+         AVG(organization_score) AS organization_avg,
+         AVG(communication_score) AS communication_avg
+       FROM public.customer_evaluations
+       WHERE company_id = $1`,
+      [companyId]
+    );
+    const row = avgRes.rows[0];
+    const count = row?.count || 0;
+
+    const latestRes = count > 0
+      ? await query(
+          `SELECT knowledge_score, autonomy_score, learning_score, engagement_score, organization_score, communication_score, profile_tag
+           FROM public.customer_evaluations
+           WHERE company_id = $1
+           ORDER BY created_at DESC LIMIT 1`,
+          [companyId]
+        )
+      : { rows: [] as any[] };
+    const latestRow = latestRes.rows[0];
+
+    const averages: CustomerEvaluationScores = {
+      knowledgeScore: count > 0 ? Number(row.knowledge_avg) : 0,
+      autonomyScore: count > 0 ? Number(row.autonomy_avg) : 0,
+      learningScore: count > 0 ? Number(row.learning_avg) : 0,
+      engagementScore: count > 0 ? Number(row.engagement_avg) : 0,
+      organizationScore: count > 0 ? Number(row.organization_avg) : 0,
+      communicationScore: count > 0 ? Number(row.communication_avg) : 0
+    };
+    const overallAverage = count > 0
+      ? Object.values(averages).reduce((sum, v) => sum + v, 0) / Object.values(averages).length
+      : 0;
+
+    return {
+      count,
+      averages,
+      overallAverage,
+      latestTag: (latestRow?.profile_tag as CustomerProfileTag) || null,
+      latestScores: latestRow ? {
+        knowledgeScore: latestRow.knowledge_score,
+        autonomyScore: latestRow.autonomy_score,
+        learningScore: latestRow.learning_score,
+        engagementScore: latestRow.engagement_score,
+        organizationScore: latestRow.organization_score,
+        communicationScore: latestRow.communication_score
+      } : null
+    };
+  } catch (err: any) {
+    console.error('Error getting customer evaluation summary in actions:', err);
+    return { error: err.message || 'Erro ao carregar avaliações do cliente.' };
   }
 }

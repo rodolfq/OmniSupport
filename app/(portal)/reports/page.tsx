@@ -2,7 +2,7 @@
 
 import React from 'react';
 import { AreaChart, Area, XAxis, YAxis, Tooltip, ResponsiveContainer, PieChart, Pie, Cell } from 'recharts';
-import { TrendingUp, Clock, Calendar, Users, ThumbsUp, ThumbsDown, MessageSquareText, Lock } from 'lucide-react';
+import { TrendingUp, Clock, Calendar, Users, ThumbsUp, ThumbsDown, MessageSquareText, Lock, Star, ClipboardList } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { useTheme } from '@/app/theme-provider';
 import { useApp } from '@/app/app-context';
@@ -23,6 +23,34 @@ interface SurveyReport {
   satisfactionRate: number;
   responses: SurveyResponse[];
 }
+
+interface CustomerEvaluationRow {
+  id: string;
+  companyName: string;
+  analystName: string;
+  createdAt: string;
+  knowledgeScore: number;
+  autonomyScore: number;
+  learningScore: number;
+  engagementScore: number;
+  organizationScore: number;
+  communicationScore: number;
+  profileTag: 'technical' | 'beginner' | 'challenging' | null;
+}
+
+interface CustomerEvaluationsReport {
+  count: number;
+  averages: Record<string, number>;
+  overallAverage: number;
+  tagDistribution: { technical: number; beginner: number; challenging: number };
+  evaluations: CustomerEvaluationRow[];
+}
+
+const TAG_LABELS: Record<'technical' | 'beginner' | 'challenging', string> = {
+  technical: '👨‍💻 Técnico',
+  beginner: '🙋‍♂️ Pouco Conhecimento',
+  challenging: '😤 Desafiador'
+};
 
 const dataByDay = [
   { name: 'Seg', total: 40 },
@@ -50,12 +78,17 @@ export default function ReportsPage() {
     : { borderRadius: '12px', border: 'none', boxShadow: '0 10px 15px -3px rgb(0 0 0 / 0.1)' };
 
   const [surveyReport, setSurveyReport] = React.useState<SurveyReport | null>(null);
+  const [evaluationsReport, setEvaluationsReport] = React.useState<CustomerEvaluationsReport | null>(null);
 
   React.useEffect(() => {
     const controller = new AbortController();
     fetch('/api/reports/survey', { signal: controller.signal })
       .then(res => res.json())
       .then(data => setSurveyReport(data))
+      .catch(() => {});
+    fetch('/api/reports/customer-evaluations', { signal: controller.signal })
+      .then(res => res.json())
+      .then(data => setEvaluationsReport(data))
       .catch(() => {});
     return () => controller.abort();
   }, []);
@@ -64,6 +97,12 @@ export default function ReportsPage() {
     { name: 'Satisfeitos', value: surveyReport.satisfied, color: '#22c55e' },
     { name: 'A Melhorar', value: surveyReport.toImprove, color: '#ef4444' },
   ] : [];
+
+  const evaluationTagPieData = evaluationsReport ? [
+    { name: TAG_LABELS.technical, value: evaluationsReport.tagDistribution.technical, color: '#4f46e5' },
+    { name: TAG_LABELS.beginner, value: evaluationsReport.tagDistribution.beginner, color: '#f59e0b' },
+    { name: TAG_LABELS.challenging, value: evaluationsReport.tagDistribution.challenging, color: '#ef4444' },
+  ].filter(d => d.value > 0) : [];
 
   if (!hasPermission(Permission.REPORTS_READ)) {
     return (
@@ -164,6 +203,67 @@ export default function ReportsPage() {
                 </div>
               )) : (
                 <div className="h-full flex items-center justify-center text-sm text-[var(--text-tertiary)]">Nenhuma resposta ainda</div>
+              )}
+            </div>
+          </div>
+        </div>
+      </div>
+
+      {/* Avaliação interna de clientes: o inverso da pesquisa de satisfação
+          acima — aqui é o analista avaliando o cliente, nunca visível a ele
+          (ver components/customer-evaluation-modal.tsx). */}
+      <div className="space-y-6">
+        <div>
+          <h2 className="text-xl font-black text-[var(--text-primary)] tracking-tight">Avaliação de Clientes</h2>
+          <p className="text-xs text-[var(--text-tertiary)] font-medium mt-1">Indicadores internos preenchidos pelos analistas — nunca visíveis ao cliente.</p>
+        </div>
+        <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+          <MetricCard label="Avaliações" value={String(evaluationsReport?.count ?? 0)} icon={<ClipboardList className="text-[var(--accent-text)]" />} />
+          <MetricCard label="Média Geral" value={evaluationsReport ? evaluationsReport.overallAverage.toFixed(1) : '0.0'} icon={<Star size={24} className="text-white" />} accent />
+          <MetricCard label="Clientes Desafiadores" value={String(evaluationsReport?.tagDistribution.challenging ?? 0)} icon={<ThumbsDown className="text-[var(--accent-text)]" />} />
+        </div>
+
+        <div className="grid grid-cols-1 lg:grid-cols-2 gap-8">
+          <div className="bg-[var(--surface-card)] p-8 rounded-2xl border border-[var(--border-default)] shadow-sm">
+            <h3 className="font-bold mb-8 uppercase text-[10px] tracking-[0.2em] text-[var(--text-tertiary)]">Distribuição de Perfil</h3>
+            <div className="h-64">
+              {evaluationTagPieData.length > 0 ? (
+                <ResponsiveContainer width="100%" height="100%">
+                  <PieChart>
+                    <Pie data={evaluationTagPieData} innerRadius={60} outerRadius={80} paddingAngle={8} dataKey="value" stroke="none">
+                      {evaluationTagPieData.map((e, i) => <Cell key={i} fill={e.color} />)}
+                    </Pie>
+                    <Tooltip contentStyle={tooltipStyle} />
+                  </PieChart>
+                </ResponsiveContainer>
+              ) : (
+                <div className="h-full flex items-center justify-center text-sm text-[var(--text-tertiary)]">Nenhuma avaliação ainda</div>
+              )}
+            </div>
+          </div>
+
+          <div className="bg-[var(--surface-card)] p-8 rounded-2xl border border-[var(--border-default)] shadow-sm">
+            <h3 className="font-bold mb-4 uppercase text-[10px] tracking-[0.2em] text-[var(--text-tertiary)]">Avaliações Recentes</h3>
+            <div className="h-64 overflow-y-auto space-y-2">
+              {evaluationsReport?.evaluations.length ? evaluationsReport.evaluations.map(e => {
+                const avg = (e.knowledgeScore + e.autonomyScore + e.learningScore + e.engagementScore + e.organizationScore + e.communicationScore) / 6;
+                return (
+                  <div key={e.id} className="flex items-center justify-between gap-3 p-3 rounded-xl border border-[var(--border-default)] text-sm">
+                    <div className="min-w-0">
+                      <p className="font-semibold text-[var(--text-primary)] truncate">{e.companyName}</p>
+                      <p className="text-[10px] text-[var(--text-tertiary)] uppercase tracking-widest">
+                        Por {e.analystName} · {new Date(e.createdAt).toLocaleDateString('pt-BR')}
+                        {e.profileTag && ` · ${TAG_LABELS[e.profileTag]}`}
+                      </p>
+                    </div>
+                    <div className="flex items-center gap-1 text-amber-400 shrink-0">
+                      <Star size={14} fill="currentColor" />
+                      <span className="text-xs font-bold text-[var(--text-secondary)]">{avg.toFixed(1)}</span>
+                    </div>
+                  </div>
+                );
+              }) : (
+                <div className="h-full flex items-center justify-center text-sm text-[var(--text-tertiary)]">Nenhuma avaliação ainda</div>
               )}
             </div>
           </div>

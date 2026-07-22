@@ -42,7 +42,7 @@ export function FilterBar({ onFilterChange, originalTickets }: FilterBarProps) {
       const { data: profiles } = await supabase.from('profiles').select('*');
       
       if (compList) setCompanies(compList);
-      if (profiles) setAnalysts(profiles.filter(u => u.role === 'Equipe' || u.is_admin) as any);
+      if (profiles) setAnalysts(profiles.filter((u: any) => u.role === 'Equipe' || u.is_admin) as any);
     }
     fetchData();
   }, []);
@@ -56,7 +56,7 @@ export function FilterBar({ onFilterChange, originalTickets }: FilterBarProps) {
         .eq('user_id', currentUser.id);
       
       if (savedViews) {
-        setSavedFilters(savedViews.map(sv => ({
+        setSavedFilters(savedViews.map((sv: any) => ({
           id: sv.id,
           name: sv.name,
           filters: sv.filters as any

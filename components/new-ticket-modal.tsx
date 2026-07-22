@@ -113,7 +113,7 @@ export function NewTicketModal() {
           console.error("DEBUG usersError:", usersError);
           setUsers([]);
         } else {
-          mappedUsers = (loadedUsers || []).map((u) => ({
+          mappedUsers = (loadedUsers || []).map((u: any) => ({
             ...u,
             companyId: u.company_id,
           })) as User[];

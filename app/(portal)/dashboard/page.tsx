@@ -139,7 +139,7 @@ export default function DashboardPage() {
         let tickets = loadedTickets;
         
         if ([UserRole.CUSTOMER, UserRole.EMPLOYEE].includes(currentUser?.role as UserRole)) {
-          tickets = tickets.filter(t => t.companyId === currentUser.companyId);
+          tickets = tickets.filter(t => t.companyId === currentUser?.companyId);
         }
         
         setAllTickets(tickets);

@@ -153,7 +153,7 @@ export function TicketDetailModal({ ticket, onClose }: TicketDetailModalProps) {
       const { data: teamList } = await supabase.from('internal_teams').select('*');
 
       if (profiles) {
-        setAllUsers(profiles.map(u => ({ 
+        setAllUsers(profiles.map((u: any) => ({
           ...u, 
           companyId: u.company_id, 
           internalTeamIds: u.internal_team_ids,
@@ -167,7 +167,7 @@ export function TicketDetailModal({ ticket, onClose }: TicketDetailModalProps) {
             u.role === 'Equipe' || u.is_admin || (userTeams && u.internal_team_ids?.some((t: string) => userTeams.includes(t)))
           ) as any);
         } else {
-          setAnalysts(profiles.filter(u => u.role === 'Equipe' || u.is_admin) as any);
+          setAnalysts(profiles.filter((u: any) => u.role === 'Equipe' || u.is_admin) as any);
         }
       }
       if (statusList) setStatuses(statusList as any);

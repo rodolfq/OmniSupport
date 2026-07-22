@@ -2,7 +2,7 @@
 
 import React from 'react';
 import { useApp } from '@/app/app-context';
-import { Bell, Clock, Search, Filter, Check, Lock, MessageCircle, MessageSquare, Ticket, UserPlus, CheckCircle2 } from 'lucide-react';
+import { Bell, Clock, Search, Filter, Check, Lock, MessageCircle, MessageSquare, Star, Ticket, UserPlus, CheckCircle2 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import Link from 'next/link';
 import { UserRole } from '@/lib/types';
@@ -23,7 +23,7 @@ function stripHtml(value: string) {
 }
 
 export default function ActivitiesPage() {
-  const { currentUser, notifications, markNotificationRead, clearNotifications } = useApp();
+  const { currentUser, notifications, markNotificationRead, clearNotifications, openEvaluationModal } = useApp();
   const isCompanyUser = [UserRole.CUSTOMER, UserRole.EMPLOYEE].includes(currentUser?.role as UserRole);
 
   const getIcon = (type: string) => {
@@ -34,11 +34,13 @@ export default function ActivitiesPage() {
       case 'ticket_closed': return <CheckCircle2 size={18} />;
       case 'chat_new': return <MessageSquare size={18} />;
       case 'chat_message': return <MessageCircle size={18} />;
+      case 'customer_evaluation_prompt': return <Star size={18} />;
       default: return <Bell size={18} />;
     }
   };
 
   const getColor = (type: string) => {
+    if (type === 'customer_evaluation_prompt') return "bg-amber-100 text-amber-600";
     if (type.startsWith('chat_')) return "bg-[var(--surface-success)] text-[var(--text-success)]";
     if (type === 'ticket_closed') return "bg-[var(--surface-success)] text-[var(--text-success)]";
     if (type === 'ticket_new') return "bg-[var(--accent)]/20 text-[var(--accent-text)]";
@@ -135,7 +137,21 @@ export default function ActivitiesPage() {
                   <p className="text-sm font-medium text-[var(--text-tertiary)] leading-relaxed max-w-2xl">{stripHtml(notif.message)}</p>
 
                   <div className="mt-4 flex items-center gap-4">
-                     {notif.targetId && (
+                     {notif.targetId && notif.type === 'customer_evaluation_prompt' ? (
+                       <button
+                         onClick={(e) => {
+                           e.stopPropagation();
+                           openEvaluationModal({
+                             companyId: notif.targetId!,
+                             companyName: notif.meta?.companyName || 'Cliente',
+                             chatSessionId: notif.meta?.chatSessionId
+                           });
+                         }}
+                         className="text-[10px] font-semibold uppercase text-[var(--accent-text)] hover:underline tracking-widest"
+                       >
+                         Avaliar cliente
+                       </button>
+                     ) : notif.targetId && (
                        <Link
                         href={getTargetHref(notif)}
                         className="text-[10px] font-semibold uppercase text-[var(--accent-text)] hover:underline tracking-widest"

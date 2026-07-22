@@ -12,11 +12,15 @@ export interface AppNotification {
   sourceId?: string;
   title: string;
   message: string;
-  type: 'ticket_new' | 'ticket_update' | 'ticket_assigned' | 'ticket_closed' | 'chat_new' | 'chat_message' | 'internal_ticket_message' | 'internal_ticket_status';
+  type: 'ticket_new' | 'ticket_update' | 'ticket_assigned' | 'ticket_closed' | 'chat_new' | 'chat_message' | 'internal_ticket_message' | 'internal_ticket_status' | 'customer_evaluation_prompt';
   targetId?: string;
   recipientId: string;
   timestamp: string;
   read: boolean;
+  // Dados extras que não cabem em title/message — hoje só usado por
+  // 'customer_evaluation_prompt' pra levar o nome da empresa e a sessão de
+  // chat de origem até o modal de avaliação, sem precisar buscar de novo.
+  meta?: { companyName?: string; chatSessionId?: string };
 }
 
 export interface NotificationSettings {
@@ -30,12 +34,17 @@ export interface NotificationSettings {
   chat_message: boolean;
   internal_ticket_message: boolean;
   internal_ticket_status: boolean;
+  customer_evaluation_prompt: boolean;
   osNotificationsEnabled: boolean;
 }
 
 interface AppContextType {
    currentUser: User | null;
-   setCurrentUser: (user: User | null) => void;
+   // React.Dispatch (não só `(user) => void`) porque o valor real vem direto
+   // de useState — settings/page.tsx usa a forma funcional
+   // (`setCurrentUser(prev => ...)`), que funciona em runtime mas só
+   // type-checka com a assinatura completa do dispatcher.
+   setCurrentUser: React.Dispatch<React.SetStateAction<User | null>>;
    authInitialized: boolean;
    hasPermission: (permission: Permission) => boolean;
   isNewTicketModalOpen: boolean;
@@ -75,6 +84,18 @@ interface AppContextType {
   refreshAbsenceReasons: () => Promise<void>;
   getContactPhoto: (phone?: string, instanceId?: string) => string | null | undefined;
   ensureContactPhoto: (phone?: string, instanceId?: string) => void;
+  // Modal global de avaliação interna da empresa-cliente (ver
+  // CustomerEvaluationModal) — disparado ao encerrar um chat, ou pelo clique
+  // na notificação de avaliação. Edição direta fica no cadastro da empresa.
+  evaluationModalTarget: EvaluationModalTarget | null;
+  openEvaluationModal: (target: EvaluationModalTarget) => void;
+  closeEvaluationModal: () => void;
+}
+
+export interface EvaluationModalTarget {
+  companyId: string;
+  companyName: string;
+  chatSessionId?: string;
 }
 
 const AppContext = createContext<AppContextType | undefined>(undefined);
@@ -90,6 +111,7 @@ const DEFAULT_SETTINGS: NotificationSettings = {
   chat_message: true,
   internal_ticket_message: true,
   internal_ticket_status: true,
+  customer_evaluation_prompt: true,
   osNotificationsEnabled: true,
 };
 
@@ -97,6 +119,10 @@ function getNotificationTargetHref(notif: Pick<AppNotification, 'type' | 'target
   if (!notif.targetId) return null;
   if (notif.type.startsWith('chat_')) return `${isCompanyUser ? '/my-tickets' : '/dashboard'}?chat=${notif.targetId}`;
   if (notif.type.startsWith('internal_ticket_')) return `/internal-tickets/${notif.targetId}`;
+  // Não tem link de página — a ação é abrir o modal de avaliação, só possível
+  // pelo clique no sino (ver NotificationPanel), não pela notificação nativa
+  // do SO.
+  if (notif.type === 'customer_evaluation_prompt') return null;
   return `${isCompanyUser ? '/my-tickets' : '/dashboard'}?ticket=${notif.targetId}`;
 }
 
@@ -125,6 +151,13 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
   const [isOmniChatExpanded, setIsOmniChatExpanded] = useState(false);
   const [activeOmniChatId, setActiveOmniChatId] = useState<string | null>(null);
   const [refreshTrigger, setRefreshTrigger] = useState(0);
+  const [evaluationModalTarget, setEvaluationModalTarget] = useState<EvaluationModalTarget | null>(null);
+  const openEvaluationModal = React.useCallback((target: EvaluationModalTarget) => {
+    setEvaluationModalTarget(target);
+  }, []);
+  const closeEvaluationModal = React.useCallback(() => {
+    setEvaluationModalTarget(null);
+  }, []);
 
   const userRef = useRef<User | null>(null);
   const activeChatRef = useRef<string | null>(null);
@@ -757,7 +790,10 @@ return (
       setUserStatus,
       refreshAbsenceReasons,
       getContactPhoto,
-      ensureContactPhoto
+      ensureContactPhoto,
+      evaluationModalTarget,
+      openEvaluationModal,
+      closeEvaluationModal
     }}>
       {children}
     </AppContext.Provider>

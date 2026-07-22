@@ -60,7 +60,7 @@ function WhatsAppNumberModal({
                      const cleanPhone = n.replace(/\D/g, '');
                      
                      const { data: existingSessions } = await supabase.from('chat_sessions').select('*').eq('customer_phone', cleanPhone);
-                     const existing = existingSessions?.find(s => !['closed'].includes(s.status));
+                     const existing = existingSessions?.find((s: any) => !['closed'].includes(s.status));
                      
                      let sessionId: string;
                      if (existing) {
@@ -420,6 +420,7 @@ if (isCompanyPortalUser) {
         onClose={() => { setIsCompanyModalOpen(false); setCompanyToEdit(null); }}
         company={companyToEdit}
         onSuccess={loadData}
+        showInternalSection={canManageCompanies}
       />
       <WhatsAppNumberModal
         isOpen={isWhatsAppModalOpen}

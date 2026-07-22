@@ -117,7 +117,7 @@ export default function InternalTicketDetailPage() {
       if (error) throw error;
 
       const { data: links } = await supabase.from('ticket_internal_links').select('ticket_id').eq('internal_ticket_id', data.id);
-      const linkedIds = (links || []).map(l => l.ticket_id);
+      const linkedIds = (links || []).map((l: any) => l.ticket_id);
       const { data: regularTickets } = linkedIds.length
         ? await supabase.from('tickets').select('id, title, public_ticket_number').in('id', linkedIds)
         : { data: [] };
@@ -125,7 +125,7 @@ export default function InternalTicketDetailPage() {
 
       const profileIds = [...new Set([data.assignee_id, data.creator_id].filter(Boolean))];
       const { data: profiles } = await supabase.from('profiles').select('id, name').in('id', profileIds);
-      const profileMap = new Map((profiles || []).map(p => [p.id, p.name]));
+      const profileMap = new Map((profiles || []).map((p: any) => [p.id, p.name]));
 
       setTicket({
         ...data,

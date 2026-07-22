@@ -1242,6 +1242,25 @@ useEffect(() => {
         return;
       }
 
+      // Convite pra avaliar a empresa-cliente (perfil interno, nunca visível
+      // a ela) — só faz sentido pra um atendimento de verdade, com o contato
+      // vinculado a uma empresa conhecida (sem isso não há em qual cadastro
+      // gravar a avaliação) e que não foi encerrado como spam. O analista
+      // pode ignorar o aviso ou clicar em "Não quero responder" no modal;
+      // nada é salvo até ele preencher e confirmar.
+      const evaluationCompany = selectedChatContact?.companyId
+        ? companies.find(c => c.id === selectedChatContact.companyId)
+        : null;
+      if (!closeAsSpam && evaluationCompany && currentUser) {
+        addNotification({
+          title: 'Avaliar cliente',
+          message: `Quer avaliar a ${evaluationCompany.name} agora que o atendimento foi encerrado?`,
+          type: 'customer_evaluation_prompt',
+          targetId: evaluationCompany.id,
+          meta: { companyName: evaluationCompany.name, chatSessionId: selectedChat.id }
+        }, currentUser.id);
+      }
+
       setIsFinishModalOpen(false);
       setSelectedChatId(null);
       const sessions = await fetchChatSessions();

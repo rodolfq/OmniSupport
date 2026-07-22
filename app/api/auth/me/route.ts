@@ -53,7 +53,7 @@ export async function GET(request: NextRequest) {
       'SELECT status, current_reason, last_active FROM public.analyst_status WHERE user_id = $1',
       [decoded.id]
     );
-    const dbStatus = statusResult.rowCount > 0 ? statusResult.rows[0] : null;
+    const dbStatus = (statusResult.rowCount ?? 0) > 0 ? statusResult.rows[0] : null;
     const status = dbStatus?.status || 'online';
 
     return NextResponse.json({

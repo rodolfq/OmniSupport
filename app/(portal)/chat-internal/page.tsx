@@ -41,6 +41,7 @@ import { InternalGroup, ChatMessage, User, UserRole, Permission } from '@/lib/ty
 import { supabase } from '@/lib/supabase';
 import { ClientTime } from '@/components/client-time';
 import { InternalChatService } from '@/lib/services/chat-service';
+import { UserService } from '@/lib/services/user-service';
 import { useRouter } from 'next/navigation';
 import { motion, AnimatePresence } from 'motion/react';
 import EmojiPicker, { Theme as EmojiTheme } from 'emoji-picker-react';
@@ -663,7 +664,7 @@ export default function ChatInternalPage() {
   const getDirectChatUser = (room: InternalGroup) => {
     if (room.type !== 'direct') return undefined;
     const isSelfChat = Boolean(currentUser) && room.memberIds.length > 0 &&
-      room.memberIds.every(memberId => memberId === currentUser.id);
+      room.memberIds.every(memberId => memberId === currentUser?.id);
     if (isSelfChat) return currentUser || undefined;
 
     const participantId = room.memberIds.find(id => id !== currentUser?.id) || room.memberIds[0];

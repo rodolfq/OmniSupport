@@ -132,7 +132,7 @@ export default function ChatManagementPage() {
 
     if (currentUser) {
       const { data: queuesData } = await supabase.from('queues').select('id, name, member_ids, whatsapp_instance_id');
-      const myQueues = queuesData?.filter(q => q.member_ids?.includes(currentUser.id)).map(q => q.id) || [];
+      const myQueues = queuesData?.filter((q: any) => q.member_ids?.includes(currentUser.id)).map((q: any) => q.id) || [];
       setUserQueues(myQueues);
       setAllQueues(queuesData || []);
     }

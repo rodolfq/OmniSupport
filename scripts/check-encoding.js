@@ -6,7 +6,10 @@ const path = require('path');
 
 const ROOT = path.resolve(__dirname, '..');
 const SELF = path.resolve(__filename);
-const SKIP_DIRS = new Set(['node_modules', '.git', '.next', 'dist', 'build']);
+// .cache: modelos de transcrição baixados em runtime (ex: tokenizer.json do
+// Whisper) têm vocabulário multilíngue cheio de sequências tipo "Ã©"/"Ã¼" que
+// são BPE de verdade, não mojibake — davam milhares de falso-positivo aqui.
+const SKIP_DIRS = new Set(['node_modules', '.git', '.next', 'dist', 'build', '.cache']);
 const EXTENSIONS = new Set(['.ts', '.tsx', '.js', '.jsx', '.json', '.md', '.sql', '.css']);
 
 // "Ã"/"Â" followed by a Latin-1 supplement / C1 control character is the signature

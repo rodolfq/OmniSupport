@@ -7,6 +7,7 @@ import { useApp } from '@/app/app-context';
 import { useTheme } from '@/app/theme-provider';
 import { usePathname, useRouter } from 'next/navigation';
 import { NewTicketModal } from '@/components/new-ticket-modal';
+import { CustomerEvaluationModal } from '@/components/customer-evaluation-modal';
 import { ChatWidget } from '@/components/chat-widget';
 import { ForcePasswordChange } from '@/components/force-password-change';
 import { MobileHeader } from '@/components/mobile-header';
@@ -241,6 +242,7 @@ export default function PortalLayout({ children }: { children: React.ReactNode }
           </Suspense>
         </main>
         <NewTicketModal />
+        <CustomerEvaluationModal />
         {canUseChatWidget && <ChatWidget />}
         <MobileBottomNav />
       </div>

@@ -2,11 +2,13 @@
 
 import React from 'react';
 import Link from 'next/link';
-import { Bell, Check, Clock, Link2, MessageCircle, Ticket } from 'lucide-react';
+import { Bell, Check, Clock, Link2, MessageCircle, Star, Ticket } from 'lucide-react';
 import type { AppNotification } from '@/app/app-context';
+import { useApp } from '@/app/app-context';
 import { cn, stripNotificationHtml } from '@/lib/utils';
 
 function getNotificationIcon(type: string) {
+  if (type === 'customer_evaluation_prompt') return <Star size={14} />;
   if (type.startsWith('chat_')) return <MessageCircle size={14} />;
   if (type === 'ticket_closed') return <Check size={14} />;
   if (type.startsWith('internal_ticket_')) return <Link2 size={14} />;
@@ -14,6 +16,7 @@ function getNotificationIcon(type: string) {
 }
 
 function getNotificationColor(type: string) {
+  if (type === 'customer_evaluation_prompt') return 'bg-amber-100 text-amber-600';
   if (type.startsWith('chat_')) return 'bg-[var(--surface-success)] text-[var(--text-success)]';
   if (type === 'ticket_closed') return 'bg-[var(--surface-success)] text-[var(--text-success)]';
   if (type.startsWith('internal_ticket_')) return 'bg-[var(--surface-warning)] text-[var(--text-warning)]';
@@ -30,6 +33,20 @@ interface NotificationPanelProps {
 // (app/(portal)/layout.tsx) e o bottom-sheet mobile (mobile-header.tsx) —
 // cada um só fornece o container/posicionamento ao redor.
 export function NotificationPanel({ notifications, onMarkRead, onItemClick }: NotificationPanelProps) {
+  const { openEvaluationModal } = useApp();
+
+  const handleItemClick = (notif: AppNotification) => {
+    onMarkRead(notif.id);
+    if (notif.type === 'customer_evaluation_prompt' && notif.targetId) {
+      openEvaluationModal({
+        companyId: notif.targetId,
+        companyName: notif.meta?.companyName || 'Cliente',
+        chatSessionId: notif.meta?.chatSessionId
+      });
+    }
+    onItemClick?.();
+  };
+
   return (
     <div className="flex flex-col h-full min-h-0">
       <div className="p-4 border-b border-[var(--border-default)] flex items-center justify-between bg-[var(--surface-pill)]/50 shrink-0">
@@ -51,10 +68,7 @@ export function NotificationPanel({ notifications, onMarkRead, onItemClick }: No
           notifications.map(notif => (
             <div
               key={notif.id}
-              onClick={() => {
-                onMarkRead(notif.id);
-                onItemClick?.();
-              }}
+              onClick={() => handleItemClick(notif)}
               className={cn(
                 "p-4 border-b border-[var(--border-default)] hover:bg-[var(--surface-pill)] transition-all cursor-pointer relative group",
                 !notif.read && "bg-[var(--accent)]/5"

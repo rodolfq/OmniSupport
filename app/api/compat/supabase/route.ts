@@ -66,6 +66,26 @@ function buildStandaloneWhereClause(table: string, filters: any[] | undefined): 
           paramIndex += items.length;
         }
       }
+    } else if (filter.type === 'gt') {
+      clauses.push(`${filter.col} > $${paramIndex}`);
+      params.push(filter.val);
+      paramIndex++;
+    } else if (filter.type === 'gte') {
+      clauses.push(`${filter.col} >= $${paramIndex}`);
+      params.push(filter.val);
+      paramIndex++;
+    } else if (filter.type === 'lt') {
+      clauses.push(`${filter.col} < $${paramIndex}`);
+      params.push(filter.val);
+      paramIndex++;
+    } else if (filter.type === 'lte') {
+      clauses.push(`${filter.col} <= $${paramIndex}`);
+      params.push(filter.val);
+      paramIndex++;
+    } else if (filter.type === 'ilike') {
+      clauses.push(`${filter.col} ILIKE $${paramIndex}`);
+      params.push(filter.val);
+      paramIndex++;
     }
   }
   return { clause: clauses.length > 0 ? ` WHERE ${clauses.join(' AND ')}` : '', params };
@@ -108,7 +128,8 @@ export async function POST(request: Request) {
       orderBy,
       limitCount,
       isSingle,
-      isMaybeSingle
+      isMaybeSingle,
+      wantCount
     } = body;
 
     let sql = '';
@@ -178,14 +199,39 @@ export async function POST(request: Request) {
               paramIndex += items.length;
             }
           }
+        } else if (filter.type === 'gt') {
+          clauses.push(`${filter.col} > $${paramIndex}`);
+          params.push(filter.val);
+          paramIndex++;
+        } else if (filter.type === 'gte') {
+          clauses.push(`${filter.col} >= $${paramIndex}`);
+          params.push(filter.val);
+          paramIndex++;
+        } else if (filter.type === 'lt') {
+          clauses.push(`${filter.col} < $${paramIndex}`);
+          params.push(filter.val);
+          paramIndex++;
+        } else if (filter.type === 'lte') {
+          clauses.push(`${filter.col} <= $${paramIndex}`);
+          params.push(filter.val);
+          paramIndex++;
+        } else if (filter.type === 'ilike') {
+          clauses.push(`${filter.col} ILIKE $${paramIndex}`);
+          params.push(filter.val);
+          paramIndex++;
         }
       }
       return clauses.length > 0 ? ` WHERE ${clauses.join(' AND ')}` : '';
     };
 
     if (action === 'select') {
+      // Guardado à parte (não só inline) pra poder reaproveitar a mesma
+      // cláusula/params numa segunda query de COUNT(*) quando wantCount for
+      // pedido — sem LIMIT/OFFSET, que são interpolados direto na sql
+      // principal, não entram nesses params.
+      const whereClause = buildWhereClause();
       sql = `SELECT * FROM public.${table}`;
-      sql += buildWhereClause();
+      sql += whereClause;
 
       if (orderBy && orderBy.col) {
         sql += ` ORDER BY ${orderBy.col} ${orderBy.ascending ? 'ASC' : 'DESC'}`;
@@ -207,7 +253,16 @@ export async function POST(request: Request) {
       }
 
       const res = await query(sql, params);
-      
+
+      // wantCount é opt-in (só quem chama .select('*', { count: 'exact' })
+      // manda essa flag) — por isso a resposta só muda de formato (objeto
+      // com rows/count em vez do array cru) nesse caso específico, sem
+      // afetar quem já espera o formato antigo.
+      if (wantCount) {
+        const countRes = await query(`SELECT COUNT(*)::int AS count FROM public.${table}${whereClause}`, params);
+        return NextResponse.json({ rows: res.rows, count: countRes.rows[0]?.count ?? 0 });
+      }
+
       if (isSingle || isMaybeSingle) {
         return NextResponse.json(res.rows[0] || null);
       }

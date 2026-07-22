@@ -1,6 +1,6 @@
 const encoder = new TextEncoder();
 
-function arrayBufferToBase64Url(buffer: ArrayBuffer): string {
+function arrayBufferToBase64Url(buffer: ArrayBuffer | Uint8Array): string {
   const bytes = new Uint8Array(buffer);
   let binary = '';
   for (let i = 0; i < bytes.byteLength; i++) {
