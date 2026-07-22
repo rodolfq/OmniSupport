@@ -1114,14 +1114,22 @@ useEffect(() => {
             if (phone) {
               const queue = allQueues.find((q: any) => q.id === selectedChat.queueId);
               const instanceId = queue?.whatsapp_instance_id || queue?.whatsappInstanceId || 'default';
-              const sendRes = await fetch('/api/whatsapp/send', {
+              // Não aguarda — ver comentário equivalente no fluxo de
+              // encerramento mais abaixo: com o WhatsApp desconectado, essa
+              // chamada pode levar quase 1min pra falhar e travava "Gerar
+              // Chamado" à toa.
+              fetch('/api/whatsapp/send', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
                 body: safeJsonStringify({ instanceId, to: phone, message: ticketNoticeMessage.text }),
-              });
-              if (!sendRes.ok) {
+              }).then(sendRes => {
+                if (!sendRes.ok) {
+                  toast.warning('Chamado avisado no chat, mas não foi enviado via WhatsApp.');
+                }
+              }).catch(sendErr => {
+                console.error('Failed to send ticket notice via WhatsApp:', sendErr);
                 toast.warning('Chamado avisado no chat, mas não foi enviado via WhatsApp.');
-              }
+              });
             }
           }
         } catch (msgError) {
@@ -1216,14 +1224,26 @@ useEffect(() => {
               if (phone) {
                 const queue = allQueues.find((q: any) => q.id === selectedChat.queueId);
                 const instanceId = queue?.whatsapp_instance_id || queue?.whatsappInstanceId || 'default';
-                const sendRes = await fetch('/api/whatsapp/send', {
+                // Não aguarda: quando o WhatsApp está desconectado, o envio
+                // faz até 3 tentativas com espera de reconexão de ~20s cada
+                // (WhatsAppService.sendMessage/waitUntilConnected) — chegando
+                // a ~1min. Esperar isso aqui travava "Gerar chamado e
+                // finalizar" inteiro (a sessão só fecha depois deste bloco),
+                // dando a impressão de que o chat não fechava. O aviso de
+                // encerramento já foi registrado no chat acima
+                // (pushChatMessage); o envio ao WhatsApp é best-effort.
+                fetch('/api/whatsapp/send', {
                   method: 'POST',
                   headers: { 'Content-Type': 'application/json' },
                   body: safeJsonStringify({ instanceId, to: phone, message: closingMessage }),
-                });
-                if (!sendRes.ok) {
+                }).then(sendRes => {
+                  if (!sendRes.ok) {
+                    toast.warning('Mensagem de encerramento registrada no chat, mas não foi enviada via WhatsApp.');
+                  }
+                }).catch(sendErr => {
+                  console.error('Failed to send closing WhatsApp notice:', sendErr);
                   toast.warning('Mensagem de encerramento registrada no chat, mas não foi enviada via WhatsApp.');
-                }
+                });
               }
             }
           }
