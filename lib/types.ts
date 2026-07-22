@@ -242,7 +242,10 @@ export interface ChatMessage {
   senderName: string;
   text: string;
   timestamp: string;
-  type: 'text' | 'system' | 'file' | 'gif' | 'sticker';
+  // 'internal': aviso de bastidores (ex: transferência entre analistas/fila)
+  // que nunca deve aparecer pra quem está do lado do cliente (role Cliente/
+  // Funcionário) — ver filtro em chat-widget.tsx (selectedChatMessageRows).
+  type: 'text' | 'system' | 'internal' | 'file' | 'gif' | 'sticker';
   isDeleted?: boolean;
   replyToId?: string;
   readBy?: string[];

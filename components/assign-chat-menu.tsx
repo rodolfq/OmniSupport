@@ -1,10 +1,15 @@
 'use client';
 
 import React, { useEffect, useRef, useState } from 'react';
-import { ChevronDown, Send, UserPlus } from 'lucide-react';
+import { ChevronDown, ListRestart, Send, UserPlus } from 'lucide-react';
 import { cn } from '@/lib/utils';
 
 interface OnlineTarget {
+  id: string;
+  name: string;
+}
+
+interface QueueTarget {
   id: string;
   name: string;
 }
@@ -15,6 +20,9 @@ interface AssignChatMenuProps {
   onlineTargets: OnlineTarget[];
   onAssignToSelf?: () => void;
   onAssignToUser: (userId: string) => void;
+  queues?: QueueTarget[];
+  currentQueueId?: string | null;
+  onReturnToQueue?: (queueId: string) => void;
   selfLabel?: string;
   showSelf?: boolean;
   variant?: 'full' | 'icon';
@@ -27,6 +35,9 @@ export function AssignChatMenu({
   onlineTargets,
   onAssignToSelf,
   onAssignToUser,
+  queues = [],
+  currentQueueId,
+  onReturnToQueue,
   selfLabel = 'Assumir',
   showSelf = true,
   variant = 'full',
@@ -46,7 +57,14 @@ export function AssignChatMenu({
     return () => document.removeEventListener('mousedown', handleClickOutside);
   }, [open]);
 
-  const targets = onlineTargets.filter(t => t.id !== currentUserId);
+  // Inclui o próprio usuário na lista (se estiver online): permite "puxar"
+  // pra si um chat que está com outra pessoa, direto pela mesma lista de
+  // transferência, sem depender do botão "Assumir" (que nem sempre aparece,
+  // ex: quando showSelf=false porque o chat já tem responsável).
+  const targets = onlineTargets;
+  // Lista todas as filas, incluindo a atual: mesmo pra fila que já é a do
+  // chat, "Voltar para fila" tem utilidade (força um novo rodízio/distribuição).
+  const queueTargets = queues;
 
   return (
     <div ref={containerRef} className={cn('relative inline-block', className)}>
@@ -102,6 +120,32 @@ export function AssignChatMenu({
                 </button>
               ))}
             </div>
+          )}
+          {onReturnToQueue && (
+            <>
+              <p className="px-4 py-2 text-[9px] font-semibold text-[var(--text-tertiary)] border-y border-[var(--border-default)]">
+                Voltar para fila
+              </p>
+              {queueTargets.length === 0 ? (
+                <p className="px-4 py-3 text-xs text-[var(--text-tertiary)] italic">Nenhuma outra fila disponível</p>
+              ) : (
+                <div className="max-h-56 overflow-y-auto">
+                  {queueTargets.map(queue => (
+                    <button
+                      key={queue.id}
+                      type="button"
+                      onClick={() => {
+                        onReturnToQueue(queue.id);
+                        setOpen(false);
+                      }}
+                      className="w-full flex items-center gap-2 px-4 py-2.5 text-xs font-bold text-[var(--text-secondary)] hover:bg-[var(--accent)]/10 transition-all text-left"
+                    >
+                      <ListRestart size={12} className="text-[var(--accent-text)] shrink-0" /> {queue.name}
+                    </button>
+                  ))}
+                </div>
+              )}
+            </>
           )}
         </div>
       )}

@@ -47,7 +47,7 @@ import {
 } from '@/lib/types';
 import { fetchChatSessions, pushChatMessage, createChatSession, saveChatHistory, findExistingChatSessionByPhone, submitSurveyResponse, transcribeChatAudio } from '@/lib/services/chat-service';
 import { fetchQuickNotes, fetchAnalystStatuses, fetchCompanies, fetchUsers, fetchQueues, fetchSurveySettings } from '@/lib/services/config-service';
-import { saveTicketFromChatSession, closeChatSessionAfterTicket, assignChatSession } from '@/app/actions';
+import { saveTicketFromChatSession, closeChatSessionAfterTicket, assignChatSession, returnChatSessionToQueue } from '@/app/actions';
 import { cn, maskPhone, matchPhones, safeJsonStringify } from '@/lib/utils';
 import { useApp } from '@/app/app-context';
 import { supabase } from '@/lib/supabase';
@@ -236,6 +236,7 @@ export function ChatWidget() {
   const selectedChatId = activeOmniChatId;
   const setSelectedChatId = setActiveOmniChatId;
   const selectedChat = customerSessions.find(s => s.id === selectedChatId);
+  const isCustomer = [UserRole.CUSTOMER, UserRole.EMPLOYEE].includes(currentUser?.role as UserRole);
   const selectedChatMessageRows = React.useMemo(() => {
     const rows: Array<
       | { type: 'date'; id: string; label: string }
@@ -243,7 +244,13 @@ export function ChatWidget() {
     > = [];
     let lastDateKey = '';
 
-    (selectedChat?.messages || []).forEach((msg) => {
+    // type 'internal': aviso de bastidores (ex: transferência entre
+    // analistas/fila) — nunca deve chegar pro lado do cliente.
+    const messages = isCustomer
+      ? (selectedChat?.messages || []).filter(m => m.type !== 'internal')
+      : (selectedChat?.messages || []);
+
+    messages.forEach((msg) => {
       const date = new Date(msg.timestamp);
       const dateKey = date.toLocaleDateString('pt-BR');
       if (dateKey !== lastDateKey) {
@@ -263,9 +270,8 @@ export function ChatWidget() {
     });
 
     return rows;
-  }, [selectedChat?.messages]);
+  }, [selectedChat?.messages, isCustomer]);
   const unreadCount = notifications.filter(n => !n.read && n.type.startsWith('chat_')).length;
-  const isCustomer = [UserRole.CUSTOMER, UserRole.EMPLOYEE].includes(currentUser?.role as UserRole);
   // Quantas conversas de verdade estão sem resposta da equipe — diferente de
   // unreadCount (que conta NOTIFICAÇÕES não lidas, não chats: uma mesma
   // conversa pode gerar várias notificações, ou nenhuma se a notificação foi
@@ -316,7 +322,7 @@ export function ChatWidget() {
       toast.error('Você precisa estar Online para assumir atendimentos!');
       return;
     }
-    const result = await assignChatSession(sessionId, assigneeId);
+    const result = await assignChatSession(sessionId, assigneeId, currentUser.id);
 
     if (!('error' in result)) {
       toast.success(targetUserId ? 'Atendimento transferido com sucesso!' : 'Atendimento assumido com sucesso!');
@@ -324,6 +330,19 @@ export function ChatWidget() {
       setCustomerSessions(refreshedSessions);
     } else {
       toast.error('Erro ao atualizar o atendimento.');
+    }
+  };
+
+  const handleReturnToQueue = async (sessionId: string, queueId: string) => {
+    if (!currentUser) return;
+    const result = await returnChatSessionToQueue(sessionId, queueId, currentUser.id);
+
+    if (!('error' in result)) {
+      toast.success('Atendimento devolvido para a fila!');
+      const refreshedSessions = await fetchChatSessions();
+      setCustomerSessions(refreshedSessions);
+    } else {
+      toast.error('Erro ao devolver o atendimento para a fila.');
     }
   };
 
@@ -460,6 +479,30 @@ export function ChatWidget() {
   const [chatFilter, setChatFilter] = useState<'all' | 'me' | 'queue'>('all');
   const [userQueues, setUserQueues] = useState<string[]>([]);
   const [allQueues, setAllQueues] = useState<any[]>([]);
+
+  const queueMenuTargets = React.useMemo(() => {
+    return allQueues.map((q: any) => ({ id: q.id, name: q.name }));
+  }, [allQueues]);
+
+  // Restringe a lista de "Enviar para" a quem está online E é membro da fila
+  // do próprio chat — sem fila (pool combinado) cai de volta pra todo mundo
+  // online, já que aí não há uma fila única pra filtrar. O próprio usuário
+  // (se online) sempre aparece, mesmo que não seja formalmente membro dessa
+  // fila específica — "puxar" um chat pra si não deveria depender disso.
+  const getQueueOnlineTargets = React.useCallback((queueId?: string | null) => {
+    const base = (() => {
+      if (!queueId) return onlineAssignTargets;
+      const queue = allQueues.find((q: any) => q.id === queueId);
+      if (!queue) return onlineAssignTargets;
+      const memberIds: string[] = queue.member_ids || [];
+      return onlineAssignTargets.filter(t => memberIds.includes(t.id));
+    })();
+
+    if (currentUser && userStatus === 'online' && !base.some(t => t.id === currentUser.id)) {
+      return [...base, { id: currentUser.id, name: currentUser.name }];
+    }
+    return base;
+  }, [onlineAssignTargets, allQueues, currentUser, userStatus]);
 
   const getSessionInstanceId = React.useCallback((session?: { queueId?: string }) => {
     const queue = allQueues.find((q: any) => q.id === session?.queueId);
@@ -1586,7 +1629,15 @@ useEffect(() => {
                       .filter(s => {
                         if (chatFilter === 'all') return true;
                         if (chatFilter === 'me') return s.assigneeId === currentUser?.id;
-                        if (chatFilter === 'queue') return s.queueId && userQueues.includes(s.queueId);
+                        // "Fila": todo chat (pendente ou já em atendimento, de
+                        // qualquer analista) que pertence a QUALQUER fila — não
+                        // só as que o usuário logado é formalmente membro
+                        // (ex: um admin que acompanha tudo mas não está
+                        // cadastrado em nenhuma fila específica não pode ver a
+                        // aba inteira vazia). Inclui também os próprios
+                        // chamados do usuário mesmo sem queueId (ex: pool
+                        // combinado).
+                        if (chatFilter === 'queue') return !!s.queueId || s.assigneeId === currentUser?.id;
                         return true;
                       })
                         .map(s => {
@@ -1646,8 +1697,16 @@ useEffect(() => {
               {selectedChatId ? (
                 <div className="flex-1 flex flex-col bg-[var(--surface-card)] min-w-0">
                   {/* Chat Header */}
-                  <div className="px-5 py-3 bg-[var(--surface-card)] border-b border-[var(--border-default)] flex flex-wrap items-center justify-between gap-y-2">
-                    <div className="flex items-center gap-2 min-w-0">
+                  {/* Sem flex-wrap: com nome de responsável muito longo, a linha
+                      quebrava e o bloco de botões (2º item da row) ia parar
+                      sozinho numa segunda linha, onde justify-between o empurra
+                      pra esquerda em vez de manter à direita — o dropdown do
+                      AssignChatMenu, ancorado nele, abria fora do lugar. Em vez
+                      disso, o bloco da esquerda ocupa o espaço disponível e o
+                      texto trunca (ver truncate abaixo); os botões continuam
+                      shrink-0, sempre na mesma linha, colados à direita. */}
+                  <div className="px-5 py-3 bg-[var(--surface-card)] border-b border-[var(--border-default)] flex items-center justify-between gap-2">
+                    <div className="flex items-center gap-2 min-w-0 flex-1">
                       {!isCustomer && !isExpanded && (
                         <button onClick={() => setSelectedChatId(null)} className="text-[var(--accent-text)] p-1.5 hover:bg-[var(--accent)]/10 rounded-xl transition-all shrink-0">
                           <ChevronDown size={18} className="rotate-90" />
@@ -1681,7 +1740,7 @@ useEffect(() => {
                             checar a fila. Nome resolvido contra allUsers (já carregado
                             pra o AssignChatMenu), sem precisar de rota nova. */}
                         {!isCustomer && selectedChat && 'assigneeId' in selectedChat && (
-                          <p className="text-[9px] font-semibold uppercase tracking-widest mt-0.5">
+                          <p className="text-[9px] font-semibold uppercase tracking-widest mt-0.5 truncate">
                             <span className="text-[var(--text-tertiary)]">Responsável: </span>
                             <span className={cn(
                               "font-black",
@@ -1741,9 +1800,12 @@ useEffect(() => {
                         <AssignChatMenu
                           currentUserId={currentUser?.id}
                           isCurrentUserOnline={userStatus === 'online'}
-                          onlineTargets={onlineAssignTargets}
+                          onlineTargets={getQueueOnlineTargets(selectedChat.queueId)}
                           onAssignToSelf={() => handleAssignChat(selectedChat.id)}
                           onAssignToUser={(userId) => handleAssignChat(selectedChat.id, userId)}
+                          queues={queueMenuTargets}
+                          currentQueueId={selectedChat.queueId}
+                          onReturnToQueue={(queueId) => handleReturnToQueue(selectedChat.id, queueId)}
                           selfLabel="Assumir"
                           showSelf={selectedChat.assigneeId !== currentUser?.id}
                           variant={isExpanded ? 'full' : 'icon'}
@@ -1788,6 +1850,22 @@ useEffect(() => {
                       }
 
                       const m = row.message;
+
+                      // Aviso de bastidores (ex: transferência entre
+                      // analistas/fila): não é uma mensagem de conversa de
+                      // verdade, então não usa a bolha normal — só uma linha
+                      // pequena e discreta, centralizada, pra não competir
+                      // visualmente com o que o cliente de fato disse/leu.
+                      if (m.type === 'internal') {
+                        return (
+                          <div key={m.id} className="flex justify-center py-1 animate-in fade-in duration-300">
+                            <span className="max-w-[85%] text-center text-[10px] text-[var(--text-tertiary)]">
+                              {m.text}
+                            </span>
+                          </div>
+                        );
+                      }
+
                       const isOwnMessage = m.senderId === currentUser.id;
                       const attachments = m.attachments || m.metadata?.attachments || [];
                       return (

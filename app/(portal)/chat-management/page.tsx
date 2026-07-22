@@ -46,7 +46,7 @@ import { ConfirmDialog } from '@/components/confirm-dialog';
 import { supabase } from '@/lib/supabase';
 import { fetchChatSessions, saveChatHistory } from '@/lib/services/chat-service';
 import { fetchUsers } from '@/lib/services/config-service';
-import { getQuickNotes, saveQuickNote as saveQuickNoteAction, deleteQuickNote, getAnalysts, getCompanies, updateUserStatus, saveTicketFromChatSession, closeChatSessionAfterTicket, assignChatSession } from '@/app/actions';
+import { getQuickNotes, saveQuickNote as saveQuickNoteAction, deleteQuickNote, getAnalysts, getCompanies, updateUserStatus, saveTicketFromChatSession, closeChatSessionAfterTicket, assignChatSession, returnChatSessionToQueue } from '@/app/actions';
 
 export default function ChatManagementPage() {
   const { currentUser, setActiveOmniChatId, setIsOmniChatOpen, refreshTrigger, userStatus, getContactPhoto, ensureContactPhoto, hasPermission } = useApp();
@@ -131,7 +131,7 @@ export default function ChatManagementPage() {
     setCompanies(companiesData);
 
     if (currentUser) {
-      const { data: queuesData } = await supabase.from('queues').select('id, member_ids, whatsapp_instance_id');
+      const { data: queuesData } = await supabase.from('queues').select('id, name, member_ids, whatsapp_instance_id');
       const myQueues = queuesData?.filter(q => q.member_ids?.includes(currentUser.id)).map(q => q.id) || [];
       setUserQueues(myQueues);
       setAllQueues(queuesData || []);
@@ -180,7 +180,13 @@ export default function ChatManagementPage() {
       .filter(s => {
         if (queueFilter === 'all') return true;
         if (queueFilter === 'me') return s.assigneeId === currentUser?.id;
-        if (queueFilter === 'queue') return s.queueId && userQueues.includes(s.queueId);
+        // "Minha Fila": todo chat (pendente ou já em atendimento, de qualquer
+        // analista) que pertence a QUALQUER fila — não só as que o usuário
+        // logado é formalmente membro (ex: um admin que acompanha tudo mas
+        // não está cadastrado em nenhuma fila específica não pode ver a aba
+        // inteira vazia). Inclui também os próprios chamados do usuário mesmo
+        // sem queueId (ex: pool combinado).
+        if (queueFilter === 'queue') return !!s.queueId || s.assigneeId === currentUser?.id;
         return true;
       });
   }, [sessions, queueFilter, currentUser?.id, userQueues]);
@@ -293,13 +299,51 @@ const handleDeleteNote = async () => {
       toast.error('Você precisa estar Online para assumir atendimentos!');
       return;
     }
-    const result = await assignChatSession(sessionId, assigneeId);
+    const result = await assignChatSession(sessionId, assigneeId, currentUser.id);
 
     if (!('error' in result)) {
       refreshData();
       toast.success(targetUserId ? 'Atendimento transferido com sucesso!' : 'Atendimento assumido com sucesso!');
     } else {
       toast.error('Erro ao atualizar o atendimento.');
+    }
+  };
+
+  const handleReturnToQueue = async (sessionId: string, queueId: string) => {
+    if (!currentUser) return;
+    const result = await returnChatSessionToQueue(sessionId, queueId, currentUser.id);
+
+    if (!('error' in result)) {
+      refreshData();
+      toast.success('Atendimento devolvido para a fila!');
+    } else {
+      toast.error('Erro ao devolver o atendimento para a fila.');
+    }
+  };
+
+  const handleBulkReturnToQueue = async (visibleSessions: ChatSession[], queueId: string) => {
+    if (!currentUser) return;
+
+    const idsToReturn = visibleSessions
+      .filter(s => selectedSessionIds.has(s.id) && s.status !== 'closed')
+      .map(s => s.id);
+
+    if (idsToReturn.length === 0) {
+      toast.info('Nenhum atendimento selecionado.');
+      return;
+    }
+
+    const results = await Promise.all(idsToReturn.map(id => returnChatSessionToQueue(id, queueId, currentUser.id)));
+    const failures = results.filter(r => 'error' in r).length;
+
+    setSelectedSessionIds(new Set());
+    refreshData();
+    if (failures === 0) {
+      toast.success(`${idsToReturn.length} atendimento(s) devolvido(s) para a fila!`);
+    } else if (failures < idsToReturn.length) {
+      toast.warning(`${idsToReturn.length - failures} de ${idsToReturn.length} atendimento(s) devolvido(s). Alguns falharam.`);
+    } else {
+      toast.error('Erro ao devolver os atendimentos selecionados.');
     }
   };
 
@@ -344,7 +388,7 @@ const handleDeleteNote = async () => {
       return;
     }
 
-    const results = await Promise.all(idsToAssign.map(id => assignChatSession(id, assigneeId)));
+    const results = await Promise.all(idsToAssign.map(id => assignChatSession(id, assigneeId, currentUser.id)));
     const failures = results.filter(r => 'error' in r).length;
 
     setSelectedSessionIds(new Set());
@@ -365,6 +409,30 @@ const handleDeleteNote = async () => {
       .filter((a): a is User => !!a)
       .map(a => ({ id: a.id, name: a.name }));
   }, [statuses, analysts]);
+
+  const queueMenuTargets = React.useMemo(() => {
+    return allQueues.map((q: any) => ({ id: q.id, name: q.name }));
+  }, [allQueues]);
+
+  // Restringe a lista de "Enviar para" a quem está online E é membro da fila
+  // do próprio chat — sem fila (pool combinado) cai de volta pra todo mundo
+  // online, já que aí não há uma fila única pra filtrar. O próprio usuário
+  // (se online) sempre aparece, mesmo que não seja formalmente membro dessa
+  // fila específica — "puxar" um chat pra si não deveria depender disso.
+  const getQueueOnlineTargets = React.useCallback((queueId?: string | null) => {
+    const base = (() => {
+      if (!queueId) return onlineAssignTargets;
+      const queue = allQueues.find((q: any) => q.id === queueId);
+      if (!queue) return onlineAssignTargets;
+      const memberIds: string[] = queue.member_ids || [];
+      return onlineAssignTargets.filter(t => memberIds.includes(t.id));
+    })();
+
+    if (currentUser && userStatus === 'online' && !base.some(t => t.id === currentUser.id)) {
+      return [...base, { id: currentUser.id, name: currentUser.name }];
+    }
+    return base;
+  }, [onlineAssignTargets, allQueues, currentUser, userStatus]);
 
   const [isBulkFinishConfirmOpen, setIsBulkFinishConfirmOpen] = useState(false);
   const [isBulkFinishing, setIsBulkFinishing] = useState(false);
@@ -584,6 +652,8 @@ const handleDeleteNote = async () => {
                            onlineTargets={onlineAssignTargets}
                            onAssignToSelf={() => handleBulkAssign(visibleQueueSessions)}
                            onAssignToUser={(userId) => handleBulkAssign(visibleQueueSessions, userId)}
+                           queues={queueMenuTargets}
+                           onReturnToQueue={(queueId) => handleBulkReturnToQueue(visibleQueueSessions, queueId)}
                            selfLabel="Assumir selecionados"
                          />
                          <button
@@ -692,9 +762,12 @@ const handleDeleteNote = async () => {
                                   <AssignChatMenu
                                     currentUserId={currentUser?.id}
                                     isCurrentUserOnline={userStatus === 'online'}
-                                    onlineTargets={onlineAssignTargets}
+                                    onlineTargets={getQueueOnlineTargets(s.queueId)}
                                     onAssignToSelf={() => handleAssignAnalyst(s.id)}
                                     onAssignToUser={(userId) => handleAssignAnalyst(s.id, userId)}
+                                    queues={queueMenuTargets}
+                                    currentQueueId={s.queueId}
+                                    onReturnToQueue={(queueId) => handleReturnToQueue(s.id, queueId)}
                                   />
                                 ) : (
                                   <>
@@ -710,8 +783,11 @@ const handleDeleteNote = async () => {
                                     <AssignChatMenu
                                       currentUserId={currentUser?.id}
                                       isCurrentUserOnline={userStatus === 'online'}
-                                      onlineTargets={onlineAssignTargets}
+                                      onlineTargets={getQueueOnlineTargets(s.queueId)}
                                       onAssignToUser={(userId) => handleAssignAnalyst(s.id, userId)}
+                                      queues={queueMenuTargets}
+                                      currentQueueId={s.queueId}
+                                      onReturnToQueue={(queueId) => handleReturnToQueue(s.id, queueId)}
                                       showSelf={false}
                                     />
                                   </>

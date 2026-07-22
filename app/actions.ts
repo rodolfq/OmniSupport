@@ -6,7 +6,8 @@ import { verifyJWT } from '@/lib/jwt';
 import { cookies } from 'next/headers';
 import { emitChatEvent, excludeActiveViewers } from '@/lib/chat-events';
 import { notifyUser } from '@/lib/services/push-service';
-import { getChatRecipientIds } from '@/lib/services/notification-recipients';
+import { getChatRecipientIds, getTeamUserIds } from '@/lib/services/notification-recipients';
+import { pickNextQueueAssignee } from '@/lib/services/queue-routing';
 
 async function getCurrentActionUser() {
   const token = (await cookies()).get('token')?.value;
@@ -596,7 +597,7 @@ export async function saveWhatsappInstance(id: string | null, name: string, phon
 // uma mensagem automática de apresentação ("Você está falando com Fulano"),
 // pro cliente saber com quem está falando assim que alguém aceita a
 // conversa, do mesmo jeito que qualquer outro aviso do sistema no chat.
-export async function assignChatSession(sessionId: string, assigneeId: string) {
+export async function assignChatSession(sessionId: string, assigneeId: string, actingUserId?: string) {
   try {
     const sessionRes = await query(
       `SELECT customer_id, assignee_id FROM public.chat_sessions WHERE id = $1`,
@@ -605,7 +606,8 @@ export async function assignChatSession(sessionId: string, assigneeId: string) {
     const session = sessionRes.rows[0];
     if (!session) return { error: 'Atendimento não encontrado.' };
 
-    const assigneeChanged = session.assignee_id !== assigneeId;
+    const previousAssigneeId: string | null = session.assignee_id;
+    const assigneeChanged = previousAssigneeId !== assigneeId;
 
     await query(
       `UPDATE public.chat_sessions SET assignee_id = $1, status = 'active', updated_at = NOW() WHERE id = $2`,
@@ -659,12 +661,153 @@ export async function assignChatSession(sessionId: string, assigneeId: string) {
           console.error('Error notifying about chat assignment intro message:', err);
         }
       }
+
+      // Só registra log de transferência quando havia mesmo alguém com a
+      // conversa antes (senão é só um "assumir" comum, já coberto pelo aviso
+      // de apresentação acima) — e o texto sempre descreve quem de fato
+      // clicou (actingUserId), nunca o responsável anterior, pra não atribuir
+      // a ação a quem não a realizou (ex: alguém "puxando" pra si um chat que
+      // estava com outra pessoa não é essa outra pessoa "transferindo").
+      let logText: string | null = null;
+      if (agentName && actingUserId && previousAssigneeId) {
+        if (actingUserId !== assigneeId) {
+          const actingUserRes = await query('SELECT name FROM public.profiles WHERE id = $1', [actingUserId]);
+          const actingUserName = actingUserRes.rows[0]?.name || 'Alguém';
+          logText = `${actingUserName} transferiu a conversa para ${agentName}.`;
+        } else if (previousAssigneeId !== assigneeId) {
+          const previousAgentRes = await query('SELECT name FROM public.profiles WHERE id = $1', [previousAssigneeId]);
+          const previousAgentName = previousAgentRes.rows[0]?.name || 'Alguém';
+          logText = `${agentName} assumiu a conversa, que estava com ${previousAgentName}.`;
+        }
+      }
+
+      if (logText) {
+        try {
+          const logMessageId = crypto.randomUUID();
+          const logTimestamp = new Date().toISOString();
+
+          // type 'internal': aviso de bastidores pro time, nunca aparece pro
+          // lado do cliente (ver filtro em chat-widget.tsx) — diferente do
+          // "Você está falando com" acima, que é a apresentação voltada ao
+          // cliente.
+          await query(
+            `INSERT INTO public.chat_messages (id, session_id, sender_id, sender_name, text, type, metadata, created_at)
+             VALUES ($1, $2, NULL, 'SSX Resolve', $3, 'internal', '{}'::jsonb, $4)`,
+            [logMessageId, sessionId, logText, logTimestamp]
+          );
+
+          emitChatEvent(sessionId, {
+            type: 'message',
+            sessionId,
+            message: {
+              id: logMessageId,
+              senderId: null,
+              senderName: 'SSX Resolve',
+              text: logText,
+              timestamp: logTimestamp,
+              type: 'internal',
+              metadata: {},
+              attachments: []
+            }
+          });
+
+          const teamIds = (await getTeamUserIds()).filter(id => id !== actingUserId);
+          const toNotify = await excludeActiveViewers(sessionId, teamIds);
+          await Promise.all(toNotify.map(id => notifyUser(id, {
+            title: 'Atendimento transferido',
+            body: logText,
+            url: `/chat?chat=${sessionId}`,
+            tag: `chat_message:${logMessageId}`
+          })));
+        } catch (err) {
+          console.error('Error registering internal chat transfer message:', err);
+        }
+      }
     }
 
     return { success: true };
   } catch (err: any) {
     console.error('Error assigning chat session in actions:', err);
     return { error: err.message || 'Erro ao atualizar o atendimento.' };
+  }
+}
+
+// Devolve um atendimento pra fila escolhida (opção "Voltar para fila" em
+// AssignChatMenu), tirando o responsável atual e deixando a distribuição
+// normal da fila (mesmo rodízio round-robin de pickNextQueueAssignee usado
+// quando uma mensagem nova chega) decidir quem fica com ele — ou 'pending',
+// se ninguém da fila estiver online. Sempre registra um aviso visível só pro
+// time (type 'internal'), nunca encaminhado ao cliente.
+export async function returnChatSessionToQueue(sessionId: string, queueId: string, actingUserId: string) {
+  try {
+    const sessionRes = await query(
+      `SELECT customer_id, assignee_id FROM public.chat_sessions WHERE id = $1`,
+      [sessionId]
+    );
+    const session = sessionRes.rows[0];
+    if (!session) return { error: 'Atendimento não encontrado.' };
+
+    const queueRes = await query('SELECT id, name, member_ids FROM public.queues WHERE id = $1', [queueId]);
+    const queue = queueRes.rows[0];
+    if (!queue) return { error: 'Fila não encontrada.' };
+
+    const nextAssigneeId = await pickNextQueueAssignee({ id: queue.id, memberIds: queue.member_ids || [] });
+
+    await query(
+      `UPDATE public.chat_sessions
+       SET assignee_id = $1, queue_id = $2, status = $3, updated_at = NOW()
+       WHERE id = $4`,
+      [nextAssigneeId, queueId, nextAssigneeId ? 'active' : 'pending', sessionId]
+    );
+
+    const actingUserRes = await query('SELECT name FROM public.profiles WHERE id = $1', [actingUserId]);
+    const actingUserName = actingUserRes.rows[0]?.name || 'Alguém';
+
+    const messageId = crypto.randomUUID();
+    const text = `${actingUserName} devolveu a conversa para a fila ${queue.name}.`;
+    const timestamp = new Date().toISOString();
+
+    await query(
+      `INSERT INTO public.chat_messages (id, session_id, sender_id, sender_name, text, type, metadata, created_at)
+       VALUES ($1, $2, NULL, 'SSX Resolve', $3, 'internal', '{}'::jsonb, $4)`,
+      [messageId, sessionId, text, timestamp]
+    );
+    await query('UPDATE public.chat_sessions SET last_message_at = $1 WHERE id = $2', [timestamp, sessionId]);
+
+    emitChatEvent(sessionId, {
+      type: 'message',
+      sessionId,
+      message: {
+        id: messageId,
+        senderId: null,
+        senderName: 'SSX Resolve',
+        text,
+        timestamp,
+        type: 'internal',
+        metadata: {},
+        attachments: []
+      }
+    });
+
+    try {
+      const teamIds = ((queue.member_ids || []) as string[]).length
+        ? (queue.member_ids as string[])
+        : await getTeamUserIds();
+      const toNotify = await excludeActiveViewers(sessionId, teamIds.filter(id => id !== actingUserId));
+      await Promise.all(toNotify.map(id => notifyUser(id, {
+        title: 'Atendimento devolvido para a fila',
+        body: text,
+        url: `/chat?chat=${sessionId}`,
+        tag: `chat_message:${messageId}`
+      })));
+    } catch (err) {
+      console.error('Error notifying about chat queue return:', err);
+    }
+
+    return { success: true };
+  } catch (err: any) {
+    console.error('Error returning chat session to queue in actions:', err);
+    return { error: err.message || 'Erro ao devolver o atendimento para a fila.' };
   }
 }
 
