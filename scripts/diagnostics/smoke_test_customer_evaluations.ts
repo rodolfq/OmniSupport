@@ -55,7 +55,16 @@ async function run() {
        VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)`,
       [companyId, analystId, null, 3, 3, 3, 3, 3, 3, null, 'manual', null]
     );
-    console.log('✅ saveCustomerEvaluation (INSERT x2, chat_close + manual) OK');
+    // Terceira avaliação com "conhecimento do sistema" em branco (null) —
+    // confirma que a coluna aceita NULL (migration) e que AVG() ignora essa
+    // linha só nesse critério, sem afetar os outros.
+    await client.query(
+      `INSERT INTO public.customer_evaluations
+         (company_id, analyst_id, chat_session_id, knowledge_score, autonomy_score, learning_score, engagement_score, organization_score, communication_score, profile_tag, origin, contact_id)
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)`,
+      [companyId, analystId, null, null, 5, 5, 5, 5, 5, null, 'manual', null]
+    );
+    console.log('✅ saveCustomerEvaluation (INSERT x3, uma com critério em branco) OK');
 
     // Mesmas queries de getCustomerEvaluationSummary
     const avgRes = await client.query(
@@ -72,8 +81,11 @@ async function run() {
       [companyId]
     );
     const row = avgRes.rows[0];
-    if (row.count !== 2) throw new Error(`Esperava count=2, veio ${row.count}`);
-    console.log('✅ getCustomerEvaluationSummary (AVG) OK:', JSON.stringify(row));
+    if (row.count !== 3) throw new Error(`Esperava count=3, veio ${row.count}`);
+    // 3 avaliações, mas "conhecimento" só foi respondido em 2 delas (5 e 3) —
+    // a média tem que ser 4, ignorando a linha em branco, não (5+3+0)/3.
+    if (Number(row.knowledge_avg) !== 4) throw new Error(`Esperava knowledge_avg=4 (ignorando o branco), veio ${row.knowledge_avg}`);
+    console.log('✅ getCustomerEvaluationSummary (AVG ignora critério em branco) OK:', JSON.stringify(row));
 
     const originRes = await client.query(
       `SELECT origin, COUNT(*)::int AS count FROM public.customer_evaluations WHERE company_id = $1 GROUP BY origin`,
@@ -84,7 +96,7 @@ async function run() {
       if (r.origin === 'chat_close') countByOrigin.chatClose = r.count;
       else if (r.origin === 'manual') countByOrigin.manual = r.count;
     }
-    if (countByOrigin.chatClose !== 1 || countByOrigin.manual !== 1) {
+    if (countByOrigin.chatClose !== 1 || countByOrigin.manual !== 2) {
       throw new Error('countByOrigin não bateu: ' + JSON.stringify(countByOrigin));
     }
     console.log('✅ getCustomerEvaluationSummary (countByOrigin) OK:', JSON.stringify(countByOrigin));
@@ -114,13 +126,16 @@ async function run() {
        ORDER BY e.created_at ASC`,
       [companyId]
     );
-    if (reportRes.rows.length !== 2) throw new Error('Query do relatório não retornou as 2 linhas esperadas: ' + JSON.stringify(reportRes.rows));
-    const [chatCloseRow, manualRow] = reportRes.rows;
+    if (reportRes.rows.length !== 3) throw new Error('Query do relatório não retornou as 3 linhas esperadas: ' + JSON.stringify(reportRes.rows));
+    const [chatCloseRow, manualRow, blankRow] = reportRes.rows;
     if (chatCloseRow.origin !== 'chat_close' || chatCloseRow.contact_name !== '__smoke_test_contact__') {
       throw new Error('Linha chat_close não bateu: ' + JSON.stringify(chatCloseRow));
     }
     if (manualRow.origin !== 'manual' || manualRow.contact_name !== null) {
       throw new Error('Linha manual não bateu: ' + JSON.stringify(manualRow));
+    }
+    if (blankRow.origin !== 'manual') {
+      throw new Error('Linha com critério em branco não bateu: ' + JSON.stringify(blankRow));
     }
     console.log('✅ Query do relatório OK (origin + contact_name):', JSON.stringify(reportRes.rows));
 

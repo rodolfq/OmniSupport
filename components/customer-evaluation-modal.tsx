@@ -41,13 +41,13 @@ const TAGS: { value: CustomerProfileTag; emoji: string; label: string; descripti
   }
 ];
 
-const EMPTY_SCORES: Record<keyof CustomerEvaluationScores, number> = {
-  knowledgeScore: 0,
-  autonomyScore: 0,
-  learningScore: 0,
-  engagementScore: 0,
-  organizationScore: 0,
-  communicationScore: 0
+const EMPTY_SCORES: CustomerEvaluationScores = {
+  knowledgeScore: null,
+  autonomyScore: null,
+  learningScore: null,
+  engagementScore: null,
+  organizationScore: null,
+  communicationScore: null
 };
 
 // Modal global (estado em app-context.tsx) — disparado ao encerrar um chat,
@@ -69,10 +69,12 @@ export function CustomerEvaluationModal() {
     }
   }, [isOpen, evaluationModalTarget?.companyId]);
 
-  const allFilled = CRITERIA.every(c => scores[c.key] > 0);
+  // Salvar exige pelo menos 1 critério avaliado — os demais podem ficar
+  // vazios (não entram na média, ver StarRating).
+  const hasAnyRating = CRITERIA.some(c => scores[c.key] !== null);
 
   const handleSave = async () => {
-    if (!currentUser || !evaluationModalTarget || !allFilled || saving) return;
+    if (!currentUser || !evaluationModalTarget || !hasAnyRating || saving) return;
     setSaving(true);
     try {
       const result = await saveCustomerEvaluation(
@@ -143,6 +145,9 @@ export function CustomerEvaluationModal() {
 
             <div className="p-8 space-y-6 overflow-y-auto">
               <div className="space-y-3">
+                <p className="text-[9px] text-[var(--text-tertiary)] font-medium -mt-1">
+                  Deixe em branco o que não se aplica — clique na mesma estrela de novo pra limpar.
+                </p>
                 {CRITERIA.map(c => (
                   <div key={c.key} className="flex items-center justify-between gap-4">
                     <span className="text-xs font-bold text-[var(--text-secondary)]">{c.label}</span>
@@ -197,7 +202,7 @@ export function CustomerEvaluationModal() {
               </div>
               <button
                 onClick={handleSave}
-                disabled={!allFilled || saving}
+                disabled={!hasAnyRating || saving}
                 className="px-5 py-2.5 bg-[var(--accent)] text-white rounded-xl text-[10px] font-semibold uppercase tracking-widest hover:bg-[var(--accent-hover)] transition-all disabled:opacity-40 disabled:cursor-not-allowed"
               >
                 {saving ? 'Salvando...' : 'Salvar avaliação'}

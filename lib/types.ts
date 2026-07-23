@@ -102,13 +102,15 @@ export interface User {
 // mostrada no cadastro como a mais recente registrada para o cliente.
 export type CustomerProfileTag = 'technical' | 'beginner' | 'challenging';
 
+// null = "não se aplica" nesse critério — não entra na média (nem da
+// avaliação em si, nem no cálculo agregado por empresa).
 export interface CustomerEvaluationScores {
-  knowledgeScore: number;
-  autonomyScore: number;
-  learningScore: number;
-  engagementScore: number;
-  organizationScore: number;
-  communicationScore: number;
+  knowledgeScore: number | null;
+  autonomyScore: number | null;
+  learningScore: number | null;
+  engagementScore: number | null;
+  organizationScore: number | null;
+  communicationScore: number | null;
 }
 
 // 'chat_close': gerada pela pesquisa automática ao encerrar um chat.

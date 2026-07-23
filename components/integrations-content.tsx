@@ -31,10 +31,11 @@ interface TesterResult {
 }
 
 const SCOPE_OPTIONS: { value: string; label: string; description: string }[] = [
-  { value: 'employees:read', label: 'Funcionários — Leitura', description: 'Listar/consultar funcionários e empresas' },
+  { value: 'employees:read', label: 'Funcionários — Leitura', description: 'Listar/consultar funcionários e empresas (inclui radarSync e avaliações)' },
   { value: 'employees:write', label: 'Funcionários — Escrita', description: 'Cadastrar e atualizar funcionários' },
   { value: 'tickets:read', label: 'Chamados — Leitura', description: 'Consultar chamados e mensagens visíveis ao cliente' },
   { value: 'conversations:read', label: 'Conversas — Leitura', description: 'Consultar conversas (WhatsApp) e mensagens' },
+  { value: 'companies:write', label: 'Empresas — Escrita', description: 'Atualizar dados da empresa (nome, indústria, telefone, Sincronismo com Radar)' },
 ];
 
 const METHOD_COLORS: Record<string, string> = {

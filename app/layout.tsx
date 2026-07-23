@@ -69,7 +69,27 @@ export default function RootLayout({
             <Suspense fallback={null}>
               {children}
             </Suspense>
-            <Toaster position="top-right" richColors />
+            {/* toastOptions.classNames.default: as notificações de evento
+                (chat_message, ticket_new etc., disparadas por addNotification
+                em app-context.tsx) nunca passam `type` pro toast() — sem
+                isso, o Sonner renderiza um toast neutro branco/preto (sem
+                relação com a marca), diferente das confirmações de ação
+                (toast.success/error, que continuam com as cores semânticas
+                do Sonner via `richColors`, sem serem afetadas por este
+                override). Damos a esse toast neutro a mesma linguagem visual
+                do resto do site (cor de destaque, cartão, bordas). */}
+            <Toaster
+              position="top-right"
+              richColors
+              toastOptions={{
+                classNames: {
+                  default: '!bg-[var(--surface-card)] !border !border-[var(--accent)]/30 !rounded-2xl !shadow-xl',
+                  title: '!text-[var(--text-primary)] !font-black',
+                  description: '!text-[var(--text-tertiary)] !font-medium',
+                  icon: '!text-[var(--accent-text)]'
+                }
+              }}
+            />
             <PwaRegister />
           </AppProvider>
         </ThemeProvider>

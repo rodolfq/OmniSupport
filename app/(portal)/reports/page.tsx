@@ -1,6 +1,7 @@
 ﻿'use client';
 
 import React from 'react';
+import Link from 'next/link';
 import { AreaChart, Area, XAxis, YAxis, Tooltip, ResponsiveContainer, PieChart, Pie, Cell } from 'recharts';
 import { TrendingUp, Clock, Calendar, Users, ThumbsUp, ThumbsDown, MessageSquareText, Lock, Star, ClipboardList, AlertTriangle } from 'lucide-react';
 import { cn } from '@/lib/utils';
@@ -31,18 +32,18 @@ interface CustomerEvaluationRow {
   contactName: string | null;
   origin: 'chat_close' | 'manual';
   createdAt: string;
-  knowledgeScore: number;
-  autonomyScore: number;
-  learningScore: number;
-  engagementScore: number;
-  organizationScore: number;
-  communicationScore: number;
+  knowledgeScore: number | null;
+  autonomyScore: number | null;
+  learningScore: number | null;
+  engagementScore: number | null;
+  organizationScore: number | null;
+  communicationScore: number | null;
   profileTag: 'technical' | 'beginner' | 'challenging' | null;
 }
 
 interface CustomerEvaluationsReport {
   count: number;
-  averages: Record<string, number>;
+  averages: Record<string, number | null>;
   overallAverage: number;
   tagDistribution: { technical: number; beginner: number; challenging: number };
   countByOrigin: { chatClose: number; manual: number };
@@ -221,9 +222,17 @@ export default function ReportsPage() {
           acima — aqui é o analista avaliando o cliente, nunca visível a ele
           (ver components/customer-evaluation-modal.tsx). */}
       <div className="space-y-6">
-        <div>
-          <h2 className="text-xl font-black text-[var(--text-primary)] tracking-tight">Avaliação de Clientes</h2>
-          <p className="text-xs text-[var(--text-tertiary)] font-medium mt-1">Indicadores internos preenchidos pelos analistas — nunca visíveis ao cliente.</p>
+        <div className="flex flex-wrap justify-between items-end gap-3">
+          <div>
+            <h2 className="text-xl font-black text-[var(--text-primary)] tracking-tight">Avaliação de Clientes</h2>
+            <p className="text-xs text-[var(--text-tertiary)] font-medium mt-1">Indicadores internos preenchidos pelos analistas — nunca visíveis ao cliente.</p>
+          </div>
+          <Link
+            href="/customer-evaluations"
+            className="text-xs font-bold text-[var(--accent-text)] hover:underline whitespace-nowrap"
+          >
+            Ver todas as avaliações →
+          </Link>
         </div>
         <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
           <MetricCard label="Avaliações" value={String(evaluationsReport?.count ?? 0)} icon={<ClipboardList className="text-[var(--accent-text)]" />} />
@@ -267,7 +276,10 @@ export default function ReportsPage() {
             <h3 className="font-bold mb-4 uppercase text-[10px] tracking-[0.2em] text-[var(--text-tertiary)]">Avaliações Recentes</h3>
             <div className="h-64 overflow-y-auto space-y-2">
               {evaluationsReport?.evaluations.length ? evaluationsReport.evaluations.map(e => {
-                const avg = (e.knowledgeScore + e.autonomyScore + e.learningScore + e.engagementScore + e.organizationScore + e.communicationScore) / 6;
+                // Critérios em branco (null) não entram na média dessa avaliação.
+                const ratedScores = [e.knowledgeScore, e.autonomyScore, e.learningScore, e.engagementScore, e.organizationScore, e.communicationScore]
+                  .filter((v): v is number => v !== null);
+                const avg = ratedScores.length > 0 ? ratedScores.reduce((a, b) => a + b, 0) / ratedScores.length : null;
                 return (
                   <div key={e.id} className="flex items-center justify-between gap-3 p-3 rounded-xl border border-[var(--border-default)] text-sm">
                     <div className="min-w-0">
@@ -279,7 +291,7 @@ export default function ReportsPage() {
                     </div>
                     <div className="flex items-center gap-1 text-amber-400 shrink-0">
                       <Star size={14} fill="currentColor" />
-                      <span className="text-xs font-bold text-[var(--text-secondary)]">{avg.toFixed(1)}</span>
+                      <span className="text-xs font-bold text-[var(--text-secondary)]">{avg !== null ? avg.toFixed(1) : '—'}</span>
                     </div>
                   </div>
                 );

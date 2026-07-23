@@ -13,7 +13,8 @@ import {
   MessageCircle,
   Library,
   FileText,
-  History
+  History,
+  Star
 } from 'lucide-react';
 import { Permission, UserRole, User } from './types';
 
@@ -63,6 +64,7 @@ export function getNavItems(currentUser: User | null, onChangePassword: () => vo
       subItems: [
         { name: 'Geral', icon: LayoutDashboard, href: '/dashboard', permission: Permission.DASHBOARD_VIEW },
         { name: 'Relatórios', icon: PieChart, href: '/reports', permission: Permission.REPORTS_READ },
+        { name: 'Avaliações de Clientes', icon: Star, href: '/customer-evaluations', permission: Permission.REPORTS_READ },
       ]
     },
     {

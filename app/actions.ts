@@ -1224,16 +1224,21 @@ export async function getCustomerEvaluationSummary(companyId: string): Promise<C
       : { rows: [] as any[] };
     const latestRow = latestRes.rows[0];
 
+    // AVG(coluna) do Postgres já ignora linha com aquele critério em branco
+    // (NULL) sozinho — só precisa não confundir "ninguém avaliou esse
+    // critério ainda" (AVG retorna NULL) com nota 0, que não existe.
+    const toAvgOrNull = (v: any) => v === null ? null : Number(v);
     const averages: CustomerEvaluationScores = {
-      knowledgeScore: count > 0 ? Number(row.knowledge_avg) : 0,
-      autonomyScore: count > 0 ? Number(row.autonomy_avg) : 0,
-      learningScore: count > 0 ? Number(row.learning_avg) : 0,
-      engagementScore: count > 0 ? Number(row.engagement_avg) : 0,
-      organizationScore: count > 0 ? Number(row.organization_avg) : 0,
-      communicationScore: count > 0 ? Number(row.communication_avg) : 0
+      knowledgeScore: toAvgOrNull(row?.knowledge_avg),
+      autonomyScore: toAvgOrNull(row?.autonomy_avg),
+      learningScore: toAvgOrNull(row?.learning_avg),
+      engagementScore: toAvgOrNull(row?.engagement_avg),
+      organizationScore: toAvgOrNull(row?.organization_avg),
+      communicationScore: toAvgOrNull(row?.communication_avg)
     };
-    const overallAverage = count > 0
-      ? Object.values(averages).reduce((sum, v) => sum + v, 0) / Object.values(averages).length
+    const ratedAverages = Object.values(averages).filter((v): v is number => v !== null);
+    const overallAverage = ratedAverages.length > 0
+      ? ratedAverages.reduce((sum, v) => sum + v, 0) / ratedAverages.length
       : 0;
 
     return {

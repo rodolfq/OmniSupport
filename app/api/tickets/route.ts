@@ -229,7 +229,10 @@ export async function POST(request: Request) {
       const newTicket = res.rows[0];
       handleTicketCreated(newTicket);
 
-      getTeamUserIds().then(teamIds => Promise.all(teamIds.map(teamId => notifyUser(teamId, {
+      // Exclui quem criou o chamado — mesmo motivo do polling em
+      // app/api/notifications/check/route.ts: sem isso, quem acabou de criar
+      // também levava a notificação push nativa sobre o próprio chamado.
+      getTeamUserIds().then(teamIds => Promise.all(teamIds.filter(id => id !== userId).map(teamId => notifyUser(teamId, {
         title: `Novo chamado ${ticketLabel(newTicket.public_ticket_number, newTicket.id)}`,
         body: newTicket.title,
         url: `/tickets?ticket=${newTicket.id}`,

@@ -4,6 +4,7 @@ import React, { createContext, useContext, useState, useEffect, useRef } from 'r
 import { User, UserRole, Permission, AbsenceReason } from '@/lib/types';
 import { safeJsonStringify } from '@/lib/utils';
 import { toast } from 'sonner';
+import { Bell } from 'lucide-react';
 import { AbsenceReasonService, AnalystService } from '@/lib/services/chat-service';
 import { subscribeToPush } from '@/hooks/use-push-subscription';
 
@@ -353,9 +354,15 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       const soundType = notif.type.startsWith('chat_') ? 'chat' : 'system';
       playSound(soundType);
 
+      // Sem `type`: cai no estilo "default" do Toaster (ver app/layout.tsx),
+      // com o visual da marca — não usa as cores semânticas do Sonner
+      // (`richColors`, verde/vermelho/âmbar) porque essas são pra feedback
+      // direto de uma ação do próprio usuário (toast.success/error), não pra
+      // aviso de evento de terceiro.
       toast(notif.title, {
         description: newNotif.message,
-        duration: 4000
+        duration: 4000,
+        icon: <Bell size={16} />
       });
 
       // Notificação nativa do Windows: só quando a aba não está em primeiro

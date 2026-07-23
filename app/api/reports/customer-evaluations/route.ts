@@ -54,12 +54,12 @@ export async function GET(request: NextRequest) {
       contactName: r.contact_name as string | null,
       origin: r.origin as 'chat_close' | 'manual',
       createdAt: r.created_at,
-      knowledgeScore: r.knowledge_score,
-      autonomyScore: r.autonomy_score,
-      learningScore: r.learning_score,
-      engagementScore: r.engagement_score,
-      organizationScore: r.organization_score,
-      communicationScore: r.communication_score,
+      knowledgeScore: r.knowledge_score as number | null,
+      autonomyScore: r.autonomy_score as number | null,
+      learningScore: r.learning_score as number | null,
+      engagementScore: r.engagement_score as number | null,
+      organizationScore: r.organization_score as number | null,
+      communicationScore: r.communication_score as number | null,
       profileTag: r.profile_tag as 'technical' | 'beginner' | 'challenging' | null
     }));
 
@@ -68,19 +68,26 @@ export async function GET(request: NextRequest) {
       chatClose: evaluations.filter(e => e.origin === 'chat_close').length,
       manual: evaluations.filter(e => e.origin === 'manual').length
     };
-    const sum = (key: keyof typeof evaluations[number]) =>
-      evaluations.reduce((acc, e) => acc + (e[key] as number), 0);
-
-    const averages = {
-      knowledgeScore: count ? sum('knowledgeScore') / count : 0,
-      autonomyScore: count ? sum('autonomyScore') / count : 0,
-      learningScore: count ? sum('learningScore') / count : 0,
-      engagementScore: count ? sum('engagementScore') / count : 0,
-      organizationScore: count ? sum('organizationScore') / count : 0,
-      communicationScore: count ? sum('communicationScore') / count : 0
-    };
-    const overallAverage = count
-      ? Object.values(averages).reduce((a, b) => a + b, 0) / Object.values(averages).length
+    // Critério em branco (null) numa avaliação não entra na média dele —
+    // por isso soma e conta só as linhas que de fato avaliaram esse
+    // critério, em vez de dividir pelo total de avaliações.
+    const criteriaKeys = ['knowledgeScore', 'autonomyScore', 'learningScore', 'engagementScore', 'organizationScore', 'communicationScore'] as const;
+    const averages: Record<(typeof criteriaKeys)[number], number | null> = {} as any;
+    for (const key of criteriaKeys) {
+      let sum = 0;
+      let n = 0;
+      for (const e of evaluations) {
+        const v = e[key];
+        if (v !== null) {
+          sum += v;
+          n++;
+        }
+      }
+      averages[key] = n > 0 ? sum / n : null;
+    }
+    const ratedAverages = Object.values(averages).filter((v): v is number => v !== null);
+    const overallAverage = ratedAverages.length > 0
+      ? ratedAverages.reduce((a, b) => a + b, 0) / ratedAverages.length
       : 0;
 
     const tagDistribution = {

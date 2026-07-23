@@ -31,12 +31,12 @@ const TAG_INFO: Record<CustomerProfileTag, { emoji: string; label: string }> = {
 };
 
 const EMPTY_EVAL_SCORES: CustomerEvaluationScores = {
-  knowledgeScore: 0,
-  autonomyScore: 0,
-  learningScore: 0,
-  engagementScore: 0,
-  organizationScore: 0,
-  communicationScore: 0
+  knowledgeScore: null,
+  autonomyScore: null,
+  learningScore: null,
+  engagementScore: null,
+  organizationScore: null,
+  communicationScore: null
 };
 
 export function NewCompanyModal({ isOpen, onClose, onSuccess, company, showInternalSection = false }: { isOpen: boolean, onClose: () => void, onSuccess?: () => void, company?: Company | null, showInternalSection?: boolean }) {
@@ -141,12 +141,14 @@ export function NewCompanyModal({ isOpen, onClose, onSuccess, company, showInter
 
         const scoresChanged = JSON.stringify(evalScores) !== JSON.stringify(baselineScores);
         const tagChanged = evalTag !== baselineTag;
-        const allScoresFilled = Object.values(evalScores).every(v => v > 0);
+        // Pelo menos 1 critério avaliado — os demais podem ficar em branco
+        // (não entram na média, ver StarRating).
+        const hasAnyRating = Object.values(evalScores).some(v => v !== null);
         if ((scoresChanged || tagChanged) && currentUser) {
-          if (allScoresFilled) {
+          if (hasAnyRating) {
             await saveCustomerEvaluation(company.id, currentUser.id, evalScores, evalTag, undefined, 'manual');
           } else {
-            toast.warning('Preencha todos os critérios (⭐) para registrar a avaliação.');
+            toast.warning('Avalie pelo menos um critério (⭐) para registrar a avaliação.');
           }
         }
       }
@@ -381,6 +383,9 @@ export function NewCompanyModal({ isOpen, onClose, onSuccess, company, showInter
                     <p className="text-[10px] text-[var(--text-tertiary)] font-semibold uppercase tracking-widest">Carregando...</p>
                   ) : (
                     <div className="space-y-3">
+                      <p className="text-[9px] text-[var(--text-tertiary)] font-medium">
+                        Deixe em branco o que não se aplica — clique na mesma estrela de novo pra limpar.
+                      </p>
                       <div className="space-y-2">
                         {CRITERIA_LABELS.map(c => (
                           <div key={c.key} className="flex items-center justify-between gap-3">

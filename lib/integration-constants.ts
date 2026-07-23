@@ -10,6 +10,7 @@ export const INTEGRATION_SCOPES = [
   'employees:write',
   'tickets:read',
   'conversations:read',
+  'companies:write',
 ] as const;
 
 export type IntegrationScope = typeof INTEGRATION_SCOPES[number];

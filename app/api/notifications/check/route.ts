@@ -143,13 +143,20 @@ export async function GET(request: NextRequest) {
     });
 
     if (isTeamUser(user.role)) {
+      // Exclui quem criou o próprio chamado — sem isso, a pessoa que acabou
+      // de criar recebia um segundo aviso genérico ("Novo chamado #X") pelo
+      // polling, duplicando o toast de confirmação ("Chamado criado com
+      // sucesso!") que já apareceu na hora. Mesmo padrão de exclusão de
+      // autor já usado nas outras queries desta rota (chatMessages,
+      // ticketMessages, internalMessages).
       const newTickets = await query(
         `SELECT id, public_ticket_number, title, created_at
          FROM public.tickets
          WHERE created_at > $1
+           AND (created_by IS NULL OR created_by <> $2::uuid)
          ORDER BY created_at ASC
          LIMIT 50`,
-        [since]
+        [since, user.id]
       );
 
       newTickets.rows.forEach((ticket) => {
