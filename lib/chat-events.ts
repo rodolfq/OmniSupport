@@ -13,7 +13,7 @@ const emitter = new EventEmitter();
 emitter.setMaxListeners(0);
 
 export interface ChatEventPayload {
-  type: 'message' | 'survey-response' | 'transcription' | 'transcription-error';
+  type: 'message' | 'survey-response' | 'transcription' | 'transcription-error' | 'typing' | 'receipt' | 'reaction' | 'edited' | 'deleted';
   sessionId: string;
   [key: string]: unknown;
 }
@@ -28,6 +28,30 @@ export function emitChatEvent(sessionId: string, payload: ChatEventPayload) {
 
 export function subscribeToChatEvents(sessionId: string, listener: (payload: ChatEventPayload) => void) {
   const event = channelName(sessionId);
+  emitter.on(event, listener);
+  return () => emitter.off(event, listener);
+}
+
+// Mesmo emitter em memória acima, canal separado (prefixo diferente) para o
+// Chat Interno (public.internal_chats/internal_chat_messages) — reaproveita
+// toda a infra de fan-out/limitações já documentadas no topo deste arquivo,
+// só troca a "chave" do canal.
+export interface InternalChatEventPayload {
+  type: 'message' | 'typing' | 'receipt' | 'reaction';
+  chatId: string;
+  [key: string]: unknown;
+}
+
+function internalChannelName(chatId: string) {
+  return `internal-chat:${chatId}`;
+}
+
+export function emitInternalChatEvent(chatId: string, payload: InternalChatEventPayload) {
+  emitter.emit(internalChannelName(chatId), payload);
+}
+
+export function subscribeToInternalChatEvents(chatId: string, listener: (payload: InternalChatEventPayload) => void) {
+  const event = internalChannelName(chatId);
   emitter.on(event, listener);
   return () => emitter.off(event, listener);
 }

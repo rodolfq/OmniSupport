@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { query } from '@/lib/db';
 import { verifyJWT } from '@/lib/jwt';
-import { emitChatEvent, excludeActiveViewers } from '@/lib/chat-events';
+import { emitChatEvent, excludeActiveViewers, emitInternalChatEvent } from '@/lib/chat-events';
 import { notifyUser } from '@/lib/services/push-service';
 import { getChatRecipientIds, isTeamRole } from '@/lib/services/notification-recipients';
 import { resolveCombinedQueuePool, pickNextQueueAssignee, RoutingQueue } from '@/lib/services/queue-routing';
@@ -39,19 +39,45 @@ export async function GET(request: NextRequest) {
          WHERE customer_phone IS NULL OR length(regexp_replace(customer_phone, '\\D', '', 'g')) <= 15
          ORDER BY COALESCE(last_message_at, updated_at, created_at) DESC`
       );
+
+      // "Entregue" (2o check, cinza): marca só pra quem de fato é parte da
+      // conversa (cliente dono, ou analista responsável) — evita marcar
+      // "entregue" pra todo mundo do time só porque o painel de fila listou
+      // a sessão. `userId` é opcional (rotas antigas/scripts continuam
+      // funcionando sem isso, só sem o efeito colateral de entrega).
+      const deliveredForUserId = searchParams.get('userId');
+      if (deliveredForUserId) {
+        await query(
+          `UPDATE public.chat_messages m
+           SET delivered_by = array_append(m.delivered_by, $1::uuid)
+           FROM public.chat_sessions s
+           WHERE m.session_id = s.id
+             AND (s.customer_id = $1::uuid OR s.assignee_id = $1::uuid)
+             AND m.sender_id IS DISTINCT FROM $1
+             AND NOT ($1::uuid = ANY(m.delivered_by))`,
+          [deliveredForUserId]
+        );
+      }
+
       // Conversas fechadas já têm o histórico salvo em chat_histories (texto) e não
       // aparecem na fila/lista ativa — não há motivo para reenviar seus anexos (áudio/
       // imagem em base64) a cada polling do widget de chat. Exceção: enquanto a janela
       // da pesquisa de satisfação estiver aberta, a sessão fechada ainda precisa expor
       // a mensagem de encerramento (e uma eventual resposta "1"/"0") no widget.
       const messagesRes = await query(
-        `SELECT m.* FROM public.chat_messages m
+        `SELECT m.*, COALESCE(r.reactions, '[]'::json) AS reactions
+         FROM public.chat_messages m
          JOIN public.chat_sessions s ON s.id = m.session_id
+         LEFT JOIN LATERAL (
+           SELECT json_agg(json_build_object('userId', mr.user_id, 'emoji', mr.emoji)) AS reactions
+           FROM public.chat_message_reactions mr
+           WHERE mr.message_id = m.id
+         ) r ON true
          WHERE s.status != 'closed'
             OR (s.awaiting_survey_until IS NOT NULL AND s.awaiting_survey_until > NOW())
          ORDER BY m.created_at ASC`
       );
-      
+
       const messagesBySession = new Map<string, any[]>();
       messagesRes.rows.forEach(m => {
         const arr = messagesBySession.get(m.session_id) || [];
@@ -63,6 +89,13 @@ export async function GET(request: NextRequest) {
           timestamp: m.created_at,
           type: m.type,
           metadata: m.metadata,
+          readBy: m.read_by || [],
+          deliveredBy: m.delivered_by || [],
+          reactions: m.reactions || [],
+          isEdited: !!m.edited_at,
+          editedAt: m.edited_at,
+          isDeleted: !!m.deleted_at,
+          deletedAt: m.deleted_at,
           attachments: m.metadata?.attachments || []
         });
         messagesBySession.set(m.session_id, arr);
@@ -253,6 +286,22 @@ export async function GET(request: NextRequest) {
         return NextResponse.json({ error: 'Sessão inválida.' }, { status: 401 });
       }
 
+      // "Entregue" (2o check, cinza) = o cliente deste usuário sincronizou a
+      // lista de conversas — acontece aqui, toda vez que a lista carrega,
+      // mesmo pra salas que não estão abertas agora. "Lido" (3o check,
+      // colorido) é mais estrito e só acontece em internal-messages GET
+      // abaixo, quando a sala é de fato aberta.
+      await query(
+        `UPDATE public.internal_chat_messages m
+         SET delivered_by = array_append(m.delivered_by, $1::uuid)
+         FROM public.internal_chats c
+         WHERE m.chat_id = c.id
+           AND $1::uuid = ANY(c.member_ids)
+           AND m.sender_id IS DISTINCT FROM $1
+           AND NOT ($1::uuid = ANY(m.delivered_by))`,
+        [authenticatedUser.id]
+      );
+
       const res = await query(
         `SELECT *
          FROM public.internal_chats
@@ -286,10 +335,30 @@ export async function GET(request: NextRequest) {
         return NextResponse.json({ error: 'Sessão inválida.' }, { status: 401 });
       }
 
+      // Abrir a sala de verdade = "lido" (3o check, colorido). Também cobre
+      // delivered_by por segurança (ex.: mensagem chegou via SSE com a sala
+      // já aberta, sem passar pelo internal-chats GET antes).
+      const markRead = await query(
+        `UPDATE public.internal_chat_messages
+         SET read_by = array_append(read_by, $2::uuid),
+             delivered_by = CASE WHEN $2::uuid = ANY(delivered_by) THEN delivered_by ELSE array_append(delivered_by, $2::uuid) END
+         WHERE chat_id = $1 AND sender_id IS DISTINCT FROM $2 AND NOT ($2::uuid = ANY(read_by))
+         RETURNING id`,
+        [chatId, authenticatedUser.id]
+      );
+      if ((markRead.rowCount ?? 0) > 0) {
+        emitInternalChatEvent(chatId, { type: 'receipt', chatId });
+      }
+
       const res = await query(
-        `SELECT m.*
+        `SELECT m.*, COALESCE(r.reactions, '[]'::json) AS reactions
          FROM public.internal_chat_messages m
          JOIN public.internal_chats c ON c.id = m.chat_id
+         LEFT JOIN LATERAL (
+           SELECT json_agg(json_build_object('userId', mr.user_id, 'emoji', mr.emoji)) AS reactions
+           FROM public.internal_chat_message_reactions mr
+           WHERE mr.message_id = m.id
+         ) r ON true
          WHERE m.chat_id = $1
            AND $2::uuid = ANY(c.member_ids)
          ORDER BY m.created_at ASC`,
@@ -303,8 +372,32 @@ export async function GET(request: NextRequest) {
         timestamp: m.created_at,
         type: m.type,
         metadata: m.metadata,
-        readBy: [],
+        readBy: m.read_by || [],
+        deliveredBy: m.delivered_by || [],
+        reactions: m.reactions || [],
         attachments: m.metadata?.attachments || []
+      })));
+    }
+
+    if (action === 'chat-message-history') {
+      // Histórico de versões de uma mensagem editada (auditoria) — mostrado
+      // ao clicar em "editado" na bolha da mensagem, ver
+      // migrations/chat_messages_realtime_features.sql.
+      const messageId = searchParams.get('messageId');
+      if (!messageId) return NextResponse.json({ error: 'messageId é obrigatório' }, { status: 400 });
+
+      const res = await query(
+        `SELECT e.previous_text, e.edited_at, p.name AS edited_by_name
+         FROM public.chat_message_edits e
+         LEFT JOIN public.profiles p ON p.id = e.edited_by
+         WHERE e.message_id = $1
+         ORDER BY e.edited_at ASC`,
+        [messageId]
+      );
+      return NextResponse.json(res.rows.map(r => ({
+        previousText: r.previous_text,
+        editedAt: r.edited_at,
+        editedByName: r.edited_by_name
       })));
     }
 
@@ -536,6 +629,9 @@ export async function POST(request: Request) {
           timestamp: message.timestamp,
           type: message.type || 'text',
           metadata,
+          readBy: [],
+          deliveredBy: [],
+          reactions: [],
           attachments: metadata.attachments || []
         }
       });
@@ -575,6 +671,123 @@ export async function POST(request: Request) {
       })();
 
       return NextResponse.json({ success: true, sessionId: targetSessionId });
+    }
+
+    if (action === 'chat-typing') {
+      const { sessionId, userId, userName } = body;
+      if (!sessionId || !userId) {
+        return NextResponse.json({ error: 'Dados incompletos.' }, { status: 400 });
+      }
+      emitChatEvent(sessionId, { type: 'typing', sessionId, userId, userName });
+      return NextResponse.json({ success: true });
+    }
+
+    if (action === 'mark-chat-messages-read') {
+      const { sessionId, userId } = body;
+      if (!sessionId || !userId) {
+        return NextResponse.json({ error: 'Dados incompletos.' }, { status: 400 });
+      }
+      const marked = await query(
+        `UPDATE public.chat_messages
+         SET read_by = array_append(read_by, $2::uuid),
+             delivered_by = CASE WHEN $2::uuid = ANY(delivered_by) THEN delivered_by ELSE array_append(delivered_by, $2::uuid) END
+         WHERE session_id = $1 AND sender_id IS DISTINCT FROM $2 AND NOT ($2::uuid = ANY(read_by))
+         RETURNING id`,
+        [sessionId, userId]
+      );
+      if ((marked.rowCount ?? 0) > 0) {
+        emitChatEvent(sessionId, { type: 'receipt', sessionId });
+      }
+      return NextResponse.json({ success: true });
+    }
+
+    if (action === 'toggle-chat-message-reaction') {
+      const { messageId, userId, emoji } = body;
+      if (!messageId || !userId || !emoji) {
+        return NextResponse.json({ error: 'Dados incompletos.' }, { status: 400 });
+      }
+      const sessionRes = await query('SELECT session_id FROM public.chat_messages WHERE id = $1', [messageId]);
+      const sessionId = sessionRes.rows[0]?.session_id;
+      if (!sessionId) {
+        return NextResponse.json({ error: 'Mensagem não encontrada.' }, { status: 404 });
+      }
+
+      const removed = await query(
+        `DELETE FROM public.chat_message_reactions WHERE message_id = $1 AND user_id = $2 AND emoji = $3 RETURNING id`,
+        [messageId, userId, emoji]
+      );
+      if ((removed.rowCount ?? 0) === 0) {
+        await query(
+          `INSERT INTO public.chat_message_reactions (message_id, user_id, emoji)
+           VALUES ($1, $2, $3)
+           ON CONFLICT (message_id, user_id) DO UPDATE SET emoji = EXCLUDED.emoji, created_at = NOW()`,
+          [messageId, userId, emoji]
+        );
+      }
+      emitChatEvent(sessionId, { type: 'reaction', sessionId, messageId });
+      return NextResponse.json({ success: true });
+    }
+
+    if (action === 'edit-chat-message') {
+      const { messageId, userId, text } = body;
+      if (!messageId || !userId || typeof text !== 'string' || !text.trim()) {
+        return NextResponse.json({ error: 'Dados incompletos.' }, { status: 400 });
+      }
+
+      const current = await query(
+        `SELECT session_id, sender_id, text FROM public.chat_messages WHERE id = $1`,
+        [messageId]
+      );
+      const row = current.rows[0];
+      if (!row) {
+        return NextResponse.json({ error: 'Mensagem não encontrada.' }, { status: 404 });
+      }
+      if (row.sender_id !== userId) {
+        return NextResponse.json({ error: 'Só quem enviou pode editar esta mensagem.' }, { status: 403 });
+      }
+      if (row.text === text.trim()) {
+        return NextResponse.json({ success: true });
+      }
+
+      // Guarda a versão ANTERIOR antes de sobrescrever — histórico completo
+      // fica em chat_message_edits, chat_messages.text sempre reflete a
+      // versão atual (mesmo padrão de uso do internal_chat_messages, só que
+      // aqui com histórico real em vez de sobrescrever sem rastro).
+      await query(
+        `INSERT INTO public.chat_message_edits (message_id, previous_text, edited_by) VALUES ($1, $2, $3)`,
+        [messageId, row.text, userId]
+      );
+      await query(
+        `UPDATE public.chat_messages SET text = $1, edited_at = NOW() WHERE id = $2`,
+        [text.trim(), messageId]
+      );
+      emitChatEvent(row.session_id, { type: 'edited', sessionId: row.session_id, messageId, text: text.trim() });
+      return NextResponse.json({ success: true });
+    }
+
+    if (action === 'delete-chat-message') {
+      const { messageId, userId } = body;
+      if (!messageId || !userId) {
+        return NextResponse.json({ error: 'Dados incompletos.' }, { status: 400 });
+      }
+
+      // Soft-delete só: o texto original NUNCA é apagado da linha (nem o
+      // histórico de edições é removido) — só fica marcado como excluído
+      // pra sumir da visualização normal, mantendo rastro auditável (ver
+      // migrations/chat_messages_realtime_features.sql).
+      const deleted = await query(
+        `UPDATE public.chat_messages
+         SET deleted_at = NOW(), deleted_by = $2
+         WHERE id = $1 AND sender_id = $2 AND deleted_at IS NULL
+         RETURNING session_id`,
+        [messageId, userId]
+      );
+      if (deleted.rowCount === 0) {
+        return NextResponse.json({ error: 'Mensagem não encontrada ou sem permissão para excluir.' }, { status: 404 });
+      }
+      const sessionId = deleted.rows[0].session_id;
+      emitChatEvent(sessionId, { type: 'deleted', sessionId, messageId });
+      return NextResponse.json({ success: true });
     }
 
     if (action === 'transcribe-audio') {
@@ -705,6 +918,29 @@ export async function POST(request: Request) {
 
     if (action === 'save-internal-chat') {
       const { chat } = body;
+
+      // Rede de segurança contra duplicidade de conversa 1:1 (além do índice
+      // único idx_internal_chats_direct_pair, que garante isso no schema):
+      // se já existe outra conversa direct com esse mesmo par de membros,
+      // devolve o id dela em vez de inserir uma linha nova. Cobre a corrida
+      // entre abas/cliques rápidos que o dedupe client-side (rooms.find em
+      // chat-internal/page.tsx) sozinho não fecha. `id <> $1` garante que
+      // isso não interfere num UPDATE normal de uma conversa já existente.
+      if (chat.type === 'direct' && Array.isArray(chat.memberIds) && chat.memberIds.length === 2) {
+        const [memberA, memberB] = chat.memberIds;
+        const dupCheck = await query(
+          `SELECT id FROM public.internal_chats
+           WHERE type = 'direct' AND id <> $1
+             AND cardinality(member_ids) = 2
+             AND member_ids @> ARRAY[$2, $3]::uuid[]
+           LIMIT 1`,
+          [chat.id, memberA, memberB]
+        );
+        if ((dupCheck.rowCount ?? 0) > 0) {
+          return NextResponse.json({ success: true, chatId: dupCheck.rows[0].id, deduped: true });
+        }
+      }
+
       await query(
         `INSERT INTO public.internal_chats (
            id, name, image_url, type, member_ids, last_message_at,
@@ -728,7 +964,7 @@ export async function POST(request: Request) {
           chat.mutedBy || [], chat.readLaterBy || [], chat.hiddenBy || []
         ]
       );
-      return NextResponse.json({ success: true });
+      return NextResponse.json({ success: true, chatId: chat.id });
     }
 
     if (action === 'delete-internal-message') {
@@ -753,9 +989,10 @@ export async function POST(request: Request) {
     if (action === 'save-internal-message') {
       const { chatId, message } = body;
       const internalMetadata = { ...message.metadata, attachments: message.attachments || [] };
-      await query(
+      const inserted = await query(
         `INSERT INTO public.internal_chat_messages (chat_id, sender_id, sender_name, text, type, metadata, created_at)
-         VALUES ($1, $2, $3, $4, $5, $6::jsonb, $7)`,
+         VALUES ($1, $2, $3, $4, $5, $6::jsonb, $7)
+         RETURNING id, created_at`,
         [
           chatId,
           message.senderId || null,
@@ -770,6 +1007,46 @@ export async function POST(request: Request) {
         'UPDATE public.internal_chats SET last_message_at = $1 WHERE id = $2',
         [message.timestamp || new Date().toISOString(), chatId]
       );
+      emitInternalChatEvent(chatId, { type: 'message', chatId });
+      return NextResponse.json({ success: true, id: inserted.rows[0].id });
+    }
+
+    if (action === 'internal-chat-typing') {
+      const { chatId, userId, userName } = body;
+      if (!chatId || !userId) {
+        return NextResponse.json({ error: 'Dados incompletos.' }, { status: 400 });
+      }
+      emitInternalChatEvent(chatId, { type: 'typing', chatId, userId, userName });
+      return NextResponse.json({ success: true });
+    }
+
+    if (action === 'toggle-internal-message-reaction') {
+      const { messageId, userId, emoji } = body;
+      if (!messageId || !userId || !emoji) {
+        return NextResponse.json({ error: 'Dados incompletos.' }, { status: 400 });
+      }
+      const chatRes = await query('SELECT chat_id FROM public.internal_chat_messages WHERE id = $1', [messageId]);
+      const chatId = chatRes.rows[0]?.chat_id;
+      if (!chatId) {
+        return NextResponse.json({ error: 'Mensagem não encontrada.' }, { status: 404 });
+      }
+
+      // Clicar no mesmo emoji que já reagiu remove a reação (toggle); um
+      // emoji diferente substitui — só 1 reação por pessoa por mensagem,
+      // igual WhatsApp/Telegram.
+      const removed = await query(
+        `DELETE FROM public.internal_chat_message_reactions WHERE message_id = $1 AND user_id = $2 AND emoji = $3 RETURNING id`,
+        [messageId, userId, emoji]
+      );
+      if ((removed.rowCount ?? 0) === 0) {
+        await query(
+          `INSERT INTO public.internal_chat_message_reactions (message_id, user_id, emoji)
+           VALUES ($1, $2, $3)
+           ON CONFLICT (message_id, user_id) DO UPDATE SET emoji = EXCLUDED.emoji, created_at = NOW()`,
+          [messageId, userId, emoji]
+        );
+      }
+      emitInternalChatEvent(chatId, { type: 'reaction', chatId, messageId });
       return NextResponse.json({ success: true });
     }
 

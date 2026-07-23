@@ -103,11 +103,23 @@ export default function ChatManagementPage() {
     }
 
     // Get analyst statuses
+    // Mapeado pra camelCase — o shim supabase.from().select('*') devolve a
+    // linha crua (is_online/user_id/...), mas todo o resto deste arquivo lê
+    // s.isOnline/s.userId/s.currentLoad (ver AnalystStatus em lib/types.ts).
+    // Sem esse mapeamento, o badge Disponível/Ausente e a lista de "colegas
+    // online" pra transferir chat ficavam sempre vazios/incorretos.
     const { data: statusData, error: statusError } = await supabase.from('analyst_status').select('*');
     if (statusError) {
       console.error('Error fetching analyst statuses:', statusError);
     }
-    setStatuses(statusData || []);
+    setStatuses((statusData || []).map((r: any) => ({
+      userId: r.user_id,
+      isOnline: r.is_online,
+      lastActive: r.last_active,
+      currentLoad: r.current_load,
+      currentReason: r.current_reason,
+      status: r.status
+    })));
     
     // Get quick notes via action
     const notesData = await getQuickNotes();

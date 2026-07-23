@@ -26,8 +26,21 @@ export async function GET(request: Request) {
       const res = await query('SELECT * FROM public.queues');
       return NextResponse.json(res.rows);
     } else if (type === 'analyst-statuses') {
+      // Mapeado pra camelCase porque a interface AnalystStatus (lib/types.ts)
+      // e todo consumidor (chat-widget.tsx, chat-management/page.tsx) leem
+      // s.isOnline/s.userId/s.lastActive/s.currentLoad — devolver a linha
+      // crua (is_online/user_id/...) fazia esses campos virem sempre
+      // undefined, deixando a lista de "colegas online" pra transferir chat
+      // e o badge Disponível/Ausente sempre vazios/errados.
       const res = await query('SELECT * FROM public.analyst_status');
-      return NextResponse.json(res.rows);
+      return NextResponse.json(res.rows.map(r => ({
+        userId: r.user_id,
+        isOnline: r.is_online,
+        lastActive: r.last_active,
+        currentLoad: r.current_load,
+        currentReason: r.current_reason,
+        status: r.status
+      })));
     } else if (type === 'survey-settings') {
       const res = await query('SELECT * FROM public.config_survey_settings WHERE id = 1');
       return NextResponse.json(res.rows[0] || null);

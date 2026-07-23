@@ -33,15 +33,17 @@ import {
   EyeOff,
   Clock,
   Eye,
-  Loader2
+  Loader2,
+  Reply
 } from 'lucide-react';
 import { cn, normalizeString } from '@/lib/utils';
 import { useApp } from '@/app/app-context';
-import { InternalGroup, ChatMessage, User, UserRole, Permission } from '@/lib/types';
+import { InternalGroup, ChatMessage, User, UserRole, Permission, AnalystStatus } from '@/lib/types';
 import { supabase } from '@/lib/supabase';
 import { ClientTime } from '@/components/client-time';
 import { InternalChatService } from '@/lib/services/chat-service';
 import { UserService } from '@/lib/services/user-service';
+import { fetchAnalystStatuses } from '@/lib/services/config-service';
 import { useRouter } from 'next/navigation';
 import { motion, AnimatePresence } from 'motion/react';
 import EmojiPicker, { Theme as EmojiTheme } from 'emoji-picker-react';
@@ -49,6 +51,26 @@ import Cropper, { Area } from 'react-easy-crop';
 import { Scissors } from 'lucide-react';
 import { fileToBase64 } from '@/lib/image-utils';
 import { toast } from 'sonner';
+
+// Classes literais (não interpoladas) pra cor da bolha escolhida pelo
+// usuário — o scanner do Tailwind só detecta nomes de classe/variável que
+// aparecem como texto literal no código-fonte. Uma classe montada em
+// runtime tipo `bg-${bubbleColor}-600`, ou até `var(--color-${bubbleColor}-600)`,
+// nunca é vista pelo scanner: a classe (ou a variável CSS `--color-*-600`,
+// que o Tailwind v4 também só gera sob demanda) simplesmente não existe no
+// CSS final, deixando a bolha "minha" sem fundo — texto branco em cima de
+// nada é invisível no tema claro (no escuro passava despercebido por
+// coincidência, o fundo por trás já é escuro). Por isso o mapeamento fica
+// aqui, com toda classe escrita por extenso.
+const BUBBLE_COLOR_BG_CLASS: Record<string, string> = {
+  indigo: 'bg-indigo-600',
+  emerald: 'bg-emerald-600',
+  blue: 'bg-blue-600',
+  rose: 'bg-rose-600',
+  amber: 'bg-amber-600',
+  slate: 'bg-slate-600',
+  violet: 'bg-violet-600',
+};
 
 // Simple Sticker Data (dummy URLs)
 const STICKERS = [
@@ -147,12 +169,30 @@ export default function ChatInternalPage() {
   const [replyingToId, setReplyingToId] = useState<string | null>(null);
   const [showPinnedOnly, setShowPinnedOnly] = useState(false);
   const [isChatReady, setIsChatReady] = useState(false);
+  // Citação @nome (só faz sentido em grupo — 1:1 já sabe pra quem é).
+  // mentionQuery !== null = dropdown de autocomplete aberto; string vazia =
+  // "@" acabou de ser digitado, ainda sem filtro.
+  const [mentionQuery, setMentionQuery] = useState<string | null>(null);
+  const [mentionStartIndex, setMentionStartIndex] = useState(-1);
+  const [mentionActiveIndex, setMentionActiveIndex] = useState(0);
+  const [previewImageUrl, setPreviewImageUrl] = useState<string | null>(null);
+  // Presença real (substitui o texto fixo "Online" no header) — mesma tabela
+  // analyst_status já usada pra roteamento de fila/badge Disponível-Ausente
+  // em chat-management, só que agora também exibida aqui.
+  const [analystStatuses, setAnalystStatuses] = useState<AnalystStatus[]>([]);
+  // Quem está digitando agora nessa sala (chave: userId), com o timeout que
+  // limpa o indicador sozinho se não chegar um novo "typing" em ~4s.
+  const [typingUsers, setTypingUsers] = useState<Record<string, string>>({});
+  const typingTimeoutsRef = useRef<Record<string, ReturnType<typeof setTimeout>>>({});
+  const lastTypingSentAtRef = useRef(0);
+  const [reactionPickerMessageId, setReactionPickerMessageId] = useState<string | null>(null);
 
   const stickerInputRef = useRef<HTMLInputElement>(null);
 
   const fileInputRef = useRef<HTMLInputElement>(null);
   const groupImageRef = useRef<HTMLInputElement>(null);
   const messagesEndRef = useRef<HTMLDivElement>(null);
+  const messageInputRef = useRef<HTMLInputElement>(null);
 
   useEffect(() => {
     if (!authInitialized || !currentUser) return;
@@ -217,16 +257,75 @@ export default function ChatInternalPage() {
     }
   }, []);
 
+  const refreshMessages = useCallback((chatId: string) => {
+    InternalChatService.getMessages(chatId)
+      .then(messages => {
+        setRooms(prev => prev.map(r => r.id === chatId ? { ...r, messages } : r));
+      })
+      .catch(err => console.error('Error loading messages:', err));
+  }, []);
+
   // Load messages when room is selected
   useEffect(() => {
     if (selectedRoomId) {
-      InternalChatService.getMessages(selectedRoomId)
-        .then(messages => {
-          setRooms(prev => prev.map(r => r.id === selectedRoomId ? { ...r, messages } : r));
-        })
-        .catch(err => console.error('Error loading messages:', err));
+      refreshMessages(selectedRoomId);
     }
-  }, [selectedRoomId]);
+    setMentionQuery(null);
+    setMentionStartIndex(-1);
+    setTypingUsers({});
+  }, [selectedRoomId, refreshMessages]);
+
+  // Tempo real da sala aberta: sem isso, o Chat Interno não tinha NENHUM
+  // mecanismo de atualização ao vivo — duas pessoas na mesma sala só viam a
+  // mensagem uma da outra trocando de sala e voltando (ou dando F5). Mesmo
+  // padrão SSE do chat com cliente (components/chat-widget.tsx), canal
+  // próprio (ver lib/chat-events.ts / app/api/chats/internal-stream).
+  useEffect(() => {
+    if (!selectedRoomId || !currentUser) return;
+
+    const eventSource = new EventSource(`/api/chats/internal-stream?chatId=${selectedRoomId}`);
+
+    eventSource.addEventListener('chat-event', (event: MessageEvent) => {
+      try {
+        const payload = JSON.parse(event.data);
+        if (payload?.type === 'message' || payload?.type === 'receipt' || payload?.type === 'reaction') {
+          refreshMessages(selectedRoomId);
+        }
+        if (payload?.type === 'typing' && payload.userId && payload.userId !== currentUser.id) {
+          setTypingUsers(prev => ({ ...prev, [payload.userId]: payload.userName || 'Alguém' }));
+          if (typingTimeoutsRef.current[payload.userId]) clearTimeout(typingTimeoutsRef.current[payload.userId]);
+          typingTimeoutsRef.current[payload.userId] = setTimeout(() => {
+            setTypingUsers(prev => {
+              const next = { ...prev };
+              delete next[payload.userId];
+              return next;
+            });
+          }, 4000);
+        }
+      } catch (err) {
+        console.error('Erro processando evento SSE do chat interno:', err);
+      }
+    });
+
+    return () => {
+      eventSource.close();
+      Object.values(typingTimeoutsRef.current).forEach(clearTimeout);
+      typingTimeoutsRef.current = {};
+    };
+  }, [selectedRoomId, currentUser, refreshMessages]);
+
+  // Presença real (online/visto por último) — substitui o texto fixo
+  // "Online" que o header mostrava antes, sempre igual pra qualquer contato.
+  useEffect(() => {
+    if (!currentUser) return;
+    let isActive = true;
+    const load = () => {
+      fetchAnalystStatuses().then(statuses => { if (isActive) setAnalystStatuses(statuses); }).catch(() => {});
+    };
+    load();
+    const interval = setInterval(load, 20000);
+    return () => { isActive = false; clearInterval(interval); };
+  }, [currentUser?.id]);
 
   const scrollToBottom = (instant = false) => {
     if (messagesEndRef.current) {
@@ -237,26 +336,9 @@ export default function ChatInternalPage() {
     }
   };
 
-  useEffect(() => {
-    if (selectedRoomId && currentUser) {
-      const room = rooms.find(r => r.id === selectedRoomId);
-      if (room) {
-        let modified = false;
-        const updatedMessages = room.messages.map(msg => {
-          if (msg.senderId !== currentUser.id && (!msg.readBy || !msg.readBy.includes(currentUser.id))) {
-            modified = true;
-            return { ...msg, readBy: [...(msg.readBy || []), currentUser.id] };
-          }
-          return msg;
-        });
-
-        if (modified) {
-          const updatedRoom = { ...room, messages: updatedMessages };
-          setRooms(prev => prev.map(currentRoom => currentRoom.id === selectedRoomId ? updatedRoom : currentRoom));
-        }
-      }
-    }
-  }, [selectedRoomId, currentUser, rooms]);
+  // "Lido" agora é persistido no servidor (internal-messages GET marca
+  // read_by de verdade quando a sala é aberta — ver app/api/chats/route.ts),
+  // não precisa mais desse efeito client-only que só mexia no estado local.
 
   const generateId = () => Math.random().toString(36).substring(2, 11) + Date.now().toString(36);
 
@@ -288,12 +370,106 @@ export default function ChatInternalPage() {
         lastMessageAt: new Date().toISOString()
       };
       InternalChatService.saveChat(newRoom)
-        .then(() => {
+        .then((chatId) => {
           loadRooms();
-          setSelectedRoomId(newRoom.id);
+          setSelectedRoomId(chatId);
         });
     }
     setSearchTerm('');
+  };
+
+  const escapeRegex = (s: string) => s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+
+  // Extrai quem foi citado na mensagem (@Nome Completo) comparando com os
+  // membros do grupo — só vira "menção" de verdade quem está na conversa,
+  // pra não destacar um "@" qualquer digitado sem querer citar ninguém.
+  const extractMentions = (text: string, members: User[]): { id: string; name: string }[] => {
+    const mentions: { id: string; name: string }[] = [];
+    for (const member of members) {
+      if (!member.name) continue;
+      const re = new RegExp(`@${escapeRegex(member.name)}(?=[\\s.,!?;:]|$)`, 'u');
+      if (re.test(text)) mentions.push({ id: member.id, name: member.name });
+    }
+    return mentions;
+  };
+
+  const mentionCandidates = mentionQuery !== null && selectedRoom?.type === 'group' && currentUser
+    ? allUsers
+        .filter(u => selectedRoom.memberIds.includes(u.id) && u.id !== currentUser.id)
+        .filter(u => normalizeString(u.name).includes(normalizeString(mentionQuery)))
+        .slice(0, 6)
+    : [];
+
+  const handleMessageInputChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const value = e.target.value;
+    setMessage(value);
+
+    // Throttlado a 1x/3s — o destinatário só precisa saber "ainda está
+    // digitando", não cada tecla; evita spammar o servidor a cada onChange.
+    if (selectedRoomId && currentUser && value.trim()) {
+      const now = Date.now();
+      if (now - lastTypingSentAtRef.current > 3000) {
+        lastTypingSentAtRef.current = now;
+        InternalChatService.sendTyping(selectedRoomId, currentUser.id, currentUser.name);
+      }
+    }
+
+    if (selectedRoom?.type !== 'group') {
+      if (mentionQuery !== null) setMentionQuery(null);
+      return;
+    }
+
+    const cursorPos = e.target.selectionStart ?? value.length;
+    const textBeforeCursor = value.slice(0, cursorPos);
+    const match = textBeforeCursor.match(/(?:^|\s)@([^\s@]*)$/);
+    if (match) {
+      setMentionQuery(match[1]);
+      setMentionStartIndex(cursorPos - match[1].length - 1);
+      setMentionActiveIndex(0);
+    } else if (mentionQuery !== null) {
+      setMentionQuery(null);
+    }
+  };
+
+  const insertMention = (user: User) => {
+    if (mentionStartIndex < 0) return;
+    const queryLength = mentionQuery?.length || 0;
+    const before = message.slice(0, mentionStartIndex);
+    const after = message.slice(mentionStartIndex + 1 + queryLength);
+    const insertion = `@${user.name} `;
+    setMessage(`${before}${insertion}${after}`);
+    setMentionQuery(null);
+    setMentionStartIndex(-1);
+    requestAnimationFrame(() => {
+      const pos = before.length + insertion.length;
+      messageInputRef.current?.focus();
+      messageInputRef.current?.setSelectionRange(pos, pos);
+    });
+  };
+
+  // Destaca @Nome no texto renderizado da mensagem — só as menções
+  // "congeladas" em metadata.mentions no envio (ver handleSendMessage),
+  // não qualquer "@" solto no texto.
+  const renderMessageText = (text: string, mentions: { id: string; name: string }[] | undefined) => {
+    if (!mentions || mentions.length === 0) return text;
+    const sorted = [...mentions].sort((a, b) => b.name.length - a.name.length);
+    const pattern = sorted.map(m => `@${escapeRegex(m.name)}`).join('|');
+    const parts = text.split(new RegExp(`(${pattern})`, 'g'));
+    return parts.map((part, i) => {
+      const mention = mentions.find(m => `@${m.name}` === part);
+      if (!mention) return <React.Fragment key={i}>{part}</React.Fragment>;
+      return (
+        <span
+          key={i}
+          className={cn(
+            "font-black rounded px-1",
+            mention.id === currentUser?.id ? "bg-amber-400/40" : "bg-black/10"
+          )}
+        >
+          {part}
+        </span>
+      );
+    });
   };
 
   const handleSendMessage = (type: ChatMessage['type'] = 'text', content?: string, metadata?: any) => {
@@ -328,6 +504,9 @@ export default function ChatInternalPage() {
         newMessage.metadata = { gifUrl: content };
     } else if (type === 'sticker') {
         newMessage.metadata = { stickerUrl: content };
+    } else if (type === 'text' && selectedRoom?.type === 'group') {
+        const mentions = extractMentions(newMessage.text, allUsers.filter(u => selectedRoom.memberIds.includes(u.id)));
+        if (mentions.length > 0) newMessage.metadata = { ...newMessage.metadata, mentions };
     }
 
     // Persist message to Supabase
@@ -350,6 +529,7 @@ export default function ChatInternalPage() {
     setShowEmojiPicker(false);
     setShowStickerPicker(false);
     setShowGifSearch(false);
+    setMentionQuery(null);
   };
 
   const handleFileUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -364,7 +544,9 @@ export default function ChatInternalPage() {
       fileUrl: base64
     };
 
-    handleSendMessage('file', undefined, metadata);
+    // Imagem ganha preview inline (bolha própria, ver renderização de
+    // msg.type === 'image') em vez do card genérico de arquivo.
+    handleSendMessage(file.type.startsWith('image/') ? 'image' : 'file', undefined, metadata);
   };
 
   const handleDeleteMessage = async (messageId: string) => {
@@ -528,6 +710,19 @@ export default function ChatInternalPage() {
     }
   };
 
+  const QUICK_REACTION_EMOJIS = ['👍', '❤️', '😂', '😮', '😢', '🙏'];
+
+  const toggleReaction = async (messageId: string, emoji: string) => {
+    if (!currentUser || !selectedRoomId) return;
+    setReactionPickerMessageId(null);
+    try {
+      await InternalChatService.toggleReaction(messageId, currentUser.id, emoji);
+      refreshMessages(selectedRoomId);
+    } catch (error: any) {
+      toast.error(error.message || 'Erro ao reagir à mensagem');
+    }
+  };
+
   const toggleReadLater = (roomId: string) => {
     if (!currentUser) return;
     const room = rooms.find(r => r.id === roomId);
@@ -587,6 +782,7 @@ export default function ChatInternalPage() {
     const handleGlobalClick = () => {
       closeContextMenu();
       setStickerContextMenu(null);
+      setReactionPickerMessageId(null);
     };
     window.addEventListener('click', handleGlobalClick);
     return () => window.removeEventListener('click', handleGlobalClick);
@@ -600,21 +796,52 @@ export default function ChatInternalPage() {
     }
   };
 
+  const resetCreateGroupState = () => {
+    setIsCreatingGroup(false);
+    setNewGroupName('');
+    setNewGroupImage('');
+    setSelectedMembers([]);
+  };
+
   const createRoom = () => {
-    if (!newGroupName.trim() || selectedMembers.length === 0 || !currentUser) return;
+    if (selectedMembers.length === 0 || !currentUser) return;
+    const isDirect = selectedMembers.length === 1;
+    if (!isDirect && !newGroupName.trim()) return;
+
+    // Este modal ("Novo Grupo") também é usado pra iniciar 1:1 (selecionando
+    // só 1 membro) — sem essa checagem, ele nunca reusava uma conversa
+    // direct já existente (diferente de startDirectChat, clicar num contato
+    // na lista), o que criava uma linha nova a cada tentativa. Era essa a
+    // causa do bug relatado ("vejo 3x o mesmo contato").
+    if (isDirect) {
+      const existing = rooms.find(room => isDirectChatWith(room, selectedMembers[0]));
+      if (existing) {
+        setSelectedRoomId(existing.id);
+        resetCreateGroupState();
+        toast.success('Você já tem uma conversa com esse contato.');
+        return;
+      }
+    }
+
+    // Conversa 1:1 sempre leva o nome real do contato — o campo de nome
+    // digitado no modal só vale pra grupo de verdade (2+ membros), senão
+    // cada tentativa de "Novo Grupo" com 1 membro podia gerar um nome
+    // diferente pra mesma pessoa.
+    const otherUser = isDirect ? allUsers.find(u => u.id === selectedMembers[0]) : null;
+    const roomName = isDirect ? (otherUser?.name || newGroupName.trim() || 'Conversa') : newGroupName.trim();
 
     const newRoom: InternalGroup = {
-      id: `g-${generateId()}`,
-      name: newGroupName,
+      id: isDirect ? `d-${generateId()}` : `g-${generateId()}`,
+      name: roomName,
       imageUrl: newGroupImage || undefined,
-      type: selectedMembers.length === 1 ? 'direct' : 'group',
+      type: isDirect ? 'direct' : 'group',
       memberIds: [currentUser.id, ...selectedMembers],
-      messages: [
+      messages: isDirect ? [] : [
         {
           id: `sys-${generateId()}`,
           senderId: 'system',
           senderName: 'Sistema',
-          text: `${currentUser.name} criou o grupo "${newGroupName}"`,
+          text: `${currentUser.name} criou o grupo "${roomName}"`,
           timestamp: new Date().toISOString(),
           type: 'system' as const
         }
@@ -623,19 +850,16 @@ export default function ChatInternalPage() {
     };
 
     InternalChatService.saveChat(newRoom)
-      .then(() => {
+      .then((chatId) => {
         loadRooms();
-        setSelectedRoomId(newRoom.id);
+        setSelectedRoomId(chatId);
       })
       .catch(err => {
         console.error('Error creating room:', err);
-        toast.error('Erro ao criar grupo');
+        toast.error(isDirect ? 'Erro ao iniciar conversa' : 'Erro ao criar grupo');
       });
-    setIsCreatingGroup(false);
-    setNewGroupName('');
-    setNewGroupImage('');
-    setSelectedMembers([]);
-    toast.success(`Grupo "${newRoom.name}" criado com sucesso!`);
+    resetCreateGroupState();
+    toast.success(isDirect ? `Conversa com ${roomName} iniciada!` : `Grupo "${roomName}" criado com sucesso!`);
   };
 
   const toggleMemberSelection = (userId: string) => {
@@ -672,7 +896,26 @@ export default function ChatInternalPage() {
       (participantId === currentUser?.id ? currentUser : undefined);
   };
 
-  const filteredUsers = allUsers.filter(u => 
+  const getPresence = (userId?: string) => userId ? analystStatuses.find(s => s.userId === userId) : undefined;
+
+  const formatLastActive = (lastActive?: string) => {
+    if (!lastActive) return 'visto por último há um tempo';
+    const diffMin = Math.floor((Date.now() - new Date(lastActive).getTime()) / 60000);
+    if (diffMin < 1) return 'visto agora';
+    if (diffMin < 60) return `visto há ${diffMin} min`;
+    const diffHours = Math.floor(diffMin / 60);
+    if (diffHours < 24) return `visto há ${diffHours}h`;
+    return `visto há ${Math.floor(diffHours / 24)}d`;
+  };
+
+  const presenceLabel = (userId?: string) => {
+    const presence = getPresence(userId);
+    if (!presence) return '';
+    if (presence.isOnline) return presence.status === 'away' ? 'Ausente' : 'Online';
+    return formatLastActive(presence.lastActive).replace(/^v/, 'V');
+  };
+
+  const filteredUsers = allUsers.filter(u =>
     normalizeString(u.name).includes(normalizeString(searchTerm)) &&
     !rooms.some(room => isDirectChatWith(room, u.id))
   );
@@ -771,14 +1014,19 @@ export default function ChatInternalPage() {
                       room.readLaterBy?.includes(currentUser?.id || '') && "border-2 border-[var(--accent)]/30"
                     )}
                   >
-                    <div className={cn(
-                      "w-12 h-12 rounded-2xl flex items-center justify-center text-white font-black overflow-hidden bg-[var(--border-default)]",
-                      !avatar && (room.type === 'group' ? "bg-[var(--accent)]" : "bg-[var(--text-success)]")
-                    )}>
-                      {avatar ? (
-                        <img src={avatar} alt={room.name} className="w-full h-full object-cover" />
-                      ) : (
-                        room.type === 'group' ? <Users size={20} /> : room.name.charAt(0)
+                    <div className="relative shrink-0">
+                      <div className={cn(
+                        "w-12 h-12 rounded-2xl flex items-center justify-center text-white font-black overflow-hidden bg-[var(--border-default)]",
+                        !avatar && (room.type === 'group' ? "bg-[var(--accent)]" : "bg-[var(--text-success)]")
+                      )}>
+                        {avatar ? (
+                          <img src={avatar} alt={room.name} className="w-full h-full object-cover" />
+                        ) : (
+                          room.type === 'group' ? <Users size={20} /> : room.name.charAt(0)
+                        )}
+                      </div>
+                      {room.type === 'direct' && getPresence(otherUser?.id)?.isOnline && (
+                        <span className="absolute -bottom-0.5 -right-0.5 w-3 h-3 rounded-full bg-[var(--text-success)] border-2 border-[var(--surface-card)]" />
                       )}
                     </div>
                     <div className="flex-1 min-w-0">
@@ -797,9 +1045,10 @@ export default function ChatInternalPage() {
                       <p className="text-xs text-[var(--text-tertiary)] truncate font-medium">
                         {lastMessage ? (
                           lastMessage.isDeleted ? (lastMessage.text || 'Mensagem apagada') :
-                          lastMessage.type === 'text' ? lastMessage.text : 
+                          lastMessage.type === 'text' ? lastMessage.text :
+                          lastMessage.type === 'image' ? 'Imagem enviada' :
                           lastMessage.type === 'file' ? 'Arquivo enviado' :
-                          lastMessage.type === 'gif' ? 'GIF enviado' : 
+                          lastMessage.type === 'gif' ? 'GIF enviado' :
                           lastMessage.type === 'sticker' ? 'Figurinha enviada' : 'Sistema'
                         ) : 'Sem mensagens'}
                       </p>
@@ -820,14 +1069,19 @@ export default function ChatInternalPage() {
                   onClick={() => startDirectChat(user)}
                   className="w-full flex items-center gap-4 p-4 rounded-3xl transition-all text-left hover:bg-[var(--surface-card)]/50 group"
                 >
-                  <div className={cn(
-                    "w-12 h-12 rounded-2xl flex items-center justify-center text-white font-black overflow-hidden bg-[var(--border-default)]",
-                    !user.avatarUrl && "bg-[var(--text-success)]"
-                  )}>
-                    {user.avatarUrl ? (
-                      <img src={user.avatarUrl} alt={user.name} className="w-full h-full object-cover" />
-                    ) : (
-                      user.name.charAt(0)
+                  <div className="relative shrink-0">
+                    <div className={cn(
+                      "w-12 h-12 rounded-2xl flex items-center justify-center text-white font-black overflow-hidden bg-[var(--border-default)]",
+                      !user.avatarUrl && "bg-[var(--text-success)]"
+                    )}>
+                      {user.avatarUrl ? (
+                        <img src={user.avatarUrl} alt={user.name} className="w-full h-full object-cover" />
+                      ) : (
+                        user.name.charAt(0)
+                      )}
+                    </div>
+                    {getPresence(user.id)?.isOnline && (
+                      <span className="absolute -bottom-0.5 -right-0.5 w-3 h-3 rounded-full bg-[var(--text-success)] border-2 border-[var(--surface-card)]" />
                     )}
                   </div>
                   <div className="flex-1 min-w-0">
@@ -848,22 +1102,43 @@ export default function ChatInternalPage() {
             {/* Header */}
             <div className="px-8 py-5 border-b border-[var(--border-default)] flex items-center justify-between bg-[var(--surface-card)]/80 backdrop-blur-xl sticky top-0 z-10">
               <div className="flex items-center gap-4">
-                <div className={cn(
-                  "w-12 h-12 rounded-2xl flex items-center justify-center text-white font-black shadow-lg overflow-hidden bg-[var(--border-default)]",
-                  selectedRoom.type === 'group' ? "bg-[var(--accent)] shadow-indigo-100" : "bg-[var(--text-success)] shadow-emerald-100"
-                )}>
-                  {selectedRoom.type === 'group' ? (
-                    selectedRoom.imageUrl ? <img src={selectedRoom.imageUrl} className="w-full h-full object-cover" /> : <Users size={20} />
-                  ) : (
-                    getDirectChatUser(selectedRoom)?.avatarUrl ? (
-                      <img src={getDirectChatUser(selectedRoom)?.avatarUrl} alt={getDirectChatUser(selectedRoom)?.name || selectedRoom.name} className="w-full h-full object-cover" />
-                    ) : selectedRoom.name.charAt(0)
+                <div className="relative shrink-0">
+                  <div className={cn(
+                    "w-12 h-12 rounded-2xl flex items-center justify-center text-white font-black shadow-lg overflow-hidden bg-[var(--border-default)]",
+                    selectedRoom.type === 'group' ? "bg-[var(--accent)] shadow-indigo-100" : "bg-[var(--text-success)] shadow-emerald-100"
+                  )}>
+                    {selectedRoom.type === 'group' ? (
+                      selectedRoom.imageUrl ? <img src={selectedRoom.imageUrl} className="w-full h-full object-cover" /> : <Users size={20} />
+                    ) : (
+                      getDirectChatUser(selectedRoom)?.avatarUrl ? (
+                        <img src={getDirectChatUser(selectedRoom)?.avatarUrl} alt={getDirectChatUser(selectedRoom)?.name || selectedRoom.name} className="w-full h-full object-cover" />
+                      ) : selectedRoom.name.charAt(0)
+                    )}
+                  </div>
+                  {selectedRoom.type === 'direct' && getPresence(getDirectChatUser(selectedRoom)?.id)?.isOnline && (
+                    <span className="absolute -bottom-0.5 -right-0.5 w-3.5 h-3.5 rounded-full bg-[var(--text-success)] border-2 border-[var(--surface-card)]" />
                   )}
                 </div>
                 <div>
                   <h2 className="text-lg font-black text-[var(--text-primary)] tracking-tight">{selectedRoom.name}</h2>
                   <p className="text-xs font-bold text-[var(--text-tertiary)] uppercase tracking-widest">
-                    {selectedRoom.type === 'group' ? `${selectedRoom.memberIds?.length || 0} membros` : 'Online'}
+                    {Object.keys(typingUsers).length > 0 ? (
+                      <span className="text-[var(--accent-text)] normal-case flex items-center gap-1.5">
+                        <span className="flex gap-0.5">
+                          <span className="w-1 h-1 rounded-full bg-[var(--accent-text)] animate-bounce [animation-delay:-0.3s]" />
+                          <span className="w-1 h-1 rounded-full bg-[var(--accent-text)] animate-bounce [animation-delay:-0.15s]" />
+                          <span className="w-1 h-1 rounded-full bg-[var(--accent-text)] animate-bounce" />
+                        </span>
+                        {selectedRoom.type === 'group' ? `${Object.values(typingUsers).join(', ')} digitando...` : 'digitando...'}
+                      </span>
+                    ) : selectedRoom.type === 'group' ? (
+                      `${selectedRoom.memberIds?.length || 0} membros${(() => {
+                        const onlineCount = selectedRoom.memberIds?.filter(id => getPresence(id)?.isOnline).length || 0;
+                        return onlineCount > 0 ? ` · ${onlineCount} online` : '';
+                      })()}`
+                    ) : (
+                      presenceLabel(getDirectChatUser(selectedRoom)?.id) || 'Offline'
+                    )}
                   </p>
                 </div>
               </div>
@@ -943,8 +1218,8 @@ export default function ChatInternalPage() {
                 // Hidden deleted message (deleted before being read)
                 if (msg.isDeleted && !msg.text) return null;
 
-                const bubbleColorClass = isMine 
-                  ? `bg-${bubbleColor}-600` 
+                const bubbleColorClass = isMine
+                  ? (BUBBLE_COLOR_BG_CLASS[bubbleColor] || BUBBLE_COLOR_BG_CLASS.indigo)
                   : "bg-[var(--surface-card)] border border-[var(--border-default)] text-[var(--text-secondary)]";
                 
                 const avatarSizeClass = cn(
@@ -1024,14 +1299,28 @@ export default function ChatInternalPage() {
                         ) : (
                           <>
                             {msg.type === 'text' && (
-                              <p className="leading-relaxed">{msg.text}</p>
+                              <p className="leading-relaxed whitespace-pre-wrap break-words">{renderMessageText(msg.text, msg.metadata?.mentions)}</p>
                             )}
                             
+                            {msg.type === 'image' && (
+                              <button
+                                type="button"
+                                onClick={() => setPreviewImageUrl(msg.metadata?.fileUrl || null)}
+                                className="block rounded-2xl overflow-hidden shadow-lg border border-white/10 hover:opacity-90 transition-opacity"
+                              >
+                                <img src={msg.metadata?.fileUrl} alt={msg.metadata?.fileName || 'Imagem'} className="max-w-[240px] max-h-64 w-full object-cover" />
+                              </button>
+                            )}
+
                             {msg.type === 'file' && (
-                              <div className={cn(
-                                "flex items-center gap-4 rounded-2xl p-2",
-                                isMine ? "bg-white/10" : "bg-[var(--surface-card)]"
-                              )}>
+                              <a
+                                href={msg.metadata?.fileUrl}
+                                download={msg.metadata?.fileName}
+                                className={cn(
+                                  "flex items-center gap-4 rounded-2xl p-2 transition-colors",
+                                  isMine ? "bg-white/10 hover:bg-white/20" : "bg-[var(--surface-card)] hover:bg-[var(--surface-pill)]"
+                                )}
+                              >
                                 <div className={cn(
                                   "w-10 h-10 rounded-xl flex items-center justify-center",
                                   isMine ? "bg-white/20" : "bg-[var(--surface-card)] border border-[var(--border-default)]"
@@ -1042,13 +1331,10 @@ export default function ChatInternalPage() {
                                   <p className="text-xs font-black truncate">{msg.metadata?.fileName || 'Arquivo'}</p>
                                   <p className="text-[10px] font-bold opacity-60">{(msg.metadata?.fileSize || 0) / 1000} KB</p>
                                 </div>
-                                <button className={cn(
-                                  "p-2 rounded-lg transition-all",
-                                  isMine ? "hover:bg-white/20" : "hover:bg-[var(--surface-card)]"
-                                )}>
+                                <div className={cn("p-2 rounded-lg", isMine ? "text-white" : "text-[var(--text-secondary)]")}>
                                   <Download size={16} />
-                                </button>
-                              </div>
+                                </div>
+                              </a>
                             )}
 
                             {msg.type === 'gif' && (
@@ -1063,49 +1349,122 @@ export default function ChatInternalPage() {
                           </>
                         )}
 
+                        {/* Barra de ações: flutua ACIMA da bolha (nunca
+                            embaixo) — colada embaixo colidia com o horário/
+                            check e com as reações, que ficam logo abaixo da
+                            bolha, no fluxo normal (ver mais adiante). Ícones
+                            em vez de texto pra caber sem quebrar linha. */}
                         <div className={cn(
-                          "absolute -bottom-5 flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity whitespace-nowrap",
-                          isMine ? "right-1" : "left-1"
+                          "absolute -top-4 flex items-center gap-0.5 opacity-0 group-hover:opacity-100 transition-opacity whitespace-nowrap bg-[var(--surface-card)] border border-[var(--border-default)] rounded-full px-1.5 py-1 shadow-sm z-10",
+                          isMine ? "right-2" : "left-2"
                         )}>
+                          {!msg.isDeleted && (
+                            <>
+                              <button
+                                onClick={(e) => { e.stopPropagation(); setReactionPickerMessageId(reactionPickerMessageId === msg.id ? null : msg.id); }}
+                                title="Reagir"
+                                className="p-1 rounded-full text-[var(--text-tertiary)] hover:text-[var(--accent-text)] hover:bg-[var(--surface-pill)] transition-colors"
+                              >
+                                <Smile size={13} />
+                              </button>
+                              <button
+                                onClick={() => setReplyingToId(msg.id)}
+                                title="Responder"
+                                className="p-1 rounded-full text-[var(--accent-text)] hover:bg-[var(--surface-pill)] transition-colors"
+                              >
+                                <Reply size={13} />
+                              </button>
+                              <button
+                                onClick={() => togglePinMessage(msg.id)}
+                                title={isPinned ? 'Desafixar' : 'Fixar'}
+                                className={cn(
+                                  "p-1 rounded-full hover:bg-[var(--surface-pill)] transition-colors",
+                                  isPinned ? "text-[var(--accent-text)]" : "text-[var(--text-tertiary)] hover:text-[var(--accent-text)]"
+                                )}
+                              >
+                                {isPinned ? <PinOff size={13} /> : <Pin size={13} />}
+                              </button>
+                            </>
+                          )}
                           {isMine && !msg.isDeleted && (
-                            <button 
+                            <button
                               onClick={() => handleDeleteMessage(msg.id)}
-                              className="text-[9px] font-semibold uppercase text-[var(--text-danger)] hover:text-[var(--text-danger)] mr-2"
+                              title="Excluir"
+                              className="p-1 rounded-full text-[var(--text-danger)] hover:bg-[var(--surface-danger)] transition-colors"
                             >
-                              Excluir
+                              <Trash2 size={13} />
                             </button>
                           )}
-                          {!msg.isDeleted && (
-                             <>
-                                <button 
-                                  onClick={() => setReplyingToId(msg.id)}
-                                  className="text-[9px] font-semibold uppercase text-[var(--accent-text)] hover:text-[var(--accent-text)] mr-2"
-                                >
-                                  Responder
-                                </button>
-                                <button 
-                                  onClick={() => togglePinMessage(msg.id)}
-                                  className={cn(
-                                    "text-[9px] font-semibold uppercase mr-2",
-                                    isPinned ? "text-[var(--accent-text)]" : "text-[var(--text-tertiary)] hover:text-[var(--text-secondary)]"
-                                  )}
-                                >
-                                  {isPinned ? 'Desafixar' : 'Fixar'}
-                                </button>
-                             </>
-                          )}
-                          <span className="text-[9px] font-bold text-[var(--text-tertiary)]">
-                            <ClientTime date={msg.timestamp} />
-                          </span>
-                          {isMine && (
-                            msg.readBy && msg.readBy.length > (selectedRoom.type === 'group' ? 1 : 1) ? (
-                              <CheckCheck size={12} className={cn("text-[var(--accent-text)]", (selectedRoom.type === 'direct' ? msg.readBy?.some(id => id !== currentUser?.id) : (msg.readBy?.length || 0) >= (selectedRoom.memberIds?.length || 0)) && "text-[var(--text-info)]")} />
-                            ) : (
-                              <Check size={12} className="text-slate-300" />
-                            )
-                          )}
                         </div>
+
+                        {reactionPickerMessageId === msg.id && (
+                          <div
+                            className={cn(
+                              "absolute -top-14 z-20 flex items-center gap-1 bg-[var(--surface-card)] border border-[var(--border-default)] rounded-full shadow-xl px-2 py-1.5",
+                              isMine ? "right-0" : "left-0"
+                            )}
+                            onClick={(e) => e.stopPropagation()}
+                          >
+                            {QUICK_REACTION_EMOJIS.map(emoji => (
+                              <button
+                                key={emoji}
+                                onClick={() => toggleReaction(msg.id, emoji)}
+                                className="text-base hover:scale-125 transition-transform"
+                              >
+                                {emoji}
+                              </button>
+                            ))}
+                          </div>
+                        )}
                       </div>
+
+                      <span className="flex items-center gap-1.5 text-[9px] font-bold text-[var(--text-tertiary)] mt-1 px-1">
+                        <ClientTime date={msg.timestamp} />
+                        {isMine && (() => {
+                          // 3 estados persistidos de verdade agora (antes
+                          // era só client-side): 1 check = enviado, 2
+                          // cinza = entregue (deliveredBy), 2 coloridos =
+                          // todos os outros membros leram (readBy).
+                          const otherIds = (selectedRoom.memberIds || []).filter(id => id !== msg.senderId);
+                          const deliveredCount = otherIds.filter(id => msg.deliveredBy?.includes(id)).length;
+                          const readCount = otherIds.filter(id => msg.readBy?.includes(id)).length;
+                          if (otherIds.length > 0 && readCount >= otherIds.length) {
+                            return <CheckCheck size={12} className="text-[var(--text-info)]" />;
+                          }
+                          if (deliveredCount > 0) {
+                            return <CheckCheck size={12} className="text-slate-300" />;
+                          }
+                          return <Check size={12} className="text-slate-300" />;
+                        })()}
+                      </span>
+
+                      {!!msg.reactions?.length && (
+                        <div className={cn("flex flex-wrap gap-1 mt-1.5", isMine ? "justify-end" : "justify-start")}>
+                          {Object.entries(
+                            msg.reactions.reduce<Record<string, number>>((acc, r) => {
+                              acc[r.emoji] = (acc[r.emoji] || 0) + 1;
+                              return acc;
+                            }, {})
+                          ).map(([emoji, count]) => {
+                            const reactedByMe = msg.reactions!.some(r => r.emoji === emoji && r.userId === currentUser?.id);
+                            return (
+                              <button
+                                key={emoji}
+                                onClick={() => toggleReaction(msg.id, emoji)}
+                                className={cn(
+                                  "flex items-center gap-1 px-2 py-0.5 rounded-full text-[11px] font-bold border transition-colors",
+                                  reactedByMe
+                                    ? "bg-[var(--accent)]/15 border-[var(--accent)]/40 text-[var(--accent-text)]"
+                                    : "bg-[var(--surface-card)] border-[var(--border-default)] text-[var(--text-secondary)] hover:border-[var(--accent)]/30"
+                                )}
+                              >
+                                <span>{emoji}</span>
+                                {count > 1 && <span>{count}</span>}
+                              </button>
+                            );
+                          })}
+                        </div>
+                      )}
                     </div>
                   </div>
                 );
@@ -1309,19 +1668,72 @@ export default function ChatInternalPage() {
                     />
 </div>
                    
-                   <input 
-                     type="text"
-                     value={message}
-                     onChange={(e) => setMessage(e.target.value)}
-                     onKeyDown={(e) => {
-                       if (e.key === 'Enter' && !e.shiftKey) {
-                         e.preventDefault();
-                         handleSendMessage();
-                       }
-                     }}
-                     placeholder="Escreva sua mensagem..."
-                     className="flex-1 bg-transparent border-none outline-none text-sm font-bold text-[var(--text-secondary)] mx-4"
-                   />
+                   <div className="flex-1 relative mx-4">
+                     <AnimatePresence>
+                       {mentionQuery !== null && mentionCandidates.length > 0 && (
+                         <motion.div
+                           initial={{ opacity: 0, y: 10, scale: 0.95 }}
+                           animate={{ opacity: 1, y: 0, scale: 1 }}
+                           exit={{ opacity: 0, y: 10, scale: 0.95 }}
+                           className="absolute bottom-full mb-3 left-0 w-64 bg-[var(--surface-card)] border border-[var(--border-default)] rounded-2xl shadow-2xl overflow-hidden z-30"
+                         >
+                           {mentionCandidates.map((user, idx) => (
+                             <button
+                               key={user.id}
+                               type="button"
+                               onMouseDown={(e) => { e.preventDefault(); insertMention(user); }}
+                               onMouseEnter={() => setMentionActiveIndex(idx)}
+                               className={cn(
+                                 "w-full flex items-center gap-3 px-4 py-2.5 text-left transition-colors",
+                                 idx === mentionActiveIndex ? "bg-[var(--accent)]/10" : "hover:bg-[var(--surface-pill)]"
+                               )}
+                             >
+                               <div className="w-8 h-8 rounded-full bg-[var(--accent)] text-white flex items-center justify-center text-[10px] font-black shrink-0">
+                                 {user.name.charAt(0)}
+                               </div>
+                               <span className="text-xs font-bold text-[var(--text-primary)] truncate">{user.name}</span>
+                             </button>
+                           ))}
+                         </motion.div>
+                       )}
+                     </AnimatePresence>
+                     <input
+                       ref={messageInputRef}
+                       type="text"
+                       value={message}
+                       onChange={handleMessageInputChange}
+                       onKeyDown={(e) => {
+                         if (mentionQuery !== null && mentionCandidates.length > 0) {
+                           if (e.key === 'ArrowDown') {
+                             e.preventDefault();
+                             setMentionActiveIndex(prev => (prev + 1) % mentionCandidates.length);
+                             return;
+                           }
+                           if (e.key === 'ArrowUp') {
+                             e.preventDefault();
+                             setMentionActiveIndex(prev => (prev - 1 + mentionCandidates.length) % mentionCandidates.length);
+                             return;
+                           }
+                           if (e.key === 'Enter' || e.key === 'Tab') {
+                             e.preventDefault();
+                             insertMention(mentionCandidates[mentionActiveIndex]);
+                             return;
+                           }
+                           if (e.key === 'Escape') {
+                             e.preventDefault();
+                             setMentionQuery(null);
+                             return;
+                           }
+                         }
+                         if (e.key === 'Enter' && !e.shiftKey) {
+                           e.preventDefault();
+                           handleSendMessage();
+                         }
+                       }}
+                       placeholder={selectedRoom?.type === 'group' ? "Escreva uma mensagem... (@ para citar alguém)" : "Escreva sua mensagem..."}
+                       className="w-full bg-transparent border-none outline-none text-sm font-bold text-[var(--text-secondary)]"
+                     />
+                   </div>
 
                    <button 
                      onClick={() => handleSendMessage()}
@@ -1399,8 +1811,10 @@ export default function ChatInternalPage() {
                    </div>
 
                    <div className="space-y-2">
-                      <label className="text-[10px] font-semibold uppercase text-[var(--text-tertiary)] tracking-widest">Nome do Grupo</label>
-                      <input 
+                      <label className="text-[10px] font-semibold uppercase text-[var(--text-tertiary)] tracking-widest">
+                        {selectedMembers.length === 1 ? 'Nome do Grupo (opcional para conversa 1:1)' : 'Nome do Grupo'}
+                      </label>
+                      <input
                         type="text"
                         value={newGroupName}
                         onChange={(e) => setNewGroupName(e.target.value)}
@@ -1441,9 +1855,9 @@ export default function ChatInternalPage() {
                       </div>
                    </div>
 
-                   <button 
+                   <button
                      onClick={createRoom}
-                     disabled={!newGroupName.trim() || selectedMembers.length === 0}
+                     disabled={selectedMembers.length === 0 || (selectedMembers.length > 1 && !newGroupName.trim())}
                      className="w-full bg-[var(--accent)] text-white rounded-2xl py-4 font-black transition-all hover:bg-[var(--accent-hover)] shadow-xl shadow-indigo-100 disabled:opacity-50"
                    >
                      Criar Conversa
@@ -1654,15 +2068,15 @@ export default function ChatInternalPage() {
                      <Palette size={14} /> Cor das Bolhas
                   </div>
                   <div className="flex flex-wrap gap-3">
-                    {['indigo', 'emerald', 'blue', 'rose', 'amber', 'slate', 'violet'].map(color => (
+                    {Object.keys(BUBBLE_COLOR_BG_CLASS).map(color => (
                        <button
                          key={color}
                          onClick={() => updatePreferences({ bubbleColor: color })}
                          className={cn(
                            "w-10 h-10 rounded-xl transition-all flex items-center justify-center border-2",
+                           BUBBLE_COLOR_BG_CLASS[color],
                            bubbleColor === color ? "border-[var(--accent)] scale-110 shadow-lg" : "border-transparent opacity-80"
                          )}
-                         style={{ backgroundColor: `var(--color-${color}-600)` }}
                        >
                          {bubbleColor === color && <Check size={18} className="text-white" />}
                        </button>
@@ -1710,7 +2124,7 @@ export default function ChatInternalPage() {
                           avatarSize === 'lg' && "w-10 h-10",
                         )} />
                       )}
-                      <div className={cn("px-4 py-2 rounded-2xl rounded-bl-none text-xs text-white font-medium", `bg-${bubbleColor}-600`)}>
+                      <div className={cn("px-4 py-2 rounded-2xl rounded-bl-none text-xs text-white font-medium", BUBBLE_COLOR_BG_CLASS[bubbleColor] || BUBBLE_COLOR_BG_CLASS.indigo)}>
                          Exemplo de mensagem
                       </div>
                    </div>
@@ -1993,6 +2407,34 @@ export default function ChatInternalPage() {
                  </>
                );
              })()}
+          </motion.div>
+        )}
+      </AnimatePresence>
+
+      {/* Lightbox de imagem enviada no chat */}
+      <AnimatePresence>
+        {previewImageUrl && (
+          <motion.div
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            exit={{ opacity: 0 }}
+            onClick={() => setPreviewImageUrl(null)}
+            className="fixed inset-0 z-[300] bg-black/80 backdrop-blur-sm flex items-center justify-center p-8 cursor-zoom-out"
+          >
+            <button
+              onClick={() => setPreviewImageUrl(null)}
+              className="absolute top-6 right-6 p-3 bg-white/10 hover:bg-white/20 rounded-full text-white transition-colors"
+            >
+              <X size={20} />
+            </button>
+            <motion.img
+              initial={{ scale: 0.95 }}
+              animate={{ scale: 1 }}
+              src={previewImageUrl}
+              alt="Imagem"
+              onClick={(e) => e.stopPropagation()}
+              className="max-w-full max-h-full rounded-2xl shadow-2xl object-contain cursor-default"
+            />
           </motion.div>
         )}
       </AnimatePresence>

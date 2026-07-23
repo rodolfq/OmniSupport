@@ -31,7 +31,9 @@ import {
   Square,
   Trash2,
   Captions,
-  Loader2
+  Loader2,
+  Check,
+  CheckCheck
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import { 
@@ -45,7 +47,7 @@ import {
   Company,
   Attachment
 } from '@/lib/types';
-import { fetchChatSessions, pushChatMessage, createChatSession, saveChatHistory, findExistingChatSessionByPhone, submitSurveyResponse, transcribeChatAudio } from '@/lib/services/chat-service';
+import { ChatService, fetchChatSessions, pushChatMessage, createChatSession, saveChatHistory, findExistingChatSessionByPhone, submitSurveyResponse, transcribeChatAudio } from '@/lib/services/chat-service';
 import { fetchQuickNotes, fetchAnalystStatuses, fetchCompanies, fetchUsers, fetchQueues, fetchSurveySettings } from '@/lib/services/config-service';
 import { saveTicketFromChatSession, closeChatSessionAfterTicket, assignChatSession, returnChatSessionToQueue } from '@/app/actions';
 import { cn, maskPhone, matchPhones, safeJsonStringify } from '@/lib/utils';
@@ -173,6 +175,12 @@ export function ChatWidget() {
     setMounted(true);
   }, []);
 
+  useEffect(() => {
+    const closeReactionPicker = () => setReactionPickerMessageId(null);
+    window.addEventListener('click', closeReactionPicker);
+    return () => window.removeEventListener('click', closeReactionPicker);
+  }, []);
+
   const {
     currentUser,
     notificationSettings,
@@ -198,6 +206,18 @@ export function ChatWidget() {
 
   const [customerSessions, setCustomerSessions] = useState<ChatSession[]>([]);
   const [sessionsLoaded, setSessionsLoaded] = useState(false);
+  // "Fulano está digitando..." (SSE, ver useEffect do EventSource abaixo) —
+  // só a conversa aberta importa, por isso um único nome basta (não um mapa
+  // por sessão como no Chat Interno, que tem grupos).
+  const [typingUserName, setTypingUserName] = useState<string | null>(null);
+  const typingTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const lastTypingSentAtRef = useRef(0);
+  const [reactionPickerMessageId, setReactionPickerMessageId] = useState<string | null>(null);
+  const [editingMessageId, setEditingMessageId] = useState<string | null>(null);
+  const [editDraftText, setEditDraftText] = useState('');
+  const [messageHistoryFor, setMessageHistoryFor] = useState<string | null>(null);
+  const [messageHistoryEntries, setMessageHistoryEntries] = useState<{ previousText: string; editedAt: string; editedByName: string | null }[]>([]);
+  const [revealedDeletedIds, setRevealedDeletedIds] = useState<Set<string>>(new Set());
 
   // Track expanded state locally
   const [isExpanded, setIsExpanded] = useState(false);
@@ -316,6 +336,30 @@ export function ChatWidget() {
       .filter((u): u is UserType => !!u)
       .map(u => ({ id: u.id, name: u.name }));
   }, [analystStatuses, allUsers]);
+
+  // Presença real no header da conversa — antes não existia nenhuma (nem
+  // pro analista, nem pro cliente). Reaproveita analyst_status, que agora
+  // também recebe presença de clientes logados no portal (ver
+  // app/app-context.tsx) — cliente anônimo via WhatsApp nunca vai aparecer
+  // aqui, não tem como rastrear presença de quem não tem sessão logada.
+  const formatLastActive = (lastActive?: string) => {
+    if (!lastActive) return 'visto por último há um tempo';
+    const diffMin = Math.floor((Date.now() - new Date(lastActive).getTime()) / 60000);
+    if (diffMin < 1) return 'visto agora';
+    if (diffMin < 60) return `visto há ${diffMin} min`;
+    const diffHours = Math.floor(diffMin / 60);
+    if (diffHours < 24) return `visto há ${diffHours}h`;
+    return `visto há ${Math.floor(diffHours / 24)}d`;
+  };
+
+  const getPresence = (userId?: string | null) => userId ? analystStatuses.find(s => s.userId === userId) : undefined;
+
+  const presenceLabel = (userId?: string | null) => {
+    const presence = getPresence(userId);
+    if (!presence) return null;
+    if (presence.isOnline) return presence.status === 'away' ? 'Ausente' : 'Online';
+    return formatLastActive(presence.lastActive).replace(/^v/, 'V');
+  };
 
   const handleAssignChat = async (sessionId: string, targetUserId?: string) => {
     if (!currentUser) return;
@@ -534,7 +578,7 @@ export function ChatWidget() {
       console.log('ChatWidget: Iniciando loadData');
       try {
         // Use individual try-catch for better error identification
-        const sessions = await fetchChatSessions(controller.signal).catch(e => { console.error('sessions fetch error:', e); return [] as any; });
+        const sessions = await fetchChatSessions(controller.signal, currentUser?.id).catch(e => { console.error('sessions fetch error:', e); return [] as any; });
         const notes = await fetchQuickNotes(controller.signal).catch(e => { console.error('notes fetch error:', e); return [] as any; });
         const statuses = await fetchAnalystStatuses(controller.signal).catch(e => { console.error('statuses fetch error:', e); return [] as any; });
         const comp = await fetchCompanies(controller.signal).catch(e => { console.error('companies fetch error:', e); return [] as any; });
@@ -642,7 +686,7 @@ export function ChatWidget() {
       abortControllerRef.current = controller;
 
       try {
-        const sessions = await fetchChatSessions(controller.signal);
+        const sessions = await fetchChatSessions(controller.signal, currentUser?.id);
         if (controller.signal.aborted || abortControllerRef.current !== controller) {
           return;
         }
@@ -681,7 +725,14 @@ export function ChatWidget() {
   // poller de 30s logo acima continua rodando como rede de segurança (o
   // EventSource também reconecta sozinho em caso de queda de conexão).
   useEffect(() => {
-    if (!selectedChatId) return;
+    if (!selectedChatId || !currentUser) return;
+    setTypingUserName(null);
+
+    // Abrir a conversa = "lido" (3o check, colorido) — mesmo espírito do
+    // internal-messages GET no Chat Interno, só que aqui via action
+    // explícita porque a rota `sessions` é usada por todo mundo sem
+    // identificar quem está pedindo (ver app/api/chats/route.ts).
+    ChatService.markMessagesRead(selectedChatId, currentUser.id);
 
     const eventSource = new EventSource(`/api/chats/stream?sessionId=${selectedChatId}`);
     messagesChannelRef.current = eventSource;
@@ -728,6 +779,48 @@ export function ChatWidget() {
           return;
         }
 
+        if (payload?.type === 'typing') {
+          if (payload.userId === currentUser?.id) return;
+          setTypingUserName(payload.userName || 'Alguém');
+          if (typingTimeoutRef.current) clearTimeout(typingTimeoutRef.current);
+          typingTimeoutRef.current = setTimeout(() => setTypingUserName(null), 4000);
+          return;
+        }
+
+        if (payload?.type === 'receipt' || payload?.type === 'reaction') {
+          // Não vem o payload completo — mais simples e sempre consistente
+          // reconsultar as mensagens da sessão do que tentar reconstruir
+          // read_by/reactions a partir de um evento parcial.
+          ChatService.getSessions(currentUser?.id).then(sessions => {
+            const updated = sessions.find(s => s.id === payload.sessionId);
+            if (!updated) return;
+            setCustomerSessions(prev => prev.map(s => s.id === payload.sessionId ? { ...s, messages: updated.messages } : s));
+          }).catch(() => {});
+          return;
+        }
+
+        if (payload?.type === 'edited') {
+          setCustomerSessions(prev => prev.map(s => {
+            if (s.id !== payload.sessionId) return s;
+            return {
+              ...s,
+              messages: (s.messages || []).map(m => m.id === payload.messageId ? { ...m, text: payload.text as string, isEdited: true, editedAt: new Date().toISOString() } : m)
+            };
+          }));
+          return;
+        }
+
+        if (payload?.type === 'deleted') {
+          setCustomerSessions(prev => prev.map(s => {
+            if (s.id !== payload.sessionId) return s;
+            return {
+              ...s,
+              messages: (s.messages || []).map(m => m.id === payload.messageId ? { ...m, isDeleted: true, deletedAt: new Date().toISOString() } : m)
+            };
+          }));
+          return;
+        }
+
         const raw = payload?.message;
         if (!raw) return;
 
@@ -739,6 +832,9 @@ export function ChatWidget() {
           timestamp: raw.timestamp,
           type: raw.type || 'text',
           metadata: raw.metadata,
+          readBy: raw.readBy || [],
+          deliveredBy: raw.deliveredBy || [],
+          reactions: raw.reactions || [],
           attachments: raw.attachments || []
         };
 
@@ -1304,6 +1400,79 @@ useEffect(() => {
     } else {
       setShowQuickNoteSearch(false);
     }
+
+    if (selectedChatId && currentUser && val.trim()) {
+      const now = Date.now();
+      if (now - lastTypingSentAtRef.current > 3000) {
+        lastTypingSentAtRef.current = now;
+        ChatService.sendTyping(selectedChatId, currentUser.id, currentUser.name);
+      }
+    }
+  };
+
+  const QUICK_REACTION_EMOJIS = ['👍', '❤️', '😂', '😮', '😢', '🙏'];
+
+  const toggleMessageReaction = async (messageId: string, emoji: string) => {
+    if (!currentUser || !selectedChatId) return;
+    setReactionPickerMessageId(null);
+    try {
+      await ChatService.toggleReaction(messageId, currentUser.id, emoji);
+      const sessions = await ChatService.getSessions(currentUser.id);
+      const updated = sessions.find(s => s.id === selectedChatId);
+      if (updated) setCustomerSessions(prev => prev.map(s => s.id === selectedChatId ? { ...s, messages: updated.messages } : s));
+    } catch (error: any) {
+      toast.error(error.message || 'Erro ao reagir à mensagem');
+    }
+  };
+
+  const startEditMessage = (message: ChatMessage) => {
+    setEditingMessageId(message.id);
+    setEditDraftText(message.text);
+  };
+
+  const cancelEditMessage = () => {
+    setEditingMessageId(null);
+    setEditDraftText('');
+  };
+
+  const saveEditMessage = async () => {
+    if (!currentUser || !editingMessageId || !editDraftText.trim()) return;
+    const messageId = editingMessageId;
+    const text = editDraftText.trim();
+    try {
+      await ChatService.editMessage(messageId, currentUser.id, text);
+      setCustomerSessions(prev => prev.map(s => ({
+        ...s,
+        messages: (s.messages || []).map(m => m.id === messageId ? { ...m, text, isEdited: true, editedAt: new Date().toISOString() } : m)
+      })));
+      cancelEditMessage();
+    } catch (error: any) {
+      toast.error(error.message || 'Erro ao editar mensagem');
+    }
+  };
+
+  const deleteChatMessage = async (message: ChatMessage) => {
+    if (!currentUser) return;
+    try {
+      await ChatService.deleteMessage(message.id, currentUser.id);
+      setCustomerSessions(prev => prev.map(s => ({
+        ...s,
+        messages: (s.messages || []).map(m => m.id === message.id ? { ...m, isDeleted: true, deletedAt: new Date().toISOString() } : m)
+      })));
+      toast.success('Mensagem excluída');
+    } catch (error: any) {
+      toast.error(error.message || 'Erro ao excluir mensagem');
+    }
+  };
+
+  const openMessageHistory = async (messageId: string) => {
+    setMessageHistoryFor(messageId);
+    try {
+      const history = await ChatService.getMessageHistory(messageId);
+      setMessageHistoryEntries(history);
+    } catch {
+      setMessageHistoryEntries([]);
+    }
   };
 
   // Compartilhado entre o seletor de arquivo (input) e o colar (Ctrl+V) de
@@ -1772,6 +1941,23 @@ useEffect(() => {
                         <p className="text-xs font-black uppercase text-[var(--text-primary)] tracking-widest leading-none mb-0.5 truncate">
                           {isCustomer ? 'Time de Suporte' : (selectedChat && 'customerName' in selectedChat ? selectedChat.customerName : 'Canal')}
                         </p>
+                        {(() => {
+                          // Cliente vê a presença do analista responsável;
+                          // equipe vê a presença do cliente (só funciona se
+                          // ele estiver logado no portal — anônimo via
+                          // WhatsApp não tem presença rastreada).
+                          const label = isCustomer
+                            ? presenceLabel(selectedChat?.assigneeId)
+                            : presenceLabel(selectedChat?.customerId);
+                          if (!label) return null;
+                          const isOnlineNow = getPresence(isCustomer ? selectedChat?.assigneeId : selectedChat?.customerId)?.isOnline;
+                          return (
+                            <p className="text-[9px] font-semibold uppercase tracking-widest flex items-center gap-1 mt-0.5">
+                              <span className={cn("w-1.5 h-1.5 rounded-full", isOnlineNow ? "bg-[var(--text-success)]" : "bg-[var(--text-tertiary)]")} />
+                              <span className="text-[var(--text-tertiary)] normal-case">{label}</span>
+                            </p>
+                          );
+                        })()}
                         {selectedChat?.ticketNumber && (
                           <p className="text-[9px] text-[var(--text-tertiary)] font-semibold uppercase tracking-widest">
                             Conversa #{String(selectedChat.ticketNumber).padStart(4, '0')}
@@ -1910,10 +2096,68 @@ useEffect(() => {
 
                       const isOwnMessage = m.senderId === currentUser.id;
                       const attachments = m.attachments || m.metadata?.attachments || [];
+
+                      // Soft-delete: texto original nunca é apagado no banco
+                      // (ver migrations/chat_messages_realtime_features.sql)
+                      // — some da visualização normal, mas o time de suporte
+                      // pode revelar (auditoria), diferente do cliente, que
+                      // só vê "mensagem apagada".
+                      if (m.isDeleted) {
+                        const isRevealed = revealedDeletedIds.has(m.id);
+                        return (
+                          <div key={m.id} className={cn("flex flex-col animate-in fade-in duration-300", isOwnMessage ? "items-end" : "items-start")}>
+                            <div className={cn(
+                              "max-w-[min(88%,34rem)] sm:max-w-[78%] p-4 rounded-[1.5rem] text-sm font-medium italic shadow-sm border border-dashed",
+                              isOwnMessage ? "border-white/30 text-[var(--text-tertiary)]" : "border-[var(--border-default)] text-[var(--text-tertiary)]"
+                            )}>
+                              <span className="flex items-center gap-2">
+                                <Trash2 size={13} /> {isRevealed ? m.text : 'Mensagem apagada'}
+                              </span>
+                            </div>
+                            {!isCustomer && (
+                              <button
+                                onClick={() => setRevealedDeletedIds(prev => {
+                                  const next = new Set(prev);
+                                  next.has(m.id) ? next.delete(m.id) : next.add(m.id);
+                                  return next;
+                                })}
+                                className="text-[9px] font-semibold uppercase text-[var(--text-tertiary)] hover:text-[var(--accent-text)] mt-1 px-1"
+                              >
+                                {isRevealed ? 'Ocultar conteúdo' : 'Ver conteúdo apagado'}
+                              </button>
+                            )}
+                          </div>
+                        );
+                      }
+
+                      if (editingMessageId === m.id) {
+                        return (
+                          <div key={m.id} className={cn("flex flex-col animate-in fade-in duration-300 w-full", isOwnMessage ? "items-end" : "items-start")}>
+                            <div className="max-w-[min(88%,34rem)] sm:max-w-[78%] w-full p-3 rounded-[1.5rem] bg-[var(--surface-card)] border-2 border-[var(--accent)] shadow-sm">
+                              <textarea
+                                autoFocus
+                                value={editDraftText}
+                                onChange={(e) => setEditDraftText(e.target.value)}
+                                onKeyDown={(e) => {
+                                  if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); saveEditMessage(); }
+                                  if (e.key === 'Escape') cancelEditMessage();
+                                }}
+                                className="w-full bg-transparent border-none outline-none text-sm font-medium resize-none text-[var(--text-primary)]"
+                                rows={2}
+                              />
+                              <div className="flex items-center justify-end gap-2 mt-2">
+                                <button onClick={cancelEditMessage} className="text-[10px] font-semibold uppercase text-[var(--text-tertiary)] hover:text-[var(--text-secondary)] px-2 py-1">Cancelar</button>
+                                <button onClick={saveEditMessage} className="text-[10px] font-semibold uppercase text-white bg-[var(--accent)] hover:bg-[var(--accent-hover)] rounded-lg px-3 py-1.5">Salvar</button>
+                              </div>
+                            </div>
+                          </div>
+                        );
+                      }
+
                       return (
-                        <div key={m.id} className={cn("flex flex-col animate-in fade-in slide-in-from-bottom-2 duration-300", isOwnMessage ? "items-end" : "items-start")}>
+                        <div key={m.id} className={cn("flex flex-col animate-in fade-in slide-in-from-bottom-2 duration-300 group", isOwnMessage ? "items-end" : "items-start")}>
                           <div className={cn(
-                            "max-w-[min(88%,34rem)] sm:max-w-[78%] p-4 rounded-[1.5rem] text-sm font-medium shadow-sm transition-all break-words whitespace-pre-wrap",
+                            "relative max-w-[min(88%,34rem)] sm:max-w-[78%] p-4 rounded-[1.5rem] text-sm font-medium shadow-sm transition-all break-words whitespace-pre-wrap",
                             isOwnMessage
                               ? "bg-[var(--accent)] text-white rounded-tr-none"
                               : "bg-[var(--surface-card)] border border-[var(--border-default)] text-[var(--text-primary)] rounded-tl-none"
@@ -2038,13 +2282,115 @@ useEffect(() => {
                                 })}
                               </div>
                             )}
+
+                            <div className={cn(
+                              "absolute -top-4 flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity whitespace-nowrap bg-[var(--surface-card)] border border-[var(--border-default)] rounded-full px-2 py-1 shadow-sm",
+                              isOwnMessage ? "right-2" : "left-2"
+                            )}>
+                              <button
+                                onClick={(e) => { e.stopPropagation(); setReactionPickerMessageId(reactionPickerMessageId === m.id ? null : m.id); }}
+                                className="text-[9px] font-semibold uppercase text-[var(--text-tertiary)] hover:text-[var(--accent-text)]"
+                              >
+                                Reagir
+                              </button>
+                              {isOwnMessage && m.type === 'text' && (
+                                <button
+                                  onClick={(e) => { e.stopPropagation(); startEditMessage(m); }}
+                                  className="text-[9px] font-semibold uppercase text-[var(--accent-text)]"
+                                >
+                                  Editar
+                                </button>
+                              )}
+                              {isOwnMessage && (
+                                <button
+                                  onClick={(e) => { e.stopPropagation(); deleteChatMessage(m); }}
+                                  className="text-[9px] font-semibold uppercase text-[var(--text-danger)]"
+                                >
+                                  Excluir
+                                </button>
+                              )}
+                            </div>
+
+                            {reactionPickerMessageId === m.id && (
+                              <div
+                                className={cn(
+                                  "absolute -top-14 z-20 flex items-center gap-1 bg-[var(--surface-card)] border border-[var(--border-default)] rounded-full shadow-xl px-2 py-1.5",
+                                  isOwnMessage ? "right-0" : "left-0"
+                                )}
+                                onClick={(e) => e.stopPropagation()}
+                              >
+                                {QUICK_REACTION_EMOJIS.map(emoji => (
+                                  <button key={emoji} onClick={() => toggleMessageReaction(m.id, emoji)} className="text-base hover:scale-125 transition-transform">
+                                    {emoji}
+                                  </button>
+                                ))}
+                              </div>
+                            )}
                           </div>
-                          <span className="text-[9px] text-[var(--text-tertiary)] font-semibold uppercase mt-1 px-1 tracking-widest">
+                          <span className="flex items-center gap-1.5 text-[9px] text-[var(--text-tertiary)] font-semibold uppercase mt-1 px-1 tracking-widest">
                             <ClientTime date={m.timestamp} />
+                            {m.isEdited && (
+                              <button onClick={() => openMessageHistory(m.id)} className="hover:text-[var(--accent-text)] lowercase italic">
+                                (editado)
+                              </button>
+                            )}
+                            {isOwnMessage && (() => {
+                              // Sessão de chat com cliente é sempre 1:1 (cliente
+                              // + analista responsável) — só esses dois contam
+                              // como "destinatário" pro 2o/3o check.
+                              const otherIds = [selectedChat?.customerId, selectedChat?.assigneeId]
+                                .filter((id): id is string => !!id && id !== m.senderId);
+                              const deliveredCount = otherIds.filter(id => m.deliveredBy?.includes(id)).length;
+                              const readCount = otherIds.filter(id => m.readBy?.includes(id)).length;
+                              if (otherIds.length > 0 && readCount > 0) {
+                                return <CheckCheck size={12} className="text-[var(--text-info)]" />;
+                              }
+                              if (deliveredCount > 0) {
+                                return <CheckCheck size={12} className="text-[var(--text-tertiary)]" />;
+                              }
+                              return <Check size={12} className="text-[var(--text-tertiary)]" />;
+                            })()}
                           </span>
+
+                          {!!m.reactions?.length && (
+                            <div className={cn("flex flex-wrap gap-1 mt-1", isOwnMessage ? "justify-end" : "justify-start")}>
+                              {Object.entries(
+                                m.reactions.reduce<Record<string, number>>((acc, r) => {
+                                  acc[r.emoji] = (acc[r.emoji] || 0) + 1;
+                                  return acc;
+                                }, {})
+                              ).map(([emoji, count]) => {
+                                const reactedByMe = m.reactions!.some(r => r.emoji === emoji && r.userId === currentUser?.id);
+                                return (
+                                  <button
+                                    key={emoji}
+                                    onClick={() => toggleMessageReaction(m.id, emoji)}
+                                    className={cn(
+                                      "flex items-center gap-1 px-2 py-0.5 rounded-full text-[11px] font-bold border transition-colors",
+                                      reactedByMe
+                                        ? "bg-[var(--accent)]/15 border-[var(--accent)]/40 text-[var(--accent-text)]"
+                                        : "bg-[var(--surface-card)] border-[var(--border-default)] text-[var(--text-secondary)] hover:border-[var(--accent)]/30"
+                                    )}
+                                  >
+                                    <span>{emoji}</span>
+                                    {count > 1 && <span>{count}</span>}
+                                  </button>
+                                );
+                              })}
+                            </div>
+                          )}
                         </div>
                       );
                     })}
+                    {typingUserName && (
+                      <div className="flex flex-col items-start animate-in fade-in duration-300">
+                        <div className="bg-[var(--surface-card)] border border-[var(--border-default)] rounded-[1.5rem] rounded-tl-none px-4 py-3 flex items-center gap-1.5">
+                          <span className="w-1.5 h-1.5 rounded-full bg-[var(--text-tertiary)] animate-bounce [animation-delay:-0.3s]" />
+                          <span className="w-1.5 h-1.5 rounded-full bg-[var(--text-tertiary)] animate-bounce [animation-delay:-0.15s]" />
+                          <span className="w-1.5 h-1.5 rounded-full bg-[var(--text-tertiary)] animate-bounce" />
+                        </div>
+                      </div>
+                    )}
                     <div ref={messagesEndRef} />
                   </div>
 
@@ -2278,6 +2624,49 @@ useEffect(() => {
                     alt={previewAttachment.name}
                     className="max-h-full max-w-full rounded-xl object-contain"
                   />
+                </div>
+              </motion.div>
+            </div>
+          )}
+        </AnimatePresence>,
+        document.body
+      )}
+
+      {/* Histórico de edição de mensagem */}
+      {createPortal(
+        <AnimatePresence>
+          {messageHistoryFor && (
+            <div className="fixed inset-0 flex items-center justify-center p-4" style={{ zIndex: 2147483647 }}>
+              <motion.div
+                initial={{ opacity: 0 }}
+                animate={{ opacity: 1 }}
+                exit={{ opacity: 0 }}
+                onClick={() => setMessageHistoryFor(null)}
+                className="absolute inset-0 bg-slate-950/70 backdrop-blur-sm"
+              />
+              <motion.div
+                initial={{ scale: 0.96, opacity: 0 }}
+                animate={{ scale: 1, opacity: 1 }}
+                exit={{ scale: 0.96, opacity: 0 }}
+                className="relative w-full max-w-md max-h-[80vh] flex flex-col rounded-3xl bg-[var(--surface-card)] shadow-2xl overflow-hidden"
+              >
+                <div className="flex items-center justify-between gap-3 border-b border-[var(--border-default)] px-5 py-4">
+                  <p className="text-sm font-black text-[var(--text-primary)] uppercase tracking-widest">Histórico de edições</p>
+                  <button onClick={() => setMessageHistoryFor(null)} className="p-2 hover:bg-[var(--surface-pill)] rounded-xl">
+                    <X size={16} className="text-[var(--text-tertiary)]" />
+                  </button>
+                </div>
+                <div className="flex-1 overflow-y-auto p-5 space-y-3">
+                  {messageHistoryEntries.length === 0 ? (
+                    <p className="text-xs text-[var(--text-tertiary)] font-medium text-center py-6">Sem versões anteriores registradas.</p>
+                  ) : messageHistoryEntries.map((entry, idx) => (
+                    <div key={idx} className="p-3 rounded-2xl border border-[var(--border-default)]">
+                      <p className="text-sm text-[var(--text-secondary)] font-medium">{entry.previousText}</p>
+                      <p className="text-[10px] font-semibold uppercase text-[var(--text-tertiary)] mt-2">
+                        {entry.editedByName || 'Alguém'} · <ClientTime date={entry.editedAt} />
+                      </p>
+                    </div>
+                  ))}
                 </div>
               </motion.div>
             </div>

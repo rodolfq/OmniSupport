@@ -2,8 +2,12 @@ import { ChatSession, ChatMessage, AnalystStatus, UserStatusHistory, AbsenceReas
 import { normalizePhone } from '../utils';
 
 export class ChatService {
-  static async getSessions(): Promise<ChatSession[]> {
-    const res = await fetch('/api/chats?action=sessions');
+  // userId opcional: quando informado, o servidor marca como "entregues" (2o
+  // check, cinza) as mensagens das sessões desse usuário (cliente dono ou
+  // analista responsável) só de sincronizar a lista — ver app/api/chats/route.ts.
+  static async getSessions(userId?: string): Promise<ChatSession[]> {
+    const url = userId ? `/api/chats?action=sessions&userId=${encodeURIComponent(userId)}` : '/api/chats?action=sessions';
+    const res = await fetch(url);
     if (!res.ok) {
       const body = await res.json().catch(() => ({}));
       throw new Error(`Error fetching chat sessions via API (status ${res.status}): ${body.error || res.statusText}`);
@@ -35,6 +39,61 @@ export class ChatService {
     if (!res.ok) throw new Error('Error pushing message via API');
     const data = await res.json().catch(() => ({}));
     return data.sessionId || sessionId;
+  }
+
+  static async sendTyping(sessionId: string, userId: string, userName: string): Promise<void> {
+    await fetch('/api/chats', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ action: 'chat-typing', sessionId, userId, userName })
+    }).catch(() => {});
+  }
+
+  static async markMessagesRead(sessionId: string, userId: string): Promise<void> {
+    await fetch('/api/chats', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ action: 'mark-chat-messages-read', sessionId, userId })
+    }).catch(() => {});
+  }
+
+  static async toggleReaction(messageId: string, userId: string, emoji: string): Promise<void> {
+    const res = await fetch('/api/chats', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ action: 'toggle-chat-message-reaction', messageId, userId, emoji })
+    });
+    if (!res.ok) throw new Error('Error toggling reaction via API');
+  }
+
+  static async editMessage(messageId: string, userId: string, text: string): Promise<void> {
+    const res = await fetch('/api/chats', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ action: 'edit-chat-message', messageId, userId, text })
+    });
+    if (!res.ok) {
+      const data = await res.json().catch(() => ({}));
+      throw new Error(data.error || 'Error editing message via API');
+    }
+  }
+
+  static async deleteMessage(messageId: string, userId: string): Promise<void> {
+    const res = await fetch('/api/chats', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ action: 'delete-chat-message', messageId, userId })
+    });
+    if (!res.ok) {
+      const data = await res.json().catch(() => ({}));
+      throw new Error(data.error || 'Error deleting message via API');
+    }
+  }
+
+  static async getMessageHistory(messageId: string): Promise<{ previousText: string; editedAt: string; editedByName: string | null }[]> {
+    const res = await fetch(`/api/chats?action=chat-message-history&messageId=${encodeURIComponent(messageId)}`);
+    if (!res.ok) throw new Error('Error fetching message history via API');
+    return res.json();
   }
 }
 
@@ -106,13 +165,21 @@ export class InternalChatService {
     return res.json();
   }
 
-  static async saveChat(chat: InternalGroup): Promise<void> {
+  // Devolve o id da conversa que efetivamente foi gravada — normalmente o
+  // mesmo chat.id enviado, mas pode ser um id JÁ EXISTENTE quando o servidor
+  // detecta que já existe uma conversa direct com esse mesmo par de membros
+  // (dedupe em app/api/chats/route.ts): quem chamou precisa selecionar essa
+  // conversa "trocada", não a que tentou criar. Mesmo padrão de
+  // ChatService.pushMessage acima.
+  static async saveChat(chat: InternalGroup): Promise<string> {
     const res = await fetch('/api/chats', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ action: 'save-internal-chat', chat })
     });
     if (!res.ok) throw new Error('Error saving internal chat via API');
+    const data = await res.json().catch(() => ({}));
+    return data.chatId || chat.id;
   }
 
   static async saveMessage(chatId: string, message: ChatMessage): Promise<void> {
@@ -134,6 +201,23 @@ export class InternalChatService {
       const data = await res.json().catch(() => ({}));
       throw new Error(data.error || 'Error deleting internal message via API');
     }
+  }
+
+  static async sendTyping(chatId: string, userId: string, userName: string): Promise<void> {
+    await fetch('/api/chats', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ action: 'internal-chat-typing', chatId, userId, userName })
+    }).catch(() => {});
+  }
+
+  static async toggleReaction(messageId: string, userId: string, emoji: string): Promise<void> {
+    const res = await fetch('/api/chats', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ action: 'toggle-internal-message-reaction', messageId, userId, emoji })
+    });
+    if (!res.ok) throw new Error('Error toggling reaction via API');
   }
 }
 
@@ -170,9 +254,9 @@ export async function findExistingChatSessionByPhone(phone: string): Promise<str
   return (dialable || match[0]).id;
 }
 
-export async function fetchChatSessions(signal?: AbortSignal): Promise<ChatSession[]> {
+export async function fetchChatSessions(signal?: AbortSignal, userId?: string): Promise<ChatSession[]> {
   try {
-    const sessions = await ChatService.getSessions();
+    const sessions = await ChatService.getSessions(userId);
     return Array.isArray(sessions) ? sessions : [];
   } catch (err) {
     console.error("Error fetching chat sessions:", err);

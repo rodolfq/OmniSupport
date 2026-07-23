@@ -615,6 +615,35 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     }
   }, [userStatus, userStatusReason, currentUser?.id]);
 
+  // Presença real do cliente no chat com a equipe (ver header do
+  // components/chat-widget.tsx) — clientes não têm o toggle explícito
+  // Online/Ausente da equipe acima, então um heartbeat simples enquanto o
+  // app estiver visível é o que dá pra oferecer aqui. Reaproveita
+  // analyst_status (nome genérico o bastante: user_id/is_online/last_active)
+  // sem inserir em user_status_history, que é só pra log de equipe.
+  // Limitação aceita: fechar a aba sem uma próxima visita não marca offline
+  // sozinho — fica "online" até o isOnline ficar visualmente pouco confiável
+  // (sem um "adeus" explícito não tem como fazer melhor sem infra nova).
+  useEffect(() => {
+    if (!currentUser || currentUser.role !== UserRole.CUSTOMER) return;
+    const beat = () => {
+      if (document.visibilityState !== 'visible') return;
+      AnalystService.saveStatus({
+        userId: currentUser.id,
+        isOnline: true,
+        lastActive: new Date().toISOString(),
+        currentLoad: 0
+      }).catch(() => {});
+    };
+    beat();
+    const interval = setInterval(beat, 60000);
+    document.addEventListener('visibilitychange', beat);
+    return () => {
+      clearInterval(interval);
+      document.removeEventListener('visibilitychange', beat);
+    };
+  }, [currentUser?.id, currentUser?.role]);
+
   useEffect(() => {
     const savedSettings = localStorage.getItem('omni_notif_settings');
     if (savedSettings) {

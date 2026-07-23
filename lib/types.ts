@@ -299,6 +299,11 @@ export interface QuickNote {
   category: string;
 }
 
+export interface MessageReaction {
+  userId: string;
+  emoji: string;
+}
+
 export interface ChatMessage {
   id: string;
   senderId: string;
@@ -308,10 +313,22 @@ export interface ChatMessage {
   // 'internal': aviso de bastidores (ex: transferência entre analistas/fila)
   // que nunca deve aparecer pra quem está do lado do cliente (role Cliente/
   // Funcionário) — ver filtro em chat-widget.tsx (selectedChatMessageRows).
-  type: 'text' | 'system' | 'internal' | 'file' | 'gif' | 'sticker';
+  // 'image': preview inline no Chat Interno (chat com cliente já detecta
+  // imagem por mime-type mesmo com type: 'file', ver lib/attachment-kind.ts).
+  type: 'text' | 'system' | 'internal' | 'file' | 'image' | 'gif' | 'sticker';
+  // Soft-delete: texto original nunca é apagado da linha (ver deletedAt),
+  // isDeleted só controla a exibição ("mensagem apagada").
   isDeleted?: boolean;
+  deletedAt?: string | null;
+  isEdited?: boolean;
+  editedAt?: string | null;
   replyToId?: string;
+  // 2o check (cinza, "entregue"): cliente do destinatário sincronizou.
+  deliveredBy?: string[];
+  // 3o check (colorido, "lido"): destinatário abriu essa conversa de fato —
+  // sempre subconjunto de deliveredBy.
   readBy?: string[];
+  reactions?: MessageReaction[];
   metadata?: {
     fileUrl?: string;
     fileName?: string;
@@ -319,6 +336,10 @@ export interface ChatMessage {
     gifUrl?: string;
     stickerUrl?: string;
     attachments?: Attachment[];
+    // Citações @nome no chat interno em grupo (components/(portal)/chat-internal).
+    // Nome vem "congelado" no momento do envio pra destacar certo mesmo se o
+    // usuário for renomeado depois.
+    mentions?: { id: string; name: string }[];
   };
   attachments?: Attachment[];
 }
@@ -376,6 +397,10 @@ export interface AnalystStatus {
   lastActive: string;
   currentLoad: number;
   currentReason?: string;
+  // 'online' | 'away' | 'offline' — granularidade extra sobre isOnline,
+  // usado pra distinguir "Ausente" (away, mas tecnicamente is_online=true
+  // em alguns fluxos) de "Online" de fato na presença exibida no chat.
+  status?: string;
 }
 
 export interface UserStatusHistory {
