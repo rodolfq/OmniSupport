@@ -416,7 +416,7 @@ export class WhatsAppService {
         version,
         auth: authState,
         logger: log,
-        browser: ['SSX Resolve', 'Desktop', '1.0.0'],
+        browser: ['SSX Desk', 'Desktop', '1.0.0'],
         connectTimeoutMs: 60000,
         defaultQueryTimeoutMs: 60000,
         keepAliveIntervalMs: 30000,

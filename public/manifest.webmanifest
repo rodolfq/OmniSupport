@@ -1,21 +1,21 @@
 {
-  "name": "SSX Resolve",
-  "short_name": "SSX Resolve",
-  "description": "Plataforma de atendimento e suporte SSX Resolve",
+  "name": "SSX Desk",
+  "short_name": "SSX Desk",
+  "description": "Plataforma de atendimento e suporte SSX Desk",
   "start_url": "/dashboard",
   "display": "standalone",
-  "background_color": "#0D3A69",
-  "theme_color": "#0D3A69",
+  "background_color": "#081F3B",
+  "theme_color": "#081F3B",
   "orientation": "portrait-primary",
   "icons": [
     {
-      "src": "/favicon.png",
+      "src": "/favicon.png?v=2",
       "sizes": "512x512",
       "type": "image/png",
       "purpose": "any"
     },
     {
-      "src": "/apple-touch-icon.png",
+      "src": "/apple-touch-icon.png?v=2",
       "sizes": "180x180",
       "type": "image/png",
       "purpose": "any"

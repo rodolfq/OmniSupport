@@ -8,6 +8,10 @@ interface ThemeContextType {
   theme: Theme;
   setTheme: (theme: Theme) => void;
   toggleTheme: () => void;
+  // false até o useEffect abaixo rodar (localStorage não existe no server) —
+  // telas que ramificam o JSX renderizado por `theme` (ícone diferente, não
+  // só uma cor) devem esperar `mounted` pra evitar hydration mismatch.
+  mounted: boolean;
 }
 
 const ThemeContext = createContext<ThemeContextType | undefined>(undefined);
@@ -26,6 +30,7 @@ function applyTheme(theme: Theme) {
 
 export function ThemeProvider({ children }: { children: React.ReactNode }) {
   const [theme, setThemeState] = useState<Theme>('light');
+  const [mounted, setMounted] = useState(false);
 
   useEffect(() => {
     const stored = localStorage.getItem(STORAGE_KEY) as Theme | null;
@@ -34,6 +39,7 @@ export function ThemeProvider({ children }: { children: React.ReactNode }) {
       : (window.matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light');
     setThemeState(initial);
     applyTheme(initial);
+    setMounted(true);
   }, []);
 
   const setTheme = useCallback((next: Theme) => {
@@ -52,7 +58,7 @@ export function ThemeProvider({ children }: { children: React.ReactNode }) {
   }, []);
 
   return (
-    <ThemeContext.Provider value={{ theme, setTheme, toggleTheme }}>
+    <ThemeContext.Provider value={{ theme, setTheme, toggleTheme, mounted }}>
       {children}
     </ThemeContext.Provider>
   );

@@ -18,18 +18,18 @@ self.addEventListener('push', (event) => {
   try {
     payload = event.data.json();
   } catch {
-    payload = { title: 'SSX Resolve', body: event.data.text() };
+    payload = { title: 'SSX Desk', body: event.data.text() };
   }
 
-  const title = payload.title || 'SSX Resolve';
+  const title = payload.title || 'SSX Desk';
   const options = {
     body: payload.body || '',
-    // Logo sem fundo (transparente) — o favicon com fundo branco/navy fica
-    // ótimo na aba do Chrome, mas na notificação do celular o quadrado sólido
-    // destoava do fundo do sistema; aqui a marca se adapta ao tema do SO.
-    icon: '/branding/iconnobg.png',
-    badge: '/branding/iconnobg.png',
-    tag: payload.tag || 'ssx-resolve',
+    // Nova marca (SSX Desk) usa texto quase-branco, ilegível sem um fundo
+    // escuro — iconnobg.png agora tem a mesma placa azul-marinho do
+    // icon.png (transparência pura deixou de ser viável com essa logo).
+    icon: '/branding/iconnobg.png?v=2',
+    badge: '/branding/iconnobg.png?v=2',
+    tag: payload.tag || 'ssx-desk',
     data: { url: payload.url || '/dashboard' }
   };
 

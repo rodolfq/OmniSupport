@@ -18,8 +18,8 @@ export function MobileHeader() {
         style={{ paddingTop: 'env(safe-area-inset-top)' }}
       >
         <div className="flex items-center gap-2 min-w-0">
-          <img src="/branding/icon.png" alt="SSX Resolve" className="w-7 h-7 object-contain shrink-0" draggable={false} />
-          <span className="text-sm font-black text-[var(--text-primary)] tracking-tight truncate">SSX Resolve</span>
+          <img src="/branding/icon.png?v=2" alt="SSX Desk" className="w-7 h-7 rounded-md object-cover shrink-0" draggable={false} />
+          <span className="text-sm font-black text-[var(--text-primary)] tracking-tight truncate">SSX Desk</span>
         </div>
         <button
           onClick={() => setIsOpen(true)}

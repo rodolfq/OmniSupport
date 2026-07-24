@@ -1,4 +1,4 @@
-# Roadmap de Melhorias — OmniSupport / SSX Resolve
+# Roadmap de Melhorias — OmniSupport / SSX Desk
 
 > Documento interno de planejamento. Não é um plano de implementação fechado — é a base para irmos item a item: cada linha vira uma rodada de discovery + plano + implementação + ajuste fino antes de passar para a próxima.
 >

@@ -718,7 +718,7 @@ export async function assignChatSession(sessionId: string, assigneeId: string, a
         // contar como "1ª resposta" na métrica de tempo de atendimento.
         await query(
           `INSERT INTO public.chat_messages (id, session_id, sender_id, sender_name, text, type, metadata, created_at)
-           VALUES ($1, $2, NULL, 'SSX Resolve', $3, 'system', '{}'::jsonb, $4)`,
+           VALUES ($1, $2, NULL, 'SSX Desk', $3, 'system', '{}'::jsonb, $4)`,
           [messageId, sessionId, text, timestamp]
         );
         await query('UPDATE public.chat_sessions SET last_message_at = $1 WHERE id = $2', [timestamp, sessionId]);
@@ -729,7 +729,7 @@ export async function assignChatSession(sessionId: string, assigneeId: string, a
           message: {
             id: messageId,
             senderId: null,
-            senderName: 'SSX Resolve',
+            senderName: 'SSX Desk',
             text,
             timestamp,
             type: 'system',
@@ -782,7 +782,7 @@ export async function assignChatSession(sessionId: string, assigneeId: string, a
           // cliente.
           await query(
             `INSERT INTO public.chat_messages (id, session_id, sender_id, sender_name, text, type, metadata, created_at)
-             VALUES ($1, $2, NULL, 'SSX Resolve', $3, 'internal', '{}'::jsonb, $4)`,
+             VALUES ($1, $2, NULL, 'SSX Desk', $3, 'internal', '{}'::jsonb, $4)`,
             [logMessageId, sessionId, logText, logTimestamp]
           );
 
@@ -792,7 +792,7 @@ export async function assignChatSession(sessionId: string, assigneeId: string, a
             message: {
               id: logMessageId,
               senderId: null,
-              senderName: 'SSX Resolve',
+              senderName: 'SSX Desk',
               text: logText,
               timestamp: logTimestamp,
               type: 'internal',
@@ -859,7 +859,7 @@ export async function returnChatSessionToQueue(sessionId: string, queueId: strin
 
     await query(
       `INSERT INTO public.chat_messages (id, session_id, sender_id, sender_name, text, type, metadata, created_at)
-       VALUES ($1, $2, NULL, 'SSX Resolve', $3, 'internal', '{}'::jsonb, $4)`,
+       VALUES ($1, $2, NULL, 'SSX Desk', $3, 'internal', '{}'::jsonb, $4)`,
       [messageId, sessionId, text, timestamp]
     );
     await query('UPDATE public.chat_sessions SET last_message_at = $1 WHERE id = $2', [timestamp, sessionId]);
@@ -870,7 +870,7 @@ export async function returnChatSessionToQueue(sessionId: string, queueId: strin
       message: {
         id: messageId,
         senderId: null,
-        senderName: 'SSX Resolve',
+        senderName: 'SSX Desk',
         text,
         timestamp,
         type: 'internal',

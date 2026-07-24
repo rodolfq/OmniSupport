@@ -620,7 +620,7 @@ export default function SettingsPage() {
                     <label className="text-[10px] font-black uppercase text-[var(--text-tertiary)] tracking-widest">Bio</label>
                     <textarea 
                       className="w-full bg-[var(--surface-card)] border border-[var(--border-default)] rounded-xl px-4 py-2.5 text-sm min-h-[100px]" 
-                      defaultValue={currentUser.role === 'Administrador' ? "Lead Product Designer focado em experiências escaláveis." : "Colaborador da equipe SSX Resolve."}
+                      defaultValue={currentUser.role === 'Administrador' ? "Lead Product Designer focado em experiências escaláveis." : "Colaborador da equipe SSX Desk."}
                     />
                   </div>
                 </div>

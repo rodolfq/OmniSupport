@@ -382,7 +382,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
           const isCompanyUser = [UserRole.CUSTOMER, UserRole.EMPLOYEE].includes(userRef.current?.role as UserRole);
           const osNotif = new Notification(notif.title, {
             body: newNotif.message,
-            icon: '/branding/icon.png',
+            icon: '/branding/icon.png?v=2',
             tag: newNotif.sourceId || newNotif.id
           });
           osNotif.onclick = () => {
@@ -467,7 +467,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       try {
         const osNotif = new Notification(title, {
           body: message,
-          icon: '/branding/icon.png',
+          icon: '/branding/icon.png?v=2',
           tag: 'lunch-timer'
         });
         osNotif.onclick = () => {

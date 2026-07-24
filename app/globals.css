@@ -11,44 +11,6 @@
   animation: border-pulse 2s cubic-bezier(0.4, 0, 0.6, 1) infinite;
 }
 
-/* Brilho fluido sobre a logo da tela de login: um degradê é varrido e
-   recortado (mask) exatamente na silhueta da própria logo, então só o
-   desenho da marca reflete luz — nunca o retângulo transparente ao redor. */
-@keyframes logo-shine-sweep {
-  0%, 8% { background-position: -120% 0; }
-  55%, 100% { background-position: 120% 0; }
-}
-
-.logo-shine {
-  position: relative;
-  display: inline-block;
-}
-
-.logo-shine::after {
-  content: '';
-  position: absolute;
-  inset: 0;
-  background: linear-gradient(115deg, transparent 35%, rgba(255, 255, 255, 0.9) 50%, transparent 65%);
-  background-size: 250% 100%;
-  background-position: -120% 0;
-  -webkit-mask-image: var(--logo-shine-mask);
-  mask-image: var(--logo-shine-mask);
-  -webkit-mask-size: contain;
-  mask-size: contain;
-  -webkit-mask-repeat: no-repeat;
-  mask-repeat: no-repeat;
-  -webkit-mask-position: center;
-  mask-position: center;
-  animation: logo-shine-sweep 3.2s ease-in-out infinite;
-  pointer-events: none;
-}
-
-@media (prefers-reduced-motion: reduce) {
-  .logo-shine::after {
-    animation: none;
-    display: none;
-  }
-}
 
 :root {
   --foreground-rgb: 0, 0, 0;
@@ -56,33 +18,38 @@
   --background-end-rgb: 255, 255, 255;
   color-scheme: light;
 
-  /* Marca */
-  --brand-primary: #0D3A69;
-  --brand-primary-hover: #15558A;
-  --brand-primary-strong: #1D6AA5;
-  --accent: #18C7A8;
-  --accent-hover: #14B8A6;
-  --accent-strong: #0FAFA8;
-  --accent-text: #0E7C74;
+  /* Tipografia primária (Rooney Sans, Adobe Fonts — ver <link> em
+     app/layout.tsx). Pesos disponíveis no kit: 400 e 700 só — pesos mais
+     pesados (font-black etc) caem pro 700 mais próximo automaticamente. */
+  --font-primary: 'rooney-sans', 'Segoe UI', system-ui, sans-serif;
+
+  /* Marca — Systemsat */
+  --brand-primary: #081F3B;
+  --brand-primary-hover: #044C7C;
+  --brand-primary-strong: #044C7C;
+  --accent: #0FA694;
+  --accent-hover: #0C8C7D;
+  --accent-strong: #026357;
+  --accent-text: #026357;
 
   /* Superfícies */
-  --surface-page: #F8FAFC;
-  --surface-sidebar: #0D3A69;
+  --surface-page: #F6F8FB;
+  --surface-sidebar: #081F3B;
   --surface-card: #FFFFFF;
-  --surface-pill: #F1F5F9;
-  --border-default: #E2E8F0;
-  --border-strong: #CBD5E1;
+  --surface-pill: #EEF2F6;
+  --border-default: #E2E7EE;
+  --border-strong: #C9D2DE;
 
   /* Tipografia */
-  --text-primary: #1E293B;
-  --text-secondary: #334155;
+  --text-primary: #0B1220;
+  --text-secondary: #33475B;
   --text-tertiary: #64748B;
 
-  /* Estados e badges semânticos */
-  --surface-success: #F0FDF4;
-  --text-success: #16A34A;
-  --surface-info: #EFF6FF;
-  --text-info: #2563EB;
+  /* Estados e badges semânticos — sucesso/info alinhados à marca, alerta/erro mantidos genéricos (convenção universal de UX) */
+  --surface-success: #E9F8F4;
+  --text-success: #0C8C7D;
+  --surface-info: #EAF2FB;
+  --text-info: #044C7C;
   --surface-warning: #FFFBEB;
   --text-warning: #D97706;
   --text-warning-strong: #F59E0B;
@@ -99,7 +66,8 @@
   --background-end-rgb: 15, 16, 19;
   color-scheme: dark;
 
-  /* Marca */
+  /* Marca — esquema anterior (azul petróleo / verde água), a pedido do
+     usuário: só o modo escuro voltou; modo claro continua no Systemsat. */
   --brand-primary: #15558A;
   --brand-primary-hover: #1D6AA5;
   --brand-primary-strong: #1D6AA5;
@@ -143,6 +111,13 @@ body {
   color: rgb(var(--foreground-rgb));
   background: white;
   transition: background-color 0.15s ease, color 0.15s ease;
+  font-family: var(--font-primary), 'Segoe UI', system-ui, sans-serif;
+}
+
+/* Tipografia secundária da marca (Segoe UI) — reservada pra títulos e
+   subtítulos, a fonte primária (--font-primary) cobre o resto do texto. */
+h1, h2, h3, h4, h5, h6 {
+  font-family: 'Segoe UI', system-ui, -apple-system, sans-serif;
 }
 
 .dark body {

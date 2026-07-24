@@ -1331,7 +1331,7 @@ useEffect(() => {
         const ticketNoticeMessage: ChatMessage = {
           id: crypto.randomUUID(),
           senderId: currentUser.id,
-          senderName: 'SSX Resolve',
+          senderName: 'SSX Desk',
           text: `📄 Novo chamado gerado #${String(createdTicketNumber).padStart(4, '0')}`,
           timestamp: new Date().toISOString(),
           type: 'system'
@@ -1440,7 +1440,7 @@ useEffect(() => {
             const closingChatMessage: ChatMessage = {
               id: crypto.randomUUID(),
               senderId: currentUser.id,
-              senderName: 'SSX Resolve',
+              senderName: 'SSX Desk',
               text: closingMessage,
               timestamp: new Date().toISOString(),
               type: 'system'

@@ -5,7 +5,6 @@ import { useRouter } from 'next/navigation';
 import { useApp } from '@/app/app-context';
 
 import { Mail, Lock, ArrowRight, Eye, EyeOff, Sun, Moon } from 'lucide-react';
-import Link from 'next/link';
 import { toast } from 'sonner';
 import { UserRole } from '@/lib/types';
 import { useTheme } from '@/app/theme-provider';
@@ -16,7 +15,7 @@ export default function LoginPage() {
   const [showPassword, setShowPassword] = useState(false);
   const [isLoading, setIsLoading] = useState(false);
   const { currentUser, setCurrentUser, authInitialized } = useApp();
-  const { theme, toggleTheme } = useTheme();
+  const { theme, toggleTheme, mounted } = useTheme();
   const router = useRouter();
   const isSubmittingRef = React.useRef(false);
 
@@ -87,29 +86,49 @@ export default function LoginPage() {
 
   return (
     <div className="min-h-screen flex items-center justify-center bg-[var(--surface-card)] p-6 relative">
+      {/* Antes de `mounted`, o server sempre renderiza 'light' (localStorage
+          não existe no server) — usar `mounted && theme === 'dark'` garante
+          que o primeiro render do client bate exatamente com o do server
+          (sempre Moon/"Ativar modo escuro"), evitando o hydration mismatch
+          que estava regenerando a árvore (causa provável do glitch visual
+          de logo duplicada). O ícone corrige sozinho no frame seguinte. */}
       <button
         type="button"
         onClick={toggleTheme}
         className="absolute top-6 right-6 p-2.5 rounded-xl text-[var(--text-tertiary)] hover:text-[var(--text-secondary)] hover:bg-[var(--surface-card)] transition-all"
-        title={theme === 'dark' ? 'Ativar modo claro' : 'Ativar modo escuro'}
+        title={mounted && theme === 'dark' ? 'Ativar modo claro' : 'Ativar modo escuro'}
       >
-        {theme === 'dark' ? <Sun size={20} /> : <Moon size={20} />}
+        {mounted && theme === 'dark' ? <Sun size={20} /> : <Moon size={20} />}
       </button>
       <div className="w-full max-w-md">
         <div className="text-center mb-10">
           <div className="relative inline-flex mb-8">
+            {/* Brilho original — igual nos dois temas, intocado. */}
             <div className="absolute -inset-8 bg-[var(--accent)]/25 blur-3xl rounded-full" aria-hidden="true" />
-            <div className="relative inline-flex items-center justify-center bg-white rounded-[2rem] shadow-2xl shadow-slate-300/50 dark:shadow-black/40 ring-1 ring-black/5 px-10 py-8 sm:px-14 sm:py-10">
-              <div
-                className="logo-shine"
-                style={{ ['--logo-shine-mask' as string]: "url('/branding/logo.png')" }}
-              >
-                <img src="/branding/logo.png" alt="SSX Resolve" className="h-20 sm:h-24 w-auto select-none" draggable={false} />
-              </div>
+            {/* Um wrapper só, mesmo padding nos dois temas — antes o modo
+                claro não tinha o padding do card, então o brilho (que usa
+                -inset relativo a este contêiner) e a área geral saíam bem
+                menores que no escuro. Só o fundo/sombra do card é exclusivo
+                do modo escuro (dark:), o tamanho é sempre o mesmo. */}
+            <div className="relative inline-flex items-center justify-center rounded-[2.5rem] p-8 sm:p-10 dark:bg-gradient-to-br dark:from-[#081F3B] dark:to-[#044C7C] dark:shadow-2xl dark:shadow-black/30 dark:ring-1 dark:ring-white/10">
+              <img
+                src="/branding/logo-no-bg.svg"
+                alt="SSX Desk"
+                className="w-[280px] h-[169px] sm:w-[360px] sm:h-[218px] object-contain select-none dark:hidden"
+                draggable={false}
+              />
+              <img
+                src="/branding/logo.png?v=2"
+                alt="SSX Desk"
+                width={970}
+                height={587}
+                className="hidden dark:block w-full max-w-[280px] sm:max-w-[360px] h-auto select-none"
+                draggable={false}
+              />
             </div>
           </div>
           <h1 className="text-3xl font-black text-[var(--text-primary)] tracking-tight">Bem-vindo de volta</h1>
-          <p className="text-[var(--text-tertiary)] font-medium mt-2">Acesse sua conta SSX Resolve</p>
+          <p className="text-[var(--text-tertiary)] font-medium mt-2">Acesse sua conta SSX Desk</p>
         </div>
 
         <div className="bg-[var(--surface-card)] p-8 rounded-3xl border border-[var(--border-default)] shadow-xl shadow-slate-200/50">
@@ -154,12 +173,11 @@ export default function LoginPage() {
               </div>
             </div>
 
-            <div className="flex items-center justify-between text-xs font-bold px-1">
+            <div className="flex items-center text-xs font-bold px-1">
               <label className="flex items-center gap-2 text-[var(--text-tertiary)] cursor-pointer">
                 <input type="checkbox" className="rounded border-[var(--border-default)] text-[var(--accent-text)] focus:ring-[var(--accent)]" disabled={isLoading} />
                 Lembrar-me
               </label>
-              <button type="button" className="text-[var(--accent-text)] hover:underline" disabled={isLoading}>Esqueceu a senha?</button>
             </div>
 
             <button
@@ -180,17 +198,7 @@ export default function LoginPage() {
               )}
             </button>
           </form>
-
-          <div className="mt-8 pt-8 border-t border-[var(--border-default)] text-center">
-            <p className="text-sm text-[var(--text-tertiary)] font-medium">
-              Não tem uma conta? <Link href="/" className="text-[var(--accent-text)] font-bold hover:underline">Solicite acesso</Link>
-            </p>
-          </div>
         </div>
-
-        <p className="text-center mt-8 text-[10px] font-semibold text-[var(--text-tertiary)] uppercase tracking-widest">
-          Ambiente Seguro & Criptografado
-        </p>
       </div>
     </div>
   );
