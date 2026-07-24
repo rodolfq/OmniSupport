@@ -27,6 +27,11 @@ export class TicketService {
       assigneeId: t.assignee_id,
       assigneeName: t.assignee?.name,
       employeeIds: t.employee_ids || [],
+      queueId: t.queue_id,
+      categoryId: t.category_id,
+      requestTypeId: t.request_type_id,
+      productId: t.product_id,
+      tags: t.tags || [],
       createdAt: t.created_at,
       updatedAt: t.updated_at
     })) as Ticket[];
@@ -60,6 +65,11 @@ export class TicketService {
       assigneeId: data.assignee_id,
       assigneeName: data.assignee?.name,
       employeeIds: data.employee_ids || [],
+      queueId: data.queue_id,
+      categoryId: data.category_id,
+      requestTypeId: data.request_type_id,
+      productId: data.product_id,
+      tags: data.tags || [],
       createdAt: data.created_at,
       updatedAt: data.updated_at
     } as Ticket;
@@ -78,7 +88,11 @@ export class TicketService {
       description: ticket.description,
       status: ticket.status || TicketStatus.NEW,
       priority: ticket.priority || 'Baixa',
-      category: ticket.category || 'Geral',
+      queue_id: ticket.queueId || null,
+      category_id: ticket.categoryId || null,
+      request_type_id: ticket.requestTypeId || null,
+      product_id: ticket.productId || null,
+      tags: ticket.tags || [],
       customer_id: userId,
       assignee_id: ticket.assigneeId || null,
       company_id: ticket.companyId || null,
@@ -96,7 +110,11 @@ export class TicketService {
         description: ticket.description,
         status: ticket.status,
         priority: ticket.priority,
-        category: ticket.category,
+        queue_id: ticket.queueId,
+        category_id: ticket.categoryId,
+        request_type_id: ticket.requestTypeId,
+        product_id: ticket.productId,
+        tags: ticket.tags,
         company_id: ticket.companyId,
         customer_id: ticket.customerId,
         assignee_id: ticket.assigneeId,
@@ -115,6 +133,28 @@ export class TicketService {
       .eq('id', ticketId);
 
     if (error) throw error;
+  }
+
+  // Lista curta e só informativa dos outros chamados recentes da mesma
+  // empresa — aba "Chamados Recentes" em ticket-detail-modal.tsx, e base de
+  // busca do modal "Vincular Chamado" em chat-widget.tsx (via `search`).
+  static async getRecentByCompany(companyId: string, excludeTicketId?: string, limit = 5, search?: string): Promise<Ticket[]> {
+    const qs = new URLSearchParams({ action: 'recent-by-company', companyId, limit: String(limit) });
+    if (excludeTicketId) qs.set('excludeId', excludeTicketId);
+    if (search) qs.set('search', search);
+    const res = await fetch(`/api/tickets?${qs.toString()}`);
+    if (!res.ok) return [];
+    return res.json();
+  }
+
+  // Lista completa paginada de chamados de uma empresa — tela dedicada
+  // /customers/[id] (item 13 do roadmap). Diferente de getRecentByCompany:
+  // suporta offset real e retorna o total pra "carregar mais".
+  static async getByCompanyPaginated(companyId: string, limit = 15, offset = 0): Promise<{ tickets: Ticket[]; total: number }> {
+    const qs = new URLSearchParams({ action: 'by-company', companyId, limit: String(limit), offset: String(offset) });
+    const res = await fetch(`/api/tickets?${qs.toString()}`);
+    if (!res.ok) return { tickets: [], total: 0 };
+    return res.json();
   }
 
   static calculateSLA(createdAt: string, priorityLabel: string): string | undefined {

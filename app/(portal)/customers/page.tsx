@@ -3,7 +3,7 @@
 import React, { useState, useEffect, useMemo } from 'react';
 import { getUsers, getCompanies, deleteCompany } from '@/app/actions';
 import { Company, User, UserRole, Permission } from '@/lib/types';
-import { Building2, User as UserIcon, Mail, Phone, Plus, MessageCircle, Ticket, ShieldCheck, ShieldOff, Search, X, Check } from 'lucide-react';
+import { Building2, User as UserIcon, Mail, Phone, Plus, MessageCircle, Ticket, ShieldCheck, ShieldOff, Search, X, Check, Pencil, UserPlus } from 'lucide-react';
 import { cn, normalizeString, maskPhone } from '@/lib/utils';
 import { NewEmployeeModal } from '@/components/new-employee-modal';
 import { EditEmployeeModal } from '@/components/edit-employee-modal';
@@ -286,24 +286,32 @@ if (isCompanyPortalUser) {
                   <p className="text-[var(--text-tertiary)] text-sm font-medium">{selectedCompany.industry} • {selectedCompany.phone || 'Sem telefone'}</p>
                 </div>
               </div>
-              <div className="flex gap-2">
+              <div className="flex items-center gap-2">
+                <a
+                  href={`/customers/${selectedCompany.id}`}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  title="Ver chamados e atendimentos desta empresa"
+                  className="flex items-center gap-2 bg-[var(--surface-pill)] text-[var(--text-secondary)] px-4 py-2.5 rounded-lg text-sm font-bold border border-[var(--border-default)] hover:bg-[var(--border-default)] transition-all"
+                >
+                  <Ticket size={16} /> Chamados e Atendimentos
+                </a>
                 {canManageCompanies && (
-                  <>
-                <button
-                  onClick={() => { setCompanyToEdit(selectedCompany); setIsCompanyModalOpen(true); }}
-                  className="bg-[var(--accent)]/10 text-[var(--accent-text)] px-4 py-2.5 rounded-lg text-sm font-bold hover:bg-[var(--accent)]/20 transition-all">Editar Empresa</button>
-                <button
-                  onClick={() => setCompanyToDelete(selectedCompany)}
-                  className="bg-[var(--surface-danger)] text-[var(--text-danger)] px-4 py-2.5 rounded-lg text-sm font-bold hover:bg-[var(--surface-danger)] transition-all">Excluir Empresa</button>
-                  </>
+                  <button
+                    onClick={() => { setCompanyToEdit(selectedCompany); setIsCompanyModalOpen(true); }}
+                    title="Editar empresa"
+                    className="flex items-center gap-2 bg-[var(--accent)]/10 text-[var(--accent-text)] px-4 py-2.5 rounded-lg text-sm font-bold hover:bg-[var(--accent)]/20 transition-all"
+                  >
+                    <Pencil size={16} /> Editar Empresa
+                  </button>
                 )}
                 {canCreateEmployees && (
-                <button
-                  onClick={() => setIsEmployeeModalOpen(true)}
-                  className="bg-[var(--accent)] text-white px-6 py-2.5 rounded-lg text-sm font-bold shadow-md hover:bg-[var(--accent-hover)] transition-all"
-                >
-                  Novo Funcionário
-                </button>
+                  <button
+                    onClick={() => setIsEmployeeModalOpen(true)}
+                    className="flex items-center gap-2 bg-[var(--accent)] text-white px-6 py-2.5 rounded-lg text-sm font-bold shadow-md hover:bg-[var(--accent-hover)] transition-all"
+                  >
+                    <UserPlus size={16} /> Novo Funcionário
+                  </button>
                 )}
               </div>
             </div>
@@ -421,6 +429,10 @@ if (isCompanyPortalUser) {
         company={companyToEdit}
         onSuccess={loadData}
         showInternalSection={canManageCompanies}
+        onRequestDelete={() => {
+          setIsCompanyModalOpen(false);
+          setCompanyToDelete(companyToEdit);
+        }}
       />
       <WhatsAppNumberModal
         isOpen={isWhatsAppModalOpen}

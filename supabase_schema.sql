@@ -35,6 +35,7 @@ DROP TABLE IF EXISTS public.config_statuses CASCADE;
 DROP TABLE IF EXISTS public.quick_notes CASCADE;
 DROP TABLE IF EXISTS public.queues CASCADE;
 DROP TABLE IF EXISTS public.profiles CASCADE;
+DROP TABLE IF EXISTS public.hotfixes CASCADE;
 DROP TABLE IF EXISTS public.companies CASCADE;
 DROP TABLE IF EXISTS public.internal_tickets CASCADE;
 DROP TABLE IF EXISTS public.internal_chats CASCADE;
@@ -77,6 +78,22 @@ email TEXT NOT NULL UNIQUE,
    view_all_company_tickets BOOLEAN DEFAULT FALSE,
    created_at TIMESTAMP WITH TIME ZONE DEFAULT now() NOT NULL
 );
+
+-- Hotfixes Table (item 17 do roadmap — cadastro de hotfix / janela de release)
+CREATE TABLE public.hotfixes (
+  id UUID PRIMARY KEY DEFAULT (md5(random()::text || clock_timestamp()::text)::uuid),
+  name TEXT NOT NULL,
+  description TEXT,
+  responsible_id UUID REFERENCES public.profiles(id) ON DELETE SET NULL,
+  expected_date DATE NOT NULL,
+  published_at TIMESTAMP WITH TIME ZONE,
+  alerted_at TIMESTAMP WITH TIME ZONE,
+  created_by UUID REFERENCES public.profiles(id) ON DELETE SET NULL,
+  created_at TIMESTAMP WITH TIME ZONE DEFAULT now() NOT NULL,
+  updated_at TIMESTAMP WITH TIME ZONE DEFAULT now() NOT NULL
+);
+
+CREATE INDEX IF NOT EXISTS idx_hotfixes_expected_date ON public.hotfixes(expected_date);
 
 -- Internal Teams Table for better organization
 CREATE TABLE IF NOT EXISTS public.internal_teams (
@@ -178,6 +195,20 @@ CREATE TABLE public.config_categories (
   created_at TIMESTAMP WITH TIME ZONE DEFAULT now() NOT NULL
 );
 
+-- Config Request Types ("Tipo de Solicitação" do chamado)
+CREATE TABLE public.config_request_types (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  label TEXT NOT NULL UNIQUE,
+  created_at TIMESTAMP WITH TIME ZONE DEFAULT now() NOT NULL
+);
+
+-- Config Products ("Produto" do chamado)
+CREATE TABLE public.config_products (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  label TEXT NOT NULL UNIQUE,
+  created_at TIMESTAMP WITH TIME ZONE DEFAULT now() NOT NULL
+);
+
 CREATE TABLE public.config_priorities (
   id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
   label TEXT NOT NULL UNIQUE,
@@ -242,7 +273,11 @@ CREATE TABLE public.tickets (
   description TEXT NOT NULL,
   status TEXT NOT NULL DEFAULT 'Novo',
   priority TEXT NOT NULL DEFAULT 'Baixa',
-  category TEXT NOT NULL DEFAULT 'Geral',
+  category TEXT NOT NULL DEFAULT 'Geral', -- legado: pré-split Fila/Categoria/Tipo de Solicitação, mantido só para compat com integrações externas
+  category_id UUID REFERENCES public.config_categories(id) ON DELETE SET NULL,
+  request_type_id UUID REFERENCES public.config_request_types(id) ON DELETE SET NULL,
+  product_id UUID REFERENCES public.config_products(id) ON DELETE SET NULL,
+  tags TEXT[] DEFAULT '{}',
   company_id UUID REFERENCES public.companies(id) ON DELETE CASCADE,
   customer_id UUID REFERENCES public.profiles(id) ON DELETE SET NULL,
   assignee_id UUID REFERENCES public.profiles(id) ON DELETE SET NULL,
@@ -254,6 +289,9 @@ CREATE TABLE public.tickets (
 
 -- Index for Ticket Sequentials
 CREATE INDEX IF NOT EXISTS idx_tickets_public_number ON public.tickets(public_ticket_number);
+CREATE INDEX IF NOT EXISTS idx_tickets_category_id ON public.tickets(category_id);
+CREATE INDEX IF NOT EXISTS idx_tickets_request_type_id ON public.tickets(request_type_id);
+CREATE INDEX IF NOT EXISTS idx_tickets_product_id ON public.tickets(product_id);
 CREATE INDEX IF NOT EXISTS idx_internal_tickets_number ON public.internal_tickets(internal_ticket_number);
 
 -- Search and filter indexes
@@ -302,6 +340,20 @@ CREATE TABLE public.chat_sessions (
   awaiting_survey_until TIMESTAMP WITH TIME ZONE
 );
 
+-- Chamado -> conversa de origem (N:1, permite mais de um chamado pra mesma
+-- conversa). Fica como ALTER porque chat_sessions é criada depois de tickets
+-- neste script.
+ALTER TABLE public.tickets
+  ADD COLUMN IF NOT EXISTS chat_session_id UUID REFERENCES public.chat_sessions(id) ON DELETE SET NULL;
+
+CREATE INDEX IF NOT EXISTS idx_tickets_chat_session_id ON public.tickets(chat_session_id);
+
+-- Item 12 do roadmap: chamado absorvido numa mesclagem aponta para o chamado sobrevivente.
+ALTER TABLE public.tickets
+  ADD COLUMN IF NOT EXISTS merged_into_id TEXT REFERENCES public.tickets(id) ON DELETE SET NULL;
+
+CREATE INDEX IF NOT EXISTS idx_tickets_merged_into_id ON public.tickets(merged_into_id);
+
 -- 11. Chat Participants
 CREATE TABLE public.chat_participants (
   chat_id UUID REFERENCES public.chat_sessions(id) ON DELETE CASCADE,
@@ -337,8 +389,18 @@ CREATE TABLE public.queues (
   description TEXT,
   whatsapp_instance_id TEXT,
   member_ids UUID[] DEFAULT '{}',
+  include_internal_chats BOOLEAN NOT NULL DEFAULT true,
+  routing_strategy TEXT NOT NULL DEFAULT 'round_robin',
   created_at TIMESTAMP WITH TIME ZONE DEFAULT now() NOT NULL
 );
+
+-- "Fila" do chamado: campo de seleção manual/exibição (não dispara
+-- distribuição automática). Fica como ALTER porque queues é criada depois de
+-- tickets neste script.
+ALTER TABLE public.tickets
+  ADD COLUMN IF NOT EXISTS queue_id TEXT REFERENCES public.queues(id) ON DELETE SET NULL;
+
+CREATE INDEX IF NOT EXISTS idx_tickets_queue_id ON public.tickets(queue_id);
 
 -- 14.5 Internal Tickets Table (Internal tracking for complex issues)
 CREATE TABLE public.internal_tickets (
@@ -352,9 +414,12 @@ CREATE TABLE public.internal_tickets (
   priority INTEGER DEFAULT 1,
   tags TEXT[] DEFAULT '{}',
   creator_id UUID REFERENCES public.profiles(id) ON DELETE SET NULL,
+  status TEXT DEFAULT 'Novo',
   created_at TIMESTAMP WITH TIME ZONE DEFAULT now() NOT NULL,
   updated_at TIMESTAMP WITH TIME ZONE DEFAULT now() NOT NULL,
-  sla_limit TIMESTAMP WITH TIME ZONE
+  sla_limit TIMESTAMP WITH TIME ZONE,
+  expected_publish_date TIMESTAMP WITH TIME ZONE,
+  hotfix_id UUID REFERENCES public.hotfixes(id) ON DELETE SET NULL
 );
 
 -- N:N relationship between tickets and internal_tickets
@@ -460,7 +525,8 @@ INSERT INTO public.config_statuses (label, color) VALUES
 ('Resolvido', 'bg-emerald-50 text-emerald-700'),
 ('Fechado', 'bg-slate-100 text-slate-500'),
 ('Aguardando Cliente', 'bg-amber-100 text-amber-700'),
-('Aguardando Aprovação', 'bg-purple-100 text-purple-700')
+('Aguardando Aprovação', 'bg-purple-100 text-purple-700'),
+('Mesclado', 'bg-slate-200 text-slate-500')
 ON CONFLICT (label) DO NOTHING;
 
 -- Seed Default Categories
@@ -519,6 +585,8 @@ ALTER TABLE public.user_status_history DISABLE ROW LEVEL SECURITY;
 ALTER TABLE public.absence_reasons DISABLE ROW LEVEL SECURITY;
 ALTER TABLE public.config_statuses DISABLE ROW LEVEL SECURITY;
 ALTER TABLE public.config_categories DISABLE ROW LEVEL SECURITY;
+ALTER TABLE public.config_request_types DISABLE ROW LEVEL SECURITY;
+ALTER TABLE public.config_products DISABLE ROW LEVEL SECURITY;
 ALTER TABLE public.config_priorities DISABLE ROW LEVEL SECURITY;
 ALTER TABLE public.config_tags DISABLE ROW LEVEL SECURITY;
 ALTER TABLE public.config_survey_settings DISABLE ROW LEVEL SECURITY;
@@ -531,6 +599,7 @@ ALTER TABLE public.chat_participants DISABLE ROW LEVEL SECURITY;
 ALTER TABLE public.chat_messages DISABLE ROW LEVEL SECURITY;
 ALTER TABLE public.quick_notes DISABLE ROW LEVEL SECURITY;
 ALTER TABLE public.queues DISABLE ROW LEVEL SECURITY;
+ALTER TABLE public.hotfixes DISABLE ROW LEVEL SECURITY;
 ALTER TABLE public.whatsapp_sessions DISABLE ROW LEVEL SECURITY;
 ALTER TABLE public.internal_tickets DISABLE ROW LEVEL SECURITY;
 ALTER TABLE public.internal_teams DISABLE ROW LEVEL SECURITY;
@@ -556,6 +625,8 @@ SELECT public.create_permissive_policy('user_status_history');
 SELECT public.create_permissive_policy('absence_reasons');
 SELECT public.create_permissive_policy('config_statuses');
 SELECT public.create_permissive_policy('config_categories');
+SELECT public.create_permissive_policy('config_request_types');
+SELECT public.create_permissive_policy('config_products');
 SELECT public.create_permissive_policy('config_priorities');
 SELECT public.create_permissive_policy('config_tags');
 SELECT public.create_permissive_policy('config_survey_settings');
@@ -568,6 +639,7 @@ SELECT public.create_permissive_policy('chat_participants');
 SELECT public.create_permissive_policy('chat_messages');
 SELECT public.create_permissive_policy('quick_notes');
 SELECT public.create_permissive_policy('queues');
+SELECT public.create_permissive_policy('hotfixes');
 SELECT public.create_permissive_policy('whatsapp_sessions');
 SELECT public.create_permissive_policy('internal_tickets');
 SELECT public.create_permissive_policy('internal_teams');

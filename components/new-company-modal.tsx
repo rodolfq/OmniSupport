@@ -1,7 +1,7 @@
 ﻿'use client';
 
 import React, { useState } from 'react';
-import { X, Building2, Phone, Briefcase, Mail, Lock, UserPlus, RefreshCw, Eye, EyeOff, Radar, ShieldAlert, AlertTriangle } from 'lucide-react';
+import { X, Building2, Phone, Briefcase, Mail, Lock, UserPlus, RefreshCw, Eye, EyeOff, Radar, ShieldAlert, AlertTriangle, Trash2 } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import { saveCompany, getCustomerEvaluationSummary, updateCompanyRadarSync, saveCustomerEvaluation } from '@/app/actions';
 import { Company, type CustomerEvaluationScores, type CustomerEvaluationSummary, type CustomerProfileTag, MIN_RELIABLE_EVALUATION_COUNT } from '@/lib/types';
@@ -39,7 +39,7 @@ const EMPTY_EVAL_SCORES: CustomerEvaluationScores = {
   communicationScore: null
 };
 
-export function NewCompanyModal({ isOpen, onClose, onSuccess, company, showInternalSection = false }: { isOpen: boolean, onClose: () => void, onSuccess?: () => void, company?: Company | null, showInternalSection?: boolean }) {
+export function NewCompanyModal({ isOpen, onClose, onSuccess, company, showInternalSection = false, onRequestDelete }: { isOpen: boolean, onClose: () => void, onSuccess?: () => void, company?: Company | null, showInternalSection?: boolean, onRequestDelete?: () => void }) {
   const { currentUser } = useApp();
   const [name, setName] = useState('');
   const [industry, setIndustry] = useState('');
@@ -439,7 +439,18 @@ export function NewCompanyModal({ isOpen, onClose, onSuccess, company, showInter
                 </div>
               )}
 
-              <div className="pt-4 flex gap-4">
+              <div className="pt-4 flex items-center gap-4">
+                {isEditing && onRequestDelete && (
+                  <button
+                    type="button"
+                    onClick={onRequestDelete}
+                    disabled={isLoading}
+                    title="Excluir empresa"
+                    className="p-3.5 rounded-xl text-[var(--text-danger)] border border-[var(--border-default)] hover:bg-[var(--surface-danger)] hover:border-[var(--text-danger)]/30 transition-all disabled:opacity-50"
+                  >
+                    <Trash2 size={18} />
+                  </button>
+                )}
                 <button
                   type="button"
                   onClick={onClose}

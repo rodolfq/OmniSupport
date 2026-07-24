@@ -209,6 +209,30 @@ export async function GET(request: NextRequest) {
           createdAt: message.created_at
         });
       });
+
+      // Item 17 do roadmap: hotfixes atrasados que o scheduler de fundo
+      // (lib/services/hotfix-scheduler.ts) já marcou com alerted_at — só pro
+      // responsável, mesmo mecanismo de "comparar contra since" do resto
+      // desta rota.
+      const overdueHotfixes = await query(
+        `SELECT id, name, expected_date, alerted_at
+         FROM public.hotfixes
+         WHERE alerted_at > $1 AND responsible_id = $2
+         ORDER BY alerted_at ASC
+         LIMIT 50`,
+        [since, user.id]
+      );
+
+      overdueHotfixes.rows.forEach((hotfix) => {
+        events.push({
+          sourceId: `hotfix_overdue:${hotfix.id}:${new Date(hotfix.alerted_at).getTime()}`,
+          title: 'Hotfix atrasado',
+          message: `"${hotfix.name}" era esperado para ${new Date(hotfix.expected_date).toLocaleDateString('pt-BR')} e ainda não foi publicado.`,
+          type: 'hotfix_overdue',
+          targetId: hotfix.id,
+          createdAt: hotfix.alerted_at
+        });
+      });
     }
 
     events.sort((a, b) => new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime());

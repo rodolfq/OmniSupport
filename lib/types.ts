@@ -46,7 +46,8 @@ export enum Permission {
   SETTINGS_INTEGRATIONS = 'settings:integrations',
   QUEUES_MANAGE = 'queues:manage',
   DASHBOARD_VIEW = 'dashboard:view',
-  REPORTS_READ = 'reports:read'
+  REPORTS_READ = 'reports:read',
+  HOTFIXES_MANAGE = 'hotfixes:manage'
 }
 
 export interface StatusConfig {
@@ -184,6 +185,16 @@ export interface CategoryConfig {
   label: string;
 }
 
+export interface RequestTypeConfig {
+  id: string;
+  label: string;
+}
+
+export interface ProductConfig {
+  id: string;
+  label: string;
+}
+
 export interface TagConfig {
   id: string;
   label: string;
@@ -216,6 +227,9 @@ export interface InternalTicket {
   updatedAt?: string;
   slaLimit?: string | null;
   expectedPublishDate?: string | null;
+  // Marcador informativo: hotfix cadastrado ao qual este ticket se refere —
+  // ver app/(portal)/hotfixes/page.tsx.
+  hotfixId?: string | null;
   status?: "Novo" | "Em Andamento" | "Em Atendimento" | "Em Espera" | "Pendente" | "Resolvido" | "Concluído" | "Fechado" | "Encerrado" | "Cancelado";
 }
 
@@ -235,7 +249,11 @@ export interface Ticket {
   createdAt: string;
   completedAt?: string;
   updatedAt: string;
-  category: string;
+  category?: string; // legado: pré-split Fila/Categoria/Tipo de Solicitação, mantido só para compat com integrações externas — código novo não precisa mais preenchê-lo
+  queueId?: string;
+  categoryId?: string;
+  requestTypeId?: string;
+  productId?: string;
   tags: string[];
   attachments?: Attachment[];
   relatedTickets?: string[];
@@ -246,6 +264,10 @@ export interface Ticket {
   // app/actions.ts) — usada pra buscar o histórico da conversa ao vivo em vez
   // de duplicá-lo em `description`.
   chatSessionId?: string;
+  // Preenchido só quando este chamado foi absorvido numa mesclagem (item 12
+  // do roadmap) — aponta pro chamado sobrevivente. Ver mergeTickets em
+  // app/actions.ts.
+  mergedIntoId?: string;
 }
 
 export interface Message {
@@ -289,6 +311,19 @@ export interface Queue {
   whatsappInstanceId?: string;
   memberIds: string[];
   includeInternalChats: boolean;
+  // 'round_robin' (padrão) ou 'daily_balance' — item 14 do roadmap.
+  routingStrategy: string;
+  createdAt: string;
+}
+
+// Item 17 do roadmap — cadastro de hotfix / janela de release.
+export interface Hotfix {
+  id: string;
+  name: string;
+  description?: string;
+  responsibleId?: string;
+  expectedDate: string; // YYYY-MM-DD
+  publishedAt?: string;
   createdAt: string;
 }
 

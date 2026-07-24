@@ -2,6 +2,7 @@ import { PHASE_PRODUCTION_BUILD } from 'next/constants';
 import { query } from './lib/db';
 import { WhatsAppService } from './lib/services/whatsapp-service';
 import { startAutomationScheduler } from './lib/services/automation-scheduler';
+import { startHotfixScheduler } from './lib/services/hotfix-scheduler';
 
 (async () => {
   if (process.env.NEXT_PHASE === PHASE_PRODUCTION_BUILD) return;
@@ -20,4 +21,5 @@ import { startAutomationScheduler } from './lib/services/automation-scheduler';
   }
 
   startAutomationScheduler();
+  startHotfixScheduler();
 })();

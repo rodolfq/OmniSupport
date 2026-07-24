@@ -14,7 +14,8 @@ import {
   Library,
   FileText,
   History,
-  Star
+  Star,
+  Rocket
 } from 'lucide-react';
 import { Permission, UserRole, User } from './types';
 
@@ -91,6 +92,7 @@ export function getNavItems(currentUser: User | null, onChangePassword: () => vo
         { name: 'Equipe', icon: UserCog, href: '/team', permission: Permission.TEAM_READ },
         { name: 'Equipes & Permissões', icon: Shield, href: '/permissions', permission: Permission.SETTINGS_WRITE },
         { name: 'Filas', icon: Library, href: '/queues', permission: Permission.QUEUES_MANAGE },
+        { name: 'Hotfixes', icon: Rocket, href: '/hotfixes', permission: Permission.HOTFIXES_MANAGE },
         { name: 'Alterar Senha', icon: Key, action: onChangePassword },
       ]
     },

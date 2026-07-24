@@ -14,7 +14,7 @@ export interface TicketRow {
   description?: string;
   status: string;
   priority: string;
-  category: string;
+  category_id: string | null;
   company_id: string | null;
   customer_id: string | null;
   assignee_id: string | null;
@@ -90,8 +90,9 @@ export async function buildPlaceholderContext(ticket: TicketRow, extra: Record<s
     `SELECT
        (SELECT name FROM public.profiles WHERE id = $1) AS customer_name,
        (SELECT name FROM public.companies WHERE id = $2) AS company_name,
-       (SELECT name FROM public.profiles WHERE id = $3) AS assignee_name`,
-    [ticket.customer_id, ticket.company_id, ticket.assignee_id]
+       (SELECT name FROM public.profiles WHERE id = $3) AS assignee_name,
+       (SELECT label FROM public.config_categories WHERE id = $4) AS category_label`,
+    [ticket.customer_id, ticket.company_id, ticket.assignee_id, ticket.category_id]
   );
   const names = namesRes.rows[0] || {};
   const now = new Date();
@@ -106,7 +107,7 @@ export async function buildPlaceholderContext(ticket: TicketRow, extra: Record<s
     analista: names.assignee_name || '',
     status: ticket.status || '',
     prioridade: ticket.priority || '',
-    categoria: ticket.category || '',
+    categoria: names.category_label || '',
     data: now.toLocaleDateString('pt-BR'),
     hora: now.toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' }),
     link: baseUrl ? `${baseUrl}/my-tickets?ticket=${ticket.id}` : '',
@@ -235,7 +236,7 @@ export function handleTicketUpdated(oldTicket: TicketRow | null | undefined, new
   if (!oldTicket || !newTicket) return;
   (async () => {
     try {
-      if (oldTicket.category !== newTicket.category) {
+      if (oldTicket.category_id !== newTicket.category_id) {
         await dispatchEvent('chamado_classificado', newTicket);
       }
       if (oldTicket.priority !== newTicket.priority) {

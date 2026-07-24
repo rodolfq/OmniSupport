@@ -113,13 +113,6 @@ async function getNativeArrayColumns(table: string): Promise<Set<string>> {
 export async function POST(request: Request) {
   try {
     const body = await request.json();
-    try {
-      const fs = require('fs');
-      const path = require('path');
-      const logPath = path.resolve(process.cwd(), 'scripts/diagnostics/api_errors.log');
-      fs.mkdirSync(path.dirname(logPath), { recursive: true });
-      fs.appendFileSync(logPath, `[${new Date().toISOString()}] REQUEST: ${JSON.stringify(body)}\n`);
-    } catch (logErr) {}
     const {
       table,
       action,
@@ -396,12 +389,6 @@ export async function POST(request: Request) {
     return NextResponse.json({ error: 'Action não suportada.' }, { status: 400 });
   } catch (error: any) {
     console.error('Error in Supabase compatibility route:', error);
-    try {
-      const fs = require('fs');
-      const path = require('path');
-      const logPath = path.resolve(process.cwd(), 'scripts/diagnostics/api_errors.log');
-      fs.appendFileSync(logPath, `[${new Date().toISOString()}] ERROR: ${error.message}\nSTACK: ${error.stack}\n\n`);
-    } catch (logErr) {}
     return NextResponse.json({ error: error.message }, { status: 500 });
   }
 }

@@ -76,7 +76,14 @@ export async function GET(request: Request) {
         customerId: t.customer_id,
         attachments: t.attachments_data || [],
         createdAt: t.created_at,
-        updatedAt: t.updated_at
+        updatedAt: t.updated_at,
+        queueId: t.queue_id,
+        categoryId: t.category_id,
+        requestTypeId: t.request_type_id,
+        productId: t.product_id,
+        chatSessionId: t.chat_session_id,
+        mergedIntoId: t.merged_into_id,
+        tags: t.tags || []
       }));
 
       return NextResponse.json({

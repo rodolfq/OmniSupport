@@ -210,6 +210,145 @@ export async function GET(request: NextRequest) {
       });
     }
 
+    if (action === 'previous-histories') {
+      // Atendimentos anteriores do MESMO contato, pra exibir como resumo
+      // (expansível) dentro do chat em andamento — ver chat-widget.tsx. Contato
+      // é identificado por customer_id OU customer_phone (nunca só um dos
+      // dois, tem sessão antiga só com telefone), igual ao resto do arquivo.
+      const customerId = searchParams.get('customerId');
+      const customerPhone = searchParams.get('customerPhone');
+      const excludeSessionId = searchParams.get('excludeSessionId');
+      const limit = Math.min(Math.max(parseInt(searchParams.get('limit') || '2', 10) || 2, 1), 20);
+      const offset = Math.max(parseInt(searchParams.get('offset') || '0', 10) || 0, 0);
+
+      const phoneVariants = phoneLookupVariants(customerPhone);
+      if (!customerId && phoneVariants.length === 0) {
+        return NextResponse.json({ histories: [], total: 0 });
+      }
+
+      const conditions: string[] = [];
+      const params: any[] = [];
+      if (customerId) {
+        params.push(customerId);
+        conditions.push(`h.customer_id = $${params.length}`);
+      }
+      if (phoneVariants.length > 0) {
+        params.push(phoneVariants);
+        conditions.push(`h.customer_phone = ANY($${params.length}::text[])`);
+      }
+      let whereClause = `(${conditions.join(' OR ')})`;
+      if (excludeSessionId) {
+        params.push(excludeSessionId);
+        whereClause += ` AND h.session_id != $${params.length}`;
+      }
+
+      const countRes = await query(`SELECT COUNT(*)::int AS count FROM public.chat_histories h WHERE ${whereClause}`, params);
+
+      params.push(limit);
+      const limitParam = params.length;
+      params.push(offset);
+      const offsetParam = params.length;
+
+      const rowsRes = await query(
+        `SELECT h.*, p2.name as assignee_profile_name
+         FROM public.chat_histories h
+         LEFT JOIN public.profiles p2 ON h.assignee_id = p2.id
+         WHERE ${whereClause}
+         ORDER BY h.finished_at DESC
+         LIMIT $${limitParam} OFFSET $${offsetParam}`,
+        params
+      );
+
+      return NextResponse.json({
+        total: countRes.rows[0]?.count || 0,
+        histories: rowsRes.rows.map(h => ({
+          id: h.id,
+          sessionId: h.session_id,
+          assigneeName: h.assignee_profile_name,
+          startedAt: h.started_at,
+          finishedAt: h.finished_at,
+          durationSeconds: h.duration_seconds,
+          rating: h.rating
+        }))
+      });
+    }
+
+    if (action === 'histories-by-company') {
+      // Atendimentos finalizados de uma empresa (via profiles.company_id do
+      // contato) — tela dedicada /customers/[id] (item 13 do roadmap). Mesmo
+      // JOIN de 'histories', mas filtrado e paginado (essa aqui pode ter
+      // volume alto, 'histories' original não pagina).
+      const companyId = searchParams.get('companyId');
+      if (!companyId) return NextResponse.json({ total: 0, histories: [] });
+      const limit = Math.min(Math.max(parseInt(searchParams.get('limit') || '5', 10) || 5, 1), 20);
+      const offset = Math.max(parseInt(searchParams.get('offset') || '0', 10) || 0, 0);
+
+      const countRes = await query(
+        `SELECT COUNT(*)::int AS count
+         FROM public.chat_histories h
+         LEFT JOIN public.profiles p1 ON h.customer_id = p1.id
+         WHERE p1.company_id = $1`,
+        [companyId]
+      );
+
+      const rowsRes = await query(
+        `SELECT h.*, p1.name as customer_profile_name, p2.name as assignee_profile_name
+         FROM public.chat_histories h
+         LEFT JOIN public.profiles p1 ON h.customer_id = p1.id
+         LEFT JOIN public.profiles p2 ON h.assignee_id = p2.id
+         WHERE p1.company_id = $1
+         ORDER BY h.finished_at DESC
+         LIMIT $2 OFFSET $3`,
+        [companyId, limit, offset]
+      );
+
+      return NextResponse.json({
+        total: countRes.rows[0]?.count || 0,
+        histories: rowsRes.rows.map(h => ({
+          id: h.id,
+          sessionId: h.session_id,
+          customerName: h.customer_name || h.customer_profile_name,
+          assigneeName: h.assignee_profile_name,
+          startedAt: h.started_at,
+          finishedAt: h.finished_at,
+          durationSeconds: h.duration_seconds,
+          rating: h.rating
+        }))
+      });
+    }
+
+    if (action === 'sessions-by-company') {
+      // Atendimentos EM ANDAMENTO de uma empresa — tela dedicada
+      // /customers/[id] (item 13 do roadmap). Lista leve (sem array de
+      // mensagens, diferente de 'sessions'/'sessions-summary' que trazem tudo
+      // que está ativo no sistema inteiro). Sessões só com telefone avulso
+      // (sem customer_id vinculado a um profile) não têm como ser amarradas a
+      // uma empresa e ficam de fora — mesma limitação de 'previous-histories'.
+      const companyId = searchParams.get('companyId');
+      if (!companyId) return NextResponse.json([]);
+
+      const res = await query(
+        `SELECT s.*, p2.name as assignee_profile_name
+         FROM public.chat_sessions s
+         JOIN public.profiles p1 ON p1.id = s.customer_id
+         LEFT JOIN public.profiles p2 ON p2.id = s.assignee_id
+         WHERE p1.company_id = $1 AND s.status != 'closed'
+         ORDER BY COALESCE(s.last_message_at, s.updated_at, s.created_at) DESC`,
+        [companyId]
+      );
+
+      return NextResponse.json(res.rows.map(s => ({
+        id: s.id,
+        customerName: s.customer_name,
+        assigneeName: s.assignee_profile_name,
+        status: s.status,
+        startedAt: s.created_at,
+        lastMessageAt: s.last_message_at || s.created_at,
+        ticketId: s.ticket_id,
+        ticketNumber: s.ticket_number
+      })));
+    }
+
     if (action === 'histories') {
       // "Cliente" = a empresa contratante (companies.name, via profiles.company_id
       // do usuário que conversou) — não confundir com "Funcionário", que é a

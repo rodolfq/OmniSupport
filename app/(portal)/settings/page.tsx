@@ -59,15 +59,21 @@ export default function SettingsPage() {
   const [editInstanceName, setEditInstanceName] = useState('');
   const [confirmingDisconnect, setConfirmingDisconnect] = useState(false);
   const [categories, setCategories] = useState<any[]>([]);
+  const [requestTypes, setRequestTypes] = useState<any[]>([]);
+  const [products, setProducts] = useState<any[]>([]);
   const [priorities, setPriorities] = useState<any[]>([]);
   const [surveySettings, setSurveySettings] = useState<any>(null);
 
   useEffect(() => {
     const fetchSystemConfig = async () => {
       const { data: cat } = await supabase.from('config_categories').select('*');
+      const { data: reqType } = await supabase.from('config_request_types').select('*');
+      const { data: prod } = await supabase.from('config_products').select('*');
       const { data: prio } = await supabase.from('config_priorities').select('*');
       const { data: survey } = await supabase.from('config_survey_settings').select('*');
       setCategories(cat || []);
+      setRequestTypes(reqType || []);
+      setProducts(prod || []);
       setPriorities(prio || []);
       setSurveySettings((survey && survey[0]) || null);
     }
@@ -282,8 +288,12 @@ export default function SettingsPage() {
              <div className="space-y-6 animate-in fade-in slide-in-from-bottom-4 duration-300">
                 <SystemConfigContent
                   categories={categories}
+                  requestTypes={requestTypes}
+                  products={products}
                   priorities={priorities}
                   setCategories={setCategories}
+                  setRequestTypes={setRequestTypes}
+                  setProducts={setProducts}
                   setPriorities={setPriorities}
                   surveySettings={surveySettings}
                   setSurveySettings={setSurveySettings}

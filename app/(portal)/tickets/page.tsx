@@ -11,6 +11,7 @@ import {
 
 import { SearchFilters, searchTickets } from "@/lib/search";
 import { isClosedTicketStatus, isInProgressTicketStatus } from "@/lib/ticket-status";
+import { mergeTickets } from "@/app/actions";
 import {
   FileText,
   ChevronLeft,
@@ -190,6 +191,7 @@ export default function TicketsPage() {
   const [loading, setLoading] = useState(true);
   const [priorities, setPriorities] = useState<any[]>([]);
   const [companies, setCompanies] = useState<any[]>([]);
+  const [queues, setQueues] = useState<any[]>([]);
   const [users, setUsers] = useState<any[]>([]);
   const lastAutomaticRequestKeyRef = useRef('');
   const referenceDataUserIdRef = useRef('');
@@ -299,14 +301,16 @@ export default function TicketsPage() {
 
     const loadReferenceData = async () => {
       try {
-        const [pRes, cRes, uRes] = await Promise.all([
+        const [pRes, cRes, uRes, qRes] = await Promise.all([
           fetch('/api/config?type=priorities').then(r => r.json()),
           fetch('/api/companies').then(r => r.json()),
           fetch('/api/users?type=all').then(r => r.json()),
+          fetch('/api/config?type=queues').then(r => r.json()),
         ]);
         setPriorities(pRes);
         setCompanies(cRes);
         setUsers(uRes);
+        setQueues(qRes);
       } catch (error) {
         console.error('Error loading ticket reference data:', error);
       }
@@ -421,18 +425,22 @@ export default function TicketsPage() {
 
   const handleMergeTickets = async () => {
     if (!selectedMasterTicketId || selectedTickets.length < 2) return;
-    
+
     const ticketsToMerge = selectedTickets.filter(id => id !== selectedMasterTicketId);
     const masterTicket = filteredTickets.find(t => t.id === selectedMasterTicketId);
-    
+
     if (!masterTicket) {
       toast.error('Chamado principal não encontrado');
       return;
     }
-    
+
     try {
-      await bulkUpdateTickets(ticketsToMerge, { status: TicketStatus.CLOSED });
-      
+      const result = await mergeTickets(ticketsToMerge, selectedMasterTicketId);
+      if (result && 'error' in result) {
+        toast.error('Erro ao mesclar: ' + result.error);
+        return;
+      }
+
       toast.success(`${ticketsToMerge.length} chamado(s) mesclado(s) ao chamado #${masterTicket.ticketNumber || masterTicket.id.slice(0, 8)}`);
       setSelectedTickets([]);
       setIsMergeModalOpen(false);
@@ -693,7 +701,7 @@ export default function TicketsPage() {
                 )}
               </div>
               <span className="text-[10px] text-[var(--text-tertiary)] font-medium whitespace-nowrap">
-                {ticket.category}
+                {queues.find((q) => q.id === ticket.queueId)?.name || "Sem fila"}
               </span>
             </div>
           </td>
@@ -1068,7 +1076,7 @@ export default function TicketsPage() {
                         </span>
                       </div>
                       <p className="font-bold text-[var(--text-primary)] text-sm italic mt-1.5 truncate">{t.title}</p>
-                      <p className="text-[10px] text-[var(--text-tertiary)] font-medium">{company?.name || t.category}</p>
+                      <p className="text-[10px] text-[var(--text-tertiary)] font-medium">{company?.name || queues.find((q: any) => q.id === t.queueId)?.name || "Sem fila"}</p>
                       <div className="flex items-center justify-between mt-2.5">
                         <div className="flex items-center gap-1.5 min-w-0">
                           {assignee ? (

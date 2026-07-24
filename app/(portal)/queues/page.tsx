@@ -38,6 +38,7 @@ export default function QueuesManagementPage() {
   const [selectedWhatsappId, setSelectedWhatsappId] = useState('');
   const [selectedMemberIds, setSelectedMemberIds] = useState<string[]>([]);
   const [includeInternalChats, setIncludeInternalChats] = useState(true);
+  const [routingStrategy, setRoutingStrategy] = useState('round_robin');
   const [deletingQueue, setDeletingQueue] = useState<Queue | null>(null);
 
   const { hasPermission } = useApp();
@@ -60,6 +61,7 @@ export default function QueuesManagementPage() {
           whatsappInstanceId: q.whatsappInstanceId || '',
           memberIds: q.memberIds || [],
           includeInternalChats: q.includeInternalChats !== false,
+          routingStrategy: q.routingStrategy || 'round_robin',
           createdAt: (q as any).createdAt
         })));
       }
@@ -86,6 +88,7 @@ export default function QueuesManagementPage() {
       setSelectedWhatsappId(queue.whatsappInstanceId || '');
       setSelectedMemberIds(queue.memberIds);
       setIncludeInternalChats(queue.includeInternalChats !== false);
+      setRoutingStrategy(queue.routingStrategy || 'round_robin');
     } else {
       setSelectedQueue(null);
       setName('');
@@ -93,6 +96,7 @@ export default function QueuesManagementPage() {
       setSelectedWhatsappId('');
       setSelectedMemberIds([]);
       setIncludeInternalChats(true);
+      setRoutingStrategy('round_robin');
     }
     setIsModalOpen(true);
   };
@@ -107,7 +111,8 @@ export default function QueuesManagementPage() {
       description,
       selectedWhatsappId || null,
       selectedMemberIds,
-      includeInternalChats
+      includeInternalChats,
+      routingStrategy
     );
 
     if (res && (res as any).error) {
@@ -204,6 +209,36 @@ export default function QueuesManagementPage() {
               </div>
               <Globe className="absolute -right-10 -bottom-10 w-40 h-40 text-white/10" />
            </div>
+
+           <div className="bg-[var(--surface-card)] border border-[var(--border-default)] rounded-[2.5rem] p-8 shadow-sm">
+              <h3 className="text-xs font-black uppercase text-[var(--text-tertiary)] tracking-widest mb-4 flex items-center gap-2">
+                 <Users size={16} className="text-[var(--accent-text)]" />
+                 Como a fila distribui os atendimentos
+              </h3>
+              <div className="space-y-3 text-xs text-[var(--text-secondary)] font-medium leading-relaxed">
+                 <p>
+                    A estratégia de distribuição é configurável por fila (campo "Estratégia de Distribuição" no formulário). Duas opções hoje: <strong className="text-[var(--text-primary)]">Rodízio</strong>, descrita abaixo, e <strong className="text-[var(--text-primary)]">Equilíbrio diário</strong>, que manda cada novo atendimento pra quem tem menos chats recebidos no dia (todos os canais somados), nivelando a carga ao longo do turno em vez de seguir só a ordem fixa.
+                 </p>
+                 <p>
+                    No <strong className="text-[var(--text-primary)]">Rodízio (round-robin)</strong>, a distribuição é entre quem está online agora dentro da equipe da fila — não existe fila de espera visual nem prioridade manual: quem vai ficando <strong className="text-[var(--text-primary)]">online vai entrando no rodízio</strong> e passa a receber a próxima conversa na sua vez.
+                 </p>
+                 <p>
+                    A ordem segue a sequência da equipe cadastrada na fila, pulando quem está offline. Cada novo atendimento vai para o próximo da vez depois de quem recebeu o último — ou seja, quem está online há mais tempo sem receber um chat é o próximo.
+                 </p>
+                 <p>
+                    <strong className="text-[var(--text-primary)]">Chat de WhatsApp e chat de login do funcionário (widget do portal) entram no mesmo rodízio</strong>: quem acabou de receber um pelo WhatsApp não é o próximo também a receber um de login, e vice-versa — os dois canais contam para a mesma vez na fila.
+                 </p>
+                 <p>
+                    Marcar <strong className="text-[var(--text-primary)]">Ausente</strong> tira a pessoa do rodízio (não recebe chat novo) sem perder o lugar dela na ordem — ela volta a participar normalmente ao ficar Online de novo, sem ir pro fim da fila. Só some de vez da rotação ao ficar Offline (fim da jornada).
+                 </p>
+                 <p>
+                    Se ninguém da equipe estiver online, o atendimento fica pendente para atribuição manual.
+                 </p>
+                 <p>
+                    Chats do widget do portal (sem número de WhatsApp) não pertencem a uma fila só: quando "Recebe chats internos" está ativado, a fila entra num rodízio combinado com todas as outras filas que também ativaram essa opção.
+                 </p>
+              </div>
+           </div>
         </div>
 
         {/* Queues List */}
@@ -255,6 +290,11 @@ export default function QueuesManagementPage() {
                                  {queue.includeInternalChats === false && (
                                    <div className="flex items-center gap-2 px-3 py-1.5 rounded-full bg-[var(--surface-card)] text-[var(--text-tertiary)] border border-[var(--border-default)] text-[10px] font-semibold uppercase tracking-widest">
                                       <XCircle size={12} /> Sem Chat Interno
+                                   </div>
+                                 )}
+                                 {queue.routingStrategy === 'daily_balance' && (
+                                   <div className="flex items-center gap-2 px-3 py-1.5 rounded-full bg-[var(--surface-warning)] text-[var(--text-warning)] border border-[var(--border-alert)] text-[10px] font-semibold uppercase tracking-widest">
+                                      <Settings2 size={12} /> Equilíbrio Diário
                                    </div>
                                  )}
                               </div>
@@ -372,6 +412,17 @@ export default function QueuesManagementPage() {
                                ))}
                             </StyledSelect>
                          </div>
+                      </div>
+                      <div className="space-y-1.5">
+                         <label className="text-[10px] font-semibold uppercase text-[var(--text-tertiary)] tracking-widest ml-1">Estratégia de Distribuição</label>
+                         <StyledSelect
+                           value={routingStrategy}
+                           onChange={(e) => setRoutingStrategy(e.target.value)}
+                           className="w-full bg-[var(--surface-card)] border border-[var(--border-default)] rounded-2xl px-5 py-4 text-sm font-bold focus:ring-4 focus:ring-[var(--accent)]/10 outline-none transition-all appearance-none"
+                         >
+                            <option value="round_robin">Rodízio (ordem de login)</option>
+                            <option value="daily_balance">Equilíbrio diário (nivela chats do dia)</option>
+                         </StyledSelect>
                       </div>
                       <div className="space-y-1.5">
                          <label className="text-[10px] font-semibold uppercase text-[var(--text-tertiary)] tracking-widest ml-1">Chats Internos (Widget)</label>

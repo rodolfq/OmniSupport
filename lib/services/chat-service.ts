@@ -307,6 +307,85 @@ export async function getChatHistories(signal?: AbortSignal): Promise<any[]> {
   }
 }
 
+export interface PreviousChatHistoriesResult {
+  total: number;
+  histories: Array<{
+    id: string;
+    sessionId: string;
+    customerName?: string;
+    assigneeName?: string;
+    startedAt: string;
+    finishedAt: string;
+    durationSeconds?: number;
+    rating?: number;
+  }>;
+}
+
+// Resumo dos atendimentos ANTERIORES do mesmo contato (por customer_id ou
+// customer_phone), pra exibir dentro do chat em andamento — ver "Carregar
+// histórico anterior" em chat-widget.tsx. Paginado (+2 em +2 por padrão).
+export async function getPreviousChatHistories(params: {
+  customerId?: string;
+  customerPhone?: string;
+  excludeSessionId?: string;
+  limit?: number;
+  offset?: number;
+}): Promise<PreviousChatHistoriesResult> {
+  try {
+    const qs = new URLSearchParams({ action: 'previous-histories' });
+    if (params.customerId) qs.set('customerId', params.customerId);
+    if (params.customerPhone) qs.set('customerPhone', params.customerPhone);
+    if (params.excludeSessionId) qs.set('excludeSessionId', params.excludeSessionId);
+    qs.set('limit', String(params.limit ?? 2));
+    qs.set('offset', String(params.offset ?? 0));
+    const res = await fetch(`/api/chats?${qs.toString()}`);
+    if (!res.ok) return { total: 0, histories: [] };
+    return res.json();
+  } catch (err) {
+    console.error("Error fetching previous chat histories:", err);
+    return { total: 0, histories: [] };
+  }
+}
+
+// Atendimentos finalizados de uma empresa — tela dedicada /customers/[id]
+// (item 13 do roadmap). Mesmo formato de PreviousChatHistoriesResult.
+export async function getChatHistoriesByCompany(companyId: string, limit = 10, offset = 0): Promise<PreviousChatHistoriesResult> {
+  try {
+    const qs = new URLSearchParams({ action: 'histories-by-company', companyId, limit: String(limit), offset: String(offset) });
+    const res = await fetch(`/api/chats?${qs.toString()}`);
+    if (!res.ok) return { total: 0, histories: [] };
+    return res.json();
+  } catch (err) {
+    console.error("Error fetching chat histories by company:", err);
+    return { total: 0, histories: [] };
+  }
+}
+
+export interface CompanyActiveSession {
+  id: string;
+  customerName?: string;
+  assigneeName?: string;
+  status: string;
+  startedAt: string;
+  lastMessageAt: string;
+  ticketId?: string;
+  ticketNumber?: number;
+}
+
+// Atendimentos EM ANDAMENTO de uma empresa — tela dedicada /customers/[id]
+// (item 13 do roadmap). Lista informativa, sem link pra abrir a sessão (não
+// existe deep-link pronto pra isso no /chat ainda).
+export async function getActiveSessionsByCompany(companyId: string): Promise<CompanyActiveSession[]> {
+  try {
+    const res = await fetch(`/api/chats?action=sessions-by-company&companyId=${companyId}`);
+    if (!res.ok) return [];
+    return res.json();
+  } catch (err) {
+    console.error("Error fetching active sessions by company:", err);
+    return [];
+  }
+}
+
 export interface SessionMessagesResult {
   session: {
     id: string;

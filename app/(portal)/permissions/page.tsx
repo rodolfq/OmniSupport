@@ -85,6 +85,7 @@ const permissionGroups = [
       { id: Permission.SETTINGS_AUTOMATION, label: 'Mensagens automáticas', desc: 'Configurar respostas e disparos automáticos' },
       { id: Permission.SETTINGS_INTEGRATIONS, label: 'Integrações', desc: 'Gerenciar chaves e integrações externas' },
       { id: Permission.QUEUES_MANAGE, label: 'Filas de atendimento', desc: 'Criar e configurar filas do WhatsApp (/queues)' },
+      { id: Permission.HOTFIXES_MANAGE, label: 'Hotfixes / Janela de release', desc: 'Criar e gerenciar hotfixes, marcar publicação, ver alertas de atraso (/hotfixes)' },
     ]
   },
   {

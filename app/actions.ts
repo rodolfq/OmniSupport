@@ -508,7 +508,8 @@ export async function getQueues() {
       description: q.description,
       whatsappInstanceId: q.whatsapp_instance_id,
       memberIds: q.member_ids || [],
-      includeInternalChats: q.include_internal_chats !== false
+      includeInternalChats: q.include_internal_chats !== false,
+      routingStrategy: q.routing_strategy || 'round_robin'
     }));
   } catch (err) {
     console.error("Error getting queues in actions:", err);
@@ -522,7 +523,8 @@ export async function saveQueue(
   description: string | null,
   whatsappInstanceId: string | null,
   memberIds: string[],
-  includeInternalChats: boolean = true
+  includeInternalChats: boolean = true,
+  routingStrategy: string = 'round_robin'
 ) {
   try {
     if (id) {
@@ -530,17 +532,17 @@ export async function saveQueue(
       // setá-la aqui derrubava todo o UPDATE com "column does not exist".
       await query(
         `UPDATE public.queues
-         SET name = $1, description = $2, whatsapp_instance_id = $3, member_ids = $4, include_internal_chats = $5
-         WHERE id = $6`,
-        [name, description, whatsappInstanceId, memberIds, includeInternalChats, id]
+         SET name = $1, description = $2, whatsapp_instance_id = $3, member_ids = $4, include_internal_chats = $5, routing_strategy = $6
+         WHERE id = $7`,
+        [name, description, whatsappInstanceId, memberIds, includeInternalChats, routingStrategy, id]
       );
       return { id };
     } else {
       const newId = crypto.randomUUID();
       await query(
-        `INSERT INTO public.queues (id, name, description, whatsapp_instance_id, member_ids, include_internal_chats)
-         VALUES ($1, $2, $3, $4, $5, $6)`,
-        [newId, name, description, whatsappInstanceId, memberIds, includeInternalChats]
+        `INSERT INTO public.queues (id, name, description, whatsapp_instance_id, member_ids, include_internal_chats, routing_strategy)
+         VALUES ($1, $2, $3, $4, $5, $6, $7)`,
+        [newId, name, description, whatsappInstanceId, memberIds, includeInternalChats, routingStrategy]
       );
       return { id: newId };
     }
@@ -557,6 +559,90 @@ export async function deleteQueue(id: string) {
   } catch (err) {
     console.error("Error deleting queue in actions:", err);
     return { error: 'Erro ao excluir fila.' };
+  }
+}
+
+// Item 17 do roadmap — cadastro de hotfix / janela de release. Mesmo padrão
+// de getQueues/saveQueue/deleteQueue.
+// node-pg devolve DATE/TIMESTAMP como objeto Date — normaliza pra string
+// antes de cruzar a fronteira da Server Action, pra não depender de como o
+// Next serializa Date (o client sempre recebe string, previsível).
+function toIsoDateOnly(value: any): string {
+  if (!value) return '';
+  return (value instanceof Date ? value : new Date(value)).toISOString().slice(0, 10);
+}
+function toIsoOrUndefined(value: any): string | undefined {
+  if (!value) return undefined;
+  return (value instanceof Date ? value : new Date(value)).toISOString();
+}
+
+export async function getHotfixes() {
+  try {
+    const res = await query('SELECT * FROM public.hotfixes ORDER BY expected_date DESC');
+    return res.rows.map(h => ({
+      id: h.id,
+      name: h.name,
+      description: h.description,
+      responsibleId: h.responsible_id,
+      expectedDate: toIsoDateOnly(h.expected_date),
+      publishedAt: toIsoOrUndefined(h.published_at),
+      createdAt: toIsoOrUndefined(h.created_at)
+    }));
+  } catch (err) {
+    console.error("Error getting hotfixes in actions:", err);
+    return [];
+  }
+}
+
+export async function saveHotfix(
+  id: string | null,
+  name: string,
+  description: string | null,
+  responsibleId: string | null,
+  expectedDate: string
+) {
+  try {
+    if (id) {
+      await query(
+        `UPDATE public.hotfixes
+         SET name = $1, description = $2, responsible_id = $3, expected_date = $4, updated_at = now()
+         WHERE id = $5`,
+        [name, description, responsibleId, expectedDate, id]
+      );
+      return { id };
+    } else {
+      const actor = await getCurrentActionUser();
+      const newId = crypto.randomUUID();
+      await query(
+        `INSERT INTO public.hotfixes (id, name, description, responsible_id, expected_date, created_by)
+         VALUES ($1, $2, $3, $4, $5, $6)`,
+        [newId, name, description, responsibleId, expectedDate, actor?.id || null]
+      );
+      return { id: newId };
+    }
+  } catch (err) {
+    console.error("Error saving hotfix in actions:", err);
+    return { error: 'Erro ao salvar hotfix.' };
+  }
+}
+
+export async function deleteHotfix(id: string) {
+  try {
+    await query('DELETE FROM public.hotfixes WHERE id = $1', [id]);
+    return { success: true };
+  } catch (err) {
+    console.error("Error deleting hotfix in actions:", err);
+    return { error: 'Erro ao excluir hotfix.' };
+  }
+}
+
+export async function markHotfixPublished(id: string) {
+  try {
+    await query('UPDATE public.hotfixes SET published_at = now(), updated_at = now() WHERE id = $1', [id]);
+    return { success: true };
+  } catch (err) {
+    console.error("Error marking hotfix as published in actions:", err);
+    return { error: 'Erro ao marcar hotfix como publicado.' };
   }
 }
 
@@ -824,7 +910,8 @@ export async function returnChatSessionToQueue(sessionId: string, queueId: strin
 export async function saveTicketFromChatSession(
   sessionId: string,
   ticketTitle: string,
-  closeTicketImmediately: boolean
+  closeTicketImmediately: boolean,
+  forceNew: boolean = false
 ) {
   try {
     const actor = await getCurrentActionUser();
@@ -839,8 +926,10 @@ export async function saveTicketFromChatSession(
     if (!session) return { error: 'Atendimento não encontrado.' };
 
     // Já existe um chamado vinculado a este atendimento — reaproveita em vez
-    // de criar um segundo chamado pro mesmo atendimento.
-    if (session.ticket_id) {
+    // de criar um segundo chamado pro mesmo atendimento, a menos que o
+    // usuário tenha confirmado explicitamente que quer abrir outro
+    // (forceNew, ver popup de confirmação em chat-widget.tsx).
+    if (session.ticket_id && !forceNew) {
       if (closeTicketImmediately) {
         await query(`UPDATE public.tickets SET status = 'Fechado', updated_at = NOW() WHERE id = $1`, [session.ticket_id]);
       }
@@ -857,8 +946,8 @@ export async function saveTicketFromChatSession(
     try {
       await client.query('BEGIN');
       const ticketRes = await client.query(
-        `INSERT INTO public.tickets (title, description, status, priority, category, company_id, customer_id, assignee_id, created_by)
-         VALUES ($1, '', $2, 'Média', 'Atendimento Chat', $3, $4, $5, $6)
+        `INSERT INTO public.tickets (title, description, status, priority, category, company_id, customer_id, assignee_id, created_by, chat_session_id)
+         VALUES ($1, '', $2, 'Média', 'Atendimento Chat', $3, $4, $5, $6, $7)
          RETURNING id, public_ticket_number`,
         [
           ticketTitle,
@@ -866,11 +955,16 @@ export async function saveTicketFromChatSession(
           companyId,
           session.customer_id || null,
           session.assignee_id || actor.id,
-          actor.id
+          actor.id,
+          sessionId
         ]
       );
       const { id: ticketId, public_ticket_number: ticketNumber } = ticketRes.rows[0];
 
+      // chat_sessions.ticket_id/ticket_number sempre aponta pro chamado mais
+      // recente desta conversa (é o que aparece como badge no chat) —
+      // chamados anteriores continuam existindo, ligados via
+      // tickets.chat_session_id.
       await client.query(
         `UPDATE public.chat_sessions SET ticket_id = $1, ticket_number = $2 WHERE id = $3`,
         [ticketId, ticketNumber, sessionId]
@@ -887,6 +981,166 @@ export async function saveTicketFromChatSession(
   } catch (err: any) {
     console.error("Error saving ticket from chat session in actions:", err);
     return { error: err.message || 'Erro ao gerar chamado a partir do atendimento.' };
+  }
+}
+
+// Vincula esta conversa a um chamado JÁ EXISTENTE (sem criar nada) — modal
+// "Vincular Chamado" em chat-widget.tsx. tickets.chat_session_id do chamado
+// escolhido é sobrescrito (passa a "vir" desta conversa) e chat_sessions
+// ticket_id/ticket_number passam a apontar pra ele, virando o badge exibido
+// no chat (mesmo sentido de "chamado mais recente" usado em
+// saveTicketFromChatSession) — se o chamado já estava vinculado a outra
+// sessão, essa outra sessão mantém seu próprio ticket_id intacto, só deixa
+// de ser a "origem" mais recente deste chamado específico.
+export async function linkChatSessionToTicket(sessionId: string, ticketId: string) {
+  try {
+    const actor = await getCurrentActionUser();
+    if (!actor) return { error: 'Não autenticado.' };
+
+    const ticketRes = await query('SELECT id, public_ticket_number FROM public.tickets WHERE id = $1', [ticketId]);
+    const ticket = ticketRes.rows[0];
+    if (!ticket) return { error: 'Chamado não encontrado.' };
+
+    await query('UPDATE public.tickets SET chat_session_id = $1 WHERE id = $2', [sessionId, ticketId]);
+    await query(
+      'UPDATE public.chat_sessions SET ticket_id = $1, ticket_number = $2 WHERE id = $3',
+      [ticket.id, ticket.public_ticket_number, sessionId]
+    );
+
+    return { ticketId: ticket.id, ticketNumber: ticket.public_ticket_number };
+  } catch (err: any) {
+    console.error("Error linking chat session to ticket in actions:", err);
+    return { error: err.message || 'Erro ao vincular chamado.' };
+  }
+}
+
+// Mescla um ou mais chamados "source" no chamado "target" (item 12 do
+// roadmap). Decisão de produto: mensagens do(s) chamado(s) absorvido(s) NÃO
+// são movidas (ficam onde estão, só uma menção cruzada em ambos); tickets
+// internos vinculados também não são revinculados. Escrita direta via SQL
+// (sem passar pelo PATCH /api/tickets) para não disparar handleTicketUpdated
+// — mesclar é uma operação interna, o cliente não deve ser notificado.
+export async function mergeTickets(sourceTicketIds: string[], targetTicketId: string) {
+  try {
+    const actor = await getCurrentActionUser();
+    if (!actor) return { error: 'Não autenticado.' };
+    if (!sourceTicketIds.length) return { error: 'Nenhum chamado selecionado para mesclar.' };
+
+    const targetRes = await query('SELECT id, public_ticket_number FROM public.tickets WHERE id = $1', [targetTicketId]);
+    const target = targetRes.rows[0];
+    if (!target) return { error: 'Chamado principal não encontrado.' };
+    const targetLabel = `#${String(target.public_ticket_number).padStart(4, '0')}`;
+
+    const client = await pool.connect();
+    try {
+      await client.query('BEGIN');
+
+      for (const sourceId of sourceTicketIds) {
+        if (sourceId === targetTicketId) continue;
+
+        const sourceRes = await client.query('SELECT id, public_ticket_number FROM public.tickets WHERE id = $1', [sourceId]);
+        const source = sourceRes.rows[0];
+        if (!source) continue;
+        const sourceLabel = `#${String(source.public_ticket_number).padStart(4, '0')}`;
+
+        await client.query(
+          `UPDATE public.tickets SET status = 'Mesclado', merged_into_id = $1, updated_at = NOW() WHERE id = $2`,
+          [targetTicketId, sourceId]
+        );
+
+        // Chat(s) que apontavam pro chamado absorvido passam a apontar pro
+        // sobrevivente, senão o badge do chat fica preso a um chamado morto.
+        await client.query(
+          `UPDATE public.chat_sessions SET ticket_id = $1, ticket_number = $2 WHERE ticket_id = $3`,
+          [target.id, target.public_ticket_number, sourceId]
+        );
+
+        await client.query(
+          `INSERT INTO public.ticket_messages (ticket_id, author_id, content, type, is_visible_to_customer)
+           VALUES ($1, $2, $3, 'system', false)`,
+          [targetTicketId, actor.id, `Chamado ${sourceLabel} mesclado neste chamado.`]
+        );
+        await client.query(
+          `INSERT INTO public.ticket_messages (ticket_id, author_id, content, type, is_visible_to_customer)
+           VALUES ($1, $2, $3, 'system', false)`,
+          [sourceId, actor.id, `Este chamado foi mesclado no chamado ${targetLabel}.`]
+        );
+      }
+
+      await client.query('COMMIT');
+      return { success: true, ticketId: target.id, ticketNumber: target.public_ticket_number };
+    } catch (err) {
+      await client.query('ROLLBACK');
+      throw err;
+    } finally {
+      client.release();
+    }
+  } catch (err: any) {
+    console.error("Error merging tickets in actions:", err);
+    return { error: err.message || 'Erro ao mesclar chamados.' };
+  }
+}
+
+// Cria uma cópia "em branco" de um chamado (item 12 do roadmap): copia
+// dados cadastrais e corpo (título/descrição), mas nasce sem atendente, sem
+// vínculo de chat e sem as mensagens/anotações do atendimento original.
+// Escrita direta via SQL para não disparar handleTicketCreated (evita
+// notificação de "novo chamado" ao cliente por WhatsApp).
+export async function duplicateTicket(ticketId: string) {
+  try {
+    const actor = await getCurrentActionUser();
+    if (!actor) return { error: 'Não autenticado.' };
+
+    const sourceRes = await query(
+      `SELECT title, description, public_ticket_number, category, queue_id, category_id, request_type_id, product_id, company_id, customer_id, priority
+       FROM public.tickets WHERE id = $1`,
+      [ticketId]
+    );
+    const source = sourceRes.rows[0];
+    if (!source) return { error: 'Chamado não encontrado.' };
+    const sourceLabel = `#${String(source.public_ticket_number).padStart(4, '0')}`;
+
+    const client = await pool.connect();
+    try {
+      await client.query('BEGIN');
+
+      const newRes = await client.query(
+        `INSERT INTO public.tickets (title, description, status, priority, category, queue_id, category_id, request_type_id, product_id, company_id, customer_id, created_by)
+         VALUES ($1, $2, 'Novo', $3, $4, $5, $6, $7, $8, $9, $10, $11)
+         RETURNING id, public_ticket_number`,
+        [
+          source.title,
+          source.description,
+          source.priority,
+          source.category,
+          source.queue_id,
+          source.category_id,
+          source.request_type_id,
+          source.product_id,
+          source.company_id,
+          source.customer_id,
+          actor.id
+        ]
+      );
+      const { id: newTicketId, public_ticket_number: newTicketNumber } = newRes.rows[0];
+
+      await client.query(
+        `INSERT INTO public.ticket_messages (ticket_id, author_id, content, type, is_visible_to_customer)
+         VALUES ($1, $2, $3, 'system', false)`,
+        [newTicketId, actor.id, `Duplicado a partir do chamado ${sourceLabel}.`]
+      );
+
+      await client.query('COMMIT');
+      return { ticketId: newTicketId, ticketNumber: newTicketNumber };
+    } catch (err) {
+      await client.query('ROLLBACK');
+      throw err;
+    } finally {
+      client.release();
+    }
+  } catch (err: any) {
+    console.error("Error duplicating ticket in actions:", err);
+    return { error: err.message || 'Erro ao duplicar chamado.' };
   }
 }
 

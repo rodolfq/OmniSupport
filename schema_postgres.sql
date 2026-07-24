@@ -35,6 +35,7 @@ DROP TABLE IF EXISTS public.internal_chat_messages CASCADE;
 DROP TABLE IF EXISTS public.user_search_history CASCADE;
 DROP TABLE IF EXISTS public.saved_views CASCADE;
 DROP TABLE IF EXISTS public.role_permissions CASCADE;
+DROP TABLE IF EXISTS public.hotfixes CASCADE;
 
 DROP SEQUENCE IF EXISTS public.ticket_seq CASCADE;
 DROP SEQUENCE IF EXISTS public.internal_ticket_seq CASCADE;
@@ -69,6 +70,22 @@ CREATE TABLE public.profiles (
   view_all_company_tickets BOOLEAN DEFAULT FALSE,
   created_at TIMESTAMP WITH TIME ZONE DEFAULT now() NOT NULL
 );
+
+-- Hotfixes Table (item 17 do roadmap — cadastro de hotfix / janela de release)
+CREATE TABLE public.hotfixes (
+  id UUID PRIMARY KEY DEFAULT (md5(random()::text || clock_timestamp()::text)::uuid),
+  name TEXT NOT NULL,
+  description TEXT,
+  responsible_id UUID REFERENCES public.profiles(id) ON DELETE SET NULL,
+  expected_date DATE NOT NULL,
+  published_at TIMESTAMP WITH TIME ZONE,
+  alerted_at TIMESTAMP WITH TIME ZONE,
+  created_by UUID REFERENCES public.profiles(id) ON DELETE SET NULL,
+  created_at TIMESTAMP WITH TIME ZONE DEFAULT now() NOT NULL,
+  updated_at TIMESTAMP WITH TIME ZONE DEFAULT now() NOT NULL
+);
+
+CREATE INDEX IF NOT EXISTS idx_hotfixes_expected_date ON public.hotfixes(expected_date);
 
 -- Internal Teams Table
 CREATE TABLE public.internal_teams (
@@ -139,6 +156,20 @@ CREATE TABLE public.config_statuses (
 
 -- Config Categories
 CREATE TABLE public.config_categories (
+  id UUID PRIMARY KEY DEFAULT (md5(random()::text || clock_timestamp()::text)::uuid),
+  label TEXT NOT NULL UNIQUE,
+  created_at TIMESTAMP WITH TIME ZONE DEFAULT now() NOT NULL
+);
+
+-- Config Request Types ("Tipo de Solicitação" do chamado)
+CREATE TABLE public.config_request_types (
+  id UUID PRIMARY KEY DEFAULT (md5(random()::text || clock_timestamp()::text)::uuid),
+  label TEXT NOT NULL UNIQUE,
+  created_at TIMESTAMP WITH TIME ZONE DEFAULT now() NOT NULL
+);
+
+-- Config Products ("Produto" do chamado)
+CREATE TABLE public.config_products (
   id UUID PRIMARY KEY DEFAULT (md5(random()::text || clock_timestamp()::text)::uuid),
   label TEXT NOT NULL UNIQUE,
   created_at TIMESTAMP WITH TIME ZONE DEFAULT now() NOT NULL
@@ -216,7 +247,11 @@ CREATE TABLE public.tickets (
   description TEXT NOT NULL,
   status TEXT NOT NULL DEFAULT 'Novo',
   priority TEXT NOT NULL DEFAULT 'Baixa',
-  category TEXT NOT NULL DEFAULT 'Geral',
+  category TEXT NOT NULL DEFAULT 'Geral', -- legado: pré-split Fila/Categoria/Tipo de Solicitação, mantido só para compat com integrações externas
+  category_id UUID REFERENCES public.config_categories(id) ON DELETE SET NULL,
+  request_type_id UUID REFERENCES public.config_request_types(id) ON DELETE SET NULL,
+  product_id UUID REFERENCES public.config_products(id) ON DELETE SET NULL,
+  tags TEXT[] DEFAULT '{}',
   company_id UUID REFERENCES public.companies(id) ON DELETE CASCADE,
   customer_id UUID REFERENCES public.profiles(id) ON DELETE SET NULL,
   assignee_id UUID REFERENCES public.profiles(id) ON DELETE SET NULL,
@@ -227,6 +262,9 @@ CREATE TABLE public.tickets (
 );
 
 CREATE INDEX IF NOT EXISTS idx_tickets_public_number ON public.tickets(public_ticket_number);
+CREATE INDEX IF NOT EXISTS idx_tickets_category_id ON public.tickets(category_id);
+CREATE INDEX IF NOT EXISTS idx_tickets_request_type_id ON public.tickets(request_type_id);
+CREATE INDEX IF NOT EXISTS idx_tickets_product_id ON public.tickets(product_id);
 
 -- Ticket Messages Table
 CREATE TABLE public.ticket_messages (
@@ -257,6 +295,20 @@ CREATE TABLE public.chat_sessions (
   last_message_at TIMESTAMP WITH TIME ZONE,
   awaiting_survey_until TIMESTAMP WITH TIME ZONE
 );
+
+-- Chamado -> conversa de origem (N:1, permite mais de um chamado pra mesma
+-- conversa). Fica como ALTER porque chat_sessions é criada depois de tickets
+-- neste script.
+ALTER TABLE public.tickets
+  ADD COLUMN IF NOT EXISTS chat_session_id UUID REFERENCES public.chat_sessions(id) ON DELETE SET NULL;
+
+CREATE INDEX IF NOT EXISTS idx_tickets_chat_session_id ON public.tickets(chat_session_id);
+
+-- Item 12 do roadmap: chamado absorvido numa mesclagem aponta para o chamado sobrevivente.
+ALTER TABLE public.tickets
+  ADD COLUMN IF NOT EXISTS merged_into_id TEXT REFERENCES public.tickets(id) ON DELETE SET NULL;
+
+CREATE INDEX IF NOT EXISTS idx_tickets_merged_into_id ON public.tickets(merged_into_id);
 
 -- Chat Participants
 CREATE TABLE public.chat_participants (
@@ -296,6 +348,7 @@ CREATE TABLE public.chat_histories (
 
 CREATE INDEX IF NOT EXISTS idx_chat_histories_finished_at ON public.chat_histories(finished_at DESC);
 CREATE INDEX IF NOT EXISTS idx_chat_histories_customer_id ON public.chat_histories(customer_id);
+CREATE INDEX IF NOT EXISTS idx_chat_histories_customer_phone ON public.chat_histories(customer_phone);
 CREATE INDEX IF NOT EXISTS idx_chat_histories_session_id ON public.chat_histories(session_id);
 CREATE INDEX IF NOT EXISTS idx_chat_histories_assignee_id ON public.chat_histories(assignee_id);
 
@@ -315,8 +368,18 @@ CREATE TABLE public.queues (
   description TEXT,
   whatsapp_instance_id TEXT,
   member_ids UUID[] DEFAULT '{}',
+  include_internal_chats BOOLEAN NOT NULL DEFAULT true,
+  routing_strategy TEXT NOT NULL DEFAULT 'round_robin',
   created_at TIMESTAMP WITH TIME ZONE DEFAULT now() NOT NULL
 );
+
+-- "Fila" do chamado: campo de seleção manual/exibição (não dispara
+-- distribuição automática). Fica como ALTER porque queues é criada depois de
+-- tickets neste script.
+ALTER TABLE public.tickets
+  ADD COLUMN IF NOT EXISTS queue_id TEXT REFERENCES public.queues(id) ON DELETE SET NULL;
+
+CREATE INDEX IF NOT EXISTS idx_tickets_queue_id ON public.tickets(queue_id);
 
 -- Internal Tickets Table
 CREATE TABLE public.internal_tickets (
@@ -334,7 +397,8 @@ CREATE TABLE public.internal_tickets (
   created_at TIMESTAMP WITH TIME ZONE DEFAULT now() NOT NULL,
   updated_at TIMESTAMP WITH TIME ZONE DEFAULT now() NOT NULL,
   sla_limit TIMESTAMP WITH TIME ZONE, -- calculado a partir da prioridade + SLA configurado em Configurações (ver InternalTicketService.saveWithDetails / handleUpdateTicket), não editado manualmente
-  expected_publish_date TIMESTAMP WITH TIME ZONE -- "Publicação prevista": estimativa do dev, independente do SLA
+  expected_publish_date TIMESTAMP WITH TIME ZONE, -- "Publicação prevista": estimativa do dev, independente do SLA
+  hotfix_id UUID REFERENCES public.hotfixes(id) ON DELETE SET NULL -- marcador informativo: hotfix cadastrado ao qual este ticket se refere
 );
 
 CREATE INDEX IF NOT EXISTS idx_internal_tickets_number ON public.internal_tickets(internal_ticket_number);
@@ -463,7 +527,8 @@ INSERT INTO public.config_statuses (label, color) VALUES
 ('Resolvido', 'bg-emerald-50 text-emerald-700'),
 ('Fechado', 'bg-slate-100 text-slate-500'),
 ('Aguardando Cliente', 'bg-amber-100 text-amber-700'),
-('Aguardando Aprovação', 'bg-purple-100 text-purple-700')
+('Aguardando Aprovação', 'bg-purple-100 text-purple-700'),
+('Mesclado', 'bg-slate-200 text-slate-500')
 ON CONFLICT (label) DO NOTHING;
 
 -- Seed Default Categories

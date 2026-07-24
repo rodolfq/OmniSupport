@@ -21,6 +21,8 @@ import {
   User,
   Company,
   CategoryConfig,
+  RequestTypeConfig,
+  ProductConfig,
   PriorityConfig,
   UserRole,
 } from "@/lib/types";
@@ -48,7 +50,10 @@ export function NewTicketModal() {
   const [selectedCompanyId, setSelectedCompanyId] = useState("");
   const [selectedCustomerId, setSelectedCustomerId] = useState("");
   const [employeeIds, setEmployeeIds] = useState<string[]>([]);
-  const [category, setCategory] = useState("");
+  const [queueId, setQueueId] = useState("");
+  const [categoryId, setCategoryId] = useState("");
+  const [requestTypeId, setRequestTypeId] = useState("");
+  const [productId, setProductId] = useState("");
   const [priority, setPriority] = useState("");
   const [attachments, setAttachments] = useState<Attachment[]>([]);
   const [previewAttachment, setPreviewAttachment] = useState<Attachment | null>(null);
@@ -62,6 +67,15 @@ export function NewTicketModal() {
   const [analysts, setAnalysts] = useState<User[]>([]);
   const [availableCategories, setAvailableCategories] = useState<
     CategoryConfig[]
+  >([]);
+  const [availableQueues, setAvailableQueues] = useState<
+    Array<{ id: string; name: string }>
+  >([]);
+  const [availableRequestTypes, setAvailableRequestTypes] = useState<
+    RequestTypeConfig[]
+  >([]);
+  const [availableProducts, setAvailableProducts] = useState<
+    ProductConfig[]
   >([]);
   const [availablePriorities, setAvailablePriorities] = useState<
     PriorityConfig[]
@@ -132,19 +146,22 @@ export function NewTicketModal() {
         setAnalysts(analystsList);
 
         // Config tables
-        const [catRes, priRes, staRes] = await Promise.all([
+        const [catRes, priRes, staRes, queueRes, reqTypeRes, prodRes] = await Promise.all([
           supabase.from("config_categories").select("*"),
           supabase.from("config_priorities").select("*"),
           supabase.from("config_statuses").select("*"),
+          supabase.from("queues").select("*"),
+          supabase.from("config_request_types").select("*"),
+          supabase.from("config_products").select("*"),
         ]);
 
         setAvailableCategories(catRes.data || []);
         setAvailablePriorities(priRes.data || []);
         setAvailableStatuses(staRes.data || []);
+        setAvailableQueues(queueRes.data || []);
+        setAvailableProducts(prodRes.data || []);
+        setAvailableRequestTypes(reqTypeRes.data || []);
 
-        if (!category && catRes.data?.[0]) {
-          setCategory(catRes.data[0].label);
-        }
         if (!priority && priRes.data?.[0]) {
           setPriority(priRes.data[0].label);
         }
@@ -232,7 +249,10 @@ export function NewTicketModal() {
       priority,
       companyId: selectedCompanyId,
       customerId: selectedCustomerId || currentUser.id,
-      category: category || "Geral",
+      queueId: queueId || undefined,
+      categoryId: categoryId || undefined,
+      requestTypeId: requestTypeId || undefined,
+      productId: productId || undefined,
       tags: [],
       attachments: attachments,
       createdAt: new Date().toISOString(),
@@ -422,17 +442,54 @@ export function NewTicketModal() {
               <div className="grid grid-cols-2 gap-4">
                 <div className="space-y-1">
                   <label className="text-[10px] font-semibold uppercase tracking-widest text-[var(--text-tertiary)] ml-1">
+                    Fila
+                  </label>
+                  <StyledSelect
+                    value={queueId}
+                    onChange={(e) => setQueueId(e.target.value)}
+                    className="w-full bg-[var(--surface-card)] border border-[var(--border-default)] rounded-xl px-4 py-2.5 text-sm font-medium focus:ring-2 focus:ring-[var(--accent)]/20 focus:border-[var(--accent)] outline-none transition-all appearance-none"
+                  >
+                    <option value="">Selecione uma fila</option>
+                    {availableQueues.map((q) => (
+                      <option key={q.id} value={q.id}>
+                        {q.name}
+                      </option>
+                    ))}
+                  </StyledSelect>
+                </div>
+                <div className="space-y-1">
+                  <label className="text-[10px] font-semibold uppercase tracking-widest text-[var(--text-tertiary)] ml-1">
                     Categoria
                   </label>
                   <StyledSelect
-                    value={category}
-                    onChange={(e) => setCategory(e.target.value)}
+                    value={categoryId}
+                    onChange={(e) => setCategoryId(e.target.value)}
                     className="w-full bg-[var(--surface-card)] border border-[var(--border-default)] rounded-xl px-4 py-2.5 text-sm font-medium focus:ring-2 focus:ring-[var(--accent)]/20 focus:border-[var(--accent)] outline-none transition-all appearance-none"
                   >
                     <option value="">Selecione uma categoria</option>
                     {availableCategories.map((cat) => (
-                      <option key={cat.id} value={cat.label}>
+                      <option key={cat.id} value={cat.id}>
                         {cat.label}
+                      </option>
+                    ))}
+                  </StyledSelect>
+                </div>
+              </div>
+
+              <div className="grid grid-cols-2 gap-4">
+                <div className="space-y-1">
+                  <label className="text-[10px] font-semibold uppercase tracking-widest text-[var(--text-tertiary)] ml-1">
+                    Tipo de Solicitação
+                  </label>
+                  <StyledSelect
+                    value={requestTypeId}
+                    onChange={(e) => setRequestTypeId(e.target.value)}
+                    className="w-full bg-[var(--surface-card)] border border-[var(--border-default)] rounded-xl px-4 py-2.5 text-sm font-medium focus:ring-2 focus:ring-[var(--accent)]/20 focus:border-[var(--accent)] outline-none transition-all appearance-none"
+                  >
+                    <option value="">Selecione um tipo de solicitação</option>
+                    {availableRequestTypes.map((rt) => (
+                      <option key={rt.id} value={rt.id}>
+                        {rt.label}
                       </option>
                     ))}
                   </StyledSelect>
@@ -454,6 +511,24 @@ export function NewTicketModal() {
                     ))}
                   </StyledSelect>
                 </div>
+              </div>
+
+              <div className="space-y-1">
+                <label className="text-[10px] font-semibold uppercase tracking-widest text-[var(--text-tertiary)] ml-1">
+                  Produto
+                </label>
+                <StyledSelect
+                  value={productId}
+                  onChange={(e) => setProductId(e.target.value)}
+                  className="w-full bg-[var(--surface-card)] border border-[var(--border-default)] rounded-xl px-4 py-2.5 text-sm font-medium focus:ring-2 focus:ring-[var(--accent)]/20 focus:border-[var(--accent)] outline-none transition-all appearance-none"
+                >
+                  <option value="">Selecione um produto</option>
+                  {availableProducts.map((p) => (
+                    <option key={p.id} value={p.id}>
+                      {p.label}
+                    </option>
+                  ))}
+                </StyledSelect>
               </div>
 
               {!isCustomer && (

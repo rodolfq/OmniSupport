@@ -5,8 +5,9 @@ import { StyledSelect } from '@/components/styled-select';
 import { useParams, useRouter } from 'next/navigation';
 import { supabase } from '@/lib/supabase';
 import { useApp } from '@/app/app-context';
-import { InternalTicket, Message, User } from '@/lib/types';
+import { InternalTicket, Message, User, Hotfix } from '@/lib/types';
 import { MessageService, InternalTicketService } from '@/lib/services/ticket-service';
+import { getHotfixes } from '@/app/actions';
 import { cn } from '@/lib/utils';
 import {
   Paperclip,
@@ -17,7 +18,8 @@ import {
   Link2,
   Search,
   X,
-  History
+  History,
+  Rocket
 } from 'lucide-react';
 import { RichEditor } from '@/components/rich-editor';
 import { toast } from 'sonner';
@@ -91,8 +93,10 @@ export default function InternalTicketDetailPage() {
   const [formStatus, setFormStatus] = useState('Novo');
   const [formTags, setFormTags] = useState('');
   const [formExpectedPublish, setFormExpectedPublish] = useState('');
+  const [formHotfixId, setFormHotfixId] = useState('');
   const [analysts, setAnalysts] = useState<User[]>([]);
   const [priorities, setPriorities] = useState<any[]>([]);
+  const [hotfixes, setHotfixes] = useState<Hotfix[]>([]);
 
   // Vincular chamado existente a este ticket interno
   const [showLinkTicketModal, setShowLinkTicketModal] = useState(false);
@@ -142,6 +146,7 @@ export default function InternalTicketDetailPage() {
         updatedAt: data.updated_at,
         slaLimit: data.sla_limit,
         expectedPublishDate: data.expected_publish_date,
+        hotfixId: data.hotfix_id,
         status: data.status || 'Novo',
         assigneeName: data.assignee_id ? profileMap.get(data.assignee_id) || null : null,
         creatorName: data.creator_id ? profileMap.get(data.creator_id) || null : null,
@@ -154,6 +159,7 @@ export default function InternalTicketDetailPage() {
       setFormStatus(data.status || 'Novo');
       setFormTags((data.tags || []).join(', '));
       setFormExpectedPublish(toDateOnly(data.expected_publish_date));
+      setFormHotfixId(data.hotfix_id || '');
     } catch (error) { console.error('Error loading ticket:', error); toast.error('Erro ao carregar ticket'); }
     finally { setLoading(false); }
   }, [ticketId, currentUser]);
@@ -168,13 +174,18 @@ export default function InternalTicketDetailPage() {
     setPriorities(data || []);
   }, []);
 
+  const fetchHotfixList = useCallback(async () => {
+    const data = await getHotfixes();
+    setHotfixes((data || []) as Hotfix[]);
+  }, []);
+
   const loadMessages = useCallback(async () => {
     if (!ticket?.uuid) return;
     try { const msgs = await MessageService.getByInternalTicket(ticket.uuid); setMessages(msgs); }
     catch (error) { console.error('Error loading messages:', error); }
   }, [ticket?.uuid]);
 
-  useEffect(() => { fetchTicket(); fetchAnalysts(); fetchPriorityConfig(); }, [fetchTicket, fetchAnalysts, fetchPriorityConfig]);
+  useEffect(() => { fetchTicket(); fetchAnalysts(); fetchPriorityConfig(); fetchHotfixList(); }, [fetchTicket, fetchAnalysts, fetchPriorityConfig, fetchHotfixList]);
   useEffect(() => { if (ticket) loadMessages(); }, [ticket?.uuid]);
 
   useEffect(() => {
@@ -246,6 +257,7 @@ export default function InternalTicketDetailPage() {
         tags,
         sla_limit: slaIso,
         expected_publish_date: expectedPublishIso,
+        hotfix_id: formHotfixId || null,
         updated_at: new Date().toISOString()
       }).eq('id', ticket.uuid);
       if (error) throw error;
@@ -287,6 +299,11 @@ export default function InternalTicketDetailPage() {
         const fmtDate = (iso: string | null) => iso ? new Date(iso).toLocaleDateString('pt-BR', { day: '2-digit', month: '2-digit', year: 'numeric' }) : 'Não definida';
         changes.push({ label: 'Publicação Prevista', from: fmtDate(prevExpectedPublish), to: fmtDate(expectedPublishIso) });
       }
+      const prevHotfixId = ticket.hotfixId || '';
+      if (formHotfixId !== prevHotfixId) {
+        const hotfixName = (id: string) => id ? (hotfixes.find(h => h.id === id)?.name || 'hotfix removido') : 'Nenhum';
+        changes.push({ label: 'Hotfix', from: hotfixName(prevHotfixId), to: hotfixName(formHotfixId) });
+      }
       if (changes.length > 0) {
         await InternalTicketService.logEvent(ticket.uuid, currentUser?.id, formatChangeMessage(changes));
       }
@@ -299,7 +316,7 @@ export default function InternalTicketDetailPage() {
 
       setFormStatus(nextStatus);
       setFormAssignee(nextAssignee);
-      setTicket(prev => prev ? { ...prev, status: nextStatus as InternalTicketWithExtras['status'], assigneeId: nextAssignee, tags, teamId: formTeam, priority: formPriority, title: formTitle, slaLimit: slaIso, expectedPublishDate: expectedPublishIso, description: formDescription } : prev);
+      setTicket(prev => prev ? { ...prev, status: nextStatus as InternalTicketWithExtras['status'], assigneeId: nextAssignee, tags, teamId: formTeam, priority: formPriority, title: formTitle, slaLimit: slaIso, expectedPublishDate: expectedPublishIso, hotfixId: formHotfixId || null, description: formDescription } : prev);
       if (changes.length > 0 || descriptionChanged) loadMessages();
       toast.success('Ticket atualizado');
       triggerRefresh();
@@ -405,6 +422,34 @@ export default function InternalTicketDetailPage() {
             <div className="space-y-3">
               <div><p className="text-[10px] text-[var(--text-tertiary)] font-bold uppercase mb-1">Criado por</p>
                 <p className="text-xs font-bold text-[var(--text-primary)]">{ticket.creatorName || '—'}</p></div>
+              <div>
+                <p className="text-[10px] text-[var(--text-danger)] font-black uppercase mb-1 flex items-center gap-1">
+                  <Rocket size={11} /> Hotfix
+                </p>
+                <StyledSelect
+                  value={formHotfixId}
+                  onChange={(e) => {
+                    const nextHotfixId = e.target.value;
+                    setFormHotfixId(nextHotfixId);
+                    const selected = hotfixes.find(h => h.id === nextHotfixId);
+                    if (selected) setFormExpectedPublish(selected.expectedDate);
+                    setTimeout(() => handleUpdateTicket(), 0);
+                  }}
+                  className="w-full bg-[var(--surface-card)] border border-[var(--border-default)] rounded-lg px-3 py-2 text-xs font-bold text-[var(--text-primary)]"
+                >
+                  <option value="">Nenhum</option>
+                  {hotfixes.map(h => (
+                    <option key={h.id} value={h.id}>
+                      {new Date(`${h.expectedDate}T00:00:00`).toLocaleDateString('pt-BR')} — {h.name}
+                    </option>
+                  ))}
+                </StyledSelect>
+                {formHotfixId && hotfixes.find(h => h.id === formHotfixId) && (
+                  <p className="text-[10px] font-black text-[var(--text-danger)] mt-1">
+                    📅 Previsto: {new Date(`${hotfixes.find(h => h.id === formHotfixId)!.expectedDate}T00:00:00`).toLocaleDateString('pt-BR')}
+                  </p>
+                )}
+              </div>
               <div><p className="text-[10px] text-[var(--text-tertiary)] font-bold uppercase mb-1">Publicação Prevista</p>
                 <input
                   type="date"

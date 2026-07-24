@@ -16,6 +16,12 @@ export async function GET(request: Request) {
     } else if (type === 'categories') {
       const res = await query('SELECT * FROM public.config_categories');
       return NextResponse.json(res.rows);
+    } else if (type === 'request-types') {
+      const res = await query('SELECT * FROM public.config_request_types');
+      return NextResponse.json(res.rows);
+    } else if (type === 'products') {
+      const res = await query('SELECT * FROM public.config_products');
+      return NextResponse.json(res.rows);
     } else if (type === 'tags') {
       const res = await query('SELECT * FROM public.config_tags');
       return NextResponse.json(res.rows);

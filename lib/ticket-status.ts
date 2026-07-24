@@ -4,6 +4,7 @@ export const CLOSED_TICKET_STATUSES = [
   TicketStatus.CLOSED,
   'Concluído',
   'Encerrado',
+  'Mesclado',
 ] as const;
 
 export const IN_PROGRESS_TICKET_STATUSES = [

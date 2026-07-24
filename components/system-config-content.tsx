@@ -5,19 +5,86 @@ import { Plus, Trash2, Star } from 'lucide-react';
 import { supabase } from '@/lib/supabase';
 import { toast } from 'sonner';
 
-export function SystemConfigContent({ categories, priorities, setCategories, setPriorities, surveySettings, setSurveySettings }: any) {
+export function SystemConfigContent({ categories, priorities, requestTypes, products, setCategories, setPriorities, setRequestTypes, setProducts, surveySettings, setSurveySettings }: any) {
   const [newCatLabel, setNewCatLabel] = React.useState('');
 
   const addCategory = async () => {
     if (!newCatLabel) return;
-    const { data, error } = await supabase.from('config_categories').insert({ label: newCatLabel }).select();
-    if (error) { toast.error('Erro ao adicionar categoria'); }
-    else { setCategories([...categories, data[0]]); setNewCatLabel(''); toast.success('Categoria adicionada'); }
+    const label = newCatLabel;
+    setNewCatLabel('');
+    await supabase.from('config_categories').insert({ label });
+    // Reconsulta a lista em vez de confiar só na resposta do insert: se a
+    // resposta se perder por uma falha transitória de rede (o insert já
+    // pode ter sido gravado), isso evita um erro falso e a necessidade de
+    // recarregar a tela pra ver o item novo.
+    const { data } = await supabase.from('config_categories').select('*');
+    if (data) {
+      setCategories(data);
+      if (data.some((c: any) => c.label === label)) {
+        toast.success('Categoria adicionada');
+      } else {
+        toast.error('Erro ao adicionar categoria');
+      }
+    } else {
+      toast.error('Erro ao adicionar categoria');
+    }
   };
-  
+
   const deleteCategory = async (id: string) => {
     const { error } = await supabase.from('config_categories').delete().eq('id', id);
     if (!error) { setCategories(categories.filter((c: any) => c.id !== id)); toast.success('Categoria removida'); }
+  };
+
+  const [newReqTypeLabel, setNewReqTypeLabel] = React.useState('');
+
+  const addRequestType = async () => {
+    if (!newReqTypeLabel) return;
+    const label = newReqTypeLabel;
+    setNewReqTypeLabel('');
+    await supabase.from('config_request_types').insert({ label });
+    // Mesma lógica de reconsulta do addCategory — ver comentário lá.
+    const { data } = await supabase.from('config_request_types').select('*');
+    if (data) {
+      setRequestTypes(data);
+      if (data.some((r: any) => r.label === label)) {
+        toast.success('Tipo de solicitação adicionado');
+      } else {
+        toast.error('Erro ao adicionar tipo de solicitação');
+      }
+    } else {
+      toast.error('Erro ao adicionar tipo de solicitação');
+    }
+  };
+
+  const deleteRequestType = async (id: string) => {
+    const { error } = await supabase.from('config_request_types').delete().eq('id', id);
+    if (!error) { setRequestTypes(requestTypes.filter((r: any) => r.id !== id)); toast.success('Tipo de solicitação removido'); }
+  };
+
+  const [newProductLabel, setNewProductLabel] = React.useState('');
+
+  const addProduct = async () => {
+    if (!newProductLabel) return;
+    const label = newProductLabel;
+    setNewProductLabel('');
+    await supabase.from('config_products').insert({ label });
+    // Mesma lógica de reconsulta do addCategory — ver comentário lá.
+    const { data } = await supabase.from('config_products').select('*');
+    if (data) {
+      setProducts(data);
+      if (data.some((p: any) => p.label === label)) {
+        toast.success('Produto adicionado');
+      } else {
+        toast.error('Erro ao adicionar produto');
+      }
+    } else {
+      toast.error('Erro ao adicionar produto');
+    }
+  };
+
+  const deleteProduct = async (id: string) => {
+    const { error } = await supabase.from('config_products').delete().eq('id', id);
+    if (!error) { setProducts(products.filter((p: any) => p.id !== id)); toast.success('Produto removido'); }
   };
 
   const [slaValues, setSlaValues] = React.useState<Record<string, number>>({});
@@ -116,6 +183,38 @@ export function SystemConfigContent({ categories, priorities, setCategories, set
             <div key={c.id} className="flex justify-between items-center bg-[var(--surface-card)] p-3 rounded-lg border border-[var(--border-default)] text-sm font-medium">
               {c.label}
               <button onClick={() => deleteCategory(c.id)} className="text-[var(--text-danger)] hover:opacity-70 transition-opacity"><Trash2 size={16}/></button>
+            </div>
+          ))}
+        </div>
+      </div>
+
+      <div className="space-y-4">
+        <h4 className="text-sm font-semibold text-[var(--text-primary)] uppercase tracking-tight">Tipos de Solicitação</h4>
+        <div className="flex items-center gap-2">
+          <input value={newReqTypeLabel} onChange={e => setNewReqTypeLabel(e.target.value)} placeholder="Novo tipo de solicitação..." className="flex-1 bg-[var(--surface-card)] border border-[var(--border-default)] rounded-xl px-4 py-2 text-sm" />
+          <button onClick={addRequestType} className="shrink-0 bg-[var(--accent)] hover:bg-[var(--accent-hover)] text-white p-2 rounded-xl transition-colors"><Plus size={18}/></button>
+        </div>
+        <div className="bg-[var(--surface-card)] rounded-2xl p-4 space-y-2">
+          {requestTypes.map((r: any) => (
+            <div key={r.id} className="flex justify-between items-center bg-[var(--surface-card)] p-3 rounded-lg border border-[var(--border-default)] text-sm font-medium">
+              {r.label}
+              <button onClick={() => deleteRequestType(r.id)} className="text-[var(--text-danger)] hover:opacity-70 transition-opacity"><Trash2 size={16}/></button>
+            </div>
+          ))}
+        </div>
+      </div>
+
+      <div className="space-y-4">
+        <h4 className="text-sm font-semibold text-[var(--text-primary)] uppercase tracking-tight">Produtos</h4>
+        <div className="flex items-center gap-2">
+          <input value={newProductLabel} onChange={e => setNewProductLabel(e.target.value)} placeholder="Novo produto..." className="flex-1 bg-[var(--surface-card)] border border-[var(--border-default)] rounded-xl px-4 py-2 text-sm" />
+          <button onClick={addProduct} className="shrink-0 bg-[var(--accent)] hover:bg-[var(--accent-hover)] text-white p-2 rounded-xl transition-colors"><Plus size={18}/></button>
+        </div>
+        <div className="bg-[var(--surface-card)] rounded-2xl p-4 space-y-2">
+          {products.map((p: any) => (
+            <div key={p.id} className="flex justify-between items-center bg-[var(--surface-card)] p-3 rounded-lg border border-[var(--border-default)] text-sm font-medium">
+              {p.label}
+              <button onClick={() => deleteProduct(p.id)} className="text-[var(--text-danger)] hover:opacity-70 transition-opacity"><Trash2 size={16}/></button>
             </div>
           ))}
         </div>

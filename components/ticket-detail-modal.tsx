@@ -2,11 +2,11 @@
 
 import React, { useState, useEffect, useRef } from 'react';
 import { StyledSelect } from '@/components/styled-select';
-import { X, User, MessageCircle, Clock, Link2, Paperclip, Save, Maximize2, Minimize2, Send, Lock, History, Download, File, Image as ImageIcon, Film, Loader2, Check } from 'lucide-react';
+import { X, User, MessageCircle, Clock, Link2, Paperclip, Save, Maximize2, Minimize2, Send, Lock, History, Download, File, Image as ImageIcon, Film, Loader2, Check, Copy, GitMerge } from 'lucide-react';
 import { motion } from 'motion/react';
-import { Ticket, TicketStatus, User as UserType, Message, UserRole, StatusConfig, Company, Attachment, PriorityConfig, CategoryConfig, InternalTicket, Permission } from '@/lib/types';
+import { Ticket, TicketStatus, User as UserType, Message, UserRole, StatusConfig, Company, Attachment, PriorityConfig, CategoryConfig, RequestTypeConfig, ProductConfig, InternalTicket, Permission } from '@/lib/types';
 import { supabase } from '@/lib/supabase';
-import { cn } from '@/lib/utils';
+import { cn, stripNotificationHtml } from '@/lib/utils';
 import { useApp } from '@/app/app-context';
 import { Star } from 'lucide-react';
 import { toast } from 'sonner';
@@ -16,6 +16,7 @@ import { LinkInternalTicketModal } from './link-internal-ticket-modal';
 import { ChatAttachmentList } from './chat-attachment-list';
 import { ClientTime } from './client-time';
 import { TicketService, MessageService, InternalTicketService } from '@/lib/services/ticket-service';
+import { duplicateTicket } from '@/app/actions';
 import { fetchSessionMessages, SessionMessagesResult } from '@/lib/services/chat-service';
 import { useAutoTranscribeMissingAudio } from '@/hooks/use-auto-transcribe-missing-audio';
 import { UserService } from '@/lib/services/user-service';
@@ -61,7 +62,16 @@ export function TicketDetailModal({ ticket, onClose }: TicketDetailModalProps) {
   const [activeTab, setActiveTab] = useState<'description' | 'internal' | 'history' | 'attachments' | 'chat'>('description');
   const [chatSessionData, setChatSessionData] = useState<SessionMessagesResult | null>(null);
   const [isLoadingChatSession, setIsLoadingChatSession] = useState(false);
-  const [historyTab, setHistoryTab] = useState<'customer' | 'internal'>('customer');
+  const [historyTab, setHistoryTab] = useState<'customer' | 'internal' | 'recent-tickets'>('customer');
+  const [recentCompanyTickets, setRecentCompanyTickets] = useState<Ticket[]>([]);
+  const [loadingRecentCompanyTickets, setLoadingRecentCompanyTickets] = useState(false);
+  // Painel de anotações do Ticket Interno vinculado, exibido no lado direito
+  // quando a aba do cadeado (activeTab === 'internal') está ativa — lê/escreve
+  // direto em internal_ticket_messages do ticket interno selecionado, não nas
+  // mensagens do chamado pai.
+  const [selectedInternalTicketId, setSelectedInternalTicketId] = useState<string | null>(null);
+  const [internalTicketMessages, setInternalTicketMessages] = useState<Message[]>([]);
+  const [isLoadingInternalTicketMessages, setIsLoadingInternalTicketMessages] = useState(false);
   // Só usado <md: os dois painéis (dados/conversa) não cabem lado a lado numa
   // tela de celular — alterna entre eles em vez de espremer os dois.
   const [mobilePanel, setMobilePanel] = useState<'details' | 'chat'>('details');
@@ -74,8 +84,11 @@ export function TicketDetailModal({ ticket, onClose }: TicketDetailModalProps) {
   const [allUsers, setAllUsers] = useState<UserType[]>([]);
   const [statuses, setStatuses] = useState<StatusConfig[]>([]);
   const [categories, setCategories] = useState<CategoryConfig[]>([]);
+  const [requestTypes, setRequestTypes] = useState<RequestTypeConfig[]>([]);
+  const [products, setProducts] = useState<ProductConfig[]>([]);
   const [priorities, setPriorities] = useState<PriorityConfig[]>([]);
   const [employeeIds, setEmployeeIds] = useState<string[]>(ticket?.employeeIds || []);
+  const [isDuplicatingTicket, setIsDuplicatingTicket] = useState(false);
 
   // ... (rest of memos)
   const allAttachments = React.useMemo(() => {
@@ -97,7 +110,10 @@ export function TicketDetailModal({ ticket, onClose }: TicketDetailModalProps) {
   const [assigneeId, setAssigneeId] = useState(ticket?.assigneeId || '');
   const [ticketStatus, setTicketStatus] = useState(ticket?.status || TicketStatus.NEW);
   const [ticketDescription, setTicketDescription] = useState(ticket?.description || '');
-  const [mainTeam, setMainTeam] = useState(ticket?.category || 'Suporte');
+  const [mainQueue, setMainQueue] = useState(ticket?.queueId || '');
+  const [mainCategory, setMainCategory] = useState(ticket?.categoryId || '');
+  const [mainRequestType, setMainRequestType] = useState(ticket?.requestTypeId || '');
+  const [mainProduct, setMainProduct] = useState(ticket?.productId || '');
   const [mainPriority, setMainPriority] = useState(ticket?.priority || 'Média');
   const [mainTags, setMainTags] = useState(ticket?.tags || []);
   const [customerId, setCustomerId] = useState(ticket?.customerId || '');
@@ -105,6 +121,7 @@ export function TicketDetailModal({ ticket, onClose }: TicketDetailModalProps) {
   const [isEditingDescription, setIsEditingDescription] = useState(false);
   const [companies, setCompanies] = useState<any[]>([]);
   const [internalTeams, setInternalTeams] = useState<Array<{id: string, name: string}>>([]);
+  const [queues, setQueues] = useState<Array<{id: string, name: string}>>([]);
 
   // Autosave do chamado principal: edições de campo (status, prioridade,
   // categoria, responsável, empresa, contato, colaboradores, tags) são
@@ -141,6 +158,48 @@ export function TicketDetailModal({ ticket, onClose }: TicketDetailModalProps) {
     };
   }, []);
 
+  // Ao entrar na aba do cadeado (Tickets Internos), seleciona o primeiro
+  // vinculado por padrão — se houver mais de um, o seletor no topo permite trocar.
+  useEffect(() => {
+    if (activeTab !== 'internal') return;
+    if (internalTickets.length === 0) {
+      setSelectedInternalTicketId(null);
+      return;
+    }
+    if (!selectedInternalTicketId || !internalTickets.some(it => it.uuid === selectedInternalTicketId)) {
+      setSelectedInternalTicketId(internalTickets[0].uuid || null);
+    }
+  }, [activeTab, internalTickets, selectedInternalTicketId]);
+
+  useEffect(() => {
+    if (!selectedInternalTicketId) {
+      setInternalTicketMessages([]);
+      return;
+    }
+    let cancelled = false;
+    setIsLoadingInternalTicketMessages(true);
+    MessageService.getByInternalTicket(selectedInternalTicketId)
+      .then(msgs => { if (!cancelled) setInternalTicketMessages(msgs); })
+      .catch(err => console.error('Erro ao carregar anotações do ticket interno:', err))
+      .finally(() => { if (!cancelled) setIsLoadingInternalTicketMessages(false); });
+    return () => { cancelled = true; };
+  }, [selectedInternalTicketId]);
+
+  // Item 12 do roadmap: quando este chamado foi absorvido numa mesclagem,
+  // busca o número do chamado sobrevivente só pra exibir no aviso do topo.
+  const [mergedIntoTicketNumber, setMergedIntoTicketNumber] = useState<number | null>(null);
+  useEffect(() => {
+    if (!ticket?.mergedIntoId) {
+      setMergedIntoTicketNumber(null);
+      return;
+    }
+    let cancelled = false;
+    TicketService.getById(ticket.mergedIntoId).then(t => {
+      if (!cancelled) setMergedIntoTicketNumber(t?.ticketNumber ?? null);
+    });
+    return () => { cancelled = true; };
+  }, [ticket?.mergedIntoId]);
+
   useEffect(() => {
     if (!ticket) return;
 
@@ -148,9 +207,12 @@ export function TicketDetailModal({ ticket, onClose }: TicketDetailModalProps) {
       const { data: profiles } = await supabase.from('profiles').select('*, internal_team_ids');
       const { data: statusList } = await supabase.from('config_statuses').select('*');
       const { data: categoryList } = await supabase.from('config_categories').select('*');
+      const { data: requestTypeList } = await supabase.from('config_request_types').select('*');
+      const { data: productList } = await supabase.from('config_products').select('*');
       const { data: priorityList } = await supabase.from('config_priorities').select('*');
       const { data: compList } = await supabase.from('companies').select('*');
       const { data: teamList } = await supabase.from('internal_teams').select('*');
+      const { data: queueList } = await supabase.from('queues').select('*');
 
       if (profiles) {
         setAllUsers(profiles.map((u: any) => ({
@@ -172,9 +234,12 @@ export function TicketDetailModal({ ticket, onClose }: TicketDetailModalProps) {
       }
       if (statusList) setStatuses(statusList as any);
       if (categoryList) setCategories(categoryList as any);
+      if (requestTypeList) setRequestTypes(requestTypeList as any);
+      if (productList) setProducts(productList as any);
       if (priorityList) setPriorities(priorityList as any);
       if (compList) setCompanies(compList as any);
       if (teamList) setInternalTeams(teamList as any);
+      if (queueList) setQueues(queueList as any);
     }
 
     fetchConfigs();
@@ -182,7 +247,10 @@ export function TicketDetailModal({ ticket, onClose }: TicketDetailModalProps) {
     setAssigneeId(ticket.assigneeId || '');
     setTicketStatus(ticket.status);
     setTicketDescription(ticket.description);
-    setMainTeam(ticket.category);
+    setMainQueue(ticket.queueId || '');
+    setMainCategory(ticket.categoryId || '');
+    setMainRequestType(ticket.requestTypeId || '');
+    setMainProduct(ticket.productId || '');
     setMainPriority(ticket.priority);
     setMainTags(ticket.tags || []);
     setCustomerId(ticket.customerId);
@@ -192,7 +260,8 @@ export function TicketDetailModal({ ticket, onClose }: TicketDetailModalProps) {
     loadMessages();
     loadInternalTickets();
     setChatSessionData(null);
-    
+    setRecentCompanyTickets([]);
+
     // Set default history tab based on role and permissions
     if (currentUser?.role === UserRole.EMPLOYEE) {
       setHistoryTab('customer');
@@ -387,6 +456,108 @@ const handleSendMessage = async (isInternal: boolean) => {
       triggerRefresh();
     };
 
+    // Grava a resposta como mensagem visível ao cliente (igual handleSendMessage)
+    // e também dispara pelo WhatsApp — mesmo endpoint e resolução de instância
+    // (via Fila do chamado) já usados em chat-widget.tsx. Envio de WhatsApp é
+    // só texto (mídia ainda não suportada pelo backend) e não bloqueia o
+    // registro da mensagem: se o WhatsApp falhar, avisa mas mantém o resto.
+    const handleSendWhatsAppReply = async () => {
+      if (!message.trim() || !currentUser || !ticket) return;
+      const customerPhone = allUsers.find(u => u.id === customerId)?.phone;
+      if (!customerPhone) return;
+
+      const newMessage: Message = {
+        id: Math.random().toString(36).substr(2, 9),
+        ticketId: ticket.id,
+        senderId: currentUser.id,
+        text: message,
+        timestamp: new Date().toISOString(),
+        isVisibleToCustomer: true,
+        type: 'text',
+        attachments: messageAttachments.length > 0 ? messageAttachments : undefined
+      };
+
+      await MessageService.create(newMessage);
+
+      const updatedTicket: Ticket = {
+        ...ticket,
+        updatedAt: new Date().toISOString()
+      };
+      await TicketService.update(updatedTicket);
+
+      const hasAttachments = messageAttachments.length > 0;
+      setMessage('');
+      setMessageAttachments([]);
+      loadMessages();
+      triggerRefresh();
+
+      const queue = queues.find(q => q.id === mainQueue) as any;
+      const instanceId = queue?.whatsapp_instance_id || queue?.whatsappInstanceId || 'default';
+      const phone = customerPhone.replace(/\D/g, '');
+
+      try {
+        const res = await fetch('/api/whatsapp/send', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ instanceId, to: phone, message: stripNotificationHtml(newMessage.text) })
+        });
+        if (!res.ok) {
+          toast.warning('Mensagem salva, mas não foi enviada no WhatsApp.');
+        } else if (hasAttachments) {
+          toast.warning('Anexo salvo na conversa, mas o envio de mídia pelo WhatsApp ainda não está disponível.');
+        } else {
+          toast.success('Enviado pelo WhatsApp.');
+        }
+      } catch (err) {
+        console.error('WhatsApp send failed:', err);
+        toast.warning('Mensagem salva, mas não foi enviada no WhatsApp.');
+      }
+    };
+
+    // Posta direto no ticket interno selecionado (internal_ticket_messages),
+    // não nas mensagens do chamado pai — mesmo padrão usado em
+    // app/(portal)/internal-tickets/[id]/page.tsx.
+    const handleSendInternalTicketNote = async () => {
+      if (!message.trim() || !currentUser || !selectedInternalTicketId) return;
+
+      const newMessage: Message = {
+        id: Math.random().toString(36).substr(2, 9),
+        ticketId: selectedInternalTicketId,
+        senderId: currentUser.id,
+        text: message,
+        timestamp: new Date().toISOString(),
+        isVisibleToCustomer: false,
+        type: 'internal',
+        attachments: messageAttachments.length > 0 ? messageAttachments : undefined
+      };
+
+      try {
+        await MessageService.createInternal(newMessage, selectedInternalTicketId);
+        setMessage('');
+        setMessageAttachments([]);
+        const msgs = await MessageService.getByInternalTicket(selectedInternalTicketId);
+        setInternalTicketMessages(msgs);
+        triggerRefresh();
+      } catch (err) {
+        console.error('Erro ao enviar nota do ticket interno:', err);
+        toast.error('Erro ao enviar nota.');
+      }
+    };
+
+    const handleSelectRecentTicketsTab = async () => {
+      setHistoryTab('recent-tickets');
+      if (!ticket?.companyId) return;
+      setLoadingRecentCompanyTickets(true);
+      try {
+        const recent = await TicketService.getRecentByCompany(ticket.companyId, ticket.id, 5);
+        setRecentCompanyTickets(recent);
+      } catch (err) {
+        console.error('Erro ao carregar chamados recentes da empresa:', err);
+      } finally {
+        setLoadingRecentCompanyTickets(false);
+      }
+    };
+
     const handleMessageFileUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
       const files = Array.from(e.target.files || []);
       if (files.length === 0) return;
@@ -450,7 +621,10 @@ const handleSendMessage = async (isInternal: boolean) => {
     // We prioritize overrides to handle immediate updates from onChange events
     const statusToSave = merged.status || ticketStatus;
     const priorityToSave = merged.priority || mainPriority;
-    const categoryToSave = merged.category || mainTeam;
+    const queueToSave = 'queueId' in merged ? merged.queueId : mainQueue;
+    const categoryIdToSave = 'categoryId' in merged ? merged.categoryId : mainCategory;
+    const requestTypeToSave = 'requestTypeId' in merged ? merged.requestTypeId : mainRequestType;
+    const productToSave = 'productId' in merged ? merged.productId : mainProduct;
     const assigneeToSave = 'assigneeId' in merged ? merged.assigneeId : assigneeId;
     const companyToSave = merged.companyId || companyId;
     const customerToSave = merged.customerId || customerId;
@@ -459,7 +633,10 @@ const handleSendMessage = async (isInternal: boolean) => {
 
     const updated: Ticket = {
       ...ticket,
-      category: categoryToSave as string,
+      queueId: queueToSave || undefined,
+      categoryId: categoryIdToSave || undefined,
+      requestTypeId: requestTypeToSave || undefined,
+      productId: productToSave || undefined,
       priority: priorityToSave as any,
       assigneeId: assigneeToSave || undefined,
       customerId: customerToSave,
@@ -482,8 +659,25 @@ const handleSendMessage = async (isInternal: boolean) => {
     if (priorityToSave !== prev.priority) {
       changes.push({ label: 'Prioridade', from: prev.priority, to: priorityToSave as string });
     }
-    if (categoryToSave !== prev.category) {
-      changes.push({ label: 'Equipe', from: prev.category || 'Sem equipe', to: categoryToSave || 'Sem equipe' });
+    if ((queueToSave || '') !== (prev.queueId || '')) {
+      const fromName = prev.queueId ? (queues.find(q => q.id === prev.queueId)?.name || 'alguma fila') : 'Sem fila';
+      const toName = queueToSave ? (queues.find(q => q.id === queueToSave)?.name || 'alguma fila') : 'Sem fila';
+      changes.push({ label: 'Fila', from: fromName, to: toName });
+    }
+    if ((categoryIdToSave || '') !== (prev.categoryId || '')) {
+      const fromName = prev.categoryId ? (categories.find(c => c.id === prev.categoryId)?.label || 'alguma categoria') : 'Sem categoria';
+      const toName = categoryIdToSave ? (categories.find(c => c.id === categoryIdToSave)?.label || 'alguma categoria') : 'Sem categoria';
+      changes.push({ label: 'Categoria', from: fromName, to: toName });
+    }
+    if ((requestTypeToSave || '') !== (prev.requestTypeId || '')) {
+      const fromName = prev.requestTypeId ? (requestTypes.find(r => r.id === prev.requestTypeId)?.label || 'algum tipo') : 'Sem tipo de solicitação';
+      const toName = requestTypeToSave ? (requestTypes.find(r => r.id === requestTypeToSave)?.label || 'algum tipo') : 'Sem tipo de solicitação';
+      changes.push({ label: 'Tipo de Solicitação', from: fromName, to: toName });
+    }
+    if ((productToSave || '') !== (prev.productId || '')) {
+      const fromName = prev.productId ? (products.find(p => p.id === prev.productId)?.label || 'algum produto') : 'Sem produto';
+      const toName = productToSave ? (products.find(p => p.id === productToSave)?.label || 'algum produto') : 'Sem produto';
+      changes.push({ label: 'Produto', from: fromName, to: toName });
     }
     if ((assigneeToSave || '') !== (prev.assigneeId || '')) {
       const fromName = prev.assigneeId ? (analysts.find(a => a.id === prev.assigneeId)?.name || 'alguém') : 'Não atribuído';
@@ -615,6 +809,27 @@ const handleSendMessage = async (isInternal: boolean) => {
     onClose();
   };
 
+  // Item 12 do roadmap: cria uma cópia "em branco" (dados cadastrais + corpo,
+  // sem mensagens) — não navega pro chamado novo automaticamente, só avisa.
+  const handleDuplicateTicket = async () => {
+    if (!ticket || isDuplicatingTicket) return;
+    setIsDuplicatingTicket(true);
+    try {
+      const result = await duplicateTicket(ticket.id);
+      if ('error' in result) {
+        toast.error(result.error);
+        return;
+      }
+      toast.success(`Chamado duplicado: #${String(result.ticketNumber).padStart(4, '0')}`);
+      triggerRefresh();
+    } catch (err) {
+      console.error('Erro ao duplicar chamado:', err);
+      toast.error('Erro ao duplicar chamado.');
+    } finally {
+      setIsDuplicatingTicket(false);
+    }
+  };
+
   return (
     <>
       <div className="fixed inset-0 z-[110] flex items-center justify-end">
@@ -711,6 +926,16 @@ const handleSendMessage = async (isInternal: boolean) => {
                   </div>
                 )}
                 <div className="flex items-center gap-1">
+                  {!isCustomer && (
+                    <button
+                      onClick={handleDuplicateTicket}
+                      disabled={isDuplicatingTicket}
+                      title="Duplicar chamado"
+                      className="p-2 hover:bg-[var(--border-default)] rounded-xl transition-all text-[var(--text-tertiary)] disabled:opacity-50"
+                    >
+                      {isDuplicatingTicket ? <Loader2 size={18} className="animate-spin" /> : <Copy size={18} />}
+                    </button>
+                  )}
                   <button onClick={() => setIsFocused(!isFocused)} className="p-2 hover:bg-[var(--border-default)] rounded-xl transition-all text-[var(--text-tertiary)]">
                     {isFocused ? <Minimize2 size={18} /> : <Maximize2 size={18} />}
                   </button>
@@ -751,6 +976,12 @@ const handleSendMessage = async (isInternal: boolean) => {
                 )}
               </div>
             )}
+            {ticket.mergedIntoId && (
+              <div className="mx-8 mb-3 px-3 py-2 rounded-xl bg-[var(--surface-pill)] border border-[var(--border-default)] flex items-center gap-2 text-[10px] font-semibold uppercase tracking-widest text-[var(--text-tertiary)]">
+                <GitMerge size={13} />
+                Este chamado foi mesclado no chamado #{String(mergedIntoTicketNumber ?? '').padStart(4, '0')}
+              </div>
+            )}
           </div>
 
           <div className="flex-1 overflow-y-auto">
@@ -764,18 +995,70 @@ const handleSendMessage = async (isInternal: boolean) => {
                     {/* Column 1 */}
                     <div className="space-y-3">
                        <div className="flex items-start gap-4">
-                          <span className="text-[11px] font-semibold uppercase text-[var(--text-tertiary)] w-24 pt-0.5">Equipe</span>
-                          <StyledSelect 
-                            value={mainTeam}
+                          <span className="text-[11px] font-semibold uppercase text-[var(--text-tertiary)] w-24 pt-0.5">Fila</span>
+                          <StyledSelect
+                            value={mainQueue}
                             onChange={(e) => {
                               const val = e.target.value;
-                              setMainTeam(val);
-                              scheduleTicketSave({ category: val });
+                              setMainQueue(val);
+                              scheduleTicketSave({ queueId: val });
                             }}
                             className="text-sm font-bold text-[var(--text-secondary)] bg-transparent border-none outline-none focus:ring-2 focus:ring-[var(--accent)]/10 rounded px-1 -ml-1 cursor-pointer hover:bg-[var(--surface-card)] transition-all"
                           >
+                            <option value="">Sem fila</option>
+                            {queues.map(q => (
+                              <option key={q.id} value={q.id}>{q.name}</option>
+                            ))}
+                          </StyledSelect>
+                       </div>
+                       <div className="flex items-start gap-4">
+                          <span className="text-[11px] font-semibold uppercase text-[var(--text-tertiary)] w-24 pt-0.5">Categoria</span>
+                          <StyledSelect
+                            value={mainCategory}
+                            onChange={(e) => {
+                              const val = e.target.value;
+                              setMainCategory(val);
+                              scheduleTicketSave({ categoryId: val });
+                            }}
+                            className="text-sm font-bold text-[var(--text-secondary)] bg-transparent border-none outline-none focus:ring-2 focus:ring-[var(--accent)]/10 rounded px-1 -ml-1 cursor-pointer hover:bg-[var(--surface-card)] transition-all"
+                          >
+                            <option value="">Sem categoria</option>
                             {categories.map(cat => (
-                              <option key={cat.id} value={cat.label}>{cat.label}</option>
+                              <option key={cat.id} value={cat.id}>{cat.label}</option>
+                            ))}
+                          </StyledSelect>
+                       </div>
+                       <div className="flex items-start gap-4">
+                          <span className="text-[11px] font-semibold uppercase text-[var(--text-tertiary)] w-24 pt-0.5">Tipo</span>
+                          <StyledSelect
+                            value={mainRequestType}
+                            onChange={(e) => {
+                              const val = e.target.value;
+                              setMainRequestType(val);
+                              scheduleTicketSave({ requestTypeId: val });
+                            }}
+                            className="text-sm font-bold text-[var(--text-secondary)] bg-transparent border-none outline-none focus:ring-2 focus:ring-[var(--accent)]/10 rounded px-1 -ml-1 cursor-pointer hover:bg-[var(--surface-card)] transition-all"
+                          >
+                            <option value="">Sem tipo de solicitação</option>
+                            {requestTypes.map(rt => (
+                              <option key={rt.id} value={rt.id}>{rt.label}</option>
+                            ))}
+                          </StyledSelect>
+                       </div>
+                       <div className="flex items-start gap-4">
+                          <span className="text-[11px] font-semibold uppercase text-[var(--text-tertiary)] w-24 pt-0.5">Produto</span>
+                          <StyledSelect
+                            value={mainProduct}
+                            onChange={(e) => {
+                              const val = e.target.value;
+                              setMainProduct(val);
+                              scheduleTicketSave({ productId: val });
+                            }}
+                            className="text-sm font-bold text-[var(--text-secondary)] bg-transparent border-none outline-none focus:ring-2 focus:ring-[var(--accent)]/10 rounded px-1 -ml-1 cursor-pointer hover:bg-[var(--surface-card)] transition-all"
+                          >
+                            <option value="">Sem produto</option>
+                            {products.map(p => (
+                              <option key={p.id} value={p.id}>{p.label}</option>
                             ))}
                           </StyledSelect>
                        </div>
@@ -985,7 +1268,7 @@ const handleSendMessage = async (isInternal: boolean) => {
                      <div className="space-y-3">
                         <div className="flex items-start gap-4">
                            <span className="text-[11px] font-semibold uppercase text-[var(--text-tertiary)] w-24 pt-0.5">Categoria</span>
-                           <span className="text-sm font-bold text-[var(--text-secondary)]">{ticket.category}</span>
+                           <span className="text-sm font-bold text-[var(--text-secondary)]">{categories.find(c => c.id === ticket.categoryId)?.label || 'Sem categoria'}</span>
                         </div>
                         <div className="flex items-start gap-4">
                            <span className="text-[11px] font-semibold uppercase text-[var(--text-tertiary)] w-24 pt-0.5">Abertura</span>
@@ -1290,9 +1573,27 @@ const handleSendMessage = async (isInternal: boolean) => {
         )}>
            {/* Top Tabs */}
            <div className="px-6 py-4 border-b border-[var(--border-default)] bg-[var(--surface-card)] flex items-center justify-between">
+              {activeTab === 'internal' ? (
+                <div className="flex items-center gap-3 min-w-0">
+                   <span className="text-[10px] font-black uppercase tracking-widest text-[var(--text-warning)] flex items-center gap-1.5 shrink-0">
+                     <Lock size={12} /> Anotações do Ticket Interno
+                   </span>
+                   {internalTickets.length > 1 && (
+                     <StyledSelect
+                       value={selectedInternalTicketId || ''}
+                       onChange={(e) => setSelectedInternalTicketId(e.target.value)}
+                       className="bg-[var(--surface-pill)] border border-[var(--border-default)] rounded-lg px-2 py-1 text-[10px] font-bold text-[var(--text-secondary)] outline-none min-w-0"
+                     >
+                       {internalTickets.map(it => (
+                         <option key={it.uuid} value={it.uuid}>INT-{it.internalTicketNumber?.toString().padStart(4, '0') || '----'}</option>
+                       ))}
+                     </StyledSelect>
+                   )}
+                </div>
+              ) : (
               <div className="flex gap-4">
                  {hasPermission(Permission.TICKETS_READ) && (
-                   <button 
+                   <button
                      onClick={() => setHistoryTab('customer')}
                      className={cn(
                        "text-[10px] font-semibold uppercase tracking-widest transition-all",
@@ -1303,20 +1604,183 @@ const handleSendMessage = async (isInternal: boolean) => {
                    </button>
                  )}
                  {currentUser?.role !== UserRole.CUSTOMER && hasPermission(Permission.INTERNAL_TICKETS_VIEW) && (
-                    <button 
+                    <button
                       onClick={() => setHistoryTab('internal')}
                       className={cn(
                         "text-[10px] font-semibold uppercase tracking-widest transition-all",
                         historyTab === 'internal' ? "text-[var(--text-warning)]" : "text-[var(--text-tertiary)]"
                        )}
                     >
-                      Ticket Interno
+                      Anotação Interna
+                    </button>
+                 )}
+                 {!isCustomer && hasPermission(Permission.TICKETS_READ) && !!ticket?.companyId && (
+                    <button
+                      onClick={handleSelectRecentTicketsTab}
+                      className={cn(
+                        "text-[10px] font-semibold uppercase tracking-widest transition-all",
+                        historyTab === 'recent-tickets' ? "text-[var(--accent-text)]" : "text-[var(--text-tertiary)]"
+                       )}
+                    >
+                      Chamados Recentes
                     </button>
                  )}
               </div>
+              )}
            </div>
 
-           {/* Messages Scroll Area */}
+           {activeTab === 'internal' ? (
+             <>
+             <div className="flex-1 overflow-y-auto p-6 space-y-6">
+                {!selectedInternalTicketId ? (
+                  <div className="text-center py-20">
+                     <Lock className="mx-auto text-slate-200 mb-2" size={32} />
+                     <p className="text-xs font-bold text-[var(--text-tertiary)] uppercase tracking-widest">Nenhum ticket interno vinculado</p>
+                  </div>
+                ) : isLoadingInternalTicketMessages ? (
+                  <div className="flex items-center justify-center py-10 text-[var(--text-tertiary)]">
+                    <Loader2 size={20} className="animate-spin" />
+                  </div>
+                ) : internalTicketMessages.filter(m => m.type !== 'system' && m.type !== 'system_log').length === 0 ? (
+                  <div className="text-center py-20">
+                     <Clock className="mx-auto text-slate-200 mb-2" size={32} />
+                     <p className="text-xs font-bold text-[var(--text-tertiary)] uppercase tracking-widest">Nenhuma anotação registrada</p>
+                  </div>
+                ) : (
+                  internalTicketMessages.filter(m => m.type !== 'system' && m.type !== 'system_log').map((m) => {
+                    const sender = allUsers.find(u => u.id === m.senderId);
+                    return (
+                      <div key={m.id} className="group animate-in fade-in slide-in-from-right-2 duration-300">
+                        <div className="flex gap-3">
+                          <div className="w-8 h-8 rounded-full flex-shrink-0 flex items-center justify-center text-[10px] font-black text-white shadow-sm mt-1 bg-[var(--text-warning-strong)]">
+                            {sender?.name.charAt(0) || 'U'}
+                          </div>
+                          <div className="flex-1 min-w-0">
+                            <div className="flex items-center gap-2 mb-1">
+                              <span className="text-xs font-black text-[var(--text-primary)]">{sender?.name}</span>
+                              <span className="text-[9px] font-bold text-[var(--text-tertiary)]"><ClientTime date={m.timestamp} /></span>
+                            </div>
+                            <div
+                              className="p-3 rounded-2xl text-sm leading-relaxed shadow-sm prose prose-sm max-w-none bg-[var(--surface-warning)] border border-[var(--border-alert)] text-[var(--text-warning)] border-l-4 border-l-amber-400 prose-amber"
+                              dangerouslySetInnerHTML={{ __html: m.text }}
+                            />
+                            {m.attachments && m.attachments.length > 0 && (
+                              <div className="mt-3 pt-3 border-t border-[var(--border-default)]">
+                                <div className="flex flex-wrap gap-2">
+                                  {m.attachments.map(att => {
+                                    const isImage = isImageAttachment(att);
+                                    return (
+                                      <button
+                                        key={att.id}
+                                        type="button"
+                                        onClick={() => isImage ? setPreviewAttachment(att) : openAttachmentInNewTab(att)}
+                                        className="flex items-center gap-1 px-2 py-1 bg-[var(--surface-pill)] rounded text-[10px] hover:bg-[var(--border-default)] transition-colors"
+                                      >
+                                        {isImage ? <ImageIcon size={12} /> : <File size={12} />}
+                                        <span className="truncate max-w-[120px]">{att.name}</span>
+                                      </button>
+                                    );
+                                  })}
+                                </div>
+                              </div>
+                            )}
+                          </div>
+                        </div>
+                      </div>
+                    );
+                  })
+                )}
+             </div>
+             {selectedInternalTicketId && (
+               <div className="p-6 bg-[var(--surface-card)] border-t border-[var(--border-default)]">
+                  <div className="space-y-4">
+                     {messageAttachments.length > 0 && (
+                       <div className="flex flex-wrap gap-2">
+                         {messageAttachments.map(att => (
+                           <div key={att.id} className="flex items-center gap-1 px-2 py-1 bg-[var(--surface-pill)] rounded-lg text-[10px]">
+                             <File size={12} />
+                             <span className="truncate max-w-[120px]">{att.name}</span>
+                             <button
+                               onClick={() => setMessageAttachments(prev => prev.filter(a => a.id !== att.id))}
+                               className="text-[var(--text-danger)] hover:text-[var(--text-danger)]"
+                             >
+                               <X size={10} />
+                             </button>
+                           </div>
+                         ))}
+                       </div>
+                     )}
+                     <RichEditor
+                       content={message}
+                       onChange={setMessage}
+                       placeholder="Nota do ticket interno..."
+                       minHeight="100px"
+                     />
+                     <div className="flex items-center justify-between">
+                        <div>
+                           <input
+                             type="file"
+                             ref={messageFileInputRef}
+                             onChange={handleMessageFileUpload}
+                             multiple
+                             accept="image/*,.pdf,.doc,.docx,.txt,.zip,audio/*"
+                             className="hidden"
+                           />
+                           <button
+                             type="button"
+                             onClick={() => messageFileInputRef.current?.click()}
+                             className="px-3 py-1.5 rounded-lg border border-[var(--border-default)] text-[var(--text-secondary)] hover:bg-[var(--surface-card)] transition-colors text-[10px] font-semibold uppercase tracking-widest flex items-center gap-1"
+                           >
+                             <Paperclip size={12} />
+                             Anexar
+                           </button>
+                        </div>
+                        <button
+                          onClick={handleSendInternalTicketNote}
+                          disabled={!message.trim() || message === '<p></p>'}
+                          className="px-6 py-2 rounded-xl transition-all disabled:opacity-50 shadow-lg text-xs font-black uppercase tracking-widest flex items-center gap-2 bg-[var(--text-warning-strong)] hover:bg-[var(--accent-warning-hover)] text-white shadow-amber-100"
+                        >
+                           <Send size={16} />
+                           Enviar Nota
+                        </button>
+                     </div>
+                  </div>
+               </div>
+             )}
+             </>
+           ) : historyTab === 'recent-tickets' ? (
+             <div className="flex-1 overflow-y-auto p-6 space-y-3">
+                {loadingRecentCompanyTickets ? (
+                  <div className="flex items-center justify-center py-10 text-[var(--text-tertiary)]">
+                    <Loader2 size={20} className="animate-spin" />
+                  </div>
+                ) : recentCompanyTickets.length === 0 ? (
+                  <div className="text-center py-16">
+                     <History className="mx-auto text-slate-200 mb-2" size={28} />
+                     <p className="text-xs font-bold text-[var(--text-tertiary)] uppercase tracking-widest">Nenhum outro chamado recente desta empresa</p>
+                  </div>
+                ) : (
+                  recentCompanyTickets.map(rt => (
+                    <div key={rt.id} className="p-4 rounded-2xl border border-[var(--border-default)] bg-[var(--surface-card)]">
+                       <div className="flex items-center justify-between gap-3 mb-1">
+                          <span className="text-[10px] font-black text-[var(--accent-text)] bg-[var(--accent)]/10 px-2 py-0.5 rounded tracking-widest">#{rt.ticketNumber ? String(rt.ticketNumber).padStart(4, '0') : rt.id.slice(0, 8)}</span>
+                          <span className={cn(
+                            "text-[9px] font-semibold uppercase tracking-widest px-2 py-0.5 rounded-full",
+                            isClosedTicketStatus(rt.status) ? "bg-[var(--surface-success)] text-[var(--text-success)]" : "bg-[var(--surface-info)] text-[var(--text-info)]"
+                          )}>
+                             {rt.status}
+                          </span>
+                       </div>
+                       <p className="text-sm font-bold text-[var(--text-primary)] truncate mb-1">{rt.title}</p>
+                       <p className="text-[10px] text-[var(--text-tertiary)] font-medium">
+                          {rt.priority} · <ClientTime date={rt.createdAt} showDate showTime />
+                       </p>
+                    </div>
+                  ))
+                )}
+             </div>
+           ) : (
+           <>
            <div ref={scrollRef} className="flex-1 overflow-y-auto p-6 space-y-6">
               {messages
                 .filter(m => m.type !== 'system' && m.type !== 'system_log' && (historyTab === 'customer' ? m.isVisibleToCustomer : !m.isVisibleToCustomer))
@@ -1432,20 +1896,35 @@ const handleSendMessage = async (isInternal: boolean) => {
                            Anexar
                          </button>
                       </div>
-                      <button 
-                        onClick={() => handleSendMessage(historyTab === 'internal')}
-                        disabled={!message.trim() || message === '<p></p>'}
-                        className={cn(
-                          "px-6 py-2 rounded-xl transition-all disabled:opacity-50 shadow-lg text-xs font-black uppercase tracking-widest flex items-center gap-2",
-                          historyTab === 'internal' ? "bg-[var(--text-warning-strong)] hover:bg-[var(--accent-warning-hover)] text-white shadow-amber-100" : "bg-[var(--accent)] hover:bg-[var(--accent-hover)] text-white shadow-indigo-100"
-                        )}
-                      >
-                         <Send size={16} />
-                         Enviar {historyTab === 'internal' ? 'Nota' : 'Resposta'}
-                      </button>
+                      <div className="flex items-center gap-2">
+                         {historyTab !== 'internal' && (
+                           <button
+                             onClick={handleSendWhatsAppReply}
+                             disabled={!message.trim() || message === '<p></p>' || !allUsers.find(u => u.id === customerId)?.phone}
+                             title={!allUsers.find(u => u.id === customerId)?.phone ? 'Contato sem telefone cadastrado' : undefined}
+                             className="px-6 py-2 rounded-xl transition-all disabled:opacity-50 shadow-lg text-xs font-black uppercase tracking-widest flex items-center gap-2 bg-[var(--text-success)] hover:bg-emerald-700 text-white shadow-emerald-100"
+                           >
+                              <MessageCircle size={16} />
+                              Enviar por WhatsApp
+                           </button>
+                         )}
+                         <button
+                           onClick={() => handleSendMessage(historyTab === 'internal')}
+                           disabled={!message.trim() || message === '<p></p>'}
+                           className={cn(
+                             "px-6 py-2 rounded-xl transition-all disabled:opacity-50 shadow-lg text-xs font-black uppercase tracking-widest flex items-center gap-2",
+                             historyTab === 'internal' ? "bg-[var(--text-warning-strong)] hover:bg-[var(--accent-warning-hover)] text-white shadow-amber-100" : "bg-[var(--accent)] hover:bg-[var(--accent-hover)] text-white shadow-indigo-100"
+                           )}
+                         >
+                            <Send size={16} />
+                            Enviar {historyTab === 'internal' ? 'Nota' : 'Resposta'}
+                         </button>
+                      </div>
                    </div>
                 </div>
              </div>
+           </>
+           )}
         </div>
       </motion.div>
     </div>

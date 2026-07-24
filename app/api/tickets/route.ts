@@ -83,6 +83,79 @@ export async function GET(request: Request) {
       })));
     }
 
+    if (action === 'recent-by-company') {
+      // Lista curta e só informativa dos outros chamados recentes da mesma
+      // empresa — aba "Chamados Recentes" em ticket-detail-modal.tsx, e base
+      // de busca do modal "Vincular Chamado" em chat-widget.tsx (que usa o
+      // parâmetro opcional `search`, por número ou título).
+      const companyId = searchParams.get('companyId');
+      const excludeId = searchParams.get('excludeId');
+      const search = searchParams.get('search');
+      const limit = Math.min(Math.max(parseInt(searchParams.get('limit') || '5', 10) || 5, 1), 20);
+      if (!companyId) return NextResponse.json({ error: 'companyId é obrigatório' }, { status: 400 });
+
+      const params: any[] = [companyId, excludeId || ''];
+      let whereClause = 'company_id = $1 AND id != $2';
+      if (search) {
+        params.push(`%${search}%`);
+        whereClause += ` AND (title ILIKE $${params.length} OR CAST(public_ticket_number AS TEXT) ILIKE $${params.length})`;
+      }
+      params.push(limit);
+
+      const res = await query(
+        `SELECT id, public_ticket_number, title, status, priority, created_at, chat_session_id
+         FROM public.tickets
+         WHERE ${whereClause}
+         ORDER BY created_at DESC
+         LIMIT $${params.length}`,
+        params
+      );
+      return NextResponse.json(res.rows.map(t => ({
+        id: t.id,
+        ticketNumber: t.public_ticket_number,
+        title: t.title,
+        status: t.status,
+        priority: t.priority,
+        createdAt: t.created_at,
+        chatSessionId: t.chat_session_id
+      })));
+    }
+
+    if (action === 'by-company') {
+      // Lista completa (paginada) de chamados de uma empresa — tela dedicada
+      // /customers/[id] (item 13 do roadmap). Diferente de 'recent-by-company'
+      // (lista curta, sem paginação, usada em contextos de picker/aba lateral):
+      // aqui precisamos de OFFSET real e total pra "carregar mais".
+      const companyId = searchParams.get('companyId');
+      if (!companyId) return NextResponse.json({ error: 'companyId é obrigatório' }, { status: 400 });
+      const limit = Math.min(Math.max(parseInt(searchParams.get('limit') || '15', 10) || 15, 1), 50);
+      const offset = Math.max(parseInt(searchParams.get('offset') || '0', 10) || 0, 0);
+
+      const [countRes, res] = await Promise.all([
+        query(`SELECT COUNT(*)::int AS count FROM public.tickets WHERE company_id = $1`, [companyId]),
+        query(
+          `SELECT id, public_ticket_number, title, status, priority, created_at
+           FROM public.tickets
+           WHERE company_id = $1
+           ORDER BY created_at DESC
+           LIMIT $2 OFFSET $3`,
+          [companyId, limit, offset]
+        )
+      ]);
+
+      return NextResponse.json({
+        total: countRes.rows[0]?.count || 0,
+        tickets: res.rows.map(t => ({
+          id: t.id,
+          ticketNumber: t.public_ticket_number,
+          title: t.title,
+          status: t.status,
+          priority: t.priority,
+          createdAt: t.created_at
+        }))
+      });
+    }
+
     if (action === 'internal-links') {
       const res = await query(
         `SELECT til.ticket_id, til.internal_ticket_id, it.status, it.internal_ticket_number
@@ -121,6 +194,12 @@ export async function GET(request: Request) {
         employeeIds: data.employee_ids || [],
         attachments: data.attachments_data || [],
         chatSessionId: data.chat_session_id,
+        queueId: data.queue_id,
+        categoryId: data.category_id,
+        requestTypeId: data.request_type_id,
+        productId: data.product_id,
+        mergedIntoId: data.merged_into_id,
+        tags: data.tags || [],
         createdAt: data.created_at,
         updatedAt: data.updated_at
       });
@@ -161,6 +240,12 @@ export async function GET(request: Request) {
         employeeIds: t.employee_ids || [],
         attachments: t.attachments_data || [],
         chatSessionId: t.chat_session_id,
+        queueId: t.queue_id,
+        categoryId: t.category_id,
+        requestTypeId: t.request_type_id,
+        productId: t.product_id,
+        mergedIntoId: t.merged_into_id,
+        tags: t.tags || [],
         createdAt: t.created_at,
         updatedAt: t.updated_at
       }));
@@ -209,15 +294,19 @@ export async function POST(request: Request) {
       }
 
       const res = await query(
-        `INSERT INTO public.tickets (title, description, status, priority, category, company_id, customer_id, created_by, attachments_data, employee_ids)
-         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
+        `INSERT INTO public.tickets (title, description, status, priority, queue_id, category_id, request_type_id, product_id, tags, company_id, customer_id, created_by, attachments_data, employee_ids)
+         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14)
          RETURNING *`,
         [
           ticket.title,
           ticket.description,
           ticket.status || 'Novo',
           ticket.priority || 'Baixa',
-          ticket.category || 'Geral',
+          ticket.queueId || null,
+          ticket.categoryId || null,
+          ticket.requestTypeId || null,
+          ticket.productId || null,
+          ticket.tags || [],
           companyId,
           userId,
           userId,
@@ -239,7 +328,10 @@ export async function POST(request: Request) {
         tag: `ticket_new:${newTicket.id}`
       })))).catch(err => console.error('[push] Falha ao notificar novo chamado:', err));
 
-      // Se o usuário for "Time Interno", criar ticket interno automaticamente
+      // Se o usuário for "Time Interno", criar ticket interno automaticamente.
+      // internal_tickets.team_id é um conceito próprio (texto legado, não FK)
+      // e não deve ser derivado de nenhum campo do chamado principal — o time
+      // interno terá seus próprios marcadores, à parte.
       if (userRole === 'Time Interno') {
         await query(
           `INSERT INTO public.internal_tickets (title, description, team_id, creator_id, priority)
@@ -248,7 +340,7 @@ export async function POST(request: Request) {
           [
             ticket.title || 'Ticket Interno',
             ticket.description || '',
-            ticket.category || 'Desenvolvimento',
+            'Desenvolvimento',
             userId
           ]
         );
@@ -338,8 +430,13 @@ export async function PUT(request: Request) {
            company_id = COALESCE($5, company_id),
            customer_id = COALESCE($6, customer_id),
            assignee_id = $7,
+           queue_id = COALESCE($8, queue_id),
+           category_id = COALESCE($9, category_id),
+           request_type_id = COALESCE($10, request_type_id),
+           product_id = COALESCE($11, product_id),
+           tags = COALESCE($12, tags),
            updated_at = NOW()
-       WHERE id = $8
+       WHERE id = $13
        RETURNING *`,
       [
         ticket.title || null,
@@ -349,6 +446,11 @@ export async function PUT(request: Request) {
         ticket.companyId === '' ? null : (ticket.companyId || null),
         ticket.customerId === '' ? null : (ticket.customerId || null),
         ticket.assigneeId === '' ? null : (ticket.assigneeId || null),
+        ticket.queueId || null,
+        ticket.categoryId || null,
+        ticket.requestTypeId || null,
+        ticket.productId || null,
+        ticket.tags || null,
         id
       ]
     );

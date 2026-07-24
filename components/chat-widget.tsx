@@ -26,14 +26,18 @@ import {
   Paperclip,
   File,
   Image as ImageIcon,
-  Download,
   Mic,
   Square,
   Trash2,
   Captions,
   Loader2,
   Check,
-  CheckCheck
+  CheckCheck,
+  History,
+  ChevronRight,
+  Star,
+  Copy,
+  Link2
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import { 
@@ -47,7 +51,7 @@ import {
   Company,
   Attachment
 } from '@/lib/types';
-import { ChatService, fetchChatSessions, pushChatMessage, createChatSession, saveChatHistory, findExistingChatSessionByPhone, submitSurveyResponse, transcribeChatAudio } from '@/lib/services/chat-service';
+import { ChatService, fetchChatSessions, pushChatMessage, createChatSession, saveChatHistory, findExistingChatSessionByPhone, submitSurveyResponse, transcribeChatAudio, getPreviousChatHistories, fetchSessionMessages, PreviousChatHistoriesResult, SessionMessagesResult } from '@/lib/services/chat-service';
 import { fetchQuickNotes, fetchAnalystStatuses, fetchCompanies, fetchUsers, fetchQueues, fetchSurveySettings } from '@/lib/services/config-service';
 import { saveTicketFromChatSession, closeChatSessionAfterTicket, assignChatSession, returnChatSessionToQueue } from '@/app/actions';
 import { cn, maskPhone, matchPhones, safeJsonStringify } from '@/lib/utils';
@@ -59,6 +63,9 @@ import { LinkContactModal } from '@/components/link-contact-modal';
 import { ClientTime } from '@/components/client-time';
 import { AssignChatMenu } from '@/components/assign-chat-menu';
 import { AudioPlayer } from '@/components/audio-player';
+import { AttachmentPreviewModal, openAttachmentInNewTab } from '@/components/attachment-gallery';
+import { ConfirmDialog } from '@/components/confirm-dialog';
+import { LinkTicketModal } from '@/components/link-ticket-modal';
 import { isImageAttachment, isAudioAttachment, isVideoAttachment } from '@/lib/attachment-kind';
 import { useIsMobile } from '@/hooks/use-mobile';
 import { toast } from 'sonner';
@@ -137,33 +144,6 @@ function encodeWav(samples: Float32Array, sampleRate: number): Blob {
   return new Blob([buffer], { type: 'audio/wav' });
 }
 
-function openAttachmentInNewTab(attachment: Attachment) {
-  if (!attachment.url) return;
-
-  if (!attachment.url.startsWith('data:')) {
-    window.open(attachment.url, '_blank', 'noopener,noreferrer');
-    return;
-  }
-
-  try {
-    const [header, payload = ''] = attachment.url.split(',');
-    const isBase64 = /;base64/i.test(header);
-    const mime = header.match(/^data:([^;,]+)/)?.[1] || attachment.type || 'application/octet-stream';
-    const binary = isBase64 ? atob(payload) : decodeURIComponent(payload);
-    const bytes = new Uint8Array(binary.length);
-
-    for (let i = 0; i < binary.length; i += 1) {
-      bytes[i] = binary.charCodeAt(i);
-    }
-
-    const blobUrl = URL.createObjectURL(new Blob([bytes], { type: mime }));
-    window.open(blobUrl, '_blank', 'noopener,noreferrer');
-    setTimeout(() => URL.revokeObjectURL(blobUrl), 60000);
-  } catch {
-    window.open(attachment.url, '_blank', 'noopener,noreferrer');
-  }
-}
-
 export function ChatWidget() {
   const [mounted, setMounted] = useState(false);
   const [shouldAutoScroll, setShouldAutoScroll] = useState(true);
@@ -179,6 +159,12 @@ export function ChatWidget() {
     const closeReactionPicker = () => setReactionPickerMessageId(null);
     window.addEventListener('click', closeReactionPicker);
     return () => window.removeEventListener('click', closeReactionPicker);
+  }, []);
+
+  useEffect(() => {
+    const closeMoreActions = () => setIsMoreActionsOpen(false);
+    window.addEventListener('click', closeMoreActions);
+    return () => window.removeEventListener('click', closeMoreActions);
   }, []);
 
   const {
@@ -293,6 +279,59 @@ export function ChatWidget() {
 
     return rows;
   }, [selectedChat?.messages, isCustomer]);
+
+  // Troca de conversa: histórico de atendimentos anteriores é por contato,
+  // não faz sentido carregar sobre o chat errado.
+  useEffect(() => {
+    setPreviousHistories([]);
+    setPreviousHistoriesOffset(0);
+    setPreviousHistoriesTotal(0);
+    setExpandedHistoryId(null);
+    setHistoryMessagesById({});
+  }, [selectedChatId]);
+
+  const handleLoadPreviousHistories = async () => {
+    if (!selectedChat || loadingPreviousHistories) return;
+    if (!selectedChat.customerId && !selectedChat.customerPhone) return;
+
+    setLoadingPreviousHistories(true);
+    try {
+      const result = await getPreviousChatHistories({
+        customerId: selectedChat.customerId,
+        customerPhone: selectedChat.customerPhone,
+        excludeSessionId: selectedChat.id,
+        limit: 2,
+        offset: previousHistoriesOffset
+      });
+      setPreviousHistories(prev => [...prev, ...result.histories]);
+      setPreviousHistoriesOffset(prev => prev + result.histories.length);
+      setPreviousHistoriesTotal(result.total);
+    } finally {
+      setLoadingPreviousHistories(false);
+    }
+  };
+
+  const handleToggleHistoryMessages = async (sessionId: string) => {
+    if (expandedHistoryId === sessionId) {
+      setExpandedHistoryId(null);
+      return;
+    }
+    setExpandedHistoryId(sessionId);
+    if (historyMessagesById[sessionId] || loadingHistoryMessagesId === sessionId) return;
+
+    setLoadingHistoryMessagesId(sessionId);
+    try {
+      const result = await fetchSessionMessages(sessionId);
+      setHistoryMessagesById(prev => ({ ...prev, [sessionId]: result }));
+    } catch (err) {
+      console.error('Erro ao carregar mensagens do atendimento anterior:', err);
+      toast.error('Não foi possível carregar essa conversa anterior.');
+      setExpandedHistoryId(null);
+    } finally {
+      setLoadingHistoryMessagesId(null);
+    }
+  };
+
   const unreadCount = notifications.filter(n => !n.read && n.type.startsWith('chat_')).length;
   // Quantas conversas de verdade estão sem resposta da equipe — diferente de
   // unreadCount (que conta NOTIFICAÇÕES não lidas, não chats: uma mesma
@@ -517,9 +556,26 @@ export function ChatWidget() {
   const [isFinishModalOpen, setIsFinishModalOpen] = useState(false);
   const [ticketTitle, setTicketTitle] = useState('');
   const [closeTicketImmediately, setCloseTicketImmediately] = useState(false);
+  const [isDuplicateModalOpen, setIsDuplicateModalOpen] = useState(false);
+  const [isDuplicatingChat, setIsDuplicatingChat] = useState(false);
+  const [isConfirmNewTicketOpen, setIsConfirmNewTicketOpen] = useState(false);
+  const [isLinkTicketModalOpen, setIsLinkTicketModalOpen] = useState(false);
+  const [isMoreActionsOpen, setIsMoreActionsOpen] = useState(false);
   const [chatAttachments, setChatAttachments] = useState<Attachment[]>([]);
   const [previewAttachment, setPreviewAttachment] = useState<Attachment | null>(null);
-  
+
+  // Histórico da conversa sob demanda: resumos dos atendimentos ANTERIORES do
+  // mesmo contato (não a conversa atual), carregados +2 em +2 via botão no
+  // topo da área de mensagens. Cache de mensagens por sessão evita recarregar
+  // ao expandir/recolher o mesmo item mais de uma vez.
+  const [previousHistories, setPreviousHistories] = useState<PreviousChatHistoriesResult['histories']>([]);
+  const [previousHistoriesOffset, setPreviousHistoriesOffset] = useState(0);
+  const [previousHistoriesTotal, setPreviousHistoriesTotal] = useState(0);
+  const [loadingPreviousHistories, setLoadingPreviousHistories] = useState(false);
+  const [expandedHistoryId, setExpandedHistoryId] = useState<string | null>(null);
+  const [historyMessagesById, setHistoryMessagesById] = useState<Record<string, SessionMessagesResult>>({});
+  const [loadingHistoryMessagesId, setLoadingHistoryMessagesId] = useState<string | null>(null);
+
   const [isLinkModalOpen, setIsLinkModalOpen] = useState(false);
 
   const [chatFilter, setChatFilter] = useState<'all' | 'me' | 'queue'>('all');
@@ -1144,15 +1200,90 @@ useEffect(() => {
     }
   };
 
-  const handleGenerateTicket = async (closeChat: boolean, closeAsSpam: boolean = false) => {
+  // Arquiva a conversa ATUAL (grava snapshot em chat_histories, mesmo formato
+  // de handleGenerateTicket) e abre um atendimento novo pro mesmo contato, sem
+  // gerar chamado nem avisar o cliente — é uma reorganização interna pra
+  // separar um segundo assunto, não uma despedida de verdade. Fecha a sessão
+  // atual ANTES de criar a nova: create-session reaproveita sessão aberta do
+  // mesmo contato se encontrar uma, então a ordem importa.
+  const handleDuplicateChat = async () => {
+    if (!selectedChat || !currentUser || isDuplicatingChat) return;
+
+    setIsDuplicatingChat(true);
+    try {
+      const formattedChatLog = selectedChat.messages?.map(m => {
+        const time = new Date(m.timestamp).toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' });
+        const attachments: Attachment[] = (m as any).attachments || (m as any).metadata?.attachments || [];
+        const transcribedAudio = attachments.find(a => isAudioAttachment(a) && a.transcription);
+        const text = transcribedAudio ? `[Áudio] "${transcribedAudio.transcription}"` : m.text;
+        return `[${time}] ${m.senderName}: ${text}`;
+      }).join('\n') || '';
+      const chatHistoryText = `===== HISTÓRICO DO CHAT =====\n${formattedChatLog}\n===== FIM DO HISTÓRICO =====\n\nConversa duplicada em: ${new Date().toLocaleString('pt-BR')} (novo atendimento aberto para o mesmo contato)`;
+
+      const startedAt = selectedChat.startedAt ? new Date(selectedChat.startedAt) : new Date();
+      const finishedAt = new Date();
+      const durationSeconds = Math.floor((finishedAt.getTime() - startedAt.getTime()) / 1000);
+
+      let firstResponseSeconds: number | undefined;
+      if (selectedChat.messages && selectedChat.messages.length > 0) {
+        const firstAnalystMsg = selectedChat.messages.find(m =>
+          m.senderId !== selectedChat.customerId &&
+          m.type !== 'system' &&
+          m.text &&
+          !m.text.includes('criou o grupo')
+        );
+        if (firstAnalystMsg?.timestamp) {
+          firstResponseSeconds = Math.floor((new Date(firstAnalystMsg.timestamp).getTime() - startedAt.getTime()) / 1000);
+        }
+      }
+
+      await saveChatHistory({
+        sessionId: selectedChat.id,
+        customerId: selectedChat.customerId,
+        customerName: selectedChat.customerName,
+        customerPhone: selectedChat.customerPhone,
+        assigneeId: selectedChat.assigneeId || currentUser.id,
+        startedAt: startedAt.toISOString(),
+        finishedAt: finishedAt.toISOString(),
+        durationSeconds,
+        firstResponseSeconds,
+        transcript: chatHistoryText
+      });
+
+      await closeChatSessionAfterTicket(selectedChat.id, null);
+
+      const newSessionId = await createChatSession({
+        customerId: selectedChat.customerId,
+        customerName: selectedChat.customerName,
+        customerPhone: selectedChat.customerPhone,
+        status: 'active',
+        startedAt: new Date().toISOString()
+      } as any);
+
+      setSelectedChatId(newSessionId);
+      const sessions = await fetchChatSessions();
+      setCustomerSessions(sessions);
+      setIsDuplicateModalOpen(false);
+      toast.success('Conversa duplicada — novo atendimento aberto.');
+    } catch (error) {
+      console.error('Erro ao duplicar conversa:', error);
+      toast.error('Erro ao duplicar conversa.');
+    } finally {
+      setIsDuplicatingChat(false);
+    }
+  };
+
+  const handleGenerateTicket = async (closeChat: boolean, closeAsSpam: boolean = false, forceNew: boolean = false) => {
     if (!selectedChat || !ticketTitle || !currentUser) return;
 
     // Já existe um chamado vinculado a esta conversa (gerado antes, sem
-    // finalizar) — "Gerar Chamado" de novo criaria um duplicado, então só
-    // avisa e não faz nada; para finalizar usando esse mesmo chamado, o
-    // fluxo abaixo (closeChat === true) já reaproveita automaticamente.
-    if (!closeChat && selectedChat.ticketId) {
-      toast.warning(`Este atendimento já possui o chamado #${String(selectedChat.ticketNumber ?? '').padStart(4, '0')} vinculado.`);
+    // finalizar) — em vez de bloquear, confirma se o usuário quer mesmo abrir
+    // um chamado separado (permite mais de um chamado por conversa, ver item
+    // 10 do roadmap); para finalizar usando esse mesmo chamado, o fluxo
+    // abaixo (closeChat === true) já reaproveita automaticamente, sem passar
+    // por aqui.
+    if (!closeChat && selectedChat.ticketId && !forceNew) {
+      setIsConfirmNewTicketOpen(true);
       return;
     }
 
@@ -1179,7 +1310,7 @@ useEffect(() => {
       }).join('\n') || '';
       const chatHistoryText = `===== HISTÓRICO DO CHAT =====\n${formattedChatLog}\n===== FIM DO HISTÓRICO =====\n\n${closeChat ? `Chat finalizado em: ${new Date().toLocaleString('pt-BR')}` : `Chamado gerado em: ${new Date().toLocaleString('pt-BR')} (atendimento continua em aberto)`}`;
 
-      const ticketResult = await saveTicketFromChatSession(selectedChat.id, ticketTitle, closeTicketImmediately);
+      const ticketResult = await saveTicketFromChatSession(selectedChat.id, ticketTitle, closeTicketImmediately, forceNew);
       if ('error' in ticketResult) {
         console.error('Error saving ticket from chat session:', ticketResult.error);
         toast.error('Erro ao criar chamado.');
@@ -1992,9 +2123,15 @@ useEffect(() => {
                            
                            if (company) {
                              return (
-                               <p className="text-[9px] text-[var(--accent-text)] font-semibold uppercase tracking-widest">
+                               <a
+                                 href={`/customers/${company.id}`}
+                                 target="_blank"
+                                 rel="noopener noreferrer"
+                                 title="Abrir tela dedicada da empresa"
+                                 className="text-[9px] text-[var(--accent-text)] font-semibold uppercase tracking-widest hover:underline"
+                               >
                                  {company.name}
-                               </p>
+                               </a>
                              );
                            }
 
@@ -2024,7 +2161,7 @@ useEffect(() => {
                     </div>
                     
                     {!isCustomer && selectedChat && (
-                      <div className="flex items-center gap-1.5 shrink-0">
+                      <div className="flex flex-col items-end gap-1.5 shrink-0">
                         <AssignChatMenu
                           currentUserId={currentUser?.id}
                           isCurrentUserOnline={userStatus === 'online'}
@@ -2038,32 +2175,131 @@ useEffect(() => {
                           showSelf={selectedChat.assigneeId !== currentUser?.id}
                           variant={isExpanded ? 'full' : 'icon'}
                         />
-                        <button
-                          onClick={() => {
-                            const now = new Date();
-                            const datePrefix = now.toLocaleDateString('pt-BR');
-                            const timePrefix = now.toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' });
-                            setTicketTitle(`Atendimento ${datePrefix} ${timePrefix}: ${selectedChat?.customerName}`);
-                            setIsFinishModalOpen(true);
-                          }}
-                          className={cn(
-                            "bg-slate-900 text-white rounded-xl text-[10px] font-semibold uppercase tracking-widest hover:bg-slate-800 transition-all flex items-center gap-2",
-                            isExpanded ? "px-4 py-2" : "p-2.5"
-                          )}
-                          title="Finalizar"
-                        >
-                          <TicketIcon size={14} /> {isExpanded && 'Finalizar'}
-                        </button>
+                        <div className="flex items-center gap-1.5">
+                          <div className="relative shrink-0">
+                            <button
+                              onClick={(e) => { e.stopPropagation(); setIsMoreActionsOpen(prev => !prev); }}
+                              className="border border-[var(--border-default)] text-[var(--text-secondary)] rounded-xl p-2.5 hover:bg-[var(--surface-pill)] transition-all flex items-center"
+                              title="Mais ações"
+                            >
+                              <MoreVertical size={14} />
+                            </button>
+                            {isMoreActionsOpen && (
+                              <div
+                                onClick={(e) => e.stopPropagation()}
+                                className="absolute right-0 top-full mt-2 z-20 w-56 bg-[var(--surface-card)] border border-[var(--border-default)] rounded-2xl shadow-xl overflow-hidden py-1"
+                              >
+                                <button
+                                  onClick={() => { setIsMoreActionsOpen(false); setIsDuplicateModalOpen(true); }}
+                                  className="w-full flex items-center gap-2.5 px-4 py-2.5 text-xs font-semibold text-[var(--text-secondary)] hover:bg-[var(--surface-pill)] transition-all"
+                                >
+                                  <Copy size={14} /> Duplicar conversa
+                                </button>
+                                <button
+                                  onClick={() => { setIsMoreActionsOpen(false); setIsLinkTicketModalOpen(true); }}
+                                  className="w-full flex items-center gap-2.5 px-4 py-2.5 text-xs font-semibold text-[var(--text-secondary)] hover:bg-[var(--surface-pill)] transition-all"
+                                >
+                                  <Link2 size={14} /> Vincular chamado existente
+                                </button>
+                              </div>
+                            )}
+                          </div>
+                          <button
+                            onClick={() => {
+                              const now = new Date();
+                              const datePrefix = now.toLocaleDateString('pt-BR');
+                              const timePrefix = now.toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' });
+                              setTicketTitle(`Atendimento ${datePrefix} ${timePrefix}: ${selectedChat?.customerName}`);
+                              setIsFinishModalOpen(true);
+                            }}
+                            className={cn(
+                              "bg-slate-900 text-white rounded-xl text-[10px] font-semibold uppercase tracking-widest hover:bg-slate-800 transition-all flex items-center gap-2",
+                              isExpanded ? "px-4 py-2" : "p-2.5"
+                            )}
+                            title="Finalizar"
+                          >
+                            <TicketIcon size={14} /> {isExpanded && 'Finalizar'}
+                          </button>
+                        </div>
                       </div>
                     )}
                   </div>
 
                   {/* Messages Area */}
-                  <div 
-                    ref={scrollRef} 
+                  <div
+                    ref={scrollRef}
                     onScroll={handleScroll}
                     className="flex-1 overflow-y-auto px-8 py-6 space-y-3 bg-[var(--surface-card)]/30 scroll-smooth"
                   >
+                    {(selectedChat?.customerId || selectedChat?.customerPhone) && !(previousHistoriesOffset > 0 && previousHistoriesOffset >= previousHistoriesTotal) && (
+                      <div className="flex justify-center pb-2">
+                        <button
+                          type="button"
+                          onClick={handleLoadPreviousHistories}
+                          disabled={loadingPreviousHistories}
+                          className="flex items-center gap-2 px-4 py-2 rounded-xl border border-[var(--border-default)] bg-[var(--surface-card)] text-[10px] font-semibold uppercase tracking-widest text-[var(--text-tertiary)] hover:text-[var(--accent-text)] hover:border-[var(--accent)]/30 transition-all disabled:opacity-50"
+                        >
+                          {loadingPreviousHistories ? <Loader2 size={12} className="animate-spin" /> : <History size={12} />}
+                          Carregar histórico anterior
+                        </button>
+                      </div>
+                    )}
+
+                    {previousHistories.length > 0 && (
+                      <div className="space-y-2 pb-4 mb-2 border-b border-dashed border-[var(--border-default)]">
+                        {[...previousHistories].reverse().map((h) => {
+                          const isExpanded = expandedHistoryId === h.sessionId;
+                          const isLoadingThis = loadingHistoryMessagesId === h.sessionId;
+                          const loadedMessages = historyMessagesById[h.sessionId]?.messages || [];
+                          const durationLabel = h.durationSeconds != null
+                            ? `${Math.floor(h.durationSeconds / 60)}m ${h.durationSeconds % 60}s`
+                            : null;
+                          return (
+                            <div key={h.id} className="rounded-xl border border-[var(--border-default)] bg-[var(--surface-card)] overflow-hidden">
+                              <button
+                                type="button"
+                                onClick={() => handleToggleHistoryMessages(h.sessionId)}
+                                className="w-full flex items-center justify-between gap-3 px-4 py-2.5 text-left hover:bg-[var(--surface-pill)] transition-colors"
+                              >
+                                <div className="flex items-center gap-2 min-w-0 text-[11px] font-semibold text-[var(--text-secondary)]">
+                                  <History size={13} className="text-[var(--text-tertiary)] shrink-0" />
+                                  <span className="truncate">
+                                    Atendimento <ClientTime date={h.finishedAt} showDate showTime />
+                                    {h.assigneeName ? ` · ${h.assigneeName}` : ''}
+                                    {durationLabel ? ` · ${durationLabel}` : ''}
+                                  </span>
+                                  {!!h.rating && (
+                                    <span className="flex items-center gap-0.5 text-[var(--text-warning)] shrink-0">
+                                      <Star size={11} className="fill-current" /> {h.rating}
+                                    </span>
+                                  )}
+                                </div>
+                                <ChevronRight size={14} className={cn("shrink-0 text-[var(--text-tertiary)] transition-transform", isExpanded && "rotate-90")} />
+                              </button>
+                              {isExpanded && (
+                                <div className="px-4 py-3 border-t border-[var(--border-default)] bg-[var(--surface-pill)]/40 space-y-2 max-h-64 overflow-y-auto">
+                                  {isLoadingThis ? (
+                                    <div className="flex items-center justify-center py-4 text-[var(--text-tertiary)]">
+                                      <Loader2 size={16} className="animate-spin" />
+                                    </div>
+                                  ) : loadedMessages.length === 0 ? (
+                                    <p className="text-[10px] text-[var(--text-tertiary)] text-center py-2">Sem mensagens registradas.</p>
+                                  ) : (
+                                    loadedMessages.map(m => (
+                                      <div key={m.id} className="text-[11px] leading-relaxed">
+                                        <span className="font-semibold text-[var(--text-tertiary)]">{m.senderName || 'Cliente'}: </span>
+                                        <span className="text-[var(--text-secondary)]">{m.text}</span>
+                                      </div>
+                                    ))
+                                  )}
+                                </div>
+                              )}
+                            </div>
+                          );
+                        })}
+                      </div>
+                    )}
+
                     {selectedChatMessageRows.map((row) => {
                       if (row.type === 'date') {
                         return (
@@ -2557,80 +2793,7 @@ useEffect(() => {
       </AnimatePresence>
 
       {/* Attachment Preview */}
-      {createPortal(
-        <AnimatePresence>
-          {previewAttachment && (
-            <div
-              className="fixed inset-0 flex items-center justify-center p-4"
-              style={{ zIndex: 2147483647, isolation: 'isolate' }}
-            >
-              <motion.div
-                initial={{ opacity: 0 }}
-                animate={{ opacity: 1 }}
-                exit={{ opacity: 0 }}
-                onClick={() => setPreviewAttachment(null)}
-                className="absolute inset-0 bg-slate-950/85 backdrop-blur-sm"
-                style={{ zIndex: 2147483646 }}
-              />
-              <motion.div
-                initial={{ scale: 0.96, opacity: 0 }}
-                animate={{ scale: 1, opacity: 1 }}
-                exit={{ scale: 0.96, opacity: 0 }}
-                className="relative flex h-full max-h-[92vh] w-full max-w-6xl flex-col overflow-hidden rounded-3xl bg-[var(--surface-card)] shadow-2xl"
-                style={{ zIndex: 2147483647 }}
-              >
-                <div className="flex items-center justify-between gap-3 border-b border-[var(--border-default)] px-4 py-3 sm:px-5">
-                  <div className="flex min-w-0 items-center gap-3">
-                    <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-2xl bg-[var(--accent)]/10 text-[var(--accent-text)]">
-                      <ImageIcon size={18} />
-                    </div>
-                    <div className="min-w-0">
-                      <p className="truncate text-sm font-black text-[var(--text-primary)]">{previewAttachment.name}</p>
-                      <p className="text-[10px] font-semibold uppercase tracking-widest text-[var(--text-tertiary)]">
-                        {previewAttachment.size ? `${Math.ceil(previewAttachment.size / 1024)} KB` : 'Imagem'}
-                      </p>
-                    </div>
-                  </div>
-                  <div className="flex shrink-0 items-center gap-2">
-                    <button
-                      type="button"
-                      onClick={() => openAttachmentInNewTab(previewAttachment)}
-                      className="flex h-10 w-10 items-center justify-center rounded-2xl border border-[var(--border-default)] text-[var(--text-tertiary)] transition-all hover:bg-[var(--surface-card)] hover:text-[var(--accent-text)]"
-                      title="Abrir em nova aba"
-                    >
-                      <Maximize2 size={17} />
-                    </button>
-                    <a
-                      href={previewAttachment.url}
-                      download={previewAttachment.name}
-                      className="flex h-10 w-10 items-center justify-center rounded-2xl border border-[var(--border-default)] text-[var(--text-tertiary)] transition-all hover:bg-[var(--surface-card)] hover:text-[var(--accent-text)]"
-                      title="Baixar imagem"
-                    >
-                      <Download size={17} />
-                    </a>
-                    <button
-                      type="button"
-                      onClick={() => setPreviewAttachment(null)}
-                      className="flex h-10 w-10 items-center justify-center rounded-2xl bg-slate-900 text-white transition-all hover:bg-slate-800"
-                      title="Fechar preview"
-                    >
-                      <X size={17} />
-                    </button>
-                  </div>
-                </div>
-                <div className="flex min-h-0 flex-1 items-center justify-center bg-slate-950 p-3 sm:p-6">
-                  <img
-                    src={previewAttachment.url}
-                    alt={previewAttachment.name}
-                    className="max-h-full max-w-full rounded-xl object-contain"
-                  />
-                </div>
-              </motion.div>
-            </div>
-          )}
-        </AnimatePresence>,
-        document.body
-      )}
+      <AttachmentPreviewModal attachment={previewAttachment} onClose={() => setPreviewAttachment(null)} />
 
       {/* Histórico de edição de mensagem */}
       {createPortal(
@@ -2837,12 +3000,62 @@ useEffect(() => {
         )}
       </AnimatePresence>
 
-      <LinkContactModal 
-        isOpen={isLinkModalOpen} 
-        onClose={() => setIsLinkModalOpen(false)} 
-        session={selectedChat || null} 
+      <AnimatePresence>
+        {isDuplicateModalOpen && (
+          <div className="fixed inset-0 z-[250] flex items-center justify-center p-4">
+             <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} onClick={() => !isDuplicatingChat && setIsDuplicateModalOpen(false)} className="absolute inset-0 bg-slate-900/40 backdrop-blur-sm" />
+             <motion.div initial={{ scale: 0.9, opacity: 0 }} animate={{ scale: 1, opacity: 1 }} exit={{ scale: 0.9, opacity: 0 }} className="relative bg-[var(--surface-card)] w-full max-w-sm rounded-[2.5rem] shadow-2xl p-8">
+                <h3 className="text-xl font-black text-[var(--text-primary)] uppercase tracking-tight mb-2">Duplicar Conversa</h3>
+                <p className="text-xs text-[var(--text-tertiary)] font-medium mb-6">
+                   A conversa atual será arquivada (fica disponível em "Carregar histórico anterior") e um novo atendimento será aberto para o mesmo contato, para tratar um assunto separado. O cliente não recebe nenhum aviso — a conversa continua normalmente, só que numa sessão nova.
+                </p>
+                <div className="space-y-3">
+                   <button
+                     onClick={handleDuplicateChat}
+                     disabled={isDuplicatingChat}
+                     className="w-full py-4 bg-slate-900 text-white rounded-2xl text-[11px] font-semibold uppercase tracking-widest shadow-xl hover:bg-slate-800 transition-all disabled:opacity-50 flex items-center justify-center gap-2"
+                   >
+                     {isDuplicatingChat ? <Loader2 size={14} className="animate-spin" /> : <Copy size={14} />}
+                     Duplicar Conversa
+                   </button>
+                   <button
+                     onClick={() => setIsDuplicateModalOpen(false)}
+                     disabled={isDuplicatingChat}
+                     className="w-full py-3.5 bg-[var(--surface-card)] border-2 border-[var(--border-default)] text-[var(--text-secondary)] rounded-2xl text-[10px] font-semibold uppercase tracking-widest hover:bg-[var(--surface-pill)] transition-all disabled:opacity-50"
+                   >
+                     Cancelar
+                   </button>
+                </div>
+             </motion.div>
+          </div>
+        )}
+      </AnimatePresence>
+
+      <ConfirmDialog
+        isOpen={isConfirmNewTicketOpen}
+        onClose={() => setIsConfirmNewTicketOpen(false)}
+        onConfirm={() => handleGenerateTicket(false, false, true)}
+        title="Abrir outro chamado?"
+        description={`Este atendimento já possui o chamado #${String(selectedChat?.ticketNumber ?? '').padStart(4, '0')} vinculado. Deseja mesmo criar um novo chamado separado para esta conversa?`}
+        confirmLabel="Abrir outro chamado"
+      />
+
+      <LinkContactModal
+        isOpen={isLinkModalOpen}
+        onClose={() => setIsLinkModalOpen(false)}
+        session={selectedChat || null}
         onSuccess={() => {
           fetchUsers().then(setAllUsers);
+          fetchChatSessions().then(setCustomerSessions);
+        }}
+      />
+
+      <LinkTicketModal
+        isOpen={isLinkTicketModalOpen}
+        onClose={() => setIsLinkTicketModalOpen(false)}
+        sessionId={selectedChat?.id || null}
+        companyId={selectedChatContact?.companyId}
+        onSuccess={() => {
           fetchChatSessions().then(setCustomerSessions);
         }}
       />

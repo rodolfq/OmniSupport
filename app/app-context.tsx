@@ -13,7 +13,7 @@ export interface AppNotification {
   sourceId?: string;
   title: string;
   message: string;
-  type: 'ticket_new' | 'ticket_update' | 'ticket_assigned' | 'ticket_closed' | 'chat_new' | 'chat_message' | 'internal_ticket_message' | 'internal_ticket_status' | 'customer_evaluation_prompt';
+  type: 'ticket_new' | 'ticket_update' | 'ticket_assigned' | 'ticket_closed' | 'chat_new' | 'chat_message' | 'internal_ticket_message' | 'internal_ticket_status' | 'customer_evaluation_prompt' | 'hotfix_overdue';
   targetId?: string;
   recipientId: string;
   timestamp: string;
@@ -36,6 +36,7 @@ export interface NotificationSettings {
   internal_ticket_message: boolean;
   internal_ticket_status: boolean;
   customer_evaluation_prompt: boolean;
+  hotfix_overdue: boolean;
   osNotificationsEnabled: boolean;
 }
 
@@ -117,6 +118,7 @@ const DEFAULT_SETTINGS: NotificationSettings = {
   internal_ticket_message: true,
   internal_ticket_status: true,
   customer_evaluation_prompt: true,
+  hotfix_overdue: true,
   osNotificationsEnabled: true,
 };
 
@@ -124,6 +126,7 @@ function getNotificationTargetHref(notif: Pick<AppNotification, 'type' | 'target
   if (!notif.targetId) return null;
   if (notif.type.startsWith('chat_')) return `${isCompanyUser ? '/my-tickets' : '/dashboard'}?chat=${notif.targetId}`;
   if (notif.type.startsWith('internal_ticket_')) return `/internal-tickets/${notif.targetId}`;
+  if (notif.type === 'hotfix_overdue') return '/hotfixes';
   // Não tem link de página — a ação é abrir o modal de avaliação, só possível
   // pelo clique no sino (ver NotificationPanel), não pela notificação nativa
   // do SO.
