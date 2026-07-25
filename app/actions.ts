@@ -34,6 +34,29 @@ async function getAdminTeamIds(actorId: string): Promise<string[]> {
   return res.rows.map(r => r.id);
 }
 
+// O que o próprio ator "tem" pra fins de conceder permissão a outro perfil —
+// mesmas duas fontes usadas no login/`/api/auth/me`: as permissões do Perfil
+// de Acesso dele e, se ele administra alguma equipe, o mesmo bônus
+// (team:read/settings:write) que já libera esta própria tela pra ele. Um
+// admin de equipe nunca pode conceder a outro perfil algo que ele mesmo não
+// tem — só o Administrador do sistema está isento (chamador confere role
+// antes de usar isto).
+async function getActorEffectivePermissions(actorId: string): Promise<string[]> {
+  const res = await query(
+    `SELECT COALESCE(rp.permissions, '{}'::text[]) AS permissions
+     FROM public.profiles p LEFT JOIN public.role_permissions rp ON rp.id = p.access_profile_id
+     WHERE p.id = $1`,
+    [actorId]
+  );
+  const permissions = new Set<string>(res.rows[0]?.permissions || []);
+  const adminTeamIds = await getAdminTeamIds(actorId);
+  if (adminTeamIds.length > 0) {
+    permissions.add('team:read');
+    permissions.add('settings:write');
+  }
+  return Array.from(permissions);
+}
+
 // Um perfil de acesso só pode ser editado/renomeado/excluído por: o
 // Administrador do sistema, ou um admin da equipe à qual o perfil está
 // escopado. Perfis de sistema (is_system) e perfis globais (sem equipe)
@@ -1238,6 +1261,24 @@ export async function saveRolePermissionsById(profileId: string, permissions: st
 
     const check = await assertProfileEditable(actor, profileId);
     if (!check.ok) return { error: check.error };
+
+    // Barreira de verdade (a tela já esconde isso, mas quem chamar a action
+    // direto não pode conceder o que não tem): só o que está sendo ADICIONADO
+    // precisa estar no próprio conjunto do ator — permissões que o perfil já
+    // tinha antes (ex: concedidas por um Administrador) continuam podendo
+    // ser removidas ou deixadas como estavam, mesmo fora do alcance dele.
+    if (actor.role !== 'Administrador') {
+      const [myPermissions, existingRes] = await Promise.all([
+        getActorEffectivePermissions(actor.id),
+        query('SELECT permissions FROM public.role_permissions WHERE id = $1', [profileId])
+      ]);
+      const oldPermissions: string[] = existingRes.rows[0]?.permissions || [];
+      const added = permissions.filter(p => !oldPermissions.includes(p));
+      const notAllowed = added.filter(p => !myPermissions.includes(p));
+      if (notAllowed.length > 0) {
+        return { error: 'Você só pode conceder permissões que você mesmo tem.' };
+      }
+    }
 
     await query('UPDATE public.role_permissions SET permissions = $1 WHERE id = $2', [permissions, profileId]);
     return { success: true };

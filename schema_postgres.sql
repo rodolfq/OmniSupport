@@ -104,13 +104,21 @@ CREATE INDEX IF NOT EXISTS idx_profiles_internal_teams ON public.profiles USING 
 -- (role continua existindo em profiles só pro tipo estrutural do usuário).
 CREATE TABLE public.role_permissions (
   id UUID PRIMARY KEY DEFAULT (md5(random()::text || clock_timestamp()::text)::uuid),
-  name TEXT NOT NULL UNIQUE,
+  name TEXT NOT NULL,
   role TEXT NOT NULL,
   permissions TEXT[] DEFAULT '{}',
   internal_team_id UUID REFERENCES public.internal_teams(id) ON DELETE CASCADE, -- NULL = perfil global/sistema; preenchido = perfil criado por/para uma equipe interna específica
   is_system BOOLEAN DEFAULT FALSE, -- protege os perfis padrão (Administrador etc) de edição/exclusão por admins de equipe
   created_at TIMESTAMP WITH TIME ZONE DEFAULT now()
 );
+
+-- Nome só precisa ser único DENTRO do mesmo escopo — duas equipes diferentes
+-- (ou uma equipe e o nível global) podem ter cada uma o seu "Acesso" sem
+-- colidir. Dois índices parciais em vez de um UNIQUE(name, internal_team_id)
+-- porque NULL != NULL pro Postgres — sem isso, perfis globais (internal_team_id
+-- nulo) poderiam duplicar nome entre si.
+CREATE UNIQUE INDEX role_permissions_name_global_idx ON public.role_permissions (name) WHERE internal_team_id IS NULL;
+CREATE UNIQUE INDEX role_permissions_name_team_idx ON public.role_permissions (name, internal_team_id) WHERE internal_team_id IS NOT NULL;
 
 -- "Perfil de Acesso" do usuário — única fonte de permissões/telas. Fica como
 -- ALTER (não como coluna inline lá em cima) porque profiles é criada antes

@@ -4,7 +4,7 @@ import React, { useState, useEffect, useMemo } from 'react';
 import { getUsers, getCompanies, deleteCompany } from '@/app/actions';
 import { Company, User, UserRole, Permission } from '@/lib/types';
 import { Building2, User as UserIcon, Mail, Phone, Plus, MessageCircle, Ticket, ShieldCheck, ShieldOff, Search, X, Check, Pencil, UserPlus } from 'lucide-react';
-import { cn, normalizeString, maskPhone } from '@/lib/utils';
+import { cn, normalizeString, normalizePhone, maskPhone } from '@/lib/utils';
 import { NewEmployeeModal } from '@/components/new-employee-modal';
 import { EditEmployeeModal } from '@/components/edit-employee-modal';
 import { NewCompanyModal } from '@/components/new-company-modal';
@@ -187,16 +187,24 @@ if (isCompanyPortalUser) {
     if (!searchQuery.trim()) return companies;
 
     const lowerQuery = normalizeString(searchQuery);
+    // Só compara dígitos quando a busca realmente tem algum — evita que uma
+    // busca por texto (ex: "Jean") combine com qualquer telefone por engano.
+    const digitsQuery = normalizePhone(searchQuery);
+
     return companies.filter(c => {
       // Direct company name match
       if (normalizeString(c.name).includes(lowerQuery)) return true;
 
-      // Match employee name within this company
-      const hasMatchingEmployee = users.some(u => 
-        u.companyId === c.id && normalizeString(u.name).includes(lowerQuery)
-      );
-      
-      return hasMatchingEmployee;
+      // Nome, e-mail ou telefone de qualquer funcionário desta empresa —
+      // achar a pessoa deve levar direto pra empresa dela.
+      return users.some(u => {
+        if (u.companyId !== c.id) return false;
+        if (normalizeString(u.name).includes(lowerQuery)) return true;
+        if (normalizeString(u.email || '').includes(lowerQuery)) return true;
+        if (!digitsQuery) return false;
+        if (normalizePhone(u.phone || '').includes(digitsQuery)) return true;
+        return (u.phones || []).some(p => normalizePhone(p).includes(digitsQuery));
+      });
     });
   }, [companies, users, searchQuery]);
 
@@ -225,7 +233,7 @@ if (isCompanyPortalUser) {
             <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-[var(--text-tertiary)] group-focus-within:text-[var(--accent-text)] transition-colors" size={16} />
             <input
               type="text"
-              placeholder="Buscar por empresa ou funcionário..."
+              placeholder="Buscar por empresa, funcionário, e-mail ou telefone..."
               value={searchQuery}
               onChange={(e) => setSearchQuery(e.target.value)}
               className="w-full bg-[var(--surface-card)] border border-[var(--border-default)] rounded-xl pl-10 pr-4 py-2.5 text-sm font-medium outline-none focus:ring-2 focus:ring-[var(--accent)]/10 focus:border-[var(--accent)] transition-all"

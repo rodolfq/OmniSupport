@@ -48,13 +48,21 @@ export default function DashboardPage() {
   // internal:view); ver descrições em Equipes & Permissões.
   const canSeeTickets = hasPermission(Permission.TICKETS_READ);
   const canSeeInternal = hasPermission(Permission.INTERNAL_TICKETS_VIEW);
-  const [dashboardMode, setDashboardMode] = useState<'tickets' | 'internal'>('tickets');
+  // Inicializa já no lado certo pra quem só tem uma das duas permissões —
+  // evita um frame mostrando "Chamados" antes do efeito abaixo corrigir.
+  const [dashboardMode, setDashboardMode] = useState<'tickets' | 'internal'>(() => (
+    !canSeeTickets && canSeeInternal ? 'internal' : 'tickets'
+  ));
   const [internalTickets, setInternalTickets] = useState<InternalTicketItem[]>([]);
   const [loadingInternal, setLoadingInternal] = useState(false);
   const [internalStatuses, setInternalStatuses] = useState<InternalStatusMeta[]>([]);
 
+  // Nenhuma das duas permissões é dependente da outra: quem perde/ganha uma
+  // delas (ex: perfil de acesso trocado) não deve continuar preso no lado
+  // que não pode mais ver, nem ficar preso no lado que acabou de ganhar.
   useEffect(() => {
     if (!canSeeTickets && canSeeInternal) setDashboardMode('internal');
+    else if (canSeeTickets && !canSeeInternal) setDashboardMode('tickets');
   }, [canSeeTickets, canSeeInternal]);
 
   useEffect(() => {
@@ -131,7 +139,16 @@ export default function DashboardPage() {
         router.push('/my-tickets');
         return;
       }
-      
+
+      // Sem "Visualizar chamados": nem busca os dados — quem só tem Tickets
+      // Internos não pode ter chamados chegando na memória do cliente.
+      if (!canSeeTickets) {
+        setAllTickets([]);
+        setFilteredTickets([]);
+        setLoading(false);
+        return;
+      }
+
       setLoading(true);
       try {
         // O AppContext já lida com o sync inicial.
@@ -175,7 +192,7 @@ export default function DashboardPage() {
     loadData();
 
     return () => controller.abort();
-  }, [searchParams, currentUser?.id, currentUser?.role, refreshTrigger, router]);
+  }, [searchParams, currentUser?.id, currentUser?.role, refreshTrigger, router, canSeeTickets]);
 
   const columns = useMemo(() => statuses
     .filter(s => !isClosedTicketStatus(s.label))
@@ -271,7 +288,7 @@ export default function DashboardPage() {
             </div>
           )}
 
-          {dashboardMode === 'tickets' && (
+          {dashboardMode === 'tickets' && canSeeTickets && (
             <>
               {loading && (
                 <div className="flex items-center gap-2 bg-[var(--surface-pill)] px-4 py-2 rounded-xl text-[var(--text-tertiary)] animate-pulse">
@@ -299,7 +316,7 @@ export default function DashboardPage() {
               </button>
             </>
           )}
-          {dashboardMode === 'internal' && (
+          {dashboardMode === 'internal' && canSeeInternal && (
             <button
               onClick={() => router.push('/internal-tickets')}
               className="bg-[var(--text-warning-strong)] hover:bg-[var(--accent-warning-hover)] text-white px-6 py-2.5 rounded-lg text-sm font-semibold shadow-md transition-all flex items-center gap-2 whitespace-nowrap"
@@ -311,7 +328,7 @@ export default function DashboardPage() {
         </div>
       </div>
 
-      {dashboardMode === 'tickets' ? (
+      {dashboardMode === 'tickets' && canSeeTickets ? (
       <>
       <FilterBar
         originalTickets={allTickets}
@@ -444,9 +461,9 @@ export default function DashboardPage() {
         })}
       </div>
       </>
-      ) : (
+      ) : canSeeInternal ? (
         <InternalDashboard tickets={internalTickets} loading={loadingInternal} router={router} statuses={internalStatuses} />
-      )}
+      ) : null}
 
       <AnimatePresence>
         {selectedTicket && (

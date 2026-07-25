@@ -29,10 +29,17 @@ function buildStandaloneWhereClause(table: string, filters: any[] | undefined): 
       params.push(filter.val);
       paramIndex++;
     } else if (filter.type === 'in') {
-      const placeholders = filter.val.map((_: any, idx: number) => `$${paramIndex + idx}`).join(',');
-      clauses.push(`${filter.col} IN (${placeholders})`);
-      params.push(...filter.val);
-      paramIndex += filter.val.length;
+      // .in(col, []) é um caso legítimo (ex: lista de ids vazia) — igual ao
+      // Supabase de verdade, deve retornar zero linhas, não virar "IN ()"
+      // (SQL inválido, erro de sintaxe no Postgres).
+      if (filter.val.length === 0) {
+        clauses.push('1=0');
+      } else {
+        const placeholders = filter.val.map((_: any, idx: number) => `$${paramIndex + idx}`).join(',');
+        clauses.push(`${filter.col} IN (${placeholders})`);
+        params.push(...filter.val);
+        paramIndex += filter.val.length;
+      }
     } else if (filter.type === 'or') {
       const parts = filter.val.split(',');
       const orClauses: string[] = [];
@@ -152,10 +159,16 @@ export async function POST(request: Request) {
           params.push(filter.val);
           paramIndex++;
         } else if (filter.type === 'in') {
-          const placeholders = filter.val.map((_: any, idx: number) => `$${paramIndex + idx}`).join(',');
-          clauses.push(`${filter.col} IN (${placeholders})`);
-          params.push(...filter.val);
-          paramIndex += filter.val.length;
+          // Mesma regra da buildStandaloneWhereClause acima: lista vazia
+          // deve dar zero linhas, não "IN ()" inválido.
+          if (filter.val.length === 0) {
+            clauses.push('1=0');
+          } else {
+            const placeholders = filter.val.map((_: any, idx: number) => `$${paramIndex + idx}`).join(',');
+            clauses.push(`${filter.col} IN (${placeholders})`);
+            params.push(...filter.val);
+            paramIndex += filter.val.length;
+          }
         } else if (filter.type === 'or') {
           const parts = filter.val.split(',');
           const orClauses: string[] = [];

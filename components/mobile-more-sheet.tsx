@@ -7,7 +7,7 @@ import { motion, AnimatePresence } from 'motion/react';
 import { X, ChevronDown, Sun, Moon, LogOut, Database, Download, Share } from 'lucide-react';
 import { useApp } from '@/app/app-context';
 import { useTheme } from '@/app/theme-provider';
-import { UserRole } from '@/lib/types';
+import { UserRole, Permission } from '@/lib/types';
 import { getNavItems, getUserPermissions, filterVisibleNavItems } from '@/lib/nav-items';
 import { usePwaInstall } from '@/lib/pwa-install';
 import { cn } from '@/lib/utils';
@@ -36,7 +36,8 @@ export function MobileMoreSheet({ isOpen, onClose }: MobileMoreSheetProps) {
     absenceReasons,
     setUserStatus,
     whatsappStatus,
-    dbStatus
+    dbStatus,
+    hasPermission
   } = useApp();
   const { theme, toggleTheme } = useTheme();
 
@@ -164,7 +165,7 @@ export function MobileMoreSheet({ isOpen, onClose }: MobileMoreSheetProps) {
                 </div>
               )}
 
-              {isTeam && (
+              {isTeam && hasPermission(Permission.OUTSIDE_QUEUE_VIEW) && (
                 <div className="flex items-center justify-between px-4 py-3 rounded-2xl border border-[var(--border-default)]">
                   <div className="flex items-center gap-2">
                     <div className={cn(

@@ -29,6 +29,7 @@ import {
   GitMerge,
   Tag,
   Link2,
+  Lock,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { AnimatePresence, motion } from "motion/react";
@@ -224,18 +225,14 @@ export default function TicketsPage() {
         );
       }
     } else {
+      // Chegar aqui já exige tickets:read (gate no topo do componente) — só
+      // resta escopar quem não tem Central de Atendimento (outside_queue) às
+      // próprias filas/atribuições, igual antes.
       const canViewOutsideQueue =
         hasPermission(Permission.OUTSIDE_QUEUE_VIEW) ||
         currentUser.role === UserRole.ADMIN;
-      const hasFullRead = hasPermission(Permission.TICKETS_READ);
-      const hasInternalView = hasPermission(Permission.INTERNAL_TICKETS_VIEW);
 
-      if (hasInternalView && !hasFullRead) {
-        const res = await fetch('/api/tickets?action=internal-links');
-        const links = res.ok ? await res.json() : [];
-        const ticketsWithInternal = new Set((links || []).map((l: any) => l.ticket_id));
-        filtered = filtered.filter((t) => ticketsWithInternal.has(t.id));
-      } else if (!canViewOutsideQueue) {
+      if (!canViewOutsideQueue) {
         filtered = filtered.filter(
           (t) =>
             !t.assigneeId ||
@@ -826,6 +823,21 @@ export default function TicketsPage() {
         return null;
     }
   };
+
+  // Quem só tem Tickets Internos (sem "Visualizar chamados") não pode ver
+  // nada desta tela, nem os chamados vinculados a tickets internos que essa
+  // pessoa acompanha — mesmo padrão de /internal-tickets, na direção oposta.
+  if (currentUser?.role !== UserRole.CUSTOMER && currentUser?.role !== UserRole.EMPLOYEE && !hasPermission(Permission.TICKETS_READ)) {
+    return (
+      <div className="flex items-center justify-center h-full">
+        <div className="text-center p-8 bg-[var(--surface-card)] rounded-2xl shadow-lg">
+          <Lock size={48} className="mx-auto text-slate-300 mb-4" />
+          <h2 className="text-xl font-bold text-[var(--text-secondary)] mb-2">Acesso Negado</h2>
+          <p className="text-[var(--text-tertiary)]">Você não tem permissão para visualizar chamados.</p>
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div className="space-y-8">

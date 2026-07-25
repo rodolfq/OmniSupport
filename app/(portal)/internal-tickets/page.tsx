@@ -226,10 +226,9 @@ if (filterAssignee) query = query.eq("assignee_id", filterAssignee);
 
       // Get assignee names separately
       const assigneeIds = [...new Set((internalData || []).map((t: any) => t.assignee_id).filter(Boolean))];
-      const { data: assignees } = await supabase
-        .from("profiles")
-        .select("id, name")
-        .in("id", assigneeIds);
+      const { data: assignees } = assigneeIds.length
+        ? await supabase.from("profiles").select("id, name").in("id", assigneeIds)
+        : { data: [] as any[] };
       const assigneeMap = new Map((assignees || []).map((a: any) => [a.id, a.name]));
 
       // Get linked tickets

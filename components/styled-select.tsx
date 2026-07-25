@@ -93,25 +93,40 @@ export function StyledSelect({
     const roomAbove = rect.top - 12;
     const openAbove = roomBelow < 220 && roomAbove > roomBelow;
     const maxHeight = Math.max(160, Math.min(320, openAbove ? roomAbove : roomBelow));
-    setPosition({
+    const next = {
       top: openAbove ? Math.max(8, rect.top - maxHeight - 6) : rect.bottom + 6,
       left: Math.min(rect.left, Math.max(8, window.innerWidth - menuWidth - 8)),
       width: menuWidth,
       maxHeight,
-    });
+    };
+    // Só re-renderiza se algo realmente mudou — o loop abaixo roda a cada
+    // frame enquanto o menu está aberto, não queremos um setState (e
+    // portanto um re-render) 60x/s à toa quando nada se moveu.
+    setPosition(prev => (
+      prev.top === next.top && prev.left === next.left && prev.width === next.width && prev.maxHeight === next.maxHeight
+        ? prev
+        : next
+    ));
   };
 
   useEffect(() => setMounted(true), []);
 
+  // Resize/scroll sozinhos não cobrem tudo: qualquer reflow da página
+  // enquanto o menu está aberto (um card ao lado mudando de tamanho, o
+  // conteúdo da lista recalculando altura etc.) não dispara nem "resize" nem
+  // "scroll", e o menu — que é position:fixed num portal — ficava preso na
+  // posição antiga, "flutuando" fora do lugar certo. Recalcular a cada frame
+  // enquanto aberto elimina essa classe inteira de bug, não só o caso do
+  // scroll.
   useEffect(() => {
     if (!open) return;
-    updatePosition();
-    window.addEventListener("resize", updatePosition);
-    window.addEventListener("scroll", updatePosition, true);
-    return () => {
-      window.removeEventListener("resize", updatePosition);
-      window.removeEventListener("scroll", updatePosition, true);
+    let frame: number;
+    const loop = () => {
+      updatePosition();
+      frame = requestAnimationFrame(loop);
     };
+    frame = requestAnimationFrame(loop);
+    return () => cancelAnimationFrame(frame);
   }, [open]);
 
   useEffect(() => {

@@ -120,11 +120,131 @@ interface Team {
   adminIds: string[];
 }
 
+// Hoisted pra fora do componente de página de propósito: definir isso ali
+// dentro fazia o React tratar como um componente novo a cada re-render do
+// pai (ex: cada tecla digitada em qualquer campo da tela) e desmontar/remontar
+// esse pedaço da árvore — com o motion.div do AddProfileForm isso repetia a
+// animação de entrada sem parar, piscando o formulário mesmo parado.
+function ProfileButton({
+  rp,
+  selectedProfileId,
+  selectProfile,
+  isSystemAdmin,
+  myAdminTeamIds,
+  setProfileToDelete,
+}: {
+  rp: RolePermission;
+  selectedProfileId: string | null;
+  selectProfile: (id: string) => void;
+  isSystemAdmin: boolean;
+  myAdminTeamIds: string[];
+  setProfileToDelete: (rp: RolePermission) => void;
+}) {
+  const canDelete = rp.name !== 'Administrador' && (isSystemAdmin || (!!rp.internalTeamId && myAdminTeamIds.includes(rp.internalTeamId)));
+  return (
+    <div className="relative group/role">
+      <button
+        onClick={() => selectProfile(rp.id)}
+        className={cn(
+          "w-full flex items-center justify-between p-4 rounded-2xl border transition-all text-left",
+          // Reserva espaço pro botão de excluir (absoluto, por cima) não cair
+          // em cima da seta de "selecionado" — sem isso os dois ícones
+          // ocupavam o mesmo canto e ficavam misturados.
+          canDelete && "pr-12",
+          selectedProfileId === rp.id
+            ? "bg-[var(--accent)] border-[var(--accent)] text-white shadow-lg shadow-indigo-100"
+            : "bg-[var(--surface-card)] border-transparent hover:bg-[var(--surface-card)] text-[var(--text-secondary)]"
+        )}
+      >
+        <div className="flex items-center gap-3">
+          <div className={cn(
+            "w-8 h-8 rounded-lg flex items-center justify-center transition-all",
+            selectedProfileId === rp.id ? "bg-white/20 text-white" : "bg-[var(--surface-pill)] text-[var(--text-tertiary)]"
+          )}>
+            {rp.name === 'Administrador' ? <Shield size={16} /> : <div className="text-[10px] font-black">{(rp.name || 'P')[0]}</div>}
+          </div>
+          <div className="flex flex-col">
+            <span className="text-xs font-black uppercase tracking-tight">{rp.name || 'Perfil sem nome'}</span>
+            <span className={cn("text-[10px] font-medium", selectedProfileId === rp.id ? "text-indigo-100 dark:text-[var(--accent-soft-text)]" : "text-[var(--text-tertiary)]")}>
+              {rp.permissions.length} permissões
+            </span>
+          </div>
+        </div>
+        {selectedProfileId === rp.id && <ChevronRight size={16} className="shrink-0" />}
+      </button>
+      {canDelete && (
+        <button
+          onClick={(e) => { e.stopPropagation(); setProfileToDelete(rp); }}
+          className={cn(
+            // pointer-events-none enquanto invisível — antes o botão continuava
+            // capturando clique mesmo em opacity 0, "roubando" o clique de quem
+            // queria selecionar o perfil (sem nunca abrir a confirmação de
+            // exclusão, então parecia só que "não dava pra selecionar").
+            "absolute right-3 top-1/2 -translate-y-1/2 p-2 rounded-xl transition-all opacity-0 pointer-events-none group-hover/role:opacity-100 group-hover/role:pointer-events-auto",
+            selectedProfileId === rp.id ? "text-white/40 hover:text-white hover:bg-white/10" : "text-slate-300 hover:text-[var(--text-danger)] hover:bg-[var(--surface-danger)]"
+          )}
+        >
+          <Trash2 size={16} />
+        </button>
+      )}
+    </div>
+  );
+}
+
+function AddProfileForm({
+  scopeKey,
+  isAddingProfile,
+  newProfileName,
+  setNewProfileName,
+  handleAddProfile,
+  setIsAddingProfile,
+}: {
+  scopeKey: string | 'system';
+  isAddingProfile: string | 'system' | null;
+  newProfileName: string;
+  setNewProfileName: (v: string) => void;
+  handleAddProfile: () => void;
+  setIsAddingProfile: (v: string | 'system' | null) => void;
+}) {
+  return (
+    <AnimatePresence>
+      {isAddingProfile === scopeKey && (
+        <motion.div
+          initial={{ opacity: 0, y: -10 }}
+          animate={{ opacity: 1, y: 0 }}
+          exit={{ opacity: 0, y: -10 }}
+          className="p-4 bg-[var(--accent)]/10 border border-[var(--accent)]/20 rounded-2xl space-y-3"
+        >
+          <input
+            autoFocus
+            type="text"
+            placeholder="Novo perfil..."
+            value={newProfileName}
+            onChange={e => setNewProfileName(e.target.value)}
+            onKeyDown={e => e.key === 'Enter' && handleAddProfile()}
+            className="w-full bg-[var(--surface-card)] border border-[var(--accent)]/30 rounded-xl px-4 py-2 text-xs font-bold focus:ring-2 focus:ring-[var(--accent)]/20 outline-none"
+          />
+          <div className="flex gap-2">
+            <button onClick={handleAddProfile} className="flex-1 bg-[var(--accent)] text-white rounded-lg py-2 text-[10px] font-black uppercase">Criar</button>
+            <button onClick={() => { setIsAddingProfile(null); setNewProfileName(''); }} className="px-4 py-2 text-[var(--text-tertiary)] hover:bg-[var(--surface-card)] rounded-lg transition-all"><X size={16} /></button>
+          </div>
+        </motion.div>
+      )}
+    </AnimatePresence>
+  );
+}
+
 export default function PermissionsManagementPage() {
   const { currentUser, hasPermission, authInitialized } = useApp();
   const isSystemAdmin = currentUser?.role === 'Administrador';
   const myAdminTeamIds = useMemo(() => currentUser?.adminOfTeamIds || [], [currentUser?.adminOfTeamIds]);
   const canAccessPage = isSystemAdmin || myAdminTeamIds.length > 0 || hasPermission(Permission.SETTINGS_WRITE);
+  // Admin de equipe só pode ver e conceder permissões que ele próprio tem —
+  // nem sequer enxerga o resto da lista. Administrador do sistema continua
+  // vendo tudo. A mesma regra é aplicada de novo no servidor
+  // (saveRolePermissionsById): isso aqui é só a experiência da tela, não a
+  // barreira de segurança de verdade.
+  const myPermissions = useMemo(() => currentUser?.permissions || [], [currentUser?.permissions]);
 
   const [loading, setLoading] = useState(true);
   const [rolePermissions, setRolePermissions] = useState<RolePermission[]>([]);
@@ -223,16 +343,23 @@ export default function PermissionsManagementPage() {
       : !currentProfile.isSystem && !!currentProfile.internalTeamId && myAdminTeamIds.includes(currentProfile.internalTeamId)
     : false;
 
+  const visiblePermissionGroups = useMemo(() => {
+    if (isSystemAdmin) return permissionGroups;
+    return permissionGroups
+      .map(group => ({ ...group, permissions: group.permissions.filter(p => myPermissions.includes(p.id)) }))
+      .filter(group => group.permissions.length > 0);
+  }, [isSystemAdmin, myPermissions]);
+
   const filteredGroups = useMemo(() => {
-    if (!searchQuery) return permissionGroups;
-    return permissionGroups.map(group => ({
+    if (!searchQuery) return visiblePermissionGroups;
+    return visiblePermissionGroups.map(group => ({
       ...group,
       permissions: group.permissions.filter(p =>
         p.label.toLowerCase().includes(searchQuery.toLowerCase()) ||
         p.desc.toLowerCase().includes(searchQuery.toLowerCase())
       )
     })).filter(group => group.permissions.length > 0);
-  }, [searchQuery]);
+  }, [visiblePermissionGroups, searchQuery]);
 
   const selectProfile = (id: string) => {
     setSelectedProfileId(id);
@@ -258,6 +385,7 @@ export default function PermissionsManagementPage() {
 
   const togglePermission = (permissionId: Permission) => {
     if (!canEditCurrent || !currentProfile) return;
+    if (!isSystemAdmin && !myPermissions.includes(permissionId)) return;
     setRolePermissions(prev => prev.map(rp => {
       if (rp.id !== currentProfile.id) return rp;
       const hasPerm = rp.permissions.includes(permissionId);
@@ -269,7 +397,9 @@ export default function PermissionsManagementPage() {
 
   const toggleGroup = (groupId: string) => {
     if (!canEditCurrent || !currentProfile) return;
-    const group = permissionGroups.find(g => g.id === groupId);
+    // Usa a lista já restrita à visão do ator — "Ativar Todos" não pode
+    // ligar permissões que nem aparecem pra ele.
+    const group = visiblePermissionGroups.find(g => g.id === groupId);
     if (!group) return;
     const groupPermIds = group.permissions.map(p => p.id);
     const allEnabled = groupPermIds.every(id => currentProfile.permissions.includes(id));
@@ -334,14 +464,27 @@ export default function PermissionsManagementPage() {
 
   const updateProfileName = (name: string) => {
     if (!currentProfile) return;
+    // Só atualiza o texto local aqui — o nome é salvo sozinho ao sair do
+    // campo (commitProfileName), então não entra no fluxo de "Salvar
+    // Alterações"/hasChanges, que é só pra permissões marcadas/desmarcadas.
     setRolePermissions(prev => prev.map(rp => rp.id === currentProfile.id ? { ...rp, name } : rp));
-    setHasChanges(true);
   };
 
   const commitProfileName = async () => {
     if (!currentProfile) return;
-    const result = await renameAccessProfile(currentProfile.id, currentProfile.name);
-    if (result?.error) toast.error(result.error);
+    const trimmed = currentProfile.name.trim();
+    if (!trimmed) {
+      toast.error('O nome do perfil não pode ficar em branco.');
+      await loadAll();
+      return;
+    }
+    const result = await renameAccessProfile(currentProfile.id, trimmed);
+    if (result?.error) {
+      toast.error(result.error);
+      await loadAll();
+    } else {
+      toast.success('Nome do perfil atualizado');
+    }
   };
 
   // ---- Equipe: criar / renomear / excluir (só Administrador do sistema) ----
@@ -463,78 +606,20 @@ export default function PermissionsManagementPage() {
     }
   };
 
-  const filteredCandidateUsers = allUsers.filter(u =>
-    (u.name?.toLowerCase().includes(memberSearch.toLowerCase()) ||
-     u.email?.toLowerCase().includes(memberSearch.toLowerCase()))
-  );
-
-  const ProfileButton = ({ rp }: { rp: RolePermission }) => (
-    <div className="relative group/role">
-      <button
-        onClick={() => selectProfile(rp.id)}
-        className={cn(
-          "w-full flex items-center justify-between p-4 rounded-2xl border transition-all text-left",
-          selectedProfileId === rp.id
-            ? "bg-[var(--accent)] border-[var(--accent)] text-white shadow-lg shadow-indigo-100"
-            : "bg-[var(--surface-card)] border-transparent hover:bg-[var(--surface-card)] text-[var(--text-secondary)]"
-        )}
-      >
-        <div className="flex items-center gap-3">
-          <div className={cn(
-            "w-8 h-8 rounded-lg flex items-center justify-center transition-all",
-            selectedProfileId === rp.id ? "bg-white/20 text-white" : "bg-[var(--surface-pill)] text-[var(--text-tertiary)]"
-          )}>
-            {rp.name === 'Administrador' ? <Shield size={16} /> : <div className="text-[10px] font-black">{(rp.name || 'P')[0]}</div>}
-          </div>
-          <div className="flex flex-col">
-            <span className="text-xs font-black uppercase tracking-tight">{rp.name || 'Perfil sem nome'}</span>
-            <span className={cn("text-[10px] font-medium", selectedProfileId === rp.id ? "text-indigo-100 dark:text-[var(--accent-soft-text)]" : "text-[var(--text-tertiary)]")}>
-              {rp.permissions.length} permissões
-            </span>
-          </div>
-        </div>
-        {selectedProfileId === rp.id && <ChevronRight size={16} />}
-      </button>
-      {rp.name !== 'Administrador' && (isSystemAdmin || (rp.internalTeamId && myAdminTeamIds.includes(rp.internalTeamId))) && (
-        <button
-          onClick={(e) => { e.stopPropagation(); setProfileToDelete(rp); }}
-          className={cn(
-            "absolute right-4 top-1/2 -translate-y-1/2 p-2 rounded-xl transition-all opacity-0 group-hover/role:opacity-100",
-            selectedProfileId === rp.id ? "text-white/40 hover:text-white hover:bg-white/10" : "text-slate-300 hover:text-[var(--text-danger)] hover:bg-[var(--surface-danger)]"
-          )}
-        >
-          <Trash2 size={16} />
-        </button>
-      )}
-    </div>
-  );
-
-  const AddProfileForm = ({ scopeKey }: { scopeKey: string | 'system' }) => (
-    <AnimatePresence>
-      {isAddingProfile === scopeKey && (
-        <motion.div
-          initial={{ opacity: 0, y: -10 }}
-          animate={{ opacity: 1, y: 0 }}
-          exit={{ opacity: 0, y: -10 }}
-          className="p-4 bg-[var(--accent)]/10 border border-[var(--accent)]/20 rounded-2xl space-y-3"
-        >
-          <input
-            autoFocus
-            type="text"
-            placeholder="Novo perfil..."
-            value={newProfileName}
-            onChange={e => setNewProfileName(e.target.value)}
-            onKeyDown={e => e.key === 'Enter' && handleAddProfile()}
-            className="w-full bg-[var(--surface-card)] border border-[var(--accent)]/30 rounded-xl px-4 py-2 text-xs font-bold focus:ring-2 focus:ring-[var(--accent)]/20 outline-none"
-          />
-          <div className="flex gap-2">
-            <button onClick={handleAddProfile} className="flex-1 bg-[var(--accent)] text-white rounded-lg py-2 text-[10px] font-black uppercase">Criar</button>
-            <button onClick={() => { setIsAddingProfile(null); setNewProfileName(''); }} className="px-4 py-2 text-[var(--text-tertiary)] hover:bg-[var(--surface-card)] rounded-lg transition-all"><X size={16} /></button>
-          </div>
-        </motion.div>
-      )}
-    </AnimatePresence>
-  );
+  // Quem já está selecionado pra esta equipe sobe pro topo — sem isso, achar
+  // quem já é membro no meio de uma lista grande e alfabética é chato.
+  const filteredCandidateUsers = useMemo(() => {
+    const filtered = allUsers.filter(u =>
+      (u.name?.toLowerCase().includes(memberSearch.toLowerCase()) ||
+       u.email?.toLowerCase().includes(memberSearch.toLowerCase()))
+    );
+    return [...filtered].sort((a, b) => {
+      const aSelected = editSelectedMembers.includes(a.id);
+      const bSelected = editSelectedMembers.includes(b.id);
+      if (aSelected !== bSelected) return aSelected ? -1 : 1;
+      return (a.name || '').localeCompare(b.name || '');
+    });
+  }, [allUsers, memberSearch, editSelectedMembers]);
 
   if (!authInitialized || loading) {
     return (
@@ -621,8 +706,25 @@ export default function PermissionsManagementPage() {
                 </button>
               </div>
               <div className="space-y-2">
-                <AddProfileForm scopeKey="system" />
-                {systemProfiles.map(rp => <ProfileButton key={rp.id} rp={rp} />)}
+                <AddProfileForm
+                  scopeKey="system"
+                  isAddingProfile={isAddingProfile}
+                  newProfileName={newProfileName}
+                  setNewProfileName={setNewProfileName}
+                  handleAddProfile={handleAddProfile}
+                  setIsAddingProfile={setIsAddingProfile}
+                />
+                {systemProfiles.map(rp => (
+                  <ProfileButton
+                    key={rp.id}
+                    rp={rp}
+                    selectedProfileId={selectedProfileId}
+                    selectProfile={selectProfile}
+                    isSystemAdmin={isSystemAdmin}
+                    myAdminTeamIds={myAdminTeamIds}
+                    setProfileToDelete={setProfileToDelete}
+                  />
+                ))}
               </div>
             </div>
           )}
@@ -678,11 +780,28 @@ export default function PermissionsManagementPage() {
                 </button>
 
                 <div className="space-y-2">
-                  <AddProfileForm scopeKey={team.id} />
+                  <AddProfileForm
+                    scopeKey={team.id}
+                    isAddingProfile={isAddingProfile}
+                    newProfileName={newProfileName}
+                    setNewProfileName={setNewProfileName}
+                    handleAddProfile={handleAddProfile}
+                    setIsAddingProfile={setIsAddingProfile}
+                  />
                   {profiles.length === 0 && isAddingProfile !== team.id && (
                     <p className="text-[10px] text-[var(--text-tertiary)] font-medium px-1">Nenhum perfil de acesso ainda</p>
                   )}
-                  {profiles.map(rp => <ProfileButton key={rp.id} rp={rp} />)}
+                  {profiles.map(rp => (
+                    <ProfileButton
+                      key={rp.id}
+                      rp={rp}
+                      selectedProfileId={selectedProfileId}
+                      selectProfile={selectProfile}
+                      isSystemAdmin={isSystemAdmin}
+                      myAdminTeamIds={myAdminTeamIds}
+                      setProfileToDelete={setProfileToDelete}
+                    />
+                  ))}
                 </div>
 
                 {isSystemAdmin && (
@@ -858,14 +977,17 @@ export default function PermissionsManagementPage() {
                        </span>
                     </div>
                   ) : (
-                    <div className="flex items-center gap-3">
+                    <div className="flex items-center gap-2 group/rename">
                       <input
                         type="text"
                         value={currentProfile.name}
                         onChange={e => updateProfileName(e.target.value)}
                         onBlur={commitProfileName}
-                        className="text-lg font-black text-[var(--text-primary)] uppercase tracking-tight bg-transparent border-none p-0 focus:ring-0 outline-none hover:bg-[var(--surface-card)] transition-all rounded-lg px-2"
+                        onKeyDown={e => e.key === 'Enter' && (e.target as HTMLInputElement).blur()}
+                        title="Clique para renomear este perfil"
+                        className="text-lg font-black text-[var(--text-primary)] uppercase tracking-tight bg-transparent border border-transparent hover:border-[var(--border-default)] focus:border-[var(--accent)] focus:ring-2 focus:ring-[var(--accent)]/20 outline-none transition-all rounded-lg px-2 py-1 -ml-2"
                       />
+                      <Pencil size={14} className="text-[var(--text-tertiary)] opacity-0 group-hover/rename:opacity-100 transition-opacity shrink-0" />
                     </div>
                   )}
                   <p className="text-xs text-[var(--text-tertiary)] font-medium">Configurando {currentProfile.permissions.length} acessos ativos</p>

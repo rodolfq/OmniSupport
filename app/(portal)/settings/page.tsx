@@ -16,7 +16,7 @@ import { StatusHistoryPanel } from '@/components/status-history-panel';
 import { TagManager } from '@/components/tag-manager';
 import { StatusManager } from '@/components/status-manager';
 import { ChangePasswordModal } from '@/components/change-password-modal';
-import { fileToBase64, isValidImageUrl } from '@/lib/image-utils';
+import { fileToCompressedAvatarBase64, isValidImageUrl } from '@/lib/image-utils';
 import { toast } from 'sonner';
 import { getWhatsappInstances, saveWhatsappInstance } from '@/app/actions';
 import { ConfirmDialog } from '@/components/confirm-dialog';
@@ -90,8 +90,10 @@ export default function SettingsPage() {
       setIsUploading(true);
 
       try {
-        // 2. Process to more persistent format (Base64 for this demo, usually Supabase Storage)
-        const base64 = await fileToBase64(file);
+        // 2. Redimensiona/comprime antes de persistir — sem isso, foto de
+        // celular sem tratamento vira MBs direto na coluna avatar_url, e
+        // toda tela que lista usuários paga esse peso.
+        const base64 = await fileToCompressedAvatarBase64(file);
         
         // 3. Persist only after processing
         const { data, error } = await supabase

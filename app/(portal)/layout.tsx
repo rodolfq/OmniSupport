@@ -53,18 +53,19 @@ export default function PortalLayout({ children }: { children: React.ReactNode }
     }
   }, [currentUser, authInitialized, router]);
 
-  // Redirect users without dashboard permission to their default screen
+  // Cliente/Funcionário nunca usam o dashboard analítico — vão direto pra
+  // Meus Chamados. Time Interno NÃO tem mais bounce automático pra
+  // /internal-tickets aqui: isso era de antes do Perfil de Acesso existir e
+  // ignorava por completo a permissão dashboard:view — hoje quem tem essa
+  // permissão (mesmo sendo Time Interno) deve conseguir abrir /dashboard e
+  // ver a Visão Geral com os próprios dados (tela já trata isso sozinha,
+  // inclusive quem não tem a permissão vê "Acesso Negado" em vez de ser
+  // redirecionado às cegas).
   React.useEffect(() => {
     if (currentUser && authInitialized) {
       const isCompanyUser = [UserRole.CUSTOMER, UserRole.EMPLOYEE].includes(currentUser.role as UserRole);
-      const isTeamUser = [UserRole.ADMIN, UserRole.SUPPORT, UserRole.INTERNAL].includes(currentUser.role as UserRole);
-
       if (isCompanyUser && pathname === '/dashboard') {
         router.replace('/my-tickets');
-      } else if (!isTeamUser && pathname === '/dashboard') {
-        router.replace('/my-tickets');
-      } else if (currentUser.role === UserRole.INTERNAL && pathname === '/dashboard') {
-        router.replace('/internal-tickets');
       }
     }
   }, [currentUser, authInitialized, pathname, router]);
@@ -181,7 +182,11 @@ export default function PortalLayout({ children }: { children: React.ReactNode }
                   )}
                 </div>
               )}
-              {isTeam && (
+              {/* Status dos canais de WhatsApp — só quem atende a Central de
+                  Atendimento (mesma permissão do widget de chat) tem motivo
+                  pra ver isso; pra quem nunca vai atender um chat externo,
+                  esse indicador não diz nada. */}
+              {isTeam && hasPermission(Permission.OUTSIDE_QUEUE_VIEW) && (
                 <div className="flex items-center gap-2 px-3 py-1.5 bg-[var(--surface-pill)] rounded-full border border-[var(--border-default)] group cursor-default">
                   <div className={cn(
                     "w-2.5 h-2.5 rounded-full animate-pulse",

@@ -898,6 +898,28 @@ export default function ChatInternalPage() {
 
   const getPresence = (userId?: string) => userId ? analystStatuses.find(s => s.userId === userId) : undefined;
 
+  // Bolinha de status ao lado do avatar — reflete o mesmo status usado no
+  // cabeçalho (Disponível/Ausente + motivo), não só um "online" binário.
+  // `isOnline` sozinho não basta: ao ficar Ausente, is_online também vira
+  // false (ver POST /api/chats "log-status-change"), então usar só isOnline
+  // fazia a bolinha simplesmente sumir em vez de virar "ausente".
+  const getPresenceIndicator = (userId?: string): { colorClass: string; title: string } | null => {
+    const presence = getPresence(userId);
+    if (!presence) return null;
+    if (presence.status === 'away') {
+      return { colorClass: 'bg-[var(--text-warning-strong)]', title: presence.currentReason || 'Ausente' };
+    }
+    if (presence.status === 'online') {
+      return { colorClass: 'bg-[var(--text-success)]', title: 'Online' };
+    }
+    // Registros antigos sem a coluna `status` preenchida — cai pro binário
+    // isOnline que já existia antes, em vez de perder o indicador de vez.
+    if (!presence.status && presence.isOnline) {
+      return { colorClass: 'bg-[var(--text-success)]', title: 'Online' };
+    }
+    return null;
+  };
+
   const formatLastActive = (lastActive?: string) => {
     if (!lastActive) return 'visto por último há um tempo';
     const diffMin = Math.floor((Date.now() - new Date(lastActive).getTime()) / 60000);
@@ -911,7 +933,11 @@ export default function ChatInternalPage() {
   const presenceLabel = (userId?: string) => {
     const presence = getPresence(userId);
     if (!presence) return '';
-    if (presence.isOnline) return presence.status === 'away' ? 'Ausente' : 'Online';
+    // is_online vira false ao ficar Ausente (ver /api/chats
+    // "log-status-change"), então checar isOnline aqui escondia o "Ausente"
+    // e mostrava "visto há Xmin" pra quem só saiu pro almoço/reunião.
+    if (presence.status === 'away') return presence.currentReason ? `Ausente > ${presence.currentReason}` : 'Ausente';
+    if (presence.status === 'online' || (!presence.status && presence.isOnline)) return 'Online';
     return formatLastActive(presence.lastActive).replace(/^v/, 'V');
   };
 
@@ -1002,6 +1028,7 @@ export default function ChatInternalPage() {
                 const otherUser = getDirectChatUser(room);
                 const avatar = room.type === 'group' ? room.imageUrl : (otherUser?.avatarUrl || null);
                 const isPinned = room.pinnedBy?.includes(currentUser?.id || '');
+                const presenceIndicator = room.type === 'direct' ? getPresenceIndicator(otherUser?.id) : null;
 
                 return (
                   <div 
@@ -1025,8 +1052,11 @@ export default function ChatInternalPage() {
                           room.type === 'group' ? <Users size={20} /> : room.name.charAt(0)
                         )}
                       </div>
-                      {room.type === 'direct' && getPresence(otherUser?.id)?.isOnline && (
-                        <span className="absolute -bottom-0.5 -right-0.5 w-3 h-3 rounded-full bg-[var(--text-success)] border-2 border-[var(--surface-card)]" />
+                      {presenceIndicator && (
+                        <span
+                          title={presenceIndicator.title}
+                          className={cn("absolute -bottom-0.5 -right-0.5 w-3 h-3 rounded-full border-2 border-[var(--surface-card)]", presenceIndicator.colorClass)}
+                        />
                       )}
                     </div>
                     <div className="flex-1 min-w-0">
@@ -1080,8 +1110,11 @@ export default function ChatInternalPage() {
                         user.name.charAt(0)
                       )}
                     </div>
-                    {getPresence(user.id)?.isOnline && (
-                      <span className="absolute -bottom-0.5 -right-0.5 w-3 h-3 rounded-full bg-[var(--text-success)] border-2 border-[var(--surface-card)]" />
+                    {getPresenceIndicator(user.id) && (
+                      <span
+                        title={getPresenceIndicator(user.id)!.title}
+                        className={cn("absolute -bottom-0.5 -right-0.5 w-3 h-3 rounded-full border-2 border-[var(--surface-card)]", getPresenceIndicator(user.id)!.colorClass)}
+                      />
                     )}
                   </div>
                   <div className="flex-1 min-w-0">
@@ -1115,8 +1148,11 @@ export default function ChatInternalPage() {
                       ) : selectedRoom.name.charAt(0)
                     )}
                   </div>
-                  {selectedRoom.type === 'direct' && getPresence(getDirectChatUser(selectedRoom)?.id)?.isOnline && (
-                    <span className="absolute -bottom-0.5 -right-0.5 w-3.5 h-3.5 rounded-full bg-[var(--text-success)] border-2 border-[var(--surface-card)]" />
+                  {selectedRoom.type === 'direct' && getPresenceIndicator(getDirectChatUser(selectedRoom)?.id) && (
+                    <span
+                      title={getPresenceIndicator(getDirectChatUser(selectedRoom)?.id)!.title}
+                      className={cn("absolute -bottom-0.5 -right-0.5 w-3.5 h-3.5 rounded-full border-2 border-[var(--surface-card)]", getPresenceIndicator(getDirectChatUser(selectedRoom)?.id)!.colorClass)}
+                    />
                   )}
                 </div>
                 <div>

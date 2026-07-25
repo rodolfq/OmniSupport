@@ -74,15 +74,32 @@ export default function MyTicketsPage() {
   // Chave Chamados / Tickets Internos — só existe pra quem enxerga tickets
   // internos (Administrador/Equipe/Time Interno); dá pro time interno usar
   // esta mesma tela pra acompanhar os próprios tickets internos, sem
-  // precisar abrir /internal-tickets pra isso.
-  const canSeeInternal = hasPermission(Permission.INTERNAL_TICKETS_VIEW);
-  const [ticketMode, setTicketMode] = useState<'tickets' | 'internal'>('tickets');
+  // precisar abrir /internal-tickets pra isso. Quem não tem "Visualizar
+  // chamados" (tickets:read) nunca deve ver o lado Chamados aqui, nem a
+  // própria chave de troca — mesma regra do Dashboard. Cliente/Funcionário
+  // não passam pelo sistema de Perfil de Acesso (não tem tickets:read
+  // atribuído) — pra eles "Meus Chamados" continua sempre liberado.
+  const isInternalRole = !!currentUser && ![UserRole.CUSTOMER, UserRole.EMPLOYEE].includes(currentUser.role as UserRole);
+  const canSeeTickets = !isInternalRole || hasPermission(Permission.TICKETS_READ);
+  const canSeeInternal = isInternalRole && hasPermission(Permission.INTERNAL_TICKETS_VIEW);
+  const [ticketMode, setTicketMode] = useState<'tickets' | 'internal'>(() => (
+    !canSeeTickets && canSeeInternal ? 'internal' : 'tickets'
+  ));
   const [internalTickets, setInternalTickets] = useState<InternalTicketItem[]>([]);
   const [loadingInternal, setLoadingInternal] = useState(false);
 
   useEffect(() => {
+    if (!canSeeTickets && canSeeInternal) setTicketMode('internal');
+    else if (canSeeTickets && !canSeeInternal) setTicketMode('tickets');
+  }, [canSeeTickets, canSeeInternal]);
+
+  useEffect(() => {
     async function loadData() {
         if (!currentUser) return;
+        // Time interno sem "Visualizar chamados": nem busca — evita chamado
+        // nenhum chegando na memória do cliente pra quem só tem Tickets
+        // Internos.
+        if (!canSeeTickets) { setAllTickets([]); return; }
         const all = await fetchAllTickets(undefined, { includeClosed: true });
         
         const canViewEverything = hasPermission(Permission.OUTSIDE_QUEUE_VIEW) || currentUser.role === UserRole.ADMIN;
@@ -112,7 +129,7 @@ export default function MyTicketsPage() {
         }
     }
     loadData();
-  }, [currentUser?.id, currentUser?.companyId, currentUser?.viewAllCompanyTickets, currentUser?.role, refreshTrigger, hasPermission, searchParams]);
+  }, [currentUser?.id, currentUser?.companyId, currentUser?.viewAllCompanyTickets, currentUser?.role, refreshTrigger, hasPermission, searchParams, canSeeTickets]);
 
   useEffect(() => {
     async function loadInternal() {
@@ -196,7 +213,7 @@ export default function MyTicketsPage() {
         </div>
 
         <div className="flex items-center gap-3">
-          {canSeeInternal && (
+          {canSeeTickets && canSeeInternal && (
             <div className="flex items-center gap-1 p-1 bg-[var(--surface-pill)] rounded-xl border border-[var(--border-default)]">
               <button
                 onClick={() => { setTicketMode('tickets'); setVisibleCount(12); }}
