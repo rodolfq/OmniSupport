@@ -1,0 +1,5 @@
+motivo,empresa_gravada,nome_original_planilha,decisor,telefone_gravado,telefone_original_planilha,email_gerado,company_id
+Nome com acentuação corrompida - correção incerta (chute automático),SUMARÉ SAT,SUMARÃ SAT,Sydgley,19992150668,19 99215-0668,19992150668@ssx.com,e9bb720d-423e-46b4-aa48-92f2495ece58
+Nome com acentuação corrompida - correção incerta (chute automático),LOCABRÁS,LOCABRÃS,(sem contato cadastrado),(sem telefone),(sem telefone),(sem contato cadastrado),db6cc395-839f-4561-8fc7-6eb6fd46799c
+Telefone com quantidade de dígitos fora do padrão (9 ao invés de 10-11),DAFEL,DAFEL,Salete,991879054,"99 187-9054",991879054@ssx.com,1011ea50-59ab-4891-aee3-0783b52384b7
+Telefone com quantidade de dígitos fora do padrão (12 ao invés de 10-11),MÁXIMA SERVIÇOS,MÁXIMA SERVIÇOS,Suelen,919984045228,919984045228,919984045228@ssx.com,b33145dc-cc70-4381-b148-91649596283e

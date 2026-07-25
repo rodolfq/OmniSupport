@@ -9,7 +9,7 @@
   "orientation": "portrait-primary",
   "icons": [
     {
-      "src": "/favicon.png?v=2",
+      "src": "/branding/icon.png?v=2",
       "sizes": "512x512",
       "type": "image/png",
       "purpose": "any"
