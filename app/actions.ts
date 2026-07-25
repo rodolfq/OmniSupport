@@ -365,7 +365,7 @@ export async function updateUser(
   role: string,
   companyId?: string | null,
   viewAllCompanyTickets?: boolean,
-  accessProfileId?: string,
+  accessProfileId?: string | null,
   internalTeamIds?: string[]
 ) {
   try {

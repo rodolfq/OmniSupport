@@ -23,8 +23,22 @@ import {
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { motion, AnimatePresence } from 'motion/react';
-import { getRolePermissions, saveRolePermissionsById, renameAccessProfile, createAccessProfile, deleteRolePermission } from '@/app/actions';
+import { getRolePermissions, saveRolePermissionsById, renameAccessProfile, createAccessProfile, deleteRolePermission, updateUser } from '@/app/actions';
+import { StyledSelect } from '@/components/styled-select';
 import { toast } from 'sonner';
+
+// Mesma regra usada no servidor (app/actions.ts createUser/updateUser): o
+// tipo estrutural do usuário segue o Perfil de Acesso escolhido, não é uma
+// escolha separada — perfil de equipe sempre vira 'Time Interno'. Espelha a
+// função de mesmo nome em app/(portal)/team/page.tsx.
+function deriveStructuralRole(profile?: RolePermission | null): string {
+  if (!profile) return 'Equipe';
+  if (profile.isSystem && (profile.name === 'Administrador' || profile.name === 'Equipe' || profile.name === 'Time Interno')) {
+    return profile.name;
+  }
+  if (profile.internalTeamId) return 'Time Interno';
+  return 'Equipe';
+}
 
 // Varredura completa de telas e funções do sistema — cada permissão daqui
 // corresponde a uma tela ou ação real e checada em código (não é lista
@@ -136,9 +150,10 @@ export default function PermissionsManagementPage() {
   const [editingTeamMeta, setEditingTeamMeta] = useState<Team | null>(null);
   const [teamToDelete, setTeamToDelete] = useState<Team | null>(null);
 
-  // Membros & administradores da equipe selecionada
+  // Membros, administradores e perfil de acesso da equipe selecionada
   const [editSelectedMembers, setEditSelectedMembers] = useState<string[]>([]);
   const [editSelectedAdmins, setEditSelectedAdmins] = useState<string[]>([]);
+  const [editMemberProfiles, setEditMemberProfiles] = useState<Record<string, string>>({});
   const [memberSearch, setMemberSearch] = useState('');
   const [savingMembers, setSavingMembers] = useState(false);
 
@@ -148,11 +163,11 @@ export default function PermissionsManagementPage() {
       const [perms, teamsRes, usersRes] = await Promise.all([
         getRolePermissions(),
         supabase.from('internal_teams').select('id, name, description, admin_ids').order('name'),
-        supabase.from('profiles').select('id, name, email, role, internal_team_ids, avatar_url').or('role.eq.Equipe,role.eq.Time Interno')
+        supabase.from('profiles').select('id, name, email, role, internal_team_ids, avatar_url, access_profile_id').or('role.eq.Equipe,role.eq.Time Interno')
       ]);
       const users = (usersRes.data || []) as any[];
       setRolePermissions(perms as RolePermission[]);
-      setAllUsers(users.map(u => ({ ...u, internalTeamIds: u.internal_team_ids, avatarUrl: u.avatar_url })) as User[]);
+      setAllUsers(users.map(u => ({ ...u, internalTeamIds: u.internal_team_ids, avatarUrl: u.avatar_url, accessProfileId: u.access_profile_id })) as User[]);
       setTeams((teamsRes.data || []).map((t: any) => ({
         id: t.id,
         name: t.name,
@@ -227,9 +242,18 @@ export default function PermissionsManagementPage() {
   const selectMembersPanel = (team: Team) => {
     setEditSelectedMembers([...team.memberIds]);
     setEditSelectedAdmins([...team.adminIds]);
+    const profileMap: Record<string, string> = {};
+    team.memberIds.forEach(id => {
+      profileMap[id] = allUsers.find(u => u.id === id)?.accessProfileId || '';
+    });
+    setEditMemberProfiles(profileMap);
     setMemberSearch('');
     setSelectedMembersTeamId(team.id);
     setSelectedProfileId(null);
+  };
+
+  const setMemberProfile = (memberId: string, profileId: string) => {
+    setEditMemberProfiles(prev => ({ ...prev, [memberId]: profileId }));
   };
 
   const togglePermission = (permissionId: Permission) => {
@@ -372,7 +396,7 @@ export default function PermissionsManagementPage() {
     toast.success('Equipe removida');
   };
 
-  // ---- Membros & administradores ----
+  // ---- Membros, perfil de acesso & administradores ----
   const handleSaveMembers = async () => {
     if (!selectedMembersTeam) return;
     setSavingMembers(true);
@@ -381,7 +405,6 @@ export default function PermissionsManagementPage() {
       const currentSet = new Set(selectedMembersTeam.memberIds);
       const newSet = new Set(editSelectedMembers);
       const toRemove = [...currentSet].filter(id => !newSet.has(id));
-      const toAdd = [...newSet].filter(id => !currentSet.has(id));
 
       for (const memberId of toRemove) {
         const u = allUsers.find(u => u.id === memberId);
@@ -390,10 +413,39 @@ export default function PermissionsManagementPage() {
           .update({ internal_team_ids: currentTeams.filter(id => id !== teamId) })
           .eq('id', memberId);
       }
-      for (const memberId of toAdd) {
+
+      // Pra quem continua (ou entrou agora): dar/trocar o perfil de acesso é
+      // o que efetivamente coloca a pessoa na equipe (updateUser deriva
+      // role + equipe a partir do perfil escolhido, com a mesma checagem de
+      // permissão usada em /team). Quem fica sem perfil escolhido só entra
+      // na lista de membros (sem acesso ainda) via escrita direta.
+      for (const memberId of editSelectedMembers) {
         const u = allUsers.find(u => u.id === memberId);
         const currentTeams = u?.internalTeamIds || [];
-        if (!currentTeams.includes(teamId)) {
+        const previousProfileId = u?.accessProfileId || '';
+        const chosenProfileId = editMemberProfiles[memberId] || '';
+
+        if (chosenProfileId && chosenProfileId !== previousProfileId) {
+          const chosenProfile = rolePermissions.find(rp => rp.id === chosenProfileId) || null;
+          const result = await updateUser(
+            memberId,
+            u?.name || '',
+            u?.email || '',
+            deriveStructuralRole(chosenProfile),
+            undefined,
+            u?.viewAllCompanyTickets || false,
+            chosenProfileId
+          );
+          if (result?.error) toast.error(`${u?.name || 'Membro'}: ${result.error}`);
+        } else if (!chosenProfileId && previousProfileId) {
+          // Perfil removido explicitamente — limpa o acesso sem mexer na equipe.
+          await updateUser(memberId, u?.name || '', u?.email || '', u?.role || 'Equipe', undefined, u?.viewAllCompanyTickets || false, null);
+        }
+
+        if (!chosenProfileId && !currentTeams.includes(teamId)) {
+          // Entrou na equipe agora mas ainda sem perfil — garante que apareça
+          // como membro mesmo assim (updateUser não mexe na equipe quando
+          // não há perfil escolhido).
           await supabase.from('profiles')
             .update({ internal_team_ids: [...currentTeams, teamId] })
             .eq('id', memberId);
@@ -405,7 +457,7 @@ export default function PermissionsManagementPage() {
       await supabase.from('internal_teams').update({ admin_ids: finalAdminIds }).eq('id', teamId);
 
       await loadAll();
-      toast.success('Membros e administradores atualizados');
+      toast.success('Membros, acessos e administradores atualizados');
     } finally {
       setSavingMembers(false);
     }
@@ -578,6 +630,7 @@ export default function PermissionsManagementPage() {
           {teamsToShow.map(team => {
             const profiles = profilesByTeam.get(team.id) || [];
             const iAdminThis = isSystemAdmin || myAdminTeamIds.includes(team.id);
+            const membersWithoutProfile = team.memberIds.filter(id => !allUsers.find(u => u.id === id)?.accessProfileId).length;
             return (
               <div key={team.id} className="bg-[var(--surface-card)] p-6 rounded-[2.5rem] border border-[var(--border-default)] shadow-sm space-y-4">
                 <div className="flex items-center justify-between">
@@ -615,6 +668,9 @@ export default function PermissionsManagementPage() {
                       <span className="text-xs font-black uppercase tracking-tight">Membros & Admins</span>
                       <span className={cn("text-[10px] font-medium", selectedMembersTeamId === team.id ? "text-white/80" : "text-[var(--text-tertiary)]")}>
                         {team.memberIds.length} membro{team.memberIds.length !== 1 ? 's' : ''} · {team.adminIds.length} admin{team.adminIds.length !== 1 ? 's' : ''}
+                        {membersWithoutProfile > 0 && (
+                          <span className={selectedMembersTeamId === team.id ? "text-white" : "text-[var(--text-warning-strong)]"}> · {membersWithoutProfile} sem perfil</span>
+                        )}
                       </span>
                     </div>
                   </div>
@@ -698,7 +754,14 @@ export default function PermissionsManagementPage() {
                     {filteredCandidateUsers.map(u => (
                       <button
                         key={u.id}
-                        onClick={() => setEditSelectedMembers(prev => prev.includes(u.id) ? prev.filter(id => id !== u.id) : [...prev, u.id])}
+                        onClick={() => {
+                          setEditSelectedMembers(prev => prev.includes(u.id) ? prev.filter(id => id !== u.id) : [...prev, u.id]);
+                          // Preserva o perfil atual da pessoa ao adicioná-la agora — sem
+                          // isso, alguém que já tinha um perfil (de outra equipe, por
+                          // exemplo) apareceria como "Sem perfil" e teria o acesso
+                          // apagado sem querer ao salvar.
+                          setEditMemberProfiles(prev => prev[u.id] !== undefined ? prev : { ...prev, [u.id]: u.accessProfileId || '' });
+                        }}
                         className={cn(
                           "w-full flex items-center gap-3 px-3 py-2.5 rounded-xl text-sm font-medium transition-all border",
                           editSelectedMembers.includes(u.id) ? "bg-[var(--surface-warning)] border-[var(--border-alert)]" : "hover:bg-[var(--surface-pill)] border-transparent"
@@ -718,27 +781,56 @@ export default function PermissionsManagementPage() {
                 </div>
 
                 <div className="bg-[var(--surface-card)] border border-[var(--border-default)] rounded-[2.5rem] shadow-sm p-6 space-y-4">
-                  <h4 className="text-[10px] font-black uppercase text-[var(--text-tertiary)] tracking-widest flex items-center gap-1.5"><Shield size={12} /> Administradores</h4>
-                  <p className="text-xs text-[var(--text-tertiary)] font-medium">Podem criar/editar usuários e perfis de acesso desta equipe, sem depender de um Administrador do sistema.</p>
+                  <h4 className="text-[10px] font-black uppercase text-[var(--text-tertiary)] tracking-widest flex items-center gap-1.5"><Shield size={12} /> Acesso de cada membro</h4>
+                  <p className="text-xs text-[var(--text-tertiary)] font-medium">Dê um perfil de acesso pra cada membro — sem isso a pessoa fica na equipe mas sem nenhuma permissão. Administradores da equipe podem criar/editar usuários e perfis sem depender de um Administrador do sistema.</p>
                   {editSelectedMembers.length === 0 ? (
                     <p className="text-xs text-[var(--text-tertiary)] font-medium italic">Selecione membros ao lado primeiro.</p>
                   ) : (
-                    <div className="flex flex-wrap gap-2">
+                    <div className="space-y-2">
                       {editSelectedMembers.map(memberId => {
                         const member = allUsers.find(u => u.id === memberId);
                         const isAdmin = editSelectedAdmins.includes(memberId);
+                        const teamProfiles = profilesByTeam.get(selectedMembersTeam.id) || [];
+                        const chosenProfileId = editMemberProfiles[memberId] || '';
+                        // Alguém pode chegar aqui já com um perfil de OUTRA equipe (ex:
+                        // acabou de ser adicionado a esta equipe também) — mostra esse
+                        // perfil "estrangeiro" como opção pra não sumir do seletor, com
+                        // um aviso, em vez de dar a entender que a pessoa está sem nada.
+                        const foreignProfile = chosenProfileId && !teamProfiles.some(p => p.id === chosenProfileId)
+                          ? rolePermissions.find(rp => rp.id === chosenProfileId)
+                          : null;
                         return (
-                          <button
-                            key={memberId}
-                            onClick={() => setEditSelectedAdmins(prev => prev.includes(memberId) ? prev.filter(id => id !== memberId) : [...prev, memberId])}
-                            className={cn(
-                              "flex items-center gap-1.5 px-3 py-1.5 rounded-full text-xs font-bold transition-all border",
-                              isAdmin ? "bg-[var(--text-warning-strong)] text-white border-[var(--text-warning-strong)]" : "bg-[var(--surface-pill)] text-[var(--text-secondary)] border-transparent hover:border-[var(--border-default)]"
-                            )}
-                          >
-                            {isAdmin && <Shield size={11} />}
-                            {member?.name || 'Membro'}
-                          </button>
+                          <div key={memberId} className="flex items-center gap-2 p-2.5 rounded-2xl border border-[var(--border-default)] bg-[var(--surface-card)]/50">
+                            <div className={cn("w-8 h-8 rounded-lg flex items-center justify-center font-black text-xs overflow-hidden shrink-0", chosenProfileId ? "bg-[var(--surface-pill)] text-[var(--text-secondary)]" : "bg-[var(--surface-warning)] text-[var(--text-warning)]")}>
+                              {member?.avatarUrl ? <img src={member.avatarUrl} alt={member.name} className="w-full h-full object-cover" /> : (member?.name?.charAt(0) || '?')}
+                            </div>
+                            <div className="min-w-0 shrink-0 w-28">
+                              <p className="font-bold text-[var(--text-primary)] text-xs truncate">{member?.name || 'Membro'}</p>
+                              {!chosenProfileId && <p className="text-[9px] text-[var(--text-warning)] font-bold uppercase tracking-wide">Sem perfil</p>}
+                              {foreignProfile && <p className="text-[9px] text-[var(--text-tertiary)] font-medium truncate" title="Perfil de outra equipe">De outra equipe</p>}
+                            </div>
+                            <StyledSelect
+                              value={chosenProfileId}
+                              onChange={(e) => setMemberProfile(memberId, e.target.value)}
+                              className="flex-1 min-w-0 bg-[var(--surface-card)] border border-[var(--border-default)] rounded-xl px-3 py-2 text-xs font-bold focus:ring-2 focus:ring-[var(--text-warning-strong)]/20 outline-none"
+                            >
+                              <option value="">Sem perfil</option>
+                              {foreignProfile && <option value={foreignProfile.id}>{foreignProfile.name} (outra equipe)</option>}
+                              {teamProfiles.map(p => (
+                                <option key={p.id} value={p.id}>{p.name}</option>
+                              ))}
+                            </StyledSelect>
+                            <button
+                              onClick={() => setEditSelectedAdmins(prev => prev.includes(memberId) ? prev.filter(id => id !== memberId) : [...prev, memberId])}
+                              title={isAdmin ? 'Remover como administrador da equipe' : 'Tornar administrador da equipe'}
+                              className={cn(
+                                "shrink-0 w-9 h-9 rounded-xl flex items-center justify-center transition-all border",
+                                isAdmin ? "bg-[var(--text-warning-strong)] text-white border-[var(--text-warning-strong)]" : "bg-[var(--surface-pill)] text-[var(--text-tertiary)] border-transparent hover:border-[var(--border-default)]"
+                              )}
+                            >
+                              <Shield size={14} />
+                            </button>
+                          </div>
                         );
                       })}
                     </div>

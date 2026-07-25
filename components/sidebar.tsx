@@ -43,8 +43,11 @@ export function Sidebar() {
     <div className="hidden md:flex w-20 bg-[var(--surface-sidebar)] flex-col items-center py-6 gap-8 border-r border-white/10 shadow-xl h-screen sticky top-0 z-20">
       {/* icon.png já tem o fundo azul-marinho da marca embutido — fica
           contínuo com a sidebar (mesma cor), sem precisar de uma caixa clara
-          por trás como a logo antiga (mark escuro) exigia. */}
-      <div className="w-16 h-16 rounded-xl overflow-hidden flex items-center justify-center mb-4 shadow-sm ring-1 ring-white/10" title="SSX Desk">
+          por trás como a logo antiga (mark escuro) exigia. Sem shadow/ring:
+          no modo escuro a regra global já zera box-shadow (globals.css), o
+          que também apagava o ring (mesma propriedade CSS) — só o claro
+          mostrava o contorno. Removido dos dois pra ficar igual. */}
+      <div className="w-16 h-16 rounded-xl overflow-hidden flex items-center justify-center mb-4" title="SSX Desk">
         <img src="/branding/icon.png?v=2" alt="SSX Desk" className="w-full h-full object-cover" draggable={false} />
       </div>
 
