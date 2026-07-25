@@ -4,7 +4,8 @@ import React, { useState, useEffect, useMemo } from 'react';
 import { Ticket as TicketType, TicketStatus, UserRole, TicketPriority, Permission, InternalTicket } from '@/lib/types';
 import { fetchAllTickets } from '@/lib/tickets';
 import { isClosedTicketStatus, isInProgressTicketStatus } from '@/lib/ticket-status';
-import { fetchPriorities, fetchStatuses, fetchUsers } from '@/lib/services/config-service';
+import { fetchPriorities, fetchStatuses, fetchUsers, ConfigService } from '@/lib/services/config-service';
+import { findStatusColor } from '@/lib/status-colors';
 import { useApp } from '@/app/app-context';
 import { supabase } from '@/lib/supabase';
 import { Plus, Clock, AlertCircle, User, Lock, Ticket as TicketIcon, FolderKanban, Users } from 'lucide-react';
@@ -21,12 +22,13 @@ interface InternalTicketItem extends InternalTicket {
   slaRemaining?: string | null;
 }
 
-const INTERNAL_STATUSES = [
-  { value: "Novo", label: "Novo", color: "bg-[var(--surface-info)] text-[var(--text-info)]", dot: "bg-[var(--text-info)]", accent: "#2563EB" },
-  { value: "Em Andamento", label: "Em Andamento", color: "bg-[var(--surface-warning)] text-[var(--text-warning)]", dot: "bg-[var(--text-warning-strong)]", accent: "#D97706" },
-  { value: "Em Espera", label: "Em Espera", color: "bg-[var(--surface-pill)] text-[var(--text-secondary)]", dot: "bg-[var(--text-secondary)]", accent: "#64748B" },
-  { value: "Concluído", label: "Concluído", color: "bg-[var(--surface-success)] text-[var(--text-success)]", dot: "bg-[var(--text-success)]", accent: "#16A34A" },
-];
+interface InternalStatusMeta {
+  value: string;
+  label: string;
+  color: string;
+  dot: string;
+  accent: string;
+}
 
 export default function DashboardPage() {
   const router = useRouter();
@@ -49,6 +51,7 @@ export default function DashboardPage() {
   const [dashboardMode, setDashboardMode] = useState<'tickets' | 'internal'>('tickets');
   const [internalTickets, setInternalTickets] = useState<InternalTicketItem[]>([]);
   const [loadingInternal, setLoadingInternal] = useState(false);
+  const [internalStatuses, setInternalStatuses] = useState<InternalStatusMeta[]>([]);
 
   useEffect(() => {
     if (!canSeeTickets && canSeeInternal) setDashboardMode('internal');
@@ -59,6 +62,12 @@ export default function DashboardPage() {
       if (!currentUser || !canSeeInternal || dashboardMode !== 'internal') return;
       setLoadingInternal(true);
       try {
+        const statusConfigs = await ConfigService.getStatuses('internal_ticket');
+        setInternalStatuses(statusConfigs.filter(s => !s.parentStatusId).map(s => {
+          const c = findStatusColor(s.color);
+          return { value: s.label, label: s.label, color: `${c.bg} ${c.text}`, dot: c.dot, accent: c.accent };
+        }));
+
         let query = supabase.from('internal_tickets').select('*').order('updated_at', { ascending: false });
         if (!hasPermission(Permission.INTERNAL_TICKETS_VIEW_ALL)) {
           const myTeamIds = currentUser.internalTeamIds || [];
@@ -132,7 +141,7 @@ export default function DashboardPage() {
         const [loadedTickets, loadedPriorities, loadedStatuses, loadedUsers] = await Promise.all([
           fetchAllTickets(controller.signal),
           fetchPriorities(controller.signal),
-          fetchStatuses(controller.signal),
+          fetchStatuses(controller.signal, 'ticket'),
           fetchUsers(controller.signal)
         ]);
         
@@ -229,7 +238,7 @@ export default function DashboardPage() {
 
   return (
     <div className="space-y-8 h-full flex flex-col">
-      <div className="flex flex-col md:flex-row md:items-end justify-between gap-4">
+      <div className="flex flex-col md:flex-row md:items-start justify-between gap-4">
         <div>
           <h2 className="text-2xl font-bold text-[var(--text-primary)] tracking-tight">
             {dashboardMode === 'tickets' ? 'Visão Geral' : 'Visão Geral — Tickets Internos'}
@@ -436,7 +445,7 @@ export default function DashboardPage() {
       </div>
       </>
       ) : (
-        <InternalDashboard tickets={internalTickets} loading={loadingInternal} router={router} />
+        <InternalDashboard tickets={internalTickets} loading={loadingInternal} router={router} statuses={internalStatuses} />
       )}
 
       <AnimatePresence>
@@ -458,11 +467,11 @@ export default function DashboardPage() {
 
 // Painel "Tickets Internos" do dashboard geral — mesma linguagem visual do
 // board de chamados acima (StatCard, colunas por status), com dados e cores
-// de /internal-tickets (INTERNAL_STATUSES, prioridade em barras).
-function InternalDashboard({ tickets, loading, router }: { tickets: InternalTicketItem[]; loading: boolean; router: ReturnType<typeof useRouter> }) {
+// vindas de config_statuses (scope=internal_ticket), igual /internal-tickets.
+function InternalDashboard({ tickets, loading, router, statuses }: { tickets: InternalTicketItem[]; loading: boolean; router: ReturnType<typeof useRouter>; statuses: InternalStatusMeta[] }) {
   const stats = useMemo(() => {
     const now = new Date();
-    const active = tickets.filter(t => t.status !== 'Concluído');
+    const active = tickets.filter(t => !isClosedTicketStatus(t.status));
 
     const overdue = active.filter(t => t.slaLimit && new Date(t.slaLimit) < now);
     const nearExpiry = active.filter(t => {
@@ -488,7 +497,7 @@ function InternalDashboard({ tickets, loading, router }: { tickets: InternalTick
 
   const workload = useMemo(() => {
     const map = new Map<string, { id: string; name: string; count: number }>();
-    tickets.filter(t => t.status !== 'Concluído' && t.assigneeId).forEach(t => {
+    tickets.filter(t => !isClosedTicketStatus(t.status) && t.assigneeId).forEach(t => {
       const key = t.assigneeId as string;
       const entry = map.get(key) || { id: key, name: t.assigneeName || 'Analista', count: 0 };
       entry.count += 1;
@@ -497,7 +506,7 @@ function InternalDashboard({ tickets, loading, router }: { tickets: InternalTick
     return Array.from(map.values()).sort((a, b) => b.count - a.count).slice(0, 6);
   }, [tickets]);
 
-  const columns = INTERNAL_STATUSES.map(status => ({
+  const columns = statuses.map(status => ({
     ...status,
     tickets: tickets.filter(t => (t.status || 'Novo') === status.value)
   }));

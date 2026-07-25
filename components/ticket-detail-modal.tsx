@@ -22,7 +22,7 @@ import { useAutoTranscribeMissingAudio } from '@/hooks/use-auto-transcribe-missi
 import { UserService } from '@/lib/services/user-service';
 import { CompanyService } from '@/lib/services/company-service';
 import { ConfigService } from '@/lib/services/config-service';
-import { getDefaultClosedTicketStatus, isClosedTicketStatus } from '@/lib/ticket-status';
+import { getDefaultClosedTicketStatus, isClosedTicketStatus, registerClosedStatusLabels } from '@/lib/ticket-status';
 import { FieldChange, formatChangeMessage } from '@/lib/ticket-diff';
 
 interface TicketDetailModalProps {
@@ -109,6 +109,8 @@ export function TicketDetailModal({ ticket, onClose }: TicketDetailModalProps) {
 
   const [assigneeId, setAssigneeId] = useState(ticket?.assigneeId || '');
   const [ticketStatus, setTicketStatus] = useState(ticket?.status || TicketStatus.NEW);
+  const [ticketSubStatus, setTicketSubStatus] = useState<string | null>(ticket?.subStatus || null);
+  const [openSubStatusMenuFor, setOpenSubStatusMenuFor] = useState<string | null>(null);
   const [ticketDescription, setTicketDescription] = useState(ticket?.description || '');
   const [mainQueue, setMainQueue] = useState(ticket?.queueId || '');
   const [mainCategory, setMainCategory] = useState(ticket?.categoryId || '');
@@ -205,7 +207,7 @@ export function TicketDetailModal({ ticket, onClose }: TicketDetailModalProps) {
 
     async function fetchConfigs() {
       const { data: profiles } = await supabase.from('profiles').select('*, internal_team_ids');
-      const { data: statusList } = await supabase.from('config_statuses').select('*');
+      const { data: statusList } = await supabase.from('config_statuses').select('*').eq('scope', 'ticket').order('sort_order', { ascending: true });
       const { data: categoryList } = await supabase.from('config_categories').select('*');
       const { data: requestTypeList } = await supabase.from('config_request_types').select('*');
       const { data: productList } = await supabase.from('config_products').select('*');
@@ -232,7 +234,14 @@ export function TicketDetailModal({ ticket, onClose }: TicketDetailModalProps) {
           setAnalysts(profiles.filter((u: any) => u.role === 'Equipe' || u.is_admin) as any);
         }
       }
-      if (statusList) setStatuses(statusList as any);
+      if (statusList) {
+        // Guarda a lista inteira (pai + sub-status) — o picker mostra só os
+        // pais como pílula clicável, mas usa os filhos pra montar o menu de
+        // sub-status (hover/clique no pai, ver StatusManager).
+        const normalized = statusList.map((s: any) => ({ ...s, parentStatusId: s.parent_status_id, isClosed: s.is_closed }));
+        setStatuses(normalized as any);
+        registerClosedStatusLabels(normalized);
+      }
       if (categoryList) setCategories(categoryList as any);
       if (requestTypeList) setRequestTypes(requestTypeList as any);
       if (productList) setProducts(productList as any);
@@ -246,6 +255,7 @@ export function TicketDetailModal({ ticket, onClose }: TicketDetailModalProps) {
     
     setAssigneeId(ticket.assigneeId || '');
     setTicketStatus(ticket.status);
+    setTicketSubStatus(ticket.subStatus || null);
     setTicketDescription(ticket.description);
     setMainQueue(ticket.queueId || '');
     setMainCategory(ticket.categoryId || '');
@@ -620,6 +630,7 @@ const handleSendMessage = async (isInternal: boolean) => {
     // Use values from overrides if provided, otherwise fallback to local state
     // We prioritize overrides to handle immediate updates from onChange events
     const statusToSave = merged.status || ticketStatus;
+    const subStatusToSave = 'subStatus' in merged ? merged.subStatus : ticketSubStatus;
     const priorityToSave = merged.priority || mainPriority;
     const queueToSave = 'queueId' in merged ? merged.queueId : mainQueue;
     const categoryIdToSave = 'categoryId' in merged ? merged.categoryId : mainCategory;
@@ -643,6 +654,7 @@ const handleSendMessage = async (isInternal: boolean) => {
       companyId: companyToSave,
       employeeIds: employeesToSave,
       status: statusToSave as any,
+      subStatus: subStatusToSave ?? null,
       description: descriptionToSave,
       tags: mainTags,
       updatedAt: new Date().toISOString()
@@ -655,6 +667,9 @@ const handleSendMessage = async (isInternal: boolean) => {
     const changes: FieldChange[] = [];
     if (statusToSave !== prev.status) {
       changes.push({ label: 'Estágio', from: prev.status, to: statusToSave as string });
+    }
+    if ((subStatusToSave || '') !== (prev.subStatus || '')) {
+      changes.push({ label: 'Sub-status', from: prev.subStatus || 'Nenhum', to: subStatusToSave || 'Nenhum' });
     }
     if (priorityToSave !== prev.priority) {
       changes.push({ label: 'Prioridade', from: prev.priority, to: priorityToSave as string });
@@ -782,19 +797,23 @@ const handleSendMessage = async (isInternal: boolean) => {
     const nextStatus = ticket.status === TicketStatus.NEW ? TicketStatus.IN_PROGRESS : ticket.status;
     setAssigneeId(currentUser.id);
     setTicketStatus(nextStatus);
+    if (nextStatus !== ticket.status) setTicketSubStatus(null);
     suppressTicketAssignedNotification(ticket.id);
     flushTicketSave({
       assigneeId: currentUser.id,
-      status: nextStatus
+      status: nextStatus,
+      subStatus: nextStatus !== ticket.status ? null : undefined
     });
   };
 
   const handleCompleteTicket = async () => {
     if (!ticket || !currentUser) return;
-    const closedStatus = getDefaultClosedTicketStatus(statuses.map(s => s.label));
+    const closedStatus = getDefaultClosedTicketStatus(statuses.filter(s => !s.parentStatusId).map(s => s.label));
     setTicketStatus(closedStatus as any);
+    setTicketSubStatus(null);
     await flushTicketSave({
       status: closedStatus as any,
+      subStatus: null,
       completedAt: new Date().toISOString()
     });
     onClose();
@@ -951,21 +970,71 @@ const handleSendMessage = async (isInternal: boolean) => {
               <div className="px-8 pb-3">
                 {statuses.length > 0 ? (
                   <div className="inline-flex bg-[var(--surface-pill)] p-0.5 rounded-lg">
-                    {statuses.map((s) => (
-                      <button
-                        key={s.id}
-                        onClick={() => {
-                          setTicketStatus(s.label as any);
-                          scheduleTicketSave({ status: s.label as any });
-                        }}
-                        className={cn(
-                          "px-3 py-1 text-[10px] font-semibold uppercase rounded-md transition-all whitespace-nowrap",
-                          ticketStatus === s.label ? "bg-[var(--surface-card)] text-[var(--accent-text)] shadow-sm" : "text-[var(--text-tertiary)] hover:bg-[var(--border-default)]/50"
-                        )}
-                      >
-                        {s.label}
-                      </button>
-                    ))}
+                    {statuses.filter(s => !s.parentStatusId).map((s) => {
+                      const children = statuses.filter(c => c.parentStatusId === s.id);
+                      const isOpen = openSubStatusMenuFor === s.id;
+                      const isActive = ticketStatus === s.label;
+                      return (
+                        <div
+                          key={s.id}
+                          className="relative"
+                          onMouseEnter={() => { if (children.length > 0) setOpenSubStatusMenuFor(s.id); }}
+                          onMouseLeave={() => setOpenSubStatusMenuFor(prev => prev === s.id ? null : prev)}
+                        >
+                          <button
+                            onClick={() => {
+                              setTicketStatus(s.label as any);
+                              setTicketSubStatus(null);
+                              scheduleTicketSave({ status: s.label as any, subStatus: null });
+                              if (children.length > 0) {
+                                setOpenSubStatusMenuFor(prev => prev === s.id ? null : s.id);
+                              }
+                            }}
+                            className={cn(
+                              "px-3 py-1 text-[10px] font-semibold uppercase rounded-md transition-all whitespace-nowrap",
+                              isActive ? "bg-[var(--surface-card)] text-[var(--accent-text)] shadow-sm" : "text-[var(--text-tertiary)] hover:bg-[var(--border-default)]/50"
+                            )}
+                          >
+                            {s.label}
+                            {isActive && ticketSubStatus && <span className="opacity-70 normal-case"> · {ticketSubStatus}</span>}
+                          </button>
+
+                          {isOpen && children.length > 0 && (
+                            <div className="absolute left-0 top-full mt-1 z-20 min-w-[160px] bg-[var(--surface-card)] border border-[var(--border-default)] rounded-xl shadow-xl p-1">
+                              {isActive && ticketSubStatus && (
+                                <button
+                                  onClick={() => {
+                                    setTicketSubStatus(null);
+                                    scheduleTicketSave({ status: s.label as any, subStatus: null });
+                                    setOpenSubStatusMenuFor(null);
+                                  }}
+                                  className="w-full text-left px-3 py-1.5 text-[10px] font-semibold uppercase rounded-lg text-[var(--text-tertiary)] hover:bg-[var(--surface-pill)] transition-all"
+                                >
+                                  Nenhum
+                                </button>
+                              )}
+                              {children.map(child => (
+                                <button
+                                  key={child.id}
+                                  onClick={() => {
+                                    setTicketStatus(s.label as any);
+                                    setTicketSubStatus(child.label);
+                                    scheduleTicketSave({ status: s.label as any, subStatus: child.label });
+                                    setOpenSubStatusMenuFor(null);
+                                  }}
+                                  className={cn(
+                                    "w-full text-left px-3 py-1.5 text-[10px] font-semibold uppercase rounded-lg transition-all whitespace-nowrap",
+                                    isActive && ticketSubStatus === child.label ? "bg-[var(--surface-pill)] text-[var(--accent-text)]" : "text-[var(--text-secondary)] hover:bg-[var(--surface-pill)]"
+                                  )}
+                                >
+                                  {child.label}
+                                </button>
+                              ))}
+                            </div>
+                          )}
+                        </div>
+                      );
+                    })}
                   </div>
                 ) : (
                   <div className="inline-flex items-center gap-1.5 px-2 py-1.5 rounded-lg bg-[var(--surface-pill)] animate-pulse">

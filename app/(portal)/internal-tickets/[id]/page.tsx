@@ -26,7 +26,8 @@ import { toast } from 'sonner';
 import { ClientTime } from '@/components/client-time';
 import { FieldChange, formatChangeMessage } from '@/lib/ticket-diff';
 import { INTERNAL_PRIORITY_LABELS, computeInternalTicketSla } from '@/lib/sla';
-import { fetchPriorities } from '@/lib/services/config-service';
+import { fetchPriorities, ConfigService } from '@/lib/services/config-service';
+import { findStatusColor } from '@/lib/status-colors';
 
 interface Attachment {
   id: string;
@@ -49,7 +50,13 @@ const TEAM_OPTIONS = [
   { value: "Produto", label: "Produto", color: "bg-purple-100 dark:bg-purple-500/20 text-purple-700 dark:text-purple-300" },
 ];
 
-const KANBAN_STATUSES = [
+interface KanbanStatusMeta {
+  value: string;
+  label: string;
+  color: string;
+}
+
+const DEFAULT_KANBAN_STATUSES: KanbanStatusMeta[] = [
   { value: "Novo", label: "Novo", color: "bg-[var(--surface-info)] text-[var(--text-info)]" },
   { value: "Em Andamento", label: "Em Andamento", color: "bg-[var(--surface-warning)] text-[var(--text-warning)]" },
   { value: "Em Espera", label: "Em Espera", color: "bg-[var(--surface-pill)] text-[var(--text-secondary)]" },
@@ -97,6 +104,7 @@ export default function InternalTicketDetailPage() {
   const [analysts, setAnalysts] = useState<User[]>([]);
   const [priorities, setPriorities] = useState<any[]>([]);
   const [hotfixes, setHotfixes] = useState<Hotfix[]>([]);
+  const [statuses, setStatuses] = useState<KanbanStatusMeta[]>(DEFAULT_KANBAN_STATUSES);
 
   // Vincular chamado existente a este ticket interno
   const [showLinkTicketModal, setShowLinkTicketModal] = useState(false);
@@ -179,13 +187,24 @@ export default function InternalTicketDetailPage() {
     setHotfixes((data || []) as Hotfix[]);
   }, []);
 
+  const fetchStatusConfig = useCallback(async () => {
+    const data = await ConfigService.getStatuses('internal_ticket');
+    const topLevel = data.filter(s => !s.parentStatusId);
+    if (topLevel.length > 0) {
+      setStatuses(topLevel.map(s => {
+        const c = findStatusColor(s.color);
+        return { value: s.label, label: s.label, color: `${c.bg} ${c.text}` };
+      }));
+    }
+  }, []);
+
   const loadMessages = useCallback(async () => {
     if (!ticket?.uuid) return;
     try { const msgs = await MessageService.getByInternalTicket(ticket.uuid); setMessages(msgs); }
     catch (error) { console.error('Error loading messages:', error); }
   }, [ticket?.uuid]);
 
-  useEffect(() => { fetchTicket(); fetchAnalysts(); fetchPriorityConfig(); fetchHotfixList(); }, [fetchTicket, fetchAnalysts, fetchPriorityConfig, fetchHotfixList]);
+  useEffect(() => { fetchTicket(); fetchAnalysts(); fetchPriorityConfig(); fetchHotfixList(); fetchStatusConfig(); }, [fetchTicket, fetchAnalysts, fetchPriorityConfig, fetchHotfixList, fetchStatusConfig]);
   useEffect(() => { if (ticket) loadMessages(); }, [ticket?.uuid]);
 
   useEffect(() => {
@@ -359,7 +378,7 @@ export default function InternalTicketDetailPage() {
       <div className="h-15 bg-[var(--surface-card)] border-b border-[var(--border-default)] flex items-center justify-between px-6">
         <div className="text-sm font-bold text-[var(--text-primary)]">#{ticket.id} / <span className="text-[var(--text-warning)]">Chamado Interno</span></div>
         <div className="flex items-center gap-1">
-          {KANBAN_STATUSES.map((status) => (
+          {statuses.map((status) => (
             <button key={status.value} onClick={() => { setFormStatus(status.value); handleUpdateTicket({ status: status.value }); }}
               className={cn("px-3 py-1 rounded-full text-[10px] font-bold uppercase transition-all", formStatus === status.value ? "bg-[var(--accent-warning-hover)] text-white" : "bg-[var(--surface-pill)] text-[var(--text-secondary)] hover:bg-[var(--border-default)]")}>
               {status.label}

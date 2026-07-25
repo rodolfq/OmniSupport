@@ -14,6 +14,7 @@ import { SystemConfigContent } from '@/components/system-config-content';
 import { AutomatedMessagesContent } from '@/components/automated-messages-content';
 import { StatusHistoryPanel } from '@/components/status-history-panel';
 import { TagManager } from '@/components/tag-manager';
+import { StatusManager } from '@/components/status-manager';
 import { ChangePasswordModal } from '@/components/change-password-modal';
 import { fileToBase64, isValidImageUrl } from '@/lib/image-utils';
 import { toast } from 'sonner';
@@ -298,6 +299,7 @@ export default function SettingsPage() {
                   surveySettings={surveySettings}
                   setSurveySettings={setSurveySettings}
                 />
+                <StatusManager />
                 <TagManager />
              </div>
            )}

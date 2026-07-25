@@ -101,8 +101,8 @@ export default function LoginPage() {
         {mounted && theme === 'dark' ? <Sun size={20} /> : <Moon size={20} />}
       </button>
       <div className="w-full max-w-md">
-        <div className="text-center mb-10">
-          <div className="relative inline-flex mb-8">
+        <div className="text-center mb-6">
+          <div className="relative inline-flex mb-4">
             {/* Brilho original — igual nos dois temas, intocado. */}
             <div className="absolute -inset-8 bg-[var(--accent)]/25 blur-3xl rounded-full" aria-hidden="true" />
             {/* Um wrapper só, mesmo padding nos dois temas — antes o modo

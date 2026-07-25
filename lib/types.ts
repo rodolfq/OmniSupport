@@ -54,6 +54,10 @@ export interface StatusConfig {
   id: string;
   label: string;
   color: string;
+  scope?: 'ticket' | 'internal_ticket';
+  isClosed?: boolean;
+  sortOrder?: number;
+  parentStatusId?: string | null;
 }
 
 export interface RolePermission {
@@ -230,7 +234,9 @@ export interface InternalTicket {
   // Marcador informativo: hotfix cadastrado ao qual este ticket se refere —
   // ver app/(portal)/hotfixes/page.tsx.
   hotfixId?: string | null;
-  status?: "Novo" | "Em Andamento" | "Em Atendimento" | "Em Espera" | "Pendente" | "Resolvido" | "Concluído" | "Fechado" | "Encerrado" | "Cancelado";
+  // Lista de valores possíveis passou a ser configurável (Configurações >
+  // Geral > Status), não dá mais pra travar num union fixo de strings.
+  status?: string;
 }
 
 export interface Ticket {
@@ -239,6 +245,9 @@ export interface Ticket {
   title: string;
   description: string;
   status: TicketStatus;
+  // Detalhe opcional dentro do status principal (ex.: "Aguardando Cliente" ->
+  // "Feedback") — ver config_statuses.parent_status_id / StatusManager.
+  subStatus?: string | null;
   priority: TicketPriority | string;
   companyId?: string;
   customerId: string;

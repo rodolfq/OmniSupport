@@ -11,7 +11,10 @@ export async function GET(request: Request) {
       const res = await query('SELECT * FROM public.config_priorities');
       return NextResponse.json(res.rows);
     } else if (type === 'statuses') {
-      const res = await query('SELECT * FROM public.config_statuses');
+      const scope = searchParams.get('scope');
+      const res = scope
+        ? await query('SELECT * FROM public.config_statuses WHERE scope = $1 ORDER BY sort_order, created_at', [scope])
+        : await query('SELECT * FROM public.config_statuses ORDER BY sort_order, created_at');
       return NextResponse.json(res.rows);
     } else if (type === 'categories') {
       const res = await query('SELECT * FROM public.config_categories');
@@ -135,6 +138,61 @@ export async function POST(request: Request) {
         );
       }
       return NextResponse.json({ success: true });
+    } else if (type === 'statuses') {
+      const { status } = body;
+      if (action === 'save') {
+        const id = status.id || undefined;
+        // "Concluído" é o status fixo que sempre finaliza o chamado — uma
+        // vez criado (seed da migration), ninguém pode renomeá-lo nem tirar
+        // a marcação de "finaliza", só trocar a cor.
+        let existingLabel: string | null = null;
+        if (id) {
+          const existing = await query('SELECT label FROM public.config_statuses WHERE id = $1', [id]);
+          existingLabel = existing.rows[0]?.label ?? null;
+        }
+        const isProtected = existingLabel === 'Concluído';
+        const label = isProtected ? 'Concluído' : status.label;
+        const isClosed = isProtected ? true : !!status.isClosed;
+        const parentStatusId = status.parentStatusId || null;
+
+        let res;
+        if (id) {
+          res = await query(
+            `INSERT INTO public.config_statuses (id, label, color, scope, is_closed, sort_order, parent_status_id)
+             VALUES ($1, $2, $3, $4, $5, $6, $7)
+             ON CONFLICT (id) DO UPDATE SET
+               label = EXCLUDED.label,
+               color = EXCLUDED.color,
+               scope = EXCLUDED.scope,
+               is_closed = EXCLUDED.is_closed,
+               sort_order = EXCLUDED.sort_order,
+               parent_status_id = EXCLUDED.parent_status_id
+             RETURNING *`,
+            [id, label, status.color, status.scope, isClosed, status.sortOrder ?? 0, parentStatusId]
+          );
+        } else {
+          res = await query(
+            `INSERT INTO public.config_statuses (label, color, scope, is_closed, sort_order, parent_status_id)
+             VALUES ($1, $2, $3, $4, $5, $6)
+             RETURNING *`,
+            [label, status.color, status.scope, isClosed, status.sortOrder ?? 0, parentStatusId]
+          );
+        }
+        return NextResponse.json(res.rows[0]);
+      } else if (action === 'delete') {
+        const existing = await query('SELECT label FROM public.config_statuses WHERE id = $1', [status.id]);
+        if (existing.rows[0]?.label === 'Concluído') {
+          return NextResponse.json({ error: 'O status "Concluído" não pode ser excluído.' }, { status: 400 });
+        }
+        await query('DELETE FROM public.config_statuses WHERE id = $1', [status.id]);
+        return NextResponse.json({ success: true });
+      } else if (action === 'reorder') {
+        const { items } = body as { items: { id: string; sortOrder: number }[] };
+        for (const item of items) {
+          await query('UPDATE public.config_statuses SET sort_order = $1 WHERE id = $2', [item.sortOrder, item.id]);
+        }
+        return NextResponse.json({ success: true });
+      }
     } else if (type === 'quick-notes') {
       const { note } = body;
       if (action === 'save') {

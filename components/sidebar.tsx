@@ -47,7 +47,7 @@ export function Sidebar() {
           no modo escuro a regra global já zera box-shadow (globals.css), o
           que também apagava o ring (mesma propriedade CSS) — só o claro
           mostrava o contorno. Removido dos dois pra ficar igual. */}
-      <div className="w-16 h-16 rounded-xl overflow-hidden flex items-center justify-center mb-4" title="SSX Desk">
+      <div className="w-16 h-16 shrink-0 rounded-xl overflow-hidden flex items-center justify-center mb-4" title="SSX Desk">
         <img src="/branding/icon.png?v=2" alt="SSX Desk" className="w-full h-full object-cover" draggable={false} />
       </div>
 

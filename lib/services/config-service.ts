@@ -1,4 +1,5 @@
 import { CategoryConfig, PriorityConfig, StatusConfig, TagConfig, QuickNote, SurveySettings } from '../types';
+import { registerClosedStatusLabels } from '../ticket-status';
 
 export class ConfigService {
   static async getCategories(): Promise<CategoryConfig[]> {
@@ -29,9 +30,71 @@ export class ConfigService {
     if (!res.ok) throw new Error('Error saving priority via API');
   }
 
-  static async getStatuses(): Promise<StatusConfig[]> {
-    const res = await fetch('/api/config?type=statuses');
-    return res.json();
+  static async getStatuses(scope?: 'ticket' | 'internal_ticket'): Promise<StatusConfig[]> {
+    const qs = scope ? `&scope=${scope}` : '';
+    const res = await fetch(`/api/config?type=statuses${qs}`);
+    const data = await res.json();
+    const normalized: StatusConfig[] = (data || []).map((s: any) => ({
+      ...s,
+      isClosed: s.isClosed ?? s.is_closed ?? false,
+      sortOrder: s.sortOrder ?? s.sort_order ?? 0,
+      parentStatusId: s.parentStatusId ?? s.parent_status_id ?? null,
+    }));
+    registerClosedStatusLabels(normalized);
+    return normalized;
+  }
+
+  static async saveStatus(status: Partial<StatusConfig> & { label: string; color: string; scope: string }): Promise<StatusConfig> {
+    const res = await fetch('/api/config', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        type: 'statuses',
+        action: 'save',
+        status: {
+          id: status.id,
+          label: status.label,
+          color: status.color,
+          scope: status.scope,
+          isClosed: status.isClosed,
+          sortOrder: status.sortOrder,
+          parentStatusId: status.parentStatusId ?? null,
+        }
+      })
+    });
+    if (!res.ok) throw new Error('Error saving status via API');
+    const saved = await res.json();
+    // Resposta crua da API vem no formato do Postgres (snake_case) — sem
+    // normalizar aqui, o item recém-criado/editado ficava sem parentStatusId
+    // no estado local (só corrigia sozinho depois de um refresh, que passa
+    // por getStatuses() — esse sim já normalizava).
+    return {
+      ...saved,
+      isClosed: saved.isClosed ?? saved.is_closed ?? false,
+      sortOrder: saved.sortOrder ?? saved.sort_order ?? 0,
+      parentStatusId: saved.parentStatusId ?? saved.parent_status_id ?? null,
+    };
+  }
+
+  static async deleteStatus(id: string): Promise<void> {
+    const res = await fetch('/api/config', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ type: 'statuses', action: 'delete', status: { id } })
+    });
+    if (!res.ok) {
+      const data = await res.json().catch(() => ({}));
+      throw new Error(data.error || 'Error deleting status via API');
+    }
+  }
+
+  static async reorderStatuses(items: { id: string; sortOrder: number }[]): Promise<void> {
+    const res = await fetch('/api/config', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ type: 'statuses', action: 'reorder', items })
+    });
+    if (!res.ok) throw new Error('Error reordering statuses via API');
   }
 
   static async getTags(): Promise<TagConfig[]> {
@@ -179,9 +242,9 @@ export async function fetchQueues(signal?: AbortSignal): Promise<any[]> {
   }
 }
 
-export async function fetchStatuses(signal?: AbortSignal): Promise<any[]> {
+export async function fetchStatuses(signal?: AbortSignal, scope?: 'ticket' | 'internal_ticket'): Promise<any[]> {
   try {
-    return await ConfigService.getStatuses();
+    return await ConfigService.getStatuses(scope);
   } catch (err) {
     console.error("Error fetching statuses:", err);
     return [];

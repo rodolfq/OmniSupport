@@ -149,10 +149,19 @@ CREATE TABLE public.absence_reasons (
 -- Config Statuses
 CREATE TABLE public.config_statuses (
   id UUID PRIMARY KEY DEFAULT (md5(random()::text || clock_timestamp()::text)::uuid),
-  label TEXT NOT NULL UNIQUE,
+  label TEXT NOT NULL,
   color TEXT,
-  created_at TIMESTAMP WITH TIME ZONE DEFAULT now() NOT NULL
+  -- 'ticket' (Chamados) ou 'internal_ticket' (Tickets Internos) — cada um com
+  -- sua própria lista configurável; label só precisa ser único dentro do escopo.
+  scope TEXT NOT NULL DEFAULT 'ticket',
+  is_closed BOOLEAN NOT NULL DEFAULT false,
+  sort_order INTEGER NOT NULL DEFAULT 0,
+  parent_status_id UUID REFERENCES public.config_statuses(id) ON DELETE CASCADE,
+  created_at TIMESTAMP WITH TIME ZONE DEFAULT now() NOT NULL,
+  UNIQUE (label, scope)
 );
+CREATE INDEX idx_config_statuses_scope ON public.config_statuses(scope);
+CREATE INDEX idx_config_statuses_parent ON public.config_statuses(parent_status_id);
 
 -- Config Categories
 CREATE TABLE public.config_categories (
@@ -246,6 +255,9 @@ CREATE TABLE public.tickets (
   title TEXT NOT NULL,
   description TEXT NOT NULL,
   status TEXT NOT NULL DEFAULT 'Novo',
+  -- Sub-status opcional (config_statuses.parent_status_id) — só um detalhe
+  -- dentro do status principal acima, não substitui nem afeta ele.
+  sub_status TEXT,
   priority TEXT NOT NULL DEFAULT 'Baixa',
   category TEXT NOT NULL DEFAULT 'Geral', -- legado: pré-split Fila/Categoria/Tipo de Solicitação, mantido só para compat com integrações externas
   category_id UUID REFERENCES public.config_categories(id) ON DELETE SET NULL,
@@ -519,17 +531,26 @@ INSERT INTO public.config_priorities (label, sla_hours, color) VALUES
 ('Urgente', 12, 'bg-red-100 text-red-700')
 ON CONFLICT (label) DO NOTHING;
 
--- Seed Default Statuses
-INSERT INTO public.config_statuses (label, color) VALUES
-('Novo', 'bg-blue-50 text-blue-700'),
-('Em Atendimento', 'bg-amber-50 text-amber-700'),
-('Pendente', 'bg-slate-50 text-slate-700'),
-('Resolvido', 'bg-emerald-50 text-emerald-700'),
-('Fechado', 'bg-slate-100 text-slate-500'),
-('Aguardando Cliente', 'bg-amber-100 text-amber-700'),
-('Aguardando Aprovação', 'bg-purple-100 text-purple-700'),
-('Mesclado', 'bg-slate-200 text-slate-500')
-ON CONFLICT (label) DO NOTHING;
+-- Seed Default Statuses (Chamados)
+INSERT INTO public.config_statuses (label, color, scope, is_closed, sort_order) VALUES
+('Novo', 'bg-blue-50 text-blue-700', 'ticket', false, 0),
+('Em Atendimento', 'bg-amber-50 text-amber-700', 'ticket', false, 1),
+('Pendente', 'bg-slate-50 text-slate-700', 'ticket', false, 2),
+('Aguardando Cliente', 'bg-amber-100 text-amber-700', 'ticket', false, 3),
+('Aguardando Aprovação', 'bg-purple-100 text-purple-700', 'ticket', false, 4),
+('Resolvido', 'bg-emerald-50 text-emerald-700', 'ticket', false, 5),
+('Fechado', 'bg-slate-100 text-slate-500', 'ticket', true, 6),
+('Mesclado', 'bg-slate-200 text-slate-500', 'ticket', true, 7),
+('Concluído', 'bg-emerald-100 text-emerald-700', 'ticket', true, 100)
+ON CONFLICT (label, scope) DO NOTHING;
+
+-- Seed Default Statuses (Tickets Internos)
+INSERT INTO public.config_statuses (label, color, scope, is_closed, sort_order) VALUES
+('Novo', 'bg-blue-100 text-blue-700', 'internal_ticket', false, 0),
+('Em Andamento', 'bg-amber-100 text-amber-700', 'internal_ticket', false, 1),
+('Em Espera', 'bg-slate-100 text-slate-700', 'internal_ticket', false, 2),
+('Concluído', 'bg-emerald-100 text-emerald-700', 'internal_ticket', true, 3)
+ON CONFLICT (label, scope) DO NOTHING;
 
 -- Seed Default Categories
 INSERT INTO public.config_categories (label) VALUES 

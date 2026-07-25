@@ -8,6 +8,8 @@ import { motion, AnimatePresence } from "motion/react";
 import { useApp } from "@/app/app-context";
 import { InternalTicket, Permission, User } from "@/lib/types";
 import { InternalTicketService } from "@/lib/services/ticket-service";
+import { ConfigService } from "@/lib/services/config-service";
+import { findStatusColor } from "@/lib/status-colors";
 import {
   Plus, Search, Filter, Clock, Edit3, Lock, Loader2, Grid3X3, List, LayoutDashboard,
   MessageCircle, Link2, User as UserIcon, Inbox, AlertTriangle, Flame
@@ -50,7 +52,15 @@ function PriorityBars({ priority, size = "sm" }: { priority: number; size?: "sm"
   );
 }
 
-const KANBAN_STATUSES = [
+interface KanbanStatusMeta {
+  value: string;
+  label: string;
+  color: string;
+  dot: string;
+  accent: string;
+}
+
+const DEFAULT_KANBAN_STATUSES: KanbanStatusMeta[] = [
   { value: "Novo", label: "Novo", color: "bg-[var(--surface-info)] text-[var(--text-info)]", dot: "bg-[var(--text-info)]", accent: "#2563EB" },
   { value: "Em Andamento", label: "Em Andamento", color: "bg-[var(--surface-warning)] text-[var(--text-warning)]", dot: "bg-[var(--text-warning-strong)]", accent: "#D97706" },
   { value: "Em Espera", label: "Em Espera", color: "bg-[var(--surface-pill)] text-[var(--text-secondary)]", dot: "bg-[var(--text-secondary)]", accent: "#64748B" },
@@ -144,6 +154,11 @@ export default function InternalTicketsPage() {
   // Teams state (fetched from DB)
   const [teams, setTeams] = useState(DEFAULT_TEAM_OPTIONS);
   const [teamsRaw, setTeamsRaw] = useState<Array<{ id: string; name: string }>>([]);
+
+  // Status (fetched de config_statuses, scope=internal_ticket — cadastrados
+  // em Configurações > Geral > Status) — DEFAULT_KANBAN_STATUSES só cobre o
+  // primeiro render, antes do fetch resolver.
+  const [statuses, setStatuses] = useState<KanbanStatusMeta[]>(DEFAULT_KANBAN_STATUSES);
   
 // Modal states
   const [showNewModal, setShowNewModal] = useState(false);
@@ -328,6 +343,24 @@ if (filterAssignee) query = query.eq("assignee_id", filterAssignee);
   useEffect(() => {
     fetchTeams();
   }, [fetchTeams]);
+
+  useEffect(() => {
+    async function loadStatuses() {
+      try {
+        const data = await ConfigService.getStatuses('internal_ticket');
+        const topLevel = data.filter(s => !s.parentStatusId);
+        if (topLevel.length > 0) {
+          setStatuses(topLevel.map(s => {
+            const c = findStatusColor(s.color);
+            return { value: s.label, label: s.label, color: `${c.bg} ${c.text}`, dot: c.dot, accent: c.accent };
+          }));
+        }
+      } catch (error) {
+        console.error('Error loading internal ticket statuses:', error);
+      }
+    }
+    loadStatuses();
+  }, []);
 
   const resetFilters = () => {
     setSearchTerm("");
@@ -601,7 +634,7 @@ const openEditModal = (ticket: InternalTicketItem) => {
                    className="px-3 py-2 rounded-lg border border-[var(--border-default)] text-sm font-medium bg-[var(--surface-card)]"
                  >
                    <option value="">Todos Status</option>
-                   {KANBAN_STATUSES.map((s) => (
+                   {statuses.map((s) => (
                      <option key={s.value} value={s.value}>{s.label}</option>
                    ))}
                  </StyledSelect>
@@ -642,13 +675,13 @@ const openEditModal = (ticket: InternalTicketItem) => {
             ) : viewMode === "cards" ? (
               <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-3">
                 {displayTickets.map((it) => (
-                  <TicketCard key={it.id} ticket={it} onEdit={() => openEditModal(it)} teams={teams} />
+                  <TicketCard key={it.id} ticket={it} onEdit={() => openEditModal(it)} teams={teams} statuses={statuses} />
                 ))}
               </div>
             ) : viewMode === "table" ? (
-              <TicketTable tickets={displayTickets} onEdit={openEditModal} teams={teams} />
+              <TicketTable tickets={displayTickets} onEdit={openEditModal} teams={teams} statuses={statuses} />
             ) : (
-              <KanbanBoard tickets={displayTickets} onEdit={openEditModal} onStatusChange={handleStatusChange} />
+              <KanbanBoard tickets={displayTickets} onEdit={openEditModal} onStatusChange={handleStatusChange} statuses={statuses} />
             )}
           </div>
 
@@ -683,9 +716,9 @@ const openEditModal = (ticket: InternalTicketItem) => {
     }
 
 // Ticket Card Component
-function TicketCard({ ticket, onEdit, teams = DEFAULT_TEAM_OPTIONS }: { ticket: InternalTicketItem; onEdit: () => void; teams?: typeof DEFAULT_TEAM_OPTIONS }) {
+function TicketCard({ ticket, onEdit, teams = DEFAULT_TEAM_OPTIONS, statuses = DEFAULT_KANBAN_STATUSES }: { ticket: InternalTicketItem; onEdit: () => void; teams?: typeof DEFAULT_TEAM_OPTIONS; statuses?: KanbanStatusMeta[] }) {
   const teamOption = teams.find((t) => t.value === ticket.teamId) || teams[0];
-  const statusMeta = KANBAN_STATUSES.find(s => s.value === (ticket.status || "Novo")) || KANBAN_STATUSES[0];
+  const statusMeta = statuses.find(s => s.value === (ticket.status || "Novo")) || statuses[0];
 
   return (
     <motion.div
@@ -766,7 +799,7 @@ function TicketCard({ ticket, onEdit, teams = DEFAULT_TEAM_OPTIONS }: { ticket: 
 }
 
 // Ticket Table Component
-function TicketTable({ tickets, onEdit, teams = DEFAULT_TEAM_OPTIONS }: { tickets: InternalTicketItem[]; onEdit: (t: InternalTicketItem) => void; teams?: typeof DEFAULT_TEAM_OPTIONS }) {
+function TicketTable({ tickets, onEdit, teams = DEFAULT_TEAM_OPTIONS, statuses = DEFAULT_KANBAN_STATUSES }: { tickets: InternalTicketItem[]; onEdit: (t: InternalTicketItem) => void; teams?: typeof DEFAULT_TEAM_OPTIONS; statuses?: KanbanStatusMeta[] }) {
   return (
     <div className="bg-[var(--surface-card)] rounded-2xl border border-[var(--border-default)] overflow-hidden">
       <table className="w-full">
@@ -785,7 +818,7 @@ function TicketTable({ tickets, onEdit, teams = DEFAULT_TEAM_OPTIONS }: { ticket
         <tbody className="divide-y divide-[var(--border-default)]">
           {tickets.map((it) => {
             const teamOpt = teams.find((t) => t.value === it.teamId) || teams[0];
-            const statusMeta = KANBAN_STATUSES.find(s => s.value === (it.status || "Novo")) || KANBAN_STATUSES[0];
+            const statusMeta = statuses.find(s => s.value === (it.status || "Novo")) || statuses[0];
             return (
               <tr key={it.id} className="hover:bg-[var(--surface-card)]/50 transition-colors cursor-pointer group" onClick={() => onEdit(it)}>
                 <td className="px-4 py-3">
@@ -976,18 +1009,20 @@ function TicketModal({
 function KanbanBoard({
   tickets,
   onEdit,
-  onStatusChange
+  onStatusChange,
+  statuses = DEFAULT_KANBAN_STATUSES
 }: {
   tickets: InternalTicketItem[];
   onEdit: (t: InternalTicketItem) => void;
   onStatusChange?: (ticketId: string, newStatus: string) => void;
+  statuses?: KanbanStatusMeta[];
 }) {
   const [activeTicket, setActiveTicket] = useState<InternalTicketItem | null>(null);
   const sensors = useSensors(
     useSensor(PointerSensor, { activationConstraint: { distance: 8 } })
   );
 
-  const columns = KANBAN_STATUSES.map(status => ({
+  const columns = statuses.map(status => ({
     ...status,
     tickets: tickets.filter(t => (t.status || "Novo") === status.value)
   }));
@@ -1024,7 +1059,7 @@ function KanbanBoard({
 
 // Coluna do Kanban — área de soltar (droppable), com destaque visual
 // enquanto um card é arrastado sobre ela.
-function KanbanColumn({ col, onEdit }: { col: (typeof KANBAN_STATUSES)[number] & { tickets: InternalTicketItem[] }; onEdit: (t: InternalTicketItem) => void }) {
+function KanbanColumn({ col, onEdit }: { col: KanbanStatusMeta & { tickets: InternalTicketItem[] }; onEdit: (t: InternalTicketItem) => void }) {
   const { setNodeRef, isOver } = useDroppable({ id: col.value });
 
   return (
