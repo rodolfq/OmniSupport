@@ -408,7 +408,7 @@ export default function InternalTicketDetailPage() {
       {/* Área principal */}
       <div className="flex-1 flex overflow-hidden">
         {/* Conteúdo principal */}
-        <div className="flex-[0.73] bg-[var(--surface-card)] p-6 overflow-auto">
+        <div className="flex-1 min-w-0 bg-[var(--surface-card)] p-6 overflow-auto">
           <div className="grid grid-cols-2 gap-6 mb-4">
             <div className="space-y-3">
               <div><p className="text-[10px] text-[var(--text-tertiary)] font-bold uppercase mb-1">Equipe</p>
@@ -612,14 +612,17 @@ export default function InternalTicketDetailPage() {
           </div>
         </div>
 
-        {/* Painel lateral direito — histórico único (comentários + eventos de sistema) */}
-        <div className="flex-1 border-l border-[var(--border-default)] flex flex-col h-full">
+        {/* Painel lateral direito — histórico único (comentários + eventos de sistema) —
+            mesma largura fixa (450px) e padding (p-6) do painel direito do chamado do
+            cliente (ticket-detail-modal.tsx), que antes disputava espaço via flex-[1]
+            contra o flex-[0.73] do conteúdo principal e acabava bem mais largo. */}
+        <div className="w-full md:w-[450px] border-l border-[var(--border-default)] flex flex-col h-full shrink-0">
           <div className="px-4 py-3 border-b border-[var(--border-default)] flex items-center">
             <span className="text-xs font-bold uppercase text-[var(--text-warning)] border-b-2 border-[var(--text-warning-strong)] flex items-center gap-1">
               <Clock size={14} /> HISTÓRICO
             </span>
           </div>
-          <div className="flex-1 overflow-y-auto p-3">
+          <div className="flex-1 overflow-y-auto p-6">
             {(() => {
               // Edição de descrição ('system_log') não aparece aqui — só na
               // aba Histórico, junto com o resto.
