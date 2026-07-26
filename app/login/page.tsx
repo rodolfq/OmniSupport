@@ -115,7 +115,7 @@ export default function LoginPage() {
               <img
                 src="/branding/logo-no-bg.svg"
                 alt="SSX Desk"
-                className="w-[140px] h-[85px] sm:w-[180px] sm:h-[109px] object-contain select-none dark:hidden"
+                className="w-[168px] h-[102px] sm:w-[216px] sm:h-[131px] object-contain select-none dark:hidden"
                 draggable={false}
               />
               <img
@@ -123,7 +123,7 @@ export default function LoginPage() {
                 alt="SSX Desk"
                 width={970}
                 height={587}
-                className="hidden dark:block w-full max-w-[140px] sm:max-w-[180px] h-auto select-none"
+                className="hidden dark:block w-full max-w-[168px] sm:max-w-[216px] h-auto select-none"
                 draggable={false}
               />
             </div>
