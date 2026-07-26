@@ -1,0 +1,5 @@
+Convenção de ícones usados nos 3 manuais (glifos Unicode monocromáticos, não emoji colorido):
+● dashboard/geral   ▤ chamados/tickets   ◆ chat/mensagens   ▲ hotfix/alerta
+◈ permissões/segurança   ◍ pessoas/equipe/clientes   ⚙ configurações
+✓ concluído/dica   ✕ não permitido   ↻ atualizar/andamento   ★ avaliação
+✉ e-mail   ⎘ anexo   → ação/next

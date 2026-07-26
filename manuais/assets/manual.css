@@ -1,0 +1,291 @@
+/* ============================================================
+   Manuais SSX Desk — folha de estilo compartilhada (impressão/PDF)
+   ============================================================ */
+
+@page {
+  size: A4;
+  margin: 0;
+}
+
+* { box-sizing: border-box; }
+
+:root {
+  --navy: #081F3B;
+  --navy-2: #044C7C;
+  --teal: #0FA694;
+  --teal-hover: #0C8C7D;
+  --teal-strong: #026357;
+  --page-bg: #F6F8FB;
+  --card: #FFFFFF;
+  --border: #E2E7EE;
+  --border-strong: #C9D2DE;
+  --text: #0B1220;
+  --text-2: #33475B;
+  --text-3: #64748B;
+  --danger: #DC2626;
+  --danger-bg: #FEF2F2;
+  --warn: #D97706;
+  --warn-bg: #FFFBEB;
+  --info-bg: #EAF2FB;
+  --ok-bg: #E9F8F4;
+}
+
+html, body {
+  margin: 0;
+  padding: 0;
+  font-family: 'Segoe UI', -apple-system, BlinkMacSystemFont, sans-serif;
+  color: var(--text);
+  background: var(--page-bg);
+  font-size: 15px;
+  line-height: 1.55;
+  -webkit-print-color-adjust: exact;
+  print-color-adjust: exact;
+}
+
+.page {
+  position: relative;
+  width: 210mm;
+  min-height: 297mm;
+  padding: 18mm 18mm 20mm 18mm;
+  background: var(--card);
+  break-after: page;
+  overflow: hidden;
+}
+.page:last-child { break-after: auto; }
+
+.page-flush { padding: 0; }
+
+/* ---------- Cover ---------- */
+.cover {
+  background: linear-gradient(155deg, var(--navy) 0%, var(--navy-2) 68%, var(--teal-strong) 130%);
+  color: white;
+  display: flex;
+  flex-direction: column;
+  justify-content: space-between;
+  padding: 26mm 20mm;
+}
+.cover .brand-mark {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+.cover .brand-mark .dot {
+  width: 14px; height: 14px; border-radius: 5px; background: var(--teal);
+}
+.cover .brand-mark span {
+  font-size: 13px; font-weight: 800; letter-spacing: 0.14em; text-transform: uppercase; color: rgba(255,255,255,0.85);
+}
+.cover .kicker {
+  font-size: 12px; font-weight: 800; letter-spacing: 0.22em; text-transform: uppercase;
+  color: var(--teal); margin-bottom: 14px;
+}
+.cover h1 {
+  font-size: 46px; font-weight: 800; line-height: 1.08; margin: 0 0 18px 0; max-width: 140mm; letter-spacing: -0.01em;
+}
+.cover .role-pill {
+  display: inline-flex; align-items: center; gap: 8px; width: fit-content;
+  background: rgba(15, 166, 148, 0.18); border: 1px solid rgba(15, 166, 148, 0.5);
+  color: #7EEFDD; padding: 8px 16px; border-radius: 999px; font-size: 12px; font-weight: 800;
+  text-transform: uppercase; letter-spacing: 0.08em; margin-bottom: 22px;
+}
+.cover .lede {
+  font-size: 16px; color: rgba(255,255,255,0.82); max-width: 120mm; font-weight: 500;
+}
+.cover .cover-footer {
+  display: flex; justify-content: space-between; align-items: flex-end;
+  border-top: 1px solid rgba(255,255,255,0.18); padding-top: 16px;
+}
+.cover .cover-footer .meta { font-size: 11px; color: rgba(255,255,255,0.6); font-weight: 600; letter-spacing: 0.04em; }
+.cover .cover-footer .meta b { color: white; display:block; font-size:12px; margin-bottom:2px; }
+.cover .glow {
+  position: absolute; width: 340px; height: 340px; border-radius: 50%;
+  background: radial-gradient(circle, rgba(15,166,148,0.35), transparent 70%);
+  right: -80px; top: -80px; filter: blur(10px);
+}
+
+/* ---------- Running header/footer per content page ---------- */
+.page-head {
+  display: flex; justify-content: space-between; align-items: center;
+  padding-bottom: 10px; margin-bottom: 14px; border-bottom: 2px solid var(--border);
+}
+.page-head .tag {
+  font-size: 10px; font-weight: 800; letter-spacing: 0.12em; text-transform: uppercase; color: var(--teal-strong);
+}
+.page-head .brand {
+  font-size: 10px; font-weight: 800; letter-spacing: 0.1em; text-transform: uppercase; color: var(--text-3);
+}
+.page-foot {
+  position: absolute; bottom: 10mm; left: 18mm; right: 18mm;
+  display: flex; justify-content: space-between; font-size: 9px; color: var(--text-3);
+  font-weight: 700; letter-spacing: 0.05em; border-top: 1px solid var(--border); padding-top: 6px;
+}
+
+/* ---------- Typography ---------- */
+h2.section-title {
+  font-size: 26px; font-weight: 800; color: var(--navy); margin: 0 0 4px 0; letter-spacing: -0.01em;
+}
+p.section-lede {
+  font-size: 13.5px; color: var(--text-3); font-weight: 600; margin: 0 0 20px 0;
+}
+h3.sub-title {
+  font-size: 16px; font-weight: 800; color: var(--navy); margin: 26px 0 10px 0;
+  display: flex; align-items: center; gap: 8px;
+}
+h3.sub-title .num {
+  width: 24px; height: 24px; border-radius: 8px; background: var(--teal); color: white;
+  font-size: 12px; display: inline-flex; align-items: center; justify-content: center; flex-shrink: 0;
+}
+p { margin: 0 0 10px 0; color: var(--text-2); }
+strong { color: var(--text); }
+
+/* ---------- Section icon header ---------- */
+.section-icon-row { display: flex; align-items: center; gap: 14px; margin-bottom: 6px; }
+.section-icon {
+  width: 44px; height: 44px; border-radius: 14px; background: var(--navy);
+  color: white; display: flex; align-items: center; justify-content: center; flex-shrink: 0;
+}
+.section-icon svg { width: 22px; height: 22px; }
+
+/* ---------- Table of contents ---------- */
+.toc-list { list-style: none; margin: 20px 0 0 0; padding: 0; }
+.toc-list li {
+  display: flex; align-items: center; gap: 14px; padding: 9px 4px;
+  border-bottom: 1px solid var(--border);
+}
+.toc-list .toc-num {
+  width: 26px; height: 26px; border-radius: 8px; background: var(--info-bg); color: var(--navy-2);
+  font-weight: 800; font-size: 12px; display: flex; align-items: center; justify-content: center; flex-shrink: 0;
+}
+.toc-list .toc-label { font-weight: 700; color: var(--text); font-size: 13.5px; flex: 1; }
+.toc-list .toc-desc { font-size: 11px; color: var(--text-3); font-weight: 600; }
+
+/* ---------- Steps ---------- */
+/* Sem display:flex no <li> — mesmo motivo do .feat-list acima: o número vira
+   um círculo posicionado de forma absoluta, e o texto (que mistura <b> com
+   texto normal) flui em bloco só, sem virar "flex items" fragmentados. */
+ol.steps { list-style: none; margin: 0 0 16px 0; padding: 0; counter-reset: step; }
+ol.steps li {
+  counter-increment: step;
+  position: relative; padding: 7px 0 7px 34px; border-bottom: 1px dashed var(--border);
+  font-size: 13.5px; color: var(--text-2); min-height: 22px;
+}
+ol.steps li:last-child { border-bottom: none; }
+ol.steps li::before {
+  content: counter(step);
+  position: absolute; left: 0; top: 7px;
+  width: 22px; height: 22px; border-radius: 50%;
+  background: var(--navy); color: white; font-size: 11px; font-weight: 800;
+  display: flex; align-items: center; justify-content: center;
+}
+ol.steps li b { color: var(--text); }
+
+/* ---------- Callouts ---------- */
+.callout {
+  border-radius: 14px; padding: 14px 16px; margin: 14px 0; font-size: 12.5px;
+  display: flex; gap: 10px; align-items: flex-start; border: 1px solid transparent;
+}
+.callout .ico { flex-shrink: 0; width: 20px; height: 20px; margin-top: 1px; }
+.callout p { margin: 0; color: inherit; font-weight: 600; }
+.callout b { color: inherit; }
+.callout.tip { background: var(--ok-bg); color: #0C6B5D; border-color: #BEE9DF; }
+.callout.warn { background: var(--warn-bg); color: #92610A; border-color: #FDE68A; }
+.callout.danger { background: var(--danger-bg); color: #A32424; border-color: #F7C6C6; }
+.callout.info { background: var(--info-bg); color: #0A3D66; border-color: #C7DCF2; }
+
+/* ---------- Two/three column grids ---------- */
+.grid-2 { display: grid; grid-template-columns: 1fr 1fr; gap: 14px; margin: 14px 0; }
+.grid-3 { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 12px; margin: 14px 0; }
+.info-card {
+  border: 1px solid var(--border); border-radius: 16px; padding: 14px; background: var(--page-bg);
+}
+.info-card .k { font-size: 10px; font-weight: 800; text-transform: uppercase; letter-spacing: 0.08em; color: var(--teal-strong); margin-bottom: 6px; }
+.info-card .v { font-size: 12.5px; color: var(--text-2); font-weight: 600; }
+
+/* ---------- Permission chips ---------- */
+.chip-row { display: flex; flex-wrap: wrap; gap: 6px; margin: 10px 0 16px 0; }
+.chip {
+  font-size: 10.5px; font-weight: 800; padding: 5px 11px; border-radius: 999px;
+  background: var(--info-bg); color: var(--navy-2); border: 1px solid #C7DCF2;
+}
+.chip.off { background: #F1F5F9; color: var(--text-3); border-color: var(--border); text-decoration: line-through; }
+
+/* ============================================================
+   "Device frame" — mockup ilustrado de tela do sistema
+   ============================================================ */
+.device {
+  border-radius: 18px; overflow: hidden; border: 1px solid var(--border-strong);
+  box-shadow: 0 10px 30px -12px rgba(8,31,59,0.25);
+  background: var(--card); margin: 16px 0 20px 0;
+}
+.device-bar {
+  height: 26px; background: #E9EDF3; display: flex; align-items: center; gap: 6px; padding: 0 12px;
+  border-bottom: 1px solid var(--border-strong);
+}
+.device-bar .d { width: 8px; height: 8px; border-radius: 50%; background: #C7D0DC; }
+.device-shell { display: flex; height: 100%; min-height: 165px; }
+.device-side {
+  width: 46px; background: var(--navy); display: flex; flex-direction: column; align-items: center;
+  padding: 12px 0; gap: 10px; flex-shrink: 0;
+}
+.device-side .sicon {
+  width: 26px; height: 26px; border-radius: 8px; display: flex; align-items: center; justify-content: center;
+  color: rgba(255,255,255,0.55);
+}
+.device-side .sicon.active { background: var(--teal); color: white; }
+.device-side .sicon svg { width: 13px; height: 13px; }
+.device-main { flex: 1; padding: 14px 16px; background: #FBFCFE; }
+.device-top { display: flex; justify-content: space-between; align-items: center; margin-bottom: 12px; }
+.device-title { font-size: 13px; font-weight: 800; color: var(--navy); }
+.device-btn {
+  font-size: 9px; font-weight: 800; text-transform: uppercase; letter-spacing: 0.04em;
+  background: var(--teal); color: white; padding: 6px 12px; border-radius: 8px;
+}
+.device-btn.ghost { background: var(--card); color: var(--text-3); border: 1px solid var(--border); }
+.device-row {
+  display: flex; align-items: center; gap: 10px; background: var(--card); border: 1px solid var(--border);
+  border-radius: 10px; padding: 8px 10px; margin-bottom: 6px;
+}
+.device-row .avatar { width: 20px; height: 20px; border-radius: 6px; background: var(--info-bg); flex-shrink: 0; }
+.device-row .bar { height: 6px; border-radius: 4px; background: var(--border); flex: 1; }
+.device-row .bar.short { flex: 0 0 40px; }
+.device-row .tag {
+  font-size: 8px; font-weight: 800; padding: 2px 7px; border-radius: 999px; flex-shrink: 0;
+}
+.device-row .tag.green { background: var(--ok-bg); color: var(--teal-strong); }
+.device-row .tag.blue { background: var(--info-bg); color: var(--navy-2); }
+.device-row .tag.amber { background: var(--warn-bg); color: var(--warn); }
+.device-row .tag.red { background: var(--danger-bg); color: var(--danger); }
+.device-cards { display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; margin-bottom: 10px; }
+.device-card { border: 1px solid var(--border); border-radius: 10px; padding: 9px; background: var(--card); }
+.device-card .num { font-size: 15px; font-weight: 800; color: var(--navy); }
+.device-card .lbl { font-size: 7.5px; font-weight: 700; text-transform: uppercase; color: var(--text-3); letter-spacing: 0.04em; }
+.device-caption {
+  text-align: center; font-size: 10.5px; color: var(--text-3); font-weight: 700; margin-top: -10px; margin-bottom: 18px;
+}
+
+/* Bubble/chat mockup */
+.device-chat { display: flex; flex-direction: column; gap: 7px; }
+.bubble { max-width: 72%; padding: 7px 11px; border-radius: 12px; font-size: 9.5px; font-weight: 600; }
+.bubble.in { align-self: flex-start; background: var(--card); border: 1px solid var(--border); color: var(--text-2); border-bottom-left-radius: 3px; }
+.bubble.out { align-self: flex-end; background: var(--teal); color: white; border-bottom-right-radius: 3px; }
+
+/* ---------- Feature lists (checkmark bullets) ----------
+   Sem display:flex aqui de propósito: cada trecho de texto separado por uma
+   tag <b> dentro do <li> viraria um "anonymous flex item" independente,
+   quebrando a frase em colunas em vez de fluir como texto normal. */
+.feat-list { list-style: none; margin: 0; padding: 0; }
+.feat-list li { padding: 7px 0; font-size: 12.5px; color: var(--text-2); }
+
+/* ---------- Back cover ---------- */
+.backcover {
+  background: var(--navy); color: white; display: flex; flex-direction: column;
+  align-items: center; justify-content: center; text-align: center; gap: 14px;
+}
+.backcover .dot { width: 10px; height: 10px; border-radius: 4px; background: var(--teal); margin: 0 auto 6px auto; }
+.backcover h3 { font-size: 20px; font-weight: 800; margin: 0; }
+.backcover p { color: rgba(255,255,255,0.7); font-size: 12.5px; max-width: 100mm; }
+
+/* Utility */
+.mt-0 { margin-top: 0; }
+.muted { color: var(--text-3); }
+.small { font-size: 11.5px; }

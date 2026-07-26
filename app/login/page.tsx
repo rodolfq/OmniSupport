@@ -100,21 +100,22 @@ export default function LoginPage() {
       >
         {mounted && theme === 'dark' ? <Sun size={20} /> : <Moon size={20} />}
       </button>
-      <div className="w-full max-w-md">
-        <div className="text-center mb-6">
-          <div className="relative inline-flex mb-4">
-            {/* Brilho original — igual nos dois temas, intocado. */}
-            <div className="absolute -inset-8 bg-[var(--accent)]/25 blur-3xl rounded-full" aria-hidden="true" />
+      <div className="w-full max-w-md -mt-10 sm:-mt-14">
+        <div className="text-center mb-4">
+          <div className="relative inline-flex mb-3">
+            {/* Brilho original — igual nos dois temas, só o raio reduzido
+                junto com a logo pra manter a proporção. */}
+            <div className="absolute -inset-5 bg-[var(--accent)]/25 blur-3xl rounded-full" aria-hidden="true" />
             {/* Um wrapper só, mesmo padding nos dois temas — antes o modo
                 claro não tinha o padding do card, então o brilho (que usa
                 -inset relativo a este contêiner) e a área geral saíam bem
                 menores que no escuro. Só o fundo/sombra do card é exclusivo
                 do modo escuro (dark:), o tamanho é sempre o mesmo. */}
-            <div className="relative inline-flex items-center justify-center rounded-[2.5rem] p-8 sm:p-10 dark:bg-gradient-to-br dark:from-[#081F3B] dark:to-[#044C7C] dark:shadow-2xl dark:shadow-black/30 dark:ring-1 dark:ring-white/10">
+            <div className="relative inline-flex items-center justify-center rounded-[2.5rem] p-5 sm:p-6 dark:bg-gradient-to-br dark:from-[#081F3B] dark:to-[#044C7C] dark:shadow-2xl dark:shadow-black/30 dark:ring-1 dark:ring-white/10">
               <img
                 src="/branding/logo-no-bg.svg"
                 alt="SSX Desk"
-                className="w-[280px] h-[169px] sm:w-[360px] sm:h-[218px] object-contain select-none dark:hidden"
+                className="w-[140px] h-[85px] sm:w-[180px] sm:h-[109px] object-contain select-none dark:hidden"
                 draggable={false}
               />
               <img
@@ -122,7 +123,7 @@ export default function LoginPage() {
                 alt="SSX Desk"
                 width={970}
                 height={587}
-                className="hidden dark:block w-full max-w-[280px] sm:max-w-[360px] h-auto select-none"
+                className="hidden dark:block w-full max-w-[140px] sm:max-w-[180px] h-auto select-none"
                 draggable={false}
               />
             </div>

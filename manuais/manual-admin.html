@@ -1,0 +1,574 @@
+<!doctype html>
+<html lang="pt-BR">
+<head>
+<meta charset="utf-8">
+<title>Manual do Administrador — SSX Desk</title>
+<link rel="stylesheet" href="assets/manual.css">
+</head>
+<body>
+
+<!-- ============ CAPA ============ -->
+<div class="page cover">
+  <div class="glow"></div>
+  <div class="brand-mark"><div class="dot"></div><span>SSX Desk</span></div>
+  <div>
+    <div class="kicker">Manual do Usuário</div>
+    <h1>Guia completo do<br>Administrador do Sistema</h1>
+    <div class="role-pill">◈ Acesso total — Administrador</div>
+    <p class="lede">Tudo o que você precisa saber pra configurar, operar e manter o SSX Desk: chamados, atendimento, equipes, permissões, filas, WhatsApp e as configurações gerais do sistema.</p>
+  </div>
+  <div class="cover-footer">
+    <div class="meta"><b>SSX Desk</b>Plataforma de Atendimento ao Cliente</div>
+    <div class="meta"><b>Versão 1.0</b>Manual 1 de 3 — Administrador</div>
+  </div>
+</div>
+
+<!-- ============ SUMÁRIO ============ -->
+<div class="page">
+  <div class="page-head"><span class="tag">Sumário</span><span class="brand">SSX Desk · Manual do Administrador</span></div>
+  <h2 class="section-title">O que tem neste manual</h2>
+  <p class="section-lede">17 capítulos, do primeiro login à configuração avançada do sistema.</p>
+  <ul class="toc-list">
+    <li><span class="toc-num">01</span><span class="toc-label">Bem-vindo ao SSX Desk</span><span class="toc-desc">Visão geral</span></li>
+    <li><span class="toc-num">02</span><span class="toc-label">Primeiros Passos</span><span class="toc-desc">Login e navegação</span></li>
+    <li><span class="toc-num">03</span><span class="toc-label">Dashboard</span><span class="toc-desc">Painel operacional</span></li>
+    <li><span class="toc-num">04</span><span class="toc-label">Central de Chamados</span><span class="toc-desc">O coração do sistema</span></li>
+    <li><span class="toc-num">05</span><span class="toc-label">Detalhe de um Chamado</span><span class="toc-desc">Responder, mesclar, transferir</span></li>
+    <li><span class="toc-num">06</span><span class="toc-label">Meus Chamados</span><span class="toc-desc">Sua fila pessoal</span></li>
+    <li><span class="toc-num">07</span><span class="toc-label">Central de Atendimento</span><span class="toc-desc">Fila de chats, analistas</span></li>
+    <li><span class="toc-num">08</span><span class="toc-label">Histórico de Conversas</span><span class="toc-desc">Busca e exportação</span></li>
+    <li><span class="toc-num">09</span><span class="toc-label">Tickets Internos & Hotfixes</span><span class="toc-desc">Operação interna</span></li>
+    <li><span class="toc-num">10</span><span class="toc-label">Chat Interno</span><span class="toc-desc">Conversa com a equipe</span></li>
+    <li><span class="toc-num">11</span><span class="toc-label">Clientes & Empresas</span><span class="toc-desc">Cadastro de contas</span></li>
+    <li><span class="toc-num">12</span><span class="toc-label">Equipes & Permissões</span><span class="toc-desc">Quem acessa o quê</span></li>
+    <li><span class="toc-num">13</span><span class="toc-label">Filas de Atendimento</span><span class="toc-desc">Distribuição de chats</span></li>
+    <li><span class="toc-num">14</span><span class="toc-label">WhatsApp</span><span class="toc-desc">Conectar canais</span></li>
+    <li><span class="toc-num">15</span><span class="toc-label">Configurações do Sistema</span><span class="toc-desc">Geral, automações, integrações</span></li>
+    <li><span class="toc-num">16</span><span class="toc-label">Relatórios & Avaliações</span><span class="toc-desc">Indicadores</span></li>
+    <li><span class="toc-num">17</span><span class="toc-label">Boas Práticas & Suporte</span><span class="toc-desc">Segurança e ajuda</span></li>
+  </ul>
+</div>
+
+<!-- ============ 01 BEM-VINDO ============ -->
+<div class="page">
+  <div class="page-head"><span class="tag">Capítulo 01 · Introdução</span><span class="brand">SSX Desk · Manual do Administrador</span></div>
+  <div class="section-icon-row"><div class="section-icon">●</div><h2 class="section-title mt-0">Bem-vindo ao SSX Desk</h2></div>
+  <p class="section-lede">Sua plataforma completa de atendimento ao cliente e operação interna.</p>
+
+  <p>O <strong>SSX Desk</strong> reúne, em um só lugar, todo o ciclo de atendimento: os chamados dos seus clientes, as conversas ao vivo pelo site e WhatsApp, a operação interna da sua equipe (tickets internos, hotfixes, chat) e a administração de quem acessa o quê no sistema.</p>
+  <p>Como <strong>Administrador do Sistema</strong>, você tem acesso a absolutamente tudo: cria equipes, define permissões, configura filas de atendimento, conecta canais de WhatsApp, acompanha relatórios e ajusta as regras gerais do sistema. Este manual foi escrito pra você, na ordem em que normalmente se usa o sistema no dia a dia.</p>
+
+  <div class="grid-3">
+    <div class="info-card"><div class="k">Pra quem cuida do cliente</div><div class="v">Chamados, chat ao vivo, WhatsApp e histórico de atendimento</div></div>
+    <div class="info-card"><div class="k">Pra quem cuida da equipe</div><div class="v">Tickets internos, chat interno, hotfixes e permissões</div></div>
+    <div class="info-card"><div class="k">Pra quem cuida do sistema</div><div class="v">Filas, integrações, automações e configurações gerais</div></div>
+  </div>
+
+  <h3 class="sub-title"><span class="num">i</span>Como ler este manual</h3>
+  <ul class="feat-list">
+    <li>✓ Cada capítulo cobre uma tela do menu lateral, na mesma ordem em que ela aparece no sistema.</li>
+    <li>✓ Os quadros coloridos trazem <strong>dicas</strong>, <strong>avisos</strong> e <strong>pontos de atenção</strong> — vale sempre ler antes de agir.</li>
+    <li>✓ As ilustrações mostram uma versão simplificada da tela real, só pra você se localizar rápido.</li>
+  </ul>
+
+  <div class="callout info"><span class="ico">i</span><p>Este é o <strong>Manual 1 de 3</strong>. Existem versões dedicadas pro Time Interno (acesso restrito a Tickets Internos) e pro Funcionário de empresa cliente — peça a versão certa pra cada perfil da sua equipe.</p></div>
+
+  <div class="page-foot"><span>SSX Desk</span><span>01 — Bem-vindo</span></div>
+</div>
+
+<!-- ============ 02 PRIMEIROS PASSOS ============ -->
+<div class="page">
+  <div class="page-head"><span class="tag">Capítulo 02 · Primeiros Passos</span><span class="brand">SSX Desk · Manual do Administrador</span></div>
+  <div class="section-icon-row"><div class="section-icon">→</div><h2 class="section-title mt-0">Login e Navegação</h2></div>
+  <p class="section-lede">Como entrar no sistema e se localizar na interface.</p>
+
+  <h3 class="sub-title"><span class="num">1</span>Fazer login</h3>
+  <div class="device">
+    <div class="device-bar"><div class="d"></div><div class="d"></div><div class="d"></div></div>
+    <div class="device-shell" style="justify-content:center; align-items:center; background:#0B2A4A;">
+      <div style="background:white; border-radius:14px; padding:18px 26px; width:230px;">
+        <div style="font-size:11px; font-weight:800; color:var(--navy); text-align:center; margin-bottom:10px;">Bem-vindo de volta</div>
+        <div class="device-row" style="margin-bottom:6px;"><div class="bar"></div></div>
+        <div class="device-row" style="margin-bottom:10px;"><div class="bar"></div></div>
+        <div class="device-btn" style="text-align:center; width:100%;">Entrar no Sistema</div>
+      </div>
+    </div>
+  </div>
+  <div class="device-caption">Tela de login — campo Email Corporativo, Senha e botão Entrar no Sistema</div>
+
+  <ol class="steps">
+    <li>Acesse o endereço do SSX Desk no navegador.</li>
+    <li>Preencha <b>Email Corporativo</b> e <b>Senha</b>.</li>
+    <li>Use o ícone de olho pra conferir a senha digitada antes de enviar.</li>
+    <li>Clique em <b>Entrar no Sistema</b>. Você é levado direto ao <b>Dashboard</b>.</li>
+  </ol>
+
+  <div class="callout tip"><span class="ico">✓</span><p><b>Primeiro acesso ou senha resetada?</b> O sistema pode pedir pra você trocar a senha assim que entrar — é só seguir o formulário que aparece.</p></div>
+  <div class="callout warn"><span class="ico">!</span><p>Esqueceu a senha? Peça pra outro Administrador redefinir em <b>Configurações → Equipe</b> (veja o Capítulo 12).</p></div>
+
+  <h3 class="sub-title"><span class="num">2</span>O menu lateral</h3>
+  <p>Toda a navegação fica na barra à esquerda: <b>Dashboard</b>, <b>Chamados</b>, <b>Chat Interno</b>, <b>WhatsApp</b>, <b>Clientes</b> e <b>Configurações</b> (que reúne Equipe, Permissões, Filas, Hotfixes e mais). Alguns itens abrem um submenu — clique pra expandir.</p>
+  <p>No canto superior, o sino de notificações mostra tudo o que precisa da sua atenção; clicar em <b>Ver tudo</b> abre a Central de Atividades (Capítulo 17).</p>
+
+  <div class="page-foot"><span>SSX Desk</span><span>02 — Primeiros Passos</span></div>
+</div>
+
+<!-- ============ 03 DASHBOARD ============ -->
+<div class="page">
+  <div class="page-head"><span class="tag">Capítulo 03 · Dashboard</span><span class="brand">SSX Desk · Manual do Administrador</span></div>
+  <div class="section-icon-row"><div class="section-icon">▦</div><h2 class="section-title mt-0">Dashboard</h2></div>
+  <p class="section-lede">Seu painel operacional — o que está aberto, atrasado e precisa de atenção agora.</p>
+
+  <div class="device">
+    <div class="device-bar"><div class="d"></div><div class="d"></div><div class="d"></div></div>
+    <div class="device-shell">
+      <div class="device-side"><div class="sicon active"></div><div class="sicon"></div><div class="sicon"></div><div class="sicon"></div></div>
+      <div class="device-main">
+        <div class="device-top"><span class="device-title">Dashboard</span><span class="device-btn">+ Novo Chamado</span></div>
+        <div class="device-cards">
+          <div class="device-card"><div class="num">128</div><div class="lbl">Abertos</div></div>
+          <div class="device-card"><div class="num">14</div><div class="lbl">Atrasados</div></div>
+          <div class="device-card"><div class="num">36</div><div class="lbl">Concluídos hoje</div></div>
+        </div>
+        <div class="device-row"><span class="tag amber">Novo</span><div class="bar"></div><div class="bar short"></div></div>
+        <div class="device-row"><span class="tag blue">Em Atend.</span><div class="bar"></div><div class="bar short"></div></div>
+        <div class="device-row"><span class="tag red">Atrasado</span><div class="bar"></div><div class="bar short"></div></div>
+      </div>
+    </div>
+  </div>
+  <div class="device-caption">Dashboard — quadro com contadores e lista de chamados prioritários</div>
+
+  <p>Se você acumula chamados de clientes <strong>e</strong> tickets internos, o Dashboard tem um alternador no topo pra trocar entre os dois quadros. Cada um mostra seus próprios contadores e colunas por status.</p>
+
+  <ul class="feat-list">
+    <li>✓ Clique em qualquer cartão ou linha da lista <b>Chamados Prioritários</b> pra abrir o chamado direto.</li>
+    <li>✓ <b>+ Novo Chamado</b> abre o formulário completo de abertura (Capítulo 05).</li>
+    <li>✓ Colunas com mais de 20 itens mostram um link <b>Ver mais N chamados</b>, que leva pra lista completa filtrada.</li>
+    <li>✓ Use a barra de filtros no topo pra restringir por fila, categoria, prioridade ou período.</li>
+  </ul>
+
+  <div class="callout info"><span class="ico">i</span><p>O Dashboard é o ponto de partida do dia — ele mostra só o que está <b>em aberto</b>. Pra ver o histórico completo (inclusive fechados), use a tela <b>Chamados</b> (próximo capítulo).</p></div>
+
+  <div class="page-foot"><span>SSX Desk</span><span>03 — Dashboard</span></div>
+</div>
+
+<!-- ============ 04 CENTRAL DE CHAMADOS ============ -->
+<div class="page">
+  <div class="page-head"><span class="tag">Capítulo 04 · Chamados</span><span class="brand">SSX Desk · Manual do Administrador</span></div>
+  <div class="section-icon-row"><div class="section-icon">▤</div><h2 class="section-title mt-0">Central de Chamados</h2></div>
+  <p class="section-lede">A lista completa de chamados — o coração do atendimento ao cliente.</p>
+
+  <div class="device">
+    <div class="device-bar"><div class="d"></div><div class="d"></div><div class="d"></div></div>
+    <div class="device-shell">
+      <div class="device-side"><div class="sicon"></div><div class="sicon active"></div><div class="sicon"></div><div class="sicon"></div></div>
+      <div class="device-main">
+        <div class="device-top"><span class="device-title">Chamados</span><span class="device-btn ghost">Buscar / Filtrar</span></div>
+        <div class="device-row"><div class="avatar"></div><div class="bar"></div><span class="tag amber">Novo</span></div>
+        <div class="device-row"><div class="avatar"></div><div class="bar"></div><span class="tag blue">Em Atend.</span></div>
+        <div class="device-row"><div class="avatar"></div><div class="bar"></div><span class="tag green">Concluído</span></div>
+        <div class="device-row"><div class="avatar"></div><div class="bar"></div><span class="tag red">Atrasado</span></div>
+      </div>
+    </div>
+  </div>
+  <div class="device-caption">Lista de chamados — colunas reordenáveis, seleção em massa e busca avançada</div>
+
+  <h3 class="sub-title"><span class="num">1</span>Buscar e filtrar</h3>
+  <p>A barra de busca avançada aceita texto livre (assunto, cliente, número) e filtros combinados por status, fila, categoria, prioridade e responsável. As colunas da tabela podem ser reordenadas arrastando o cabeçalho.</p>
+
+  <h3 class="sub-title"><span class="num">2</span>Ações em massa</h3>
+  <p>Marque as caixinhas de vários chamados pra liberar a barra de ações em lote:</p>
+  <ul class="feat-list">
+    <li>✓ <b>Transferir</b> — muda equipe e/ou analista responsável de todos de uma vez.</li>
+    <li>✓ <b>Status</b> — aplica um novo status em lote.</li>
+    <li>✓ <b>Mesclar</b> — junta vários chamados duplicados em um só (você escolhe qual vira o principal).</li>
+    <li>✓ <b>Título</b>, <b>Prioridade</b> e <b>Marcadores</b> — edição em massa desses campos.</li>
+  </ul>
+  <div class="callout warn"><span class="ico">!</span><p><b>Excluir chamado</b> (ícone de lixeira, por linha) é permanente — o sistema sempre pede confirmação antes.</p></div>
+
+  <div class="page-foot"><span>SSX Desk</span><span>04 — Central de Chamados</span></div>
+</div>
+
+<!-- ============ 05 DETALHE DE UM CHAMADO ============ -->
+<div class="page">
+  <div class="page-head"><span class="tag">Capítulo 05 · Chamados</span><span class="brand">SSX Desk · Manual do Administrador</span></div>
+  <h2 class="section-title">Abrindo e Respondendo um Chamado</h2>
+  <p class="section-lede">O painel de detalhe é onde a maior parte do seu dia acontece.</p>
+
+  <div class="device">
+    <div class="device-bar"><div class="d"></div><div class="d"></div><div class="d"></div></div>
+    <div class="device-shell" style="min-height:190px;">
+      <div class="device-main" style="display:flex; gap:14px;">
+        <div style="flex:1;">
+          <div class="device-top"><span class="device-title">#0482 — Erro ao emitir nota</span><span class="device-btn">Assumir</span></div>
+          <div style="display:flex; gap:5px; margin-bottom:10px;"><span class="tag blue">Novo</span><span class="tag amber">Em Atend.</span><span class="tag green">Concluído</span></div>
+          <div class="device-row"><div class="bar short"></div><div class="bar"></div></div>
+          <div class="device-row"><div class="bar short"></div><div class="bar"></div></div>
+          <div class="device-row"><div class="bar short"></div><div class="bar"></div></div>
+        </div>
+        <div style="flex:1; display:flex; flex-direction:column; justify-content:flex-end;">
+          <div class="device-chat">
+            <div class="bubble in">Olá, minha nota fiscal não emite.</div>
+            <div class="bubble out">Vamos verificar agora mesmo!</div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+  <div class="device-caption">Painel do chamado — informações à esquerda, conversa à direita</div>
+
+  <h3 class="sub-title"><span class="num">1</span>Cabeçalho e status</h3>
+  <p>No topo: <b>Assumir</b> (vira responsável), <b>Finalizar</b> (encerra o chamado), <b>Salvar</b> e o ícone de <b>Duplicar chamado</b>. A maioria dos campos salva sozinha alguns instantes depois de editada — repare no aviso "Salvando.../Salvo".</p>
+  <p>A trilha de status (Novo → Em Atendimento → Aguardando Cliente → Fechado, por exemplo) fica logo abaixo; passe o mouse sobre um status pra ver sub-status quando existirem (ex: "Aguardando Cliente → Feedback").</p>
+
+  <h3 class="sub-title"><span class="num">2</span>Informações do chamado</h3>
+  <p>Fila, Categoria, Tipo, Produto, Responsável, Vencimento (prazo de SLA), Prioridade (1 a 4 estrelas), Cliente, Contato, Colaboradores com acesso e Marcadores — tudo editável ali mesmo.</p>
+
+  <div class="page-foot"><span>SSX Desk</span><span>05 — Detalhe do Chamado</span></div>
+</div>
+
+<!-- ============ 05b DETALHE DE UM CHAMADO (cont.) ============ -->
+<div class="page">
+  <div class="page-head"><span class="tag">Capítulo 05 · Chamados</span><span class="brand">SSX Desk · Manual do Administrador</span></div>
+  <h2 class="section-title">Abrindo e Respondendo um Chamado <span class="muted small">(continuação)</span></h2>
+  <p class="section-lede">Abas do chamado e como responder sem trocar conversa de lugar.</p>
+
+  <h3 class="sub-title"><span class="num">3</span>Abas do chamado</h3>
+  <ul class="feat-list">
+    <li>✓ <b>Descrição</b> — o texto original do chamado, editável.</li>
+    <li>✓ <b>Ticket Interno</b> — vincule um ticket interno existente ou crie um novo direto dali.</li>
+    <li>✓ <b>Histórico</b> — linha do tempo de mudanças (status, responsável etc).</li>
+    <li>✓ <b>Anexos</b> — todos os arquivos trocados na conversa, reunidos em um só lugar.</li>
+    <li>✓ <b>Conversa</b> — aparece quando o chamado nasceu de um chat ao vivo; mostra a transcrição.</li>
+  </ul>
+
+  <h3 class="sub-title"><span class="num">4</span>Respondendo</h3>
+  <p>À direita, alterne entre <b>Histórico Cliente</b> (o cliente vê essa resposta) e <b>Anotação Interna</b> (só a equipe vê). O botão de envio muda de cor e nome conforme a aba: <b>Enviar Resposta</b> (indigo) ou <b>Enviar Nota</b> (âmbar). Se o contato tem WhatsApp cadastrado, <b>Enviar por WhatsApp</b> manda a mensagem por lá também.</p>
+
+  <div class="callout danger"><span class="ico">!</span><p>Cuidado pra não confundir as abas — uma nota escrita em <b>Histórico Cliente</b> vai direto pro cliente ver.</p></div>
+
+  <div class="page-foot"><span>SSX Desk</span><span>05 — Detalhe do Chamado</span></div>
+</div>
+
+<!-- ============ 06 MEUS CHAMADOS ============ -->
+<div class="page">
+  <div class="page-head"><span class="tag">Capítulo 06 · Meus Chamados</span><span class="brand">SSX Desk · Manual do Administrador</span></div>
+  <div class="section-icon-row"><div class="section-icon">◍</div><h2 class="section-title mt-0">Meus Chamados</h2></div>
+  <p class="section-lede">Sua fila pessoal — o que está sob sua responsabilidade agora.</p>
+
+  <p>Enquanto <b>Chamados</b> mostra tudo (a que você tem acesso), <b>Meus Chamados</b> filtra só os seus: onde você é o responsável, ou que ainda não têm dono. Como Administrador, você também vê os chamados de toda a empresa aqui se preferir alternar o filtro.</p>
+
+  <ul class="feat-list">
+    <li>✓ Filtros rápidos por status: Todos, Novo, Em andamento, Pendente, Resolvido, Concluído.</li>
+    <li>✓ Alterne entre visualização em grade (cartões) ou lista.</li>
+    <li>✓ <b>Carregar mais</b> traz os próximos 12 chamados sem precisar paginar.</li>
+    <li>✓ Se você também usa Tickets Internos, o mesmo alternador do Dashboard aparece aqui pra trocar de quadro.</li>
+  </ul>
+
+  <div class="callout tip"><span class="ico">✓</span><p>É aqui que a maioria da equipe passa o dia — pense nela como sua "caixa de entrada" de chamados.</p></div>
+
+  <div class="page-foot"><span>SSX Desk</span><span>06 — Meus Chamados</span></div>
+</div>
+
+<!-- ============ 07 CENTRAL DE ATENDIMENTO ============ -->
+<div class="page">
+  <div class="page-head"><span class="tag">Capítulo 07 · Atendimento ao Vivo</span><span class="brand">SSX Desk · Manual do Administrador</span></div>
+  <div class="section-icon-row"><div class="section-icon">◆</div><h2 class="section-title mt-0">Central de Atendimento</h2></div>
+  <p class="section-lede">A fila de chats ao vivo — site e WhatsApp, em tempo real.</p>
+
+  <div class="device">
+    <div class="device-bar"><div class="d"></div><div class="d"></div><div class="d"></div></div>
+    <div class="device-shell">
+      <div class="device-main">
+        <div class="device-top"><span class="device-title">Fila de Espera</span><span class="device-btn ghost">Minha Fila</span></div>
+        <div class="device-row"><div class="avatar"></div><div class="bar"></div><span class="device-btn ghost" style="font-size:8px;">Assumir</span></div>
+        <div class="device-row"><div class="avatar"></div><div class="bar"></div><span class="device-btn ghost" style="font-size:8px;">Vincular</span></div>
+        <div class="device-row"><div class="avatar"></div><div class="bar"></div><span class="tag green">Comigo</span></div>
+      </div>
+    </div>
+  </div>
+  <div class="device-caption">Fila de Espera — conversas aguardando ou em atendimento</div>
+
+  <p>A tela tem 4 abas:</p>
+  <ul class="feat-list">
+    <li>✓ <b>Fila de Espera</b> — assuma uma conversa pra você, atribua a outro analista online, ou vincule um número desconhecido a um cliente já cadastrado. Selecione várias e finalize em lote.</li>
+    <li>✓ <b>Analistas</b> — veja quem está com o quê (carga de chats), marque-se como Disponível/Ausente, ou desconecte um analista da fila de rodízio.</li>
+    <li>✓ <b>Notas Rápidas</b> — cadastre atalhos de resposta (ex: digitar <code>/saudacao</code> no chat já preenche o texto padrão), organizados por categoria.</li>
+    <li>✓ <b>Histórico</b> — busque conversas encerradas por analista, cliente, funcionário ou trecho da mensagem.</li>
+  </ul>
+
+  <div class="callout info"><span class="ico">i</span><p>A distribuição de conversas novas segue a estratégia configurada em cada <b>Fila</b> (Capítulo 13) — rodízio por ordem de login ou equilíbrio diário.</p></div>
+
+  <div class="page-foot"><span>SSX Desk</span><span>07 — Central de Atendimento</span></div>
+</div>
+
+<!-- ============ 08 HISTÓRICO DE CONVERSAS ============ -->
+<div class="page">
+  <div class="page-head"><span class="tag">Capítulo 08 · Atendimento ao Vivo</span><span class="brand">SSX Desk · Manual do Administrador</span></div>
+  <h2 class="section-title">Histórico de Conversas</h2>
+  <p class="section-lede">O arquivo completo de tudo que já foi conversado.</p>
+
+  <p>Diferente da aba "Histórico" da Central de Atendimento (mais rápida, pra consultas do dia a dia), esta tela é o <b>arquivo completo e pesquisável</b> — com filtros mais finos e exportação.</p>
+
+  <ul class="feat-list">
+    <li>✓ Filtre por cliente, funcionário, equipe, fila, período (com atalhos "Hoje", "7 dias", "30 dias") e avaliação (curtido / não curtido / sem avaliação).</li>
+    <li>✓ Busque por trecho da mensagem — encontra qualquer conversa pelo conteúdo.</li>
+    <li>✓ Escolha quais colunas aparecem na tabela e reordene do seu jeito (fica salvo pro próximo acesso).</li>
+    <li>✓ <b>Baixar Filtradas</b> exporta tudo que está filtrado num arquivo .zip.</li>
+    <li>✓ Clique numa linha pra ver a transcrição completa, horário de início/fim, tempo até a primeira resposta e o chamado vinculado (se houver).</li>
+  </ul>
+
+  <div class="page-foot"><span>SSX Desk</span><span>08 — Histórico de Conversas</span></div>
+</div>
+
+<!-- ============ 09 TICKETS INTERNOS & HOTFIXES ============ -->
+<div class="page">
+  <div class="page-head"><span class="tag">Capítulo 09 · Operação Interna</span><span class="brand">SSX Desk · Manual do Administrador</span></div>
+  <div class="section-icon-row"><div class="section-icon">▲</div><h2 class="section-title mt-0">Tickets Internos & Hotfixes</h2></div>
+  <p class="section-lede">A operação por trás do atendimento — bugs, melhorias e janelas de release.</p>
+
+  <h3 class="sub-title"><span class="num">1</span>Tickets Internos</h3>
+  <p>Um ticket interno é uma tarefa da própria equipe — pode ou não estar ligado a um chamado de cliente (a aba <b>Ticket Interno</b> dentro do chamado cria esse vínculo). Tem seu próprio quadro de status, prioridade, responsável e equipe, além de um campo de <b>Hotfix</b> pra marcar em qual janela de correção ele deve sair.</p>
+  <div class="callout tip"><span class="ico">✓</span><p>Ao escolher um Hotfix no ticket, o campo <b>Publicação Prevista</b> é preenchido automaticamente com a data daquele hotfix.</p></div>
+
+  <h3 class="sub-title"><span class="num">2</span>Hotfixes</h3>
+  <p>A tela de Hotfixes (em Configurações → Hotfixes) organiza as janelas de correção em três blocos:</p>
+  <ul class="feat-list">
+    <li>✓ <b>Hotfix da Semana</b> — destaque pro que está previsto pra semana atual.</li>
+    <li>✓ <b>Próximos</b> — janelas futuras já agendadas.</li>
+    <li>✓ <b>Histórico</b> — tudo que já foi publicado.</li>
+  </ul>
+  <p>Cadastre um novo hotfix com nome, descrição, responsável e data prevista. Ao marcar como publicado, ele sai das opções de vínculo em novos tickets, mas continua visível no histórico.</p>
+
+  <div class="page-foot"><span>SSX Desk</span><span>09 — Tickets Internos & Hotfixes</span></div>
+</div>
+
+<!-- ============ 10 CHAT INTERNO ============ -->
+<div class="page">
+  <div class="page-head"><span class="tag">Capítulo 10 · Comunicação</span><span class="brand">SSX Desk · Manual do Administrador</span></div>
+  <h2 class="section-title">Chat Interno</h2>
+  <p class="section-lede">Conversa direta e em grupo com o resto da equipe — sem sair do sistema.</p>
+
+  <div class="device">
+    <div class="device-bar"><div class="d"></div><div class="d"></div><div class="d"></div></div>
+    <div class="device-shell" style="min-height:150px;">
+      <div class="device-main">
+        <div class="device-chat">
+          <div class="bubble in">Bora revisar o chamado #0482?</div>
+          <div class="bubble out">Já tô nele 👍</div>
+          <div class="bubble in">Fechou. Manda o hotfix quando sair.</div>
+        </div>
+      </div>
+    </div>
+  </div>
+  <div class="device-caption">Chat Interno — conversas diretas e em grupo entre a equipe</div>
+
+  <ul class="feat-list">
+    <li>✓ Clique em qualquer pessoa da lista pra abrir uma conversa direta, ou use <b>+ Novo Grupo</b> pra criar um grupo com foto, nome e vários membros.</li>
+    <li>✓ Envie texto, arquivos, imagens, GIFs, figurinhas (crie as suas próprias) e use @menção pra chamar alguém específico.</li>
+    <li>✓ Edite ou apague suas próprias mensagens, responda a uma mensagem específica, reaja com emoji.</li>
+    <li>✓ Fixe, silencie ou arquive conversas pelo menu de contexto.</li>
+    <li>✓ Em <b>Personalização</b> (dentro do próprio chat), cada pessoa ajusta a cor do balão, tamanho do avatar e da fonte.</li>
+  </ul>
+
+  <div class="page-foot"><span>SSX Desk</span><span>10 — Chat Interno</span></div>
+</div>
+
+<!-- ============ 11 CLIENTES & EMPRESAS ============ -->
+<div class="page">
+  <div class="page-head"><span class="tag">Capítulo 11 · Clientes</span><span class="brand">SSX Desk · Manual do Administrador</span></div>
+  <div class="section-icon-row"><div class="section-icon">◍</div><h2 class="section-title mt-0">Clientes & Empresas</h2></div>
+  <p class="section-lede">O cadastro de empresas clientes e das pessoas que falam com você por elas.</p>
+
+  <div class="device">
+    <div class="device-bar"><div class="d"></div><div class="d"></div><div class="d"></div></div>
+    <div class="device-shell" style="min-height:150px;">
+      <div class="device-main" style="display:flex; gap:12px;">
+        <div style="flex:0.8;">
+          <div class="device-row"><div class="bar"></div></div>
+          <div class="device-row"><div class="bar"></div></div>
+          <div class="device-row"><div class="bar"></div></div>
+        </div>
+        <div style="flex:1;">
+          <div class="device-row"><div class="avatar"></div><div class="bar"></div><span class="device-btn ghost" style="font-size:8px;">Editar</span></div>
+          <div class="device-row"><div class="avatar"></div><div class="bar"></div><span class="device-btn ghost" style="font-size:8px;">Chamado</span></div>
+        </div>
+      </div>
+    </div>
+  </div>
+  <div class="device-caption">Lista de empresas à esquerda, pessoas da empresa selecionada à direita</div>
+
+  <ul class="feat-list">
+    <li>✓ Cadastre uma nova empresa e seu administrador (o "Cliente" que também gerencia os próprios funcionários).</li>
+    <li>✓ <b>Novo Funcionário</b> adiciona uma pessoa vinculada a essa empresa.</li>
+    <li>✓ Pelo botão <b>Chamado</b>, abra um chamado já com o cliente pré-selecionado; pelo botão <b>WhatsApp</b>, inicie uma conversa direta com o número dele.</li>
+    <li>✓ O link <b>Chamados e Atendimentos</b> abre a página dedicada da empresa: todos os chamados e conversas (em andamento e finalizadas) dela, num só lugar.</li>
+  </ul>
+
+  <div class="callout warn"><span class="ico">!</span><p>Excluir uma empresa remove também o acesso de todos os funcionários vinculados a ela — o sistema confirma antes.</p></div>
+
+  <div class="page-foot"><span>SSX Desk</span><span>11 — Clientes & Empresas</span></div>
+</div>
+
+<!-- ============ 12 EQUIPES & PERMISSÕES ============ -->
+<div class="page">
+  <div class="page-head"><span class="tag">Capítulo 12 · Administração</span><span class="brand">SSX Desk · Manual do Administrador</span></div>
+  <div class="section-icon-row"><div class="section-icon">◈</div><h2 class="section-title mt-0">Equipes & Permissões</h2></div>
+  <p class="section-lede">Quem está em cada equipe, quem a administra, e o que cada perfil pode fazer.</p>
+
+  <div class="device">
+    <div class="device-bar"><div class="d"></div><div class="d"></div><div class="d"></div></div>
+    <div class="device-shell" style="min-height:160px;">
+      <div class="device-main" style="display:flex; gap:12px;">
+        <div style="flex:0.8;">
+          <div class="device-row"><div class="bar short"></div><div class="bar"></div></div>
+          <div class="device-row"><div class="bar short"></div><div class="bar"></div></div>
+        </div>
+        <div style="flex:1;">
+          <div class="device-row"><div class="avatar"></div><div class="bar"></div><span class="tag blue">Perfil</span></div>
+          <div class="device-row"><div class="avatar"></div><div class="bar"></div><span class="tag amber">Sem perfil</span></div>
+        </div>
+      </div>
+    </div>
+  </div>
+  <div class="device-caption">Equipes e perfis à esquerda, acesso de cada membro à direita</div>
+
+  <p>Esse é o painel de controle de acesso do sistema — só Administradores (e admins de equipe, dentro da própria equipe) chegam aqui. O fluxo completo, do zero, é:</p>
+  <ol class="steps">
+    <li><b>Criar a equipe</b> — botão <b>Nova Equipe</b>, dê um nome e descrição.</li>
+    <li><b>Criar um ou mais Perfis de Acesso</b> pra ela — botão <b>+</b> no card da equipe. Cada perfil é um conjunto de permissões (telas e ações liberadas), configurado marcando/desmarcando cada item nos grupos <em>Chamados</em>, <em>Tickets Internos</em>, <em>Clientes</em>, <em>Comunicação</em>, <em>Equipe & Acessos</em>, <em>Configurações</em> e <em>Análise & Dados</em>.</li>
+    <li><b>Adicionar membros</b> — clique em <b>Membros & Admins</b> da equipe, marque quem entra na lista.</li>
+    <li><b>Dar o acesso</b> — pra cada membro selecionado, escolha o <b>Perfil de Acesso</b> dele na mesma tela. Sem isso, a pessoa fica na equipe mas sem nenhuma permissão (aparece com o aviso "Sem perfil").</li>
+    <li>Marque quem é <b>administrador da equipe</b> (ícone de escudo) — essa pessoa passa a poder criar/editar perfis e gerenciar membros da própria equipe, sem precisar de um Administrador do sistema.</li>
+  </ol>
+
+  <div class="callout tip"><span class="ico">✓</span><p>O resumo de cada equipe mostra quantos membros estão <b>sem perfil</b> — vale conferir de vez em quando pra ninguém ficar esquecido sem acesso.</p></div>
+  <div class="callout danger"><span class="ico">!</span><p>Excluir uma equipe também exclui os perfis de acesso dela — os membros perdem o vínculo, mas continuam existindo como usuários.</p></div>
+
+  <div class="page-foot"><span>SSX Desk</span><span>12 — Equipes & Permissões</span></div>
+</div>
+
+<!-- ============ 12b GESTÃO DA EQUIPE ============ -->
+<div class="page">
+  <div class="page-head"><span class="tag">Capítulo 12 · Administração</span><span class="brand">SSX Desk · Manual do Administrador</span></div>
+  <h2 class="section-title">Gestão da Equipe (cadastro de pessoas)</h2>
+  <p class="section-lede">Em Configurações → Equipe você cria a conta da pessoa; em Equipes & Permissões você diz o que ela acessa.</p>
+
+  <p>Pra colocar alguém novo pra trabalhar no sistema, o caminho mais direto é:</p>
+  <ol class="steps">
+    <li>Vá em <b>Configurações → Equipe</b> e clique <b>Adicionar Analista</b>.</li>
+    <li>Preencha nome, e-mail corporativo e escolha o <b>Perfil de Acesso</b> (já pode escolher aqui, se o perfil já existir).</li>
+    <li>A conta é criada com uma senha padrão — a pessoa é levada a trocar no primeiro acesso.</li>
+    <li>Pra redefinir a senha de alguém depois, abra o cadastro dela e use <b>Redefinir Senha</b>.</li>
+  </ol>
+  <p>A tabela da tela mostra, pra cada pessoa, o perfil de acesso atual e o status (online/ausente/offline). Editar e Excluir ficam nos ícones à direita de cada linha.</p>
+
+  <div class="callout info"><span class="ico">i</span><p>Pra empresas clientes, o cadastro de pessoas é feito em <b>Clientes</b> (Capítulo 11), não aqui — esta tela é só pra equipe interna.</p></div>
+
+  <div class="page-foot"><span>SSX Desk</span><span>12 — Gestão da Equipe</span></div>
+</div>
+
+<!-- ============ 13 FILAS ============ -->
+<div class="page">
+  <div class="page-head"><span class="tag">Capítulo 13 · Configuração</span><span class="brand">SSX Desk · Manual do Administrador</span></div>
+  <div class="section-icon-row"><div class="section-icon">■</div><h2 class="section-title mt-0">Filas de Atendimento</h2></div>
+  <p class="section-lede">Como as conversas se distribuem entre os canais e a equipe.</p>
+
+  <p>Uma <b>Fila</b> representa um canal/departamento de atendimento (ex: "Suporte Técnico", "Financeiro"). Em <b>Nova Fila</b> ou ao editar uma existente, você define:</p>
+  <ul class="feat-list">
+    <li>✓ <b>Nome</b> e <b>Descrição/Notas</b>.</li>
+    <li>✓ <b>Instância WhatsApp</b> vinculada — ou "Nenhuma", se a fila só atende pelo chat do site.</li>
+    <li>✓ <b>Estratégia de Distribuição</b>: <em>Rodízio (ordem de login)</em> passa a próxima conversa pro próximo analista que logou, em sequência; <em>Equilíbrio diário</em> tenta nivelar a quantidade de chats que cada um recebe no dia.</li>
+    <li>✓ <b>Chats Internos (Widget)</b> — liga ou não essa fila também às conversas que entram pelo widget do próprio portal (sem ser WhatsApp).</li>
+    <li>✓ <b>Escala da Equipe</b> — grade pra marcar quem atende essa fila.</li>
+  </ul>
+
+  <div class="callout warn"><span class="ico">!</span><p>Excluir uma fila não apaga os chamados já vinculados a ela — eles continuam no histórico normalmente.</p></div>
+
+  <div class="page-foot"><span>SSX Desk</span><span>13 — Filas de Atendimento</span></div>
+</div>
+
+<!-- ============ 14 WHATSAPP ============ -->
+<div class="page">
+  <div class="page-head"><span class="tag">Capítulo 14 · Canais</span><span class="brand">SSX Desk · Manual do Administrador</span></div>
+  <div class="section-icon-row"><div class="section-icon">◆</div><h2 class="section-title mt-0">WhatsApp</h2></div>
+  <p class="section-lede">Conectar o número de WhatsApp da empresa ao SSX Desk.</p>
+
+  <p>Existem duas formas de conectar, em <b>Configurações → WhatsApp</b>:</p>
+  <ul class="feat-list">
+    <li>✓ <b>QR Code</b> — pareamento direto, igual ao WhatsApp Web: clique <b>Gerar Autenticação</b>, escaneie o código com o celular da empresa e pronto. Dá pra ter várias instâncias (uma por número), trocar entre elas, renomear ou forçar um novo QR se a conexão cair.</li>
+    <li>✓ <b>Meta API</b> — pra quem usa a API oficial do WhatsApp Business: informe Access Token, Phone Number ID e Verify Token, e cole a URL de webhook exibida na tela lá no painel da Meta.</li>
+  </ul>
+
+  <div class="callout info"><span class="ico">i</span><p>O QR Code precisa de um servidor rodando o tempo todo (não funciona em hospedagens "serverless"). Se a conexão cair sem explicação, o primeiro passo é <b>Problemas com QR? Limpar e Reiniciar</b>.</p></div>
+
+  <div class="page-foot"><span>SSX Desk</span><span>14 — WhatsApp</span></div>
+</div>
+
+<!-- ============ 15 CONFIGURAÇÕES DO SISTEMA ============ -->
+<div class="page">
+  <div class="page-head"><span class="tag">Capítulo 15 · Configuração</span><span class="brand">SSX Desk · Manual do Administrador</span></div>
+  <div class="section-icon-row"><div class="section-icon">⚙</div><h2 class="section-title mt-0">Configurações do Sistema</h2></div>
+  <p class="section-lede">Os ajustes finos que moldam como o sistema se comporta pra todo mundo.</p>
+
+  <p>A tela de <b>Configurações</b> é dividida em abas — algumas aparecem pra todo mundo, outras só com a permissão certa (e como Administrador, você vê todas):</p>
+
+  <div class="grid-2">
+    <div class="info-card"><div class="k">Geral do Sistema</div><div class="v">Categorias, tipos de solicitação, produtos, prioridades, status/sub-status de chamados e tickets internos, marcadores e configuração da pesquisa de satisfação.</div></div>
+    <div class="info-card"><div class="k">Mensagens Automáticas</div><div class="v">Respostas e disparos automáticos — ex: aviso de recebimento, lembrete de inatividade.</div></div>
+    <div class="info-card"><div class="k">Integrações</div><div class="v">Chaves e conexões com sistemas externos.</div></div>
+    <div class="info-card"><div class="k">Ausência / Histórico</div><div class="v">Histórico de status e ausência de outros analistas da equipe.</div></div>
+  </div>
+
+  <p>Além dessas, toda pessoa (você incluído) tem acesso a <b>Perfil</b> (nome, telefone, bio, foto), <b>Notificações</b> (sons e alertas) e <b>Segurança</b> (trocar a própria senha).</p>
+
+  <div class="callout tip"><span class="ico">✓</span><p>Mudanças em <b>Status/Sub-status</b> e <b>Categorias</b> valem pro sistema inteiro — combine com a equipe antes de renomear ou remover algo que já está em uso.</p></div>
+
+  <div class="page-foot"><span>SSX Desk</span><span>15 — Configurações do Sistema</span></div>
+</div>
+
+<!-- ============ 16 RELATÓRIOS ============ -->
+<div class="page">
+  <div class="page-head"><span class="tag">Capítulo 16 · Análise & Dados</span><span class="brand">SSX Desk · Manual do Administrador</span></div>
+  <div class="section-icon-row"><div class="section-icon">★</div><h2 class="section-title mt-0">Relatórios & Avaliações de Clientes</h2></div>
+  <p class="section-lede">Como o atendimento está indo, visto de cima.</p>
+
+  <h3 class="sub-title"><span class="num">1</span>Relatórios</h3>
+  <p>Reúne os resultados da <b>pesquisa de satisfação</b> respondida pelos clientes (👍/👎, com lista das respostas mais recentes) e um resumo da <b>Avaliação de Clientes</b> — a nota interna que sua equipe dá aos clientes (nunca visível pra eles).</p>
+
+  <h3 class="sub-title"><span class="num">2</span>Avaliações de Clientes</h3>
+  <p>O histórico completo e pesquisável de todas as avaliações internas: busca por empresa, contato ou analista; filtro por origem (feita durante um atendimento ou manual) e por perfil atribuído (Técnico, Pouco Conhecimento, Desafiador).</p>
+
+  <div class="callout info"><span class="ico">i</span><p>Avaliações com poucas respostas (abaixo de 3) aparecem com um aviso de amostra pequena — trate a média com cautela nesses casos.</p></div>
+
+  <div class="page-foot"><span>SSX Desk</span><span>16 — Relatórios & Avaliações</span></div>
+</div>
+
+<!-- ============ 17 BOAS PRÁTICAS ============ -->
+<div class="page">
+  <div class="page-head"><span class="tag">Capítulo 17 · Encerramento</span><span class="brand">SSX Desk · Manual do Administrador</span></div>
+  <div class="section-icon-row"><div class="section-icon">◈</div><h2 class="section-title mt-0">Boas Práticas & Suporte</h2></div>
+  <p class="section-lede">Alguns cuidados que fazem diferença no dia a dia de quem administra o sistema.</p>
+
+  <ul class="feat-list">
+    <li>✓ Evite conceder permissões de <b>Excluir</b> pra perfis que não sejam de gestão técnica.</li>
+    <li>✓ Prefira criar <b>Perfis de Acesso</b> específicos por função em vez de dar acesso total a todo mundo.</li>
+    <li>✓ Revise de vez em quando quem está <b>sem perfil</b> em cada equipe (Capítulo 12).</li>
+    <li>✓ Combine com a equipe antes de renomear status, categorias ou filas já em uso.</li>
+    <li>✓ Use a <b>Central de Atividades</b> (sino de notificações → Ver tudo) pra não perder avaliações pendentes e atualizações importantes.</li>
+  </ul>
+
+  <div class="callout danger"><span class="ico">!</span><p>Ações de exclusão (chamados, equipes, perfis, empresas) são <b>irreversíveis</b>. O sistema sempre pede confirmação — leia antes de confirmar.</p></div>
+
+  <div class="page-foot"><span>SSX Desk</span><span>17 — Boas Práticas & Suporte</span></div>
+</div>
+
+<!-- ============ CONTRACAPA ============ -->
+<div class="page backcover">
+  <div class="dot"></div>
+  <h3>SSX Desk</h3>
+  <p>Manual do Administrador do Sistema — versão 1.0.<br>Em caso de dúvidas, fale com o time responsável pelo sistema na sua empresa.</p>
+</div>
+
+</body>
+</html>
