@@ -1000,7 +1000,8 @@ const handleSendMessage = async (isInternal: boolean) => {
                           </button>
 
                           {isOpen && children.length > 0 && (
-                            <div className="absolute left-0 top-full mt-1 z-20 min-w-[160px] bg-[var(--surface-card)] border border-[var(--border-default)] rounded-xl shadow-xl p-1">
+                            <div className="absolute left-0 top-full pt-1 z-20 min-w-[160px]">
+                            <div className="bg-[var(--surface-card)] border border-[var(--border-default)] rounded-xl shadow-xl p-1">
                               {isActive && ticketSubStatus && (
                                 <button
                                   onClick={() => {
@@ -1030,6 +1031,7 @@ const handleSendMessage = async (isInternal: boolean) => {
                                   {child.label}
                                 </button>
                               ))}
+                            </div>
                             </div>
                           )}
                         </div>
