@@ -167,10 +167,11 @@ export interface Company {
   name: string;
   industry?: string;
   phone?: string;
-  // Perfil interno da empresa-cliente (nunca exposto a ela): sincronismo com
-  // o Radar, usado numa integração futura. Ver CustomerEvaluation acima para
-  // o histórico de avaliações por trás da média mostrada no cadastro.
-  radarSync?: boolean;
+  // Perfil interno da empresa-cliente (nunca exposto a ela): marca cliente em
+  // treinamento — mostra um indicador no chat visível só pra equipe interna
+  // (ver components/chat-widget.tsx). Ver CustomerEvaluation acima para o
+  // histórico de avaliações por trás da média mostrada no cadastro.
+  isInTraining?: boolean;
 }
 
 export interface PriorityConfig {

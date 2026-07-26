@@ -44,7 +44,7 @@ async function getTicketActor(request: NextRequest) {
   const result = await query(
     `SELECT p.id, p.role, COALESCE(rp.permissions, '{}'::text[]) AS permissions
      FROM public.profiles p
-     LEFT JOIN public.role_permissions rp ON rp.role = p.role
+     LEFT JOIN public.role_permissions rp ON rp.id = p.access_profile_id
      WHERE p.id = $1`,
     [decoded.id]
   );

@@ -140,7 +140,7 @@ export const INTEGRATION_ENDPOINTS: EndpointDoc[] = [
     method: 'GET',
     path: '/api/integrations/v1/companies',
     summary: 'Listar ou consultar empresas',
-    description: 'Use para resolver o companyId antes de cadastrar/atualizar um funcionário, ou para sincronizar o perfil de relacionamento (radarSync + resumo das avaliações do analista) com um sistema externo, como o Radar. Sem "id" retorna todas; com "id" retorna uma só.',
+    description: 'Use para resolver o companyId antes de cadastrar/atualizar um funcionário, ou para consultar o perfil de relacionamento (isInTraining + resumo das avaliações do analista). Sem "id" retorna todas; com "id" retorna uma só.',
     scope: 'employees:read',
     params: [{ name: 'id', in: 'query', type: 'uuid', description: 'Retorna só essa empresa.' }],
     exampleResponse: JSON.stringify(
@@ -151,7 +151,7 @@ export const INTEGRATION_ENDPOINTS: EndpointDoc[] = [
             name: 'Empresa Matriz Ltda',
             industry: 'Tecnologia',
             phone: '1140040000',
-            radarSync: true,
+            isInTraining: false,
             evaluation: {
               count: 3,
               overallAverage: 4.2,
@@ -173,14 +173,14 @@ export const INTEGRATION_ENDPOINTS: EndpointDoc[] = [
     method: 'PUT',
     path: '/api/integrations/v1/companies',
     summary: 'Atualizar empresa',
-    description: 'Atualização parcial: envie só os campos que deseja alterar. Inclui o Sincronismo com Radar (radarSync). As avaliações do analista não são editáveis por esta API — só pelo portal.',
+    description: 'Atualização parcial: envie só os campos que deseja alterar. Inclui o indicador "cliente em treinamento" (isInTraining), visível só internamente no chat. As avaliações do analista não são editáveis por esta API — só pelo portal.',
     scope: 'companies:write',
     params: [
       { name: 'id', in: 'query', type: 'uuid', required: true, description: 'Id da empresa a atualizar.' },
       { name: 'name', in: 'body', type: 'string', description: 'Novo nome.' },
       { name: 'industry', in: 'body', type: 'string', description: 'Novo ramo/indústria.' },
       { name: 'phone', in: 'body', type: 'string', description: 'Novo telefone.' },
-      { name: 'radarSync', in: 'body', type: 'boolean', description: 'Novo valor do Sincronismo com Radar.', placeholder: 'true' },
+      { name: 'isInTraining', in: 'body', type: 'boolean', description: 'Marca a empresa como "em treinamento" — mostra um aviso pra equipe interna no chat.', placeholder: 'true' },
     ],
     exampleResponse: JSON.stringify(
       {
@@ -189,7 +189,7 @@ export const INTEGRATION_ENDPOINTS: EndpointDoc[] = [
           name: 'Empresa Matriz Ltda',
           industry: 'Tecnologia',
           phone: '1140040000',
-          radarSync: true,
+          isInTraining: false,
           evaluation: {
             count: 3,
             overallAverage: 4.2,
@@ -205,7 +205,7 @@ export const INTEGRATION_ENDPOINTS: EndpointDoc[] = [
     errors: [
       ...AUTH_ERRORS,
       scopeError('companies:write'),
-      { status: 400, code: 'VALIDATION_ERROR', description: 'id ausente, nenhum campo informado para atualizar, ou radarSync não é um boolean.' },
+      { status: 400, code: 'VALIDATION_ERROR', description: 'id ausente, nenhum campo informado para atualizar, ou isInTraining não é um boolean.' },
       { status: 404, code: 'NOT_FOUND', description: 'Empresa não encontrada.' },
     ],
   },

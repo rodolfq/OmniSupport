@@ -1,12 +1,13 @@
 'use client';
 
 import React, { useState, useEffect } from 'react';
+import { useSearchParams } from 'next/navigation';
 import {
-  Shield, User, Lock, Save, Plus, Key, Globe, Edit2, Bell, Database, Loader2, Clock, MessageCircleMore, Plug
+  Shield, User, Lock, Save, Plus, Key, Globe, Bell, Database, Loader2, Clock, MessageCircleMore, Plug
 } from 'lucide-react';
-import { cn, maskPhone, safeJsonStringify } from '@/lib/utils';
+import { cn, maskPhone } from '@/lib/utils';
 import { supabase } from '@/lib/supabase';
-import { Permission, type WhatsappInstance } from '@/lib/types';
+import { Permission } from '@/lib/types';
 import { UserService } from '@/lib/services/user-service';
 import { useApp } from '@/app/app-context';
 import { NotificationSettingsContent } from '@/components/notification-settings';
@@ -16,49 +17,35 @@ import { StatusHistoryPanel } from '@/components/status-history-panel';
 import { TagManager } from '@/components/tag-manager';
 import { StatusManager } from '@/components/status-manager';
 import { ChangePasswordModal } from '@/components/change-password-modal';
+import { WhatsAppConnect } from '@/components/whatsapp-connect';
 import { fileToCompressedAvatarBase64, isValidImageUrl } from '@/lib/image-utils';
 import { toast } from 'sonner';
-import { getWhatsappInstances, saveWhatsappInstance } from '@/app/actions';
-import { ConfirmDialog } from '@/components/confirm-dialog';
 import { IntegrationsContent } from '@/components/integrations-content';
 
 type Tab = 'profile' | 'security' | 'whatsapp' | 'notifications' | 'system' | 'history' | 'automated-messages' | 'integrations';
 
 
 export default function SettingsPage() {
-  const { 
-    currentUser, 
-    setCurrentUser, 
-    setWhatsappStatus,
+  const {
+    currentUser,
+    setCurrentUser,
     playSound,
     hasPermission
   } = useApp();
-  const [activeTab, setActiveTab] = useState<Tab>('profile');
+  // A aba WhatsApp usa o mesmo componente simples (instância única,
+  // WhatsAppConnect) que já funcionava em /whatsapp — a versão multi-
+  // instância que existia aqui antes nunca funcionou de verdade (exigia
+  // cadastrar um canal manualmente antes de mostrar qualquer QR Code, sem
+  // nenhuma indicação disso na tela) e foi removida. /whatsapp agora só
+  // redireciona pra cá — ?tab= permite abrir direto nesta aba.
+  const searchParams = useSearchParams();
+  const initialTab = searchParams.get('tab');
+  const [activeTab, setActiveTab] = useState<Tab>(initialTab === 'whatsapp' ? 'whatsapp' : 'profile');
   const [isPasswordModalOpen, setIsPasswordModalOpen] = useState(false);
   
   const [previewUrl, setPreviewUrl] = useState<string | null>(null);
   const [isUploading, setIsUploading] = useState(false);
 
-  const [whatsappInstances, setWhatsappInstances] = useState<WhatsappInstance[]>([]);
-  
-  useEffect(() => {
-    const loadInstances = async () => {
-      const instances = await getWhatsappInstances();
-      setWhatsappInstances(instances);
-    };
-    loadInstances();
-  }, []);
-  const [selectedInstance, setSelectedInstance] = useState<WhatsappInstance | null>(whatsappInstances[0] || null);
-  const [qrStatus, setQrStatus] = useState<'idle' | 'generating' | 'ready' | 'connected'>(
-    selectedInstance?.status === 'connected' ? 'connected' : 'idle'
-  );
-  const [realQr, setRealQr] = useState<string | null>(null);
-  const [isNewInstanceModalOpen, setIsNewInstanceModalOpen] = useState(false);
-  const [isEditInstanceModalOpen, setIsEditInstanceModalOpen] = useState(false);
-  const [newInstanceName, setNewInstanceName] = useState('');
-  const [newInstancePhone, setNewInstancePhone] = useState('');
-  const [editInstanceName, setEditInstanceName] = useState('');
-  const [confirmingDisconnect, setConfirmingDisconnect] = useState(false);
   const [categories, setCategories] = useState<any[]>([]);
   const [requestTypes, setRequestTypes] = useState<any[]>([]);
   const [products, setProducts] = useState<any[]>([]);
@@ -122,137 +109,6 @@ export default function SettingsPage() {
     }
   };
 
-  const pollStatus = async () => {
-    if (!selectedInstance) return;
-    try {
-      const res = await fetch(`/api/whatsapp/status?instanceId=${selectedInstance.id}`);
-      if (!res.ok) return;
-      const data = await res.json();
-      
-      console.log(`[Frontend:WA] Poll: ${data.status}, hasQR: ${!!data.qr}`);
-
-      if (data.status === 'connected') {
-        setQrStatus('connected');
-        setRealQr(null);
-        if (selectedInstance.status !== 'connected') {
-          const updated = { ...selectedInstance, status: 'connected' as const };
-          await saveWhatsappInstance(selectedInstance.id, selectedInstance.name, selectedInstance.phone, 'connected');
-          const instances = await getWhatsappInstances();
-          setWhatsappInstances(instances);
-          setSelectedInstance(instances.find(i => i.id === selectedInstance.id) || updated);
-          setWhatsappStatus('connected');
-        }
-      } else if (data.qr) {
-        setQrStatus('ready');
-        setRealQr(data.qr);
-      } else if (data.status === 'connecting' || data.status === 'generating') {
-        setQrStatus('generating');
-      } else if (data.status === 'disconnected') {
-        // If we were generating but now disconnected, Baileys might have failed
-        setQrStatus('idle');
-        setRealQr(null);
-      }
-    } catch (error) {
-      console.error('Error polling status:', error);
-    }
-  };
-
-  useEffect(() => {
-    let interval: NodeJS.Timeout;
-    if (selectedInstance && qrStatus !== 'connected' && qrStatus !== 'idle') {
-      // Faster polling when waiting for QR or connection
-      interval = setInterval(pollStatus, 2000);
-      pollStatus(); 
-    }
-    return () => clearInterval(interval);
-  }, [selectedInstance?.id, qrStatus]);
-
-  const startLinking = async (force = false) => {
-    if (!selectedInstance) return;
-    setQrStatus('generating');
-    setRealQr(null);
-    
-    try {
-      const res = await fetch('/api/whatsapp/connect', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: safeJsonStringify({
-          instanceId: selectedInstance.id,
-          name: selectedInstance.name
-        })
-      });
-      
-      if (!res.ok) {
-        const data = await res.json();
-        throw new Error(data.error || 'Erro ao iniciar conexão');
-      }
-
-      toast.info(force ? 'Reiniciando conexão do zero...' : 'Iniciando pareamento... Aguarde o QR Code.');
-    } catch (error: any) {
-      console.error('Error starting connection:', error);
-      setQrStatus('idle');
-      toast.error(error.message || 'Erro de conexão com o servidor.');
-    }
-};
-
-   const performDisconnect = async () => {
-    if (!selectedInstance) return;
-    
-    try {
-      await fetch('/api/whatsapp/logout', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: safeJsonStringify({ instanceId: selectedInstance.id })
-      });
-      setQrStatus('idle');
-      setRealQr(null);
-      await saveWhatsappInstance(selectedInstance.id, selectedInstance.name, selectedInstance.phone, 'disconnected');
-      const instances = await getWhatsappInstances();
-      setWhatsappInstances(instances);
-      setSelectedInstance(instances.find(i => i.id === selectedInstance.id) || null);
-      
-      if (!instances.some(i => i.status === 'connected')) setWhatsappStatus('disconnected');
-    } catch (error) {
-      console.error('Error disconnecting:', error);
-    }
-  };
-
-  const runDisconnect = () => {
-    if (selectedInstance) {
-      performDisconnect();
-    }
-    setConfirmingDisconnect(false);
-  };
-
-  const handleUpdateInstanceName = async () => {
-    if (!selectedInstance || !editInstanceName) return;
-    await saveWhatsappInstance(selectedInstance.id, editInstanceName, selectedInstance.phone, selectedInstance.status);
-    const instances = await getWhatsappInstances();
-    setWhatsappInstances(instances);
-    setSelectedInstance(instances.find(i => i.id === selectedInstance.id) || null);
-    setIsEditInstanceModalOpen(false);
-    toast.success('Nome do canal atualizado!');
-  };
-
-  const handleCreateInstance = async () => {
-    if (!newInstanceName || !newInstancePhone) return;
-    await saveWhatsappInstance(null, newInstanceName, newInstancePhone, 'disconnected');
-    const instances = await getWhatsappInstances();
-    setWhatsappInstances(instances);
-    setSelectedInstance(instances[instances.length - 1] || null);
-    setIsNewInstanceModalOpen(false);
-    setNewInstanceName('');
-    setNewInstancePhone('');
-    toast.success('Novo canal de WhatsApp cadastrado!');
-  };
-
-  useEffect(() => {
-    if (selectedInstance) {
-      setQrStatus(selectedInstance.status === 'connected' ? 'connected' : 'idle');
-      setRealQr(null);
-    }
-  }, [selectedInstance?.id]);
-
   return (
     <div className="space-y-8 px-6 lg:px-10 max-w-[1600px] mx-auto">
       <div>
@@ -314,198 +170,18 @@ export default function SettingsPage() {
              <IntegrationsContent />
            )}
           {activeTab === 'whatsapp' && hasPermission(Permission.WHATSAPP_MANAGE) && (
-            <div className="bg-[var(--surface-card)] border border-[var(--border-default)] rounded-[2.5rem] p-12 shadow-sm">
-               <div className="flex items-center justify-between mb-8">
-                  <div className="flex items-center gap-4">
-                    <div className="w-16 h-16 bg-[var(--surface-success)] rounded-[1.5rem] flex items-center justify-center text-[var(--text-success)]">
-                      <Globe size={32} />
-                    </div>
-                    <div className="flex items-center gap-2">
-                       <h3 className="font-black text-xl text-[var(--text-primary)] uppercase tracking-tight">{selectedInstance?.name}</h3>
-                       <button 
-                         onClick={() => {
-                            setEditInstanceName(selectedInstance?.name || '');
-                            setIsEditInstanceModalOpen(true);
-                         }}
-                         className="p-1.5 hover:bg-[var(--surface-pill)] rounded-lg text-[var(--text-tertiary)] hover:text-[var(--accent-text)] transition-all"
-                         title="Editar Nome do Canal"
-                       >
-                         <Edit2 size={16} />
-                       </button>
-                    </div>
-                  </div>
-                  <div className="flex items-center gap-2">
-                    <div className="flex bg-[var(--surface-pill)] p-1.5 rounded-2xl gap-1">
-                       {whatsappInstances.map(inst => (
-                         <button 
-                           key={inst.id}
-                           onClick={() => setSelectedInstance(inst)}
-                           className={cn(
-                             "px-4 py-2 rounded-xl text-[10px] font-black uppercase tracking-widest transition-all",
-                             selectedInstance?.id === inst.id ? "bg-[var(--surface-card)] text-[var(--accent-text)] shadow-sm" : "text-[var(--text-tertiary)] hover:bg-[var(--surface-card)]"
-                           )}
-                         >
-                           {inst.name}
-                         </button>
-                       ))}
-                    </div>
-                    <button 
-                      onClick={() => setIsNewInstanceModalOpen(true)}
-                      className="p-3 bg-[var(--accent)] text-white rounded-2xl hover:bg-[var(--accent-hover)] transition-all shadow-lg shadow-indigo-100"
-                      title="Adicionar Novo Canal"
-                    >
-                      <Plus size={18} />
-                    </button>
-                  </div>
-               </div>
-
-               <div className="grid grid-cols-1 md:grid-cols-2 gap-12 items-center border-t border-[var(--border-default)] pt-12">
-                  <div className="space-y-6">
-                    <div className="p-6 bg-[var(--surface-card)] rounded-3xl border border-[var(--border-default)]">
-                      <h4 className="text-xs font-black uppercase text-[var(--text-primary)] mb-4 flex items-center gap-2">
-                        <Globe size={14} className="text-[var(--accent-text)]" />
-                        Instruções para {selectedInstance?.name}
-                      </h4>
-                      <ul className="text-xs text-[var(--text-tertiary)] space-y-3 font-medium">
-                        <li className="flex gap-3">
-                          <span className="w-5 h-5 rounded-full bg-[var(--surface-card)] border border-[var(--border-default)] flex items-center justify-center text-[10px] font-black shrink-0">1</span>
-                          <span>Abra o WhatsApp no celular</span>
-                        </li>
-                        <li className="flex gap-3">
-                          <span className="w-5 h-5 rounded-full bg-[var(--surface-card)] border border-[var(--border-default)] flex items-center justify-center text-[10px] font-black shrink-0">2</span>
-                          <span>Toque em <span className="text-[var(--text-primary)] font-bold">Aparelhos conectados</span></span>
-                        </li>
-                        <li className="flex gap-3">
-                          <span className="w-5 h-5 rounded-full bg-[var(--surface-card)] border border-[var(--border-default)] flex items-center justify-center text-[10px] font-black shrink-0">3</span>
-                          <span>Escaneie o QR Code ao lado</span>
-                        </li>
-                      </ul>
-                      
-                      <div className="mt-6 pt-6 border-t border-[var(--border-default)]/60">
-                        <div className="p-3 bg-[var(--accent)]/10 rounded-2xl border border-[var(--accent)]/20 flex gap-3">
-                           <div className="w-5 h-5 bg-[var(--accent)] rounded-full flex items-center justify-center text-white shrink-0 mt-0.5">
-                              <Shield size={10} />
-                           </div>
-                           <div className="space-y-1">
-                              <p className="text-[10px] font-black text-indigo-800 uppercase tracking-tight">Conexão Segura</p>
-                              <p className="text-[10px] text-[var(--accent-text)] font-medium leading-relaxed">
-                                Use o WhatsApp oficial no seu celular para escanear o código. A conexão é criptografada de ponta a ponta.
-                              </p>
-                           </div>
-                        </div>
-                      </div>
-                    </div>
-                    
-                    {qrStatus === 'idle' && selectedInstance?.status !== 'connected' && (
-                      <div className="flex flex-col gap-2">
-                        <button 
-                          onClick={() => startLinking()}
-                          className="w-full py-4 bg-[var(--text-success)] text-white rounded-2xl text-xs font-black uppercase tracking-widest shadow-xl shadow-emerald-100 hover:bg-emerald-700 transition-all flex items-center justify-center gap-2"
-                        >
-                          Gerar Autenticação
-                        </button>
-                        <button 
-                          onClick={() => startLinking(true)}
-                          className="w-full py-2 text-[10px] font-black text-[var(--text-tertiary)] hover:text-[var(--text-danger)] uppercase tracking-widest transition-all"
-                        >
-                          Problemas com QR? Limpar e Reiniciar
-                        </button>
-                      </div>
-                    )}
-
-                    {qrStatus === 'ready' && (
-                      <div className="space-y-3">
-                        <div className="p-4 bg-[var(--accent)]/10 border border-[var(--accent)]/20 rounded-2xl">
-                           <p className="text-[10px] font-black text-[var(--accent-text)] uppercase tracking-widest text-center">QR Code Gerado. Escaneie agora!</p>
-                        </div>
-                        <div className="flex gap-2">
-                          <button 
-                            onClick={() => startLinking(true)}
-                            className="flex-1 py-2 bg-[var(--surface-pill)] hover:bg-[var(--border-default)] text-[var(--text-secondary)] rounded-xl text-[10px] font-black uppercase tracking-widest transition-all"
-                          >
-                            Forçar Novo QR
-                          </button>
-<button 
-                             onClick={() => setConfirmingDisconnect(true)}
-                             className="flex-1 py-2 bg-[var(--surface-card)] hover:bg-[var(--surface-danger)] text-[var(--text-danger)] rounded-xl text-[10px] font-black uppercase tracking-widest transition-all"
-                           >
-                             Encerrar
-                           </button>
-                        </div>
-                      </div>
-                    )}
-
-                    {qrStatus === 'generating' && (
-                      <div className="space-y-4">
-                        <div className="p-6 bg-[var(--surface-card)] border border-[var(--border-default)] rounded-2xl flex flex-col items-center gap-4 animate-pulse">
-                           <Loader2 className="w-8 h-8 text-[var(--accent-text)] animate-spin" />
-                           <p className="text-[10px] font-black text-[var(--text-tertiary)] uppercase tracking-widest text-center">
-                             Gerando ambiente seguro...
-                           </p>
-                        </div>
-                        <button 
-                          onClick={() => startLinking(true)}
-                          className="w-full py-2 text-[10px] font-black text-[var(--accent-text)] hover:underline uppercase tracking-widest"
-                        >
-                          Demorando muito? Tente reiniciar
-                        </button>
-                      </div>
-                    )}
-
-                    {qrStatus === 'connected' && (
-                      <div className="p-6 bg-[var(--surface-success)] border border-[var(--text-success)]/20 rounded-2xl flex items-center gap-4">
-                         <div className="w-10 h-10 bg-[var(--text-success)] rounded-full flex items-center justify-center text-white">
-                           <Save size={18} />
-                         </div>
-                         <div>
-                            <p className="text-xs font-black text-[var(--text-success)] uppercase tracking-tight">Conectado com sucesso!</p>
-                         </div>
-                         <button onClick={() => setConfirmingDisconnect(true)} className="ml-auto text-[10px] font-black uppercase text-[var(--text-danger)] hover:underline">Desconectar</button>
-                      </div>
-                    )}
-                  </div>
-
-                  <div className="flex flex-col items-center justify-center">
-                    <div className="relative w-64 h-64 bg-[var(--surface-card)] rounded-[3rem] border-4 border-[var(--border-default)] flex items-center justify-center mb-4 group overflow-hidden">
-                       {qrStatus === 'idle' && <Globe size={48} className="text-slate-200" />}
-                       {qrStatus === 'generating' && (
-                         <div className="flex flex-col items-center gap-3">
-                           <div className="w-12 h-12 border-4 border-[var(--text-success)] border-t-transparent rounded-full animate-spin" />
-                           <span className="text-[10px] font-black text-[var(--text-tertiary)] uppercase tracking-widest animate-pulse">Gerando QR...</span>
-                         </div>
-                       )}
-                       {qrStatus === 'ready' && realQr && (
-                         <div className="relative">
-                            <img 
-                              src={`https://api.qrserver.com/v1/create-qr-code/?size=256x256&data=${encodeURIComponent(realQr)}`} 
-                              alt="QR Code" 
-                              className="w-48 h-48"
-                            />
-                            <div className="absolute inset-0 bg-[var(--surface-card)] backdrop-blur-[2px] opacity-0 group-hover:opacity-100 flex items-center justify-center transition-all text-center p-4">
-                               <div className="bg-[var(--accent)] text-white px-4 py-2 rounded-xl shadow-lg">
-                                  <p className="text-[9px] font-black uppercase tracking-widest leading-tight">Escaneie com seu WhatsApp</p>
-                               </div>
-                            </div>
-                         </div>
-                       )}
-                       {qrStatus === 'connected' && (
-                         <div className="text-center animate-in zoom-in-50 duration-500">
-                            <div className="w-20 h-20 bg-[var(--surface-success)] rounded-full flex items-center justify-center text-[var(--text-success)] mx-auto mb-4">
-                               <Save size={40} />
-                            </div>
-                            <span className="text-[10px] font-black uppercase text-[var(--text-success)]">{selectedInstance?.name} Ativo</span>
-                         </div>
-                       )}
-                    </div>
-                    <div className="flex items-center gap-2">
-                       <div className={cn(
-                         "w-2 h-2 rounded-full animate-pulse",
-                         qrStatus === 'connected' ? "bg-[var(--text-success)]" : "bg-[var(--text-tertiary)]"
-                       )} />
-                       <p className="text-[10px] text-[var(--text-tertiary)] font-black uppercase tracking-widest">Status: {qrStatus === 'connected' ? 'ONLINE' : 'OFFLINE'}</p>
-                    </div>
-                  </div>
-               </div>
+            <div className="space-y-6 animate-in fade-in slide-in-from-bottom-4 duration-300">
+              <div>
+                <h3 className="text-xl font-black text-[var(--text-primary)] uppercase tracking-tight flex items-center gap-2">
+                  <Globe className="text-[var(--accent-text)]" size={24} /> WhatsApp
+                </h3>
+                <p className="text-xs text-[var(--text-tertiary)] font-bold uppercase tracking-widest mt-1">Conecte o número da empresa escaneando o QR Code</p>
+              </div>
+              <WhatsAppConnect instanceId="default" />
+              <div className="bg-[var(--surface-warning)] border border-[var(--border-alert)] rounded-2xl p-4">
+                <p className="text-xs font-bold text-[var(--text-warning)]">Requer servidor persistente (não funciona em hospedagem serverless, ex: Vercel).</p>
+                <p className="text-[10px] text-[var(--text-warning)] mt-1">A conexão é gerenciada automaticamente pelo próprio servidor — não é necessário rodar nenhum processo separado.</p>
+              </div>
             </div>
           )}
           {activeTab === 'notifications' && (
@@ -666,115 +342,6 @@ export default function SettingsPage() {
         </div>
       </div>
       <ChangePasswordModal isOpen={isPasswordModalOpen} onClose={() => setIsPasswordModalOpen(false)} />
-
-      {isEditInstanceModalOpen && (
-        <div className="fixed inset-0 z-[110] flex items-center justify-center p-4">
-          <div className="absolute inset-0 bg-slate-900/60 backdrop-blur-sm" onClick={() => setIsEditInstanceModalOpen(false)} />
-          <div className="relative bg-[var(--surface-card)] w-full max-w-md rounded-[2.5rem] shadow-2xl p-8 flex flex-col gap-6 animate-in zoom-in-95 duration-200">
-            <div className="flex items-center gap-4">
-               <div className="w-12 h-12 bg-[var(--accent)] rounded-2xl flex items-center justify-center text-white shadow-lg shadow-indigo-100">
-                  <Edit2 size={24} />
-               </div>
-               <div>
-                  <h3 className="text-xl font-black text-[var(--text-primary)] tracking-tight uppercase leading-none mb-1">Editar Canal</h3>
-                  <p className="text-[10px] text-[var(--text-tertiary)] font-bold uppercase tracking-widest leading-none">Alterar Nome da Conexão</p>
-               </div>
-            </div>
-
-            <div className="space-y-4">
-               <div className="space-y-1">
-                  <label className="text-[10px] font-black uppercase text-[var(--text-tertiary)] tracking-widest ml-1">Nome da Conexão</label>
-                  <input 
-                    type="text" 
-                    value={editInstanceName}
-                    onChange={(e) => setEditInstanceName(e.target.value)}
-                    className="w-full bg-[var(--surface-card)] border border-[var(--border-default)] rounded-2xl px-4 py-3 text-sm font-bold focus:ring-4 focus:ring-[var(--accent)]/10 outline-none"
-                  />
-               </div>
-            </div>
-
-            <div className="flex gap-3">
-               <button 
-                 onClick={() => setIsEditInstanceModalOpen(false)}
-                 className="flex-1 py-4 text-[10px] font-black uppercase tracking-widest text-[var(--text-tertiary)] hover:bg-[var(--surface-card)] rounded-2xl transition-all"
-               >
-                 Cancelar
-               </button>
-               <button 
-                 onClick={handleUpdateInstanceName}
-                 className="flex-1 py-4 bg-[var(--accent)] text-white rounded-2xl text-[10px] font-black uppercase tracking-widest hover:bg-[var(--accent-hover)] transition-all shadow-xl shadow-indigo-100"
-               >
-                 Salvar Alterações
-               </button>
-            </div>
-          </div>
-        </div>
-      )}
-
-{isNewInstanceModalOpen && (
-         <div className="fixed inset-0 z-[110] flex items-center justify-center p-4">
-           <div className="absolute inset-0 bg-slate-900/60 backdrop-blur-sm" onClick={() => setIsNewInstanceModalOpen(false)} />
-           <div className="relative bg-[var(--surface-card)] w-full max-w-md rounded-[2.5rem] shadow-2xl p-8 flex flex-col gap-6 animate-in zoom-in-95 duration-200">
-             <div className="flex items-center gap-4">
-                <div className="w-12 h-12 bg-[var(--accent)] rounded-2xl flex items-center justify-center text-white shadow-lg shadow-indigo-100">
-                   <Plus size={24} />
-                </div>
-                <div>
-                   <h3 className="text-xl font-black text-[var(--text-primary)] tracking-tight uppercase leading-none mb-1">Novo Canal</h3>
-                   <p className="text-[10px] text-[var(--text-tertiary)] font-bold uppercase tracking-widest leading-none">Criar Instância WhatsApp</p>
-                </div>
-             </div>
- 
-             <div className="space-y-4">
-                <div className="space-y-1">
-                   <label className="text-[10px] font-black uppercase text-[var(--text-tertiary)] tracking-widest ml-1">Nome da Conexão</label>
-                   <input 
-                     type="text" 
-                     value={newInstanceName}
-                     onChange={(e) => setNewInstanceName(e.target.value)}
-                     placeholder="Ex: Comercial SP"
-                     className="w-full bg-[var(--surface-card)] border border-[var(--border-default)] rounded-2xl px-4 py-3 text-sm font-bold focus:ring-4 focus:ring-[var(--accent)]/10 outline-none"
-                   />
-                </div>
-                <div className="space-y-1">
-                   <label className="text-[10px] font-black uppercase text-[var(--text-tertiary)] tracking-widest ml-1">Número (com DDD)</label>
-                   <input 
-                     type="text" 
-                     value={newInstancePhone}
-                     onChange={(e) => setNewInstancePhone(e.target.value)}
-                     placeholder="5511988880000"
-                     className="w-full bg-[var(--surface-card)] border border-[var(--border-default)] rounded-2xl px-4 py-3 text-sm font-bold focus:ring-4 focus:ring-[var(--accent)]/10 outline-none"
-                   />
-                </div>
-             </div>
- 
-             <div className="flex gap-3">
-                <button 
-                  onClick={() => setIsNewInstanceModalOpen(false)}
-                  className="flex-1 py-4 text-[10px] font-black uppercase tracking-widest text-[var(--text-tertiary)] hover:bg-[var(--surface-card)] rounded-2xl transition-all"
-                >
-                  Cancelar
-                </button>
-                <button 
-                  onClick={handleCreateInstance}
-                  className="flex-1 py-4 bg-[var(--accent)] text-white rounded-2xl text-[10px] font-black uppercase tracking-widest hover:bg-[var(--accent-hover)] transition-all shadow-xl shadow-indigo-100"
-                >
-                  Cadastrar Canal
-                </button>
-             </div>
-           </div>
-         </div>
-       )}
-
-      <ConfirmDialog
-        isOpen={confirmingDisconnect}
-        onClose={() => setConfirmingDisconnect(false)}
-        onConfirm={runDisconnect}
-        title="Desconectar Sessão"
-        description={`Deseja realmente desconectar e limpar a sessão de ${selectedInstance?.name || 'WhatsApp'}?`}
-        confirmLabel="Desconectar"
-        variant="danger"
-      />
     </div>
   );
 }

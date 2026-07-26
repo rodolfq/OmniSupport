@@ -8,7 +8,7 @@ export async function GET(request: Request) {
   try {
     if (id) {
       const res = await query(
-        'SELECT id, name, industry, phone FROM public.companies WHERE id = $1',
+        'SELECT id, name, industry, phone, is_in_training AS "isInTraining" FROM public.companies WHERE id = $1',
         [id]
       );
       if (res.rowCount === 0) {
@@ -17,7 +17,7 @@ export async function GET(request: Request) {
       return NextResponse.json(res.rows[0]);
     } else {
       const res = await query(
-        'SELECT id, name, industry, phone FROM public.companies ORDER BY name ASC'
+        'SELECT id, name, industry, phone, is_in_training AS "isInTraining" FROM public.companies ORDER BY name ASC'
       );
       return NextResponse.json(res.rows);
     }

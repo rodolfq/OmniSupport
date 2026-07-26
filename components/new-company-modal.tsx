@@ -1,9 +1,9 @@
 ﻿'use client';
 
 import React, { useState } from 'react';
-import { X, Building2, Phone, Briefcase, Mail, Lock, UserPlus, RefreshCw, Eye, EyeOff, Radar, ShieldAlert, AlertTriangle, Trash2 } from 'lucide-react';
+import { X, Building2, Phone, Briefcase, Mail, Lock, UserPlus, RefreshCw, Eye, EyeOff, GraduationCap, ShieldAlert, AlertTriangle, Trash2 } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
-import { saveCompany, getCustomerEvaluationSummary, updateCompanyRadarSync, saveCustomerEvaluation } from '@/app/actions';
+import { saveCompany, getCustomerEvaluationSummary, updateCompanyTraining, saveCustomerEvaluation } from '@/app/actions';
 import { Company, type CustomerEvaluationScores, type CustomerEvaluationSummary, type CustomerProfileTag, MIN_RELIABLE_EVALUATION_COUNT } from '@/lib/types';
 import { maskPhone, cn } from '@/lib/utils';
 import { useApp } from '@/app/app-context';
@@ -55,7 +55,7 @@ export function NewCompanyModal({ isOpen, onClose, onSuccess, company, showInter
 
   // Perfil interno — nunca exposto ao cliente, só faz sentido pra uma
   // empresa que já existe (precisa de um id pra vincular as avaliações).
-  const [radarSync, setRadarSync] = useState(false);
+  const [isInTraining, setIsInTraining] = useState(false);
   const [evaluationSummary, setEvaluationSummary] = useState<CustomerEvaluationSummary | null>(null);
   const [loadingSummary, setLoadingSummary] = useState(false);
   const [evalScores, setEvalScores] = useState<CustomerEvaluationScores>(EMPTY_EVAL_SCORES);
@@ -69,7 +69,7 @@ export function NewCompanyModal({ isOpen, onClose, onSuccess, company, showInter
       setName(company.name || '');
       setIndustry(company.industry || '');
       setPhone(company.phone || '');
-      setRadarSync(company.radarSync || false);
+      setIsInTraining(company.isInTraining || false);
     } else {
       setName('');
       setIndustry('');
@@ -78,7 +78,7 @@ export function NewCompanyModal({ isOpen, onClose, onSuccess, company, showInter
       setAdminEmail('');
       setAdminPassword(generateTemporaryPassword());
       setAdminPhone('');
-      setRadarSync(false);
+      setIsInTraining(false);
     }
   }, [company, isOpen]);
 
@@ -137,7 +137,7 @@ export function NewCompanyModal({ isOpen, onClose, onSuccess, company, showInter
       }
 
       if (isEditing && showInternalSection && company) {
-        await updateCompanyRadarSync(company.id, radarSync);
+        await updateCompanyTraining(company.id, isInTraining);
 
         const scoresChanged = JSON.stringify(evalScores) !== JSON.stringify(baselineScores);
         const tagChanged = evalTag !== baselineTag;
@@ -357,18 +357,18 @@ export function NewCompanyModal({ isOpen, onClose, onSuccess, company, showInter
                   <div className="flex items-center justify-between">
                     <div className="flex items-center gap-3">
                       <div className="w-8 h-8 rounded-lg bg-[var(--surface-card)] border border-[var(--border-default)] flex items-center justify-center text-[var(--text-secondary)] shadow-sm">
-                        <Radar size={14} />
+                        <GraduationCap size={14} />
                       </div>
                       <div>
-                        <p className="text-[11px] font-black text-[var(--text-primary)] uppercase tracking-wider">Sincronismo com Radar</p>
-                        <p className="text-[10px] text-[var(--text-tertiary)] font-bold uppercase tracking-widest">Uso futuro em integração</p>
+                        <p className="text-[11px] font-black text-[var(--text-primary)] uppercase tracking-wider">Cliente em Treinamento</p>
+                        <p className="text-[10px] text-[var(--text-tertiary)] font-bold uppercase tracking-widest">Mostra um aviso pra equipe no chat com a empresa</p>
                       </div>
                     </div>
                     <div
-                      onClick={() => setRadarSync(!radarSync)}
-                      className={`w-12 h-6 rounded-full p-1 cursor-pointer transition-all shrink-0 ${radarSync ? 'bg-[var(--accent)]' : 'bg-[var(--border-default)]'}`}
+                      onClick={() => setIsInTraining(!isInTraining)}
+                      className={`w-12 h-6 rounded-full p-1 cursor-pointer transition-all shrink-0 ${isInTraining ? 'bg-[var(--accent)]' : 'bg-[var(--border-default)]'}`}
                     >
-                      <div className={`w-4 h-4 rounded-full bg-[var(--surface-card)] shadow-sm transition-transform ${radarSync ? 'translate-x-6' : 'translate-x-0'}`} />
+                      <div className={`w-4 h-4 rounded-full bg-[var(--surface-card)] shadow-sm transition-transform ${isInTraining ? 'translate-x-6' : 'translate-x-0'}`} />
                     </div>
                   </div>
 

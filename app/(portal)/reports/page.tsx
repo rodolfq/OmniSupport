@@ -3,7 +3,7 @@
 import React from 'react';
 import Link from 'next/link';
 import { AreaChart, Area, XAxis, YAxis, Tooltip, ResponsiveContainer, PieChart, Pie, Cell } from 'recharts';
-import { TrendingUp, Clock, Calendar, Users, ThumbsUp, ThumbsDown, MessageSquareText, Lock, Star, ClipboardList, AlertTriangle } from 'lucide-react';
+import { TrendingUp, Clock, Calendar, Users, ThumbsUp, ThumbsDown, MessageSquareText, Lock, Star, ClipboardList, AlertTriangle, History, Search, ChevronLeft, ChevronRight, PlusCircle, Pencil, Trash2, Rocket } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { useTheme } from '@/app/theme-provider';
 import { useApp } from '@/app/app-context';
@@ -49,6 +49,41 @@ interface CustomerEvaluationsReport {
   countByOrigin: { chatClose: number; manual: number };
   evaluations: CustomerEvaluationRow[];
 }
+
+interface AuditLogEntry {
+  id: string;
+  actorId: string | null;
+  actorName: string;
+  action: string;
+  entityType: string;
+  entityId: string | null;
+  entityLabel: string | null;
+  changes: Record<string, unknown> | null;
+  createdAt: string;
+}
+
+const ENTITY_TYPE_LABELS: Record<string, string> = {
+  company: 'Empresa',
+  user: 'Usuário',
+  queue: 'Fila',
+  hotfix: 'Hotfix',
+  access_profile: 'Perfil de Acesso',
+  employee: 'Funcionário'
+};
+
+const ACTION_ICON: Record<string, React.ReactNode> = {
+  create: <PlusCircle size={14} className="text-[var(--text-success)]" />,
+  update: <Pencil size={14} className="text-[var(--accent-text)]" />,
+  delete: <Trash2 size={14} className="text-[var(--text-danger)]" />,
+  publish: <Rocket size={14} className="text-[var(--text-warning)]" />
+};
+
+const ACTION_LABELS: Record<string, string> = {
+  create: 'Criou',
+  update: 'Editou',
+  delete: 'Excluiu',
+  publish: 'Publicou'
+};
 
 const ORIGIN_LABELS: Record<'chat_close' | 'manual', string> = {
   chat_close: 'Atendimento',
@@ -101,6 +136,36 @@ export default function ReportsPage() {
       .catch(() => {});
     return () => controller.abort();
   }, []);
+
+  // Log de Alterações — só quem administra o sistema vê (checagem própria,
+  // mais restrita que o REPORTS_READ que libera o resto desta página; a API
+  // reforça o mesmo limite do lado do servidor).
+  const canReadAuditLog = hasPermission(Permission.SETTINGS_SYSTEM);
+  const AUDIT_PAGE_SIZE = 15;
+  const [auditEntries, setAuditEntries] = React.useState<AuditLogEntry[]>([]);
+  const [auditTotal, setAuditTotal] = React.useState(0);
+  const [auditLoading, setAuditLoading] = React.useState(false);
+  const [auditSearch, setAuditSearch] = React.useState('');
+  const [auditEntityType, setAuditEntityType] = React.useState('');
+  const [auditOffset, setAuditOffset] = React.useState(0);
+
+  React.useEffect(() => {
+    if (!canReadAuditLog) return;
+    const controller = new AbortController();
+    setAuditLoading(true);
+    const params = new URLSearchParams({ limit: String(AUDIT_PAGE_SIZE), offset: String(auditOffset) });
+    if (auditSearch.trim()) params.set('search', auditSearch.trim());
+    if (auditEntityType) params.set('entityType', auditEntityType);
+    fetch(`/api/reports/audit-log?${params}`, { signal: controller.signal })
+      .then(res => res.json())
+      .then(data => {
+        setAuditEntries(data.data || []);
+        setAuditTotal(data.meta?.total ?? 0);
+      })
+      .catch(() => {})
+      .finally(() => setAuditLoading(false));
+    return () => controller.abort();
+  }, [canReadAuditLog, auditSearch, auditEntityType, auditOffset]);
 
   const surveyPieData = surveyReport ? [
     { name: 'Satisfeitos', value: surveyReport.satisfied, color: '#22c55e' },
@@ -302,6 +367,92 @@ export default function ReportsPage() {
           </div>
         </div>
       </div>
+
+      {/* Log de Alterações — quem mudou o quê no sistema (empresas, usuários,
+          filas, hotfixes, perfis de acesso). Ver lib/audit-log.ts. */}
+      {canReadAuditLog && (
+        <div className="space-y-6">
+          <div>
+            <h2 className="text-xl font-black text-[var(--text-primary)] tracking-tight flex items-center gap-2">
+              <History size={20} className="text-[var(--accent-text)]" /> Log de Alterações
+            </h2>
+            <p className="text-xs text-[var(--text-tertiary)] font-medium mt-1">Quem criou, editou ou excluiu o quê — visível só pra quem administra o sistema.</p>
+          </div>
+
+          <div className="bg-[var(--surface-card)] border border-[var(--border-default)] rounded-2xl shadow-sm overflow-hidden">
+            <div className="p-5 border-b border-[var(--border-default)] flex flex-col sm:flex-row gap-3">
+              <div className="relative flex-1">
+                <Search size={14} className="absolute left-3.5 top-1/2 -translate-y-1/2 text-[var(--text-tertiary)]" />
+                <input
+                  value={auditSearch}
+                  onChange={(e) => { setAuditOffset(0); setAuditSearch(e.target.value); }}
+                  placeholder="Buscar por quem fez ou nome do item..."
+                  className="w-full pl-9 pr-3 py-2.5 rounded-xl border border-[var(--border-default)] text-sm bg-[var(--surface-card)] focus:ring-2 focus:ring-[var(--accent)]/20 outline-none"
+                />
+              </div>
+              <select
+                value={auditEntityType}
+                onChange={(e) => { setAuditOffset(0); setAuditEntityType(e.target.value); }}
+                className="px-3 py-2.5 rounded-xl border border-[var(--border-default)] text-sm bg-[var(--surface-card)] focus:ring-2 focus:ring-[var(--accent)]/20 outline-none"
+              >
+                <option value="">Todos os tipos</option>
+                {Object.entries(ENTITY_TYPE_LABELS).map(([value, label]) => (
+                  <option key={value} value={value}>{label}</option>
+                ))}
+              </select>
+            </div>
+
+            {auditLoading ? (
+              <div className="p-10 text-center text-sm text-[var(--text-tertiary)]">Carregando...</div>
+            ) : auditEntries.length === 0 ? (
+              <div className="p-10 text-center text-sm text-[var(--text-tertiary)]">Nenhum registro encontrado.</div>
+            ) : (
+              <div className="divide-y divide-[var(--border-default)]">
+                {auditEntries.map(entry => (
+                  <div key={entry.id} className="flex items-start gap-3 p-4">
+                    <div className="w-8 h-8 rounded-lg bg-[var(--surface-pill)] flex items-center justify-center shrink-0 mt-0.5">
+                      {ACTION_ICON[entry.action] || <History size={14} className="text-[var(--text-tertiary)]" />}
+                    </div>
+                    <div className="min-w-0 flex-1">
+                      <p className="text-sm text-[var(--text-primary)]">
+                        <span className="font-bold">{entry.actorName}</span>{' '}
+                        <span className="text-[var(--text-tertiary)]">{(ACTION_LABELS[entry.action] || entry.action).toLowerCase()}</span>{' '}
+                        <span className="font-semibold">{ENTITY_TYPE_LABELS[entry.entityType] || entry.entityType}</span>
+                        {entry.entityLabel && <> — <span className="italic">{entry.entityLabel}</span></>}
+                      </p>
+                      <p className="text-[10px] text-[var(--text-tertiary)] font-medium uppercase tracking-widest mt-1">
+                        {new Date(entry.createdAt).toLocaleString('pt-BR')}
+                      </p>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            )}
+
+            {auditTotal > AUDIT_PAGE_SIZE && (
+              <div className="p-4 border-t border-[var(--border-default)] flex items-center justify-between text-xs font-bold text-[var(--text-tertiary)]">
+                <span>{auditOffset + 1}–{Math.min(auditOffset + AUDIT_PAGE_SIZE, auditTotal)} de {auditTotal}</span>
+                <div className="flex gap-2">
+                  <button
+                    onClick={() => setAuditOffset(Math.max(0, auditOffset - AUDIT_PAGE_SIZE))}
+                    disabled={auditOffset === 0}
+                    className="p-2 rounded-lg border border-[var(--border-default)] disabled:opacity-40 hover:bg-[var(--surface-pill)] transition-all"
+                  >
+                    <ChevronLeft size={14} />
+                  </button>
+                  <button
+                    onClick={() => setAuditOffset(auditOffset + AUDIT_PAGE_SIZE)}
+                    disabled={auditOffset + AUDIT_PAGE_SIZE >= auditTotal}
+                    className="p-2 rounded-lg border border-[var(--border-default)] disabled:opacity-40 hover:bg-[var(--surface-pill)] transition-all"
+                  >
+                    <ChevronRight size={14} />
+                  </button>
+                </div>
+              </div>
+            )}
+          </div>
+        </div>
+      )}
     </div>
   );
 }

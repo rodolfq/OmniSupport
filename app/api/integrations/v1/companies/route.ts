@@ -7,14 +7,14 @@ import {
   integrationJson,
   integrationError,
 } from '@/lib/integration-auth';
+import { logAudit } from '@/lib/audit-log';
 
 // Leitura de empresas, usada pela plataforma externa para resolver o
 // companyId antes de cadastrar/atualizar um funcionário via
 // /api/integrations/v1/employees. Também expõe o perfil interno de
-// relacionamento (radarSync + resumo das avaliações do analista) para a
-// integração com o Radar. PUT faz atualização parcial de name/industry/
-// phone/radarSync — as notas de avaliação em si permanecem editáveis só pelo
-// portal, nunca pela integração.
+// relacionamento (isInTraining + resumo das avaliações do analista). PUT faz
+// atualização parcial de name/industry/phone/isInTraining — as notas de
+// avaliação em si permanecem editáveis só pelo portal, nunca pela integração.
 const EVALUATION_JOIN = `
   LEFT JOIN LATERAL (
     SELECT
@@ -41,7 +41,7 @@ const EVALUATION_JOIN = `
 
 const COMPANY_SELECT = `
   SELECT
-    c.id, c.name, c.industry, c.phone, c.radar_sync,
+    c.id, c.name, c.industry, c.phone, c.is_in_training,
     COALESCE(ev.count, 0) AS eval_count,
     ev.knowledge_avg, ev.autonomy_avg, ev.learning_avg, ev.engagement_avg, ev.organization_avg, ev.communication_avg,
     COALESCE(ev.chat_close_count, 0) AS chat_close_count,
@@ -74,7 +74,7 @@ function serializeCompany(row: any) {
     name: row.name,
     industry: row.industry,
     phone: row.phone,
-    radarSync: row.radar_sync === true,
+    isInTraining: row.is_in_training === true,
     evaluation: {
       count: Number(row.eval_count) || 0,
       overallAverage,
@@ -133,34 +133,43 @@ export async function PUT(request: Request) {
     return integrationError(auth, 'VALIDATION_ERROR', 'JSON inválido.', 400);
   }
 
-  if (body.radarSync !== undefined && typeof body.radarSync !== 'boolean') {
-    return integrationError(auth, 'VALIDATION_ERROR', 'radarSync deve ser um boolean.', 400);
+  if (body.isInTraining !== undefined && typeof body.isInTraining !== 'boolean') {
+    return integrationError(auth, 'VALIDATION_ERROR', 'isInTraining deve ser um boolean.', 400);
   }
-  const hasUpdate = body.name !== undefined || body.industry !== undefined || body.phone !== undefined || body.radarSync !== undefined;
+  const hasUpdate = body.name !== undefined || body.industry !== undefined || body.phone !== undefined || body.isInTraining !== undefined;
   if (!hasUpdate) {
-    return integrationError(auth, 'VALIDATION_ERROR', 'Informe ao menos um campo para atualizar: name, industry, phone, radarSync.', 400);
+    return integrationError(auth, 'VALIDATION_ERROR', 'Informe ao menos um campo para atualizar: name, industry, phone, isInTraining.', 400);
   }
 
   try {
-    const existing = await query('SELECT id FROM public.companies WHERE id = $1', [id]);
+    const existing = await query('SELECT id, name FROM public.companies WHERE id = $1', [id]);
     if (existing.rowCount === 0) {
       return integrationError(auth, 'NOT_FOUND', 'Empresa não encontrada.', 404);
     }
 
-    // radarSync é boolean: precisa distinguir "não veio no corpo" (mantém o
-    // valor atual) de "veio como false" (troca pra false) — por isso não dá
+    // isInTraining é boolean: precisa distinguir "não veio no corpo" (mantém
+    // o valor atual) de "veio como false" (troca pra false) — por isso não dá
     // pra usar `|| null` como nos campos de texto abaixo.
     await query(
       `UPDATE public.companies
        SET name = COALESCE($1, name),
            industry = COALESCE($2, industry),
            phone = COALESCE($3, phone),
-           radar_sync = COALESCE($4, radar_sync)
+           is_in_training = COALESCE($4, is_in_training)
        WHERE id = $5`,
-      [body.name || null, body.industry || null, body.phone || null, body.radarSync === undefined ? null : body.radarSync, id]
+      [body.name || null, body.industry || null, body.phone || null, body.isInTraining === undefined ? null : body.isInTraining, id]
     );
 
     const updated = await query(`${COMPANY_SELECT} WHERE c.id = $1`, [id]);
+    logAudit({
+      actorId: null,
+      actorName: `Integração: ${auth.name}`,
+      action: 'update',
+      entityType: 'company',
+      entityId: id,
+      entityLabel: existing.rows[0]?.name || null,
+      changes: { name: body.name, industry: body.industry, phone: body.phone, isInTraining: body.isInTraining }
+    });
     return integrationJson(auth, { data: serializeCompany(updated.rows[0]) });
   } catch (error: any) {
     console.error('[integrations/v1/companies] Erro no PUT:', error);

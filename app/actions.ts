@@ -9,6 +9,7 @@ import { notifyUser } from '@/lib/services/push-service';
 import { getChatRecipientIds, getTeamUserIds } from '@/lib/services/notification-recipients';
 import { pickNextQueueAssignee } from '@/lib/services/queue-routing';
 import { CustomerEvaluationScores, CustomerProfileTag, CustomerEvaluationSummary, CustomerEvaluationOrigin } from '@/lib/types';
+import { logAudit } from '@/lib/audit-log';
 
 async function getCurrentActionUser() {
   const token = (await cookies()).get('token')?.value;
@@ -18,7 +19,7 @@ async function getCurrentActionUser() {
   if (!decoded?.id) return null;
 
   const result = await query(
-    'SELECT id, role, company_id FROM public.profiles WHERE id = $1',
+    'SELECT id, name, role, company_id FROM public.profiles WHERE id = $1',
     [decoded.id]
   );
 
@@ -176,6 +177,7 @@ export async function createUser(
         finalTeamIds
       ]
     );
+    logAudit({ actorId: actor.id, actorName: actor.name, action: 'create', entityType: 'user', entityId: newId, entityLabel: name, changes: { email, role: finalRole, companyId } });
     return { id: newId };
   } catch (err: any) {
     console.error("Error in server action createUser:", err);
@@ -215,6 +217,7 @@ export async function saveCompany(
         'UPDATE public.companies SET name=$1, industry=$2, phone=$3 WHERE id=$4',
         [name, industry, phone, id]
       );
+      logAudit({ actorId: actor.id, actorName: actor.name, action: 'update', entityType: 'company', entityId: id, entityLabel: name, changes: { name, industry, phone } });
       return { id };
     } else {
       if (!adminUser?.name?.trim() || !adminUser?.email?.trim() || !adminUser?.password?.trim()) {
@@ -257,6 +260,7 @@ export async function saveCompany(
       } finally {
         client.release();
       }
+      logAudit({ actorId: actor.id, actorName: actor.name, action: 'create', entityType: 'company', entityId: newId, entityLabel: name, changes: { name, industry, phone, adminEmail: adminUser.email.trim() } });
       return { id: newId };
     }
   } catch (err: any) {
@@ -272,7 +276,9 @@ export async function deleteCompany(id: string) {
       return { error: 'Você não tem permissão para excluir empresas.' };
     }
 
+    const existing = await query('SELECT name FROM public.companies WHERE id = $1', [id]);
     await query('DELETE FROM public.companies WHERE id = $1', [id]);
+    logAudit({ actorId: actor.id, actorName: actor.name, action: 'delete', entityType: 'company', entityId: id, entityLabel: existing.rows[0]?.name || null });
     return { success: true };
   } catch (err: any) {
     console.error("Error deleting company in actions:", err);
@@ -298,7 +304,7 @@ export async function getCompanies() {
       createdAt: c.created_at,
       // Nunca inclui pra quem é da própria empresa (Cliente/Funcionário) —
       // é perfil interno, não deve nem trafegar pro navegador do cliente.
-      radarSync: isCompanyUser ? undefined : (c.radar_sync || false)
+      isInTraining: isCompanyUser ? undefined : (c.is_in_training || false)
     }));
   } catch (err) {
     console.error("Error getting companies in actions:", err);
@@ -373,7 +379,9 @@ export async function deleteUser(id: string) {
     const check = await assertUserManageable(actor, id);
     if (!check.ok) return { error: check.error };
 
+    const existing = await query('SELECT name FROM public.profiles WHERE id = $1', [id]);
     await query('DELETE FROM public.profiles WHERE id = $1', [id]);
+    logAudit({ actorId: actor.id, actorName: actor.name, action: 'delete', entityType: 'user', entityId: id, entityLabel: existing.rows[0]?.name || null });
     return { success: true };
   } catch (err) {
     console.error("Error deleting user in actions:", err);
@@ -452,6 +460,7 @@ export async function updateUser(
     params.push(id);
 
     await query(`UPDATE public.profiles SET ${setClauses.join(', ')} WHERE id = $${params.length}`, params);
+    logAudit({ actorId: actor.id, actorName: actor.name, action: 'update', entityType: 'user', entityId: id, entityLabel: name, changes: { name, email, role: finalRole, companyId } });
     return { success: true };
   } catch (err: any) {
     console.error("Error updating user in actions:", err);
@@ -540,6 +549,15 @@ export async function getQueues() {
   }
 }
 
+async function assertCanManageQueues(): Promise<{ ok: true; actor: any } | { ok: false; error: string }> {
+  const actor = await getCurrentActionUser();
+  if (!actor) return { ok: false, error: 'Sessão inválida.' };
+  if (actor.role === 'Administrador') return { ok: true, actor };
+  const permissions = await getActorEffectivePermissions(actor.id);
+  if (!permissions.includes('queues:manage')) return { ok: false, error: 'Você não tem permissão para gerenciar filas.' };
+  return { ok: true, actor };
+}
+
 export async function saveQueue(
   id: string | null,
   name: string,
@@ -550,6 +568,10 @@ export async function saveQueue(
   routingStrategy: string = 'round_robin'
 ) {
   try {
+    const check = await assertCanManageQueues();
+    if (!check.ok) return { error: check.error };
+    const { actor } = check;
+
     if (id) {
       // Tabela `queues` não tem coluna `updated_at` (ver schema_postgres.sql) —
       // setá-la aqui derrubava todo o UPDATE com "column does not exist".
@@ -559,6 +581,7 @@ export async function saveQueue(
          WHERE id = $7`,
         [name, description, whatsappInstanceId, memberIds, includeInternalChats, routingStrategy, id]
       );
+      logAudit({ actorId: actor.id, actorName: actor.name, action: 'update', entityType: 'queue', entityId: id, entityLabel: name });
       return { id };
     } else {
       const newId = crypto.randomUUID();
@@ -567,6 +590,7 @@ export async function saveQueue(
          VALUES ($1, $2, $3, $4, $5, $6, $7)`,
         [newId, name, description, whatsappInstanceId, memberIds, includeInternalChats, routingStrategy]
       );
+      logAudit({ actorId: actor.id, actorName: actor.name, action: 'create', entityType: 'queue', entityId: newId, entityLabel: name });
       return { id: newId };
     }
   } catch (err) {
@@ -577,7 +601,13 @@ export async function saveQueue(
 
 export async function deleteQueue(id: string) {
   try {
+    const check = await assertCanManageQueues();
+    if (!check.ok) return { error: check.error };
+    const { actor } = check;
+
+    const existing = await query('SELECT name FROM public.queues WHERE id = $1', [id]);
     await query('DELETE FROM public.queues WHERE id = $1', [id]);
+    logAudit({ actorId: actor.id, actorName: actor.name, action: 'delete', entityType: 'queue', entityId: id, entityLabel: existing.rows[0]?.name || null });
     return { success: true };
   } catch (err) {
     console.error("Error deleting queue in actions:", err);
@@ -617,6 +647,15 @@ export async function getHotfixes() {
   }
 }
 
+async function assertCanManageHotfixes(): Promise<{ ok: true; actor: any } | { ok: false; error: string }> {
+  const actor = await getCurrentActionUser();
+  if (!actor) return { ok: false, error: 'Sessão inválida.' };
+  if (actor.role === 'Administrador') return { ok: true, actor };
+  const permissions = await getActorEffectivePermissions(actor.id);
+  if (!permissions.includes('hotfixes:manage')) return { ok: false, error: 'Você não tem permissão para gerenciar hotfixes.' };
+  return { ok: true, actor };
+}
+
 export async function saveHotfix(
   id: string | null,
   name: string,
@@ -625,6 +664,10 @@ export async function saveHotfix(
   expectedDate: string
 ) {
   try {
+    const check = await assertCanManageHotfixes();
+    if (!check.ok) return { error: check.error };
+    const { actor } = check;
+
     if (id) {
       await query(
         `UPDATE public.hotfixes
@@ -632,15 +675,16 @@ export async function saveHotfix(
          WHERE id = $5`,
         [name, description, responsibleId, expectedDate, id]
       );
+      logAudit({ actorId: actor.id, actorName: actor.name, action: 'update', entityType: 'hotfix', entityId: id, entityLabel: name });
       return { id };
     } else {
-      const actor = await getCurrentActionUser();
       const newId = crypto.randomUUID();
       await query(
         `INSERT INTO public.hotfixes (id, name, description, responsible_id, expected_date, created_by)
          VALUES ($1, $2, $3, $4, $5, $6)`,
-        [newId, name, description, responsibleId, expectedDate, actor?.id || null]
+        [newId, name, description, responsibleId, expectedDate, actor.id]
       );
+      logAudit({ actorId: actor.id, actorName: actor.name, action: 'create', entityType: 'hotfix', entityId: newId, entityLabel: name });
       return { id: newId };
     }
   } catch (err) {
@@ -651,7 +695,13 @@ export async function saveHotfix(
 
 export async function deleteHotfix(id: string) {
   try {
+    const check = await assertCanManageHotfixes();
+    if (!check.ok) return { error: check.error };
+    const { actor } = check;
+
+    const existing = await query('SELECT name FROM public.hotfixes WHERE id = $1', [id]);
     await query('DELETE FROM public.hotfixes WHERE id = $1', [id]);
+    logAudit({ actorId: actor.id, actorName: actor.name, action: 'delete', entityType: 'hotfix', entityId: id, entityLabel: existing.rows[0]?.name || null });
     return { success: true };
   } catch (err) {
     console.error("Error deleting hotfix in actions:", err);
@@ -661,7 +711,13 @@ export async function deleteHotfix(id: string) {
 
 export async function markHotfixPublished(id: string) {
   try {
+    const check = await assertCanManageHotfixes();
+    if (!check.ok) return { error: check.error };
+    const { actor } = check;
+
+    const existing = await query('SELECT name FROM public.hotfixes WHERE id = $1', [id]);
     await query('UPDATE public.hotfixes SET published_at = now(), updated_at = now() WHERE id = $1', [id]);
+    logAudit({ actorId: actor.id, actorName: actor.name, action: 'publish', entityType: 'hotfix', entityId: id, entityLabel: existing.rows[0]?.name || null });
     return { success: true };
   } catch (err) {
     console.error("Error marking hotfix as published in actions:", err);
@@ -1280,7 +1336,9 @@ export async function saveRolePermissionsById(profileId: string, permissions: st
       }
     }
 
+    const profileRes = await query('SELECT name FROM public.role_permissions WHERE id = $1', [profileId]);
     await query('UPDATE public.role_permissions SET permissions = $1 WHERE id = $2', [permissions, profileId]);
+    logAudit({ actorId: actor.id, actorName: actor.name, action: 'update', entityType: 'access_profile', entityId: profileId, entityLabel: profileRes.rows[0]?.name || null, changes: { permissions } });
     return { success: true };
   } catch (err) {
     console.error("Error saving role permissions in actions:", err);
@@ -1297,6 +1355,7 @@ export async function renameAccessProfile(profileId: string, name: string) {
     if (!check.ok) return { error: check.error };
 
     await query('UPDATE public.role_permissions SET name = $1 WHERE id = $2', [name.trim(), profileId]);
+    logAudit({ actorId: actor.id, actorName: actor.name, action: 'update', entityType: 'access_profile', entityId: profileId, entityLabel: name.trim(), changes: { name: name.trim() } });
     return { success: true };
   } catch (err: any) {
     if (err.code === '23505') return { error: 'Já existe um perfil com esse nome.' };
@@ -1327,6 +1386,7 @@ export async function createAccessProfile(name: string, internalTeamId?: string 
        RETURNING id`,
       [name.trim(), teamId]
     );
+    logAudit({ actorId: actor.id, actorName: actor.name, action: 'create', entityType: 'access_profile', entityId: res.rows[0].id, entityLabel: name.trim() });
     return { id: res.rows[0].id };
   } catch (err: any) {
     if (err.code === '23505') return { error: 'Já existe um perfil com esse nome.' };
@@ -1343,10 +1403,12 @@ export async function deleteRolePermission(profileId: string) {
     const check = await assertProfileEditable(actor, profileId);
     if (!check.ok) return { error: check.error };
 
+    const profileRes = await query('SELECT name FROM public.role_permissions WHERE id = $1', [profileId]);
     // Usuários que estavam nesse perfil ficam sem Perfil de Acesso (sem
     // permissões) em vez de a exclusão falhar por causa da FK.
     await query('UPDATE public.profiles SET access_profile_id = NULL WHERE access_profile_id = $1', [profileId]);
     await query('DELETE FROM public.role_permissions WHERE id = $1', [profileId]);
+    logAudit({ actorId: actor.id, actorName: actor.name, action: 'delete', entityType: 'access_profile', entityId: profileId, entityLabel: profileRes.rows[0]?.name || null });
     return { success: true };
   } catch (err) {
     console.error("Error deleting role permission in actions:", err);
@@ -1430,13 +1492,32 @@ export async function saveInternalChat(id: string | null, data: any) {
 // exclusivamente interno. Vinculado à empresa (companies), não a um contato
 // específico. Ver migrations/customer_evaluations_company_scope.sql.
 
-export async function updateCompanyRadarSync(companyId: string, radarSync: boolean) {
+// Renomeado de updateCompanyRadarSync: o campo nunca foi usado pra sincronizar
+// nada (era "uso futuro em integração") — reaproveitado pra marcar empresa em
+// treinamento, com indicador visível só pra equipe interna no chat. Dado
+// sensível/interno: nunca exposto a Cliente/Funcionário, nem pela própria
+// checagem de permissão aqui.
+export async function updateCompanyTraining(companyId: string, isInTraining: boolean) {
   try {
-    await query(`UPDATE public.companies SET radar_sync = $1 WHERE id = $2`, [radarSync, companyId]);
+    const actor = await getCurrentActionUser();
+    if (!actor || actor.role === 'Cliente' || actor.role === 'Funcionário') {
+      return { error: 'Você não tem permissão para alterar esse dado.' };
+    }
+    const company = await query(`SELECT name FROM public.companies WHERE id = $1`, [companyId]);
+    await query(`UPDATE public.companies SET is_in_training = $1 WHERE id = $2`, [isInTraining, companyId]);
+    logAudit({
+      actorId: actor.id,
+      actorName: actor.name,
+      action: 'update',
+      entityType: 'company',
+      entityId: companyId,
+      entityLabel: company.rows[0]?.name || null,
+      changes: { isInTraining }
+    });
     return { success: true };
   } catch (err: any) {
-    console.error('Error updating company radar sync in actions:', err);
-    return { error: err.message || 'Erro ao atualizar sincronismo com Radar.' };
+    console.error('Error updating company training flag in actions:', err);
+    return { error: err.message || 'Erro ao atualizar status de treinamento.' };
   }
 }
 

@@ -81,7 +81,6 @@ export function getNavItems(currentUser: User | null, onChangePassword: () => vo
       ]
     },
     { name: 'Chat Interno', icon: MessageCircle, href: '/chat-internal', permission: Permission.CHAT_INTERNAL_VIEW },
-    { name: 'WhatsApp', icon: MessageSquare, href: '/whatsapp', permission: Permission.WHATSAPP_MANAGE },
     { name: 'Clientes', icon: Users, href: '/customers', permission: Permission.CUSTOMERS_READ },
     {
       name: 'Configurações',
@@ -89,6 +88,7 @@ export function getNavItems(currentUser: User | null, onChangePassword: () => vo
       href: '/settings',
       subItems: [
         { name: 'Configurações', icon: Settings, href: '/settings' },
+        { name: 'WhatsApp', icon: MessageSquare, href: '/settings?tab=whatsapp', permission: Permission.WHATSAPP_MANAGE },
         { name: 'Equipe', icon: UserCog, href: '/team', permission: Permission.TEAM_READ },
         { name: 'Equipes & Permissões', icon: Shield, href: '/permissions', permission: Permission.SETTINGS_WRITE },
         { name: 'Filas', icon: Library, href: '/queues', permission: Permission.QUEUES_MANAGE },

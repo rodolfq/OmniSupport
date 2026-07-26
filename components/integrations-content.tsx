@@ -31,11 +31,11 @@ interface TesterResult {
 }
 
 const SCOPE_OPTIONS: { value: string; label: string; description: string }[] = [
-  { value: 'employees:read', label: 'Funcionários — Leitura', description: 'Listar/consultar funcionários e empresas (inclui radarSync e avaliações)' },
+  { value: 'employees:read', label: 'Funcionários — Leitura', description: 'Listar/consultar funcionários e empresas (inclui isInTraining e avaliações)' },
   { value: 'employees:write', label: 'Funcionários — Escrita', description: 'Cadastrar e atualizar funcionários' },
   { value: 'tickets:read', label: 'Chamados — Leitura', description: 'Consultar chamados e mensagens visíveis ao cliente' },
   { value: 'conversations:read', label: 'Conversas — Leitura', description: 'Consultar conversas (WhatsApp) e mensagens' },
-  { value: 'companies:write', label: 'Empresas — Escrita', description: 'Atualizar dados da empresa (nome, indústria, telefone, Sincronismo com Radar)' },
+  { value: 'companies:write', label: 'Empresas — Escrita', description: 'Atualizar dados da empresa (nome, indústria, telefone, cliente em treinamento)' },
 ];
 
 const METHOD_COLORS: Record<string, string> = {
@@ -99,6 +99,12 @@ export function IntegrationsContent() {
   const [testerLoading, setTesterLoading] = useState(false);
   const [testerResult, setTesterResult] = useState<TesterResult | null>(null);
   const [curlCopied, setCurlCopied] = useState(false);
+  const guideRef = React.useRef<HTMLDivElement>(null);
+
+  const jumpToEndpoint = (id: string) => {
+    setSelectedId(id);
+    guideRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+  };
 
   useEffect(() => {
     setBaseUrl(window.location.origin);
@@ -248,7 +254,7 @@ export function IntegrationsContent() {
               <Key className="text-[var(--accent-text)]" size={24} /> Integração / API Externa
             </h3>
             <p className="text-xs text-[var(--text-tertiary)] font-bold uppercase tracking-widest mt-1">
-              Gerencie chaves de acesso para plataformas externas
+              Crie uma chave, dê pra plataforma externa, e ela já consegue ler/atualizar conversas, chamados e clientes
             </p>
           </div>
           <button
@@ -331,8 +337,44 @@ export function IntegrationsContent() {
         )}
       </div>
 
-      {/* Guia + testador de endpoints */}
+      {/* Tarefas comuns — atalho direto pro endpoint certo pras 4 ações mais
+          pedidas, sem precisar garimpar a lista técnica abaixo. */}
       <div className="bg-[var(--surface-card)] border border-[var(--border-default)] rounded-[2rem] p-10 shadow-sm space-y-6">
+        <div>
+          <h4 className="text-sm font-black text-[var(--text-primary)] uppercase tracking-tight flex items-center gap-2">
+            <Zap size={16} className="text-[var(--accent-text)]" /> Tarefas Comuns
+          </h4>
+          <p className="text-xs text-[var(--text-tertiary)] font-medium mt-1 max-w-2xl">
+            As 4 ações mais usadas por quem está integrando. Clique numa delas pra ir direto ao endpoint certo, já com o passo a passo abaixo.
+          </p>
+        </div>
+        <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+          {[
+            { id: 'conversations-list' as const, label: 'Listar conversas', desc: 'Ver o histórico de conversas (chat/WhatsApp) de um cliente ou de todos.', scope: 'conversations:read' },
+            { id: 'tickets-list' as const, label: 'Listar chamados', desc: 'Ver os chamados abertos por um cliente ou de todos, com filtro por status.', scope: 'tickets:read' },
+            { id: 'companies-list' as const, label: 'Listar clientes', desc: 'Ver as empresas cadastradas — use antes de cadastrar/atualizar um funcionário.', scope: 'employees:read' },
+            { id: 'companies-update' as const, label: 'Atualizar cadastro de cliente', desc: 'Editar nome, indústria, telefone ou o indicador "em treinamento" de uma empresa já existente. Pra atualizar uma pessoa (funcionário), use "Atualizar funcionário" na lista abaixo.', scope: 'companies:write' },
+          ].map(task => (
+            <button
+              key={task.id}
+              onClick={() => jumpToEndpoint(task.id)}
+              className="text-left p-5 rounded-2xl border border-[var(--border-default)] hover:border-[var(--accent)]/40 hover:bg-[var(--accent)]/5 transition-all group"
+            >
+              <div className="flex items-center justify-between mb-1.5">
+                <p className="text-xs font-black text-[var(--text-primary)] uppercase tracking-tight">{task.label}</p>
+                <ChevronRight size={14} className="text-[var(--text-tertiary)] group-hover:translate-x-0.5 group-hover:text-[var(--accent-text)] transition-all" />
+              </div>
+              <p className="text-[11px] text-[var(--text-tertiary)] font-medium leading-relaxed mb-2">{task.desc}</p>
+              <span className="text-[9px] font-black uppercase tracking-widest px-2 py-0.5 rounded-full bg-[var(--surface-pill)] text-[var(--text-secondary)]">
+                escopo necessário: {task.scope}
+              </span>
+            </button>
+          ))}
+        </div>
+      </div>
+
+      {/* Guia + testador de endpoints */}
+      <div ref={guideRef} className="bg-[var(--surface-card)] border border-[var(--border-default)] rounded-[2rem] p-10 shadow-sm space-y-6">
         <div className="flex items-start justify-between flex-wrap gap-3">
           <div>
             <h4 className="text-sm font-black text-[var(--text-primary)] uppercase tracking-tight flex items-center gap-2">

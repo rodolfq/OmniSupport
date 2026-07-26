@@ -2123,15 +2123,28 @@ useEffect(() => {
                            
                            if (company) {
                              return (
-                               <a
-                                 href={`/customers/${company.id}`}
-                                 target="_blank"
-                                 rel="noopener noreferrer"
-                                 title="Abrir tela dedicada da empresa"
-                                 className="text-[9px] text-[var(--accent-text)] font-semibold uppercase tracking-widest hover:underline"
-                               >
-                                 {company.name}
-                               </a>
+                               <div className="flex items-center gap-1.5 flex-wrap">
+                                 <a
+                                   href={`/customers/${company.id}`}
+                                   target="_blank"
+                                   rel="noopener noreferrer"
+                                   title="Abrir tela dedicada da empresa"
+                                   className="text-[9px] text-[var(--accent-text)] font-semibold uppercase tracking-widest hover:underline"
+                                 >
+                                   {company.name}
+                                 </a>
+                                 {/* Só a equipe interna vê (este bloco inteiro já só
+                                     renderiza quando !isCustomer) — nunca aparece pro
+                                     próprio cliente/funcionário da empresa. */}
+                                 {company.isInTraining && (
+                                   <span
+                                     title="Cliente em treinamento — visível só pra equipe interna"
+                                     className="text-[8px] font-black uppercase tracking-widest px-1.5 py-0.5 rounded-full bg-[var(--surface-warning)] text-[var(--text-warning)]"
+                                   >
+                                     Em treinamento
+                                   </span>
+                                 )}
+                               </div>
                              );
                            }
 

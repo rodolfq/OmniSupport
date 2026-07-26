@@ -7,6 +7,7 @@ import {
   integrationJson,
   integrationError,
 } from '@/lib/integration-auth';
+import { logAudit } from '@/lib/audit-log';
 
 // API pública de integração para listar/cadastrar/atualizar funcionários.
 // Autenticada por API key (ver lib/integration-auth.ts), independente do
@@ -134,6 +135,15 @@ export async function POST(request: Request) {
        RETURNING id, name, email, role, company_id, phone, created_at`,
       [name, email, role, companyId || null, phone || null]
     );
+    logAudit({
+      actorId: null,
+      actorName: `Integração: ${auth.name}`,
+      action: 'create',
+      entityType: 'employee',
+      entityId: res.rows[0].id,
+      entityLabel: name,
+      changes: { name, email, role, companyId }
+    });
     return integrationJson(auth, { data: serializeEmployee(res.rows[0]) }, 201);
   } catch (error: any) {
     if (error.code === '23505') {
@@ -175,7 +185,7 @@ export async function PUT(request: Request) {
 
   try {
     const existing = await query(
-      `SELECT id FROM public.profiles WHERE id = $1 AND role IN ('Funcionário', 'Cliente')`,
+      `SELECT id, name FROM public.profiles WHERE id = $1 AND role IN ('Funcionário', 'Cliente')`,
       [id]
     );
     if (existing.rowCount === 0) {
@@ -192,6 +202,15 @@ export async function PUT(request: Request) {
        RETURNING id, name, email, role, company_id, phone, created_at`,
       [body.name || null, body.phone || null, body.companyId || null, body.role || null, id]
     );
+    logAudit({
+      actorId: null,
+      actorName: `Integração: ${auth.name}`,
+      action: 'update',
+      entityType: 'employee',
+      entityId: id,
+      entityLabel: res.rows[0]?.name || existing.rows[0]?.name || null,
+      changes: { name: body.name, phone: body.phone, companyId: body.companyId, role: body.role }
+    });
     return integrationJson(auth, { data: serializeEmployee(res.rows[0]) });
   } catch (error: any) {
     console.error('[integrations/v1/employees] Erro no PUT:', error);
