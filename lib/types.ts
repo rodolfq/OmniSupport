@@ -44,6 +44,7 @@ export enum Permission {
   // de SETTINGS_SYSTEM — separadas pra dar controle fino de verdade.
   SETTINGS_AUTOMATION = 'settings:automation',
   SETTINGS_INTEGRATIONS = 'settings:integrations',
+  SETTINGS_EMAIL = 'settings:email',
   QUEUES_MANAGE = 'queues:manage',
   DASHBOARD_VIEW = 'dashboard:view',
   REPORTS_READ = 'reports:read',
@@ -409,6 +410,17 @@ export interface SurveySettings {
   enabled: boolean;
   message: string;
   responseWindowHours: number;
+}
+
+export interface EmailSettings {
+  enabled: boolean;
+  smtpHost: string;
+  smtpPort: number | null;
+  smtpSecure: boolean;
+  smtpUser: string;
+  smtpPassword: string;
+  fromName: string;
+  fromEmail: string;
 }
 
 export interface AutomationSetting {

@@ -23,7 +23,10 @@ export interface NavItem {
   name: string;
   icon: LucideIcon;
   href?: string;
-  permission?: Permission;
+  // Array = "qualquer uma delas" — usado por Chamados, que agora reúne
+  // Chamados e Tickets Internos numa única tela (ver /tickets): quem tem só
+  // uma das duas permissões ainda precisa enxergar o item no menu.
+  permission?: Permission | Permission[];
   action?: () => void;
   subItems?: NavItem[];
 }
@@ -71,13 +74,15 @@ export function getNavItems(currentUser: User | null, onChangePassword: () => vo
     {
       name: 'Chamados',
       icon: Ticket,
-      permission: Permission.TICKETS_READ,
+      // Chamados e Tickets Internos foram unificados em /tickets (chave de
+      // troca no topo da tela) — o grupo do menu precisa aparecer pra quem
+      // tem qualquer uma das duas, não só tickets:read.
+      permission: [Permission.TICKETS_READ, Permission.INTERNAL_TICKETS_VIEW],
       subItems: [
-        { name: 'Todos os Chamados', icon: Ticket, href: '/tickets', permission: Permission.TICKETS_READ },
+        { name: 'Todos os Chamados', icon: Ticket, href: '/tickets', permission: [Permission.TICKETS_READ, Permission.INTERNAL_TICKETS_VIEW] },
         { name: 'Meus Chamados', icon: UserCircle, href: '/my-tickets' },
         { name: 'Painel Chat', icon: MessageSquare, href: '/chat-management', permission: Permission.OUTSIDE_QUEUE_VIEW },
         { name: 'Histórico de Conversas', icon: History, href: '/chat-history', permission: Permission.TICKETS_READ },
-        { name: 'Tickets Internos', icon: FileText, href: '/internal-tickets', permission: Permission.INTERNAL_TICKETS_VIEW },
       ]
     },
     { name: 'Chat Interno', icon: MessageCircle, href: '/chat-internal', permission: Permission.CHAT_INTERNAL_VIEW },
@@ -107,14 +112,24 @@ export function getUserPermissions(currentUser: User | null): Permission[] {
   return currentUser.permissions || [];
 }
 
+// item.permission em array = "qualquer uma delas" já basta pra mostrar o
+// item; um único Permission continua exigindo exatamente aquela. Exportada
+// porque a sidebar (components/sidebar.tsx) faz sua própria checagem
+// inline em vez de usar filterVisibleNavItems — mesma regra, uma fonte só.
+export function matchesPermission(required: Permission | Permission[] | undefined, userPermissions: Permission[]): boolean {
+  if (!required) return true;
+  if (Array.isArray(required)) return required.some(p => userPermissions.includes(p));
+  return userPermissions.includes(required);
+}
+
 // Filtra a árvore de navegação pelas permissões do usuário, preservando um
 // item pai se ao menos um sub-item continuar visível (mesma regra usada hoje
 // só dentro da sidebar).
 export function filterVisibleNavItems(items: NavItem[], userPermissions: Permission[]): NavItem[] {
   return items.reduce<NavItem[]>((acc, item) => {
-    const hasPermission = !item.permission || userPermissions.includes(item.permission);
+    const hasPermission = matchesPermission(item.permission, userPermissions);
     const visibleSubItems = item.subItems
-      ? item.subItems.filter(sub => !sub.permission || userPermissions.includes(sub.permission))
+      ? item.subItems.filter(sub => matchesPermission(sub.permission, userPermissions))
       : undefined;
 
     if (!hasPermission) {

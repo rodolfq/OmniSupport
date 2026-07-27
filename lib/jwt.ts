@@ -12,7 +12,15 @@ function arrayBufferToBase64Url(buffer: ArrayBuffer | Uint8Array): string {
     .replace(/=/g, '');
 }
 
-function base64UrlToArrayBuffer(base64Url: string): ArrayBuffer {
+// Devolve Uint8Array (não o ArrayBuffer "cru" de .buffer) de propósito: no
+// sandbox de Edge Runtime do Next em modo dev, um ArrayBuffer montado à mão
+// aqui às vezes falha o checar de tipo do WebCrypto do próprio Node
+// (`crypto.subtle.verify`/`TextDecoder.decode` recusando com "3rd argument
+// is not instance of ArrayBuffer..." mesmo sendo um de verdade — resíduo de
+// contexto/realm do sandbox). Uint8Array é um BufferSource válido pros dois
+// e não sofre esse problema (é o que TextEncoder().encode() já devolve, e
+// signJWT nunca teve esse erro por causa disso).
+function base64UrlToBytes(base64Url: string): Uint8Array<ArrayBuffer> {
   const base64 = base64Url
     .replace(/-/g, '+')
     .replace(/_/g, '/');
@@ -21,7 +29,7 @@ function base64UrlToArrayBuffer(base64Url: string): ArrayBuffer {
   for (let i = 0; i < binary.length; i++) {
     bytes[i] = binary.charCodeAt(i);
   }
-  return bytes.buffer;
+  return bytes;
 }
 
 const JWT_SECRET = process.env.JWT_SECRET || 'super-secret-jwt-key-change-me-in-production-1234567';
@@ -70,18 +78,18 @@ export async function verifyJWT(token: string): Promise<Record<string, any> | nu
     const tokenString = `${headerBase64}.${payloadBase64}`;
     
     const key = await getSigningKey();
-    const signature = base64UrlToArrayBuffer(signatureBase64);
-    
+    const signature = base64UrlToBytes(signatureBase64);
+
     const isValid = await crypto.subtle.verify(
       'HMAC',
       key,
       signature,
       encoder.encode(tokenString)
     );
-    
+
     if (!isValid) return null;
-    
-    const payloadJson = new TextDecoder().decode(base64UrlToArrayBuffer(payloadBase64));
+
+    const payloadJson = new TextDecoder().decode(base64UrlToBytes(payloadBase64));
     const payload = JSON.parse(payloadJson);
     
     const now = Math.floor(Date.now() / 1000);

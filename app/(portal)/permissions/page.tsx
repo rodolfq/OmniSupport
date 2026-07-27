@@ -98,6 +98,7 @@ const permissionGroups = [
       { id: Permission.SETTINGS_SYSTEM, label: 'Geral do sistema', desc: 'Categorias, prioridades, SLAs e marcadores globais' },
       { id: Permission.SETTINGS_AUTOMATION, label: 'Mensagens automáticas', desc: 'Configurar respostas e disparos automáticos' },
       { id: Permission.SETTINGS_INTEGRATIONS, label: 'Integrações', desc: 'Gerenciar chaves e integrações externas' },
+      { id: Permission.SETTINGS_EMAIL, label: 'E-mail (SMTP)', desc: 'Configurar servidor de envio de e-mail e testar conexão' },
       { id: Permission.QUEUES_MANAGE, label: 'Filas de atendimento', desc: 'Criar e configurar filas do WhatsApp (/queues)' },
       { id: Permission.HOTFIXES_MANAGE, label: 'Hotfixes / Janela de release', desc: 'Criar e gerenciar hotfixes, marcar publicação, ver alertas de atraso (/hotfixes)' },
     ]
