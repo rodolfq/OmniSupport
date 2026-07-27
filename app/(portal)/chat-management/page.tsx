@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useState, useEffect } from 'react';
 import { toast } from 'sonner';
 import {
   ChatSession,
@@ -41,6 +41,7 @@ import { cn, normalizeString, maskPhone, matchPhones } from '@/lib/utils';
 import { motion, AnimatePresence } from 'motion/react';
 import { useApp } from '@/app/app-context';
 import { LinkContactModal } from '@/components/link-contact-modal';
+import { NewTicketFAB } from '@/components/new-ticket-fab';
 import { AssignChatMenu } from '@/components/assign-chat-menu';
 import { ConfirmDialog } from '@/components/confirm-dialog';
 import { supabase } from '@/lib/supabase';
@@ -65,8 +66,7 @@ export default function ChatManagementPage() {
   const [selectedSessionForLink, setSelectedSessionForLink] = useState<ChatSession | null>(null);
 
   const [selectedSessionIds, setSelectedSessionIds] = useState<Set<string>>(new Set());
-
-  const channelRef = useRef<any>(null);
+  const [viewingSession, setViewingSession] = useState<ChatSession | null>(null);
 
   const handleOpenLinkModal = (session: ChatSession) => {
     setSelectedSessionForLink(session);
@@ -80,7 +80,6 @@ export default function ChatManagementPage() {
   const [filterEndDate, setFilterEndDate] = useState('');
   const [filterAnalyst, setFilterAnalyst] = useState('');
   const [filterCustomer, setFilterCustomer] = useState('');
-  const [filterEmployee, setFilterEmployee] = useState('');
   const [filterText, setFilterText] = useState('');
 
   // Form states
@@ -210,60 +209,6 @@ export default function ChatManagementPage() {
       return next.size === prev.size ? prev : next;
     });
   }, [sessions]);
-
-  const isSubscribedRef = useRef(false);
-
-  useEffect(() => {
-    if (supabase && currentUser) {
-      if (isSubscribedRef.current) return;
-      
-      // 1. Cleanup existing channel
-      if (channelRef.current) {
-        supabase.removeChannel(channelRef.current);
-        channelRef.current = null;
-      }
-
-      const channelName = `chat-management-sync-${Date.now()}`;
-      console.log(`📡 Realtime ativo: ${channelName}`);
-      isSubscribedRef.current = true;
-      
-      // 2. Define channel and event listeners BEFORE subscribe
-      const channel = supabase.channel(channelName)
-        .on(
-          'postgres_changes',
-          { event: '*', schema: 'public', table: 'chat_sessions' },
-          async () => {
-            console.log('📋 Atualizando fila via Realtime');
-            refreshData();
-          }
-        )
-        .on(
-          'postgres_changes',
-          { event: '*', schema: 'public', table: 'analyst_status' },
-          async () => {
-            console.log('📋 Atualizando status via Realtime');
-            refreshData();
-          }
-        );
-
-      // 3. Subscribe
-      channel.subscribe((status: string) => {
-        if (status === 'SUBSCRIBED') {
-          console.log(`✅ Realtime Gerenciamento conectado: ${channelName}`);
-        }
-      });
-      channelRef.current = channel;
-    }
-
-    return () => {
-      if (channelRef.current && supabase) {
-        console.log('🔌 Desconectando Realtime Gerenciamento');
-        supabase.removeChannel(channelRef.current);
-        channelRef.current = null;
-        isSubscribedRef.current = false;
-      }
-    };
-  }, [currentUser, refreshData]);
 
   const handleToggleOnline = async (userId: string, current: boolean) => {
     await updateUserStatus(userId, !current);
@@ -771,16 +716,25 @@ const handleDeleteNote = async () => {
                                    </button>
                                 )}
                                 {s.status === 'pending' ? (
-                                  <AssignChatMenu
-                                    currentUserId={currentUser?.id}
-                                    isCurrentUserOnline={userStatus === 'online'}
-                                    onlineTargets={getQueueOnlineTargets(s.queueId)}
-                                    onAssignToSelf={() => handleAssignAnalyst(s.id)}
-                                    onAssignToUser={(userId) => handleAssignAnalyst(s.id, userId)}
-                                    queues={queueMenuTargets}
-                                    currentQueueId={s.queueId}
-                                    onReturnToQueue={(queueId) => handleReturnToQueue(s.id, queueId)}
-                                  />
+                                  <>
+                                    <button
+                                      onClick={() => setViewingSession(s)}
+                                      title="Ver mensagens antes de assumir"
+                                      className="flex items-center gap-2 px-4 py-2.5 bg-[var(--surface-pill)] text-[var(--text-secondary)] rounded-xl text-[10px] font-semibold uppercase tracking-widest hover:bg-[var(--border-default)] transition-all border border-[var(--border-default)]"
+                                    >
+                                      <MessageSquare size={14} /> Visualizar
+                                    </button>
+                                    <AssignChatMenu
+                                      currentUserId={currentUser?.id}
+                                      isCurrentUserOnline={userStatus === 'online'}
+                                      onlineTargets={getQueueOnlineTargets(s.queueId)}
+                                      onAssignToSelf={() => handleAssignAnalyst(s.id)}
+                                      onAssignToUser={(userId) => handleAssignAnalyst(s.id, userId)}
+                                      queues={queueMenuTargets}
+                                      currentQueueId={s.queueId}
+                                      onReturnToQueue={(queueId) => handleReturnToQueue(s.id, queueId)}
+                                    />
+                                  </>
                                 ) : (
                                   <>
                                     <button
@@ -818,14 +772,9 @@ const handleDeleteNote = async () => {
              <div className="bg-[var(--surface-card)] border border-[var(--border-default)] rounded-[2.5rem] shadow-sm p-8">
                 <h3 className="text-sm font-black uppercase text-[var(--text-primary)] tracking-widest mb-6">Distribuição Automática</h3>
                 <div className="space-y-4">
-                   <div className="flex items-center justify-between p-4 bg-[var(--surface-success)] border border-[var(--text-success)]/20 rounded-2xl">
-                      <div className="flex items-center gap-3">
-                         <Power size={18} className="text-[var(--text-success)]" />
-                         <span className="text-xs font-black uppercase text-[var(--text-success)]">Sistema Ativo</span>
-                      </div>
-                      <div className="w-10 h-5 bg-[var(--text-success)] rounded-full relative">
-                         <div className="absolute right-1 top-1 w-3 h-3 bg-[var(--surface-card)] rounded-full shadow-sm" />
-                      </div>
+                   <div className="flex items-center gap-3 p-4 bg-[var(--surface-success)] border border-[var(--text-success)]/20 rounded-2xl">
+                      <Power size={18} className="text-[var(--text-success)]" />
+                      <span className="text-xs font-black uppercase text-[var(--text-success)]">Sistema Ativo</span>
                    </div>
                    <p className="text-[10px] text-[var(--text-tertiary)] font-medium leading-relaxed">
                       A distribuição está ativa. Novos atendimentos que chegarem pelo WhatsApp de uma fila são atribuídos automaticamente em rodízio (round-robin) entre os analistas online dessa fila.
@@ -950,17 +899,6 @@ const handleDeleteNote = async () => {
               </div>
 
               <div className="space-y-1.5">
-                <label className="text-[9px] font-semibold uppercase text-[var(--text-tertiary)] tracking-widest ml-1">Funcionário</label>
-                <input 
-                  type="text" 
-                  placeholder="Nome do funcionário..."
-                  value={filterEmployee}
-                  onChange={(e) => setFilterEmployee(e.target.value)}
-                  className="w-full bg-[var(--surface-card)] border border-[var(--border-default)] rounded-xl px-4 py-2.5 text-xs font-bold focus:ring-4 focus:ring-[var(--accent)]/10 outline-none transition-all"
-                />
-              </div>
-
-              <div className="space-y-1.5">
                 <label className="text-[9px] font-semibold uppercase text-[var(--text-tertiary)] tracking-widest ml-1">Trecho da Mensagem</label>
                 <div className="relative">
                   <Search size={14} className="absolute left-4 top-1/2 -translate-y-1/2 text-[var(--text-tertiary)]" />
@@ -1024,7 +962,6 @@ const handleDeleteNote = async () => {
                         if (!analyst || !normalizeString(analyst.name).includes(normalizeString(filterAnalyst))) return false;
                       }
                       if (filterCustomer && !normalizeString(s.customerName).includes(normalizeString(filterCustomer))) return false;
-                      if (filterEmployee && !normalizeString(s.customerName).includes(normalizeString(filterEmployee))) return false;
                       if (filterText) {
                          const normalText = normalizeString(filterText);
                          const hasText = s.messages?.some(m => normalizeString(m.text).includes(normalText));
@@ -1072,7 +1009,10 @@ const handleDeleteNote = async () => {
                             </div>
                           </td>
                           <td className="px-8 py-5 text-right">
-                             <button className="px-4 py-2 bg-[var(--surface-card)] text-[var(--text-tertiary)] text-[9px] font-semibold uppercase tracking-widest rounded-xl hover:bg-[var(--accent)] hover:text-white transition-all group-hover:bg-[var(--surface-pill)] group-hover:text-[var(--text-secondary)]">
+                             <button
+                               onClick={() => setViewingSession(s)}
+                               className="px-4 py-2 bg-[var(--surface-card)] text-[var(--text-tertiary)] text-[9px] font-semibold uppercase tracking-widest rounded-xl hover:bg-[var(--accent)] hover:text-white transition-all group-hover:bg-[var(--surface-pill)] group-hover:text-[var(--text-secondary)]"
+                             >
                                Ver Detalhes
                              </button>
                           </td>
@@ -1190,7 +1130,70 @@ const handleDeleteNote = async () => {
         )}
       </AnimatePresence>
 
-      <LinkContactModal 
+      <AnimatePresence>
+        {viewingSession && (
+          <div className="fixed inset-0 z-[110] flex items-center justify-center p-4">
+            <motion.div
+              initial={{ opacity: 0 }}
+              animate={{ opacity: 1 }}
+              exit={{ opacity: 0 }}
+              onClick={() => setViewingSession(null)}
+              className="absolute inset-0 bg-slate-900/60 backdrop-blur-sm"
+            />
+            <motion.div
+              initial={{ scale: 0.95, opacity: 0 }}
+              animate={{ scale: 1, opacity: 1 }}
+              exit={{ scale: 0.95, opacity: 0 }}
+              className="relative bg-[var(--surface-card)] w-full max-w-lg rounded-[2.5rem] shadow-2xl overflow-hidden flex flex-col max-h-[80vh]"
+            >
+              <div className="p-8 border-b border-[var(--border-default)] bg-[var(--surface-card)]/50 flex items-center justify-between shrink-0">
+                <div>
+                  <h3 className="text-xl font-black text-[var(--text-primary)] tracking-tight">{viewingSession.customerName || 'Contato sem nome'}</h3>
+                  <p className="text-[10px] text-[var(--text-tertiary)] font-bold uppercase tracking-widest mt-1">
+                    {viewingSession.status === 'closed' ? 'Conversa encerrada' : 'Aguardando atendimento'} · {viewingSession.messages?.length || 0} mensagem(ns)
+                  </p>
+                </div>
+                <button onClick={() => setViewingSession(null)} className="text-[var(--text-tertiary)] hover:text-[var(--text-secondary)]"><XCircle size={24} /></button>
+              </div>
+              <div className="p-8 space-y-4 overflow-y-auto">
+                {(viewingSession.messages || []).length === 0 ? (
+                  <p className="text-sm text-[var(--text-tertiary)] italic text-center py-8">Nenhuma mensagem nesta conversa.</p>
+                ) : (
+                  viewingSession.messages.map((m, idx) => (
+                    <div key={idx} className={cn("flex flex-col gap-1", m.senderId === viewingSession.customerId ? "items-start" : "items-end")}>
+                      <span className="text-[9px] font-semibold uppercase text-[var(--text-tertiary)] tracking-widest">
+                        {m.senderName || (m.senderId === viewingSession.customerId ? viewingSession.customerName : 'Equipe')} · {m.timestamp ? new Date(m.timestamp).toLocaleString('pt-BR') : ''}
+                      </span>
+                      <p className={cn(
+                        "max-w-[85%] px-4 py-2.5 rounded-2xl text-sm font-medium whitespace-pre-wrap break-words",
+                        m.senderId === viewingSession.customerId ? "bg-[var(--surface-pill)] text-[var(--text-secondary)]" : "bg-[var(--accent)]/10 text-[var(--text-primary)]"
+                      )}>
+                        {m.text || <span className="italic opacity-60">Mensagem sem texto (anexo)</span>}
+                      </p>
+                    </div>
+                  ))
+                )}
+              </div>
+              {viewingSession.status !== 'closed' && (
+                <div className="p-6 bg-[var(--surface-card)]/50 border-t border-[var(--border-default)] shrink-0">
+                  <button
+                    onClick={() => {
+                      setActiveOmniChatId(viewingSession.id);
+                      setIsOmniChatOpen(true);
+                      setViewingSession(null);
+                    }}
+                    className="w-full flex items-center justify-center gap-2 py-3 bg-slate-900 text-white rounded-2xl text-[10px] font-semibold uppercase tracking-widest hover:bg-slate-800 transition-all"
+                  >
+                    <MessageSquare size={14} /> Abrir Chat Completo
+                  </button>
+                </div>
+              )}
+            </motion.div>
+          </div>
+        )}
+      </AnimatePresence>
+
+      <LinkContactModal
         isOpen={isLinkModalOpen}
         onClose={() => { setIsLinkModalOpen(false); setSelectedSessionForLink(null); }}
         session={selectedSessionForLink}
@@ -1230,6 +1233,7 @@ const handleDeleteNote = async () => {
         confirmLabel="Encerrar"
         variant="danger"
       />
+      <NewTicketFAB />
     </div>
   );
 }

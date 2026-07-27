@@ -294,8 +294,8 @@ export async function POST(request: Request) {
       }
 
       const res = await query(
-        `INSERT INTO public.tickets (title, description, status, priority, queue_id, category_id, request_type_id, product_id, tags, company_id, customer_id, created_by, attachments_data, employee_ids)
-         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14)
+        `INSERT INTO public.tickets (title, description, status, priority, queue_id, category_id, request_type_id, product_id, tags, company_id, customer_id, created_by, attachments_data, employee_ids, assignee_id)
+         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15)
          RETURNING *`,
         [
           ticket.title,
@@ -308,10 +308,11 @@ export async function POST(request: Request) {
           ticket.productId || null,
           ticket.tags || [],
           companyId,
-          userId,
+          ticket.customerId || userId,
           userId,
           JSON.stringify(ticket.attachments || []),
-          ticket.employeeIds || []
+          ticket.employeeIds || [],
+          ticket.assigneeId || null
         ]
       );
 

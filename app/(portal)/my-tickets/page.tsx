@@ -21,6 +21,7 @@ import {
 import { motion, AnimatePresence } from 'motion/react';
 import { cn, normalizeString } from '@/lib/utils';
 import { TicketDetailModal } from '@/components/ticket-detail-modal';
+import { NewTicketFAB } from '@/components/new-ticket-fab';
 import { isClosedTicketStatus, isInProgressTicketStatus } from '@/lib/ticket-status';
 import { useSearchParams, useRouter } from 'next/navigation';
 
@@ -507,11 +508,12 @@ export default function MyTicketsPage() {
       </div>
 
       {selectedTicket && (
-        <TicketDetailModal 
-          ticket={selectedTicket} 
-          onClose={() => setSelectedTicket(null)} 
+        <TicketDetailModal
+          ticket={selectedTicket}
+          onClose={() => setSelectedTicket(null)}
         />
       )}
+      {ticketMode === 'tickets' && <NewTicketFAB />}
     </div>
   );
 }

@@ -55,6 +55,8 @@ export function NewTicketModal() {
   const [requestTypeId, setRequestTypeId] = useState("");
   const [productId, setProductId] = useState("");
   const [priority, setPriority] = useState("");
+  const [tags, setTags] = useState<string[]>([]);
+  const [tagInput, setTagInput] = useState("");
   const [attachments, setAttachments] = useState<Attachment[]>([]);
   const [previewAttachment, setPreviewAttachment] = useState<Attachment | null>(null);
   const [isDragging, setIsDragging] = useState(false);
@@ -84,7 +86,12 @@ export function NewTicketModal() {
 
   const fileInputRef = useRef<HTMLInputElement>(null);
 
-  const isCustomer = currentUser?.role === UserRole.EMPLOYEE;
+  // Cliente e Funcionário são os dois papéis do "portal da empresa" — nenhum
+  // dos dois deve ver os campos de uso interno (Empresa/Cliente, Marcadores,
+  // Analista Responsável). Faltar UserRole.CUSTOMER aqui fazia um usuário
+  // "Cliente" ver a tela de analista, inclusive o seletor de empresa
+  // pré-preenchido com o company_id da própria conta.
+  const isCustomer = currentUser?.role === UserRole.CUSTOMER || currentUser?.role === UserRole.EMPLOYEE;
 
   useEffect(() => {
     if (isNewTicketModalOpen && currentUser) {
@@ -100,6 +107,22 @@ export function NewTicketModal() {
   useEffect(() => {
     async function fetchData() {
       if (!isNewTicketModalOpen) return;
+
+      // Reinicia os campos de seleção a cada abertura do modal — sem isso,
+      // "Empresa/Cliente" e os demais selects ficavam com o valor da última
+      // vez que um chamado foi criado (só título/descrição/anexos eram
+      // limpos no sucesso do submit), dando a impressão de estar pré-preenchido.
+      setSelectedCompanyId("");
+      setSelectedCustomerId("");
+      setEmployeeIds([]);
+      setQueueId("");
+      setCategoryId("");
+      setRequestTypeId("");
+      setProductId("");
+      setPriority("");
+      setTags([]);
+      setTagInput("");
+      setAssigneeId("");
 
       try {
         console.log("”„ NewTicketModal: Buscando dados para novo chamado...");
@@ -166,7 +189,13 @@ export function NewTicketModal() {
           setPriority(priRes.data[0].label);
         }
 
-        if (currentUser && currentUser.companyId) {
+        // Só pré-preenche empresa/solicitante pra quem é o próprio cliente —
+        // contas internas (Administrador/Equipe) também podem ter um
+        // company_id preenchido no perfil (ex: o admin semeado aponta pra
+        // "Empresa Matriz Ltda"), o que fazia o campo aparecer com uma
+        // empresa "fantasma" já selecionada mesmo pra quem cria chamado em
+        // nome de terceiros.
+        if (isCustomer && currentUser && currentUser.companyId) {
           setSelectedCompanyId(currentUser.companyId);
           setSelectedCustomerId(currentUser.id);
           setEmployeeIds([currentUser.id]); // Auto-select requester
@@ -253,7 +282,9 @@ export function NewTicketModal() {
       categoryId: categoryId || undefined,
       requestTypeId: requestTypeId || undefined,
       productId: productId || undefined,
-      tags: [],
+      employeeIds: employeeIds,
+      tags: tags,
+      assigneeId: assigneeId || undefined,
       attachments: attachments,
       createdAt: new Date().toISOString(),
       updatedAt: new Date().toISOString(),
@@ -530,6 +561,48 @@ export function NewTicketModal() {
                   ))}
                 </StyledSelect>
               </div>
+
+              {!isCustomer && (
+                <div className="space-y-1">
+                  <label className="text-[10px] font-semibold uppercase tracking-widest text-[var(--text-tertiary)] ml-1">
+                    Marcadores
+                  </label>
+                  <div className="flex flex-wrap items-center gap-2 p-3 bg-[var(--surface-card)] border border-[var(--border-default)] rounded-xl min-h-[46px]">
+                    {tags.map((tag) => (
+                      <span
+                        key={tag}
+                        className="flex items-center gap-1 px-3 py-1 rounded-full text-xs font-bold bg-[var(--surface-pill)] text-[var(--text-pill)]"
+                      >
+                        {tag}
+                        <button
+                          type="button"
+                          onClick={() => setTags(tags.filter((t) => t !== tag))}
+                          className="hover:text-[var(--text-danger)]"
+                        >
+                          <X size={12} />
+                        </button>
+                      </span>
+                    ))}
+                    <input
+                      type="text"
+                      value={tagInput}
+                      onChange={(e) => setTagInput(e.target.value)}
+                      onKeyDown={(e) => {
+                        if (e.key === "Enter" || e.key === ",") {
+                          e.preventDefault();
+                          const value = tagInput.trim();
+                          if (value && !tags.includes(value)) {
+                            setTags([...tags, value]);
+                          }
+                          setTagInput("");
+                        }
+                      }}
+                      placeholder="Digite e pressione Enter..."
+                      className="flex-1 min-w-[120px] bg-transparent text-sm font-medium outline-none"
+                    />
+                  </div>
+                </div>
+              )}
 
               {!isCustomer && (
                 <div className="space-y-1">

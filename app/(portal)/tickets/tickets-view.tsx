@@ -14,6 +14,7 @@ import { isClosedTicketStatus, isInProgressTicketStatus } from "@/lib/ticket-sta
 import { mergeTickets } from "@/app/actions";
 import { ConfigService } from "@/lib/services/config-service";
 import { findStatusColor } from "@/lib/status-colors";
+import { NewTicketFAB } from "@/components/new-ticket-fab";
 import {
   FileText,
   ChevronLeft,
@@ -1765,6 +1766,7 @@ export function TicketsView({
           </div>
         )}
       </AnimatePresence>
+      <NewTicketFAB />
     </div>
   );
 }
