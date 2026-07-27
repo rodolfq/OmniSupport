@@ -13,7 +13,6 @@ import { motion, AnimatePresence } from 'motion/react';
 import { cn } from '@/lib/utils';
 import { TicketDetailModal } from '@/components/ticket-detail-modal';
 import { FilterBar } from '@/components/filter-bar';
-import { NewTicketFAB } from '@/components/new-ticket-fab';
 import { useSearchParams, useRouter } from 'next/navigation';
 
 interface InternalTicketItem extends InternalTicket {
@@ -479,7 +478,6 @@ export default function DashboardPage() {
           />
         )}
       </AnimatePresence>
-      {dashboardMode === 'tickets' && canSeeTickets && <NewTicketFAB />}
     </div>
   );
 }

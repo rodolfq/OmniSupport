@@ -14,7 +14,6 @@ import { isClosedTicketStatus, isInProgressTicketStatus } from "@/lib/ticket-sta
 import { mergeTickets } from "@/app/actions";
 import { ConfigService } from "@/lib/services/config-service";
 import { findStatusColor } from "@/lib/status-colors";
-import { NewTicketFAB } from "@/components/new-ticket-fab";
 import {
   FileText,
   ChevronLeft,
@@ -34,6 +33,7 @@ import {
   Link2,
   Clock,
   MessageCircle,
+  Plus,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { AnimatePresence, motion } from "motion/react";
@@ -175,7 +175,7 @@ export function TicketsView({
   viewModeSwitcher?: React.ReactNode;
   viewMode: "cards" | "table" | "kanban";
 }) {
-  const { currentUser, hasPermission, notifications } = useApp();
+  const { currentUser, hasPermission, notifications, setIsNewTicketModalOpen } = useApp();
   const [internalLinks, setInternalLinks] = useState<InternalLinkRow[]>([]);
   const [filteredTickets, setFilteredTickets] = useState<Ticket[]>([]);
   const [selectedTicket, setSelectedTicket] = useState<Ticket | null>(null);
@@ -985,6 +985,13 @@ export function TicketsView({
           </p>
         </div>
         <div className="flex items-center gap-3 flex-wrap">
+          <button
+            onClick={() => setIsNewTicketModalOpen(true)}
+            className="bg-[var(--accent)] hover:bg-[var(--accent-hover)] text-white px-6 py-2.5 rounded-lg text-sm font-semibold shadow-md transition-all flex items-center justify-center gap-2 active:scale-95 focus:outline-none focus:ring-2 focus:ring-[var(--accent)]/40"
+          >
+            <Plus size={18} />
+            Novo Chamado
+          </button>
           {viewToggle}
           {showBulkActions && (
             <div className="flex items-center gap-3 bg-[var(--accent)]/10 px-4 py-2 rounded-2xl border border-[var(--accent)]/20">
@@ -1766,7 +1773,6 @@ export function TicketsView({
           </div>
         )}
       </AnimatePresence>
-      <NewTicketFAB />
     </div>
   );
 }

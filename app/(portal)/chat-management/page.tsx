@@ -41,7 +41,6 @@ import { cn, normalizeString, maskPhone, matchPhones } from '@/lib/utils';
 import { motion, AnimatePresence } from 'motion/react';
 import { useApp } from '@/app/app-context';
 import { LinkContactModal } from '@/components/link-contact-modal';
-import { NewTicketFAB } from '@/components/new-ticket-fab';
 import { AssignChatMenu } from '@/components/assign-chat-menu';
 import { ConfirmDialog } from '@/components/confirm-dialog';
 import { supabase } from '@/lib/supabase';
@@ -50,7 +49,7 @@ import { fetchUsers } from '@/lib/services/config-service';
 import { getQuickNotes, saveQuickNote as saveQuickNoteAction, deleteQuickNote, getAnalysts, getCompanies, updateUserStatus, saveTicketFromChatSession, closeChatSessionAfterTicket, assignChatSession, returnChatSessionToQueue } from '@/app/actions';
 
 export default function ChatManagementPage() {
-  const { currentUser, setActiveOmniChatId, setIsOmniChatOpen, refreshTrigger, userStatus, getContactPhoto, ensureContactPhoto, hasPermission } = useApp();
+  const { currentUser, setActiveOmniChatId, setIsOmniChatOpen, refreshTrigger, userStatus, getContactPhoto, ensureContactPhoto, hasPermission, setIsNewTicketModalOpen } = useApp();
   const [sessions, setSessions] = useState<ChatSession[]>([]);
   const [statuses, setStatuses] = useState<AnalystStatus[]>([]);
   const [notes, setNotes] = useState<QuickNote[]>([]);
@@ -515,6 +514,13 @@ const handleDeleteNote = async () => {
           <h2 className="text-3xl font-black text-[var(--text-primary)] tracking-tight">Canais de Atendimento</h2>
           <p className="text-[var(--text-tertiary)] font-medium">Controle de atendimento via WhatsApp e notas rápidas</p>
         </div>
+        <button
+          onClick={() => setIsNewTicketModalOpen(true)}
+          className="bg-[var(--accent)] hover:bg-[var(--accent-hover)] text-white px-6 py-2.5 rounded-lg text-sm font-semibold shadow-md transition-all flex items-center justify-center gap-2 active:scale-95 focus:outline-none focus:ring-2 focus:ring-[var(--accent)]/40"
+        >
+          <Plus size={18} />
+          Novo Chamado
+        </button>
       </div>
 
       <div className="flex bg-[var(--border-default)]/50 p-1.5 rounded-3xl w-fit gap-1.5">
@@ -1233,7 +1239,6 @@ const handleDeleteNote = async () => {
         confirmLabel="Encerrar"
         variant="danger"
       />
-      <NewTicketFAB />
     </div>
   );
 }
