@@ -1,4 +1,4 @@
-import { CategoryConfig, PriorityConfig, StatusConfig, TagConfig, QuickNote, SurveySettings } from '../types';
+import { CategoryConfig, PriorityConfig, StatusConfig, TagConfig, QuickNote, SurveySettings, EmailSettings } from '../types';
 import { registerClosedStatusLabels } from '../ticket-status';
 
 export class ConfigService {
@@ -161,6 +161,30 @@ export class ConfigService {
       body: JSON.stringify({ type: 'survey-settings', settings })
     });
     if (!res.ok) throw new Error('Error saving survey settings via API');
+  }
+
+  static async getEmailSettings(): Promise<EmailSettings> {
+    const res = await fetch('/api/config?type=email-settings');
+    const data = await res.json();
+    return {
+      enabled: data?.enabled ?? false,
+      smtpHost: data?.smtpHost ?? data?.smtp_host ?? '',
+      smtpPort: data?.smtpPort ?? data?.smtp_port ?? null,
+      smtpSecure: data?.smtpSecure ?? data?.smtp_secure ?? true,
+      smtpUser: data?.smtpUser ?? data?.smtp_user ?? '',
+      smtpPassword: data?.smtpPassword ?? data?.smtp_password ?? '',
+      fromName: data?.fromName ?? data?.from_name ?? '',
+      fromEmail: data?.fromEmail ?? data?.from_email ?? ''
+    };
+  }
+
+  static async saveEmailSettings(settings: EmailSettings): Promise<void> {
+    const res = await fetch('/api/config', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ type: 'email-settings', settings })
+    });
+    if (!res.ok) throw new Error('Error saving email settings via API');
   }
 }
 

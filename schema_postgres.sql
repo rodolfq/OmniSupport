@@ -19,6 +19,7 @@ DROP TABLE IF EXISTS public.config_categories CASCADE;
 DROP TABLE IF EXISTS public.config_priorities CASCADE;
 DROP TABLE IF EXISTS public.config_tags CASCADE;
 DROP TABLE IF EXISTS public.config_survey_settings CASCADE;
+DROP TABLE IF EXISTS public.config_email_settings CASCADE;
 DROP TABLE IF EXISTS public.automation_dispatches CASCADE;
 DROP TABLE IF EXISTS public.automation_settings CASCADE;
 DROP TABLE IF EXISTS public.config_statuses CASCADE;
@@ -220,6 +221,22 @@ Basta enviar 1, se você estiver satisfeito, ou 0, se poderíamos fazer melhor.'
   response_window_hours INTEGER NOT NULL DEFAULT 24,
   updated_at TIMESTAMP WITH TIME ZONE DEFAULT now() NOT NULL,
   CONSTRAINT config_survey_settings_single_row CHECK (id = 1)
+);
+
+-- Config E-mail (SMTP, linha única) — resposta ao cliente e notificação de
+-- atribuição de chamado por e-mail (Configurações > E-mail).
+CREATE TABLE public.config_email_settings (
+  id INTEGER PRIMARY KEY DEFAULT 1,
+  enabled BOOLEAN NOT NULL DEFAULT false,
+  smtp_host TEXT,
+  smtp_port INTEGER,
+  smtp_secure BOOLEAN NOT NULL DEFAULT true,
+  smtp_user TEXT,
+  smtp_password TEXT,
+  from_name TEXT,
+  from_email TEXT,
+  updated_at TIMESTAMP WITH TIME ZONE DEFAULT now() NOT NULL,
+  CONSTRAINT config_email_settings_single_row CHECK (id = 1)
 );
 
 -- Mensagens Automáticas: notificações por WhatsApp para ações do analista no chamado.
@@ -575,6 +592,9 @@ INSERT INTO public.config_tags (label, color, domain) VALUES
 ('Melhoria', 'bg-blue-100 text-blue-700', 'ticket'), 
 ('Urgente', 'bg-rose-100 text-rose-700', 'ticket')
 ON CONFLICT (label) DO NOTHING;
+
+-- Seed Config E-mail (linha única, desativada até alguém preencher o SMTP)
+INSERT INTO public.config_email_settings (id) VALUES (1) ON CONFLICT (id) DO NOTHING;
 
 -- Seed Default Absence Reasons
 INSERT INTO public.absence_reasons (label) VALUES 

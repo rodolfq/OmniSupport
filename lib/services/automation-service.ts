@@ -2,6 +2,7 @@ import { query } from '../db';
 import { isClosedTicketStatus } from '../ticket-status';
 import { AUTOMATION_EVENTS, renderTemplate } from '../automation-events';
 import { WhatsAppService } from './whatsapp-service';
+import { EmailService } from './email-service';
 
 // Linha crua de public.tickets (snake_case), como vem de SELECT/RETURNING —
 // os 7 pontos de disparo (ver app/api/tickets/route.ts e
@@ -206,6 +207,31 @@ export async function dispatchEvent(eventKey: string, ticket: TicketRow, extra: 
   }
 }
 
+// Notificação de atribuição por e-mail pro responsável interno — separada do
+// disparo de WhatsApp acima (que notifica o CLIENTE de que um analista foi
+// atribuído, não o analista). Texto fixo (não passa por automation_settings/
+// AUTOMATED_EVENTS, por decisão — mesma simplicidade das notificações push
+// existentes). Falha aqui nunca deve derrubar o disparo de WhatsApp que já
+// aconteceu antes no mesmo handleTicketUpdated.
+async function notifyAssigneeByEmail(ticket: TicketRow): Promise<void> {
+  if (!ticket.assignee_id) return;
+  const res = await query('SELECT email, name FROM public.profiles WHERE id = $1', [ticket.assignee_id]);
+  const assignee = res.rows[0];
+  if (!assignee?.email) return;
+
+  const ticketLabel = `#${String(ticket.public_ticket_number ?? '').padStart(4, '0')}`;
+  const baseUrl = process.env.NEXT_PUBLIC_APP_URL;
+  const link = baseUrl ? `${baseUrl}/dashboard?ticket=${ticket.id}` : null;
+
+  const html = `
+    <p>Olá, ${assignee.name || ''}.</p>
+    <p>O chamado <strong>${ticketLabel} — ${ticket.title || ''}</strong> foi atribuído a você.</p>
+    ${link ? `<p><a href="${link}">Abrir chamado</a></p>` : ''}
+  `.trim();
+
+  await EmailService.send(assignee.email, `Chamado ${ticketLabel} atribuído a você — SSX Desk`, html);
+}
+
 async function handleStatusChange(oldTicket: TicketRow, newTicket: TicketRow): Promise<void> {
   if (isClosedTicketStatus(oldTicket.status) && !isClosedTicketStatus(newTicket.status)) {
     await dispatchEvent('chamado_reaberto', newTicket);
@@ -244,6 +270,7 @@ export function handleTicketUpdated(oldTicket: TicketRow | null | undefined, new
       }
       if (oldTicket.assignee_id !== newTicket.assignee_id && newTicket.assignee_id) {
         await dispatchEvent('analista_atribuido', newTicket);
+        notifyAssigneeByEmail(newTicket).catch(err => console.error('[email] notifyAssigneeByEmail:', err));
       }
       if (oldTicket.status !== newTicket.status) {
         await handleStatusChange(oldTicket, newTicket);

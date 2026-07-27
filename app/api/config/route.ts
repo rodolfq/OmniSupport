@@ -53,6 +53,9 @@ export async function GET(request: Request) {
     } else if (type === 'survey-settings') {
       const res = await query('SELECT * FROM public.config_survey_settings WHERE id = 1');
       return NextResponse.json(res.rows[0] || null);
+    } else if (type === 'email-settings') {
+      const res = await query('SELECT * FROM public.config_email_settings WHERE id = 1');
+      return NextResponse.json(res.rows[0] || null);
     } else if (type === 'automation-settings') {
       const settings = await getAutomationSettings();
       return NextResponse.json(settings);
@@ -230,6 +233,33 @@ export async function POST(request: Request) {
          WHERE id = 1
          RETURNING *`,
         [settings.enabled, settings.message, settings.responseWindowHours]
+      );
+      return NextResponse.json(res.rows[0]);
+    } else if (type === 'email-settings') {
+      const { settings } = body;
+      const res = await query(
+        `UPDATE public.config_email_settings
+         SET enabled = $1,
+             smtp_host = $2,
+             smtp_port = $3,
+             smtp_secure = $4,
+             smtp_user = $5,
+             smtp_password = $6,
+             from_name = $7,
+             from_email = $8,
+             updated_at = now()
+         WHERE id = 1
+         RETURNING *`,
+        [
+          settings.enabled,
+          settings.smtpHost || null,
+          settings.smtpPort || null,
+          settings.smtpSecure,
+          settings.smtpUser || null,
+          settings.smtpPassword || null,
+          settings.fromName || null,
+          settings.fromEmail || null,
+        ]
       );
       return NextResponse.json(res.rows[0]);
     } else if (type === 'automation-settings') {
