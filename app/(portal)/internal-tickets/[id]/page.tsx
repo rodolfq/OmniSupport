@@ -457,11 +457,11 @@ export default function InternalTicketDetailPage() {
                   className="w-full bg-[var(--surface-card)] border border-[var(--border-default)] rounded-lg px-3 py-2 text-xs font-bold text-[var(--text-primary)]"
                 >
                   <option value="">Nenhum</option>
-                  {/* Hotfix já publicado não é mais uma opção válida pra novo vínculo —
-                      exceto o que este chamado já usa, pra não sumir da seleção atual. */}
-                  {hotfixes.filter(h => !h.publishedAt || h.id === formHotfixId).map(h => (
+                  {/* Hotfix já publicado não aparece mais aqui, nem o que este
+                      chamado já usa — uma vez sincronizado, sai da lista. */}
+                  {hotfixes.filter(h => !h.publishedAt).map(h => (
                     <option key={h.id} value={h.id}>
-                      {new Date(`${h.expectedDate}T00:00:00`).toLocaleDateString('pt-BR')} — {h.name}{h.publishedAt ? ' (publicado)' : ''}
+                      {new Date(`${h.expectedDate}T00:00:00`).toLocaleDateString('pt-BR')} — {h.name}
                     </option>
                   ))}
                 </StyledSelect>
