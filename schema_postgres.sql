@@ -250,6 +250,10 @@ CREATE TABLE public.automation_settings (
   delay_minutes INTEGER NOT NULL DEFAULT 0,
   first_occurrence_only BOOLEAN NOT NULL DEFAULT false,
   trigger_status TEXT,
+  -- Canal de e-mail, independente do WhatsApp acima (enabled/message) —
+  -- mesmo evento, atraso e "só primeira ocorrência" compartilhados.
+  email_enabled BOOLEAN NOT NULL DEFAULT false,
+  email_subject TEXT,
   updated_at TIMESTAMP WITH TIME ZONE DEFAULT now() NOT NULL
 );
 
@@ -262,6 +266,10 @@ CREATE TABLE public.automation_dispatches (
   recipient_id UUID REFERENCES public.profiles(id) ON DELETE SET NULL,
   recipient_name TEXT,
   recipient_phone TEXT,
+  -- 'whatsapp' (default, dados acima) ou 'email' (usa recipient_email/subject).
+  channel TEXT NOT NULL DEFAULT 'whatsapp',
+  recipient_email TEXT,
+  subject TEXT,
   message TEXT NOT NULL,
   status TEXT NOT NULL DEFAULT 'pending',
   error TEXT,

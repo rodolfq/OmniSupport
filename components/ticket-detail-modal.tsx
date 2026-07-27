@@ -2,7 +2,7 @@
 
 import React, { useState, useEffect, useRef } from 'react';
 import { StyledSelect } from '@/components/styled-select';
-import { X, User, MessageCircle, Mail, Clock, Link2, Paperclip, Save, Maximize2, Minimize2, Send, Lock, History, Download, File, Image as ImageIcon, Film, Loader2, Check, Copy, GitMerge } from 'lucide-react';
+import { X, User, MessageCircle, Clock, Link2, Paperclip, Save, Maximize2, Minimize2, Send, Lock, History, Download, File, Image as ImageIcon, Film, Loader2, Check, Copy, GitMerge } from 'lucide-react';
 import { motion } from 'motion/react';
 import { Ticket, TicketStatus, User as UserType, Message, UserRole, StatusConfig, Company, Attachment, PriorityConfig, CategoryConfig, RequestTypeConfig, ProductConfig, InternalTicket, Permission } from '@/lib/types';
 import { supabase } from '@/lib/supabase';
@@ -24,6 +24,7 @@ import { CompanyService } from '@/lib/services/company-service';
 import { ConfigService } from '@/lib/services/config-service';
 import { getDefaultClosedTicketStatus, isClosedTicketStatus, registerClosedStatusLabels } from '@/lib/ticket-status';
 import { FieldChange, formatChangeMessage } from '@/lib/ticket-diff';
+import { wrapEmailHtml } from '@/lib/email-templates';
 
 interface TicketDetailModalProps {
   ticket: Ticket | null;
@@ -438,7 +439,45 @@ const loadMessages = async () => {
       toast.success('Ticket interno desvinculado');
     };
 
-const handleSendMessage = async (isInternal: boolean) => {
+    // Toda resposta visível ao cliente sai por e-mail automaticamente — não é
+    // uma ação opcional/separada (por decisão), então não tem botão próprio:
+    // roda em segundo plano a partir de qualquer caminho que grave uma
+    // resposta (handleSendMessage, handleSendWhatsAppReply). Falha aqui nunca
+    // deve impedir o resto do fluxo (mensagem já foi salva antes de chamar).
+    const sendReplyEmailInBackground = async (replyMessage: Message, forTicket: Ticket) => {
+      const customerEmail = allUsers.find(u => u.id === customerId)?.email;
+      if (!customerEmail) return;
+
+      const ticketLabel = `#${forTicket.ticketNumber ? String(forTicket.ticketNumber).padStart(4, '0') : forTicket.id.slice(0, 8)}`;
+      const baseUrl = process.env.NEXT_PUBLIC_APP_URL || window.location.origin;
+      const ctaUrl = `${baseUrl}/my-tickets?ticket=${forTicket.id}`;
+
+      // E-mail suporta HTML nativamente — diferente do WhatsApp, não precisa
+      // passar por stripNotificationHtml, só entra dentro do bloco de
+      // destaque da resposta.
+      const bodyHtml = `
+        <p style="margin:0 0 16px;">Você recebeu uma nova resposta da nossa equipe no chamado <strong>${ticketLabel} — ${forTicket.title}</strong>.</p>
+        <div style="padding:16px 18px;background:#f9fafb;border-left:4px solid #0FA694;border-radius:8px;color:#374151;">${replyMessage.text}</div>
+      `.trim();
+      const html = wrapEmailHtml({ bodyHtml, ctaUrl, ctaLabel: 'Acessar o chamado' });
+
+      try {
+        const res = await fetch('/api/email/send', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ to: customerEmail, subject: `Chamado ${ticketLabel} — ${forTicket.title}`, html })
+        });
+        if (!res.ok) {
+          const data = await res.json().catch(() => ({}));
+          toast.warning(data.error || 'Resposta salva, mas não foi enviada por e-mail.');
+        }
+      } catch (err) {
+        console.error('Email send failed:', err);
+        toast.warning('Resposta salva, mas não foi enviada por e-mail.');
+      }
+    };
+
+    const handleSendMessage = async (isInternal: boolean) => {
       if (!message.trim() || !currentUser || !ticket) return;
 
       const newMessage: Message = {
@@ -464,6 +503,8 @@ const handleSendMessage = async (isInternal: boolean) => {
       setMessageAttachments([]);
       loadMessages();
       triggerRefresh();
+
+      if (!isInternal) sendReplyEmailInBackground(newMessage, updatedTicket);
     };
 
     // Grava a resposta como mensagem visível ao cliente (igual handleSendMessage)
@@ -522,60 +563,8 @@ const handleSendMessage = async (isInternal: boolean) => {
         console.error('WhatsApp send failed:', err);
         toast.warning('Mensagem salva, mas não foi enviada no WhatsApp.');
       }
-    };
 
-    const handleSendEmailReply = async () => {
-      if (!message.trim() || !currentUser || !ticket) return;
-      const customerEmail = allUsers.find(u => u.id === customerId)?.email;
-      if (!customerEmail) return;
-
-      const newMessage: Message = {
-        id: Math.random().toString(36).substr(2, 9),
-        ticketId: ticket.id,
-        senderId: currentUser.id,
-        text: message,
-        timestamp: new Date().toISOString(),
-        isVisibleToCustomer: true,
-        type: 'text',
-        attachments: messageAttachments.length > 0 ? messageAttachments : undefined
-      };
-
-      await MessageService.create(newMessage);
-
-      const updatedTicket: Ticket = {
-        ...ticket,
-        updatedAt: new Date().toISOString()
-      };
-      await TicketService.update(updatedTicket);
-
-      const hasAttachments = messageAttachments.length > 0;
-      setMessage('');
-      setMessageAttachments([]);
-      loadMessages();
-      triggerRefresh();
-
-      const ticketLabel = `#${ticket.ticketNumber ? String(ticket.ticketNumber).padStart(4, '0') : ticket.id.slice(0, 8)}`;
-
-      try {
-        const res = await fetch('/api/email/send', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          // E-mail suporta HTML nativamente — diferente do WhatsApp, não
-          // precisa passar por stripNotificationHtml.
-          body: JSON.stringify({ to: customerEmail, subject: `Chamado ${ticketLabel} — ${ticket.title}`, html: newMessage.text })
-        });
-        if (!res.ok) {
-          const data = await res.json().catch(() => ({}));
-          toast.warning(data.error || 'Mensagem salva, mas não foi enviada por e-mail.');
-        } else if (hasAttachments) {
-          toast.warning('Anexo salvo na conversa, mas o envio de anexos por e-mail ainda não está disponível.');
-        } else {
-          toast.success('Enviado por e-mail.');
-        }
-      } catch (err) {
-        console.error('Email send failed:', err);
-        toast.warning('Mensagem salva, mas não foi enviada por e-mail.');
-      }
+      sendReplyEmailInBackground(newMessage, updatedTicket);
     };
 
     // Posta direto no ticket interno selecionado (internal_ticket_messages),
@@ -2031,17 +2020,6 @@ const handleSendMessage = async (isInternal: boolean) => {
                            >
                               <MessageCircle size={16} />
                               Enviar por WhatsApp
-                           </button>
-                         )}
-                         {historyTab !== 'internal' && (
-                           <button
-                             onClick={handleSendEmailReply}
-                             disabled={!message.trim() || message === '<p></p>' || !allUsers.find(u => u.id === customerId)?.email}
-                             title={!allUsers.find(u => u.id === customerId)?.email ? 'Contato sem e-mail cadastrado' : undefined}
-                             className="px-6 py-2 rounded-xl transition-all disabled:opacity-50 shadow-lg text-xs font-black uppercase tracking-widest flex items-center gap-2 bg-[var(--accent)] hover:bg-[var(--accent-hover)] text-white shadow-indigo-100"
-                           >
-                              <Mail size={16} />
-                              Enviar por E-mail
                            </button>
                          )}
                          <button

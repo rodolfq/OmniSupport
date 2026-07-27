@@ -1,19 +1,16 @@
 'use client';
 
 import React, { useState } from 'react';
-import { X, UserPlus, Mail, Phone, Shield, Plus } from 'lucide-react';
+import { X, UserPlus, Mail, Phone, Plus } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import { createUser } from '@/app/actions';
 import { UserRole } from '@/lib/types';
 import { maskPhone } from '@/lib/utils';
-import { useApp } from '@/app/app-context';
 
 export function NewEmployeeModal({ isOpen, onClose, companyId, onSuccess }: { isOpen: boolean, onClose: () => void, companyId?: string, onSuccess?: () => void }) {
-  const { currentUser } = useApp();
   const [name, setName] = useState('');
   const [email, setEmail] = useState('');
   const [phones, setPhones] = useState<string[]>(['']);
-  const [viewAllCompanyTickets, setViewAllCompanyTickets] = useState(false);
 
   const [loading, setLoading] = useState(false);
   const [saveSuccess, setSaveSuccess] = useState(false);
@@ -35,7 +32,9 @@ export function NewEmployeeModal({ isOpen, onClose, companyId, onSuccess }: { is
         role,
         companyId || null,
         phones,
-        currentUser?.role === UserRole.CUSTOMER ? false : viewAllCompanyTickets
+        // Funcionário sempre enxerga só os próprios chamados — sem opção de
+        // ver todos os chamados da empresa nesta tela (ver ROADMAP/pedido).
+        false
       );
       
       if (result.error) {
@@ -162,25 +161,6 @@ export function NewEmployeeModal({ isOpen, onClose, companyId, onSuccess }: { is
                   <Plus size={14} /> Adicionar outro número
                 </button>
               </div>
-
-              {currentUser?.role !== UserRole.CUSTOMER && (
-              <div className="p-4 bg-[var(--accent)]/10 rounded-2xl border border-[var(--accent)]/20 flex items-center justify-between">
-                <div className="flex items-center gap-3">
-                  <div className="w-8 h-8 rounded-lg bg-[var(--surface-card)] border border-[var(--accent)]/20 flex items-center justify-center text-[var(--accent-text)] shadow-sm transition-transform group-hover:scale-110">
-                    <Shield size={14} />
-                  </div>
-                  <div>
-                    <p className="text-[11px] font-black text-indigo-900 dark:text-[var(--accent-soft-text)] uppercase tracking-tight">Visualizar apenas chamados internos</p>
-                  </div>
-                </div>
-                <div
-                  onClick={() => setViewAllCompanyTickets(!viewAllCompanyTickets)}
-                  className={`w-12 h-6 rounded-full p-1 cursor-pointer transition-all ${viewAllCompanyTickets ? 'bg-[var(--accent)] translate-z-0' : 'bg-[var(--border-default)]'}`}
-                >
-                  <div className={`w-4 h-4 rounded-full bg-[var(--surface-card)] shadow-sm transition-transform ${viewAllCompanyTickets ? 'translate-x-6' : 'translate-x-0'}`} />
-                </div>
-              </div>
-              )}
 
               {error && (
                 <div className="p-3 bg-[var(--surface-danger)] text-[var(--text-danger)] text-xs font-bold rounded-xl border border-[var(--text-danger)]/20">
