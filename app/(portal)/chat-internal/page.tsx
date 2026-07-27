@@ -199,7 +199,7 @@ export default function ChatInternalPage() {
     const canViewInternalChat = currentUser.role === UserRole.ADMIN ||
       currentUser.permissions?.includes(Permission.CHAT_INTERNAL_VIEW) === true;
     if (!canViewInternalChat) {
-      router.replace('/internal-tickets');
+      router.replace('/tickets?mode=internal');
       return;
     }
     let isActive = true;

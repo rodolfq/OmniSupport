@@ -4,7 +4,7 @@ import React, { useState, useMemo } from 'react';
 import Link from 'next/link';
 import { usePathname, useRouter } from 'next/navigation';
 import { Permission, UserRole } from '@/lib/types';
-import { getNavItems, getUserPermissions } from '@/lib/nav-items';
+import { getNavItems, getUserPermissions, matchesPermission } from '@/lib/nav-items';
 import {
    LogOut,
    Database,
@@ -54,12 +54,12 @@ export function Sidebar() {
       <div className="flex-1 flex flex-col gap-4">
         {menuItems.map((item) => {
           // Check permission if required
-          const hasPermission = !item.permission || userPermissions.includes(item.permission);
-          
+          const hasPermission = matchesPermission(item.permission, userPermissions);
+
           if (!hasPermission) {
             // Check if any sub-item has permission
             if (item.subItems) {
-              const hasVisibleSubItem = item.subItems.some(sub => !sub.permission || userPermissions.includes(sub.permission as Permission));
+              const hasVisibleSubItem = item.subItems.some(sub => matchesPermission(sub.permission, userPermissions));
               if (!hasVisibleSubItem) return null;
             } else {
               return null;
@@ -116,7 +116,7 @@ export function Sidebar() {
                   </div>
                   {item.subItems?.map(sub => {
                     // Check sub-item permission
-                    if (sub.permission && !userPermissions.includes(sub.permission as Permission)) return null;
+                    if (!matchesPermission(sub.permission, userPermissions)) return null;
 
                     const isSubActive = sub.href ? pathname === sub.href : false;
 

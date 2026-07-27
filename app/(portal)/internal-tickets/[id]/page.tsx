@@ -389,7 +389,7 @@ export default function InternalTicketDetailPage() {
           <button onClick={() => { if (currentUser) { setFormAssignee(currentUser.id); handleUpdateTicket({ assigneeId: currentUser.id }); } }} className="px-3 py-1.5 rounded-lg text-xs font-bold border border-[var(--border-default)] hover:bg-[var(--surface-card)]">ASSUMIR</button>
           <button onClick={() => { setFormStatus('Concluído'); handleUpdateTicket({ status: 'Concluído' }); }} className="px-3 py-1.5 rounded-lg text-xs font-bold bg-[var(--text-success)] text-white hover:bg-emerald-700">FINALIZAR</button>
           <button onClick={() => handleUpdateTicket()} className="px-3 py-1.5 rounded-lg text-xs font-bold bg-[var(--text-warning-strong)] text-white hover:bg-[var(--accent-warning-hover)]">SALVAR</button>
-          <button onClick={() => router.push('/internal-tickets')} className="p-1.5 rounded-lg text-[var(--text-tertiary)] hover:text-[var(--text-secondary)]">
+          <button onClick={() => router.push('/tickets?mode=internal')} className="p-1.5 rounded-lg text-[var(--text-tertiary)] hover:text-[var(--text-secondary)]">
             <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M18 6 6 18"/><path d="m6 6 12 12"/></svg>
           </button>
         </div>
