@@ -28,7 +28,9 @@ async function processDueDispatches(): Promise<void> {
   for (const row of due.rows) {
     try {
       if (row.channel === 'email') {
-        const ctaUrl = baseUrl && row.ticket_id ? `${baseUrl}/my-tickets?ticket=${row.ticket_id}` : null;
+        // Usa o id (UUID) direto — app/(portal)/tickets/[id]/page.tsx aceita
+        // tanto o número público quanto o UUID como fallback.
+        const ctaUrl = baseUrl && row.ticket_id ? `${baseUrl}/tickets/${row.ticket_id}` : null;
         const html = wrapEmailHtml({ bodyHtml: plainTextToHtml(row.message), ctaUrl, ctaLabel: 'Abrir chamado' });
         await EmailService.send(row.recipient_email, row.subject || row.message.slice(0, 80), html);
       } else {

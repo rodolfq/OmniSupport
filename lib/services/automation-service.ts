@@ -127,7 +127,9 @@ export async function buildPlaceholderContext(ticket: TicketRow, extra: Record<s
     categoria: names.category_label || '',
     data: now.toLocaleDateString('pt-BR'),
     hora: now.toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' }),
-    link: baseUrl ? `${baseUrl}/my-tickets?ticket=${ticket.id}` : '',
+    // /tickets/<número> — link curto e compartilhável, resolvido pra onde o
+    // chamado realmente abre (cliente ou equipe) por app/(portal)/tickets/[id]/page.tsx.
+    link: baseUrl ? `${baseUrl}/tickets/${ticket.public_ticket_number}` : '',
     tempo_atendimento: formatDuration(now.getTime() - createdAt.getTime()),
     nota: extra.nota || '',
     motivo: extra.motivo || ''
@@ -276,13 +278,13 @@ async function notifyAssigneeByEmail(ticket: TicketRow): Promise<void> {
 
   const ticketLabel = `#${String(ticket.public_ticket_number ?? '').padStart(4, '0')}`;
   const baseUrl = process.env.NEXT_PUBLIC_APP_URL;
-  const link = baseUrl ? `${baseUrl}/dashboard?ticket=${ticket.id}` : null;
+  const link = baseUrl ? `${baseUrl}/tickets/${ticket.public_ticket_number}` : null;
 
-  const html = `
-    <p>Olá, ${assignee.name || ''}.</p>
-    <p>O chamado <strong>${ticketLabel} — ${ticket.title || ''}</strong> foi atribuído a você.</p>
-    ${link ? `<p><a href="${link}">Abrir chamado</a></p>` : ''}
+  const bodyHtml = `
+    <p style="margin:0 0 8px;">Olá, ${assignee.name || ''}.</p>
+    <p style="margin:0;">O chamado <strong>${ticketLabel} — ${ticket.title || ''}</strong> foi atribuído a você.</p>
   `.trim();
+  const html = wrapEmailHtml({ bodyHtml, ctaUrl: link, ctaLabel: 'Abrir chamado' });
 
   await EmailService.send(assignee.email, `Chamado ${ticketLabel} atribuído a você — SSX Desk`, html);
 }
