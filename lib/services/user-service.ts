@@ -55,18 +55,24 @@ export class UserService {
 
   static async save(user: Partial<User>): Promise<void> {
     if (!user.id) return;
-    
+
     const res = await fetch('/api/users', {
       method: 'PUT',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ user })
     });
-    if (!res.ok) throw new Error('Error saving user via API');
+    if (!res.ok) {
+      const data = await res.json().catch(() => ({}));
+      throw new Error(data.error || (res.status === 401 ? 'Sua sessão expirou — faça login novamente.' : 'Erro ao salvar usuário.'));
+    }
   }
 
   static async delete(id: string): Promise<void> {
     const res = await fetch(`/api/users?id=${id}`, { method: 'DELETE' });
-    if (!res.ok) throw new Error('Error deleting user via API');
+    if (!res.ok) {
+      const data = await res.json().catch(() => ({}));
+      throw new Error(data.error || (res.status === 401 ? 'Sua sessão expirou — faça login novamente.' : 'Erro ao excluir usuário.'));
+    }
   }
 }
 

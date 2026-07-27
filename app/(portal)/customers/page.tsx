@@ -12,6 +12,7 @@ import { ConfirmModal } from '@/components/confirm-modal';
 import { useApp } from '@/app/app-context';
 import { motion, AnimatePresence } from 'motion/react';
 import { supabase } from '@/lib/supabase';
+import { toast } from 'sonner';
 
 function WhatsAppNumberModal({ 
   isOpen, 
@@ -68,7 +69,7 @@ function WhatsAppNumberModal({
                        // Re-assign if current user is analyst and it's unassigned
                        if (!existing.assigneeId && currentUser && currentUser.role !== UserRole.CUSTOMER) {
                          if (userStatus !== 'online') {
-                           alert('Você precisa estar Online para assumir atendimentos!');
+                           toast.error('Você precisa estar Online para assumir atendimentos!');
                            return;
                          }
                          await supabase.from('chat_sessions').update({

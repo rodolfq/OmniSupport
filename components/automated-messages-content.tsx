@@ -1,7 +1,7 @@
 'use client';
 
 import React from 'react';
-import { RotateCcw, Eye, EyeOff, Save, Clock, MessageCircleMore } from 'lucide-react';
+import { RotateCcw, Eye, EyeOff, Save, Clock, MessageCircleMore, Mail } from 'lucide-react';
 import { toast } from 'sonner';
 import { cn } from '@/lib/utils';
 import { StyledSelect } from '@/components/styled-select';
@@ -14,6 +14,8 @@ interface EditState {
   delayMinutes: number;
   firstOccurrenceOnly: boolean;
   triggerStatus: string;
+  emailEnabled: boolean;
+  emailSubject: string;
   saving: boolean;
   showPreview: boolean;
 }
@@ -29,6 +31,8 @@ function toEditState(def: AutomationEventDef, saved?: AutomationSetting): EditSt
     delayMinutes: saved?.delay_minutes ?? 0,
     firstOccurrenceOnly: saved?.first_occurrence_only ?? false,
     triggerStatus: saved?.trigger_status ?? def.defaultTriggerStatus ?? '',
+    emailEnabled: saved?.email_enabled ?? false,
+    emailSubject: saved?.email_subject ?? '',
     saving: false,
     showPreview: false
   };
@@ -128,7 +132,9 @@ export function AutomatedMessagesContent() {
             message: state.message,
             delayMinutes: state.delayMinutes,
             firstOccurrenceOnly: state.firstOccurrenceOnly,
-            triggerStatus: def.statusConfigurable ? (state.triggerStatus || null) : null
+            triggerStatus: def.statusConfigurable ? (state.triggerStatus || null) : null,
+            emailEnabled: state.emailEnabled,
+            emailSubject: state.emailSubject || null
           }
         })
       });
@@ -161,16 +167,40 @@ export function AutomatedMessagesContent() {
                   <h4 className="text-sm font-black text-[var(--text-primary)] uppercase tracking-tight">{def.label}</h4>
                   <p className="text-xs text-[var(--text-tertiary)] mt-1">{def.description}</p>
                 </div>
-                <label className="flex items-center gap-2 text-xs font-semibold text-[var(--text-secondary)] cursor-pointer select-none shrink-0">
-                  <input
-                    type="checkbox"
-                    checked={state.enabled}
-                    onChange={(e) => patchEvent(def.key, { enabled: e.target.checked })}
-                    className="w-4 h-4 accent-[var(--accent)]"
-                  />
-                  {state.enabled ? 'Ativo' : 'Inativo'}
-                </label>
+                <div className="flex flex-col items-end gap-1.5 shrink-0">
+                  <label className="flex items-center gap-2 text-xs font-semibold text-[var(--text-secondary)] cursor-pointer select-none">
+                    <input
+                      type="checkbox"
+                      checked={state.enabled}
+                      onChange={(e) => patchEvent(def.key, { enabled: e.target.checked })}
+                      className="w-4 h-4 accent-[var(--accent)]"
+                    />
+                    <MessageCircleMore size={13} /> WhatsApp {state.enabled ? 'Ativo' : 'Inativo'}
+                  </label>
+                  <label className="flex items-center gap-2 text-xs font-semibold text-[var(--text-secondary)] cursor-pointer select-none">
+                    <input
+                      type="checkbox"
+                      checked={state.emailEnabled}
+                      onChange={(e) => patchEvent(def.key, { emailEnabled: e.target.checked })}
+                      className="w-4 h-4 accent-[var(--accent)]"
+                    />
+                    <Mail size={13} /> E-mail {state.emailEnabled ? 'Ativo' : 'Inativo'}
+                  </label>
+                </div>
               </div>
+
+              {state.emailEnabled && (
+                <div className="space-y-1.5">
+                  <span className="text-[10px] font-semibold uppercase tracking-widest text-[var(--text-tertiary)]">Assunto do e-mail</span>
+                  <input
+                    type="text"
+                    value={state.emailSubject}
+                    onChange={(e) => patchEvent(def.key, { emailSubject: e.target.value })}
+                    placeholder="Chamado {{numero_chamado}} — {{titulo}}"
+                    className="w-full bg-[var(--surface-card)] border border-[var(--border-default)] rounded-xl px-4 py-2.5 text-sm font-medium"
+                  />
+                </div>
+              )}
 
               {def.statusConfigurable && (
                 <div className="flex items-center gap-2">

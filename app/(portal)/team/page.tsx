@@ -281,7 +281,7 @@ export default function TeamManagementPage() {
       setIsModalOpen(false);
     } catch (error) {
       console.error('Erro ao excluir usuário:', error);
-      alert('Não foi possível excluir o usuário. Verifique suas permissões no sistema.');
+      toast.error('Não foi possível excluir o usuário. Verifique suas permissões no sistema.');
     }
   };
 

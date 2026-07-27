@@ -1,6 +1,7 @@
 import { NextResponse } from 'next/server';
 import { query } from '@/lib/db';
 import { handleTicketCreated, handleTicketUpdated, handleTicketMessageCreated } from '@/lib/services/automation-service';
+import { handleInternalTicketCreated, handleInternalTicketUpdated } from '@/lib/services/internal-ticket-notifications';
 
 // Versão independente (params próprios, sempre a partir de $1) da mesma
 // lógica de filtros usada por buildWhereClause() dentro do POST — usada só
@@ -329,6 +330,10 @@ export async function POST(request: Request) {
               .catch(err => console.error('[automation] Falha ao buscar chamado (compat insert):', err));
           }
         }
+      } else if (table === 'internal_tickets') {
+        for (const row of returned) {
+          if (row) handleInternalTicketCreated(row);
+        }
       }
 
       if (isSingle || isMaybeSingle) {
@@ -363,13 +368,13 @@ export async function POST(request: Request) {
       paramIndex += columns.length;
 
       // Estado "antigo" precisa ser lido ANTES do UPDATE (rota genérica, não
-      // dá pra saber que é um chamado sem isso) para os hooks de automação
-      // conseguirem comparar o que mudou.
-      let oldTicketsById: Map<string, any> | null = null;
-      if (table === 'tickets') {
+      // dá pra saber que é um chamado/ticket interno sem isso) para os hooks
+      // de automação/notificação conseguirem comparar o que mudou.
+      let oldRowsById: Map<string, any> | null = null;
+      if (table === 'tickets' || table === 'internal_tickets') {
         const { clause, params: whereParams } = buildStandaloneWhereClause(table, filters);
-        const oldRes = await query(`SELECT * FROM public.tickets${clause}`, whereParams);
-        oldTicketsById = new Map(oldRes.rows.map((r: any) => [r.id, r]));
+        const oldRes = await query(`SELECT * FROM public.${table}${clause}`, whereParams);
+        oldRowsById = new Map(oldRes.rows.map((r: any) => [r.id, r]));
       }
 
       sql = `UPDATE public.${table} SET ${setAssignments}`;
@@ -378,9 +383,13 @@ export async function POST(request: Request) {
 
       const res = await query(sql, params);
 
-      if (table === 'tickets' && oldTicketsById) {
+      if (table === 'tickets' && oldRowsById) {
         for (const newTicket of res.rows) {
-          handleTicketUpdated(oldTicketsById.get(newTicket.id), newTicket);
+          handleTicketUpdated(oldRowsById.get(newTicket.id), newTicket);
+        }
+      } else if (table === 'internal_tickets' && oldRowsById) {
+        for (const newTicket of res.rows) {
+          handleInternalTicketUpdated(oldRowsById.get(newTicket.id), newTicket);
         }
       }
 

@@ -19,6 +19,7 @@ import {
   DndContext, DragOverlay, useDraggable, useDroppable, PointerSensor, useSensor, useSensors,
   type DragStartEvent, type DragEndEvent
 } from "@dnd-kit/core";
+import { toast } from "sonner";
 
 interface InternalTicketItem extends InternalTicket {
   linkedTicketTitles?: string[];
@@ -422,7 +423,7 @@ if (filterAssignee) query = query.eq("assignee_id", filterAssignee);
       fetchTickets(1);
     } catch (error) {
       console.error("Error saving ticket:", error);
-      alert("Erro ao salvar: " + (error as any)?.message || "Unknown error");
+      toast.error("Erro ao salvar: " + ((error as any)?.message || "erro desconhecido"));
     }
 };
 

@@ -430,6 +430,9 @@ export interface AutomationSetting {
   delay_minutes: number;
   first_occurrence_only: boolean;
   trigger_status: string | null;
+  // Canal de e-mail — independente do WhatsApp acima, mesmo evento/atraso.
+  email_enabled: boolean;
+  email_subject: string | null;
   updated_at: string;
 }
 

@@ -23,6 +23,7 @@ import { cn } from '@/lib/utils';
 import { motion, AnimatePresence } from 'motion/react';
 import { ConfirmDialog } from '@/components/confirm-dialog';
 import { useApp } from '@/app/app-context';
+import { toast } from 'sonner';
 
 export default function QueuesManagementPage() {
   const [queues, setQueues] = useState<Queue[]>([]);
@@ -117,7 +118,7 @@ export default function QueuesManagementPage() {
 
     if (res && (res as any).error) {
       console.error("Error saving queue:", (res as any).error);
-      alert("Erro ao salvar fila.");
+      toast.error((res as any).error || "Erro ao salvar fila.");
       return;
     }
 
@@ -525,7 +526,7 @@ export default function QueuesManagementPage() {
 
             if (res && res.error) {
               console.error("Error deleting queue:", res.error);
-              alert("Erro ao excluir fila.");
+              toast.error(res.error || "Erro ao excluir fila.");
               return;
             }
 

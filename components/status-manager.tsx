@@ -8,6 +8,7 @@ import { STATUS_COLOR_PALETTE, findStatusColor } from '@/lib/status-colors';
 import { useApp } from '@/app/app-context';
 import { cn } from '@/lib/utils';
 import { toast } from 'sonner';
+import { ConfirmDialog } from '@/components/confirm-dialog';
 import {
   DndContext,
   closestCenter,
@@ -40,6 +41,7 @@ export function StatusManager() {
   const [loading, setLoading] = useState(true);
   const [expanded, setExpanded] = useState<Set<string>>(new Set());
   const [addingSubFor, setAddingSubFor] = useState<string | null>(null);
+  const [pendingDeleteStatus, setPendingDeleteStatus] = useState<StatusConfig | null>(null);
 
   const [newLabel, setNewLabel] = useState('');
   const [newColor, setNewColor] = useState(STATUS_COLOR_PALETTE[0]);
@@ -129,16 +131,7 @@ export function StatusManager() {
     }
   };
 
-  const handleDelete = async (status: StatusConfig) => {
-    if (!isAdmin) return;
-    if (status.label === 'Concluído') {
-      toast.error('O status "Concluído" não pode ser excluído.');
-      return;
-    }
-    const hasChildren = childrenOf(status.id).length > 0;
-    if (hasChildren && !confirm(`"${status.label}" tem sub-status vinculados — excluir também vai remover todos eles. Continuar?`)) {
-      return;
-    }
+  const performDelete = async (status: StatusConfig) => {
     try {
       await ConfigService.deleteStatus(status.id);
       setStatuses(prev => prev.filter(s => s.id !== status.id && s.parentStatusId !== status.id));
@@ -146,6 +139,22 @@ export function StatusManager() {
     } catch (err: any) {
       toast.error(err.message || 'Erro ao remover status.');
     }
+  };
+
+  const handleDelete = (status: StatusConfig) => {
+    if (!isAdmin) return;
+    if (status.label === 'Concluído') {
+      toast.error('O status "Concluído" não pode ser excluído.');
+      return;
+    }
+    const hasChildren = childrenOf(status.id).length > 0;
+    if (hasChildren) {
+      // Sub-status vinculados também são removidos junto — pede confirmação
+      // pelo padrão do sistema em vez do confirm() nativo do navegador.
+      setPendingDeleteStatus(status);
+      return;
+    }
+    performDelete(status);
   };
 
   const handleDragEnd = async (event: DragEndEvent) => {
@@ -302,6 +311,19 @@ export function StatusManager() {
           </p>
         </div>
       </div>
+
+      <ConfirmDialog
+        isOpen={!!pendingDeleteStatus}
+        onClose={() => setPendingDeleteStatus(null)}
+        onConfirm={() => {
+          if (pendingDeleteStatus) performDelete(pendingDeleteStatus);
+          setPendingDeleteStatus(null);
+        }}
+        title="Excluir Status?"
+        description={`"${pendingDeleteStatus?.label}" tem sub-status vinculados — excluir também vai remover todos eles. Esta ação não pode ser desfeita.`}
+        confirmLabel="Excluir"
+        variant="danger"
+      />
     </div>
   );
 }

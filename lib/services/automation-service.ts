@@ -3,6 +3,7 @@ import { isClosedTicketStatus } from '../ticket-status';
 import { AUTOMATION_EVENTS, renderTemplate } from '../automation-events';
 import { WhatsAppService } from './whatsapp-service';
 import { EmailService } from './email-service';
+import { wrapEmailHtml } from '../email-templates';
 
 // Linha crua de public.tickets (snake_case), como vem de SELECT/RETURNING —
 // os 7 pontos de disparo (ver app/api/tickets/route.ts e
@@ -59,16 +60,31 @@ export async function saveAutomationSetting(eventKey: string, updates: {
   delayMinutes: number;
   firstOccurrenceOnly: boolean;
   triggerStatus?: string | null;
+  emailEnabled?: boolean;
+  emailSubject?: string | null;
 }): Promise<any> {
   await ensureAutomationSettingsSeeded();
   const res = await query(
     `UPDATE public.automation_settings
-     SET enabled = $1, message = $2, delay_minutes = $3, first_occurrence_only = $4, trigger_status = $5, updated_at = now()
-     WHERE event_key = $6
+     SET enabled = $1, message = $2, delay_minutes = $3, first_occurrence_only = $4, trigger_status = $5,
+         email_enabled = $6, email_subject = $7, updated_at = now()
+     WHERE event_key = $8
      RETURNING *`,
-    [updates.enabled, updates.message, updates.delayMinutes, updates.firstOccurrenceOnly, updates.triggerStatus || null, eventKey]
+    [updates.enabled, updates.message, updates.delayMinutes, updates.firstOccurrenceOnly, updates.triggerStatus || null,
+     !!updates.emailEnabled, updates.emailSubject || null, eventKey]
   );
   return res.rows[0];
+}
+
+// Converte o texto puro (com \n, emojis) do template já usado pelo
+// WhatsApp num HTML simples pro corpo do e-mail — evita duplicar o texto de
+// cada evento por canal.
+export function plainTextToHtml(text: string): string {
+  const escaped = text
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;');
+  return `<div style="font-family:sans-serif;white-space:pre-wrap;">${escaped.replace(/\n/g, '<br>')}</div>`;
 }
 
 function formatDuration(ms: number): string {
@@ -111,62 +127,68 @@ export async function buildPlaceholderContext(ticket: TicketRow, extra: Record<s
     categoria: names.category_label || '',
     data: now.toLocaleDateString('pt-BR'),
     hora: now.toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' }),
-    link: baseUrl ? `${baseUrl}/my-tickets?ticket=${ticket.id}` : '',
+    // /tickets/<número> — link curto e compartilhável, resolvido pra onde o
+    // chamado realmente abre (cliente ou equipe) por app/(portal)/tickets/[id]/page.tsx.
+    link: baseUrl ? `${baseUrl}/tickets/${ticket.public_ticket_number}` : '',
     tempo_atendimento: formatDuration(now.getTime() - createdAt.getTime()),
     nota: extra.nota || '',
     motivo: extra.motivo || ''
   };
 }
 
-interface TicketRecipient { id: string; name: string; phone: string; }
+interface TicketRecipient { id: string; name: string; phone: string; email: string; }
 
+// profiles.email é NOT NULL/UNIQUE — ao contrário do telefone, nunca falta,
+// então todo perfil encontrado vira um destinatário válido pro canal de
+// e-mail; o de WhatsApp continua exigindo telefone (missingPhone).
 async function resolveTicketRecipients(ticket: TicketRow): Promise<{ recipients: TicketRecipient[]; missingPhone: TicketRecipient[] }> {
   const employeeIds = ticket.employee_ids || [];
   const res = await query(
-    `SELECT DISTINCT id, name, phone FROM public.profiles
+    `SELECT DISTINCT id, name, phone, email FROM public.profiles
      WHERE id = $1
         OR id = ANY($2::uuid[])
         OR (company_id = $3 AND view_all_company_tickets = true)`,
     [ticket.customer_id, employeeIds, ticket.company_id]
   );
 
-  const seenPhones = new Set<string>();
+  const seenIds = new Set<string>();
   const recipients: TicketRecipient[] = [];
   const missingPhone: TicketRecipient[] = [];
 
   for (const row of res.rows) {
-    if (!row.id) continue;
-    const normalized = (row.phone || '').replace(/\D/g, '');
-    if (!normalized) {
-      missingPhone.push({ id: row.id, name: row.name || '', phone: '' });
-      continue;
-    }
-    if (seenPhones.has(normalized)) continue;
-    seenPhones.add(normalized);
-    recipients.push({ id: row.id, name: row.name || '', phone: normalized });
+    if (!row.id || seenIds.has(row.id)) continue;
+    seenIds.add(row.id);
+    const normalizedPhone = (row.phone || '').replace(/\D/g, '');
+    const recipient: TicketRecipient = { id: row.id, name: row.name || '', phone: normalizedPhone, email: row.email || '' };
+    if (!normalizedPhone) missingPhone.push(recipient);
+    recipients.push(recipient);
   }
 
   return { recipients, missingPhone };
 }
 
 async function logDispatch(fields: {
-  eventKey: string; ticketId: string; recipientId?: string | null; recipientName?: string; recipientPhone?: string;
+  eventKey: string; ticketId: string; recipientId?: string | null; recipientName?: string;
+  channel?: 'whatsapp' | 'email'; recipientPhone?: string; recipientEmail?: string; subject?: string;
   message: string; status: 'sent' | 'failed' | 'skipped'; error?: string;
 }): Promise<void> {
   await query(
     `INSERT INTO public.automation_dispatches
-       (event_key, ticket_id, recipient_id, recipient_name, recipient_phone, message, status, error, send_at, sent_at)
-     VALUES ($1,$2,$3,$4,$5,$6,$7,$8, now(), CASE WHEN $7 = 'sent' THEN now() ELSE NULL END)`,
-    [fields.eventKey, fields.ticketId, fields.recipientId || null, fields.recipientName || '', fields.recipientPhone || '', fields.message, fields.status, fields.error || null]
+       (event_key, ticket_id, recipient_id, recipient_name, channel, recipient_phone, recipient_email, subject, message, status, error, send_at, sent_at)
+     VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11, now(), CASE WHEN $10 = 'sent' THEN now() ELSE NULL END)`,
+    [fields.eventKey, fields.ticketId, fields.recipientId || null, fields.recipientName || '', fields.channel || 'whatsapp',
+     fields.recipientPhone || '', fields.recipientEmail || null, fields.subject || null, fields.message, fields.status, fields.error || null]
   );
 }
+
+const DEFAULT_EMAIL_SUBJECT = 'Chamado {{numero_chamado}} — {{titulo}}';
 
 export async function dispatchEvent(eventKey: string, ticket: TicketRow, extra: Record<string, string> = {}): Promise<void> {
   try {
     await ensureAutomationSettingsSeeded();
     const settingRes = await query('SELECT * FROM public.automation_settings WHERE event_key = $1', [eventKey]);
     const setting = settingRes.rows[0];
-    if (!setting || !setting.enabled) return;
+    if (!setting || (!setting.enabled && !setting.email_enabled)) return;
 
     if (setting.first_occurrence_only) {
       const already = await query(
@@ -178,27 +200,62 @@ export async function dispatchEvent(eventKey: string, ticket: TicketRow, extra: 
 
     const context = await buildPlaceholderContext(ticket, extra);
     const renderedMessage = renderTemplate(setting.message, context);
+    const renderedSubject = renderTemplate(setting.email_subject || DEFAULT_EMAIL_SUBJECT, context);
     const { recipients, missingPhone } = await resolveTicketRecipients(ticket);
-
-    for (const r of missingPhone) {
-      await logDispatch({ eventKey, ticketId: ticket.id, recipientId: r.id, recipientName: r.name, message: renderedMessage, status: 'failed', error: 'Sem telefone cadastrado' });
-    }
 
     const delayMinutes = Number(setting.delay_minutes) || 0;
 
-    for (const r of recipients) {
-      if (delayMinutes > 0) {
-        await query(
-          `INSERT INTO public.automation_dispatches (event_key, ticket_id, recipient_id, recipient_name, recipient_phone, message, status, send_at)
-           VALUES ($1,$2,$3,$4,$5,$6,'pending', now() + ($7 || ' minutes')::interval)`,
-          [eventKey, ticket.id, r.id, r.name, r.phone, renderedMessage, String(delayMinutes)]
-        );
-      } else {
-        try {
-          await WhatsAppService.sendMessage('default', r.phone, renderedMessage);
-          await logDispatch({ eventKey, ticketId: ticket.id, recipientId: r.id, recipientName: r.name, recipientPhone: r.phone, message: renderedMessage, status: 'sent' });
-        } catch (err: any) {
-          await logDispatch({ eventKey, ticketId: ticket.id, recipientId: r.id, recipientName: r.name, recipientPhone: r.phone, message: renderedMessage, status: 'failed', error: err?.message || String(err) });
+    // WhatsApp — igual antes, só que agora protegido explicitamente contra
+    // duas pessoas diferentes com o mesmo telefone (a lista de recipients já
+    // não dedupa mais por telefone, já que precisa incluir todo mundo pro
+    // e-mail — sem isso o mesmo número levaria a mensagem em dobro).
+    if (setting.enabled) {
+      for (const r of missingPhone) {
+        await logDispatch({ eventKey, ticketId: ticket.id, recipientId: r.id, recipientName: r.name, channel: 'whatsapp', message: renderedMessage, status: 'failed', error: 'Sem telefone cadastrado' });
+      }
+
+      const sentPhones = new Set<string>();
+      for (const r of recipients) {
+        if (!r.phone || sentPhones.has(r.phone)) continue;
+        sentPhones.add(r.phone);
+
+        if (delayMinutes > 0) {
+          await query(
+            `INSERT INTO public.automation_dispatches (event_key, ticket_id, recipient_id, recipient_name, channel, recipient_phone, message, status, send_at)
+             VALUES ($1,$2,$3,$4,'whatsapp',$5,$6,'pending', now() + ($7 || ' minutes')::interval)`,
+            [eventKey, ticket.id, r.id, r.name, r.phone, renderedMessage, String(delayMinutes)]
+          );
+        } else {
+          try {
+            await WhatsAppService.sendMessage('default', r.phone, renderedMessage);
+            await logDispatch({ eventKey, ticketId: ticket.id, recipientId: r.id, recipientName: r.name, channel: 'whatsapp', recipientPhone: r.phone, message: renderedMessage, status: 'sent' });
+          } catch (err: any) {
+            await logDispatch({ eventKey, ticketId: ticket.id, recipientId: r.id, recipientName: r.name, channel: 'whatsapp', recipientPhone: r.phone, message: renderedMessage, status: 'failed', error: err?.message || String(err) });
+          }
+        }
+      }
+    }
+
+    // E-mail — canal novo, independente do WhatsApp acima. profiles.email é
+    // sempre presente, então todo recipient resolvido recebe.
+    if (setting.email_enabled) {
+      const html = wrapEmailHtml({ bodyHtml: plainTextToHtml(renderedMessage), ctaUrl: context.link || null, ctaLabel: 'Abrir chamado' });
+      for (const r of recipients) {
+        if (!r.email) continue;
+
+        if (delayMinutes > 0) {
+          await query(
+            `INSERT INTO public.automation_dispatches (event_key, ticket_id, recipient_id, recipient_name, channel, recipient_email, subject, message, status, send_at)
+             VALUES ($1,$2,$3,$4,'email',$5,$6,$7,'pending', now() + ($8 || ' minutes')::interval)`,
+            [eventKey, ticket.id, r.id, r.name, r.email, renderedSubject, renderedMessage, String(delayMinutes)]
+          );
+        } else {
+          try {
+            await EmailService.send(r.email, renderedSubject, html);
+            await logDispatch({ eventKey, ticketId: ticket.id, recipientId: r.id, recipientName: r.name, channel: 'email', recipientEmail: r.email, subject: renderedSubject, message: renderedMessage, status: 'sent' });
+          } catch (err: any) {
+            await logDispatch({ eventKey, ticketId: ticket.id, recipientId: r.id, recipientName: r.name, channel: 'email', recipientEmail: r.email, subject: renderedSubject, message: renderedMessage, status: 'failed', error: err?.message || String(err) });
+          }
         }
       }
     }
@@ -221,13 +278,13 @@ async function notifyAssigneeByEmail(ticket: TicketRow): Promise<void> {
 
   const ticketLabel = `#${String(ticket.public_ticket_number ?? '').padStart(4, '0')}`;
   const baseUrl = process.env.NEXT_PUBLIC_APP_URL;
-  const link = baseUrl ? `${baseUrl}/dashboard?ticket=${ticket.id}` : null;
+  const link = baseUrl ? `${baseUrl}/tickets/${ticket.public_ticket_number}` : null;
 
-  const html = `
-    <p>Olá, ${assignee.name || ''}.</p>
-    <p>O chamado <strong>${ticketLabel} — ${ticket.title || ''}</strong> foi atribuído a você.</p>
-    ${link ? `<p><a href="${link}">Abrir chamado</a></p>` : ''}
+  const bodyHtml = `
+    <p style="margin:0 0 8px;">Olá, ${assignee.name || ''}.</p>
+    <p style="margin:0;">O chamado <strong>${ticketLabel} — ${ticket.title || ''}</strong> foi atribuído a você.</p>
   `.trim();
+  const html = wrapEmailHtml({ bodyHtml, ctaUrl: link, ctaLabel: 'Abrir chamado' });
 
   await EmailService.send(assignee.email, `Chamado ${ticketLabel} atribuído a você — SSX Desk`, html);
 }
@@ -240,7 +297,7 @@ async function handleStatusChange(oldTicket: TicketRow, newTicket: TicketRow): P
 
   await ensureAutomationSettingsSeeded();
   const settingsRes = await query(
-    `SELECT event_key, trigger_status FROM public.automation_settings WHERE event_key = ANY($1) AND enabled = true`,
+    `SELECT event_key, trigger_status FROM public.automation_settings WHERE event_key = ANY($1) AND (enabled = true OR email_enabled = true)`,
     [STATUS_KEYED_EVENTS]
   );
   const match = settingsRes.rows.find((r: any) => r.trigger_status === newTicket.status);

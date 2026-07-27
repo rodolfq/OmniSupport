@@ -2,13 +2,14 @@
 
 import React, { useState, useEffect } from 'react';
 import { StyledSelect } from '@/components/styled-select';
-import { X, Save, Mail, Phone, ShieldCheck, ShieldOff, Lock, Eye, EyeOff, Plus, Trash2, AlertTriangle, Copy, Check } from 'lucide-react';
+import { X, Save, Mail, Phone, ShieldCheck, ShieldOff, Lock, Plus, Trash2, AlertTriangle, Copy, Check } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import { UserRole, type User, type Company } from '@/lib/types';
 import { UserService } from '@/lib/services/user-service';
 import { maskPhone } from '@/lib/utils';
 import { Globe } from 'lucide-react';
 import { supabase } from '@/lib/supabase';
+import { toast } from 'sonner';
 
 export function EditEmployeeModal({ isOpen, onClose, user, onSuccess }: { isOpen: boolean, onClose: () => void, user: User | null, onSuccess?: () => void }) {
   const [name, setName] = useState('');
@@ -17,7 +18,6 @@ export function EditEmployeeModal({ isOpen, onClose, user, onSuccess }: { isOpen
   const [phones, setPhones] = useState<string[]>([]);
   const [companyId, setCompanyId] = useState('');
   const [companies, setCompanies] = useState<Company[]>([]);
-  const [viewAllCompanyTickets, setViewAllCompanyTickets] = useState(false);
   const [isActive, setIsActive] = useState(true);
 
   const [loading, setLoading] = useState(false);
@@ -43,7 +43,6 @@ export function EditEmployeeModal({ isOpen, onClose, user, onSuccess }: { isOpen
       const userPhones = user.phones || (user.phone ? [user.phone] : []);
       setPhones(userPhones);
       
-      setViewAllCompanyTickets(user.viewAllCompanyTickets || false);
       setIsActive(user.isActive ?? true);
     }
   }, [user]);
@@ -61,7 +60,9 @@ export function EditEmployeeModal({ isOpen, onClose, user, onSuccess }: { isOpen
         phones,
         phone: phones[0] || '', // Keep single phone for compatibility
         companyId,
-        viewAllCompanyTickets,
+        // Funcionário sempre enxerga só os próprios chamados — sem opção de
+        // ver todos os chamados da empresa (ver ROADMAP/pedido).
+        viewAllCompanyTickets: false,
         isActive
       };
       await UserService.save(updatedUser);
@@ -72,9 +73,9 @@ export function EditEmployeeModal({ isOpen, onClose, user, onSuccess }: { isOpen
         setSaveSuccess(false);
         onClose();
       }, 1500);
-    } catch (error) {
+    } catch (error: any) {
       console.error(error);
-      alert('Erro ao atualizar usuário.');
+      toast.error(error?.message || 'Erro ao atualizar usuário.');
     } finally {
       setLoading(false);
     }
@@ -105,7 +106,7 @@ export function EditEmployeeModal({ isOpen, onClose, user, onSuccess }: { isOpen
       if (onSuccess) onSuccess();
     } catch (e: any) {
       console.error('Erro ao reiniciar senha:', e);
-      alert('Erro ao reiniciar senha: ' + e.message);
+      toast.error('Erro ao reiniciar senha: ' + e.message);
     } finally {
       setLoading(false);
     }
@@ -131,7 +132,7 @@ export function EditEmployeeModal({ isOpen, onClose, user, onSuccess }: { isOpen
       onClose();
     } catch (error: any) {
       console.error(error);
-      alert(error.message || 'Erro ao excluir usuário.');
+      toast.error(error.message || 'Erro ao excluir usuário.');
     } finally {
       setDeleteLoading(false);
       setShowDeleteConfirm(false);
@@ -308,31 +309,6 @@ export function EditEmployeeModal({ isOpen, onClose, user, onSuccess }: { isOpen
                   {isActive
                     ? "Login autorizado. O usuário pode acessar o sistema normalmente."
                     : "Login bloqueado. O usuário não conseguirá mais acessar o sistema."}
-                </p>
-
-                <div className="h-px bg-[var(--border-default)] w-full" />
-
-                <div className="flex items-center justify-between">
-                  <div className="flex items-center gap-3">
-                    <div className="w-8 h-8 rounded-lg bg-[var(--surface-card)] border border-[var(--border-default)] flex items-center justify-center text-[var(--text-secondary)] shadow-sm">
-                      {viewAllCompanyTickets ? <Eye size={14} /> : <EyeOff size={14} />}
-                    </div>
-                    <div>
-                      <p className="text-[11px] font-black text-[var(--text-primary)] uppercase tracking-wider">Visibilidade de Chamados</p>
-                      <p className="text-[10px] text-[var(--text-tertiary)] font-bold uppercase tracking-widest">Controles de acesso</p>
-                    </div>
-                  </div>
-                  <div
-                    onClick={() => setViewAllCompanyTickets(!viewAllCompanyTickets)}
-                    className={`w-12 h-6 rounded-full p-1 cursor-pointer transition-all ${viewAllCompanyTickets ? 'bg-[var(--accent)] translate-z-0' : 'bg-[var(--border-default)]'}`}
-                  >
-                    <div className={`w-4 h-4 rounded-full bg-[var(--surface-card)] shadow-sm transition-transform ${viewAllCompanyTickets ? 'translate-x-6' : 'translate-x-0'}`} />
-                  </div>
-                </div>
-                <p className="text-[9px] text-[var(--text-tertiary)] font-bold uppercase leading-relaxed">
-                  {viewAllCompanyTickets
-                    ? "Visualizar todos os chamados da empresa."
-                    : "Apenas visualizar os próprios chamados."}
                 </p>
               </div>
 
