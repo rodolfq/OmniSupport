@@ -151,15 +151,6 @@ export async function createTicket(ticket: Ticket): Promise<void> {
   }
 }
 
-export async function updateTicket(ticket: Partial<Ticket> & { id: string }): Promise<void> {
-  const res = await fetch(`/api/tickets?id=${ticket.id}`, {
-    method: 'PUT',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify(ticket)
-  });
-  if (!res.ok) throw new Error('Error updating ticket via API');
-}
-
 export async function fetchMessages(ticketId: string, signal?: AbortSignal): Promise<Message[]> {
   if (ticketId === 'ex-ticket-payment-error') {
     return MOCK_EXAMPLE_MESSAGES;
@@ -168,13 +159,4 @@ export async function fetchMessages(ticketId: string, signal?: AbortSignal): Pro
   const res = await fetch(`/api/tickets?action=messages&ticketId=${ticketId}`);
   if (!res.ok) return [];
   return res.json();
-}
-
-export async function createMessage(message: Message): Promise<void> {
-  const res = await fetch('/api/tickets', {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ action: 'create-message', message })
-  });
-  if (!res.ok) throw new Error('Error creating ticket message via API');
 }

@@ -286,6 +286,14 @@ if (filterAssignee) query = query.eq("assignee_id", filterAssignee);
           uuid: it.id,
           id: formattedId,
           internalTicketNumber: it.internal_ticket_number,
+          // O shim do Supabase devolve a linha crua (assignee_id/creator_id/
+          // team_id) — sem esse mapeamento, o filtro "Meus" (usa
+          // t.assigneeId/t.creatorId) nunca batia com nada, "Não atribuído"
+          // mostrava todos os tickets, e o card sempre caía no fallback
+          // teams[0] em vez da equipe real (ver linhas 673/773 embaixo).
+          assigneeId: it.assignee_id || undefined,
+          creatorId: it.creator_id || undefined,
+          teamId: it.team_id || undefined,
           parentTicketIds: linkedIds,
           linkedTicketTitles: linkedIds.map((id: string) => ticketMap.get(id) || "Ticket removido").filter(Boolean),
           assigneeName: it.assignee_id ? assigneeMap.get(it.assignee_id) || null : null,

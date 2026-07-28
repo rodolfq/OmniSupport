@@ -57,6 +57,7 @@ import { saveTicketFromChatSession, closeChatSessionAfterTicket, assignChatSessi
 import { cn, maskPhone, matchPhones, safeJsonStringify } from '@/lib/utils';
 import { useApp } from '@/app/app-context';
 import { isEvaluationSnoozed } from '@/lib/evaluation-snooze';
+import { deriveLiveStatus } from '@/lib/presence';
 import { supabase } from '@/lib/supabase';
 import { useSearchParams } from 'next/navigation';
 import { LinkContactModal } from '@/components/link-contact-modal';
@@ -369,8 +370,12 @@ export function ChatWidget() {
   }, [selectedChat, allUsers]);
 
   const onlineAssignTargets = React.useMemo(() => {
+    // deriveLiveStatus, não `s.isOnline` cru: sem heartbeat de verdade,
+    // fechar a aba sem trocar pra "Ausente" deixa is_online=true no banco
+    // pra sempre — sem esse filtro, um analista sumido há dias continuava
+    // aparecendo aqui como alvo válido pra transferir um chat.
     return analystStatuses
-      .filter(s => s.isOnline)
+      .filter(s => deriveLiveStatus(s) === 'online')
       .map(s => allUsers.find(u => u.id === s.userId))
       .filter((u): u is UserType => !!u)
       .map(u => ({ id: u.id, name: u.name }));
@@ -396,7 +401,9 @@ export function ChatWidget() {
   const presenceLabel = (userId?: string | null) => {
     const presence = getPresence(userId);
     if (!presence) return null;
-    if (presence.isOnline) return presence.status === 'away' ? 'Ausente' : 'Online';
+    const live = deriveLiveStatus(presence);
+    if (live === 'online') return 'Online';
+    if (live === 'away') return 'Ausente';
     return formatLastActive(presence.lastActive).replace(/^v/, 'V');
   };
 
@@ -2081,7 +2088,7 @@ useEffect(() => {
                             ? presenceLabel(selectedChat?.assigneeId)
                             : presenceLabel(selectedChat?.customerId);
                           if (!label) return null;
-                          const isOnlineNow = getPresence(isCustomer ? selectedChat?.assigneeId : selectedChat?.customerId)?.isOnline;
+                          const isOnlineNow = deriveLiveStatus(getPresence(isCustomer ? selectedChat?.assigneeId : selectedChat?.customerId)) === 'online';
                           return (
                             <p className="text-[9px] font-semibold uppercase tracking-widest flex items-center gap-1 mt-0.5">
                               <span className={cn("w-1.5 h-1.5 rounded-full", isOnlineNow ? "bg-[var(--text-success)]" : "bg-[var(--text-tertiary)]")} />

@@ -5,6 +5,10 @@ import { verifyJWT } from '@/lib/jwt';
 // Mesma lacuna encontrada em customer-evaluations/route.ts: a página
 // /reports só escondia a seção no cliente, a API em si estava aberta pra
 // qualquer um. Mesmo padrão de autenticação usado em app/api/tickets/route.ts.
+// O JOIN é por access_profile_id, não por role — perfis de acesso
+// customizados gravam role_permissions.role com o NOME do perfil, não o
+// UserRole do ator, então `rp.role = p.role` nunca bate pra eles (cai de
+// volta na linha padrão do papel estrutural, liberando ou bloqueando errado).
 async function getReportActor(request: NextRequest) {
   const token = request.cookies.get('token')?.value;
   if (!token) return null;
@@ -15,7 +19,7 @@ async function getReportActor(request: NextRequest) {
   const result = await query(
     `SELECT p.id, p.role, COALESCE(rp.permissions, '{}'::text[]) AS permissions
      FROM public.profiles p
-     LEFT JOIN public.role_permissions rp ON rp.role = p.role
+     LEFT JOIN public.role_permissions rp ON rp.id = p.access_profile_id
      WHERE p.id = $1`,
     [decoded.id]
   );

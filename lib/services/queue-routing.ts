@@ -1,4 +1,5 @@
 import { query } from '@/lib/db';
+import { isStalePresence } from '@/lib/presence';
 
 // id === null representa o pool combinado usado por chats sem fila única
 // (ver resolveCombinedQueuePool). O rodízio (pickNextQueueAssignee) sempre
@@ -57,10 +58,17 @@ export async function pickNextQueueAssignee(queue: RoutingQueue): Promise<string
   if (!memberIds.length) return null;
 
   const onlineRes = await query(
-    `SELECT user_id, queue_anchor_at FROM public.analyst_status WHERE user_id = ANY($1::uuid[]) AND is_online = true`,
+    `SELECT user_id, queue_anchor_at, last_active FROM public.analyst_status WHERE user_id = ANY($1::uuid[]) AND is_online = true`,
     [memberIds]
   );
   const rotation = onlineRes.rows
+    // is_online=true sozinho não basta: sem heartbeat de verdade, fechar a
+    // aba sem logout explícito deixa a linha "online" pra sempre no banco
+    // (mesmo problema documentado em chat-management/page.tsx pro badge de
+    // presença). Sem esse filtro, o rodízio podia entregar o chat pra
+    // alguém que nem está mais logado — usa a mesma regra de atualidade
+    // (5min sem heartbeat) que já vale pra tela de Analistas.
+    .filter((r: any) => !isStalePresence(r.last_active))
     .slice()
     .sort((a: any, b: any) => new Date(a.queue_anchor_at ?? 0).getTime() - new Date(b.queue_anchor_at ?? 0).getTime())
     .map((r: any) => r.user_id as string);

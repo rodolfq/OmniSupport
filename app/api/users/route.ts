@@ -1,8 +1,20 @@
 import { NextResponse } from 'next/server';
 import { query } from '@/lib/db';
 import { hashPassword } from '@/lib/auth-utils';
+import { getCurrentActionUser, assertUserManageable } from '@/app/actions';
+
+// Papéis "de equipe" — os únicos que hoje consomem GET/POST desta rota
+// (Canais de Atendimento, Filas, Hotfixes, vínculo de contato). Cliente/
+// Funcionário nunca deveriam enxergar a lista completa de usuários do
+// sistema nem criar contas por aqui.
+const STAFF_ROLES = ['Administrador', 'Equipe', 'Time Interno'];
 
 export async function GET(request: Request) {
+  const actor = await getCurrentActionUser();
+  if (!actor || !STAFF_ROLES.includes(actor.role)) {
+    return NextResponse.json({ error: 'Não autorizado.' }, { status: 403 });
+  }
+
   const { searchParams } = new URL(request.url);
   const type = searchParams.get('type') || 'all';
 
@@ -59,43 +71,37 @@ export async function GET(request: Request) {
 }
 
 export async function POST(request: Request) {
+  const actor = await getCurrentActionUser();
+  if (!actor || !STAFF_ROLES.includes(actor.role)) {
+    return NextResponse.json({ error: 'Não autorizado.' }, { status: 403 });
+  }
+
   try {
     const body = await request.json();
     const { action } = body;
 
     if (action === 'create') {
-      const { email, name, role, companyId, phones } = body;
+      const { email, name, companyId, phones } = body;
+      // Endpoint simplificado — só cria contato de empresa-cliente (usado
+      // hoje por "Vincular contato" no chat). Promover alguém a
+      // Administrador/Equipe/Time Interno passa exclusivamente pelo fluxo
+      // dedicado (createUser em app/actions.ts, usado pela tela Equipe),
+      // nunca por aqui — por isso o role vindo do body é ignorado.
+      const safeRole = body.role === 'Cliente' ? 'Cliente' : 'Funcionário';
       const defaultPassword = Math.random().toString(36).slice(-8);
       const hashedPassword = hashPassword(defaultPassword);
       const phone = phones?.[0] || null;
 
       const res = await query(
         `INSERT INTO public.profiles (email, password, name, role, company_id, phone, is_admin, lives_in_squad)
-         VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
+         VALUES ($1, $2, $3, $4, $5, $6, FALSE, FALSE)
          RETURNING id, name, email, role`,
-        [
-          email, 
-          hashedPassword, 
-          name, 
-          role || 'Cliente', 
-          companyId || null, 
-          phone,
-          role === 'Administrador',
-          role === 'Administrador' || role === 'Equipe'
-        ]
+        [email, hashedPassword, name, safeRole, companyId || null, phone]
       );
-      
-      const newUser = res.rows[0];
-      
-      // Auto-inserir status do analista se for parte do suporte
-      if (role === 'Administrador' || role === 'Equipe') {
-        await query(
-          'INSERT INTO public.analyst_status (user_id, is_online, current_load) VALUES ($1, false, 0) ON CONFLICT DO NOTHING',
-          [newUser.id]
-        );
-      }
 
-      return NextResponse.json({ 
+      const newUser = res.rows[0];
+
+      return NextResponse.json({
         id: newUser.id,
         name: newUser.name,
         email: newUser.email,
@@ -115,21 +121,49 @@ export async function POST(request: Request) {
 
 export async function PUT(request: Request) {
   try {
+    const actor = await getCurrentActionUser();
+    if (!actor) {
+      return NextResponse.json({ error: 'Não autorizado.' }, { status: 401 });
+    }
+
     const { user } = await request.json();
     if (!user || !user.id) {
       return NextResponse.json({ error: 'ID do usuário é obrigatório.' }, { status: 400 });
     }
 
+    let target: any;
+    if (actor.id === user.id) {
+      const res = await query('SELECT role, company_id, internal_team_ids, is_admin FROM public.profiles WHERE id = $1', [user.id]);
+      target = res.rows[0];
+      if (!target) return NextResponse.json({ error: 'Usuário não encontrado.' }, { status: 404 });
+    } else {
+      const check = await assertUserManageable(actor, user.id);
+      if (!check.ok) return NextResponse.json({ error: check.error }, { status: 403 });
+      target = check.target;
+    }
+
+    // role / is_admin / equipes internas / empresa só mudam de verdade se
+    // quem está editando for Administrador do sistema — autoedição (ou
+    // gerenciar um Funcionário/Cliente da própria empresa) nunca deveria
+    // conseguir promover ninguém, nem a si mesmo, a um papel mais
+    // privilegiado. Sem essa trava, qualquer usuário autenticado podia virar
+    // Administrador só chamando este endpoint com {role:'Administrador'}.
+    const isSystemAdmin = actor.role === 'Administrador';
+    const role = isSystemAdmin ? (user.role ?? target.role) : target.role;
+    const isAdmin = isSystemAdmin ? (user.isAdmin ?? target.is_admin) : target.is_admin;
+    const internalTeamIds = isSystemAdmin ? (user.internalTeamIds ?? target.internal_team_ids) : target.internal_team_ids;
+    const companyId = isSystemAdmin ? (user.companyId ?? target.company_id) : target.company_id;
+
     await query(
       `UPDATE public.profiles
        SET name = COALESCE($1, name),
            email = COALESCE($2, email),
-           role = COALESCE($3, role),
+           role = $3,
            company_id = $4,
            phone = $5,
            must_change_password = COALESCE($6, must_change_password),
            view_all_company_tickets = COALESCE($7, view_all_company_tickets),
-           is_admin = COALESCE($8, is_admin),
+           is_admin = $8,
            avatar_url = $9,
            internal_team_ids = $10,
            is_active = COALESCE($11, is_active)
@@ -137,14 +171,14 @@ export async function PUT(request: Request) {
       [
         user.name,
         user.email,
-        user.role,
-        user.companyId || null,
+        role,
+        companyId || null,
         user.phone || null,
         user.mustChangePassword,
         user.viewAllCompanyTickets,
-        user.isAdmin,
+        isAdmin,
         user.avatarUrl || null,
-        user.internalTeamIds || '{}',
+        internalTeamIds || '{}',
         user.isActive,
         user.id
       ]
@@ -158,11 +192,25 @@ export async function PUT(request: Request) {
 }
 
 export async function DELETE(request: Request) {
+  const actor = await getCurrentActionUser();
+  if (!actor) {
+    return NextResponse.json({ error: 'Não autorizado.' }, { status: 401 });
+  }
+
   const { searchParams } = new URL(request.url);
   const id = searchParams.get('id');
 
   if (!id) {
     return NextResponse.json({ error: 'ID do usuário é obrigatório.' }, { status: 400 });
+  }
+
+  if (actor.id === id) {
+    return NextResponse.json({ error: 'Você não pode excluir sua própria conta.' }, { status: 400 });
+  }
+
+  const check = await assertUserManageable(actor, id);
+  if (!check.ok) {
+    return NextResponse.json({ error: check.error }, { status: 403 });
   }
 
   try {

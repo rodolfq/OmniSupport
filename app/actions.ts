@@ -13,7 +13,7 @@ import { canForceOthersOffline } from '@/lib/services/presence-authorization';
 import { CustomerEvaluationScores, CustomerProfileTag, CustomerEvaluationSummary, CustomerEvaluationOrigin } from '@/lib/types';
 import { logAudit } from '@/lib/audit-log';
 
-async function getCurrentActionUser() {
+export async function getCurrentActionUser() {
   const token = (await cookies()).get('token')?.value;
   if (!token) return null;
 
@@ -349,8 +349,8 @@ export async function getUsers() {
 
 // Um admin de equipe só pode agir sobre usuários que já pertencem a uma
 // equipe que ele administra (nunca sobre um Administrador do sistema).
-async function assertUserManageable(actor: { id: string; role: string; company_id?: string | null }, targetId: string): Promise<{ ok: true; target: any } | { ok: false; error: string }> {
-  const res = await query('SELECT id, role, company_id, internal_team_ids FROM public.profiles WHERE id = $1', [targetId]);
+export async function assertUserManageable(actor: { id: string; role: string; company_id?: string | null }, targetId: string): Promise<{ ok: true; target: any } | { ok: false; error: string }> {
+  const res = await query('SELECT id, role, company_id, internal_team_ids, is_admin FROM public.profiles WHERE id = $1', [targetId]);
   const target = res.rows[0];
   if (!target) return { ok: false, error: 'Usuário não encontrado.' };
   if (actor.role === 'Administrador') return { ok: true, target };
@@ -1161,8 +1161,13 @@ export async function mergeTickets(sourceTicketIds: string[], targetTicketId: st
         if (!source) continue;
         const sourceLabel = `#${String(source.public_ticket_number).padStart(4, '0')}`;
 
+        // sub_status também precisa ser limpo — do contrário o chamado
+        // absorvido fica com status='Mesclado' + um sub-status órfão de um
+        // status pai que não existe mais, combinação que a UI normal (que
+        // sempre zera subStatus junto de qualquer troca de status) nunca
+        // produziria sozinha.
         await client.query(
-          `UPDATE public.tickets SET status = 'Mesclado', merged_into_id = $1, updated_at = NOW() WHERE id = $2`,
+          `UPDATE public.tickets SET status = 'Mesclado', sub_status = NULL, merged_into_id = $1, updated_at = NOW() WHERE id = $2`,
           [targetTicketId, sourceId]
         );
 

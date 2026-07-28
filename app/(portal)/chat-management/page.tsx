@@ -404,6 +404,24 @@ const handleDeleteNote = async () => {
       }));
   }, [analysts, queueMemberIds, statusByUserId]);
 
+  // "Carga Atual" na aba Analistas: analyst_status.current_load nunca é
+  // incrementado/decrementado em lugar nenhum do sistema (só é resetado
+  // pra 0 a cada heartbeat de presença), então a coluna sempre mostrava "0
+  // chats" pra todo mundo. Em vez de manter mais um contador que precisa
+  // ser sincronizado manualmente em cada ponto que assume/transfere/fecha
+  // um chat (a mesma classe de bug já encontrada em outros lugares),
+  // calcula direto da lista de sessões já carregada: quantos chats ativos
+  // estão de fato atribuídos a cada analista agora.
+  const activeChatCountByAnalyst = React.useMemo(() => {
+    const map = new Map<string, number>();
+    sessions.forEach(s => {
+      if (s.status === 'active' && s.assigneeId) {
+        map.set(s.assigneeId, (map.get(s.assigneeId) || 0) + 1);
+      }
+    });
+    return map;
+  }, [sessions]);
+
   const onlineAssignTargets = React.useMemo(() => {
     return statuses
       // "Disponível" aqui precisa refletir presença de verdade, não só o
@@ -855,15 +873,16 @@ const handleDeleteNote = async () => {
               <tbody className="divide-y divide-[var(--border-default)]">
                  {queueAnalystRows.map(({ analyst, status: s }) => {
                    const liveStatus = deriveLiveStatus(s);
+                   const currentLoad = activeChatCountByAnalyst.get(analyst.id) || 0;
                    return (
                      <tr key={s.userId} className="hover:bg-[var(--surface-card)]/50 transition-all">
                         <td className="px-8 py-5 font-bold text-[var(--text-primary)]">{analyst.name}</td>
                         <td className="px-8 py-5 text-sm">
                            <div className="flex items-center gap-2">
                               <div className="flex-1 h-2 bg-[var(--surface-pill)] rounded-full overflow-hidden w-24">
-                                 <div className="h-full bg-[var(--accent)]" style={{ width: `${s.currentLoad * 20}%` }} />
+                                 <div className="h-full bg-[var(--accent)]" style={{ width: `${Math.min(currentLoad, 5) * 20}%` }} />
                               </div>
-                              <span className="text-[10px] font-bold text-[var(--text-tertiary)]">{s.currentLoad} chats</span>
+                              <span className="text-[10px] font-bold text-[var(--text-tertiary)]">{currentLoad} chats</span>
                            </div>
                         </td>
                         <td className="px-8 py-5">

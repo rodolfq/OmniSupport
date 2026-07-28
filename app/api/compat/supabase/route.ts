@@ -2,6 +2,7 @@ import { NextResponse } from 'next/server';
 import { query } from '@/lib/db';
 import { handleTicketCreated, handleTicketUpdated, handleTicketMessageCreated } from '@/lib/services/automation-service';
 import { handleInternalTicketCreated, handleInternalTicketUpdated } from '@/lib/services/internal-ticket-notifications';
+import { getTicketRecipients, pushToTicketRecipients, ticketLabel } from '@/lib/services/notification-recipients';
 
 // Versão independente (params próprios, sempre a partir de $1) da mesma
 // lógica de filtros usada por buildWhereClause() dentro do POST — usada só
@@ -326,7 +327,28 @@ export async function POST(request: Request) {
         for (const row of returned) {
           if (row && row.is_visible_to_customer && row.type !== 'internal') {
             query('SELECT * FROM public.tickets WHERE id = $1', [row.ticket_id])
-              .then(r => handleTicketMessageCreated(row, r.rows[0]))
+              .then(r => {
+                const relatedTicket = r.rows[0];
+                handleTicketMessageCreated(row, relatedTicket);
+                // Responder pelo chamado passa por aqui (ticket-detail-modal
+                // -> MessageService.create -> este shim), não pela rota
+                // app/api/tickets/route.ts — sem isso, só quem respondia
+                // arrastando/pela ação em massa gerava push nativo.
+                if (relatedTicket) {
+                  const recipients = getTicketRecipients({
+                    assigneeId: relatedTicket.assignee_id,
+                    createdBy: relatedTicket.created_by,
+                    customerId: relatedTicket.customer_id,
+                    employeeIds: relatedTicket.employee_ids
+                  }, row.author_id);
+                  pushToTicketRecipients(recipients, {
+                    title: `Atualização no chamado ${ticketLabel(relatedTicket.public_ticket_number, relatedTicket.id)}`,
+                    body: row.content || relatedTicket.title,
+                    ticketId: relatedTicket.id,
+                    tag: `ticket_message:${row.id}`
+                  });
+                }
+              })
               .catch(err => console.error('[automation] Falha ao buscar chamado (compat insert):', err));
           }
         }
@@ -386,6 +408,22 @@ export async function POST(request: Request) {
       if (table === 'tickets' && oldRowsById) {
         for (const newTicket of res.rows) {
           handleTicketUpdated(oldRowsById.get(newTicket.id), newTicket);
+          // Mudar status/prioridade/responsável pela tela de detalhe do
+          // chamado (ticket-detail-modal -> TicketService.update -> este
+          // shim) também precisa gerar push nativo, igual ao PUT em
+          // app/api/tickets/route.ts (usado só pelo Kanban/ações em massa).
+          const recipients = getTicketRecipients({
+            assigneeId: newTicket.assignee_id,
+            createdBy: newTicket.created_by,
+            customerId: newTicket.customer_id,
+            employeeIds: newTicket.employee_ids
+          });
+          pushToTicketRecipients(recipients, {
+            title: `Chamado atualizado ${ticketLabel(newTicket.public_ticket_number, newTicket.id)}`,
+            body: newTicket.title,
+            ticketId: newTicket.id,
+            tag: `ticket_update:${newTicket.id}:${new Date(newTicket.updated_at).getTime()}`
+          });
         }
       } else if (table === 'internal_tickets' && oldRowsById) {
         for (const newTicket of res.rows) {
