@@ -1,6 +1,7 @@
 'use client';
 
 import React, { useState, useEffect, useMemo, useRef } from 'react';
+import { useSearchParams } from 'next/navigation';
 import { StyledSelect } from '@/components/styled-select';
 import { useApp } from '@/app/app-context';
 import { UserRole, Permission, ChatMessage, Attachment } from '@/lib/types';
@@ -421,6 +422,7 @@ function SortableColumnHeader({ id, label }: { id: string; label: string }) {
 
 export default function ChatHistoryPage() {
   const { currentUser, hasPermission, refreshTrigger } = useApp();
+  const searchParams = useSearchParams();
   const [histories, setHistories] = useState<any[]>([]);
   const [users, setUsers] = useState<any[]>([]);
   const [queues, setQueues] = useState<any[]>([]);
@@ -463,6 +465,17 @@ export default function ChatHistoryPage() {
     fetchQueues().then(setQueues).catch(() => {});
     CompanyService.getAll().then(setCompanies).catch(() => {});
   }, [currentUser?.id, refreshTrigger]);
+
+  // Deep link vindo de outro relatório (ex.: lista de avaliações negativas
+  // do R4) — ?historyId= abre a conversa direto, sem precisar buscar na
+  // lista. Só age uma vez por navegação (guarda em selectedHistory === null)
+  // pra não reabrir depois que o usuário fechar o painel manualmente.
+  useEffect(() => {
+    const historyId = searchParams.get('historyId');
+    if (!historyId || selectedHistory || histories.length === 0) return;
+    const match = histories.find(h => h.id === historyId);
+    if (match) setSelectedHistory(match);
+  }, [searchParams, histories, selectedHistory]);
 
   useEffect(() => {
     localStorage.setItem(COLUMN_PREFS_STORAGE_KEY, JSON.stringify({ order: columnOrder, hidden: hiddenColumns }));

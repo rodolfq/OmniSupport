@@ -76,6 +76,9 @@ export async function GET(request: Request) {
     } else if (type === 'automation-settings') {
       const settings = await getAutomationSettings();
       return NextResponse.json(settings);
+    } else if (type === 'metric-thresholds') {
+      const res = await query('SELECT * FROM public.config_metric_thresholds WHERE id = 1');
+      return NextResponse.json(res.rows[0] || null);
     } else {
       return NextResponse.json({ error: 'Tipo não especificado ou inválido' }, { status: 400 });
     }

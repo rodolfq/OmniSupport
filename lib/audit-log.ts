@@ -1,6 +1,6 @@
 import { query } from '@/lib/db';
 
-export type AuditAction = 'create' | 'update' | 'delete' | 'publish';
+export type AuditAction = 'create' | 'update' | 'delete' | 'publish' | 'export';
 
 export interface AuditLogEntry {
   actorId: string | null;

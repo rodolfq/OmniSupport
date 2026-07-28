@@ -109,6 +109,9 @@ const permissionGroups = [
     permissions: [
       { id: Permission.DASHBOARD_VIEW, label: 'Dashboard principal', desc: 'Permite acessar a tela inicial com indicadores gerais — o conteúdo (Chamados/Tickets Internos) depende de ter também as permissões correspondentes' },
       { id: Permission.REPORTS_READ, label: 'Relatórios', desc: 'Permite acessar dashboards e dados estatísticos (/reports)' },
+      { id: Permission.DASHBOARD_MANAGEMENT, label: 'Dashboard Gerencial', desc: 'Acesso à visão gerencial de métricas de atendimento (/dashboard/management) — nível acima do dashboard de time' },
+      { id: Permission.REPORTS_INDIVIDUAL, label: 'Dados nominais por analista', desc: 'Permite ver relatórios com nome do analista associado, não só números agregados do time' },
+      { id: Permission.REPORTS_EXPORT, label: 'Exportar relatórios', desc: 'Permite exportar relatórios em CSV/PDF' },
     ]
   }
 ];

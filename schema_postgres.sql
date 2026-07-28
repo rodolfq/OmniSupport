@@ -266,6 +266,8 @@ CREATE TABLE public.automation_settings (
   updated_at TIMESTAMP WITH TIME ZONE DEFAULT now() NOT NULL
 );
 
+<<<<<<< HEAD
+=======
 -- Fila de envio atrasado (status='pending') e histórico/auditoria
 -- (status='sent'|'failed'|'skipped') na mesma tabela.
 CREATE TABLE public.automation_dispatches (
@@ -290,6 +292,7 @@ CREATE TABLE public.automation_dispatches (
 CREATE INDEX IF NOT EXISTS idx_automation_dispatches_pending ON public.automation_dispatches(status, send_at) WHERE status = 'pending';
 CREATE INDEX IF NOT EXISTS idx_automation_dispatches_ticket_event ON public.automation_dispatches(ticket_id, event_key, status);
 
+>>>>>>> origin/main
 -- Tickets Table
 CREATE TABLE public.tickets (
   id TEXT PRIMARY KEY DEFAULT (md5(random()::text || clock_timestamp()::text)::text),
@@ -319,6 +322,28 @@ CREATE INDEX IF NOT EXISTS idx_tickets_public_number ON public.tickets(public_ti
 CREATE INDEX IF NOT EXISTS idx_tickets_category_id ON public.tickets(category_id);
 CREATE INDEX IF NOT EXISTS idx_tickets_request_type_id ON public.tickets(request_type_id);
 CREATE INDEX IF NOT EXISTS idx_tickets_product_id ON public.tickets(product_id);
+
+-- Fila de envio atrasado (status='pending') e histórico/auditoria
+-- (status='sent'|'failed'|'skipped') na mesma tabela. Movida pra depois de
+-- "Tickets Table" (bug corrigido: referenciava public.tickets antes da
+-- tabela existir — nunca rodava do zero contra um banco vazio de verdade).
+CREATE TABLE public.automation_dispatches (
+  id UUID PRIMARY KEY DEFAULT (md5(random()::text || clock_timestamp()::text)::uuid),
+  event_key TEXT NOT NULL,
+  ticket_id TEXT REFERENCES public.tickets(id) ON DELETE CASCADE,
+  recipient_id UUID REFERENCES public.profiles(id) ON DELETE SET NULL,
+  recipient_name TEXT,
+  recipient_phone TEXT,
+  message TEXT NOT NULL,
+  status TEXT NOT NULL DEFAULT 'pending',
+  error TEXT,
+  send_at TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT now(),
+  sent_at TIMESTAMP WITH TIME ZONE,
+  created_at TIMESTAMP WITH TIME ZONE DEFAULT now() NOT NULL
+);
+
+CREATE INDEX IF NOT EXISTS idx_automation_dispatches_pending ON public.automation_dispatches(status, send_at) WHERE status = 'pending';
+CREATE INDEX IF NOT EXISTS idx_automation_dispatches_ticket_event ON public.automation_dispatches(ticket_id, event_key, status);
 
 -- Ticket Messages Table
 CREATE TABLE public.ticket_messages (
@@ -672,7 +697,10 @@ INSERT INTO public.role_permissions (name, role, permissions) VALUES
   ('Time Interno', 'Time Interno', ARRAY[
     'internal:view', 'internal:edit', 'chat:internal'
   ]::TEXT[])
-ON CONFLICT (name) DO NOTHING;
+-- Único índice que cobre (name) sozinho é o parcial (role_permissions_name_global_idx,
+-- WHERE internal_team_id IS NULL) — sem o WHERE aqui, ON CONFLICT (name) não
+-- encontra o índice pra "casar" e o INSERT falha (nunca rodava do zero).
+ON CONFLICT (name) WHERE internal_team_id IS NULL DO NOTHING;
 
 -- DO block to seed Admin and Client users directly
 DO $$
