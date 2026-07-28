@@ -1,4 +1,4 @@
-import { CategoryConfig, PriorityConfig, StatusConfig, TagConfig, QuickNote, SurveySettings } from '../types';
+import { CategoryConfig, PriorityConfig, StatusConfig, TagConfig, QuickNote, SurveySettings, MetricThresholds } from '../types';
 import { registerClosedStatusLabels } from '../ticket-status';
 
 export class ConfigService {
@@ -161,6 +161,32 @@ export class ConfigService {
       body: JSON.stringify({ type: 'survey-settings', settings })
     });
     if (!res.ok) throw new Error('Error saving survey settings via API');
+  }
+
+  // Dashboard Gerencial (Etapa 3) — só leitura por enquanto, sem tela de
+  // edição ainda (ver comentário em migrations/config_metric_thresholds.sql).
+  static async getMetricThresholds(): Promise<MetricThresholds> {
+    const res = await fetch('/api/config?type=metric-thresholds');
+    const data = await res.json();
+    return {
+      firstResponseGoodSeconds: Number(data?.first_response_good_seconds ?? 120),
+      firstResponseWarningSeconds: Number(data?.first_response_warning_seconds ?? 300),
+      pct2minGoodPercentage: Number(data?.pct_2min_good_percentage ?? 80),
+      pct2minWarningPercentage: Number(data?.pct_2min_warning_percentage ?? 60),
+      durationGoodMinutes: Number(data?.duration_good_minutes ?? 10),
+      durationWarningMinutes: Number(data?.duration_warning_minutes ?? 20),
+      satisfactionGoodPercentage: Number(data?.satisfaction_good_percentage ?? 85),
+      satisfactionWarningPercentage: Number(data?.satisfaction_warning_percentage ?? 70),
+      individualPeakGood: Number(data?.individual_peak_good ?? 3),
+      individualPeakWarning: Number(data?.individual_peak_warning ?? 5),
+      waitingNowGood: Number(data?.waiting_now_good ?? 2),
+      waitingNowWarning: Number(data?.waiting_now_warning ?? 5),
+      volumeMinExpected: Number(data?.volume_min_expected ?? 1),
+      capacityRatioGood: Number(data?.capacity_ratio_good ?? 2),
+      capacityRatioWarning: Number(data?.capacity_ratio_warning ?? 4),
+      riskSatisfactionDropPoints: Number(data?.risk_satisfaction_drop_points ?? 15),
+      riskRecurrenceRateWarning: Number(data?.risk_recurrence_rate_warning ?? 20)
+    };
   }
 }
 

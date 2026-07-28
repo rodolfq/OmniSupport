@@ -3,7 +3,7 @@
 import React from 'react';
 import Link from 'next/link';
 import { AreaChart, Area, XAxis, YAxis, Tooltip, ResponsiveContainer, PieChart, Pie, Cell } from 'recharts';
-import { TrendingUp, Clock, Calendar, Users, ThumbsUp, ThumbsDown, MessageSquareText, Lock, Star, ClipboardList, AlertTriangle, History, Search, ChevronLeft, ChevronRight, PlusCircle, Pencil, Trash2, Rocket } from 'lucide-react';
+import { TrendingUp, Clock, Calendar, Users, ThumbsUp, ThumbsDown, MessageSquareText, Lock, Star, ClipboardList, AlertTriangle, History, Search, ChevronLeft, ChevronRight, PlusCircle, Pencil, Trash2, Rocket, Download, Gauge, Building2 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { useTheme } from '@/app/theme-provider';
 import { useApp } from '@/app/app-context';
@@ -68,27 +68,38 @@ const ENTITY_TYPE_LABELS: Record<string, string> = {
   queue: 'Fila',
   hotfix: 'Hotfix',
   access_profile: 'Perfil de Acesso',
-  employee: 'Funcionário'
+  employee: 'Funcionário',
+  report: 'Relatório'
 };
 
 const ACTION_ICON: Record<string, React.ReactNode> = {
   create: <PlusCircle size={14} className="text-[var(--text-success)]" />,
   update: <Pencil size={14} className="text-[var(--accent-text)]" />,
   delete: <Trash2 size={14} className="text-[var(--text-danger)]" />,
-  publish: <Rocket size={14} className="text-[var(--text-warning)]" />
+  publish: <Rocket size={14} className="text-[var(--text-warning)]" />,
+  export: <Download size={14} className="text-[var(--accent-text)]" />
 };
 
 const ACTION_LABELS: Record<string, string> = {
   create: 'Criou',
   update: 'Editou',
   delete: 'Excluiu',
-  publish: 'Publicou'
+  publish: 'Publicou',
+  export: 'Exportou'
 };
 
 const ORIGIN_LABELS: Record<'chat_close' | 'manual', string> = {
   chat_close: 'Atendimento',
   manual: 'Manual'
 };
+
+const REPORT_LINKS = [
+  { href: '/reports/overview', title: 'Atendimento — Visão Geral', description: 'Volume, 1ª resposta, duração, abandono e quebra por fila/instância/canal/empresa.', icon: <TrendingUp size={18} /> },
+  { href: '/reports/analysts', title: 'Desempenho por Analista', description: 'Chats por hora online, tempo de resposta, satisfação — sempre contra a mediana do time.', icon: <Users size={18} /> },
+  { href: '/reports/capacity', title: 'Carga e Capacidade', description: 'A escala cobre a demanda? Carga simultânea x analistas online, por faixa horária.', icon: <Gauge size={18} /> },
+  { href: '/reports/satisfaction', title: 'Satisfação e Qualidade', description: 'Avaliações negativas com link pra conversa, tendência e cruzamento com tempo de resposta.', icon: <Star size={18} /> },
+  { href: '/reports/accounts', title: 'Conta/Cliente', description: 'Visão comercial da carteira — recorrência, minutos consumidos e sinal de risco por empresa.', icon: <Building2 size={18} /> }
+];
 
 const TAG_LABELS: Record<'technical' | 'beginner' | 'challenging', string> = {
   technical: '👨‍💻 Técnico',
@@ -196,6 +207,26 @@ export default function ReportsPage() {
         <h1 className="text-3xl font-black text-[var(--text-primary)] tracking-tight">Performance Analítica</h1>
         <button className="bg-[var(--accent)] hover:bg-[var(--accent-hover)] text-white px-6 py-2 rounded-lg font-bold shadow-md transition-colors">Exportar PDF</button>
       </div>
+
+      {/* Roadmap "Time x Gerencial" — os 5 relatórios (R1-R5), até aqui só
+          alcançáveis por URL direta. Cada card leva pra sua própria página,
+          com filtro, exportação e drill-down próprios. */}
+      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
+        {REPORT_LINKS.map((r) => (
+          <Link
+            key={r.href}
+            href={r.href}
+            className="flex items-start gap-3 p-5 rounded-2xl border border-[var(--border-default)] bg-[var(--surface-card)] shadow-sm hover:border-[var(--accent)]/40 hover:shadow-md transition-all"
+          >
+            <div className="p-2.5 rounded-xl bg-[var(--accent)]/10 text-[var(--accent-text)] shrink-0">{r.icon}</div>
+            <div className="min-w-0">
+              <p className="text-sm font-black text-[var(--text-primary)]">{r.title}</p>
+              <p className="text-xs text-[var(--text-tertiary)] mt-0.5">{r.description}</p>
+            </div>
+          </Link>
+        ))}
+      </div>
+
       <div className="grid grid-cols-1 md:grid-cols-4 gap-6">
         <MetricCard label="Satisfação" value="4.7" icon={<TrendingUp size={24} className="text-white" />} accent />
         <MetricCard label="Tempo Médio" value="2.4h" icon={<Clock className="text-[var(--accent-text)]" />} />

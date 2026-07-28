@@ -47,7 +47,16 @@ export enum Permission {
   QUEUES_MANAGE = 'queues:manage',
   DASHBOARD_VIEW = 'dashboard:view',
   REPORTS_READ = 'reports:read',
-  HOTFIXES_MANAGE = 'hotfixes:manage'
+  HOTFIXES_MANAGE = 'hotfixes:manage',
+  // Nível gerencial, separado do dashboard/relatórios de time acima —
+  // roadmap "Time x Gerencial", etapa 1: só a fundação de acesso, as telas
+  // que consomem essas permissões vêm nas etapas seguintes.
+  DASHBOARD_MANAGEMENT = 'dashboard:management',
+  // Dados nominais por analista (nome + números) — REPORTS_READ continua
+  // liberando só o agregado/time; isto aqui é o que hoje some numa reforma
+  // futura da granularidade de /reports.
+  REPORTS_INDIVIDUAL = 'reports:individual',
+  REPORTS_EXPORT = 'reports:export'
 }
 
 export interface StatusConfig {
@@ -466,4 +475,269 @@ export interface SavedFilter {
   id: string;
   name: string;
   filters: any;
+}
+
+// lib/services/metrics-service.ts — fonte única de cálculo das métricas de
+// chat (dashboard/relatórios consomem daqui, nunca recalculam por conta
+// própria). Ver comentário no topo daquele arquivo para as convenções de
+// mediana/fuso/transferência/"resposta automática".
+export interface MetricsFilter {
+  startDate: string; // 'YYYY-MM-DD', calendário America/Sao_Paulo
+  endDate: string;   // 'YYYY-MM-DD', inclusive, mesmo calendário
+  queueId?: string;
+  instanceId?: string; // resolvido via queues.whatsapp_instance_id — sessões sem fila ficam de fora
+  companyId?: string;  // via profiles.company_id do customer_id — sessões só-por-telefone ficam de fora
+  analystId?: string;  // chat_sessions.assignee_id (último respondente, ver convenção de transferência)
+}
+
+export interface MetricsPeriodInfo {
+  // true quando endDate ainda não fechou (é hoje ou está no futuro, no
+  // calendário America/Sao_Paulo) — UI deve marcar o número como parcial.
+  parcial: boolean;
+}
+
+export interface CountResult extends MetricsPeriodInfo {
+  count: number;
+}
+
+export interface MedianP90Result extends MetricsPeriodInfo {
+  medianSeconds: number | null;
+  p90Seconds: number | null;
+  sampleSize: number;
+}
+
+export interface PercentageResult extends MetricsPeriodInfo {
+  percentage: number | null;
+  numerator: number;
+  denominator: number;
+}
+
+export interface MedianMinutesResult extends MetricsPeriodInfo {
+  medianMinutes: number | null;
+  sampleSize: number;
+}
+
+export interface AverageResult extends MetricsPeriodInfo {
+  average: number | null;
+  sampleSize: number;
+}
+
+export interface HourlyBucket {
+  bucketStart: string; // ISO, início da hora já em America/Sao_Paulo
+  count: number;
+}
+
+export interface SatisfactionResult extends MetricsPeriodInfo {
+  positiveRate: number | null; // positivos / avaliados
+  responseRate: number | null; // avaliados / fechados no período
+  evaluated: number;
+  totalClosed: number;
+}
+
+export interface AnalystPeak {
+  analystId: string;
+  analystName: string;
+  peakConcurrent: number;
+}
+
+// Snapshot ao vivo — sem período, não faz parte das 11 métricas históricas
+// acima (ver getChatsEmEsperaAgora/getCargaAtualPorAnalista em
+// metrics-service.ts).
+export interface AnalystLoadNow {
+  analystId: string;
+  analystName: string;
+  activeChats: number;
+}
+
+// Dashboard Gerencial (Etapa 3 do roadmap "Time x Gerencial") — limites de
+// faixa verde/âmbar/vermelho dos KPIs, configuráveis no banco
+// (config_metric_thresholds), nunca hardcoded no componente.
+export interface MetricThresholds {
+  firstResponseGoodSeconds: number;
+  firstResponseWarningSeconds: number;
+  pct2minGoodPercentage: number;
+  pct2minWarningPercentage: number;
+  durationGoodMinutes: number;
+  durationWarningMinutes: number;
+  satisfactionGoodPercentage: number;
+  satisfactionWarningPercentage: number;
+  individualPeakGood: number;
+  individualPeakWarning: number;
+  waitingNowGood: number;
+  waitingNowWarning: number;
+  volumeMinExpected: number;
+  // R3 "Carga e Capacidade" — chats simultâneos por analista online.
+  capacityRatioGood: number;
+  capacityRatioWarning: number;
+  // R5 "Conta/Cliente" — sinal de risco: queda de satisfação (pontos
+  // percentuais) combinada com recorrência de contato acima do limiar.
+  riskSatisfactionDropPoints: number;
+  riskRecurrenceRateWarning: number;
+}
+
+export type KpiStatus = 'good' | 'warning' | 'danger';
+
+export interface ManagementAlert {
+  id: string;
+  severity: 'warning' | 'danger';
+  message: string;
+}
+
+// Relatório "Atendimento — visão geral" (R1) e o padrão que os relatórios
+// seguintes reaproveitam — ver lib/services/metrics-service.ts.
+export interface HourOfDayBucket {
+  hour: number; // 0-23, America/Sao_Paulo
+  count: number;
+}
+
+export interface WeekdayBucket {
+  weekday: number; // 0=domingo..6=sábado (EXTRACT(DOW), mesma convenção de getUTCDay() já usada no projeto)
+  count: number;
+}
+
+export type ReportDimension = 'queue' | 'instance' | 'channel' | 'company' | 'analyst';
+
+export interface DimensionBreakdownRow {
+  segmentId: string | null; // null = sem esse dado (ex.: sessão sem fila/empresa)
+  segmentLabel: string;
+  volume: number;
+  firstResponseMedianSeconds: number | null;
+  firstResponseP90Seconds: number | null;
+  pct2min: number | null;
+  durationMedianMinutes: number | null;
+  msgsPorChat: number | null;
+  abandonoPercentage: number | null;
+}
+
+// Relatório "Desempenho por Analista" (R2) — abaixo de MIN_ANALYST_SAMPLE
+// chats atendidos no período, a linha do analista marca amostraInsuficiente
+// (a UI troca os números por aviso, mas o analista nunca some da lista).
+export const MIN_ANALYST_SAMPLE = 10;
+
+export interface AnalystPerformanceRow {
+  analystId: string;
+  analystName: string; // já vem anonimizado ("Analista N") pelo route quando o ator não tem reports:individual
+  isSelf: boolean; // o próprio ator logado — sempre nome real, mesmo anonimizado pros outros
+  amostraInsuficiente: boolean;
+  chatsAtendidos: number;
+  firstResponseMedianSeconds: number | null;
+  durationMedianMinutes: number | null;
+  msgsEnviadas: number | null;
+  satisfactionPositiveRate: number | null;
+  simultaneidadeMedia: number | null;
+  simultaneidadePico: number | null;
+  horasOnline: number | null;
+  chatsPorHoraOnline: number | null; // indicador principal do relatório — null quando horasOnline = 0
+}
+
+export interface TeamMedians {
+  chatsAtendidos: number | null;
+  firstResponseMedianSeconds: number | null;
+  durationMedianMinutes: number | null;
+  msgsEnviadas: number | null;
+  satisfactionPositiveRate: number | null;
+  simultaneidadeMedia: number | null;
+  simultaneidadePico: number | null;
+  horasOnline: number | null;
+  chatsPorHoraOnline: number | null;
+}
+
+export interface AnalystAbsenceBreakdown {
+  analystId: string;
+  analystName: string;
+  reason: string;
+  hours: number;
+}
+
+// Relatório "Carga e Capacidade" (R3) — 1 linha por hora-calendário do
+// período (o "dado bruto", drill-down por faixa) e o resumo por hora-do-dia
+// (0-23) que agrega essas linhas. Ver lib/services/metrics-service.ts.
+export interface CapacityRawBucket {
+  bucketStart: string;
+  dateSp: string; // dia-calendário America/Sao_Paulo, 'YYYY-MM-DD'
+  hour: number; // 0-23
+  cargaSimultanea: number;
+  analistasOnline: number;
+  picoIndividual: number;
+  cargaPorAnalista: number | null; // null quando analistasOnline = 0
+  critico: boolean;
+}
+
+export interface CapacityHourSummary {
+  hour: number;
+  cargaSimultaneaMediana: number | null;
+  analistasOnlineMediana: number | null;
+  picoIndividualMediana: number | null;
+  cargaPorAnalistaMediana: number | null;
+  diasCriticos: number;
+  diasAmostrados: number;
+  status: KpiStatus;
+}
+
+// Relatório "Satisfação e Qualidade" (R4) — evolui app/api/reports/survey/
+// route.ts. chat_histories.rating é -1/0/1 (nunca convertido pra escala
+// 1-5 de fonte externa — decisão em aberto, fora deste relatório).
+export interface SatisfactionTrendBucket {
+  bucketStart: string;
+  evaluated: number;
+  positive: number;
+  positiveRate: number | null;
+}
+
+export interface SatisfactionDimensionRow {
+  segmentId: string | null;
+  segmentLabel: string;
+  evaluated: number;
+  positive: number;
+  negative: number;
+  positiveRate: number | null;
+  responseRate: number | null;
+  amostraInsuficiente: boolean;
+}
+
+export interface SatisfactionTimeRangeRow {
+  rangeLabel: string;
+  evaluated: number;
+  positive: number;
+  positiveRate: number | null;
+}
+
+export interface NegativeEvaluationRow {
+  historyId: string;
+  sessionId: string | null;
+  customerName: string;
+  analystName: string | null;
+  finishedAt: string;
+  firstResponseSeconds: number | null;
+  durationSeconds: number | null;
+  ticketNumber: number | null;
+}
+
+// Relatório "Conta/Cliente" (R5) — único dos cinco que responde pergunta
+// comercial (diretoria/CS), não operacional.
+export interface AccountSummaryRow {
+  companyId: string;
+  companyName: string;
+  volume: number;
+  minutosConsumidos: number;
+  recorrenciaRate: number | null; // % de chats que são recontato do mesmo cliente em até 72h
+  positiveRate: number | null;
+  responseRate: number | null;
+  avaliacaoInternaMedia: number | null; // customer_evaluations, critério em branco não entra na média
+  sinalRisco: boolean; // queda de satisfação vs. período anterior + recorrência alta — calculado na rota
+}
+
+export interface AccountTopContact {
+  customerId: string;
+  customerName: string;
+  volume: number;
+  minutosConsumidos: number;
+}
+
+export interface AccountMonthlyBucket {
+  monthStart: string;
+  volume: number;
+  minutosConsumidos: number;
+  positiveRate: number | null;
+  recorrenciaRate: number | null;
 }
