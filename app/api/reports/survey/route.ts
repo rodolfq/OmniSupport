@@ -12,6 +12,7 @@ import {
   getPeriodBounds
 } from '@/lib/services/metrics-service';
 
+<<<<<<< HEAD
 // Relatório "Satisfação e Qualidade" (R4) — EVOLUI este arquivo em vez de
 // recomeçar do zero, como pedido: o GET sem ?action= (usado hoje por
 // app/(portal)/reports/page.tsx) fica 100% intocado; todo conteúdo novo do
@@ -24,6 +25,15 @@ import {
 // Mesma checagem de app/api/tickets/route.ts — corrigido aqui o join que
 // estava desatualizado (rp.role = p.role, de antes de profiles.access_
 // profile_id existir); as outras rotas de relatório já usam o join certo.
+=======
+// Mesma lacuna encontrada em customer-evaluations/route.ts: a página
+// /reports só escondia a seção no cliente, a API em si estava aberta pra
+// qualquer um. Mesmo padrão de autenticação usado em app/api/tickets/route.ts.
+// O JOIN é por access_profile_id, não por role — perfis de acesso
+// customizados gravam role_permissions.role com o NOME do perfil, não o
+// UserRole do ator, então `rp.role = p.role` nunca bate pra eles (cai de
+// volta na linha padrão do papel estrutural, liberando ou bloqueando errado).
+>>>>>>> origin/main
 async function getReportActor(request: NextRequest) {
   const token = request.cookies.get('token')?.value;
   if (!token) return null;

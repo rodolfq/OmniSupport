@@ -4,7 +4,7 @@ import React, { useState, useMemo } from 'react';
 import Link from 'next/link';
 import { usePathname, useRouter } from 'next/navigation';
 import { Permission, UserRole } from '@/lib/types';
-import { getNavItems, getUserPermissions } from '@/lib/nav-items';
+import { getNavItems, getUserPermissions, matchesPermission } from '@/lib/nav-items';
 import {
    LogOut,
    Database,
@@ -12,6 +12,7 @@ import {
 import { cn } from '@/lib/utils';
 import { useApp } from '@/app/app-context';
 import { ChangePasswordModal } from './change-password-modal';
+import { AnalystService } from '@/lib/services/chat-service';
 
 export function Sidebar() {
   const pathname = usePathname();
@@ -19,6 +20,13 @@ export function Sidebar() {
   const { currentUser, setCurrentUser, userStatus, dbStatus } = useApp();
 
   const handleLogout = async () => {
+    // Marca offline explicitamente — sem isso, a presença ficava travada no
+    // último status manual pra sempre (ver heartbeat em app-context.tsx),
+    // então quem desloga de propósito ainda aparecia "disponível" nas telas
+    // de status até o last_active envelhecer sozinho.
+    if (currentUser && currentUser.role !== UserRole.CUSTOMER) {
+      AnalystService.logStatusChange(currentUser.id, 'offline').catch(() => {});
+    }
     try {
       await fetch('/api/auth/logout', { method: 'POST' });
     } catch (e) {
@@ -54,12 +62,12 @@ export function Sidebar() {
       <div className="flex-1 flex flex-col gap-4">
         {menuItems.map((item) => {
           // Check permission if required
-          const hasPermission = !item.permission || userPermissions.includes(item.permission);
-          
+          const hasPermission = matchesPermission(item.permission, userPermissions);
+
           if (!hasPermission) {
             // Check if any sub-item has permission
             if (item.subItems) {
-              const hasVisibleSubItem = item.subItems.some(sub => !sub.permission || userPermissions.includes(sub.permission as Permission));
+              const hasVisibleSubItem = item.subItems.some(sub => matchesPermission(sub.permission, userPermissions));
               if (!hasVisibleSubItem) return null;
             } else {
               return null;
@@ -116,7 +124,7 @@ export function Sidebar() {
                   </div>
                   {item.subItems?.map(sub => {
                     // Check sub-item permission
-                    if (sub.permission && !userPermissions.includes(sub.permission as Permission)) return null;
+                    if (!matchesPermission(sub.permission, userPermissions)) return null;
 
                     const isSubActive = sub.href ? pathname === sub.href : false;
 

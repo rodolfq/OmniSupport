@@ -2,31 +2,37 @@
 
 import React, { useState, useEffect } from 'react';
 import { StyledSelect } from '@/components/styled-select';
-import { User, Queue, WhatsappInstance, Permission } from '@/lib/types';
+import { User, Queue, WhatsappInstance, Permission, AnalystStatus } from '@/lib/types';
 import { UserService } from '@/lib/services/user-service';
-import { getQueues, saveQueue, deleteQueue, getWhatsappInstances } from '@/app/actions';
-import { 
-  Library, 
-  Plus, 
-  Search, 
-  MoreVertical, 
-  Users, 
-  Globe, 
-  Trash2, 
+import { fetchAnalystStatuses } from '@/lib/services/config-service';
+import { deriveLiveStatus } from '@/lib/presence';
+import { getQueues, saveQueue, deleteQueue, getWhatsappInstances, updateUserStatus } from '@/app/actions';
+import {
+  Library,
+  Plus,
+  Search,
+  MoreVertical,
+  Users,
+  Globe,
+  Trash2,
   Edit2,
   XCircle,
   Smartphone,
   CheckCircle2,
-  Settings2
+  Settings2,
+  AlertTriangle,
+  Power
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { motion, AnimatePresence } from 'motion/react';
 import { ConfirmDialog } from '@/components/confirm-dialog';
 import { useApp } from '@/app/app-context';
+import { toast } from 'sonner';
 
 export default function QueuesManagementPage() {
   const [queues, setQueues] = useState<Queue[]>([]);
   const [users, setUsers] = useState<User[]>([]);
+  const [analystStatuses, setAnalystStatuses] = useState<Map<string, AnalystStatus>>(new Map());
   const [whatsappInstances, setWhatsappInstances] = useState<WhatsappInstance[]>([]);
   const [search, setSearch] = useState('');
   const [isModalOpen, setIsModalOpen] = useState(false);
@@ -40,11 +46,36 @@ export default function QueuesManagementPage() {
   const [includeInternalChats, setIncludeInternalChats] = useState(true);
   const [routingStrategy, setRoutingStrategy] = useState('round_robin');
   const [deletingQueue, setDeletingQueue] = useState<Queue | null>(null);
+  const [kickingMember, setKickingMember] = useState<{ id: string; name: string } | null>(null);
 
-  const { hasPermission } = useApp();
+  const { hasPermission, currentUser } = useApp();
 
   useEffect(() => {
     loadData();
+  }, []);
+
+  // A ordem do rodízio (queue_anchor_at) e a bolinha de status de cada
+  // membro podem mudar a qualquer momento por causa de outra pessoa (login,
+  // "Ausente", derrubar login) — sem isso, quem tem a tela de Filas aberta
+  // só via a mudança ao navegar pra outro lugar e voltar. Só a chamada mais
+  // leve (analyst-statuses) é repetida; filas/usuários/instâncias não mudam
+  // com essa frequência e continuam recarregando via loadData() nas ações.
+  useEffect(() => {
+    const refreshStatuses = async () => {
+      if (document.visibilityState !== 'visible') return;
+      try {
+        const statuses: AnalystStatus[] = await fetchAnalystStatuses();
+        setAnalystStatuses(new Map(statuses.map(s => [s.userId, s])));
+      } catch (e) {
+        console.error('Error refreshing analyst statuses:', e);
+      }
+    };
+    const interval = setInterval(refreshStatuses, 10000);
+    document.addEventListener('visibilitychange', refreshStatuses);
+    return () => {
+      clearInterval(interval);
+      document.removeEventListener('visibilitychange', refreshStatuses);
+    };
   }, []);
 
   const loadData = async () => {
@@ -52,6 +83,8 @@ export default function QueuesManagementPage() {
       const dbQueues = await getQueues();
       const emps = await UserService.getAnalysts();
       const dbInstances = await getWhatsappInstances();
+      const statuses: AnalystStatus[] = await fetchAnalystStatuses();
+      setAnalystStatuses(new Map(statuses.map(s => [s.userId, s])));
 
       if (dbQueues) {
         setQueues(dbQueues.map(q => ({
@@ -117,7 +150,7 @@ export default function QueuesManagementPage() {
 
     if (res && (res as any).error) {
       console.error("Error saving queue:", (res as any).error);
-      alert("Erro ao salvar fila.");
+      toast.error((res as any).error || "Erro ao salvar fila.");
       return;
     }
 
@@ -126,12 +159,70 @@ export default function QueuesManagementPage() {
   };
 
   const toggleMember = (userId: string) => {
-    setSelectedMemberIds(prev => 
+    setSelectedMemberIds(prev =>
       prev.includes(userId) ? prev.filter(id => id !== userId) : [...prev, userId]
     );
   };
 
-  const filteredQueues = queues.filter(q => 
+  // "Derrubar login": tira alguém preso como Online/Ausente sem estar de
+  // fato disponível, liberando a posição dele no rodízio. Só derruba pra
+  // Offline — o backend (updateUserStatus) recusa qualquer tentativa de
+  // colocar outra pessoa como Online, então isso nunca vira uma forma de
+  // "furar" a fila colocando um colega disponível por ele.
+  const handleKickOffline = async () => {
+    if (!kickingMember) return;
+    const res = await updateUserStatus(kickingMember.id, false);
+    if (res && (res as any).error) {
+      toast.error((res as any).error);
+      setKickingMember(null);
+      return;
+    }
+    toast.success(`${kickingMember.name} foi desconectado da fila.`);
+    setKickingMember(null);
+    loadData();
+  };
+
+  // Mesma bolinha de status usada no chat/equipe — verde pulsando (online),
+  // âmbar (ausente/pausa), cinza (offline). "Ausente" não sai do lugar na
+  // lista: continua na mesma posição do member_ids, só muda de cor (a
+  // ordem-base nunca é reescrita por mudança de status, só pela edição da
+  // fila em si — ver lib/services/queue-routing.ts).
+  const statusDotClass = (status?: string) => {
+    if (status === 'online') return 'bg-[var(--text-success)] animate-pulse';
+    if (status === 'away') return 'bg-[var(--text-warning-strong)]';
+    return 'bg-[var(--text-tertiary)]';
+  };
+  const statusLabel = (status?: string) => {
+    if (status === 'online') return 'Disponível';
+    if (status === 'away') return 'Ausente';
+    return 'Offline';
+  };
+
+  // Sinalização pro admin de padrão estranho de troca de status (não bloqueia
+  // nada — só chama atenção). Contagem já ignora repetição do heartbeat de
+  // 60s (ver app/api/config/route.ts, type=analyst-statuses).
+  const STATUS_CHANGES_ALERT_THRESHOLD = 8;
+
+  // Ordem de exibição = ordem real do rodízio: quem ficou online primeiro
+  // hoje aparece primeiro (queue_anchor_at), não mais a ordem de cadastro em
+  // member_ids — ver lib/services/queue-routing.ts. Quem está ausente/offline
+  // fica depois, na ordem de cadastro original.
+  const orderedMemberIds = (memberIds: string[]) => {
+    const online: string[] = [];
+    const rest: string[] = [];
+    for (const id of memberIds) {
+      if (deriveLiveStatus(analystStatuses.get(id)) === 'online') online.push(id);
+      else rest.push(id);
+    }
+    online.sort((a, b) => {
+      const anchorA = analystStatuses.get(a)?.queueAnchorAt;
+      const anchorB = analystStatuses.get(b)?.queueAnchorAt;
+      return new Date(anchorA ?? 0).getTime() - new Date(anchorB ?? 0).getTime();
+    });
+    return [...online, ...rest];
+  };
+
+  const filteredQueues = queues.filter(q =>
     q.name.toLowerCase().includes(search.toLowerCase()) || 
     q.description?.toLowerCase().includes(search.toLowerCase())
   );
@@ -223,7 +314,7 @@ export default function QueuesManagementPage() {
                     No <strong className="text-[var(--text-primary)]">Rodízio (round-robin)</strong>, a distribuição é entre quem está online agora dentro da equipe da fila — não existe fila de espera visual nem prioridade manual: quem vai ficando <strong className="text-[var(--text-primary)]">online vai entrando no rodízio</strong> e passa a receber a próxima conversa na sua vez.
                  </p>
                  <p>
-                    A ordem segue a sequência da equipe cadastrada na fila, pulando quem está offline. Cada novo atendimento vai para o próximo da vez depois de quem recebeu o último — ou seja, quem está online há mais tempo sem receber um chat é o próximo.
+                    A ordem é definida por quem ficou <strong className="text-[var(--text-primary)]">online primeiro no dia</strong>, não pela ordem de cadastro na fila. Cada novo atendimento vai para o próximo da vez depois de quem recebeu o último. Ficar Ausente ou fechar o navegador não manda a pessoa pro fim da fila — só a virada do dia reseta a posição de cada um.
                  </p>
                  <p>
                     <strong className="text-[var(--text-primary)]">Chat de WhatsApp e chat de login do funcionário (widget do portal) entram no mesmo rodízio</strong>: quem acabou de receber um pelo WhatsApp não é o próximo também a receber um de login, e vice-versa — os dois canais contam para a mesma vez na fila.
@@ -319,17 +410,51 @@ export default function QueuesManagementPage() {
                         </div>
                       </div>
 
-                      {/* Member list preview */}
+                      {/* Ordem real do rodízio: quem ficou online primeiro hoje
+                          aparece primeiro (queue_anchor_at) — não mais a ordem
+                          de cadastro. Quem está "Ausente" continua contando pra
+                          posição quando volta a ficar Online no mesmo dia, só
+                          não recebe atendimento novo enquanto ausente. */}
                       <div className="mt-8 grid grid-cols-2 md:grid-cols-4 lg:grid-cols-6 gap-3">
-                         {queue.memberIds.map(mid => {
+                         {orderedMemberIds(queue.memberIds).map((mid, idx) => {
                            const user = users.find(u => u.id === mid);
                            if (!user) return null;
+                           const analystStatus = analystStatuses.get(mid);
+                           const status = deriveLiveStatus(analystStatus);
+                           const changesToday = analystStatus?.statusChangesToday ?? 0;
+                           const flagged = changesToday >= STATUS_CHANGES_ALERT_THRESHOLD;
                            return (
-                             <div key={mid} className="flex items-center gap-2 p-2 bg-[var(--surface-card)] rounded-xl border border-[var(--border-default)] shadow-sm">
-                                <div className="w-6 h-6 rounded-lg bg-[var(--accent)]/10 flex items-center justify-center text-[10px] font-black text-[var(--accent-text)]">
-                                   {user.name.charAt(0)}
+                             <div key={mid} title={statusLabel(status)} className="flex items-center gap-2 p-2 bg-[var(--surface-card)] rounded-xl border border-[var(--border-default)] shadow-sm">
+                                <span className="text-[9px] font-black text-[var(--text-tertiary)] w-3 shrink-0 text-center">{status === 'online' ? idx + 1 : '–'}</span>
+                                <div className="relative shrink-0">
+                                   <div className="w-6 h-6 rounded-lg bg-[var(--accent)]/10 flex items-center justify-center text-[10px] font-black text-[var(--accent-text)]">
+                                      {user.name.charAt(0)}
+                                   </div>
+                                   <span className={cn("absolute -bottom-0.5 -right-0.5 w-2 h-2 rounded-full border border-[var(--surface-card)]", statusDotClass(status))} />
                                 </div>
-                                <span className="text-[10px] font-bold text-[var(--text-secondary)] truncate">{user.name}</span>
+                                <span className="text-[10px] font-bold text-[var(--text-secondary)] truncate flex-1">{user.name}</span>
+                                {flagged && (
+                                  <span title={`${changesToday} trocas de status hoje`} className="shrink-0">
+                                    <AlertTriangle size={12} className="text-[var(--text-warning-strong)]" />
+                                  </span>
+                                )}
+                                {/* Derruba o login (força Offline) de quem ficou preso
+                                    como Online/Ausente sem estar de fato disponível,
+                                    liberando a vaga dele no rodízio. Também vale pra si
+                                    mesmo (desconectar rápido sem trocar de tela). Nunca o
+                                    contrário — só o próprio usuário pode se colocar
+                                    Online, o backend recusa a troca inversa mesmo se
+                                    tentada por outra pessoa. */}
+                                {status !== 'offline' && (
+                                  <button
+                                    type="button"
+                                    onClick={() => setKickingMember({ id: mid, name: user.name })}
+                                    title={mid === currentUser?.id ? 'Desconectar (marca como Offline)' : 'Derrubar login (marca como Offline)'}
+                                    className="shrink-0 p-1 text-[var(--text-tertiary)] hover:text-[var(--text-danger)] hover:bg-[var(--surface-danger)] rounded-md transition-all"
+                                  >
+                                    <Power size={12} />
+                                  </button>
+                                )}
                              </div>
                            );
                          })}
@@ -475,11 +600,17 @@ export default function QueuesManagementPage() {
                                  : "bg-[var(--surface-card)] border-[var(--border-default)] hover:border-[var(--border-default)]"
                              )}
                            >
-                              <div className={cn(
-                                "w-10 h-10 rounded-xl flex items-center justify-center font-black text-sm transition-all",
-                                selectedMemberIds.includes(user.id) ? "bg-[var(--accent)] text-white" : "bg-[var(--surface-card)] text-[var(--text-tertiary)]"
-                              )}>
-                                 {user.name.charAt(0)}
+                              <div className="relative shrink-0">
+                                <div className={cn(
+                                  "w-10 h-10 rounded-xl flex items-center justify-center font-black text-sm transition-all",
+                                  selectedMemberIds.includes(user.id) ? "bg-[var(--accent)] text-white" : "bg-[var(--surface-card)] text-[var(--text-tertiary)]"
+                                )}>
+                                   {user.name.charAt(0)}
+                                </div>
+                                <span
+                                  title={statusLabel(deriveLiveStatus(analystStatuses.get(user.id)))}
+                                  className={cn("absolute -bottom-0.5 -right-0.5 w-2.5 h-2.5 rounded-full border border-[var(--surface-card)]", statusDotClass(deriveLiveStatus(analystStatuses.get(user.id))))}
+                                />
                               </div>
                               <div className="min-w-0">
                                  <p className="text-xs font-black uppercase truncate text-[var(--text-primary)] leading-none mb-1">{user.name}</p>
@@ -525,7 +656,7 @@ export default function QueuesManagementPage() {
 
             if (res && res.error) {
               console.error("Error deleting queue:", res.error);
-              alert("Erro ao excluir fila.");
+              toast.error(res.error || "Erro ao excluir fila.");
               return;
             }
 
@@ -536,6 +667,20 @@ export default function QueuesManagementPage() {
         title="Excluir Fila"
         description={`Tem certeza que deseja remover a fila "${deletingQueue?.name}"? Todos os atendimentos vinculados continuarão no sistema.`}
         confirmLabel="Excluir"
+        variant="danger"
+      />
+
+      <ConfirmDialog
+        isOpen={!!kickingMember}
+        onClose={() => setKickingMember(null)}
+        onConfirm={handleKickOffline}
+        title={kickingMember?.id === currentUser?.id ? 'Desconectar' : 'Derrubar Login'}
+        description={
+          kickingMember?.id === currentUser?.id
+            ? 'Deseja se desconectar? Você sai do rodízio de atendimento até fazer login de novo.'
+            : `Deseja marcar ${kickingMember?.name || 'este analista'} como Offline? Ele sai do rodízio de atendimento até fazer login de novo.`
+        }
+        confirmLabel={kickingMember?.id === currentUser?.id ? 'Desconectar' : 'Derrubar Login'}
         variant="danger"
       />
     </div>

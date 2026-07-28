@@ -4,35 +4,7 @@ import { CLOSED_TICKET_STATUSES } from '@/lib/ticket-status';
 import { verifyJWT } from '@/lib/jwt';
 import { handleTicketCreated, handleTicketUpdated, handleTicketMessageCreated } from '@/lib/services/automation-service';
 import { notifyUser } from '@/lib/services/push-service';
-import { getTeamUserIds, getTicketRecipients } from '@/lib/services/notification-recipients';
-
-function ticketLabel(ticketNumber?: number | string | null, id?: string) {
-  return ticketNumber ? `#${String(ticketNumber).padStart(4, '0')}` : `#${String(id || '').slice(0, 8)}`;
-}
-
-async function pushToTicketRecipients(
-  recipients: { teamIds: string[]; customerIds: string[] },
-  payload: { title: string; body: string; ticketId: string; tag: string }
-) {
-  try {
-    await Promise.all([
-      ...recipients.teamIds.map(id => notifyUser(id, {
-        title: payload.title,
-        body: payload.body,
-        url: `/tickets?ticket=${payload.ticketId}`,
-        tag: payload.tag
-      })),
-      ...recipients.customerIds.map(id => notifyUser(id, {
-        title: payload.title,
-        body: payload.body,
-        url: `/my-tickets?ticket=${payload.ticketId}`,
-        tag: payload.tag
-      }))
-    ]);
-  } catch (err) {
-    console.error('[push] Falha ao notificar chamado:', err);
-  }
-}
+import { getTeamUserIds, getTicketRecipients, pushToTicketRecipients, ticketLabel } from '@/lib/services/notification-recipients';
 
 async function getTicketActor(request: NextRequest) {
   const token = request.cookies.get('token')?.value;
@@ -294,8 +266,8 @@ export async function POST(request: Request) {
       }
 
       const res = await query(
-        `INSERT INTO public.tickets (title, description, status, priority, queue_id, category_id, request_type_id, product_id, tags, company_id, customer_id, created_by, attachments_data, employee_ids)
-         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14)
+        `INSERT INTO public.tickets (title, description, status, priority, queue_id, category_id, request_type_id, product_id, tags, company_id, customer_id, created_by, attachments_data, employee_ids, assignee_id)
+         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15)
          RETURNING *`,
         [
           ticket.title,
@@ -308,10 +280,11 @@ export async function POST(request: Request) {
           ticket.productId || null,
           ticket.tags || [],
           companyId,
-          userId,
+          ticket.customerId || userId,
           userId,
           JSON.stringify(ticket.attachments || []),
-          ticket.employeeIds || []
+          ticket.employeeIds || [],
+          ticket.assigneeId || null
         ]
       );
 
@@ -500,8 +473,20 @@ export async function PATCH(request: Request) {
       setClauses.push(`status = $${paramIndex}`);
       params.push(updates.status);
       paramIndex++;
+      // Igual ao caminho manual único (ticket-detail-modal, que sempre
+      // zera subStatus junto de qualquer troca de status): sem isso, um
+      // chamado ficava com sub_status de um status pai antigo depois de
+      // uma mudança de status em massa, combinação que a UI normal nunca
+      // produz sozinha.
+      if (updates.subStatus !== undefined) {
+        setClauses.push(`sub_status = $${paramIndex}`);
+        params.push(updates.subStatus || null);
+        paramIndex++;
+      } else {
+        setClauses.push(`sub_status = NULL`);
+      }
     }
-    
+
     if (updates.title !== undefined) {
       setClauses.push(`title = $${paramIndex}`);
       params.push(updates.title);

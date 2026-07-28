@@ -8,10 +8,12 @@ import { emitChatEvent, excludeActiveViewers } from '@/lib/chat-events';
 import { notifyUser } from '@/lib/services/push-service';
 import { getChatRecipientIds, getTeamUserIds } from '@/lib/services/notification-recipients';
 import { pickNextQueueAssignee } from '@/lib/services/queue-routing';
+import { runExclusive } from '@/lib/key-mutex';
+import { canForceOthersOffline } from '@/lib/services/presence-authorization';
 import { CustomerEvaluationScores, CustomerProfileTag, CustomerEvaluationSummary, CustomerEvaluationOrigin } from '@/lib/types';
 import { logAudit } from '@/lib/audit-log';
 
-async function getCurrentActionUser() {
+export async function getCurrentActionUser() {
   const token = (await cookies()).get('token')?.value;
   if (!token) return null;
 
@@ -347,8 +349,8 @@ export async function getUsers() {
 
 // Um admin de equipe só pode agir sobre usuários que já pertencem a uma
 // equipe que ele administra (nunca sobre um Administrador do sistema).
-async function assertUserManageable(actor: { id: string; role: string; company_id?: string | null }, targetId: string): Promise<{ ok: true; target: any } | { ok: false; error: string }> {
-  const res = await query('SELECT id, role, company_id, internal_team_ids FROM public.profiles WHERE id = $1', [targetId]);
+export async function assertUserManageable(actor: { id: string; role: string; company_id?: string | null }, targetId: string): Promise<{ ok: true; target: any } | { ok: false; error: string }> {
+  const res = await query('SELECT id, role, company_id, internal_team_ids, is_admin FROM public.profiles WHERE id = $1', [targetId]);
   const target = res.rows[0];
   if (!target) return { ok: false, error: 'Usuário não encontrado.' };
   if (actor.role === 'Administrador') return { ok: true, target };
@@ -470,8 +472,14 @@ export async function updateUser(
 
 export async function getAnalysts() {
   try {
+    // 'Analista'/'Suporte' nunca existiram como valor real de profiles.role
+    // (ver UserRole em lib/types.ts: Administrador/Equipe/Cliente/Funcionário/
+    // Time Interno) — esse filtro estava excluindo TODO analista com role
+    // 'Equipe' (o papel padrão de quem atende chamado/chat) da lista, o que
+    // fazia membro de fila sumir de Canais de Atendimento mesmo já tendo
+    // status de presença gravado.
     const res = await query(
-      "SELECT * FROM public.profiles WHERE role IN ('Administrador', 'Analista', 'Suporte', 'Time Interno') ORDER BY name ASC"
+      "SELECT * FROM public.profiles WHERE role IN ('Administrador', 'Equipe', 'Time Interno') ORDER BY name ASC"
     );
     return res.rows.map(u => ({
       id: u.id,
@@ -508,15 +516,41 @@ export async function getCustomers() {
 
 export async function updateUserStatus(userId: string, isOnline: boolean, reason?: string) {
   try {
+    const actor = await getCurrentActionUser();
+    if (!actor) return { error: 'Sessão inválida.' };
+
+    // Ninguém coloca outra pessoa como Online — só o próprio usuário decide
+    // isso de si mesmo. Forçar um colega para Offline (ex.: "derrubar login"
+    // de alguém preso como disponível) é permitido, mas exige uma das
+    // permissões de supervisão de fila/equipe. Ver lib/services/presence-
+    // authorization.ts para o porquê (evita fraude no rodízio de atendimento).
+    if (actor.id !== userId) {
+      if (isOnline) {
+        return { error: 'Só o próprio usuário pode se colocar Online.' };
+      }
+      if (!(await canForceOthersOffline(actor))) {
+        return { error: 'Você não tem permissão para alterar o status de outro usuário.' };
+      }
+    }
+
     const status = isOnline ? 'online' : 'offline';
+    // queue_anchor_at só é gravada na primeira vez que fica online no dia —
+    // ver migrations/queue_daily_anchor.sql. Ficar ausente/offline não mexe
+    // nela, então a posição no rodízio (pickNextQueueAssignee) não se perde.
     await query(
-      `INSERT INTO public.analyst_status (user_id, is_online, last_active, current_reason, status)
-       VALUES ($1, $2, NOW(), $3, $4)
+      `INSERT INTO public.analyst_status (user_id, is_online, last_active, current_reason, status, queue_anchor_at, queue_anchor_date)
+       VALUES ($1, $2, NOW(), $3, $4, CASE WHEN $2 THEN NOW() END, CASE WHEN $2 THEN CURRENT_DATE END)
        ON CONFLICT (user_id) DO UPDATE SET
          is_online = EXCLUDED.is_online,
          last_active = NOW(),
          current_reason = EXCLUDED.current_reason,
-         status = EXCLUDED.status`,
+         status = EXCLUDED.status,
+         queue_anchor_at = CASE
+           WHEN EXCLUDED.is_online AND (analyst_status.queue_anchor_date IS NULL OR analyst_status.queue_anchor_date < CURRENT_DATE)
+           THEN NOW() ELSE analyst_status.queue_anchor_at END,
+         queue_anchor_date = CASE
+           WHEN EXCLUDED.is_online AND (analyst_status.queue_anchor_date IS NULL OR analyst_status.queue_anchor_date < CURRENT_DATE)
+           THEN CURRENT_DATE ELSE analyst_status.queue_anchor_date END`,
       [userId, isOnline, reason || null, status]
     );
     await query(
@@ -920,14 +954,19 @@ export async function returnChatSessionToQueue(sessionId: string, queueId: strin
     const queue = queueRes.rows[0];
     if (!queue) return { error: 'Fila não encontrada.' };
 
-    const nextAssigneeId = await pickNextQueueAssignee({ id: queue.id, memberIds: queue.member_ids || [] });
+    // Escolha + gravação sob o mesmo lock por fila — este ponto não tinha
+    // nenhum lock antes, então duas devoluções à fila quase simultâneas
+    // podiam calcular o mesmo "próximo" e cair no mesmo analista.
+    await runExclusive(`queue-assign:${queue.id}`, async () => {
+      const nextAssigneeId = await pickNextQueueAssignee({ id: queue.id, memberIds: queue.member_ids || [] });
 
-    await query(
-      `UPDATE public.chat_sessions
-       SET assignee_id = $1, queue_id = $2, status = $3, updated_at = NOW()
-       WHERE id = $4`,
-      [nextAssigneeId, queueId, nextAssigneeId ? 'active' : 'pending', sessionId]
-    );
+      await query(
+        `UPDATE public.chat_sessions
+         SET assignee_id = $1, queue_id = $2, status = $3, updated_at = NOW()
+         WHERE id = $4`,
+        [nextAssigneeId, queueId, nextAssigneeId ? 'active' : 'pending', sessionId]
+      );
+    });
 
     const actingUserRes = await query('SELECT name FROM public.profiles WHERE id = $1', [actingUserId]);
     const actingUserName = actingUserRes.rows[0]?.name || 'Alguém';
@@ -1122,8 +1161,13 @@ export async function mergeTickets(sourceTicketIds: string[], targetTicketId: st
         if (!source) continue;
         const sourceLabel = `#${String(source.public_ticket_number).padStart(4, '0')}`;
 
+        // sub_status também precisa ser limpo — do contrário o chamado
+        // absorvido fica com status='Mesclado' + um sub-status órfão de um
+        // status pai que não existe mais, combinação que a UI normal (que
+        // sempre zera subStatus junto de qualquer troca de status) nunca
+        // produziria sozinha.
         await client.query(
-          `UPDATE public.tickets SET status = 'Mesclado', merged_into_id = $1, updated_at = NOW() WHERE id = $2`,
+          `UPDATE public.tickets SET status = 'Mesclado', sub_status = NULL, merged_into_id = $1, updated_at = NOW() WHERE id = $2`,
           [targetTicketId, sourceId]
         );
 

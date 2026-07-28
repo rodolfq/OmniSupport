@@ -1,6 +1,6 @@
 ﻿'use client';
 
-import React, { useCallback, useEffect } from 'react';
+import React, { useCallback, useEffect, useRef } from 'react';
 import { useEditor, EditorContent } from '@tiptap/react';
 // Some versions of Tiptap export menus from a subpath
 // eslint-disable-next-line @typescript-eslint/no-unsafe-assignment
@@ -29,6 +29,13 @@ interface RichEditorProps {
 export function RichEditor({ content, onChange, placeholder = 'Comece a digitar...', minHeight = '150px' }: RichEditorProps) {
   const [isUrlModalOpen, setIsUrlModalOpen] = React.useState<'link' | 'image' | 'youtube' | null>(null);
   const [urlInputValue, setUrlInputValue] = React.useState('');
+
+  // onUpdate propaga pro pai via onChange, o que devolve um novo `content`
+  // no próximo render — sem essa flag, o efeito de sync abaixo achava que
+  // era uma mudança externa e rodava `setContent` (reparse completo do HTML,
+  // perde posição do cursor) a cada letra digitada, travando o editor em
+  // textos maiores.
+  const isInternalUpdate = useRef(false);
 
   const editor = useEditor({
     immediatelyRender: false,
@@ -63,6 +70,7 @@ export function RichEditor({ content, onChange, placeholder = 'Comece a digitar.
     ],
     content,
     onUpdate: ({ editor }) => {
+      isInternalUpdate.current = true;
       onChange(editor.getHTML());
     },
     editorProps: {
@@ -93,7 +101,12 @@ export function RichEditor({ content, onChange, placeholder = 'Comece a digitar.
 
   // Sync content if it changes externally (and it's not the editor's own update)
   useEffect(() => {
-    if (editor && content !== editor.getHTML()) {
+    if (!editor) return;
+    if (isInternalUpdate.current) {
+      isInternalUpdate.current = false;
+      return;
+    }
+    if (content !== editor.getHTML()) {
       editor.commands.setContent(content);
     }
   }, [content, editor]);

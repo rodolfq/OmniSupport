@@ -19,6 +19,7 @@ DROP TABLE IF EXISTS public.config_categories CASCADE;
 DROP TABLE IF EXISTS public.config_priorities CASCADE;
 DROP TABLE IF EXISTS public.config_tags CASCADE;
 DROP TABLE IF EXISTS public.config_survey_settings CASCADE;
+DROP TABLE IF EXISTS public.config_email_settings CASCADE;
 DROP TABLE IF EXISTS public.automation_dispatches CASCADE;
 DROP TABLE IF EXISTS public.automation_settings CASCADE;
 DROP TABLE IF EXISTS public.config_statuses CASCADE;
@@ -127,12 +128,20 @@ ALTER TABLE public.profiles
   ADD COLUMN IF NOT EXISTS access_profile_id UUID REFERENCES public.role_permissions(id) ON DELETE SET NULL;
 
 -- Analyst Status
+-- Nota: coluna "status" (online/away/offline) é gravada em produção por
+-- updateUserStatus/log-status-change mas não existe aqui nem em nenhuma
+-- migration rastreável — drift pré-existente, fora do escopo desta mudança.
 CREATE TABLE public.analyst_status (
   user_id UUID PRIMARY KEY REFERENCES public.profiles(id) ON DELETE CASCADE,
   is_online BOOLEAN DEFAULT FALSE,
   last_active TIMESTAMP WITH TIME ZONE DEFAULT now(),
   current_load INTEGER DEFAULT 0,
-  current_reason TEXT
+  current_reason TEXT,
+  -- Ordem do rodízio de atendimento (ver migrations/queue_daily_anchor.sql e
+  -- lib/services/queue-routing.ts): gravada só na primeira vez que o analista
+  -- fica online no dia, pra não perder a posição ao ficar ausente/reconectar.
+  queue_anchor_at TIMESTAMP WITH TIME ZONE,
+  queue_anchor_date DATE
 );
 
 -- User Status History
@@ -145,6 +154,7 @@ CREATE TABLE public.user_status_history (
   timestamp TIMESTAMP WITH TIME ZONE DEFAULT now() NOT NULL,
   created_at TIMESTAMP WITH TIME ZONE DEFAULT now() NOT NULL
 );
+CREATE INDEX idx_user_status_history_user_time ON public.user_status_history(user_id, timestamp);
 
 -- Absence Reasons
 CREATE TABLE public.absence_reasons (
@@ -222,6 +232,22 @@ Basta enviar 1, se você estiver satisfeito, ou 0, se poderíamos fazer melhor.'
   CONSTRAINT config_survey_settings_single_row CHECK (id = 1)
 );
 
+-- Config E-mail (SMTP, linha única) — resposta ao cliente e notificação de
+-- atribuição de chamado por e-mail (Configurações > E-mail).
+CREATE TABLE public.config_email_settings (
+  id INTEGER PRIMARY KEY DEFAULT 1,
+  enabled BOOLEAN NOT NULL DEFAULT false,
+  smtp_host TEXT,
+  smtp_port INTEGER,
+  smtp_secure BOOLEAN NOT NULL DEFAULT true,
+  smtp_user TEXT,
+  smtp_password TEXT,
+  from_name TEXT,
+  from_email TEXT,
+  updated_at TIMESTAMP WITH TIME ZONE DEFAULT now() NOT NULL,
+  CONSTRAINT config_email_settings_single_row CHECK (id = 1)
+);
+
 -- Mensagens Automáticas: notificações por WhatsApp para ações do analista no chamado.
 -- Seed dos 11 eventos (textos padrão) vive em migrations/add_automated_messages.sql;
 -- novos eventos futuros só precisam de uma entrada no catálogo TS
@@ -233,9 +259,40 @@ CREATE TABLE public.automation_settings (
   delay_minutes INTEGER NOT NULL DEFAULT 0,
   first_occurrence_only BOOLEAN NOT NULL DEFAULT false,
   trigger_status TEXT,
+  -- Canal de e-mail, independente do WhatsApp acima (enabled/message) —
+  -- mesmo evento, atraso e "só primeira ocorrência" compartilhados.
+  email_enabled BOOLEAN NOT NULL DEFAULT false,
+  email_subject TEXT,
   updated_at TIMESTAMP WITH TIME ZONE DEFAULT now() NOT NULL
 );
 
+<<<<<<< HEAD
+=======
+-- Fila de envio atrasado (status='pending') e histórico/auditoria
+-- (status='sent'|'failed'|'skipped') na mesma tabela.
+CREATE TABLE public.automation_dispatches (
+  id UUID PRIMARY KEY DEFAULT (md5(random()::text || clock_timestamp()::text)::uuid),
+  event_key TEXT NOT NULL,
+  ticket_id TEXT REFERENCES public.tickets(id) ON DELETE CASCADE,
+  recipient_id UUID REFERENCES public.profiles(id) ON DELETE SET NULL,
+  recipient_name TEXT,
+  recipient_phone TEXT,
+  -- 'whatsapp' (default, dados acima) ou 'email' (usa recipient_email/subject).
+  channel TEXT NOT NULL DEFAULT 'whatsapp',
+  recipient_email TEXT,
+  subject TEXT,
+  message TEXT NOT NULL,
+  status TEXT NOT NULL DEFAULT 'pending',
+  error TEXT,
+  send_at TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT now(),
+  sent_at TIMESTAMP WITH TIME ZONE,
+  created_at TIMESTAMP WITH TIME ZONE DEFAULT now() NOT NULL
+);
+
+CREATE INDEX IF NOT EXISTS idx_automation_dispatches_pending ON public.automation_dispatches(status, send_at) WHERE status = 'pending';
+CREATE INDEX IF NOT EXISTS idx_automation_dispatches_ticket_event ON public.automation_dispatches(ticket_id, event_key, status);
+
+>>>>>>> origin/main
 -- Tickets Table
 CREATE TABLE public.tickets (
   id TEXT PRIMARY KEY DEFAULT (md5(random()::text || clock_timestamp()::text)::text),
@@ -577,6 +634,9 @@ INSERT INTO public.config_tags (label, color, domain) VALUES
 ('Melhoria', 'bg-blue-100 text-blue-700', 'ticket'), 
 ('Urgente', 'bg-rose-100 text-rose-700', 'ticket')
 ON CONFLICT (label) DO NOTHING;
+
+-- Seed Config E-mail (linha única, desativada até alguém preencher o SMTP)
+INSERT INTO public.config_email_settings (id) VALUES (1) ON CONFLICT (id) DO NOTHING;
 
 -- Seed Default Absence Reasons
 INSERT INTO public.absence_reasons (label) VALUES 

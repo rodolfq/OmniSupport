@@ -3,7 +3,7 @@
 import React, { useState, useEffect } from 'react';
 import { useSearchParams } from 'next/navigation';
 import {
-  Shield, User, Lock, Save, Plus, Key, Globe, Bell, Database, Loader2, Clock, MessageCircleMore, Plug
+  Shield, User, Lock, Save, Plus, Key, Globe, Bell, Database, Loader2, Clock, MessageCircleMore, Plug, Mail
 } from 'lucide-react';
 import { cn, maskPhone } from '@/lib/utils';
 import { supabase } from '@/lib/supabase';
@@ -21,8 +21,9 @@ import { WhatsAppConnect } from '@/components/whatsapp-connect';
 import { fileToCompressedAvatarBase64, isValidImageUrl } from '@/lib/image-utils';
 import { toast } from 'sonner';
 import { IntegrationsContent } from '@/components/integrations-content';
+import { EmailSettingsContent } from '@/components/email-settings-content';
 
-type Tab = 'profile' | 'security' | 'whatsapp' | 'notifications' | 'system' | 'history' | 'automated-messages' | 'integrations';
+type Tab = 'profile' | 'security' | 'whatsapp' | 'notifications' | 'system' | 'history' | 'automated-messages' | 'integrations' | 'email';
 
 
 export default function SettingsPage() {
@@ -136,6 +137,9 @@ export default function SettingsPage() {
            {hasPermission(Permission.SETTINGS_INTEGRATIONS) && (
              <SettingsNavLink icon={<Plug size={18} />} label="Integrações" active={activeTab === 'integrations'} onClick={() => setActiveTab('integrations')} />
            )}
+           {hasPermission(Permission.SETTINGS_EMAIL) && (
+             <SettingsNavLink icon={<Mail size={18} />} label="E-mail" active={activeTab === 'email'} onClick={() => setActiveTab('email')} />
+           )}
         </aside>
 
         <div className="md:col-span-9 lg:col-span-10 space-y-6">
@@ -168,6 +172,9 @@ export default function SettingsPage() {
            )}
            {activeTab === 'integrations' && hasPermission(Permission.SETTINGS_INTEGRATIONS) && (
              <IntegrationsContent />
+           )}
+           {activeTab === 'email' && hasPermission(Permission.SETTINGS_EMAIL) && (
+             <EmailSettingsContent />
            )}
           {activeTab === 'whatsapp' && hasPermission(Permission.WHATSAPP_MANAGE) && (
             <div className="space-y-6 animate-in fade-in slide-in-from-bottom-4 duration-300">

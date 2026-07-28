@@ -77,33 +77,6 @@ export class TicketService {
     } as Ticket;
   }
 
-  static async create(ticket: Ticket): Promise<void> {
-    const { data: { session } } = await supabase.auth.getSession();
-    const userId = session?.user?.id || ticket.customerId;
-
-    if (!userId) {
-      throw new Error('Usuário não autenticado');
-    }
-
-    const { error } = await supabase.from('tickets').insert({
-      title: ticket.title,
-      description: ticket.description,
-      status: ticket.status || TicketStatus.NEW,
-      priority: ticket.priority || 'Baixa',
-      queue_id: ticket.queueId || null,
-      category_id: ticket.categoryId || null,
-      request_type_id: ticket.requestTypeId || null,
-      product_id: ticket.productId || null,
-      tags: ticket.tags || [],
-      customer_id: userId,
-      assignee_id: ticket.assigneeId || null,
-      company_id: ticket.companyId || null,
-      employee_ids: ticket.employeeIds || []
-    });
-
-    if (error) throw error;
-  }
-
   static async update(ticket: Partial<Ticket> & { id: string }): Promise<void> {
     const { error } = await supabase
       .from('tickets')
@@ -404,6 +377,15 @@ export class InternalTicketService {
       if (ticket.uuid) {
         // Update existing record
         console.log('Updating existing internal ticket with UUID:', ticket.uuid);
+
+        // Mesma lógica do branch de criação abaixo e de handleUpdateTicket
+        // (app/(portal)/internal-tickets/[id]/page.tsx) — sem recalcular
+        // aqui, um update de prioridade por este caminho deixaria o prazo
+        // congelado no valor calculado na criação. Ancorado em createdAt
+        // (não em "agora"), igual ao caminho ativo de edição.
+        const { data: priorityConfigs } = await supabase.from('config_priorities').select('label, sla_hours');
+        payload.sla_limit = computeInternalTicketSla(payload.priority, ticket.createdAt || new Date().toISOString(), priorityConfigs || []);
+
         const { data, error } = await supabase.from('internal_tickets')
           .update(payload)
           .eq('id', ticket.uuid)

@@ -18,6 +18,7 @@ import {
 } from 'lucide-react';
 import { cn, normalizeString, maskPhone } from '@/lib/utils';
 import { motion, AnimatePresence } from 'motion/react';
+import { toast } from 'sonner';
 
 export function LinkContactModal({ 
   isOpen, 
@@ -118,7 +119,7 @@ export function LinkContactModal({
       onClose();
     } catch (e) {
       console.error(e);
-      alert('Erro ao associar contato.');
+      toast.error('Erro ao associar contato.');
     }
   };
 
@@ -139,7 +140,7 @@ export function LinkContactModal({
       }
 
       if (!finalCompanyId) {
-        alert("Selecione ou crie uma empresa.");
+        toast.error("Selecione ou crie uma empresa.");
         return;
       }
 
@@ -169,7 +170,7 @@ export function LinkContactModal({
       }
     } catch (e: any) {
       console.error(e);
-      alert('Erro ao criar e associar contato: ' + e.message);
+      toast.error('Erro ao criar e associar contato: ' + e.message);
     }
   };
 

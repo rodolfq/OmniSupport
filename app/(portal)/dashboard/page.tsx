@@ -318,7 +318,7 @@ export default function DashboardPage() {
           )}
           {dashboardMode === 'internal' && canSeeInternal && (
             <button
-              onClick={() => router.push('/internal-tickets')}
+              onClick={() => router.push('/tickets?mode=internal')}
               className="bg-[var(--text-warning-strong)] hover:bg-[var(--accent-warning-hover)] text-white px-6 py-2.5 rounded-lg text-sm font-semibold shadow-md transition-all flex items-center gap-2 whitespace-nowrap"
             >
               <Plus size={18} />
@@ -741,7 +741,7 @@ function InternalPriorityList({ title, tickets, color, router }: {
         ))}
         {tickets.length > 5 && (
           <button
-            onClick={() => router.push('/internal-tickets')}
+            onClick={() => router.push('/tickets?mode=internal')}
             className="w-full py-1 text-[9px] font-semibold uppercase text-[var(--text-tertiary)] hover:text-[var(--accent-text)]"
           >
             + {tickets.length - 5} tickets

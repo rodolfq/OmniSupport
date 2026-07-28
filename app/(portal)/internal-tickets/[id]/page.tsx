@@ -389,7 +389,7 @@ export default function InternalTicketDetailPage() {
           <button onClick={() => { if (currentUser) { setFormAssignee(currentUser.id); handleUpdateTicket({ assigneeId: currentUser.id }); } }} className="px-3 py-1.5 rounded-lg text-xs font-bold border border-[var(--border-default)] hover:bg-[var(--surface-card)]">ASSUMIR</button>
           <button onClick={() => { setFormStatus('Concluído'); handleUpdateTicket({ status: 'Concluído' }); }} className="px-3 py-1.5 rounded-lg text-xs font-bold bg-[var(--text-success)] text-white hover:bg-emerald-700">FINALIZAR</button>
           <button onClick={() => handleUpdateTicket()} className="px-3 py-1.5 rounded-lg text-xs font-bold bg-[var(--text-warning-strong)] text-white hover:bg-[var(--accent-warning-hover)]">SALVAR</button>
-          <button onClick={() => router.push('/internal-tickets')} className="p-1.5 rounded-lg text-[var(--text-tertiary)] hover:text-[var(--text-secondary)]">
+          <button onClick={() => router.push('/tickets?mode=internal')} className="p-1.5 rounded-lg text-[var(--text-tertiary)] hover:text-[var(--text-secondary)]">
             <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M18 6 6 18"/><path d="m6 6 12 12"/></svg>
           </button>
         </div>
@@ -457,11 +457,11 @@ export default function InternalTicketDetailPage() {
                   className="w-full bg-[var(--surface-card)] border border-[var(--border-default)] rounded-lg px-3 py-2 text-xs font-bold text-[var(--text-primary)]"
                 >
                   <option value="">Nenhum</option>
-                  {/* Hotfix já publicado não é mais uma opção válida pra novo vínculo —
-                      exceto o que este chamado já usa, pra não sumir da seleção atual. */}
-                  {hotfixes.filter(h => !h.publishedAt || h.id === formHotfixId).map(h => (
+                  {/* Hotfix já publicado não aparece mais aqui, nem o que este
+                      chamado já usa — uma vez sincronizado, sai da lista. */}
+                  {hotfixes.filter(h => !h.publishedAt).map(h => (
                     <option key={h.id} value={h.id}>
-                      {new Date(`${h.expectedDate}T00:00:00`).toLocaleDateString('pt-BR')} — {h.name}{h.publishedAt ? ' (publicado)' : ''}
+                      {new Date(`${h.expectedDate}T00:00:00`).toLocaleDateString('pt-BR')} — {h.name}
                     </option>
                   ))}
                 </StyledSelect>

@@ -44,6 +44,7 @@ export enum Permission {
   // de SETTINGS_SYSTEM — separadas pra dar controle fino de verdade.
   SETTINGS_AUTOMATION = 'settings:automation',
   SETTINGS_INTEGRATIONS = 'settings:integrations',
+  SETTINGS_EMAIL = 'settings:email',
   QUEUES_MANAGE = 'queues:manage',
   DASHBOARD_VIEW = 'dashboard:view',
   REPORTS_READ = 'reports:read',
@@ -420,6 +421,17 @@ export interface SurveySettings {
   responseWindowHours: number;
 }
 
+export interface EmailSettings {
+  enabled: boolean;
+  smtpHost: string;
+  smtpPort: number | null;
+  smtpSecure: boolean;
+  smtpUser: string;
+  smtpPassword: string;
+  fromName: string;
+  fromEmail: string;
+}
+
 export interface AutomationSetting {
   event_key: string;
   enabled: boolean;
@@ -427,6 +439,9 @@ export interface AutomationSetting {
   delay_minutes: number;
   first_occurrence_only: boolean;
   trigger_status: string | null;
+  // Canal de e-mail — independente do WhatsApp acima, mesmo evento/atraso.
+  email_enabled: boolean;
+  email_subject: string | null;
   updated_at: string;
 }
 
@@ -455,6 +470,14 @@ export interface AnalystStatus {
   // usado pra distinguir "Ausente" (away, mas tecnicamente is_online=true
   // em alguns fluxos) de "Online" de fato na presença exibida no chat.
   status?: string;
+  // Quantas trocas de status reais hoje (heartbeat repetido não conta) —
+  // visibilidade admin pra sinalizar padrão estranho na fila, ver
+  // app/(portal)/queues/page.tsx.
+  statusChangesToday?: number;
+  // Quando ficou online pela primeira vez hoje — define a posição no
+  // rodízio (lib/services/queue-routing.ts). Sair/voltar no mesmo dia não
+  // muda este valor, só a virada do dia.
+  queueAnchorAt?: string;
 }
 
 export interface UserStatusHistory {

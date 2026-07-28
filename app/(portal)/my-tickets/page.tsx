@@ -246,7 +246,7 @@ export default function MyTicketsPage() {
             </button>
           ) : (
             <button
-              onClick={() => router.push('/internal-tickets')}
+              onClick={() => router.push('/tickets?mode=internal')}
               className="bg-[var(--text-warning-strong)] hover:bg-[var(--accent-warning-hover)] text-white px-6 py-2.5 rounded-lg text-sm font-semibold shadow-md transition-all flex items-center justify-center gap-2 active:scale-95"
             >
               <Plus size={18} />
@@ -394,7 +394,7 @@ export default function MyTicketsPage() {
               <h3 className="text-lg font-bold text-[var(--text-primary)] tracking-tight mb-2">Nenhum ticket interno seu</h3>
               <p className="text-[var(--text-tertiary)] font-medium mb-6">Você ainda não é responsável nem criou nenhum ticket interno.</p>
               <button
-                onClick={() => router.push('/internal-tickets')}
+                onClick={() => router.push('/tickets?mode=internal')}
                 className="inline-flex items-center gap-2 bg-[var(--text-warning-strong)] hover:bg-[var(--accent-warning-hover)] text-white px-6 py-2.5 rounded-lg text-sm font-semibold shadow-md transition-all"
               >
                 <Plus size={18} />
@@ -507,9 +507,9 @@ export default function MyTicketsPage() {
       </div>
 
       {selectedTicket && (
-        <TicketDetailModal 
-          ticket={selectedTicket} 
-          onClose={() => setSelectedTicket(null)} 
+        <TicketDetailModal
+          ticket={selectedTicket}
+          onClose={() => setSelectedTicket(null)}
         />
       )}
     </div>

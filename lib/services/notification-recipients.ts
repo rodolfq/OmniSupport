@@ -1,4 +1,5 @@
 import { query } from '@/lib/db';
+import { notifyUser } from '@/lib/services/push-service';
 
 const TEAM_ROLES = ['Administrador', 'Equipe', 'Time Interno'];
 
@@ -49,6 +50,41 @@ export function getTicketRecipients(input: TicketRecipientInput, excludeUserId?:
   }
 
   return { teamIds: [...teamIds], customerIds: [...customerIds] };
+}
+
+export function ticketLabel(ticketNumber?: number | string | null, id?: string): string {
+  return ticketNumber ? `#${String(ticketNumber).padStart(4, '0')}` : `#${String(id || '').slice(0, 8)}`;
+}
+
+// Único ponto de envio de push nativo pra chamado — antes existia uma cópia
+// disso só em app/api/tickets/route.ts. A tela de detalhe do chamado
+// (ticket-detail-modal.tsx) não passa por essa rota: ela grava direto via o
+// shim Supabase (app/api/compat/supabase/route.ts), que disparava a
+// automação (WhatsApp/e-mail) mas nunca chamava isso — resultado, responder
+// ou reatribuir um chamado pela tela normal nunca gerava push nativo (o que
+// funciona com o app fechado), só arrastar no Kanban ou ação em massa.
+export async function pushToTicketRecipients(
+  recipients: TicketRecipients,
+  payload: { title: string; body: string; ticketId: string; tag: string }
+): Promise<void> {
+  try {
+    await Promise.all([
+      ...recipients.teamIds.map(id => notifyUser(id, {
+        title: payload.title,
+        body: payload.body,
+        url: `/tickets?ticket=${payload.ticketId}`,
+        tag: payload.tag
+      })),
+      ...recipients.customerIds.map(id => notifyUser(id, {
+        title: payload.title,
+        body: payload.body,
+        url: `/my-tickets?ticket=${payload.ticketId}`,
+        tag: payload.tag
+      }))
+    ]);
+  } catch (err) {
+    console.error('[push] Falha ao notificar chamado:', err);
+  }
 }
 
 // Mesma regra usada hoje no polling para chat: se quem mandou a mensagem é da

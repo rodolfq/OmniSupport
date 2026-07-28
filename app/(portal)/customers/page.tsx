@@ -12,6 +12,7 @@ import { ConfirmModal } from '@/components/confirm-modal';
 import { useApp } from '@/app/app-context';
 import { motion, AnimatePresence } from 'motion/react';
 import { supabase } from '@/lib/supabase';
+import { toast } from 'sonner';
 
 function WhatsAppNumberModal({ 
   isOpen, 
@@ -65,10 +66,18 @@ function WhatsAppNumberModal({
                      let sessionId: string;
                      if (existing) {
                        sessionId = existing.id;
-                       // Re-assign if current user is analyst and it's unassigned
-                       if (!existing.assigneeId && currentUser && currentUser.role !== UserRole.CUSTOMER) {
+                       // Reatribui só se a conversa está sem responsável — o
+                       // shim do Supabase devolve a linha crua (assignee_id,
+                       // não assigneeId), e checar o campo em camelCase aqui
+                       // fazia essa condição ser sempre `true`, "roubando"
+                       // pro analista atual qualquer conversa já em
+                       // andamento com outra pessoa. Se já tem responsável,
+                       // o analista atual só ganha acesso pra visualizar/
+                       // enviar mensagem — a conversa continua com quem
+                       // chegou primeiro.
+                       if (!existing.assignee_id && currentUser && currentUser.role !== UserRole.CUSTOMER) {
                          if (userStatus !== 'online') {
-                           alert('Você precisa estar Online para assumir atendimentos!');
+                           toast.error('Você precisa estar Online para assumir atendimentos!');
                            return;
                          }
                          await supabase.from('chat_sessions').update({

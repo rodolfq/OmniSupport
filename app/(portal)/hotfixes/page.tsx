@@ -10,6 +10,7 @@ import { StyledSelect } from '@/components/styled-select';
 import { ConfirmDialog } from '@/components/confirm-dialog';
 import { useApp } from '@/app/app-context';
 import { cn } from '@/lib/utils';
+import { toast } from 'sonner';
 
 const todayIso = () => new Date().toISOString().slice(0, 10);
 
@@ -99,7 +100,7 @@ export default function HotfixesPage() {
     );
 
     if (res && (res as any).error) {
-      alert((res as any).error);
+      toast.error((res as any).error);
       return;
     }
 
@@ -110,7 +111,7 @@ export default function HotfixesPage() {
   const handleMarkPublished = async (hotfix: Hotfix) => {
     const res = await markHotfixPublished(hotfix.id);
     if (res && (res as any).error) {
-      alert((res as any).error);
+      toast.error((res as any).error);
       return;
     }
     loadData();
@@ -470,7 +471,7 @@ export default function HotfixesPage() {
           if (deletingHotfix) {
             const res = await deleteHotfix(deletingHotfix.id);
             if (res && (res as any).error) {
-              alert((res as any).error);
+              toast.error((res as any).error);
               return;
             }
             setDeletingHotfix(null);
