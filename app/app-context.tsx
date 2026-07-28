@@ -647,6 +647,29 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     };
   }, [currentUser?.id, currentUser?.role]);
 
+  // Mesma ideia acima, mas pra equipe (Administrador/Equipe/Time Interno/
+  // Funcionário) — sem isso, "Online"/"Ausente" era só um valor gravado uma
+  // vez (troca manual no menu) e nunca atualizado sozinho: fechar o
+  // navegador sem trocar pra "Ausente" antes deixava a pessoa "disponível"
+  // pra sempre nas telas de status (Filas, Equipe). Só atualiza last_active
+  // com o status atual (não força online) — quem está "Ausente" continua
+  // "Ausente"; o botão de presença (lib/presence.ts) trata como offline
+  // quando o last_active fica velho demais, então parar de bater aqui (aba
+  // fechada) já resolve sozinho, sem precisar de infra de "adeus" explícito.
+  useEffect(() => {
+    if (!currentUser || currentUser.role === UserRole.CUSTOMER) return;
+    const beat = () => {
+      if (document.visibilityState !== 'visible') return;
+      AnalystService.logStatusChange(currentUser.id, userStatus, userStatusReason || undefined).catch(() => {});
+    };
+    const interval = setInterval(beat, 60000);
+    document.addEventListener('visibilitychange', beat);
+    return () => {
+      clearInterval(interval);
+      document.removeEventListener('visibilitychange', beat);
+    };
+  }, [currentUser?.id, currentUser?.role, userStatus, userStatusReason]);
+
   useEffect(() => {
     const savedSettings = localStorage.getItem('omni_notif_settings');
     if (savedSettings) {

@@ -41,14 +41,31 @@ export async function GET(request: Request) {
       // crua (is_online/user_id/...) fazia esses campos virem sempre
       // undefined, deixando a lista de "colegas online" pra transferir chat
       // e o badge Disponível/Ausente sempre vazios/errados.
-      const res = await query('SELECT * FROM public.analyst_status');
+      // changes_today ignora repetições do heartbeat de 60s (que regrava o
+      // mesmo status): só conta uma linha quando o status é diferente da
+      // anterior do mesmo usuário (LAG). Serve só de sinalização pro admin
+      // notar padrão estranho — não bloqueia nada (ver plano de anti-fraude).
+      const res = await query(
+        `SELECT a.*, COALESCE(c.changes_today, 0) AS changes_today
+         FROM public.analyst_status a
+         LEFT JOIN (
+           SELECT user_id, COUNT(*)::int AS changes_today FROM (
+             SELECT user_id, status,
+                    status IS DISTINCT FROM LAG(status) OVER (PARTITION BY user_id ORDER BY timestamp) AS changed
+             FROM public.user_status_history
+             WHERE timestamp >= CURRENT_DATE
+           ) t WHERE changed IS TRUE GROUP BY user_id
+         ) c ON c.user_id = a.user_id`
+      );
       return NextResponse.json(res.rows.map(r => ({
         userId: r.user_id,
         isOnline: r.is_online,
         lastActive: r.last_active,
         currentLoad: r.current_load,
         currentReason: r.current_reason,
-        status: r.status
+        status: r.status,
+        statusChangesToday: r.changes_today,
+        queueAnchorAt: r.queue_anchor_at
       })));
     } else if (type === 'survey-settings') {
       const res = await query('SELECT * FROM public.config_survey_settings WHERE id = 1');

@@ -12,6 +12,7 @@ import {
 import { cn } from '@/lib/utils';
 import { useApp } from '@/app/app-context';
 import { ChangePasswordModal } from './change-password-modal';
+import { AnalystService } from '@/lib/services/chat-service';
 
 export function Sidebar() {
   const pathname = usePathname();
@@ -19,6 +20,13 @@ export function Sidebar() {
   const { currentUser, setCurrentUser, userStatus, dbStatus } = useApp();
 
   const handleLogout = async () => {
+    // Marca offline explicitamente — sem isso, a presença ficava travada no
+    // último status manual pra sempre (ver heartbeat em app-context.tsx),
+    // então quem desloga de propósito ainda aparecia "disponível" nas telas
+    // de status até o last_active envelhecer sozinho.
+    if (currentUser && currentUser.role !== UserRole.CUSTOMER) {
+      AnalystService.logStatusChange(currentUser.id, 'offline').catch(() => {});
+    }
     try {
       await fetch('/api/auth/logout', { method: 'POST' });
     } catch (e) {

@@ -234,20 +234,29 @@ async function findOrCreateChatSession(jid: string, pushName: string | undefined
     const customerName = profile?.name || pushName || 'Contato WhatsApp';
 
     const queue = await resolveQueueForInstance(instanceId);
-    const assigneeId = queue ? await pickNextQueueAssignee(queue) : null;
-    const status = assigneeId ? 'active' : 'pending';
 
-    // ON CONFLICT como segunda rede de segurança (ver migrations/chat_sessions_
-    // unique_open_phone.sql): cobre corrida entre processos/instâncias diferentes,
-    // que o lock em memória (só vale dentro deste processo Node) não alcança.
-    const insertRes = await query(
-      `INSERT INTO public.chat_sessions (customer_id, customer_name, customer_phone, status, queue_id, assignee_id, created_at, updated_at)
-       VALUES ($1, $2, $3, $4, $5, $6, NOW(), NOW())
-       ON CONFLICT (customer_phone) WHERE status <> 'closed' AND customer_phone IS NOT NULL
-       DO NOTHING
-       RETURNING id, customer_phone, customer_id, customer_name, updated_at`,
-      [profile?.id || null, customerName, digits, status, queue?.id || null, assigneeId]
-    );
+    // Escolher o próximo do rodízio e gravar a atribuição precisam acontecer
+    // sob o mesmo lock (por fila, não por telefone — o lock de fora é por
+    // telefone e não impede duas filas diferentes de calcularem o mesmo
+    // "próximo" ao mesmo tempo) — senão duas sessões concorrentes podem ler
+    // o mesmo "último atribuído" e mandar as duas pro mesmo analista.
+    const { insertRes } = await runExclusive(`queue-assign:${queue?.id ?? 'combined'}`, async () => {
+      const assigneeId = queue ? await pickNextQueueAssignee(queue) : null;
+      const status = assigneeId ? 'active' : 'pending';
+
+      // ON CONFLICT como segunda rede de segurança (ver migrations/chat_sessions_
+      // unique_open_phone.sql): cobre corrida entre processos/instâncias diferentes,
+      // que o lock em memória (só vale dentro deste processo Node) não alcança.
+      const insertRes = await query(
+        `INSERT INTO public.chat_sessions (customer_id, customer_name, customer_phone, status, queue_id, assignee_id, created_at, updated_at)
+         VALUES ($1, $2, $3, $4, $5, $6, NOW(), NOW())
+         ON CONFLICT (customer_phone) WHERE status <> 'closed' AND customer_phone IS NOT NULL
+         DO NOTHING
+         RETURNING id, customer_phone, customer_id, customer_name, updated_at`,
+        [profile?.id || null, customerName, digits, status, queue?.id || null, assigneeId]
+      );
+      return { assigneeId, insertRes };
+    });
 
     if (insertRes.rows[0]) return insertRes.rows[0];
 

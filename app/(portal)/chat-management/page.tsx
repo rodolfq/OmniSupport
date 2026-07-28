@@ -25,6 +25,7 @@ import {
   Power,
   CheckCircle2,
   XCircle,
+  Clock,
   LayoutGrid,
   History,
   Calendar,
@@ -38,6 +39,7 @@ import {
   Lock
 } from 'lucide-react';
 import { cn, normalizeString, maskPhone, matchPhones } from '@/lib/utils';
+import { deriveLiveStatus } from '@/lib/presence';
 import { motion, AnimatePresence } from 'motion/react';
 import { useApp } from '@/app/app-context';
 import { LinkContactModal } from '@/components/link-contact-modal';
@@ -210,12 +212,25 @@ export default function ChatManagementPage() {
   }, [sessions]);
 
   const handleToggleOnline = async (userId: string, current: boolean) => {
-    await updateUserStatus(userId, !current);
+    // Só chega aqui pra si mesmo — pra outros analistas a coluna de status
+    // é só leitura, e o único jeito de mudar o status de um colega é
+    // "Desconectar" (sempre pra Offline, nunca pra Online). O backend
+    // (updateUserStatus) já barra a troca de outra pessoa pra Online mesmo
+    // que este botão seja chamado de outro jeito, mas nem mostramos a opção.
+    const res = await updateUserStatus(userId, !current);
+    if (res && (res as any).error) {
+      toast.error((res as any).error);
+      return;
+    }
     refreshData();
   };
 
 const handleDisconnect = async (userId: string) => {
-    await updateUserStatus(userId, false);
+    const res = await updateUserStatus(userId, false);
+    if (res && (res as any).error) {
+      toast.error((res as any).error);
+      return;
+    }
     refreshData();
   };
 
@@ -358,13 +373,48 @@ const handleDeleteNote = async () => {
     }
   };
 
+  // Quem não está em NENHUMA fila não deve aparecer em nada desta tela — sem
+  // fila, a pessoa não participa do rodízio de atendimento (lib/services/
+  // queue-routing.ts) mesmo, então listar ela aqui só confundia (ex.: dava
+  // pra "transferir" um chat pra alguém que nunca vai receber um novo).
+  const queueMemberIds = React.useMemo(() => {
+    return new Set<string>(allQueues.flatMap((q: any) => q.member_ids || []));
+  }, [allQueues]);
+
+  const statusByUserId = React.useMemo(() => new Map(statuses.map(s => [s.userId, s])), [statuses]);
+
+  // Base da lista da aba "Analistas": TODO membro de fila, não só quem já
+  // tem uma linha em analyst_status. Filtrar statuses.filter(...) direto
+  // (como era antes) escondia gente que nunca fez login/nunca teve presença
+  // gravada — a fila mostrava 3 membros, Canais de Atendimento só 2, porque
+  // o 3º simplesmente não tinha registro de status ainda para dar match.
+  const queueAnalystRows = React.useMemo(() => {
+    return analysts
+      .filter(a => queueMemberIds.has(a.id))
+      .map(a => ({
+        analyst: a,
+        status: statusByUserId.get(a.id) || {
+          userId: a.id,
+          isOnline: false,
+          lastActive: '',
+          currentLoad: 0,
+          currentReason: undefined,
+          status: 'offline'
+        } as AnalystStatus
+      }));
+  }, [analysts, queueMemberIds, statusByUserId]);
+
   const onlineAssignTargets = React.useMemo(() => {
     return statuses
-      .filter(s => s.isOnline)
+      // "Disponível" aqui precisa refletir presença de verdade, não só o
+      // último status gravado — sem heartbeat recente (aba fechada sem
+      // logout explícito) a pessoa fica presa como "online" pra sempre no
+      // banco; ver lib/presence.ts (mesma regra usada em Gestão de Filas).
+      .filter(s => deriveLiveStatus(s) === 'online' && queueMemberIds.has(s.userId))
       .map(s => analysts.find(a => a.id === s.userId))
       .filter((a): a is User => !!a)
       .map(a => ({ id: a.id, name: a.name }));
-  }, [statuses, analysts]);
+  }, [statuses, analysts, queueMemberIds]);
 
   const queueMenuTargets = React.useMemo(() => {
     return allQueues.map((q: any) => ({ id: q.id, name: q.name }));
@@ -803,9 +853,8 @@ const handleDeleteNote = async () => {
                  </tr>
               </thead>
               <tbody className="divide-y divide-[var(--border-default)]">
-                 {statuses.map(s => {
-                   const analyst = analysts.find(a => a.id === s.userId);
-                   if (!analyst) return null;
+                 {queueAnalystRows.map(({ analyst, status: s }) => {
+                   const liveStatus = deriveLiveStatus(s);
                    return (
                      <tr key={s.userId} className="hover:bg-[var(--surface-card)]/50 transition-all">
                         <td className="px-8 py-5 font-bold text-[var(--text-primary)]">{analyst.name}</td>
@@ -818,22 +867,46 @@ const handleDeleteNote = async () => {
                            </div>
                         </td>
                         <td className="px-8 py-5">
-                           <button 
-                             onClick={() => handleToggleOnline(s.userId, s.isOnline)}
-                             className={cn(
-                               "px-4 py-1.5 rounded-full text-[10px] font-semibold uppercase tracking-widest border transition-all flex items-center gap-2",
-                               s.isOnline ? "bg-[var(--surface-success)] text-[var(--text-success)] border-[var(--text-success)]/20" : "bg-[var(--surface-card)] text-[var(--text-tertiary)] border-[var(--border-default)]"
-                             )}
-                           >
-                              {s.isOnline ? <CheckCircle2 size={12} /> : <XCircle size={12} />}
-                              {s.isOnline ? 'Disponível' : 'Ausente'}
-                           </button>
+                           {s.userId === currentUser?.id ? (
+                             <button
+                               onClick={() => handleToggleOnline(s.userId, s.isOnline)}
+                               title="Só você pode se colocar Online"
+                               className={cn(
+                                 "px-4 py-1.5 rounded-full text-[10px] font-semibold uppercase tracking-widest border transition-all flex items-center gap-2",
+                                 s.isOnline ? "bg-[var(--surface-success)] text-[var(--text-success)] border-[var(--text-success)]/20" : "bg-[var(--surface-card)] text-[var(--text-tertiary)] border-[var(--border-default)]"
+                               )}
+                             >
+                                {s.isOnline ? <CheckCircle2 size={12} /> : <XCircle size={12} />}
+                                {s.isOnline ? 'Disponível' : 'Ausente'}
+                             </button>
+                           ) : (
+                             // Colegas não podem colocar outra pessoa Online — status de
+                             // quem não é você aqui é só leitura; a única ação disponível
+                             // pra outro analista é "Desconectar" (sempre pra Offline).
+                             // Usa a presença DERIVADA (lib/presence.ts), não o campo
+                             // cru: sem heartbeat recente (aba fechada sem logout
+                             // explícito) o banco continua marcando is_online=true pra
+                             // sempre, e essa pessoa não pode aparecer como Disponível.
+                             <span
+                               title="Só o próprio usuário pode se colocar Online"
+                               className={cn(
+                                 "px-4 py-1.5 rounded-full text-[10px] font-semibold uppercase tracking-widest border inline-flex items-center gap-2 cursor-default",
+                                 liveStatus === 'online' ? "bg-[var(--surface-success)] text-[var(--text-success)] border-[var(--text-success)]/20" :
+                                 liveStatus === 'away' ? "bg-[var(--surface-warning)] text-[var(--text-warning)] border-[var(--border-alert)]" :
+                                 "bg-[var(--surface-card)] text-[var(--text-tertiary)] border-[var(--border-default)]"
+                               )}
+                             >
+                                {liveStatus === 'online' ? <CheckCircle2 size={12} /> : liveStatus === 'away' ? <Clock size={12} /> : <XCircle size={12} />}
+                                {liveStatus === 'online' ? 'Disponível' : liveStatus === 'away' ? 'Ausente' : 'Offline'}
+                             </span>
+                           )}
                         </td>
                         <td className="px-8 py-5 text-right">
-                           <button 
+                           <button
                              onClick={() => setDisconnectingUser(analyst)}
-                             className="p-2 text-[var(--text-tertiary)] hover:text-[var(--text-danger)] transition-all"
-                             title="Desconectar Analista"
+                             className="p-2 text-[var(--text-tertiary)] hover:text-[var(--text-danger)] transition-all disabled:opacity-30 disabled:pointer-events-none"
+                             disabled={!s.isOnline}
+                             title={s.userId === currentUser?.id ? 'Desconectar (marca como Offline)' : 'Derrubar login (marca como Offline)'}
                            >
                               <Power size={18} />
                            </button>
@@ -1214,8 +1287,12 @@ const handleDeleteNote = async () => {
             handleDisconnect(disconnectingUser.id);
           }
         }}
-        title="Desconectar Analista"
-        description={`Deseja desconectar ${disconnectingUser?.name || 'este analista'}? Ele será marcado como ausente.`}
+        title={disconnectingUser?.id === currentUser?.id ? 'Desconectar' : 'Desconectar Analista'}
+        description={
+          disconnectingUser?.id === currentUser?.id
+            ? 'Deseja se desconectar? Você sai do rodízio de atendimento até fazer login de novo.'
+            : `Deseja desconectar ${disconnectingUser?.name || 'este analista'}? Ele será marcado como Offline e sai do rodízio de atendimento até fazer login de novo.`
+        }
         confirmLabel="Desconectar"
         variant="danger"
       />

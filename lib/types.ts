@@ -461,6 +461,14 @@ export interface AnalystStatus {
   // usado pra distinguir "Ausente" (away, mas tecnicamente is_online=true
   // em alguns fluxos) de "Online" de fato na presença exibida no chat.
   status?: string;
+  // Quantas trocas de status reais hoje (heartbeat repetido não conta) —
+  // visibilidade admin pra sinalizar padrão estranho na fila, ver
+  // app/(portal)/queues/page.tsx.
+  statusChangesToday?: number;
+  // Quando ficou online pela primeira vez hoje — define a posição no
+  // rodízio (lib/services/queue-routing.ts). Sair/voltar no mesmo dia não
+  // muda este valor, só a virada do dia.
+  queueAnchorAt?: string;
 }
 
 export interface UserStatusHistory {

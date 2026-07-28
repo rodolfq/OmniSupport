@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server';
+import { cookies } from 'next/headers';
 import { query } from '@/lib/db';
 import { verifyJWT } from '@/lib/jwt';
 import { emitChatEvent, excludeActiveViewers, emitInternalChatEvent } from '@/lib/chat-events';
@@ -8,6 +9,7 @@ import { resolveCombinedQueuePool, pickNextQueueAssignee, RoutingQueue } from '@
 import { transcribeMessageAudio, isAudioAttachment, isTranscriptionEnabled } from '@/lib/services/transcription-service';
 import { Attachment } from '@/lib/types';
 import { runExclusive } from '@/lib/key-mutex';
+import { canForceOthersOffline } from '@/lib/services/presence-authorization';
 
 function normalizePhone(value?: string | null): string {
   return (value || '').replace(/\D/g, '');
@@ -391,7 +393,36 @@ export async function GET(request: NextRequest) {
     }
 
     if (action === 'status-history') {
-      const res = await query('SELECT * FROM public.user_status_history ORDER BY timestamp DESC LIMIT 500');
+      // Filtrar por usuário/período no servidor (em vez de trazer sempre o
+      // teto fixo global e filtrar no client) importa aqui especificamente
+      // porque o heartbeat de 60s grava uma linha nova mesmo sem trocar de
+      // status — com todo mundo online o dia inteiro, um LIMIT fixo sem
+      // filtro estoura em poucas horas e corta o histórico de quem não foi
+      // pedido. A tela (status-history-panel.tsx) agrupa essas linhas em
+      // "turnos" contínuos por status, então o teto aqui só precisa ser alto
+      // o bastante pra cobrir o período pedido, não a lista final exibida.
+      const userId = searchParams.get('userId');
+      const from = searchParams.get('from');
+      const to = searchParams.get('to');
+      const conditions: string[] = [];
+      const params: any[] = [];
+      if (userId && userId !== 'all') {
+        params.push(userId);
+        conditions.push(`user_id = $${params.length}`);
+      }
+      if (from) {
+        params.push(from);
+        conditions.push(`timestamp >= $${params.length}`);
+      }
+      if (to) {
+        params.push(to);
+        conditions.push(`timestamp < $${params.length}`);
+      }
+      const where = conditions.length ? `WHERE ${conditions.join(' AND ')}` : '';
+      const res = await query(
+        `SELECT * FROM public.user_status_history ${where} ORDER BY timestamp DESC LIMIT 5000`,
+        params
+      );
       return NextResponse.json(res.rows.map(h => ({
         id: h.id,
         userId: h.user_id,
@@ -652,8 +683,7 @@ export async function POST(request: Request) {
         }
 
         const id = session.id || crypto.randomUUID();
-        let status = session.status || 'pending';
-        let assigneeId: string | null = null;
+        const initialStatus = session.status || 'pending';
 
         // Distribuição automática: só entra em ação quando a conversa chega como
         // 'pending' (é o caso do widget abrindo sozinho o chat de um usuário
@@ -663,25 +693,31 @@ export async function POST(request: Request) {
         // conversa não chegou por nenhuma instância de WhatsApp específica, usa
         // o pool combinado de todas as filas (mesmo comportamento/rodízio das
         // conversas de WhatsApp, só que somando os analistas de todas as filas).
-        if (status === 'pending') {
-          const pool = await resolveCombinedQueuePool();
+        //
+        // Escolha + gravação sob o mesmo lock por fila: o mutex de fora é por
+        // cliente, não impede duas conversas de clientes diferentes lendo o
+        // mesmo "último atribuído" ao mesmo tempo e caindo no mesmo analista.
+        const pool = initialStatus === 'pending' ? await resolveCombinedQueuePool() : null;
+        const insertRes = await runExclusive(`queue-assign:${pool?.id ?? 'combined'}`, async () => {
+          let status = initialStatus;
+          let assigneeId: string | null = null;
           if (pool) {
             assigneeId = await pickNextQueueAssignee(pool);
             if (assigneeId) status = 'active';
           }
-        }
 
-        // ON CONFLICT sem alvo explícito cobre tanto o índice único de
-        // telefone aberto quanto o de customer_id aberto — segunda rede de
-        // segurança pra corrida entre processos/instâncias diferentes (o
-        // mutex acima só vale dentro deste processo Node).
-        const insertRes = await query(
-          `INSERT INTO public.chat_sessions (id, customer_id, customer_name, customer_phone, status, queue_id, assignee_id, created_at, updated_at)
-           VALUES ($1, $2, $3, $4, $5, NULL, $6, $7, NOW())
-           ON CONFLICT DO NOTHING
-           RETURNING id, assignee_id`,
-          [id, session.customerId || null, session.customerName || null, session.customerPhone || null, status, assigneeId, session.startedAt]
-        );
+          // ON CONFLICT sem alvo explícito cobre tanto o índice único de
+          // telefone aberto quanto o de customer_id aberto — segunda rede de
+          // segurança pra corrida entre processos/instâncias diferentes (o
+          // mutex acima só vale dentro deste processo Node).
+          return query(
+            `INSERT INTO public.chat_sessions (id, customer_id, customer_name, customer_phone, status, queue_id, assignee_id, created_at, updated_at)
+             VALUES ($1, $2, $3, $4, $5, NULL, $6, $7, NOW())
+             ON CONFLICT DO NOTHING
+             RETURNING id, assignee_id`,
+            [id, session.customerId || null, session.customerName || null, session.customerPhone || null, status, assigneeId, session.startedAt]
+          );
+        });
 
         if (insertRes.rows[0]) {
           return { id: insertRes.rows[0].id, assigneeId: insertRes.rows[0].assignee_id };
@@ -727,14 +763,20 @@ export async function POST(request: Request) {
           if (queueRes.rows[0]) queue = { id: queueRes.rows[0].id, memberIds: queueRes.rows[0].member_ids || [] };
         }
         if (!queue) queue = await resolveCombinedQueuePool();
-        const assigneeId = queue ? await pickNextQueueAssignee(queue) : null;
 
+        // Escolha + gravação sob o mesmo lock por fila — este ponto não tinha
+        // nenhum lock antes, então duas reaberturas quase simultâneas (dois
+        // clientes diferentes reabrindo pela mesma fila) podiam calcular o
+        // mesmo "próximo" e cair no mesmo analista.
         const newId = crypto.randomUUID();
-        await query(
-          `INSERT INTO public.chat_sessions (id, customer_id, customer_name, customer_phone, status, queue_id, assignee_id, created_at, updated_at)
-           VALUES ($1, $2, $3, $4, $5, $6, $7, NOW(), NOW())`,
-          [newId, session.customer_id, session.customer_name, session.customer_phone, assigneeId ? 'active' : 'pending', queue?.id || null, assigneeId]
-        );
+        await runExclusive(`queue-assign:${queue?.id ?? 'combined'}`, async () => {
+          const assigneeId = queue ? await pickNextQueueAssignee(queue) : null;
+          await query(
+            `INSERT INTO public.chat_sessions (id, customer_id, customer_name, customer_phone, status, queue_id, assignee_id, created_at, updated_at)
+             VALUES ($1, $2, $3, $4, $5, $6, $7, NOW(), NOW())`,
+            [newId, session.customer_id, session.customer_name, session.customer_phone, assigneeId ? 'active' : 'pending', queue?.id || null, assigneeId]
+          );
+        });
         targetSessionId = newId;
       }
 
@@ -1011,6 +1053,16 @@ export async function POST(request: Request) {
 
     if (action === 'save-status') {
       const { status } = body;
+
+      // Só o heartbeat de presença do próprio cliente (app-context.tsx) usa
+      // esta ação, sempre com o próprio id — mesma trava de log-status-change
+      // pra não deixar uma requisição forjada marcar outra pessoa online.
+      const token = (await cookies()).get('token')?.value;
+      const authenticatedUser = token ? await verifyJWT(token) : null;
+      if (!authenticatedUser?.id || authenticatedUser.id !== status.userId) {
+        return NextResponse.json({ error: 'Sessão inválida.' }, { status: 401 });
+      }
+
       await query(
         `INSERT INTO public.analyst_status (user_id, is_online, last_active, current_load)
          VALUES ($1, $2, $3, $4)
@@ -1025,15 +1077,49 @@ export async function POST(request: Request) {
 
     if (action === 'log-status-change') {
       const { userId, status, reason } = body;
+
+      // Ninguém decide Online/Ausente por outra pessoa — só o próprio dono
+      // do status. Colegas só podem forçar Offline (ex.: "derrubar login" de
+      // alguém preso como disponível sem estar), e mesmo isso exige uma das
+      // permissões de supervisão de fila/equipe. Sem isso, qualquer sessão
+      // autenticada podia forjar o userId no corpo da requisição e fraudar o
+      // rodízio de atendimento marcando um colega como disponível.
+      const token = (await cookies()).get('token')?.value;
+      const authenticatedUser = token ? await verifyJWT(token) : null;
+      if (!authenticatedUser?.id) {
+        return NextResponse.json({ error: 'Sessão inválida.' }, { status: 401 });
+      }
+      if (authenticatedUser.id !== userId) {
+        if (status !== 'offline') {
+          return NextResponse.json({ error: 'Só o próprio usuário pode alterar o status para Online/Ausente.' }, { status: 403 });
+        }
+        const actorRes = await query('SELECT role FROM public.profiles WHERE id = $1', [authenticatedUser.id]);
+        const actor = { id: authenticatedUser.id, role: actorRes.rows[0]?.role || '' };
+        if (!(await canForceOthersOffline(actor))) {
+          return NextResponse.json({ error: 'Você não tem permissão para alterar o status de outro usuário.' }, { status: 403 });
+        }
+      }
+
+      const isOnline = status === 'online';
+      // Mesma lógica de âncora diária de app/actions.ts#updateUserStatus —
+      // ver migrations/queue_daily_anchor.sql. Este é o ponto usado tanto
+      // pelo toggle manual quanto pelo heartbeat de 60s (app-context.tsx),
+      // então o heartbeat repetindo o mesmo status não pode reancorar.
       await query(
-        `INSERT INTO public.analyst_status (user_id, is_online, last_active, current_reason, status)
-         VALUES ($1, $2, NOW(), $3, $4)
+        `INSERT INTO public.analyst_status (user_id, is_online, last_active, current_reason, status, queue_anchor_at, queue_anchor_date)
+         VALUES ($1, $2, NOW(), $3, $4, CASE WHEN $2 THEN NOW() END, CASE WHEN $2 THEN CURRENT_DATE END)
          ON CONFLICT (user_id) DO UPDATE SET
            is_online = EXCLUDED.is_online,
            last_active = NOW(),
            current_reason = EXCLUDED.current_reason,
-           status = EXCLUDED.status`,
-        [userId, status === 'online', reason || null, status]
+           status = EXCLUDED.status,
+           queue_anchor_at = CASE
+             WHEN EXCLUDED.is_online AND (analyst_status.queue_anchor_date IS NULL OR analyst_status.queue_anchor_date < CURRENT_DATE)
+             THEN NOW() ELSE analyst_status.queue_anchor_at END,
+           queue_anchor_date = CASE
+             WHEN EXCLUDED.is_online AND (analyst_status.queue_anchor_date IS NULL OR analyst_status.queue_anchor_date < CURRENT_DATE)
+             THEN CURRENT_DATE ELSE analyst_status.queue_anchor_date END`,
+        [userId, isOnline, reason || null, status]
       );
       await query(
         `INSERT INTO public.user_status_history (user_id, status, reason, timestamp)

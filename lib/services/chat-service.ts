@@ -123,8 +123,12 @@ export class AnalystService {
 }
 
 export class UserStatusHistoryService {
-  static async getAll(): Promise<UserStatusHistory[]> {
-    const res = await fetch('/api/chats?action=status-history');
+  static async getAll(filters?: { userId?: string; from?: string; to?: string }): Promise<UserStatusHistory[]> {
+    const params = new URLSearchParams({ action: 'status-history' });
+    if (filters?.userId && filters.userId !== 'all') params.set('userId', filters.userId);
+    if (filters?.from) params.set('from', filters.from);
+    if (filters?.to) params.set('to', filters.to);
+    const res = await fetch(`/api/chats?${params.toString()}`);
     return res.json();
   }
 }

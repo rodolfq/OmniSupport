@@ -128,12 +128,20 @@ ALTER TABLE public.profiles
   ADD COLUMN IF NOT EXISTS access_profile_id UUID REFERENCES public.role_permissions(id) ON DELETE SET NULL;
 
 -- Analyst Status
+-- Nota: coluna "status" (online/away/offline) é gravada em produção por
+-- updateUserStatus/log-status-change mas não existe aqui nem em nenhuma
+-- migration rastreável — drift pré-existente, fora do escopo desta mudança.
 CREATE TABLE public.analyst_status (
   user_id UUID PRIMARY KEY REFERENCES public.profiles(id) ON DELETE CASCADE,
   is_online BOOLEAN DEFAULT FALSE,
   last_active TIMESTAMP WITH TIME ZONE DEFAULT now(),
   current_load INTEGER DEFAULT 0,
-  current_reason TEXT
+  current_reason TEXT,
+  -- Ordem do rodízio de atendimento (ver migrations/queue_daily_anchor.sql e
+  -- lib/services/queue-routing.ts): gravada só na primeira vez que o analista
+  -- fica online no dia, pra não perder a posição ao ficar ausente/reconectar.
+  queue_anchor_at TIMESTAMP WITH TIME ZONE,
+  queue_anchor_date DATE
 );
 
 -- User Status History
@@ -146,6 +154,7 @@ CREATE TABLE public.user_status_history (
   timestamp TIMESTAMP WITH TIME ZONE DEFAULT now() NOT NULL,
   created_at TIMESTAMP WITH TIME ZONE DEFAULT now() NOT NULL
 );
+CREATE INDEX idx_user_status_history_user_time ON public.user_status_history(user_id, timestamp);
 
 -- Absence Reasons
 CREATE TABLE public.absence_reasons (
