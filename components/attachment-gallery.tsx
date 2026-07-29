@@ -2,9 +2,10 @@
 
 import React, { useEffect, useState } from 'react';
 import { createPortal } from 'react-dom';
-import { Download, File, Image as ImageIcon, Film, Music, ExternalLink, Maximize2, X } from 'lucide-react';
+import { Download, File, Image as ImageIcon, Film, Music, ExternalLink, Maximize2, X, Play } from 'lucide-react';
 import { AnimatePresence, motion } from 'motion/react';
 import { Attachment } from '@/lib/types';
+import { isVideoAttachment } from '@/lib/attachment-kind';
 
 interface AttachmentGalleryProps {
   attachments: Attachment[];
@@ -13,6 +14,41 @@ interface AttachmentGalleryProps {
 
 export function isImageAttachment(attachment: Attachment): boolean {
   return attachment.type?.startsWith('image/') || /\.(png|jpe?g|gif|webp|bmp|svg)$/i.test(attachment.name || attachment.url || '');
+}
+
+// Miniatura compacta pra chips de anexo (resposta de chamado, área de
+// "vai anexar" antes de enviar) — antes mostravam só um ícone genérico +
+// nome do arquivo, mesmo quando dava pra exibir a prévia de verdade.
+// Imagem/vídeo ganham preview real; qualquer outro tipo cai no `fallback`
+// que quem chamou já tinha (ícone por extensão/mimetype).
+export function AttachmentChipThumb({
+  attachment,
+  size = 16,
+  fallback,
+}: {
+  attachment: Attachment;
+  size?: number;
+  fallback: React.ReactNode;
+}) {
+  if (isImageAttachment(attachment)) {
+    return (
+      <img
+        src={attachment.url}
+        alt={attachment.name}
+        className="rounded object-cover shrink-0"
+        style={{ width: size, height: size }}
+      />
+    );
+  }
+  if (isVideoAttachment(attachment)) {
+    return (
+      <span className="relative inline-flex shrink-0 overflow-hidden rounded bg-black" style={{ width: size, height: size }}>
+        <video src={attachment.url} preload="metadata" muted className="h-full w-full object-cover opacity-80" />
+        <Play size={Math.max(8, size * 0.55)} className="absolute inset-0 m-auto text-white" fill="white" />
+      </span>
+    );
+  }
+  return <>{fallback}</>;
 }
 
 export async function openAttachmentInNewTab(attachment: Attachment) {
@@ -194,9 +230,9 @@ export function AttachmentGallery({ attachments, title = "Todos os Anexos" }: At
                   className="aspect-video w-full bg-[var(--surface-pill)] relative overflow-hidden text-left"
                   title="Visualizar imagem"
                 >
-                  <img 
-                    src={file.url} 
-                    alt={file.name} 
+                  <img
+                    src={file.url}
+                    alt={file.name}
                     className="w-full h-full object-cover transition-transform duration-500 group-hover:scale-110"
                   />
                   <div className="absolute inset-0 bg-black/20 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center gap-2">
@@ -207,6 +243,15 @@ export function AttachmentGallery({ attachments, title = "Todos os Anexos" }: At
                      </span>
                   </div>
                 </button>
+              ) : isVideoAttachment(file) ? (
+                <div className="aspect-video w-full bg-black relative overflow-hidden">
+                  <video src={file.url} preload="metadata" muted className="w-full h-full object-cover opacity-90" />
+                  <div className="absolute inset-0 flex items-center justify-center">
+                    <span className="p-2.5 bg-white/90 rounded-full text-slate-900 shadow-xl">
+                      <Play size={16} fill="currentColor" />
+                    </span>
+                  </div>
+                </div>
               ) : (
                 <div className="aspect-video w-full bg-[var(--surface-card)] flex items-center justify-center">
                   <div className="w-12 h-12 rounded-2xl bg-[var(--surface-card)] shadow-sm flex items-center justify-center">

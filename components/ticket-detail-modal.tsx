@@ -11,7 +11,7 @@ import { useApp } from '@/app/app-context';
 import { Star } from 'lucide-react';
 import { toast } from 'sonner';
 import { RichEditor } from './rich-editor';
-import { AttachmentGallery, AttachmentPreviewModal, isImageAttachment, openAttachmentInNewTab } from './attachment-gallery';
+import { AttachmentGallery, AttachmentPreviewModal, AttachmentChipThumb, isImageAttachment, openAttachmentInNewTab } from './attachment-gallery';
 import { LinkInternalTicketModal } from './link-internal-ticket-modal';
 import { ChatAttachmentList } from './chat-attachment-list';
 import { ClientTime } from './client-time';
@@ -1888,7 +1888,7 @@ const loadMessages = async () => {
                                         onClick={() => isImage ? setPreviewAttachment(att) : openAttachmentInNewTab(att)}
                                         className="flex items-center gap-1 px-2 py-1 bg-[var(--surface-pill)] rounded text-[10px] hover:bg-[var(--border-default)] transition-colors"
                                       >
-                                        {isImage ? <ImageIcon size={12} /> : <File size={12} />}
+                                        <AttachmentChipThumb attachment={att} size={14} fallback={isImage ? <ImageIcon size={12} /> : <File size={12} />} />
                                         <span className="truncate max-w-[120px]">{att.name}</span>
                                       </button>
                                     );
@@ -1910,7 +1910,7 @@ const loadMessages = async () => {
                        <div className="flex flex-wrap gap-2">
                          {messageAttachments.map(att => (
                            <div key={att.id} className="flex items-center gap-1 px-2 py-1 bg-[var(--surface-pill)] rounded-lg text-[10px]">
-                             <File size={12} />
+                             <AttachmentChipThumb attachment={att} size={14} fallback={<File size={12} />} />
                              <span className="truncate max-w-[120px]">{att.name}</span>
                              <button
                                onClick={() => setMessageAttachments(prev => prev.filter(a => a.id !== att.id))}
@@ -2049,7 +2049,7 @@ const loadMessages = async () => {
                                        onClick={() => isImage ? setPreviewAttachment(att) : openAttachmentInNewTab(att)}
                                        className="flex items-center gap-1 px-2 py-1 bg-[var(--surface-pill)] rounded text-[10px] hover:bg-[var(--border-default)] transition-colors"
                                      >
-                                       {isImage ? <ImageIcon size={12} /> : <File size={12} />}
+                                       <AttachmentChipThumb attachment={att} size={14} fallback={isImage ? <ImageIcon size={12} /> : <File size={12} />} />
                                        <span className="truncate max-w-[120px]">{att.name}</span>
                                      </button>
                                    );
@@ -2080,7 +2080,7 @@ const loadMessages = async () => {
                      <div className="flex flex-wrap gap-2">
                        {messageAttachments.map(att => (
                          <div key={att.id} className="flex items-center gap-1 px-2 py-1 bg-[var(--surface-pill)] rounded-lg text-[10px]">
-                           <File size={12} />
+                           <AttachmentChipThumb attachment={att} size={14} fallback={<File size={12} />} />
                            <span className="truncate max-w-[120px]">{att.name}</span>
                            <button
                              onClick={() => setMessageAttachments(prev => prev.filter(a => a.id !== att.id))}

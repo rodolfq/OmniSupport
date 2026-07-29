@@ -32,7 +32,7 @@ import { toast } from "sonner";
 import { supabase } from "@/lib/supabase";
 import { createTicket } from "@/lib/tickets";
 import { RichEditor } from "./rich-editor";
-import { AttachmentPreviewModal, isImageAttachment } from "./attachment-gallery";
+import { AttachmentPreviewModal, AttachmentChipThumb, isImageAttachment } from "./attachment-gallery";
 
 export function NewTicketModal() {
   const {
@@ -693,13 +693,19 @@ export function NewTicketModal() {
                             className="flex min-w-0 items-center gap-2 overflow-hidden text-left disabled:cursor-default"
                             title={isImage ? "Visualizar imagem" : undefined}
                           >
-                            {isImage ? (
-                              <ImageIcon size={14} className="text-[var(--accent-text)]" />
-                            ) : att.type.startsWith("audio/") ? (
-                              <Music size={14} className="text-pink-500 dark:text-pink-400" />
-                            ) : (
-                              <FileText size={14} className="text-[var(--text-tertiary)]" />
-                            )}
+                            <AttachmentChipThumb
+                              attachment={att}
+                              size={18}
+                              fallback={
+                                isImage ? (
+                                  <ImageIcon size={14} className="text-[var(--accent-text)]" />
+                                ) : att.type.startsWith("audio/") ? (
+                                  <Music size={14} className="text-pink-500 dark:text-pink-400" />
+                                ) : (
+                                  <FileText size={14} className="text-[var(--text-tertiary)]" />
+                                )
+                              }
+                            />
                             <span className="text-[10px] font-bold text-[var(--text-secondary)] truncate">
                               {att.name}
                             </span>
