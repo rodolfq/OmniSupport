@@ -822,46 +822,23 @@ export async function assignChatSession(sessionId: string, assigneeId: string, a
       const agentName = agentRes.rows[0]?.name;
 
       if (agentName) {
-        const messageId = crypto.randomUUID();
-        const text = `👋 Você está falando com ${agentName}.`;
-        const timestamp = new Date().toISOString();
-
-        // type 'system' (não 'text'): identifica esta como uma mensagem
-        // automática, não uma resposta real do analista — usado pra não
-        // contar como "1ª resposta" na métrica de tempo de atendimento.
-        await query(
-          `INSERT INTO public.chat_messages (id, session_id, sender_id, sender_name, text, type, metadata, created_at)
-           VALUES ($1, $2, NULL, 'SSX Desk', $3, 'system', '{}'::jsonb, $4)`,
-          [messageId, sessionId, text, timestamp]
-        );
-        await query('UPDATE public.chat_sessions SET last_message_at = $1 WHERE id = $2', [timestamp, sessionId]);
-
-        emitChatEvent(sessionId, {
-          type: 'message',
-          sessionId,
-          message: {
-            id: messageId,
-            senderId: null,
-            senderName: 'SSX Desk',
-            text,
-            timestamp,
-            type: 'system',
-            metadata: {},
-            attachments: []
-          }
-        });
-
+        // Sem mais mensagem de apresentação avulsa na conversa (removida a
+        // pedido do usuário) — o nome do operador agora aparece em cada
+        // mensagem dele (ver chat-widget.tsx), não como um aviso isolado que
+        // fica desatualizado assim que a conversa é transferida de novo.
+        // O push de "assumiu o atendimento" continua, é uma notificação
+        // separada (fora da conversa), não a bolha que foi removida.
         try {
           const recipients = await getChatRecipientIds({ customerId: session.customer_id }, null, true);
           const toNotify = await excludeActiveViewers(sessionId, recipients);
           await Promise.all(toNotify.map(id => notifyUser(id, {
             title: `Você está falando com ${agentName}`,
-            body: text,
+            body: 'Um atendente está com você agora.',
             url: `/chat?chat=${sessionId}`,
-            tag: `chat_message:${messageId}`
+            tag: `chat_assign:${sessionId}`
           })));
         } catch (err) {
-          console.error('Error notifying about chat assignment intro message:', err);
+          console.error('Error notifying about chat assignment:', err);
         }
       }
 

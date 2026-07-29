@@ -2352,6 +2352,15 @@ useEffect(() => {
 
                       const isOwnMessage = m.senderId === currentUser.id;
                       const attachments = m.attachments || m.metadata?.attachments || [];
+                      // Substitui o antigo aviso avulso "Você está falando
+                      // com Fulano" (ficava desatualizado assim que a
+                      // conversa era transferida de novo) — agora o nome do
+                      // operador aparece em cada mensagem dele, pro cliente
+                      // sempre saber quem está falando naquele momento.
+                      // Mesma condição já usada em outros pontos do arquivo
+                      // pra identificar mensagem de analista (não é o
+                      // cliente, não é aviso de sistema).
+                      const isStaffSender = !!m.senderId && m.senderId !== selectedChat?.customerId && m.type !== 'system';
 
                       // Soft-delete: texto original nunca é apagado no banco
                       // (ver migrations/chat_messages_realtime_features.sql)
@@ -2418,7 +2427,16 @@ useEffect(() => {
                               ? "bg-[var(--accent)] text-white rounded-tr-none"
                               : "bg-[var(--surface-card)] border border-[var(--border-default)] text-[var(--text-primary)] rounded-tl-none"
                           )}>
-                            {renderLinkedText(m.text, isOwnMessage)}
+                            {isStaffSender && !isOwnMessage && (
+                              <p className="text-[10px] font-black uppercase tracking-wide mb-1 text-[var(--accent-text)]">
+                                {m.senderName}:
+                              </p>
+                            )}
+                            {isStaffSender && !isOwnMessage ? (
+                              <>&quot;{renderLinkedText(m.text, isOwnMessage)}&quot;</>
+                            ) : (
+                              renderLinkedText(m.text, isOwnMessage)
+                            )}
                             {attachments.length > 0 && (
                               <div className="mt-3 space-y-2 whitespace-normal">
                                 {attachments.map((attachment: Attachment) => {
