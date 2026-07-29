@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useState, useMemo } from 'react';
+import React, { useState, useMemo, useRef, useEffect } from 'react';
 import Link from 'next/link';
 import { usePathname, useRouter } from 'next/navigation';
 import { Permission, UserRole } from '@/lib/types';
@@ -39,6 +39,27 @@ export function Sidebar() {
 
   const [isPasswordModalOpen, setIsPasswordModalOpen] = useState(false);
   const [openSubmenu, setOpenSubmenu] = useState<string | null>(null);
+  const navRef = useRef<HTMLDivElement>(null);
+
+  // Único gatilho de abertura é o clique (setOpenSubmenu) — sem isso, o
+  // flyout também abria em :hover via CSS (group-hover/main), então dava
+  // pra ter um item aberto por hover e outro por clique ao mesmo tempo.
+  // Fecha ao clicar fora do menu e ao navegar, pra não ficar um flyout
+  // "preso" aberto depois de sair da sidebar.
+  useEffect(() => {
+    if (!openSubmenu) return;
+    const handleClickOutside = (e: MouseEvent) => {
+      if (navRef.current && !navRef.current.contains(e.target as Node)) {
+        setOpenSubmenu(null);
+      }
+    };
+    document.addEventListener('mousedown', handleClickOutside);
+    return () => document.removeEventListener('mousedown', handleClickOutside);
+  }, [openSubmenu]);
+
+  useEffect(() => {
+    setOpenSubmenu(null);
+  }, [pathname]);
 
   const menuItems = useMemo(
     () => getNavItems(currentUser, () => setIsPasswordModalOpen(true)),
@@ -59,7 +80,7 @@ export function Sidebar() {
         <img src="/branding/icon.png?v=2" alt="SSX Desk" className="w-full h-full object-cover" draggable={false} />
       </div>
 
-      <div className="flex-1 flex flex-col gap-4">
+      <div ref={navRef} className="flex-1 flex flex-col gap-4">
         {menuItems.map((item) => {
           // Check permission if required
           const hasPermission = matchesPermission(item.permission, userPermissions);
@@ -116,7 +137,7 @@ export function Sidebar() {
               {/* Submenu Flyout */}
               {hasSubItems && (
                 <div className={cn(
-                  "absolute left-full ml-2 top-0 bg-[var(--surface-card)] border border-[var(--border-default)] rounded-2xl p-2 min-w-[180px] shadow-2xl transition-all scale-95 opacity-0 pointer-events-none group-hover/main:scale-100 group-hover/main:opacity-100 group-hover/main:pointer-events-auto z-50 before:absolute before:-left-2 before:top-0 before:h-full before:w-2 before:content-['']",
+                  "absolute left-full ml-2 top-0 bg-[var(--surface-card)] border border-[var(--border-default)] rounded-2xl p-2 min-w-[180px] shadow-2xl transition-all scale-95 opacity-0 pointer-events-none z-50 before:absolute before:-left-2 before:top-0 before:h-full before:w-2 before:content-['']",
                   openSubmenu === item.name && "scale-100 opacity-100 pointer-events-auto"
                 )}>
                   <div className="px-4 py-2 border-b border-[var(--border-default)] mb-2">

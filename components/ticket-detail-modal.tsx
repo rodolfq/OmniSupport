@@ -25,6 +25,7 @@ import { ConfigService } from '@/lib/services/config-service';
 import { isClosedTicketStatus, registerClosedStatusLabels } from '@/lib/ticket-status';
 import { FieldChange, formatChangeMessage } from '@/lib/ticket-diff';
 import { wrapEmailHtml } from '@/lib/email-templates';
+import { fileToBase64 } from '@/lib/image-utils';
 
 interface TicketDetailModalProps {
   ticket: Ticket | null;
@@ -498,9 +499,21 @@ const loadMessages = async () => {
       // E-mail suporta HTML nativamente — diferente do WhatsApp, não precisa
       // passar por stripNotificationHtml, só entra dentro do bloco de
       // destaque da resposta.
+      const hasAttachments = Array.isArray(replyMessage.attachments) && replyMessage.attachments.length > 0;
+      // Não anexa o arquivo em si no e-mail (o servidor de envio não baixa o
+      // anexo do storage) — só indica o nome, o cliente pega o arquivo de
+      // fato acessando o chamado pelo botão abaixo.
+      const attachmentsHtml = hasAttachments ? `
+        <p style="margin:10px 0 0;font-size:12px;color:#6b7280;">
+          📎 ${replyMessage.attachments!.length > 1 ? 'Anexos' : 'Anexo'}: ${replyMessage.attachments!.map(a => a.name).join(', ')}
+        </p>
+      ` : '';
       const bodyHtml = `
         <p style="margin:0 0 16px;">Você recebeu uma nova resposta da nossa equipe no chamado <strong>${ticketLabel} — ${forTicket.title}</strong>.</p>
-        <div style="padding:16px 18px;background:#f9fafb;border-left:4px solid #0FA694;border-radius:8px;color:#374151;">${replyMessage.text}</div>
+        <div style="padding:16px 18px;background:#f9fafb;border-left:4px solid #0FA694;border-radius:8px;color:#374151;">
+          ${replyMessage.text}
+          ${attachmentsHtml}
+        </div>
       `.trim();
       const html = wrapEmailHtml({ bodyHtml, ctaUrl, ctaLabel: 'Acessar o chamado' });
 
@@ -693,29 +706,26 @@ const loadMessages = async () => {
 
       for (const file of files) {
         const fileId = Math.random().toString(36).substr(2, 9);
-        const fileName = `${Date.now()}-${file.name}`;
-        
-        // Upload to Supabase Storage
-        const { data: uploadData, error: uploadError } = await supabase
-          .storage
-          .from('attachments')
-          .upload(fileName, file);
 
-        if (uploadError) {
+        // lib/supabase.ts é um shim de compatibilidade que só imita a API do
+        // Supabase (ver CLAUDE.md) — o storage.upload dele nunca escreveu o
+        // arquivo em lugar nenhum, só devolvia uma URL /uploads/... que não
+        // existe. Mesmo padrão já usado em new-ticket-modal.tsx e no chat:
+        // guarda o arquivo como data: URL (base64) direto na coluna
+        // attachments_data, sem depender de storage externo.
+        let dataUrl: string;
+        try {
+          dataUrl = await fileToBase64(file);
+        } catch {
           toast.error(`Erro ao fazer upload de ${file.name}`);
           continue;
         }
-
-        const { data: { publicUrl } } = supabase
-          .storage
-          .from('attachments')
-          .getPublicUrl(uploadData.path);
 
         setMessageAttachments(prev => [...prev, {
           id: fileId,
           name: file.name,
           type: file.type,
-          url: publicUrl,
+          url: dataUrl,
           size: file.size
         }]);
       }

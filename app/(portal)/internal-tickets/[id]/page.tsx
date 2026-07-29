@@ -29,6 +29,7 @@ import { FieldChange, formatChangeMessage } from '@/lib/ticket-diff';
 import { INTERNAL_PRIORITY_LABELS, computeInternalTicketSla } from '@/lib/sla';
 import { fetchPriorities, ConfigService } from '@/lib/services/config-service';
 import { findStatusColor } from '@/lib/status-colors';
+import { fileToBase64 } from '@/lib/image-utils';
 
 interface Attachment {
   id: string;
@@ -241,11 +242,15 @@ export default function InternalTicketDetailPage() {
     try {
       for (const file of files) {
         const fileId = Math.random().toString(36).substr(2, 9);
-        const fileName = `${Date.now()}-${file.name}`;
-        const { data: uploadData, error: uploadError } = await supabase.storage.from('attachments').upload(fileName, file);
-        if (uploadError) { toast.error(`Erro ao fazer upload de ${file.name}`); continue; }
-        const { data: { publicUrl } } = supabase.storage.from('attachments').getPublicUrl(uploadData.path);
-        setPreviewAttachments(prev => [...prev, { id: fileId, name: file.name, type: file.type, url: publicUrl, size: file.size }]);
+        // Mesmo padrão de new-ticket-modal.tsx / chat: guarda o arquivo como
+        // data: URL (base64) direto na coluna, sem storage externo — o
+        // supabase.storage do shim (lib/supabase.ts) é um stub que nunca
+        // escreveu o arquivo em lugar nenhum.
+        let dataUrl: string;
+        try {
+          dataUrl = await fileToBase64(file);
+        } catch { toast.error(`Erro ao fazer upload de ${file.name}`); continue; }
+        setPreviewAttachments(prev => [...prev, { id: fileId, name: file.name, type: file.type, url: dataUrl, size: file.size }]);
       }
     } catch (error) { toast.error('Erro no upload'); }
     finally { setIsUploading(false); if (fileInputRef.current) fileInputRef.current.value = ''; }
