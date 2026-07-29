@@ -548,6 +548,11 @@ export interface AverageResult extends MetricsPeriodInfo {
 export interface HourlyBucket {
   bucketStart: string; // ISO, início da hora já em America/Sao_Paulo
   count: number;
+  // Só preenchido por getCargaSimultanea/getAnalistasOnline (perfil por
+  // hora do dia, 0-23) — usado como chave de join estável entre as duas
+  // séries, já que bucketStart chega como objeto Date do driver `pg` e
+  // comparar Dates por igualdade de referência nunca bate.
+  hourOfDay?: number;
 }
 
 export interface SatisfactionResult extends MetricsPeriodInfo {

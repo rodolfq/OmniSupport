@@ -408,6 +408,12 @@ function scopeByOverlapWhere(): string {
 // atual antes de considerar fechada; se passar de ~1s, parar e discutir
 // rollup diário antes de seguir.
 
+// "Carga por horário" (Dashboard Gerencial) é um PERFIL por hora do dia
+// (0h-23h, sempre 24 pontos), não uma série contínua no tempo — período
+// "mês" gerava ~720 buckets (1 por hora real do intervalo inteiro), eixo
+// ilegível e sem sentido pra identificar horário de pico. Reamostra por
+// hora real (per_hour, como antes) e agrega pela MÉDIA de todas as
+// ocorrências daquela hora-do-dia (America/Sao_Paulo) dentro do período.
 export async function getCargaSimultanea(filter: MetricsFilter): Promise<HourlyBucket[]> {
   const bounds = await getPeriodBounds(filter);
   const res = await query(
@@ -429,17 +435,26 @@ export async function getCargaSimultanea(filter: MetricsFilter): Promise<HourlyB
      ),
      buckets AS (
        SELECT generate_series($1::timestamptz, $2::timestamptz, interval '1 hour') AS bucket_start
+     ),
+     per_hour AS (
+       SELECT
+         EXTRACT(HOUR FROM (b.bucket_start AT TIME ZONE 'America/Sao_Paulo'))::int AS hour_of_day,
+         COALESCE(
+           (SELECT r.concurrent FROM running r WHERE r.ts <= b.bucket_start ORDER BY r.ts DESC LIMIT 1),
+           0
+         )::int AS concurrent_chats
+       FROM buckets b
      )
-     SELECT b.bucket_start,
-       COALESCE(
-         (SELECT r.concurrent FROM running r WHERE r.ts <= b.bucket_start ORDER BY r.ts DESC LIMIT 1),
-         0
-       )::int AS concurrent_chats
-     FROM buckets b
-     ORDER BY b.bucket_start`,
+     SELECT
+       hour_of_day,
+       (TIMESTAMP '2000-01-01 00:00:00' + (hour_of_day || ' hours')::interval) AT TIME ZONE 'America/Sao_Paulo' AS bucket_start,
+       AVG(concurrent_chats) AS concurrent_chats
+     FROM per_hour
+     GROUP BY hour_of_day
+     ORDER BY hour_of_day`,
     scopeParams(bounds, filter)
   );
-  return res.rows.map(r => ({ bucketStart: r.bucket_start, count: r.concurrent_chats }));
+  return res.rows.map(r => ({ bucketStart: r.bucket_start, count: Number(r.concurrent_chats), hourOfDay: r.hour_of_day }));
 }
 
 // --- 10. analistasOnline --------------------------------------------------
@@ -452,6 +467,9 @@ export async function getCargaSimultanea(filter: MetricsFilter): Promise<HourlyB
 // uma sequência — seguro). instanceId/companyId não se aplicam a "quem
 // estava online" e são ignorados de propósito nesta métrica.
 
+// Mesma mudança de perfil-por-hora-do-dia de getCargaSimultanea acima —
+// as duas alimentam o mesmo gráfico e precisam usar exatamente a mesma
+// hora-do-dia como eixo, senão as séries desalinham.
 export async function getAnalistasOnline(filter: MetricsFilter): Promise<HourlyBucket[]> {
   const bounds = await getPeriodBounds(filter);
   const res = await query(
@@ -469,16 +487,26 @@ export async function getAnalistasOnline(filter: MetricsFilter): Promise<HourlyB
      ),
      buckets AS (
        SELECT generate_series($1::timestamptz, $2::timestamptz, interval '1 hour') AS bucket_start
+     ),
+     per_hour AS (
+       SELECT
+         EXTRACT(HOUR FROM (b.bucket_start AT TIME ZONE 'America/Sao_Paulo'))::int AS hour_of_day,
+         COUNT(DISTINCT o.user_id)::int AS analysts_online
+       FROM buckets b
+       LEFT JOIN online o
+         ON o.started_at < b.bucket_start + interval '1 hour' AND o.ended_at > b.bucket_start
+       GROUP BY b.bucket_start
      )
-     SELECT b.bucket_start, COUNT(DISTINCT o.user_id)::int AS analysts_online
-     FROM buckets b
-     LEFT JOIN online o
-       ON o.started_at < b.bucket_start + interval '1 hour' AND o.ended_at > b.bucket_start
-     GROUP BY b.bucket_start
-     ORDER BY b.bucket_start`,
+     SELECT
+       hour_of_day,
+       (TIMESTAMP '2000-01-01 00:00:00' + (hour_of_day || ' hours')::interval) AT TIME ZONE 'America/Sao_Paulo' AS bucket_start,
+       AVG(analysts_online) AS analysts_online
+     FROM per_hour
+     GROUP BY hour_of_day
+     ORDER BY hour_of_day`,
     [bounds.startUtc, bounds.endUtcExclusive, filter.analystId ?? null, filter.queueId ?? null]
   );
-  return res.rows.map(r => ({ bucketStart: r.bucket_start, count: r.analysts_online }));
+  return res.rows.map(r => ({ bucketStart: r.bucket_start, count: Number(r.analysts_online), hourOfDay: r.hour_of_day }));
 }
 
 // --- 11. picoIndividual ----------------------------------------------------

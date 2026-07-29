@@ -253,11 +253,16 @@ export async function GET(request: NextRequest) {
         getPicoIndividual(filter)
       ]);
 
-      const analistasByBucket = new Map(analistas.map(a => [a.bucketStart, a.count]));
+      // Chave de join é hourOfDay (número), não bucketStart: o driver `pg`
+      // devolve timestamptz como objeto Date, e duas instâncias de Date
+      // pra exatamente o mesmo instante nunca são iguais por referência —
+      // usar bucketStart como chave de Map/Map.get nunca batia, então
+      // "Analistas online" ficava sempre 0 no gráfico.
+      const analistasByBucket = new Map(analistas.map(a => [a.hourOfDay, a.count]));
       const buckets = carga.map(c => ({
         bucketStart: c.bucketStart,
         cargaSimultanea: c.count,
-        analistasOnline: analistasByBucket.get(c.bucketStart) ?? 0
+        analistasOnline: analistasByBucket.get(c.hourOfDay) ?? 0
       }));
 
       return NextResponse.json({

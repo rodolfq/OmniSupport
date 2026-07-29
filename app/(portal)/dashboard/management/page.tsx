@@ -113,7 +113,10 @@ function formatByUnit(value: number | null, unit: ComparisonRow['unit']): string
 // (se o navegador de quem olha estiver em outro fuso) seria um bug real, não
 // só uma questão de convenção visual como nas outras datas da tela.
 function formatHourTick(iso: string): string {
-  return new Date(iso).toLocaleTimeString('pt-BR', { hour: '2-digit', timeZone: 'America/Sao_Paulo' });
+  // toLocaleTimeString com hour:'2-digit' devolve só o número puro (ex:
+  // "17"), sem unidade — no eixo do gráfico isso fica indistinguível de um
+  // valor de métrica. O "h" deixa explícito que é hora do dia.
+  return `${new Date(iso).toLocaleTimeString('pt-BR', { hour: '2-digit', timeZone: 'America/Sao_Paulo' })}h`;
 }
 
 const STATUS_CARD_CLASSES: Record<KpiStatus, string> = {
@@ -219,8 +222,8 @@ export default function DashboardManagementPage() {
     title: 'Carga por horário',
     columns: [
       { key: 'bucketStart', label: 'Horário', format: (v) => formatHourTick(v as string) },
-      { key: 'cargaSimultanea', label: 'Carga simultânea' },
-      { key: 'analistasOnline', label: 'Analistas online' }
+      { key: 'cargaSimultanea', label: 'Carga simultânea (média)', format: (v) => formatAverage(v as number) },
+      { key: 'analistasOnline', label: 'Analistas online (média)', format: (v) => formatAverage(v as number) }
     ],
     rows: loadByHour.data?.buckets ?? []
   }), [loadByHour.data]);
@@ -464,8 +467,8 @@ export default function DashboardManagementPage() {
       {/* Carga por horário */}
       <ReportSection
         title="Carga por horário"
-        subtitle="Carga simultânea x analistas online — horário de Brasília"
-        info="Quantos chats estavam simultaneamente ativos por analista online, hora a hora — ajuda a identificar horários de pico que pedem mais gente escalada."
+        subtitle="Média de carga simultânea x analistas online por hora do dia — horário de Brasília"
+        info="Perfil médio de cada hora do dia (0h-23h) considerando todos os dias do período selecionado — não é uma linha do tempo contínua. Ajuda a identificar horários de pico que pedem mais gente escalada."
         status={loadByHourStatus}
         errorMessage={loadByHour.error ?? undefined}
         emptyMessage="Sem atendimentos no período selecionado."
@@ -478,12 +481,12 @@ export default function DashboardManagementPage() {
         <div className="h-72">
           <ResponsiveContainer width="100%" height="100%">
             <LineChart data={loadByHour.data?.buckets ?? []}>
-              <XAxis dataKey="bucketStart" tickFormatter={formatHourTick} axisLine={false} tickLine={false} tick={{ fontSize: 10, fill: axisColor }} />
-              <YAxis axisLine={false} tickLine={false} tick={{ fontSize: 10, fill: axisColor }} allowDecimals={false} />
-              <Tooltip contentStyle={tooltipStyle} labelFormatter={formatHourTick} />
+              <XAxis dataKey="bucketStart" tickFormatter={formatHourTick} axisLine={false} tickLine={false} tick={{ fontSize: 10, fill: axisColor }} interval={1} />
+              <YAxis axisLine={false} tickLine={false} tick={{ fontSize: 10, fill: axisColor }} />
+              <Tooltip contentStyle={tooltipStyle} labelFormatter={formatHourTick} formatter={(value: any) => formatAverage(value)} />
               <Legend wrapperStyle={{ fontSize: 10 }} />
-              <Line type="monotone" dataKey="cargaSimultanea" name="Carga simultânea" stroke="#4f46e5" strokeWidth={2} dot={false} />
-              <Line type="monotone" dataKey="analistasOnline" name="Analistas online" stroke="#22c55e" strokeWidth={2} dot={false} />
+              <Line type="monotone" dataKey="cargaSimultanea" name="Carga simultânea (média)" stroke="#4f46e5" strokeWidth={2} dot={{ r: 2 }} />
+              <Line type="monotone" dataKey="analistasOnline" name="Analistas online (média)" stroke="#22c55e" strokeWidth={2} dot={{ r: 2 }} />
               {!!loadByHour.data?.individualPeakReference && (
                 <ReferenceLine
                   y={loadByHour.data.individualPeakReference}
