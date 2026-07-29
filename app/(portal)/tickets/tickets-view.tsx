@@ -7,9 +7,12 @@ import {
   TicketStatus,
   Permission,
   UserRole,
+  Attachment,
 } from "@/lib/types";
+import { useRouter } from "next/navigation";
+import { TicketService } from "@/lib/services/ticket-service";
 
-import { SearchFilters, searchTickets } from "@/lib/search";
+import { SearchFilters, searchTickets, getQuickFilterCounts, QuickFilterCounts } from "@/lib/search";
 import { isClosedTicketStatus, isInProgressTicketStatus } from "@/lib/ticket-status";
 import { mergeTickets } from "@/app/actions";
 import { ConfigService } from "@/lib/services/config-service";
@@ -34,6 +37,10 @@ import {
   Clock,
   MessageCircle,
   Plus,
+  Inbox,
+  User as UserIcon,
+  AlertTriangle,
+  Flame,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { AnimatePresence, motion } from "motion/react";
@@ -170,15 +177,19 @@ export function TicketsView({
   viewToggle,
   viewModeSwitcher,
   viewMode,
+  openTicketId,
 }: {
   viewToggle?: React.ReactNode;
   viewModeSwitcher?: React.ReactNode;
   viewMode: "cards" | "table" | "kanban";
+  openTicketId?: string | null;
 }) {
-  const { currentUser, hasPermission, notifications, setIsNewTicketModalOpen } = useApp();
+  const router = useRouter();
+  const { currentUser, hasPermission, notifications, setIsNewTicketModalOpen, pendingTicketDraft, setPendingTicketDraft } = useApp();
   const [internalLinks, setInternalLinks] = useState<InternalLinkRow[]>([]);
   const [filteredTickets, setFilteredTickets] = useState<Ticket[]>([]);
   const [selectedTicket, setSelectedTicket] = useState<Ticket | null>(null);
+  const [openDraft, setOpenDraft] = useState<{ text: string; attachments: Attachment[]; visibleToCustomer: boolean } | null>(null);
   const [ticketToDelete, setTicketToDelete] = useState<Ticket | null>(null);
   const [isDeletingTicket, setIsDeletingTicket] = useState(false);
   const [currentPage, setCurrentPage] = useState(1);
@@ -186,6 +197,11 @@ export function TicketsView({
   const [totalCount, setTotalCount] = useState(0);
   const [pageSize] = useState(10);
   const [searchFilters, setSearchFilters] = useState<SearchFilters>({});
+  // Atalhos rápidos do cabeçalho (Todos/Minhas/Sem responsável/Atrasadas/
+  // Alta prioridade) — dimensão independente do painel de Filtros avançados
+  // do ModernSearchBar, combinada com ele só na hora de chamar a API.
+  const [quickFilter, setQuickFilter] = useState<"all" | "mine" | "unassigned" | "overdue" | "high">("all");
+  const [quickCounts, setQuickCounts] = useState<QuickFilterCounts>({ all: 0, mine: 0, unassigned: 0, overdue: 0, high: 0 });
   const [sortConfig, setSortConfig] = useState<{
     key: string;
     direction: "asc" | "desc";
@@ -289,11 +305,23 @@ export function TicketsView({
     }
   };
 
+  // Sobrepõe a dimensão do chip ativo (Minhas/Sem responsável/Atrasadas/Alta
+  // prioridade) em cima do que já está nos Filtros avançados — as duas
+  // fontes de filtro convivem porque são independentes (ex.: dá pra ter
+  // status=Novo no painel avançado E o chip "Minhas" ativo ao mesmo tempo).
+  const effectiveFilters = useMemo<SearchFilters>(() => {
+    if (quickFilter === "mine") return { ...searchFilters, assigneeId: currentUser?.id };
+    if (quickFilter === "unassigned") return { ...searchFilters, unassigned: true };
+    if (quickFilter === "overdue") return { ...searchFilters, slaOverdue: true };
+    if (quickFilter === "high") return { ...searchFilters, highPriority: true };
+    return searchFilters;
+  }, [searchFilters, quickFilter, currentUser?.id]);
+
   const loadTickets = async () => {
     if (!currentUser) return;
     setLoading(true);
     try {
-      const result = await searchTickets(searchFilters, currentPage, pageSize);
+      const result = await searchTickets(effectiveFilters, currentPage, pageSize);
       const roleFilteredTickets = await applyRoleBasedFilters(result.tickets);
 
       setFilteredTickets(roleFilteredTickets);
@@ -311,17 +339,33 @@ export function TicketsView({
     setCurrentPage(page);
   };
 
+  const handleQuickFilterChange = (key: typeof quickFilter) => {
+    setQuickFilter(key);
+    setCurrentPage(1);
+  };
+
   const handlePagination = (newPage: number) => {
     setCurrentPage(newPage);
   };
 
   useEffect(() => {
     if (!currentUser?.id) return;
-    const requestKey = `${currentUser.id}:${currentPage}:${JSON.stringify(searchFilters)}`;
+    const requestKey = `${currentUser.id}:${currentPage}:${JSON.stringify(effectiveFilters)}`;
     if (lastAutomaticRequestKeyRef.current === requestKey) return;
     lastAutomaticRequestKeyRef.current = requestKey;
     loadTickets();
-  }, [currentUser?.id, currentPage, searchFilters]);
+  }, [currentUser?.id, currentPage, effectiveFilters]);
+
+  // Contagens dos chips — independem de qual chip está ativo (mostram as 5
+  // colunas de uma vez), só acompanham os Filtros avançados/busca de texto.
+  useEffect(() => {
+    if (!currentUser?.id) return;
+    let cancelled = false;
+    getQuickFilterCounts(searchFilters, currentUser.id)
+      .then((counts) => { if (!cancelled) setQuickCounts(counts); })
+      .catch((err) => console.error("Error loading quick filter counts:", err));
+    return () => { cancelled = true; };
+  }, [currentUser?.id, searchFilters]);
 
   useEffect(() => {
     if (!currentUser?.id) return;
@@ -347,6 +391,38 @@ export function TicketsView({
 
     loadReferenceData();
   }, [currentUser?.id]);
+
+  // Deep link "/tickets?open=<id>" — usado pela cópia de nota de Ticket
+  // Interno pra Chamado (internal-tickets/[id]/page.tsx), que navega pra cá
+  // já com um rascunho pendente em pendingTicketDraft. Busca o ticket na
+  // lista carregada primeiro (caminho comum) e só cai pro fetch direto se
+  // ele estiver fora do filtro/página atual.
+  useEffect(() => {
+    if (!openTicketId) return;
+    let cancelled = false;
+    (async () => {
+      const local = filteredTickets.find((t) => t.id === openTicketId);
+      const found = local || (await TicketService.getById(openTicketId));
+      if (cancelled) return;
+      if (!found) {
+        toast.error('Chamado não encontrado.');
+      } else {
+        setSelectedTicket(found);
+        if (pendingTicketDraft?.ticketId === openTicketId) {
+          setOpenDraft({
+            text: pendingTicketDraft.text,
+            attachments: pendingTicketDraft.attachments,
+            visibleToCustomer: pendingTicketDraft.visibleToCustomer,
+          });
+          setPendingTicketDraft(null);
+        }
+      }
+      router.replace('/tickets');
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [openTicketId]);
 
   // Chip de "tickets internos vinculados" na lista — só busca pra quem
   // efetivamente enxerga a tela de tickets internos.
@@ -975,30 +1051,35 @@ export function TicketsView({
 
   return (
     <div className="space-y-8">
-      <div className="flex justify-between items-end gap-4 flex-wrap">
+      {/* Header — mesmo tratamento de cartão (fundo, borda, cantos, densidade
+          da busca) do cabeçalho de Tickets Internos (internal-tickets-view.tsx),
+          só que como cartão fechado em vez de faixa de borda única, pra
+          combinar com os outros blocos soltos desta tela (tabela etc). */}
+      <div className="bg-[var(--surface-card)] border border-[var(--border-default)] rounded-3xl p-6">
+      <div className="flex items-center justify-between mb-4 gap-4 flex-wrap">
         <div>
-          <h2 className="text-3xl font-black text-[var(--text-primary)] tracking-tight">
+          <h2 className="text-2xl font-black text-[var(--text-primary)]">
             Chamados
           </h2>
-          <p className="text-[var(--text-tertiary)] font-medium">
+          <p className="text-sm text-[var(--text-tertiary)] mt-1">
             Gerenciamento completo de solicitações
           </p>
         </div>
-        <div className="flex items-center gap-3 flex-wrap">
+        <div className="flex items-center gap-3">
+          {viewToggle}
           <button
             onClick={() => setIsNewTicketModalOpen(true)}
-            className="bg-[var(--accent)] hover:bg-[var(--accent-hover)] text-white px-6 py-2.5 rounded-lg text-sm font-semibold shadow-md transition-all flex items-center justify-center gap-2 active:scale-95 focus:outline-none focus:ring-2 focus:ring-[var(--accent)]/40"
+            className="px-4 py-2 bg-[var(--accent)] hover:bg-[var(--accent-hover)] text-white rounded-xl text-xs font-semibold uppercase tracking-widest transition-all flex items-center gap-2"
           >
-            <Plus size={18} />
+            <Plus size={16} />
             Novo Chamado
           </button>
-          {viewToggle}
           {showBulkActions && (
             <div className="flex items-center gap-3 bg-[var(--accent)]/10 px-4 py-2 rounded-2xl border border-[var(--accent)]/20">
               <span className="text-xs font-bold text-[var(--accent-text)]">
                 {selectedTickets.length} selecionado(s)
               </span>
-              <div className="flex gap-1.5">
+              <div className="flex gap-1.5 flex-wrap">
                 <button
                   onClick={() => setIsTransferModalOpen(true)}
                   className="px-3 py-1.5 bg-[var(--surface-card)] text-[var(--accent-text)] rounded-xl text-[10px] font-semibold uppercase tracking-widest border border-[var(--accent)]/30 hover:bg-[var(--accent)] hover:text-white transition-all flex items-center gap-1.5"
@@ -1050,14 +1131,44 @@ export function TicketsView({
         </div>
       </div>
 
-      <div className="flex items-center gap-3">
-        <div className="flex-1 min-w-0">
-          <ModernSearchBar
-            onSearch={handleSearch}
-            loading={loading}
-          />
-        </div>
-        {viewModeSwitcher}
+      <ModernSearchBar
+        onSearch={handleSearch}
+        loading={loading}
+        extraControls={viewModeSwitcher}
+        quickFilters={
+          // Mesma posição/estilo dos chips de Tickets Internos
+          // (internal-tickets-view.tsx) — só que aqui a contagem/filtro
+          // rodam no servidor via searchFilters, já que a lista é paginada.
+          currentUser?.role !== UserRole.CUSTOMER && currentUser?.role !== UserRole.EMPLOYEE ? (
+            <div className="flex items-center gap-2 flex-wrap mb-1">
+              {[
+                { key: "all" as const, label: "Todos", icon: Inbox, count: quickCounts.all },
+                { key: "mine" as const, label: "Minhas", icon: UserIcon, count: quickCounts.mine },
+                { key: "unassigned" as const, label: "Sem responsável", icon: Inbox, count: quickCounts.unassigned },
+                { key: "overdue" as const, label: "Atrasadas", icon: AlertTriangle, count: quickCounts.overdue },
+                { key: "high" as const, label: "Alta prioridade", icon: Flame, count: quickCounts.high },
+              ].map((chip) => (
+                <button
+                  key={chip.key}
+                  onClick={() => handleQuickFilterChange(chip.key)}
+                  className={cn(
+                    "px-3 py-1.5 rounded-full text-[10px] font-bold uppercase tracking-wide transition-all flex items-center gap-1.5 border",
+                    quickFilter === chip.key
+                      ? "bg-[var(--accent)] border-[var(--accent)] text-white shadow-sm"
+                      : "bg-[var(--surface-card)] border-[var(--border-default)] text-[var(--text-secondary)] hover:border-[var(--accent)]/40"
+                  )}
+                >
+                  <chip.icon size={11} />
+                  {chip.label}
+                  <span className={cn("px-1.5 rounded-full text-[9px]", quickFilter === chip.key ? "bg-white/20" : "bg-[var(--surface-pill)]")}>
+                    {chip.count}
+                  </span>
+                </button>
+              ))}
+            </div>
+          ) : null
+        }
+      />
       </div>
 
       {viewMode === "kanban" ? (
@@ -1395,8 +1506,10 @@ export function TicketsView({
         {selectedTicket && (
           <TicketDetailModal
             ticket={selectedTicket}
+            initialDraft={openDraft}
             onClose={() => {
               setSelectedTicket(null);
+              setOpenDraft(null);
             }}
           />
         )}

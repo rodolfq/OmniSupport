@@ -25,6 +25,7 @@ export default function TicketsPage() {
   const effectiveCanSeeTickets = isCompanyPortalUser || canSeeTickets;
 
   const requestedMode = searchParams?.get("mode") === "internal" ? "internal" : null;
+  const openTicketId = searchParams?.get("open") || null;
 
   // Inicializa já no lado certo pra quem só tem uma das duas permissões (ou
   // veio de um link tipo /tickets?mode=internal) — mesma lógica do Dashboard,
@@ -117,7 +118,7 @@ export default function TicketsPage() {
   );
 
   if (mode === "tickets" && effectiveCanSeeTickets) {
-    return <TicketsView viewToggle={viewToggle} viewModeSwitcher={viewModeSwitcher} viewMode={viewMode} />;
+    return <TicketsView viewToggle={viewToggle} viewModeSwitcher={viewModeSwitcher} viewMode={viewMode} openTicketId={openTicketId} />;
   }
   if (canSeeInternal) {
     return <InternalTicketsView viewToggle={viewToggle} viewModeSwitcher={viewModeSwitcher} viewMode={viewMode} />;

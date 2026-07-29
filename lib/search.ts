@@ -14,6 +14,20 @@ export interface SearchFilters {
   tags?: string[];
   customerId?: string;
   includeClosed?: boolean;
+  // Atalhos rápidos (chips "Sem responsável" / "Alta prioridade") — dimensões
+  // que o filtro avançado não cobre: unassigned não é "atribuído a X" (é
+  // "sem ninguém"), e highPriority agrupa Alta+Urgente, diferente do dropdown
+  // de prioridade exata.
+  unassigned?: boolean;
+  highPriority?: boolean;
+}
+
+export interface QuickFilterCounts {
+  all: number;
+  mine: number;
+  unassigned: number;
+  overdue: number;
+  high: number;
 }
 
 export interface SearchResult {
@@ -35,12 +49,39 @@ export async function searchTickets(
     query: filters.query || '',
     status: filters.status || '',
     priority: filters.priority || '',
+    assigneeId: filters.assigneeId || '',
     slaOverdue: String(filters.slaOverdue || false),
+    unassigned: String(filters.unassigned || false),
+    highPriority: String(filters.highPriority || false),
     includeClosed: String(filters.includeClosed || false),
     page: String(page),
     pageSize: String(pageSize)
   });
-  
+
+  const res = await fetch(`/api/search?${qParams.toString()}`, { signal });
+  return res.json();
+}
+
+// Contagens dos chips de filtro rápido (Todos/Minhas/Sem responsável/
+// Atrasadas/Alta prioridade) — rodam no servidor porque a lista de chamados
+// é paginada (diferente de Tickets Internos, que carrega tudo de uma vez e
+// conta client-side). `baseFilters` é o que já está ativo no painel de
+// Filtros avançados (busca/status/prioridade/período/empresa); as 5 colunas
+// variam só a dimensão do chip em cima disso.
+export async function getQuickFilterCounts(
+  baseFilters: SearchFilters,
+  userId: string,
+  signal?: AbortSignal
+): Promise<QuickFilterCounts> {
+  const qParams = new URLSearchParams({
+    action: 'quick-counts',
+    query: baseFilters.query || '',
+    status: baseFilters.status || '',
+    priority: baseFilters.priority || '',
+    includeClosed: String(baseFilters.includeClosed || false),
+    userId,
+  });
+
   const res = await fetch(`/api/search?${qParams.toString()}`, { signal });
   return res.json();
 }

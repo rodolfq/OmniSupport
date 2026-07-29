@@ -29,6 +29,9 @@ import { wrapEmailHtml } from '@/lib/email-templates';
 interface TicketDetailModalProps {
   ticket: Ticket | null;
   onClose: () => void;
+  // Pré-preenche o composer de resposta ao abrir — usado pelo fluxo de
+  // "Copiar para Chamado" a partir de um Ticket Interno (app/(portal)/tickets/tickets-view.tsx).
+  initialDraft?: { text: string; attachments: Attachment[]; visibleToCustomer: boolean } | null;
 }
 
 // Mesmo vocabulário de cor do Kanban em /internal-tickets — não inventa
@@ -53,7 +56,7 @@ function internalStatusMeta(status?: string | null) {
   }
 }
 
-export function TicketDetailModal({ ticket, onClose }: TicketDetailModalProps) {
+export function TicketDetailModal({ ticket, onClose, initialDraft }: TicketDetailModalProps) {
   const scrollRef = useRef<HTMLDivElement>(null);
   const { currentUser, hasPermission, triggerRefresh, suppressTicketAssignedNotification, notifications } = useApp();
   const isCustomer = currentUser?.role === UserRole.CUSTOMER;
@@ -76,8 +79,14 @@ export function TicketDetailModal({ ticket, onClose }: TicketDetailModalProps) {
   // Só usado <md: os dois painéis (dados/conversa) não cabem lado a lado numa
   // tela de celular — alterna entre eles em vez de espremer os dois.
   const [mobilePanel, setMobilePanel] = useState<'details' | 'chat'>('details');
-  const [message, setMessage] = useState('');
-   const [messageAttachments, setMessageAttachments] = useState<Attachment[]>([]);
+  // Semeado direto do initialDraft (em vez de só via useEffect abaixo) —
+  // o RichEditor lê `content` só na criação do editor Tiptap
+  // (immediatelyRender: false atrasa isso pro primeiro efeito dele), então
+  // se `message` ainda estivesse vazio nesse primeiro render, dependíamos
+  // do efeito de sync do RichEditor rodar depois pra puxar o texto; aqui já
+  // nasce certo.
+  const [message, setMessage] = useState(() => initialDraft?.text || '');
+   const [messageAttachments, setMessageAttachments] = useState<Attachment[]>(() => initialDraft?.attachments || []);
    const [previewAttachment, setPreviewAttachment] = useState<Attachment | null>(null);
    const messageFileInputRef = useRef<HTMLInputElement>(null);
   const [messages, setMessages] = useState<Message[]>([]);
@@ -151,6 +160,11 @@ export function TicketDetailModal({ ticket, onClose }: TicketDetailModalProps) {
   const [itAssignee, setItAssignee] = useState('');
   const [itPriority, setItPriority] = useState(1);
   const [showLinkModal, setShowLinkModal] = useState(false);
+  // Guarda o texto/anexos de uma mensagem do chamado enquanto o analista
+  // vincula um Ticket Interno (fluxo "Copiar para Ticket Interno" sem
+  // nenhum vínculo ainda) — aplicado assim que handleLinkInternalTicket
+  // termina, sem precisar clicar em copiar de novo.
+  const pendingCopyToInternalRef = useRef<{ text: string; attachments: Attachment[] } | null>(null);
 
   // Evita vazar os timers do autosave se o componente desmontar com uma
   // gravação agendada ainda não disparada.
@@ -290,6 +304,16 @@ export function TicketDetailModal({ ticket, onClose }: TicketDetailModalProps) {
     }
   }, [ticket, currentUser, hasPermission]);
 
+  // Aplica o rascunho vindo de "Copiar para Chamado" (Ticket Interno →
+  // Chamado) por cima dos defaults do efeito acima — precisa rodar depois
+  // dele na mesma montagem, daí ser um efeito separado.
+  useEffect(() => {
+    if (!ticket || !initialDraft) return;
+    setMessage(initialDraft.text);
+    setMessageAttachments(initialDraft.attachments);
+    setHistoryTab(initialDraft.visibleToCustomer ? 'customer' : 'internal');
+  }, [ticket?.id, initialDraft]);
+
   useEffect(() => {
     if (scrollRef.current) {
       const scrollContainer = scrollRef.current;
@@ -413,6 +437,18 @@ const loadMessages = async () => {
       await loadInternalTickets();
       setShowLinkModal(false);
       toast.success('Ticket interno vinculado com sucesso');
+
+      // Se o vínculo veio do fluxo "Copiar para Ticket Interno" sem nenhum
+      // ticket interno ainda vinculado, aplica a cópia agora que já existe
+      // um destino, sem exigir um segundo clique no botão de copiar.
+      if (pendingCopyToInternalRef.current) {
+        const pending = pendingCopyToInternalRef.current;
+        pendingCopyToInternalRef.current = null;
+        setMessage(pending.text);
+        setMessageAttachments(pending.attachments);
+        setSelectedInternalTicketId(internalTicketId);
+        setActiveTab('internal');
+      }
     };
 
     const handleUnlinkInternalTicket = async (internalTicketId: string, label: string) => {
@@ -605,6 +641,36 @@ const loadMessages = async () => {
         console.error('Erro ao enviar nota do ticket interno:', err);
         toast.error('Erro ao enviar nota.');
       }
+    };
+
+    // Leva o texto/anexos de uma mensagem do chamado pro composer da aba
+    // "Ticket Interno" (mesmo estado message/messageAttachments dos dois
+    // painéis) — o analista revisa e envia como uma nova nota, não é enviado
+    // automaticamente.
+    const handleCopyMessageToInternalTicket = (m: Message) => {
+      if (internalTickets.length === 0) {
+        toast.info('Vincule um ticket interno para copiar esta mensagem.');
+        pendingCopyToInternalRef.current = { text: m.text, attachments: m.attachments || [] };
+        setShowLinkModal(true);
+        return;
+      }
+      setMessage(m.text);
+      setMessageAttachments(m.attachments || []);
+      if (!selectedInternalTicketId) {
+        setSelectedInternalTicketId(internalTickets[0].uuid || null);
+      }
+      setActiveTab('internal');
+    };
+
+    // Sentido inverso: leva o texto/anexos de uma anotação do Ticket Interno
+    // vinculado (painel "Anotações do Ticket Interno", aba do cadeado) pro
+    // composer de resposta deste mesmo chamado — já é o mesmo modal/ticket,
+    // então não precisa navegar nem escolher destino, só trocar de aba.
+    const handleCopyInternalNoteToTicket = (m: Message) => {
+      setMessage(m.text);
+      setMessageAttachments(m.attachments || []);
+      setHistoryTab('customer');
+      setActiveTab('description');
     };
 
     const handleSelectRecentTicketsTab = async () => {
@@ -1787,6 +1853,14 @@ const loadMessages = async () => {
                             <div className="flex items-center gap-2 mb-1">
                               <span className="text-xs font-black text-[var(--text-primary)]">{sender?.name}</span>
                               <span className="text-[9px] font-bold text-[var(--text-tertiary)]"><ClientTime date={m.timestamp} /></span>
+                              <button
+                                type="button"
+                                onClick={() => handleCopyInternalNoteToTicket(m)}
+                                title="Copiar para Chamado"
+                                className="ml-auto opacity-0 group-hover:opacity-100 transition-opacity p-1 rounded text-[var(--text-tertiary)] hover:text-[var(--accent-text)] hover:bg-[var(--surface-pill)] shrink-0"
+                              >
+                                <Copy size={12} />
+                              </button>
                             </div>
                             <div
                               className="p-3 rounded-2xl text-sm leading-relaxed shadow-sm prose prose-sm max-w-none bg-[var(--surface-warning)] border border-[var(--border-alert)] text-[var(--text-warning)] border-l-4 border-l-amber-400 prose-amber"
@@ -1931,6 +2005,16 @@ const loadMessages = async () => {
                             <span className="text-[9px] font-bold text-[var(--text-tertiary)]"><ClientTime date={m.timestamp} /></span>
                             {isInternal && (
                               <span className="text-[8px] font-semibold px-1 py-0.5 bg-[var(--surface-warning)] text-[var(--text-warning)] rounded uppercase tracking-tighter">Interno</span>
+                            )}
+                            {!isCustomer && hasPermission(Permission.INTERNAL_TICKETS_VIEW) && (
+                              <button
+                                type="button"
+                                onClick={() => handleCopyMessageToInternalTicket(m)}
+                                title="Copiar para Ticket Interno"
+                                className="ml-auto opacity-0 group-hover:opacity-100 transition-opacity p-1 rounded text-[var(--text-tertiary)] hover:text-[var(--text-warning)] hover:bg-[var(--surface-warning)] shrink-0"
+                              >
+                                <Copy size={12} />
+                              </button>
                             )}
                           </div>
 <div className={cn(

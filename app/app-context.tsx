@@ -1,7 +1,7 @@
 'use client';
 
 import React, { createContext, useContext, useState, useEffect, useRef } from 'react';
-import { User, UserRole, Permission, AbsenceReason } from '@/lib/types';
+import { User, UserRole, Permission, AbsenceReason, Attachment } from '@/lib/types';
 import { safeJsonStringify } from '@/lib/utils';
 import { toast } from 'sonner';
 import { Bell } from 'lucide-react';
@@ -55,6 +55,11 @@ interface AppContextType {
   setPreselectedUserId: (id: string | null) => void;
   preselectedCompanyId: string | null;
   setPreselectedCompanyId: (id: string | null) => void;
+  // Rascunho de mensagem "copiado" de um Ticket Interno para virar resposta
+  // de um Chamado — precisa sobreviver à navegação client-side entre
+  // /internal-tickets/[id] e /tickets (rotas diferentes, mesmo AppProvider).
+  pendingTicketDraft: { ticketId: string; text: string; attachments: Attachment[]; visibleToCustomer: boolean } | null;
+  setPendingTicketDraft: (draft: AppContextType['pendingTicketDraft']) => void;
   isOmniChatOpen: boolean;
   setIsOmniChatOpen: (open: boolean) => void;
   isOmniChatExpanded: boolean;
@@ -155,6 +160,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
   const [isNewTicketModalOpen, setIsNewTicketModalOpen] = useState(false);
   const [preselectedUserId, setPreselectedUserId] = useState<string | null>(null);
   const [preselectedCompanyId, setPreselectedCompanyId] = useState<string | null>(null);
+  const [pendingTicketDraft, setPendingTicketDraft] = useState<AppContextType['pendingTicketDraft']>(null);
   const [isOmniChatOpen, setIsOmniChatOpen] = useState(false);
   const [isOmniChatExpanded, setIsOmniChatExpanded] = useState(false);
   const [activeOmniChatId, setActiveOmniChatId] = useState<string | null>(null);
@@ -826,6 +832,8 @@ return (
       setPreselectedUserId,
       preselectedCompanyId,
       setPreselectedCompanyId,
+      pendingTicketDraft,
+      setPendingTicketDraft,
       isOmniChatOpen,
       setIsOmniChatOpen,
       isOmniChatExpanded,

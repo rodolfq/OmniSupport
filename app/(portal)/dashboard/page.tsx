@@ -263,7 +263,21 @@ export default function DashboardPage() {
           <p className="text-[var(--text-tertiary)] font-medium">
             {dashboardMode === 'tickets' ? 'Controle de fluxo e produtividade em tempo real' : 'Acompanhamento dos tickets de operação interna'}
           </p>
+          {/* Indicador de sincronização mora aqui (bloco do título, fixo),
+              não na fileira de botões — senão ele empurra o toggle/botão
+              "Novo ..." de lugar sempre que aparece/some. */}
+          {(dashboardMode === 'tickets' ? loading : loadingInternal) && (
+            <div className="flex items-center gap-1.5 mt-1 text-[var(--text-tertiary)] animate-pulse">
+              <div className="w-3 h-3 border-2 border-[var(--accent)] border-t-transparent rounded-full animate-spin" />
+              <span className="text-[10px] font-semibold uppercase tracking-widest">Sincronizando...</span>
+            </div>
+          )}
         </div>
+        {/* Toggle e botão "Novo ..." ficam sempre nas mesmas duas posições
+            desta fileira, nos dois modos — os alertas de "Sem Analista" /
+            "Vencidos" (redundantes com os StatCards logo abaixo, que já
+            pulsam quando há pendência) saíram daqui de propósito, era o que
+            fazia o botão mudar de lugar ao trocar de aba. */}
         <div className="flex flex-wrap items-center gap-4">
           {canSeeTickets && canSeeInternal && (
             <div className="flex items-center gap-1 p-1 bg-[var(--surface-pill)] rounded-xl border border-[var(--border-default)]">
@@ -288,45 +302,40 @@ export default function DashboardPage() {
             </div>
           )}
 
-          {dashboardMode === 'tickets' && canSeeTickets && (
-            <>
-              {loading && (
-                <div className="flex items-center gap-2 bg-[var(--surface-pill)] px-4 py-2 rounded-xl text-[var(--text-tertiary)] animate-pulse">
-                   <div className="w-4 h-4 border-2 border-[var(--accent)] border-t-transparent rounded-full animate-spin" />
-                   <span className="text-[10px] font-semibold uppercase tracking-widest">Sincronizando...</span>
-                </div>
-              )}
-              {stats.unassigned > 0 && !loading && (
-                <div className="flex items-center gap-2 bg-[var(--surface-danger)] border border-[var(--text-danger)]/30 px-4 py-2 rounded-xl text-[var(--text-danger)] animate-pulse whitespace-nowrap">
-                   <AlertCircle size={18} />
-                   <span className="text-[10px] font-semibold uppercase tracking-widest">{stats.unassigned} Novos Sem Analista</span>
-                </div>
-              )}
-              {stats.overdue > 0 && (
-                <div className="flex items-center gap-2 bg-[var(--text-danger)] px-4 py-2 rounded-xl text-white whitespace-nowrap shadow-md">
-                   <span className="text-[10px] font-semibold uppercase tracking-widest">{stats.overdue} Vencidos</span>
-                </div>
-              )}
-              <button
-                onClick={() => setIsNewTicketModalOpen(true)}
-                className="bg-[var(--accent)] hover:bg-[var(--accent-hover)] text-white px-6 py-2.5 rounded-lg text-sm font-semibold shadow-md transition-all flex items-center gap-2 whitespace-nowrap focus:outline-none focus:ring-2 focus:ring-[var(--accent)]/40"
-              >
-                <Plus size={18} />
-                Novo Chamado
-              </button>
-            </>
-          )}
-          {dashboardMode === 'internal' && canSeeInternal && (
+          {(dashboardMode === 'tickets' ? canSeeTickets : canSeeInternal) && (
             <button
-              onClick={() => router.push('/tickets?mode=internal')}
-              className="bg-[var(--text-warning-strong)] hover:bg-[var(--accent-warning-hover)] text-white px-6 py-2.5 rounded-lg text-sm font-semibold shadow-md transition-all flex items-center gap-2 whitespace-nowrap"
+              onClick={() => dashboardMode === 'tickets' ? setIsNewTicketModalOpen(true) : router.push('/tickets?mode=internal')}
+              className={cn(
+                "text-white px-6 py-2.5 rounded-lg text-sm font-semibold shadow-md transition-all flex items-center gap-2 whitespace-nowrap focus:outline-none focus:ring-2",
+                dashboardMode === 'tickets' ? "bg-[var(--accent)] hover:bg-[var(--accent-hover)] focus:ring-[var(--accent)]/40" : "bg-[var(--text-warning-strong)] hover:bg-[var(--accent-warning-hover)] focus:ring-[var(--text-warning-strong)]/40"
+              )}
             >
               <Plus size={18} />
-              Novo Ticket Interno
+              {dashboardMode === 'tickets' ? 'Novo Chamado' : 'Novo Ticket Interno'}
             </button>
           )}
         </div>
       </div>
+
+      {/* Alertas de "Sem Analista" / "Vencidos" — fileira própria, abaixo do
+          cabeçalho, pra não empurrar o toggle/botão "Novo ..." de lugar
+          quando aparecem/somem (era o que acontecia quando ficavam na mesma
+          linha dos botões). */}
+      {dashboardMode === 'tickets' && canSeeTickets && (stats.unassigned > 0 || stats.overdue > 0) && (
+        <div className="flex flex-wrap items-center gap-3 -mt-4">
+          {stats.unassigned > 0 && (
+            <div className="flex items-center gap-2 bg-[var(--surface-danger)] border border-[var(--text-danger)]/30 px-4 py-2 rounded-xl text-[var(--text-danger)] animate-pulse whitespace-nowrap">
+              <AlertCircle size={18} />
+              <span className="text-[10px] font-semibold uppercase tracking-widest">{stats.unassigned} Novos Sem Analista</span>
+            </div>
+          )}
+          {stats.overdue > 0 && (
+            <div className="flex items-center gap-2 bg-[var(--text-danger)] px-4 py-2 rounded-xl text-white whitespace-nowrap shadow-md">
+              <span className="text-[10px] font-semibold uppercase tracking-widest">{stats.overdue} Vencidos</span>
+            </div>
+          )}
+        </div>
+      )}
 
       {dashboardMode === 'tickets' && canSeeTickets ? (
       <>

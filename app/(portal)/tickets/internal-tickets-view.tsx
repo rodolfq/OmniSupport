@@ -465,9 +465,14 @@ const openEditModal = (ticket: InternalTicketItem) => {
    };
 
   return (
-    <div className="flex flex-col h-full bg-[var(--surface-card)]/30">
-      {/* Header */}
-      <div className="p-6 bg-[var(--surface-card)] border-b border-[var(--border-default)]">
+    // Mesmo wrapper "space-y-8" solto de Chamados (tickets-view.tsx), sem
+    // altura fixa nem scroll interno próprio — as duas telas rolam junto com
+    // <main> (layout.tsx), senão o cabeçalho troca de posição/moldura ao
+    // alternar entre elas (uma tinha m-6 + scroll aninhado, a outra não).
+    <div className="space-y-8">
+      {/* Header — mesmo cartão (borda nos 4 lados + cantos arredondados,
+          sem margem extra) do cabeçalho de Chamados. */}
+      <div className="bg-[var(--surface-card)] border border-[var(--border-default)] rounded-3xl p-6">
         <div className="flex items-center justify-between mb-4 gap-4 flex-wrap">
           <div>
             <h1 className="text-2xl font-black text-[var(--text-primary)]">Tickets Internos</h1>
@@ -621,32 +626,31 @@ const openEditModal = (ticket: InternalTicketItem) => {
         </AnimatePresence>
       </div>
 
-      {/* Content */}
-      <div className="flex-1 overflow-y-auto p-6">
-{loading ? (
-              <div className="flex items-center justify-center py-20">
-                <Loader2 className="w-8 h-8 text-[var(--text-warning-strong)] animate-spin" />
-              </div>
-            ) : displayTickets.length === 0 ? (
-              <div className="text-center py-20 bg-[var(--surface-card)] rounded-2xl border border-[var(--border-default)]">
-                <Inbox size={48} className="mx-auto text-slate-300 mb-4" />
-                <h3 className="text-lg font-bold text-[var(--text-secondary)] mb-2">Nenhum ticket interno encontrado</h3>
-                <p className="text-[var(--text-tertiary)] text-sm">{tickets.length > 0 ? "Ajuste os filtros pra ver mais resultados." : "Crie um novo ticket ou ajuste os filtros."}</p>
-              </div>
-            ) : viewMode === "cards" ? (
-              <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-3">
-                {displayTickets.map((it) => (
-                  <TicketCard key={it.id} ticket={it} onEdit={() => openEditModal(it)} teams={teams} statuses={statuses} />
-                ))}
-              </div>
-            ) : viewMode === "table" ? (
-              <TicketTable tickets={displayTickets} onEdit={openEditModal} teams={teams} statuses={statuses} />
-            ) : (
-              <KanbanBoard tickets={displayTickets} onEdit={openEditModal} onStatusChange={handleStatusChange} statuses={statuses} />
-            )}
-          </div>
+      {/* Content — sem wrapper de scroll próprio, mesmo padrão de Chamados
+          (o conteúdo é filho direto do space-y-8, <main> que rola). */}
+      {loading ? (
+        <div className="flex items-center justify-center py-20">
+          <Loader2 className="w-8 h-8 text-[var(--text-warning-strong)] animate-spin" />
+        </div>
+      ) : displayTickets.length === 0 ? (
+        <div className="text-center py-20 bg-[var(--surface-card)] rounded-2xl border border-[var(--border-default)]">
+          <Inbox size={48} className="mx-auto text-slate-300 mb-4" />
+          <h3 className="text-lg font-bold text-[var(--text-secondary)] mb-2">Nenhum ticket interno encontrado</h3>
+          <p className="text-[var(--text-tertiary)] text-sm">{tickets.length > 0 ? "Ajuste os filtros pra ver mais resultados." : "Crie um novo ticket ou ajuste os filtros."}</p>
+        </div>
+      ) : viewMode === "cards" ? (
+        <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-3">
+          {displayTickets.map((it) => (
+            <TicketCard key={it.id} ticket={it} onEdit={() => openEditModal(it)} teams={teams} statuses={statuses} />
+          ))}
+        </div>
+      ) : viewMode === "table" ? (
+        <TicketTable tickets={displayTickets} onEdit={openEditModal} teams={teams} statuses={statuses} />
+      ) : (
+        <KanbanBoard tickets={displayTickets} onEdit={openEditModal} onStatusChange={handleStatusChange} statuses={statuses} />
+      )}
 
-          {/* Modal - Only for creating new tickets */}
+      {/* Modal - Only for creating new tickets */}
           <AnimatePresence>
             {showNewModal && (
 <TicketModal

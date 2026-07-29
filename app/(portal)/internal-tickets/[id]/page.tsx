@@ -19,7 +19,8 @@ import {
   Search,
   X,
   History,
-  Rocket
+  Rocket,
+  Copy
 } from 'lucide-react';
 import { RichEditor } from '@/components/rich-editor';
 import { toast } from 'sonner';
@@ -81,7 +82,7 @@ function toDateOnly(iso?: string | null) {
 export default function InternalTicketDetailPage() {
   const params = useParams();
   const router = useRouter();
-  const { currentUser, triggerRefresh } = useApp();
+  const { currentUser, triggerRefresh, setPendingTicketDraft } = useApp();
   const [ticket, setTicket] = useState<InternalTicketWithExtras | null>(null);
   const [messages, setMessages] = useState<Message[]>([]);
   const [linkedTickets, setLinkedTickets] = useState<LinkedTicket[]>([]);
@@ -111,6 +112,13 @@ export default function InternalTicketDetailPage() {
   const [ticketSearch, setTicketSearch] = useState('');
   const [ticketSearchResults, setTicketSearchResults] = useState<LinkedTicket[]>([]);
   const [searchingTickets, setSearchingTickets] = useState(false);
+
+  // "Copiar para Chamado" — quando há mais de um chamado vinculado, mostra
+  // esse picker antes de navegar; quando não há nenhum, guarda a mensagem
+  // aqui e abre o fluxo de vincular (aplicado assim que handleLinkTicket
+  // terminar, ver useEffect/handler abaixo).
+  const [copyPickerFor, setCopyPickerFor] = useState<Message | null>(null);
+  const pendingCopyMsgRef = React.useRef<Message | null>(null);
 
   const ticketId = params.id as string;
 
@@ -352,9 +360,39 @@ export default function InternalTicketDetailPage() {
       setShowLinkTicketModal(false);
       setTicketSearch('');
       fetchTicket();
+      // Se o vínculo veio do fluxo "Copiar para Chamado" sem nenhum chamado
+      // ainda vinculado, segue direto pra cópia agora que já existe destino.
+      if (pendingCopyMsgRef.current) {
+        const pending = pendingCopyMsgRef.current;
+        pendingCopyMsgRef.current = null;
+        proceedCopyToTicket(regularTicketId, pending);
+      }
     } catch (error) {
       toast.error('Erro ao vincular chamado');
     }
+  };
+
+  // Leva o texto/anexos de uma nota do ticket interno pro composer de
+  // resposta do chamado destino (via pendingTicketDraft + /tickets?open=) —
+  // o analista revisa e envia de lá, não é enviado automaticamente.
+  const proceedCopyToTicket = (ticketId: string, msg: Message) => {
+    setPendingTicketDraft({ ticketId, text: msg.text, attachments: msg.attachments || [], visibleToCustomer: true });
+    setCopyPickerFor(null);
+    router.push(`/tickets?open=${ticketId}`);
+  };
+
+  const handleCopyMessageToTicket = (msg: Message) => {
+    if (linkedTickets.length === 0) {
+      toast.info('Vincule um chamado para copiar esta nota.');
+      pendingCopyMsgRef.current = msg;
+      setShowLinkTicketModal(true);
+      return;
+    }
+    if (linkedTickets.length === 1) {
+      proceedCopyToTicket(linkedTickets[0].id, msg);
+      return;
+    }
+    setCopyPickerFor(msg);
   };
 
   const handleUnlinkTicket = async (regularTicketId: string) => {
@@ -643,7 +681,7 @@ export default function InternalTicketDetailPage() {
                   const sender = analysts.find(a => a.id === msg.senderId);
                   return (
                     <div key={msg.id} className={cn(
-                      "rounded-lg p-3 border",
+                      "group rounded-lg p-3 border",
                       isSystem ? "bg-[var(--surface-pill)] border-[var(--border-default)] border-dashed" : "bg-[var(--surface-card)] border-[var(--border-default)]"
                     )}>
                       <div className="flex items-center gap-2 mb-1">
@@ -651,6 +689,16 @@ export default function InternalTicketDetailPage() {
                         <span className="text-[10px] font-bold text-[var(--text-warning)]">
                           <ClientTime date={msg.timestamp} showDate={true} />
                         </span>
+                        {!isSystem && (
+                          <button
+                            type="button"
+                            onClick={() => handleCopyMessageToTicket(msg)}
+                            title="Copiar para Chamado"
+                            className="ml-auto opacity-0 group-hover:opacity-100 transition-opacity p-1 rounded text-[var(--text-tertiary)] hover:text-[var(--accent-text)] hover:bg-[var(--surface-pill)] shrink-0"
+                          >
+                            <Copy size={12} />
+                          </button>
+                        )}
                       </div>
                       <p
                         className={cn("text-sm whitespace-pre-wrap", isSystem ? "text-[var(--text-tertiary)]" : "text-[var(--text-secondary)]")}
@@ -714,6 +762,28 @@ export default function InternalTicketDetailPage() {
             <div className="flex justify-end mt-4 pt-4 border-t border-[var(--border-default)]">
               <button onClick={() => setShowLinkTicketModal(false)} className="px-4 py-2 rounded-lg border border-[var(--border-default)] text-[var(--text-secondary)] hover:bg-[var(--surface-card)] transition-all text-sm font-bold">
                 Fechar
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Picker: escolher entre os chamados já vinculados ao copiar uma nota */}
+      {copyPickerFor && (
+        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-[200] p-4" onClick={() => setCopyPickerFor(null)}>
+          <div className="bg-[var(--surface-card)] rounded-2xl p-6 max-w-lg w-full max-h-[80vh] flex flex-col" onClick={(e) => e.stopPropagation()}>
+            <h3 className="text-lg font-black text-[var(--text-primary)] mb-4 uppercase">Copiar para qual chamado?</h3>
+            <div className="flex-1 overflow-y-auto -mx-2 px-2 space-y-2">
+              {linkedTickets.map((t) => (
+                <button key={t.id} onClick={() => proceedCopyToTicket(t.id, copyPickerFor)} className="w-full p-3 text-left border border-[var(--border-default)] rounded-lg hover:bg-[var(--surface-pill)] transition-all flex items-center gap-3">
+                  <span className="text-[10px] font-black text-[var(--accent-text)] bg-[var(--accent)]/10 px-2 py-0.5 rounded shrink-0">#{t.ticketNumber ? String(t.ticketNumber).padStart(4, '0') : t.id.slice(0, 8)}</span>
+                  <span className="text-sm font-bold text-[var(--text-primary)] truncate">{t.title}</span>
+                </button>
+              ))}
+            </div>
+            <div className="flex justify-end mt-4 pt-4 border-t border-[var(--border-default)]">
+              <button onClick={() => setCopyPickerFor(null)} className="px-4 py-2 rounded-lg border border-[var(--border-default)] text-[var(--text-secondary)] hover:bg-[var(--surface-card)] transition-all text-sm font-bold">
+                Cancelar
               </button>
             </div>
           </div>

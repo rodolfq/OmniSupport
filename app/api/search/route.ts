@@ -2,58 +2,94 @@ import { NextResponse } from 'next/server';
 import { query } from '@/lib/db';
 import { CLOSED_TICKET_STATUSES } from '@/lib/ticket-status';
 
-export async function GET(request: Request) {
-  const { searchParams } = new URL(request.url);
-  const action = searchParams.get('action');
-
-  try {
-    if (action === 'tickets') {
-      const q = searchParams.get('query') || '';
-      const status = searchParams.get('status') || '';
-      const priority = searchParams.get('priority') || '';
-      const slaOverdue = searchParams.get('slaOverdue') === 'true';
-      const includeClosed = searchParams.get('includeClosed') === 'true';
-      const page = Math.max(1, parseInt(searchParams.get('page') || '1', 10));
-      const requestedPageSize = parseInt(searchParams.get('pageSize') || '10', 10);
-      const pageSize = Math.min(10, Math.max(1, requestedPageSize));
-      
-      const offset = (page - 1) * pageSize;
-      
-      let sql = 'SELECT * FROM public.tickets WHERE 1=1';
-      const params: any[] = [];
-      let paramCount = 1;
-
-      if (q) {
-        sql += ` AND title ILIKE $${paramCount}`;
-        params.push(`%${q}%`);
-        paramCount++;
-      }
-
-      if (status) {
-        sql += ` AND status = $${paramCount}`;
-        params.push(status);
-        paramCount++;
-      } else if (!includeClosed) {
-        const closedStatusPlaceholders = CLOSED_TICKET_STATUSES.map((_, i) => `$${paramCount + i}`).join(',');
-        sql += ` AND status NOT IN (${closedStatusPlaceholders})`;
-        params.push(...CLOSED_TICKET_STATUSES);
-        paramCount += CLOSED_TICKET_STATUSES.length;
-      }
-
-      if (priority) {
-        sql += ` AND priority = $${paramCount}`;
-        params.push(priority);
-        paramCount++;
-      }
-
-      if (slaOverdue) {
-        sql += ` AND EXISTS (
+// SQL de "SLA vencido" reutilizado pelo filtro slaOverdue (action=tickets) e
+// pela coluna "overdue" dos chips rápidos (action=quick-counts) — mantido
+// num só lugar pra não divergir entre lista e contagem.
+const SLA_OVERDUE_SQL = `EXISTS (
           SELECT 1
           FROM public.config_priorities cp
           WHERE cp.label = public.tickets.priority
             AND cp.sla_hours > 0
             AND public.tickets.created_at + make_interval(hours => cp.sla_hours) < NOW()
         )`;
+
+// Filtros "de base" compartilhados entre a listagem paginada e as contagens
+// dos chips rápidos — texto/status/prioridade exata/fechados. As dimensões
+// dos chips (responsável, atraso, alta prioridade) ficam de fora daqui
+// porque cada uma delas é justamente o que varia entre os chips.
+function buildBaseWhere(searchParams: URLSearchParams) {
+  const q = searchParams.get('query') || '';
+  const status = searchParams.get('status') || '';
+  const priority = searchParams.get('priority') || '';
+  const includeClosed = searchParams.get('includeClosed') === 'true';
+
+  let sql = 'WHERE 1=1';
+  const params: any[] = [];
+  let paramCount = 1;
+
+  if (q) {
+    sql += ` AND title ILIKE $${paramCount}`;
+    params.push(`%${q}%`);
+    paramCount++;
+  }
+
+  if (status) {
+    sql += ` AND status = $${paramCount}`;
+    params.push(status);
+    paramCount++;
+  } else if (!includeClosed) {
+    const closedStatusPlaceholders = CLOSED_TICKET_STATUSES.map((_, i) => `$${paramCount + i}`).join(',');
+    sql += ` AND status NOT IN (${closedStatusPlaceholders})`;
+    params.push(...CLOSED_TICKET_STATUSES);
+    paramCount += CLOSED_TICKET_STATUSES.length;
+  }
+
+  if (priority) {
+    sql += ` AND priority = $${paramCount}`;
+    params.push(priority);
+    paramCount++;
+  }
+
+  return { sql, params, paramCount };
+}
+
+export async function GET(request: Request) {
+  const { searchParams } = new URL(request.url);
+  const action = searchParams.get('action');
+
+  try {
+    if (action === 'tickets') {
+      const slaOverdue = searchParams.get('slaOverdue') === 'true';
+      const assigneeId = searchParams.get('assigneeId') || '';
+      const unassigned = searchParams.get('unassigned') === 'true';
+      const highPriority = searchParams.get('highPriority') === 'true';
+      const page = Math.max(1, parseInt(searchParams.get('page') || '1', 10));
+      const requestedPageSize = parseInt(searchParams.get('pageSize') || '10', 10);
+      const pageSize = Math.min(10, Math.max(1, requestedPageSize));
+
+      const offset = (page - 1) * pageSize;
+
+      const base = buildBaseWhere(searchParams);
+      let sql = `SELECT * FROM public.tickets ${base.sql}`;
+      const params: any[] = [...base.params];
+      let paramCount = base.paramCount;
+
+      if (slaOverdue) {
+        sql += ` AND ${SLA_OVERDUE_SQL}`;
+      }
+
+      if (assigneeId) {
+        sql += ` AND assignee_id = $${paramCount}`;
+        params.push(assigneeId);
+        paramCount++;
+      }
+
+      if (unassigned) {
+        sql += ` AND assignee_id IS NULL`;
+      }
+
+      if (highPriority) {
+        sql += ` AND priority IN ('Alta', 'Urgente')`;
       }
 
       const countSql = sql.replace('SELECT *', 'SELECT COUNT(*) AS total');
@@ -92,6 +128,32 @@ export async function GET(request: Request) {
         page,
         pageSize,
         hasMore: offset + tickets.length < total
+      });
+    }
+
+    if (action === 'quick-counts') {
+      const userId = searchParams.get('userId') || '';
+      const base = buildBaseWhere(searchParams);
+
+      const sql = `
+        SELECT
+          COUNT(*) AS total_count,
+          COUNT(*) FILTER (WHERE assignee_id = $${base.paramCount}) AS mine,
+          COUNT(*) FILTER (WHERE assignee_id IS NULL) AS unassigned,
+          COUNT(*) FILTER (WHERE ${SLA_OVERDUE_SQL}) AS overdue,
+          COUNT(*) FILTER (WHERE priority IN ('Alta', 'Urgente')) AS high
+        FROM public.tickets ${base.sql}
+      `;
+      const params = [...base.params, userId];
+
+      const res = await query(sql, params);
+      const row = res.rows[0] || {};
+      return NextResponse.json({
+        all: parseInt(row.total_count || '0', 10),
+        mine: parseInt(row.mine || '0', 10),
+        unassigned: parseInt(row.unassigned || '0', 10),
+        overdue: parseInt(row.overdue || '0', 10),
+        high: parseInt(row.high || '0', 10),
       });
     }
 

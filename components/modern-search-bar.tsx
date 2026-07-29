@@ -13,9 +13,18 @@ import { searchTickets, SearchFilters, getSavedViews, saveCustomView, saveSearch
 interface ModernSearchBarProps {
   onSearch: (filters: SearchFilters, page: number) => void;
   loading?: boolean;
+  // Encaixa um controle extra (ex.: o seletor Cards/Tabela/Kanban) entre a
+  // caixa de busca e o botão Filtros — mesma posição usada no cabeçalho de
+  // Tickets Internos (internal-tickets-view.tsx), pra manter os dois
+  // cabeçalhos com a mesma disposição de controles.
+  extraControls?: React.ReactNode;
+  // Linha de chips de filtro rápido (Todos/Minhas/...), renderizada logo
+  // abaixo da barra de busca principal e acima dos chips de filtro ativo —
+  // mesma posição da linha de chips em internal-tickets-view.tsx.
+  quickFilters?: React.ReactNode;
 }
 
-export function ModernSearchBar({ onSearch, loading }: ModernSearchBarProps) {
+export function ModernSearchBar({ onSearch, loading, extraControls, quickFilters }: ModernSearchBarProps) {
   const { currentUser } = useApp();
   const [query, setQuery] = useState("");
   const [showSuggestions, setShowSuggestions] = useState(false);
@@ -158,8 +167,8 @@ export function ModernSearchBar({ onSearch, loading }: ModernSearchBarProps) {
     <div className="space-y-4">
       {/* Main Search Bar */}
       <div className="flex flex-wrap items-center gap-3">
-        <div className="relative flex-1 min-w-[200px] max-w-2xl">
-          <Search size={20} className="absolute left-4 top-1/2 -translate-y-1/2 text-[var(--text-tertiary)]" />
+        <div className="relative flex-1 min-w-[200px]">
+          <Search size={18} className="absolute left-3 top-1/2 -translate-y-1/2 text-[var(--text-tertiary)]" />
           <input
             ref={inputRef}
             type="text"
@@ -168,12 +177,12 @@ export function ModernSearchBar({ onSearch, loading }: ModernSearchBarProps) {
             onChange={(e) => setQuery(e.target.value)}
             onFocus={() => setShowSuggestions(true)}
             onBlur={() => setTimeout(() => setShowSuggestions(false), 200)}
-            className="w-full pl-12 pr-12 py-3.5 rounded-2xl border border-[var(--border-default)] bg-[var(--surface-card)] text-sm font-medium focus:ring-4 focus:ring-[var(--accent)]/10 focus:border-[var(--accent)] outline-none transition-all shadow-sm"
+            className="w-full pl-10 pr-10 py-2.5 rounded-xl border border-[var(--border-default)] bg-[var(--surface-card)] text-sm font-medium focus:border-[var(--accent)] outline-none transition-all"
           />
           {query && (
             <button
               onClick={() => setQuery("")}
-              className="absolute right-4 top-1/2 -translate-y-1/2 text-[var(--text-tertiary)] hover:text-[var(--text-secondary)]"
+              className="absolute right-3 top-1/2 -translate-y-1/2 text-[var(--text-tertiary)] hover:text-[var(--text-secondary)]"
             >
               <X size={16} />
             </button>
@@ -205,23 +214,25 @@ export function ModernSearchBar({ onSearch, loading }: ModernSearchBarProps) {
           </AnimatePresence>
         </div>
 
+        {extraControls}
+
         <button
           onClick={() => setShowFilterPanel(!showFilterPanel)}
           className={cn(
-            "flex items-center gap-2 px-5 py-3 rounded-2xl text-sm font-semibold uppercase tracking-widest transition-all border shadow-sm",
+            "px-4 py-2 rounded-xl text-xs font-semibold uppercase tracking-widest transition-all flex items-center gap-2",
             showFilterPanel || hasActiveFilters
-              ? "bg-[var(--accent)] text-white border-[var(--accent)]"
-              : "bg-[var(--surface-card)] text-[var(--text-secondary)] border-[var(--border-default)] hover:border-indigo-300"
+              ? "bg-[var(--accent)] text-white"
+              : "bg-[var(--surface-pill)] text-[var(--text-secondary)] hover:bg-[var(--border-default)]"
           )}
         >
-          <Filter size={18} />
-          Filtros {hasActiveFilters && <span className="w-5 h-5 bg-[var(--surface-card)] text-[var(--accent-text)] rounded-full text-[10px] font-bold flex items-center justify-center">{Object.keys(activeFilters).filter(k => activeFilters[k as keyof SearchFilters] !== undefined && activeFilters[k as keyof SearchFilters] !== "").length}</span>}
+          <Filter size={16} />
+          Filtros
         </button>
 
         {hasActiveFilters && (
           <button
             onClick={clearAllFilters}
-            className="px-4 py-3 rounded-2xl text-sm font-semibold uppercase tracking-widest text-[var(--text-tertiary)] border border-[var(--border-default)] hover:bg-[var(--surface-card)] transition-all"
+            className="px-4 py-2 rounded-xl text-xs font-semibold uppercase tracking-widest text-[var(--text-tertiary)] bg-[var(--surface-pill)] hover:bg-[var(--border-default)] transition-all"
           >
             Limpar
           </button>
@@ -231,10 +242,10 @@ export function ModernSearchBar({ onSearch, loading }: ModernSearchBarProps) {
         <div className="relative">
           <button
             onClick={() => setShowSaveView(!showSaveView)}
-            className="p-3 rounded-2xl border border-[var(--border-default)] bg-[var(--surface-card)] text-[var(--text-tertiary)] hover:text-[var(--accent-text)] hover:border-[var(--accent)]/30 transition-all"
+            className="p-2.5 rounded-xl bg-[var(--surface-pill)] text-[var(--text-tertiary)] hover:text-[var(--accent-text)] hover:bg-[var(--border-default)] transition-all"
             title="Visualizações salvas"
           >
-            <Bookmark size={20} />
+            <Bookmark size={18} />
           </button>
 
           <AnimatePresence>
@@ -289,6 +300,8 @@ export function ModernSearchBar({ onSearch, loading }: ModernSearchBarProps) {
           </AnimatePresence>
         </div>
       </div>
+
+      {quickFilters}
 
       {/* Filter Chips */}
       <AnimatePresence>
