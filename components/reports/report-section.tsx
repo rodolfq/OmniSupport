@@ -4,6 +4,7 @@ import React from 'react';
 import { Loader2, AlertTriangle, Inbox, ArrowRight } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { SectionExportButton, ReportExportConfig } from './export-menu';
+import { SectionInfoTip } from './section-info-tip';
 
 // Bloco padrão de relatório (R1 em diante): título + slot de ação (export)
 // + os 3 estados que a Etapa 3 não tinha tratado explicitamente (loading/
@@ -20,6 +21,10 @@ export type ReportSectionStatus = 'loading' | 'empty' | 'error' | 'ready';
 interface ReportSectionProps {
   title: string;
   subtitle?: string;
+  // Explicação curta acessada pelo ícone "i" ao lado do título — discreta,
+  // só aparece ao clicar. Opcional: seções sem `info` simplesmente não
+  // mostram o ícone.
+  info?: string;
   status: ReportSectionStatus;
   emptyMessage?: string;
   errorMessage?: string;
@@ -31,12 +36,15 @@ interface ReportSectionProps {
   filterSummary?: string;
 }
 
-export function ReportSection({ title, subtitle, status, emptyMessage, errorMessage, onRetry, children, exportConfig, reportId, reportLabel, filterSummary }: ReportSectionProps) {
+export function ReportSection({ title, subtitle, info, status, emptyMessage, errorMessage, onRetry, children, exportConfig, reportId, reportLabel, filterSummary }: ReportSectionProps) {
   return (
     <div className="bg-[var(--surface-card)] border border-[var(--border-default)] rounded-2xl shadow-sm p-6 space-y-4">
       <div className="flex flex-wrap items-start justify-between gap-2">
         <div>
-          <h2 className="text-sm font-black text-[var(--text-primary)] tracking-tight uppercase">{title}</h2>
+          <div className="flex items-center gap-1.5">
+            <h2 className="text-sm font-black text-[var(--text-primary)] tracking-tight uppercase">{title}</h2>
+            {info && <SectionInfoTip text={info} />}
+          </div>
           {subtitle && <p className="text-[11px] text-[var(--text-tertiary)] mt-0.5">{subtitle}</p>}
         </div>
         {reportId && reportLabel ? (

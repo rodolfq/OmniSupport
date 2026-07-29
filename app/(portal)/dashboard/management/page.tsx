@@ -6,13 +6,13 @@ import {
 } from 'recharts';
 import {
   Lock, Clock, Percent, Timer, Star, Zap, Hourglass, MessageSquare,
-  TrendingUp, TrendingDown, AlertTriangle, Users
+  TrendingUp, TrendingDown, AlertTriangle, Users, Loader2
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { useTheme } from '@/app/theme-provider';
 import { useApp } from '@/app/app-context';
 import { Permission, KpiStatus } from '@/lib/types';
-import { formatSeconds, formatPercentage, formatMinutes, formatCount } from '@/lib/report-format';
+import { formatSeconds, formatPercentage, formatMinutes, formatCount, formatAverage } from '@/lib/report-format';
 import {
   MetricsFilterBar,
   MetricsFilterState,
@@ -21,6 +21,7 @@ import {
   metricsFilterToQueryString
 } from '@/components/reports/metrics-filter-bar';
 import { ReportSection } from '@/components/reports/report-section';
+import { SectionInfoTip } from '@/components/reports/section-info-tip';
 import { useReportFetch } from '@/components/reports/use-report-fetch';
 import { ReportExportConfig, SectionExportButton, PageExportPdfButton } from '@/components/reports/export-menu';
 
@@ -249,11 +250,19 @@ export default function DashboardManagementPage() {
   const alertsList = alerts.data?.alerts ?? [];
   const allSections = [kpisExport, trendExport, comparisonExport, loadByHourExport, alertsExport];
 
+  const trendEmpty = trend.data ? trend.data.months.every((m) => m.volume === 0) : false;
+  const trendStatus = trend.status === 'ready' && trendEmpty ? 'empty' : trend.status;
+  const comparisonEmpty = comparison.data ? comparison.data.rows.every((r) => r.current === null && r.previous === null) : false;
+  const comparisonStatus = comparison.status === 'ready' && comparisonEmpty ? 'empty' : comparison.status;
+  const loadByHourEmpty = loadByHour.data ? loadByHour.data.buckets.every((b) => b.cargaSimultanea === 0 && b.analistasOnline === 0) : false;
+  const loadByHourStatus = loadByHour.status === 'ready' && loadByHourEmpty ? 'empty' : loadByHour.status;
+
   return (
     <div className="space-y-8">
-      <div className="flex justify-between items-center">
+      <div className="flex flex-wrap items-start justify-between gap-4">
         <div>
           <h1 className="text-3xl font-black text-[var(--text-primary)] tracking-tight">Dashboard Gerencial</h1>
+          <p className="text-sm text-[var(--text-tertiary)] mt-1">Indicadores agregados de atendimento para gestão — tendência, comparativo semanal, carga por horário e alertas.</p>
           {kpis.data?.parcial && (
             <p className="text-[11px] font-bold text-[var(--text-warning-strong)] uppercase tracking-widest mt-1">
               Período em andamento — números ainda parciais
@@ -270,9 +279,24 @@ export default function DashboardManagementPage() {
           configuráveis em config_metric_thresholds). Header próprio só pra
           caber o botão de export, mesmo componente das outras seções. */}
       <div className="flex items-center justify-between">
-        <h2 className="text-sm font-black text-[var(--text-primary)] tracking-tight uppercase">KPIs</h2>
+        <div className="flex items-center gap-2">
+          <h2 className="text-sm font-black text-[var(--text-primary)] tracking-tight uppercase">KPIs</h2>
+          <SectionInfoTip text="Cada card compara o valor do período com os limites configurados (bom / atenção / crítico). A cor da bolinha indica a faixa atual." />
+        </div>
         <SectionExportButton config={kpisExport} reportId={REPORT_ID} reportLabel={REPORT_LABEL} filterSummary={filterSummary} />
       </div>
+      {kpis.status === 'loading' && (
+        <div className="flex items-center gap-2 text-sm text-[var(--text-tertiary)]">
+          <Loader2 size={14} className="animate-spin" /> Carregando indicadores...
+        </div>
+      )}
+      {kpis.status === 'error' && (
+        <div className="flex items-center gap-2 flex-wrap text-sm text-[var(--text-danger)]">
+          <AlertTriangle size={14} className="shrink-0" />
+          <span>{kpis.error || 'Não foi possível carregar os indicadores.'}</span>
+          <button onClick={kpis.retry} className="text-[10px] font-bold uppercase tracking-widest text-[var(--accent-text)] hover:underline">Tentar de novo</button>
+        </div>
+      )}
       <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-6">
         <KpiCard
           label="Chats no período"
@@ -324,7 +348,10 @@ export default function DashboardManagementPage() {
       <ReportSection
         title="Tendência mensal"
         subtitle="Últimos 6 meses"
-        status={trend.status}
+        info="Evolução mês a mês dos últimos 6 meses fechados — mostra se a operação está melhorando ou piorando ao longo do tempo, independente do filtro de período acima."
+        status={trendStatus}
+        errorMessage={trend.error ?? undefined}
+        emptyMessage="Sem chats registrados nos últimos 6 meses."
         onRetry={trend.retry}
         exportConfig={trendExport}
         reportId={REPORT_ID}
@@ -339,7 +366,7 @@ export default function DashboardManagementPage() {
                 <XAxis dataKey="month" axisLine={false} tickLine={false} tick={{ fontSize: 10, fill: axisColor }} />
                 <YAxis yAxisId="left" axisLine={false} tickLine={false} tick={{ fontSize: 10, fill: axisColor }} />
                 <YAxis yAxisId="right" orientation="right" axisLine={false} tickLine={false} tick={{ fontSize: 10, fill: axisColor }} />
-                <Tooltip contentStyle={tooltipStyle} />
+                <Tooltip contentStyle={tooltipStyle} formatter={(value: any, name: string) => [name === 'Volume' ? formatCount(value) : formatPercentage(value), name]} />
                 <Legend wrapperStyle={{ fontSize: 10 }} />
                 <Line yAxisId="left" type="monotone" dataKey="volume" name="Volume" stroke="#4f46e5" strokeWidth={2} dot={{ r: 3 }} />
                 <Line yAxisId="right" type="monotone" dataKey="pct2min" name="% até 2min" stroke="#22c55e" strokeWidth={2} dot={{ r: 3 }} />
@@ -353,7 +380,7 @@ export default function DashboardManagementPage() {
                 <XAxis dataKey="month" axisLine={false} tickLine={false} tick={{ fontSize: 10, fill: axisColor }} />
                 <YAxis yAxisId="left" axisLine={false} tickLine={false} tick={{ fontSize: 10, fill: axisColor }} />
                 <YAxis yAxisId="right" orientation="right" axisLine={false} tickLine={false} tick={{ fontSize: 10, fill: axisColor }} />
-                <Tooltip contentStyle={tooltipStyle} formatter={(value: any, name: string) => name === '1ª resposta' ? formatSeconds(value) : `${value}%`} />
+                <Tooltip contentStyle={tooltipStyle} formatter={(value: any, name: string) => [name === '1ª resposta' ? formatSeconds(value) : formatPercentage(value), name]} />
                 <Legend wrapperStyle={{ fontSize: 10 }} />
                 <Line yAxisId="left" type="monotone" dataKey="firstResponseMedianSeconds" name="1ª resposta" stroke="#f59e0b" strokeWidth={2} dot={{ r: 3 }} />
                 <Line yAxisId="right" type="monotone" dataKey="satisfaction" name="Satisfação" stroke="#22c55e" strokeWidth={2} dot={{ r: 3 }} />
@@ -367,7 +394,7 @@ export default function DashboardManagementPage() {
                 <XAxis dataKey="month" axisLine={false} tickLine={false} tick={{ fontSize: 10, fill: axisColor }} />
                 <YAxis yAxisId="left" axisLine={false} tickLine={false} tick={{ fontSize: 10, fill: axisColor }} />
                 <YAxis yAxisId="right" orientation="right" axisLine={false} tickLine={false} tick={{ fontSize: 10, fill: axisColor }} />
-                <Tooltip contentStyle={tooltipStyle} />
+                <Tooltip contentStyle={tooltipStyle} formatter={(value: any, name: string) => [name === 'Msgs/chat' ? formatAverage(value) : formatMinutes(value), name]} />
                 <Legend wrapperStyle={{ fontSize: 10 }} />
                 <Line yAxisId="left" type="monotone" dataKey="msgsPorChat" name="Msgs/chat" stroke="#4f46e5" strokeWidth={2} dot={{ r: 3 }} />
                 <Line yAxisId="right" type="monotone" dataKey="durationMedianMinutes" name="Duração (min)" stroke="#ef4444" strokeWidth={2} dot={{ r: 3 }} />
@@ -381,7 +408,10 @@ export default function DashboardManagementPage() {
       <ReportSection
         title="Comparativo — semana atual x semana anterior"
         subtitle={comparison.data ? `${comparison.data.currentWeek.startDate} a ${comparison.data.currentWeek.endDate} x ${comparison.data.previousWeek.startDate} a ${comparison.data.previousWeek.endDate}` : undefined}
-        status={comparison.status}
+        info="Compara a semana atual (em andamento) com a mesma janela de dias da semana anterior — não usa o filtro de período acima, é sempre semana x semana."
+        status={comparisonStatus}
+        errorMessage={comparison.error ?? undefined}
+        emptyMessage="Sem dados suficientes para comparar as duas semanas."
         onRetry={comparison.retry}
         exportConfig={comparisonExport}
         reportId={REPORT_ID}
@@ -435,7 +465,10 @@ export default function DashboardManagementPage() {
       <ReportSection
         title="Carga por horário"
         subtitle="Carga simultânea x analistas online — horário de Brasília"
-        status={loadByHour.status}
+        info="Quantos chats estavam simultaneamente ativos por analista online, hora a hora — ajuda a identificar horários de pico que pedem mais gente escalada."
+        status={loadByHourStatus}
+        errorMessage={loadByHour.error ?? undefined}
+        emptyMessage="Sem atendimentos no período selecionado."
         onRetry={loadByHour.retry}
         exportConfig={loadByHourExport}
         reportId={REPORT_ID}
@@ -467,8 +500,10 @@ export default function DashboardManagementPage() {
       {/* Alertas */}
       <ReportSection
         title="Alertas"
+        info="Avisos automáticos gerados quando algum indicador do período cai na faixa crítica configurada (ex: fila de espera muito alta, pico de atendimento simultâneo por analista) — os mesmos limites usados nos cards de KPIs acima. Não é um erro do sistema: é o dashboard sinalizando algo que merece atenção."
         status={alerts.status === 'ready' && alertsList.length === 0 ? 'empty' : alerts.status}
-        emptyMessage="Nenhum alerta no momento."
+        errorMessage={alerts.error ?? undefined}
+        emptyMessage="Nenhum alerta no momento — todos os indicadores estão dentro da faixa esperada."
         onRetry={alerts.retry}
         exportConfig={alertsExport}
         reportId={REPORT_ID}
