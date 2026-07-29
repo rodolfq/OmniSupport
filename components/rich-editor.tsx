@@ -6,7 +6,7 @@ import { useEditor, EditorContent } from '@tiptap/react';
 // eslint-disable-next-line @typescript-eslint/no-unsafe-assignment
 import { BubbleMenu } from '@tiptap/react/menus';
 import StarterKit from '@tiptap/starter-kit';
-import Image from '@tiptap/extension-image';
+import { ResizableImage } from './rich-editor-image';
 import Link from '@tiptap/extension-link';
 import Youtube from '@tiptap/extension-youtube';
 import Placeholder from '@tiptap/extension-placeholder';
@@ -45,8 +45,11 @@ export function RichEditor({ content, onChange, placeholder = 'Comece a digitar.
       }),
       BubbleMenuExtension,
       FloatingMenuExtension,
-      Image.configure({
+      ResizableImage.configure({
         allowBase64: true,
+        // NodeView cuida do visual dentro do editor — este HTMLAttributes é
+        // o que garante que o HTML salvo (editor.getHTML(), usado fora do
+        // editor: chamado, e-mail, nota interna) continue com a mesma classe.
         HTMLAttributes: {
           class: 'rounded-xl max-w-full my-4 border border-[var(--border-default)] shadow-sm',
         },

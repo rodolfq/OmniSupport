@@ -4,6 +4,14 @@
 // (ticket-detail-modal.tsx, no envio de resposta ao cliente).
 const ACCENT = '#0FA694';
 
+// Bloco de referência do chamado (nº + título), sempre em linha própria e em
+// destaque — usado por todo e-mail que menciona um chamado (resposta ao
+// cliente, atribuição, automação), pra nunca ficar diluído no meio de uma
+// frase corrida.
+export function ticketRefBlock(ticketLabel: string, ticketTitle?: string | null): string {
+  return `<p style="margin:0 0 16px;padding:10px 14px;background:#f0fdfa;border-radius:8px;font-size:15px;font-weight:800;color:#026357;">${ticketLabel}${ticketTitle ? ` — ${ticketTitle}` : ''}</p>`;
+}
+
 export function wrapEmailHtml(opts: { bodyHtml: string; ctaUrl?: string | null; ctaLabel?: string }): string {
   const { bodyHtml, ctaUrl, ctaLabel = 'Abrir chamado' } = opts;
 

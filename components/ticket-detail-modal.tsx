@@ -24,7 +24,7 @@ import { CompanyService } from '@/lib/services/company-service';
 import { ConfigService } from '@/lib/services/config-service';
 import { isClosedTicketStatus, registerClosedStatusLabels } from '@/lib/ticket-status';
 import { FieldChange, formatChangeMessage } from '@/lib/ticket-diff';
-import { wrapEmailHtml } from '@/lib/email-templates';
+import { wrapEmailHtml, ticketRefBlock } from '@/lib/email-templates';
 import { fileToBase64 } from '@/lib/image-utils';
 
 interface TicketDetailModalProps {
@@ -509,7 +509,8 @@ const loadMessages = async () => {
         </p>
       ` : '';
       const bodyHtml = `
-        <p style="margin:0 0 16px;">Você recebeu uma nova resposta da nossa equipe no chamado <strong>${ticketLabel} — ${forTicket.title}</strong>.</p>
+        <p style="margin:0 0 10px;">Você recebeu uma nova resposta da nossa equipe no chamado:</p>
+        ${ticketRefBlock(ticketLabel, forTicket.title)}
         <div style="padding:16px 18px;background:#f9fafb;border-left:4px solid #0FA694;border-radius:8px;color:#374151;">
           ${replyMessage.text}
           ${attachmentsHtml}

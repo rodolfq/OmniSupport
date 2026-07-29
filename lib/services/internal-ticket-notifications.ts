@@ -1,5 +1,6 @@
 import { query } from '../db';
 import { EmailService } from './email-service';
+import { wrapEmailHtml, ticketRefBlock } from '../email-templates';
 
 // Linha crua de public.internal_tickets (snake_case), como vem de
 // INSERT/UPDATE ... RETURNING * na rota compat (ver app/api/compat/supabase/route.ts).
@@ -40,11 +41,15 @@ async function notifyInternalTeamByEmail(ticket: InternalTicketRow, reason: 'cre
     ? `Um novo ticket interno foi aberto para o time <strong>${teamName}</strong>.`
     : `Um ticket interno do time <strong>${teamName}</strong> teve um responsável atribuído.`;
 
-  const html = `
-    <p>${intro}</p>
-    <p><strong>${ticketLabel} — ${ticket.title || ''}</strong></p>
-    ${link ? `<p><a href="${link}">Abrir ticket interno</a></p>` : ''}
+  // Mesmo template/layout dos e-mails de chamado ao cliente (wrapEmailHtml +
+  // ticketRefBlock) — cabeçalho com a marca, número/título do ticket sempre
+  // em linha própria e destacada, e botão de CTA de verdade (não só um link
+  // cru) pro operador abrir o ticket rapidamente.
+  const bodyHtml = `
+    <p style="margin:0 0 10px;">${intro}</p>
+    ${ticketRefBlock(ticketLabel, ticket.title)}
   `.trim();
+  const html = wrapEmailHtml({ bodyHtml, ctaUrl: link, ctaLabel: 'Abrir ticket interno' });
 
   for (const member of members) {
     try {

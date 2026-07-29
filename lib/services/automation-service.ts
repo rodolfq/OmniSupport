@@ -3,7 +3,7 @@ import { isClosedTicketStatus } from '../ticket-status';
 import { AUTOMATION_EVENTS, renderTemplate } from '../automation-events';
 import { WhatsAppService } from './whatsapp-service';
 import { EmailService } from './email-service';
-import { wrapEmailHtml } from '../email-templates';
+import { wrapEmailHtml, ticketRefBlock } from '../email-templates';
 
 // Linha crua de public.tickets (snake_case), como vem de SELECT/RETURNING —
 // os 7 pontos de disparo (ver app/api/tickets/route.ts e
@@ -239,7 +239,12 @@ export async function dispatchEvent(eventKey: string, ticket: TicketRow, extra: 
     // E-mail — canal novo, independente do WhatsApp acima. profiles.email é
     // sempre presente, então todo recipient resolvido recebe.
     if (setting.email_enabled) {
-      const html = wrapEmailHtml({ bodyHtml: plainTextToHtml(renderedMessage), ctaUrl: context.link || null, ctaLabel: 'Abrir chamado' });
+      const ticketLabel = `#${context.numero_chamado}`;
+      const html = wrapEmailHtml({
+        bodyHtml: ticketRefBlock(ticketLabel, context.titulo) + plainTextToHtml(renderedMessage),
+        ctaUrl: context.link || null,
+        ctaLabel: 'Abrir chamado'
+      });
       for (const r of recipients) {
         if (!r.email) continue;
 
@@ -281,8 +286,8 @@ async function notifyAssigneeByEmail(ticket: TicketRow): Promise<void> {
   const link = baseUrl ? `${baseUrl}/tickets/${ticket.public_ticket_number}` : null;
 
   const bodyHtml = `
-    <p style="margin:0 0 8px;">Olá, ${assignee.name || ''}.</p>
-    <p style="margin:0;">O chamado <strong>${ticketLabel} — ${ticket.title || ''}</strong> foi atribuído a você.</p>
+    <p style="margin:0 0 10px;">Olá, ${assignee.name || ''}. O chamado abaixo foi atribuído a você:</p>
+    ${ticketRefBlock(ticketLabel, ticket.title)}
   `.trim();
   const html = wrapEmailHtml({ bodyHtml, ctaUrl: link, ctaLabel: 'Abrir chamado' });
 

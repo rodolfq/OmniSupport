@@ -2,7 +2,7 @@ import { query } from '../db';
 import { WhatsAppService } from './whatsapp-service';
 import { EmailService } from './email-service';
 import { plainTextToHtml } from './automation-service';
-import { wrapEmailHtml } from '../email-templates';
+import { wrapEmailHtml, ticketRefBlock } from '../email-templates';
 
 // Mesmo padrão de lib/services/whatsapp-service.ts: guarda estado em
 // globalThis para sobreviver ao hot-reload do Next.js em dev e evitar
@@ -16,9 +16,12 @@ const BATCH_SIZE = 50;
 
 async function processDueDispatches(): Promise<void> {
   const due = await query(
-    `SELECT id, channel, ticket_id, recipient_phone, recipient_email, subject, message FROM public.automation_dispatches
-     WHERE status = 'pending' AND send_at <= now()
-     ORDER BY send_at ASC
+    `SELECT d.id, d.channel, d.ticket_id, d.recipient_phone, d.recipient_email, d.subject, d.message,
+            t.public_ticket_number, t.title AS ticket_title
+     FROM public.automation_dispatches d
+     LEFT JOIN public.tickets t ON t.id = d.ticket_id
+     WHERE d.status = 'pending' AND d.send_at <= now()
+     ORDER BY d.send_at ASC
      LIMIT $1`,
     [BATCH_SIZE]
   );
@@ -31,7 +34,9 @@ async function processDueDispatches(): Promise<void> {
         // Usa o id (UUID) direto — app/(portal)/tickets/[id]/page.tsx aceita
         // tanto o número público quanto o UUID como fallback.
         const ctaUrl = baseUrl && row.ticket_id ? `${baseUrl}/tickets/${row.ticket_id}` : null;
-        const html = wrapEmailHtml({ bodyHtml: plainTextToHtml(row.message), ctaUrl, ctaLabel: 'Abrir chamado' });
+        const ticketLabel = row.public_ticket_number ? `#${String(row.public_ticket_number).padStart(4, '0')}` : null;
+        const bodyHtml = (ticketLabel ? ticketRefBlock(ticketLabel, row.ticket_title) : '') + plainTextToHtml(row.message);
+        const html = wrapEmailHtml({ bodyHtml, ctaUrl, ctaLabel: 'Abrir chamado' });
         await EmailService.send(row.recipient_email, row.subject || row.message.slice(0, 80), html);
       } else {
         await WhatsAppService.sendMessage('default', row.recipient_phone, row.message);
