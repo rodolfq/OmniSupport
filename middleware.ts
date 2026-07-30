@@ -11,6 +11,7 @@ import { verifyJWT } from '@/lib/jwt'
 // sendo decidido em cada Server Action/rota, como já era.
 const PUBLIC_PATHS = new Set([
   '/login',
+  '/login/new', // tela secreta de lançamento (descartável, ver app/login/new/page.tsx)
   '/api/auth/login',
   '/api/auth/logout',
   '/api/whatsapp/webhook', // chamado pela Meta, sem sessão de usuário

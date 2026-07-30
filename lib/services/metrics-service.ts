@@ -140,6 +140,18 @@ const SCOPED_SESSIONS_JOIN = `
   LEFT JOIN public.profiles cust ON cust.id = s.customer_id
 `;
 
+// "Analista" = usuário que pertence a alguma fila (queues.member_ids) — fora
+// de fila não conta em nenhuma métrica "por analista"/"online" hoje, mesmo
+// que tenha atividade (assignee_id/status history) fora desse conjunto.
+// Times de outros setores (fora de fila) ainda não têm relatório próprio;
+// quando existir, essa função ganha um segundo modo em vez de crescer aqui.
+// queueParam é o mesmo placeholder de queueId já usado pela query que chama
+// (varia de posição entre funções) — quando NULL, vira "pertence a QUALQUER
+// fila" em vez de "sem filtro".
+function analystQueueFilter(idExpr: string, queueParam: string): string {
+  return `${idExpr} = ANY(SELECT DISTINCT unnest(member_ids) FROM public.queues WHERE (${queueParam}::text IS NULL OR id = ${queueParam}))`;
+}
+
 // Pega a linha de chat_histories mais recente de uma sessão — uma sessão só
 // deveria fechar uma vez, mas seguimos o mesmo padrão defensivo já usado no
 // UPDATE de rating (app/api/chats/route.ts) pra não quebrar se algum
@@ -478,7 +490,7 @@ export async function getAnalistasOnline(filter: MetricsFilter): Promise<HourlyB
               COALESCE(LEAD(timestamp) OVER (PARTITION BY user_id ORDER BY timestamp), NOW()) AS ended_at
        FROM public.user_status_history
        WHERE ($3::uuid IS NULL OR user_id = $3)
-         AND ($4::text IS NULL OR user_id = ANY(SELECT unnest(member_ids) FROM public.queues WHERE id = $4))
+         AND ${analystQueueFilter('user_id', '$4')}
      ),
      online AS (
        SELECT user_id, started_at, ended_at
@@ -520,6 +532,7 @@ export async function getPicoIndividual(filter: MetricsFilter): Promise<AnalystP
        ${SCOPED_SESSIONS_JOIN}
        ${LATEST_HISTORY_JOIN}
        WHERE s.assignee_id IS NOT NULL AND ${scopeByOverlapWhere()}
+         AND ${analystQueueFilter('s.assignee_id', '$3')}
      ),
      events AS (
        SELECT assignee_id, created_at AS ts, 1 AS delta FROM scoped
@@ -576,6 +589,7 @@ export async function getCargaAtualPorAnalista(scope: { queueId?: string; instan
      WHERE s.status <> 'closed' AND s.assignee_id IS NOT NULL
        AND ($1::text IS NULL OR s.queue_id = $1)
        AND ($2::text IS NULL OR q.whatsapp_instance_id = $2)
+       AND ${analystQueueFilter('p.id', '$1')}
      GROUP BY s.assignee_id, p.name
      ORDER BY active_chats DESC`,
     [scope.queueId ?? null, scope.instanceId ?? null]
@@ -861,6 +875,7 @@ export async function getDesempenhoPorAnalista(filter: MetricsFilter): Promise<A
      LEFT JOIN first_response fr ON fr.id = sc.id
      LEFT JOIN msgs_sent ms ON ms.id = sc.id
      LEFT JOIN closed cl ON cl.id = sc.id
+     WHERE ${analystQueueFilter('p.id', '$3')}
      GROUP BY sc.assignee_id, p.name
      ORDER BY chats_atendidos DESC`,
     scopeParams(bounds, filter)
@@ -900,6 +915,7 @@ export async function getSimultaneidadePorAnalista(filter: MetricsFilter): Promi
        ${SCOPED_SESSIONS_JOIN}
        ${LATEST_HISTORY_JOIN}
        WHERE s.assignee_id IS NOT NULL AND ${scopeByOverlapWhere()}
+         AND ${analystQueueFilter('s.assignee_id', '$3')}
      ),
      events AS (
        SELECT assignee_id, created_at AS ts, 1 AS delta FROM scoped
@@ -951,7 +967,7 @@ export async function getHorasOnlinePorAnalista(filter: MetricsFilter): Promise<
               COALESCE(LEAD(timestamp) OVER (PARTITION BY user_id ORDER BY timestamp), NOW()) AS ended_at
        FROM public.user_status_history
        WHERE ($3::uuid IS NULL OR user_id = $3)
-         AND ($4::text IS NULL OR user_id = ANY(SELECT unnest(member_ids) FROM public.queues WHERE id = $4))
+         AND ${analystQueueFilter('user_id', '$4')}
      ),
      online AS (
        SELECT user_id,
@@ -984,7 +1000,7 @@ export async function getTempoAusentePorMotivo(filter: MetricsFilter): Promise<A
               COALESCE(LEAD(timestamp) OVER (PARTITION BY user_id ORDER BY timestamp), NOW()) AS ended_at
        FROM public.user_status_history
        WHERE ($3::uuid IS NULL OR user_id = $3)
-         AND ($4::text IS NULL OR user_id = ANY(SELECT unnest(member_ids) FROM public.queues WHERE id = $4))
+         AND ${analystQueueFilter('user_id', '$4')}
      ),
      away AS (
        SELECT user_id, COALESCE(reason, 'Sem motivo registrado') AS reason,
@@ -1083,7 +1099,7 @@ export async function getCargaCapacidadePorFaixaBruta(filter: MetricsFilter, cri
        SELECT user_id, status, timestamp AS started_at,
               COALESCE(LEAD(timestamp) OVER (PARTITION BY user_id ORDER BY timestamp), NOW()) AS ended_at
        FROM public.user_status_history
-       WHERE ($3::text IS NULL OR user_id = ANY(SELECT unnest(member_ids) FROM public.queues WHERE id = $3))
+       WHERE ${analystQueueFilter('user_id', '$3')}
      ),
      online_intervals AS (
        SELECT user_id, started_at, ended_at FROM status_intervals
@@ -1127,6 +1143,7 @@ export async function getCargaCapacidadePorFaixaBruta(filter: MetricsFilter, cri
        ${SCOPED_SESSIONS_JOIN}
        ${LATEST_HISTORY_JOIN}
        WHERE s.assignee_id IS NOT NULL AND ${scopeByOverlapWhere()}
+         AND ${analystQueueFilter('s.assignee_id', '$3')}
      ),
      pico_events AS (
        SELECT assignee_id, created_at AS ts, 1 AS delta FROM pico_scoped
@@ -1270,6 +1287,7 @@ export async function getSatisfacaoPorDimensao(filter: MetricsFilter, dimension:
               CASE WHEN s.queue_id IS NOT NULL THEN 'whatsapp' ELSE 'widget' END AS channel
        ${SCOPED_SESSIONS_JOIN}
        WHERE ${scopeByStartWhere()} AND s.status = 'closed'
+         ${dimension === 'analyst' ? `AND (s.assignee_id IS NULL OR ${analystQueueFilter('s.assignee_id', '$3')})` : ''}
      )
      SELECT
        ${dimCol} AS segment_key,
