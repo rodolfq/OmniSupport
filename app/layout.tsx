@@ -59,7 +59,11 @@ export default function RootLayout({
           content="script-src 'self' 'unsafe-inline' 'unsafe-eval' https:; object-src 'none';"
         />
         {/* Rooney Sans (fonte de marca, licenciada via Adobe Fonts/Typekit) —
-            tipografia primária, ver --font-primary em app/globals.css. */}
+            tipografia primária, ver --font-primary em app/globals.css.
+            preconnect encurta a espera de DNS+TLS antes desse CSS
+            render-blocking (achado numa investigação de lentidão ao abrir
+            telas) — não elimina o bloqueio, só reduz a latência dele. */}
+        <link rel="preconnect" href="https://use.typekit.net" crossOrigin="anonymous" />
         <link rel="stylesheet" href="https://use.typekit.net/sug7loq.css" />
         <script dangerouslySetInnerHTML={{ __html: THEME_INIT_SCRIPT }} />
       </head>

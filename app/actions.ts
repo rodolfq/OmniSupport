@@ -671,6 +671,7 @@ export async function getHotfixes() {
       name: h.name,
       description: h.description,
       responsibleId: h.responsible_id,
+      productId: h.product_id,
       expectedDate: toIsoDateOnly(h.expected_date),
       publishedAt: toIsoOrUndefined(h.published_at),
       createdAt: toIsoOrUndefined(h.created_at)
@@ -695,7 +696,8 @@ export async function saveHotfix(
   name: string,
   description: string | null,
   responsibleId: string | null,
-  expectedDate: string
+  expectedDate: string,
+  productId: string | null = null
 ) {
   try {
     const check = await assertCanManageHotfixes();
@@ -705,18 +707,18 @@ export async function saveHotfix(
     if (id) {
       await query(
         `UPDATE public.hotfixes
-         SET name = $1, description = $2, responsible_id = $3, expected_date = $4, updated_at = now()
-         WHERE id = $5`,
-        [name, description, responsibleId, expectedDate, id]
+         SET name = $1, description = $2, responsible_id = $3, expected_date = $4, product_id = $5, updated_at = now()
+         WHERE id = $6`,
+        [name, description, responsibleId, expectedDate, productId, id]
       );
       logAudit({ actorId: actor.id, actorName: actor.name, action: 'update', entityType: 'hotfix', entityId: id, entityLabel: name });
       return { id };
     } else {
       const newId = crypto.randomUUID();
       await query(
-        `INSERT INTO public.hotfixes (id, name, description, responsible_id, expected_date, created_by)
-         VALUES ($1, $2, $3, $4, $5, $6)`,
-        [newId, name, description, responsibleId, expectedDate, actor.id]
+        `INSERT INTO public.hotfixes (id, name, description, responsible_id, expected_date, product_id, created_by)
+         VALUES ($1, $2, $3, $4, $5, $6, $7)`,
+        [newId, name, description, responsibleId, expectedDate, productId, actor.id]
       );
       logAudit({ actorId: actor.id, actorName: actor.name, action: 'create', entityType: 'hotfix', entityId: newId, entityLabel: name });
       return { id: newId };

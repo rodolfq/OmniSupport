@@ -1,7 +1,7 @@
 ﻿'use client';
 
 import React, { useState } from 'react';
-import { X, Building2, Phone, Briefcase, Mail, Lock, UserPlus, RefreshCw, Eye, EyeOff, GraduationCap, ShieldAlert, AlertTriangle, Trash2 } from 'lucide-react';
+import { X, Building2, Phone, Mail, Lock, UserPlus, RefreshCw, Eye, EyeOff, GraduationCap, ShieldAlert, AlertTriangle, Trash2 } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import { saveCompany, getCustomerEvaluationSummary, updateCompanyTraining, saveCustomerEvaluation } from '@/app/actions';
 import { Company, type CustomerEvaluationScores, type CustomerEvaluationSummary, type CustomerProfileTag, MIN_RELIABLE_EVALUATION_COUNT } from '@/lib/types';
@@ -42,7 +42,6 @@ const EMPTY_EVAL_SCORES: CustomerEvaluationScores = {
 export function NewCompanyModal({ isOpen, onClose, onSuccess, company, showInternalSection = false, onRequestDelete }: { isOpen: boolean, onClose: () => void, onSuccess?: () => void, company?: Company | null, showInternalSection?: boolean, onRequestDelete?: () => void }) {
   const { currentUser } = useApp();
   const [name, setName] = useState('');
-  const [industry, setIndustry] = useState('');
   const [phone, setPhone] = useState('');
   const [adminName, setAdminName] = useState('');
   const [adminEmail, setAdminEmail] = useState('');
@@ -67,12 +66,10 @@ export function NewCompanyModal({ isOpen, onClose, onSuccess, company, showInter
   React.useEffect(() => {
     if (company) {
       setName(company.name || '');
-      setIndustry(company.industry || '');
       setPhone(company.phone || '');
       setIsInTraining(company.isInTraining || false);
     } else {
       setName('');
-      setIndustry('');
       setPhone('');
       setAdminName('');
       setAdminEmail('');
@@ -122,7 +119,7 @@ export function NewCompanyModal({ isOpen, onClose, onSuccess, company, showInter
       const result = await saveCompany(
         company?.id || null,
         name,
-        industry,
+        company?.industry || '',
         phone,
         isEditing ? undefined : {
           name: adminName,
@@ -158,7 +155,6 @@ export function NewCompanyModal({ isOpen, onClose, onSuccess, company, showInter
       onClose();
       if (!company) {
         setName('');
-        setIndustry('');
         setPhone('');
         setAdminName('');
         setAdminEmail('');
@@ -221,33 +217,18 @@ export function NewCompanyModal({ isOpen, onClose, onSuccess, company, showInter
                 </div>
               </div>
 
-              <div className="grid grid-cols-2 gap-4">
-                <div className="space-y-2">
-                  <label className="text-[10px] font-black uppercase tracking-widest text-[var(--text-tertiary)] ml-1">Setor / Indústria</label>
-                  <div className="relative">
-                    <Briefcase className="absolute left-4 top-1/2 -translate-y-1/2 text-[var(--text-tertiary)]" size={16} />
-                    <input
-                      type="text"
-                      value={industry}
-                      onChange={(e) => setIndustry(e.target.value)}
-                      placeholder="Ex: Tecnologia"
-                      className="w-full bg-[var(--surface-card)] border border-[var(--border-default)] rounded-xl pl-12 pr-4 py-3 text-sm font-medium focus:ring-2 focus:ring-[var(--accent)]/20 focus:border-[var(--accent)] outline-none transition-all"
-                    />
-                  </div>
-                </div>
-                <div className="space-y-2">
-                  <label className="text-[10px] font-black uppercase tracking-widest text-[var(--text-tertiary)] ml-1">Telefone Principal</label>
-                  <div className="relative">
-                    <Phone className="absolute left-4 top-1/2 -translate-y-1/2 text-[var(--text-tertiary)]" size={16} />
-                    <input
-                      type="text"
-                      value={maskPhone(phone)}
-                      onChange={(e) => setPhone(e.target.value)}
-                      placeholder="(xx) xxxx-xxxx"
-                      maxLength={15}
-                      className="w-full bg-[var(--surface-card)] border border-[var(--border-default)] rounded-xl pl-12 pr-4 py-3 text-sm font-medium focus:ring-2 focus:ring-[var(--accent)]/20 focus:border-[var(--accent)] outline-none transition-all"
-                    />
-                  </div>
+              <div className="space-y-2">
+                <label className="text-[10px] font-black uppercase tracking-widest text-[var(--text-tertiary)] ml-1">Telefone Principal</label>
+                <div className="relative">
+                  <Phone className="absolute left-4 top-1/2 -translate-y-1/2 text-[var(--text-tertiary)]" size={16} />
+                  <input
+                    type="text"
+                    value={maskPhone(phone)}
+                    onChange={(e) => setPhone(e.target.value)}
+                    placeholder="(xx) xxxx-xxxx"
+                    maxLength={15}
+                    className="w-full bg-[var(--surface-card)] border border-[var(--border-default)] rounded-xl pl-12 pr-4 py-3 text-sm font-medium focus:ring-2 focus:ring-[var(--accent)]/20 focus:border-[var(--accent)] outline-none transition-all"
+                  />
                 </div>
               </div>
 

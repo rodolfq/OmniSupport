@@ -222,15 +222,31 @@ export function TicketDetailModal({ ticket, onClose, initialDraft }: TicketDetai
     if (!ticket) return;
 
     async function fetchConfigs() {
-      const { data: profiles } = await supabase.from('profiles').select('*, internal_team_ids');
-      const { data: statusList } = await supabase.from('config_statuses').select('*').eq('scope', 'ticket').order('sort_order', { ascending: true });
-      const { data: categoryList } = await supabase.from('config_categories').select('*');
-      const { data: requestTypeList } = await supabase.from('config_request_types').select('*');
-      const { data: productList } = await supabase.from('config_products').select('*');
-      const { data: priorityList } = await supabase.from('config_priorities').select('*');
-      const { data: compList } = await supabase.from('companies').select('*');
-      const { data: teamList } = await supabase.from('internal_teams').select('*');
-      const { data: queueList } = await supabase.from('queues').select('*');
+      // As 9 buscas abaixo são independentes entre si — rodar em paralelo
+      // (Promise.all) em vez de sequencial corta o tempo de abertura do
+      // modal de ~9 round-trips somados pra ~1 (achado numa investigação de
+      // lentidão percebida ao abrir chamado).
+      const [
+        { data: profiles },
+        { data: statusList },
+        { data: categoryList },
+        { data: requestTypeList },
+        { data: productList },
+        { data: priorityList },
+        { data: compList },
+        { data: teamList },
+        { data: queueList }
+      ] = await Promise.all([
+        supabase.from('profiles').select('*, internal_team_ids'),
+        supabase.from('config_statuses').select('*').eq('scope', 'ticket').order('sort_order', { ascending: true }),
+        supabase.from('config_categories').select('*'),
+        supabase.from('config_request_types').select('*'),
+        supabase.from('config_products').select('*'),
+        supabase.from('config_priorities').select('*'),
+        supabase.from('companies').select('*'),
+        supabase.from('internal_teams').select('*'),
+        supabase.from('queues').select('*')
+      ]);
 
       if (profiles) {
         setAllUsers(profiles.map((u: any) => ({
@@ -315,17 +331,19 @@ export function TicketDetailModal({ ticket, onClose, initialDraft }: TicketDetai
     setHistoryTab(initialDraft.visibleToCustomer ? 'customer' : 'internal');
   }, [ticket?.id, initialDraft]);
 
+  // Mensagem mais nova agora vem primeiro no array (ordem DESC) — "seguir a
+  // conversa" passou a significar rolar pro TOPO, não mais pro fim.
   useEffect(() => {
     if (scrollRef.current) {
       const scrollContainer = scrollRef.current;
       requestAnimationFrame(() => {
         scrollContainer.scrollTo({
-          top: scrollContainer.scrollHeight,
+          top: 0,
           behavior: 'smooth'
         });
       });
       setTimeout(() => {
-        scrollContainer.scrollTop = scrollContainer.scrollHeight;
+        scrollContainer.scrollTop = 0;
       }, 100);
     }
   }, [messages, historyTab]);
@@ -1863,7 +1881,7 @@ const loadMessages = async () => {
                           <div className="flex-1 min-w-0">
                             <div className="flex items-center gap-2 mb-1">
                               <span className="text-xs font-black text-[var(--text-primary)]">{sender?.name}</span>
-                              <span className="text-[9px] font-bold text-[var(--text-tertiary)]"><ClientTime date={m.timestamp} /></span>
+                              <span className="text-[9px] font-bold text-[var(--text-tertiary)]"><ClientTime date={m.timestamp} showDate /></span>
                               <button
                                 type="button"
                                 onClick={() => handleCopyInternalNoteToTicket(m)}
@@ -2013,7 +2031,7 @@ const loadMessages = async () => {
                         <div className="flex-1 min-w-0">
                           <div className="flex items-center gap-2 mb-1">
                             <span className="text-xs font-black text-[var(--text-primary)]">{sender?.name}</span>
-                            <span className="text-[9px] font-bold text-[var(--text-tertiary)]"><ClientTime date={m.timestamp} /></span>
+                            <span className="text-[9px] font-bold text-[var(--text-tertiary)]"><ClientTime date={m.timestamp} showDate /></span>
                             {isInternal && (
                               <span className="text-[8px] font-semibold px-1 py-0.5 bg-[var(--surface-warning)] text-[var(--text-warning)] rounded uppercase tracking-tighter">Interno</span>
                             )}

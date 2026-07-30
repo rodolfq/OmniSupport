@@ -157,7 +157,7 @@ export class MessageService {
       .select('*')
       .eq('ticket_id', ticketId)
       .abortSignal(signal as any)
-      .order('created_at', { ascending: true });
+      .order('created_at', { ascending: false });
 
     if (error) {
       if (error.message === 'FetchIsAborted' || error.code === '20' || error.message?.includes('aborted')) return [];
@@ -209,7 +209,7 @@ export class MessageService {
       .select('*')
       .eq('internal_ticket_id', internalTicketId)
       .abortSignal(signal as any)
-      .order('created_at', { ascending: true });
+      .order('created_at', { ascending: false });
 
     if (error) {
       if (error.message === 'FetchIsAborted' || error.code === '20' || error.message?.includes('aborted')) return [];
@@ -251,7 +251,7 @@ export class InternalTicketService {
       .maybeSingle();
 
     if (linkError) {
-      console.error('Error fetching link:', linkError);
+      console.error('Error fetching link:', linkError?.message || linkError);
       return null;
     }
 
@@ -264,7 +264,7 @@ export class InternalTicketService {
       .maybeSingle();
 
     if (error) {
-      console.error('Error fetching internal ticket:', error);
+      console.error('Error fetching internal ticket:', error?.message || error);
       return null;
     }
 
@@ -296,7 +296,7 @@ export class InternalTicketService {
       .eq('ticket_id', parentTicketId);
 
     if (linksError) {
-      console.error('Error fetching links:', linksError);
+      console.error('Error fetching links:', linksError?.message || linksError);
       return [];
     }
 
@@ -309,7 +309,7 @@ export class InternalTicketService {
       .in('id', internalIds);
 
     if (error) {
-      console.error('Error fetching internal tickets:', error);
+      console.error('Error fetching internal tickets:', error?.message || error);
       return [];
     }
 

@@ -96,6 +96,11 @@ Não há `.env.example`. Nomes abaixo extraídos de `.env` (valores reais omitid
 | `ENABLE_AUDIO_TRANSCRIPTION` | Liga/desliga transcrição de áudio local (Whisper) no servidor | Não (default desligado se ausente) | `true`/`false` — **não ligar na Vercel** (baixa ~150MB de modelo, precisa ffmpeg) |
 | `NEXT_PUBLIC_ENABLE_AUDIO_TRANSCRIPTION` | Mostra/esconde o botão de transcrição no client | Não | Deve ficar sempre igual a `ENABLE_AUDIO_TRANSCRIPTION` |
 | `TRANSCRIPTION_MODEL` | Nome do modelo Whisper usado (`@huggingface/transformers`) | Não (default no código) | Ex.: `Xenova/whisper-base` |
+| `GROQ_API_KEY` | Chave da API do Groq usada pelo widget do Agente de IA (`lib/services/ai-assistant-service.ts`) | Sim, para o Agente de IA funcionar | [console.groq.com/keys](https://console.groq.com/keys) — tier gratuito real, sem cartão; trocado no lugar do Gemini porque o projeto Google Cloud da chave veio com cota gratuita zerada |
+| `GROQ_MODEL` | Nome do modelo Groq usado pelo Agente de IA | Não (default `llama-3.3-70b-versatile` no código) | Trocar aqui na migração de modelo/tier, sem mexer no código |
+| `ENABLE_AI_EMBEDDINGS` | Liga/desliga a busca semântica do Agente de IA (embeddings locais, `lib/services/embedding-service.ts`) e o scheduler que drena a fila de indexação (`lib/services/embedding-scheduler.ts`) | Não (default desligado se ausente) | `true`/`false` — **não ligar na Vercel**, mesmo motivo do `ENABLE_AUDIO_TRANSCRIPTION` (baixa modelo, CPU-bound); ligar só em servidor dedicado |
+| `EMBEDDING_MODEL` | Nome do modelo de embedding usado (`@huggingface/transformers`) | Não (default no código) | Ex.: `Xenova/paraphrase-multilingual-MiniLM-L12-v2` |
+| `BITRIX24_WEBHOOK_URL` | URL do webhook de entrada do Bitrix24 (CRM), usada pra sincronizar empresas (`lib/services/bitrix24-service.ts`) | Sim, para o botão "Sincronizar Bitrix24" funcionar | Bitrix24 > Aplicativos > Webhooks > Webhook de entrada — formato `https://SEUDOMINIO.bitrix24.com.br/rest/1/xxxxxxxx/` (precisa de permissão de leitura em `crm`) |
 | `NODE_ENV` | Next.js padrão; controla `secure` do cookie de sessão | Implícita | Definida pelo runtime |
 
 Variáveis referenciadas no código mas **ausentes do `.env` atual** (endpoints órfãos, ver seção 14):
@@ -314,6 +319,8 @@ A API de integração (`/api/integrations/v1/*`) usa **autenticação por API ke
 | Transcrição de áudio | Whisper local via `@huggingface/transformers` + `ffmpeg-static`, **sem API externa paga** | `lib/services/transcription-service.ts` |
 | API de integração externa (parceiros/sistemas terceiros) | REST própria com API key (`Authorization: Bearer` ou `x-api-key`) | `app/api/integrations/v1/*`, `lib/integration-auth.ts`, `components/integrations-content.tsx` |
 | E-mail (SMTP) | **Não implementado** — roadmap item 15/16, bloqueado por confirmação de provedor pela infra | — |
+| Agente de IA (Groq) | Widget flutuante, busca por function-calling em chamados, tickets internos, chat com cliente e chat de grupo interno — combina busca por palavra-chave/SQL (sempre ativa) com busca semântica por embeddings locais sobre todo o histórico indexado (opt-in via `ENABLE_AI_EMBEDDINGS`) — Google Drive fora do escopo desta v1 | `lib/services/ai-assistant-service.ts`, `lib/services/embedding-service.ts`, `lib/services/embedding-scheduler.ts`, `app/api/ai-assistant/route.ts`, `components/ai-assistant-widget.tsx` |
+| Bitrix24 (CRM) | Sincronização MANUAL (botão "Sincronizar Bitrix24" na tela Empresas, sem job automático) de empresas via `crm.company.list.json` — casa por nome exato (atualiza se já existe, cria se não existe) | `lib/services/bitrix24-service.ts`, `app/api/integrations/bitrix24/sync/route.ts`, `app/(portal)/customers/page.tsx` |
 | Supabase (BaaS real: Auth/DB/Storage) | Presente nas dependências, mas **não é o backend de dados real** hoje (ver seção 15) | `lib/supabase/server.ts` (órfão), `app/api/create-user/route.ts` (órfão) |
 | Fonte tipográfica (Rooney Sans) | Carregada via Adobe Typekit (`use.typekit.net`) | `app/layout.tsx` |
 

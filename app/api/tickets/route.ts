@@ -40,7 +40,7 @@ export async function GET(request: Request) {
       if (!ticketId) return NextResponse.json({ error: 'ticketId é obrigatório' }, { status: 400 });
 
       const res = await query(
-        'SELECT * FROM public.ticket_messages WHERE ticket_id = $1 ORDER BY created_at ASC',
+        'SELECT * FROM public.ticket_messages WHERE ticket_id = $1 ORDER BY created_at DESC',
         [ticketId]
       );
       return NextResponse.json(res.rows.map(m => ({

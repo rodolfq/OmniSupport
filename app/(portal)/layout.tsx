@@ -9,6 +9,7 @@ import { usePathname, useRouter } from 'next/navigation';
 import { NewTicketModal } from '@/components/new-ticket-modal';
 import { CustomerEvaluationModal } from '@/components/customer-evaluation-modal';
 import { ChatWidget } from '@/components/chat-widget';
+import { AiAssistantWidget } from '@/components/ai-assistant-widget';
 import { ForcePasswordChange } from '@/components/force-password-change';
 import { MobileHeader } from '@/components/mobile-header';
 import { MobileBottomNav } from '@/components/mobile-bottom-nav';
@@ -249,6 +250,7 @@ export default function PortalLayout({ children }: { children: React.ReactNode }
         <NewTicketModal />
         <CustomerEvaluationModal />
         {canUseChatWidget && <ChatWidget />}
+        <AiAssistantWidget />
         <MobileBottomNav />
       </div>
       <ForcePasswordChange />

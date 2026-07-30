@@ -3,7 +3,7 @@
 import React, { useState, useEffect, useMemo } from 'react';
 import { getUsers, getCompanies, deleteCompany } from '@/app/actions';
 import { Company, User, UserRole, Permission } from '@/lib/types';
-import { Building2, User as UserIcon, Mail, Phone, Plus, MessageCircle, Ticket, ShieldCheck, ShieldOff, Search, X, Check, Pencil, UserPlus } from 'lucide-react';
+import { Building2, User as UserIcon, Mail, Phone, Plus, MessageCircle, Ticket, ShieldCheck, ShieldOff, Search, X, Check, Pencil, UserPlus, RefreshCw } from 'lucide-react';
 import { cn, normalizeString, normalizePhone, maskPhone } from '@/lib/utils';
 import { NewEmployeeModal } from '@/components/new-employee-modal';
 import { EditEmployeeModal } from '@/components/edit-employee-modal';
@@ -140,6 +140,7 @@ export default function CustomersPage() {
   const [companyToDelete, setCompanyToDelete] = useState<Company | null>(null);
   const [deleteError, setDeleteError] = useState<string>('');
   const [searchQuery, setSearchQuery] = useState('');
+  const [isSyncingBitrix24, setIsSyncingBitrix24] = useState(false);
   const isCompanyPortalUser = [UserRole.CUSTOMER, UserRole.EMPLOYEE].includes(currentUser?.role as UserRole);
   const isCustomerAdmin = currentUser?.role === UserRole.CUSTOMER;
   const canManageCompanies = hasPermission(Permission.CUSTOMERS_WRITE);
@@ -192,6 +193,30 @@ if (isCompanyPortalUser) {
     if (currentUser) loadData();
   }, [currentUser?.id]);
 
+  // Sincronização manual com o Bitrix24 (CRM) — sem job em segundo plano de
+  // propósito, só o botão. Casa por nome exato: empresa já existente aqui
+  // é atualizada, senão é criada. Ver lib/services/bitrix24-service.ts.
+  const handleSyncBitrix24 = async () => {
+    if (isSyncingBitrix24) return;
+    setIsSyncingBitrix24(true);
+    try {
+      const res = await fetch('/api/integrations/bitrix24/sync', { method: 'POST' });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data?.error || 'Falha ao sincronizar com o Bitrix24.');
+      toast.success(`Bitrix24 sincronizado: ${data.created} nova(s), ${data.updated} atualizada(s)${data.skipped ? `, ${data.skipped} ignorada(s)` : ''}.`);
+      if (Array.isArray(data.errors) && data.errors.length > 0) {
+        console.error('[Bitrix24] Erros durante a sincronização:', data.errors);
+        toast.warning(`${data.errors.length} empresa(s) falharam ao sincronizar — ver console.`);
+      }
+      await loadData();
+    } catch (err: any) {
+      console.error('Erro ao sincronizar com o Bitrix24:', err);
+      toast.error(err?.message || 'Falha ao sincronizar com o Bitrix24.');
+    } finally {
+      setIsSyncingBitrix24(false);
+    }
+  };
+
   const filteredCompanies = useMemo(() => {
     if (!searchQuery.trim()) return companies;
 
@@ -234,7 +259,19 @@ if (isCompanyPortalUser) {
           <h2 className="font-black text-xs uppercase tracking-[0.2em] text-[var(--text-tertiary)] mb-2 flex justify-between items-center">
             Empresas
             {canManageCompanies && (
-              <Plus size={16} onClick={() => setIsCompanyModalOpen(true)} className="text-[var(--accent-text)] cursor-pointer hover:scale-125 transition-transform" />
+              <span className="flex items-center gap-2.5">
+                <span title="Sincronizar empresas do Bitrix24">
+                  <RefreshCw
+                    size={14}
+                    onClick={handleSyncBitrix24}
+                    className={cn(
+                      "text-[var(--text-tertiary)] cursor-pointer hover:text-[var(--accent-text)] transition-colors",
+                      isSyncingBitrix24 && "animate-spin pointer-events-none opacity-60"
+                    )}
+                  />
+                </span>
+                <Plus size={16} onClick={() => setIsCompanyModalOpen(true)} className="text-[var(--accent-text)] cursor-pointer hover:scale-125 transition-transform" />
+              </span>
             )}
           </h2>
 

@@ -1,10 +1,11 @@
 'use client';
 
 import React, { useState, useEffect } from 'react';
-import { Rocket, Plus, Search, Trash2, Pencil, CheckCircle2, XCircle, Clock, AlertTriangle, CalendarDays, History as HistoryIcon } from 'lucide-react';
+import { Rocket, Plus, Search, Trash2, Pencil, CheckCircle2, XCircle, Clock, AlertTriangle, CalendarDays, History as HistoryIcon, Package } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
-import { Hotfix, Permission, User } from '@/lib/types';
+import { Hotfix, Permission, User, ProductConfig } from '@/lib/types';
 import { UserService } from '@/lib/services/user-service';
+import { ConfigService } from '@/lib/services/config-service';
 import { getHotfixes, saveHotfix, deleteHotfix, markHotfixPublished } from '@/app/actions';
 import { StyledSelect } from '@/components/styled-select';
 import { ConfirmDialog } from '@/components/confirm-dialog';
@@ -48,6 +49,7 @@ export default function HotfixesPage() {
   const { hasPermission } = useApp();
   const [hotfixes, setHotfixes] = useState<Hotfix[]>([]);
   const [users, setUsers] = useState<User[]>([]);
+  const [products, setProducts] = useState<ProductConfig[]>([]);
   const [search, setSearch] = useState('');
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [selectedHotfix, setSelectedHotfix] = useState<Hotfix | null>(null);
@@ -56,6 +58,7 @@ export default function HotfixesPage() {
   const [name, setName] = useState('');
   const [description, setDescription] = useState('');
   const [responsibleId, setResponsibleId] = useState('');
+  const [productId, setProductId] = useState('');
   const [expectedDate, setExpectedDate] = useState('');
 
   useEffect(() => {
@@ -63,12 +66,14 @@ export default function HotfixesPage() {
   }, []);
 
   const loadData = async () => {
-    const [dbHotfixes, analysts] = await Promise.all([
+    const [dbHotfixes, analysts, dbProducts] = await Promise.all([
       getHotfixes(),
-      UserService.getAnalysts()
+      UserService.getAnalysts(),
+      ConfigService.getProducts()
     ]);
     setHotfixes(dbHotfixes as Hotfix[]);
     setUsers(analysts);
+    setProducts(dbProducts);
   };
 
   const handleOpenModal = (hotfix?: Hotfix) => {
@@ -77,12 +82,14 @@ export default function HotfixesPage() {
       setName(hotfix.name);
       setDescription(hotfix.description || '');
       setResponsibleId(hotfix.responsibleId || '');
+      setProductId(hotfix.productId || '');
       setExpectedDate(hotfix.expectedDate);
     } else {
       setSelectedHotfix(null);
       setName('');
       setDescription('');
       setResponsibleId('');
+      setProductId('');
       setExpectedDate('');
     }
     setIsModalOpen(true);
@@ -96,7 +103,8 @@ export default function HotfixesPage() {
       name,
       description || null,
       responsibleId || null,
-      expectedDate
+      expectedDate,
+      productId || null
     );
 
     if (res && (res as any).error) {
@@ -143,6 +151,7 @@ export default function HotfixesPage() {
     .sort((a, b) => a.expectedDate.localeCompare(b.expectedDate));
 
   const resolveResponsible = (hotfix: Hotfix) => users.find(u => u.id === hotfix.responsibleId);
+  const resolveProduct = (hotfix: Hotfix) => products.find(p => p.id === hotfix.productId);
 
   return (
     <div className="space-y-8">
@@ -190,6 +199,7 @@ export default function HotfixesPage() {
             {weekHighlight.map(hotfix => {
               const overdue = isOverdue(hotfix);
               const responsible = resolveResponsible(hotfix);
+              const product = resolveProduct(hotfix);
               return (
                 <div
                   key={hotfix.id}
@@ -209,6 +219,11 @@ export default function HotfixesPage() {
                       )}>
                         {overdue ? 'Atrasado — ainda esta semana' : 'Agendado para esta semana'}
                       </span>
+                      {product && (
+                        <span className="flex items-center gap-1 text-[9px] font-black uppercase tracking-widest px-2.5 py-1 rounded-full bg-white/15">
+                          <Package size={10} /> {product.label}
+                        </span>
+                      )}
                     </div>
                     <h4 className="text-xl font-black tracking-tight uppercase leading-tight mb-2">{hotfix.name}</h4>
                     {hotfix.description && (
@@ -261,6 +276,7 @@ export default function HotfixesPage() {
               {upcoming.map(hotfix => {
                 const overdue = isOverdue(hotfix);
                 const responsible = resolveResponsible(hotfix);
+                const product = resolveProduct(hotfix);
                 return (
                   <div key={hotfix.id} className="p-6 hover:bg-[var(--surface-card)]/50 transition-colors group">
                     <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
@@ -288,6 +304,11 @@ export default function HotfixesPage() {
                             <span className="flex items-center gap-1.5 px-2.5 py-1 rounded-full bg-[var(--accent)]/10 text-[var(--accent-text)] border border-[var(--accent)]/20 text-[9px] font-black uppercase tracking-widest">
                               📅 {formatDate(hotfix.expectedDate)}
                             </span>
+                            {product && (
+                              <span className="flex items-center gap-1.5 px-2.5 py-1 rounded-full bg-[var(--surface-card)] text-[var(--text-tertiary)] border border-[var(--border-default)] text-[9px] font-semibold uppercase tracking-widest">
+                                <Package size={11} /> {product.label}
+                              </span>
+                            )}
                             {responsible && (
                               <span className="flex items-center gap-1.5 px-2.5 py-1 rounded-full bg-[var(--surface-card)] text-[var(--text-tertiary)] border border-[var(--border-default)] text-[9px] font-semibold uppercase tracking-widest">
                                 {responsible.name}
@@ -333,6 +354,7 @@ export default function HotfixesPage() {
             <div className="divide-y divide-[var(--border-default)]">
               {published.map(hotfix => {
                 const responsible = resolveResponsible(hotfix);
+                const product = resolveProduct(hotfix);
                 return (
                   <div key={hotfix.id} className="p-6 hover:bg-[var(--surface-card)]/50 transition-colors group">
                     <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
@@ -346,6 +368,11 @@ export default function HotfixesPage() {
                             <span className="flex items-center gap-1.5 px-2.5 py-1 rounded-full bg-[var(--surface-success)] text-[var(--text-success)] border border-[var(--text-success)]/20 text-[9px] font-semibold uppercase tracking-widest">
                               <CheckCircle2 size={11} /> Publicado em {formatDateTime(hotfix.publishedAt!)}
                             </span>
+                            {product && (
+                              <span className="flex items-center gap-1.5 px-2.5 py-1 rounded-full bg-[var(--surface-card)] text-[var(--text-tertiary)] border border-[var(--border-default)] text-[9px] font-semibold uppercase tracking-widest">
+                                <Package size={11} /> {product.label}
+                              </span>
+                            )}
                             {responsible && (
                               <span className="flex items-center gap-1.5 px-2.5 py-1 rounded-full bg-[var(--surface-card)] text-[var(--text-tertiary)] border border-[var(--border-default)] text-[9px] font-semibold uppercase tracking-widest">
                                 {responsible.name}
@@ -408,7 +435,7 @@ export default function HotfixesPage() {
                   />
                 </div>
 
-                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
                   <div className="space-y-1.5">
                     <label className="text-[10px] font-semibold uppercase text-[var(--text-tertiary)] tracking-widest ml-1">Responsável</label>
                     <StyledSelect
@@ -419,6 +446,19 @@ export default function HotfixesPage() {
                       <option value="">Sem responsável</option>
                       {users.map(u => (
                         <option key={u.id} value={u.id}>{u.name}</option>
+                      ))}
+                    </StyledSelect>
+                  </div>
+                  <div className="space-y-1.5">
+                    <label className="text-[10px] font-semibold uppercase text-[var(--text-tertiary)] tracking-widest ml-1">Produto</label>
+                    <StyledSelect
+                      value={productId}
+                      onChange={(e) => setProductId(e.target.value)}
+                      className="w-full bg-[var(--surface-card)] border border-[var(--border-default)] rounded-2xl px-5 py-4 text-sm font-bold focus:ring-4 focus:ring-[var(--accent)]/10 outline-none transition-all appearance-none"
+                    >
+                      <option value="">Sem produto</option>
+                      {products.map(p => (
+                        <option key={p.id} value={p.id}>{p.label}</option>
                       ))}
                     </StyledSelect>
                   </div>

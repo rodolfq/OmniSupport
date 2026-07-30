@@ -1,9 +1,14 @@
-import { CategoryConfig, PriorityConfig, StatusConfig, TagConfig, QuickNote, SurveySettings, EmailSettings } from '../types';
+import { CategoryConfig, PriorityConfig, StatusConfig, TagConfig, QuickNote, SurveySettings, EmailSettings, ProductConfig } from '../types';
 import { registerClosedStatusLabels } from '../ticket-status';
 
 export class ConfigService {
   static async getCategories(): Promise<CategoryConfig[]> {
     const res = await fetch('/api/config?type=categories');
+    return res.json();
+  }
+
+  static async getProducts(): Promise<ProductConfig[]> {
+    const res = await fetch('/api/config?type=products');
     return res.json();
   }
 

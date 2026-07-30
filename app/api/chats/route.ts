@@ -1105,14 +1105,25 @@ export async function POST(request: Request) {
       // ver migrations/queue_daily_anchor.sql. Este é o ponto usado tanto
       // pelo toggle manual quanto pelo heartbeat de 60s (app-context.tsx),
       // então o heartbeat repetindo o mesmo status não pode reancorar.
+      //
+      // status_since (ver migrations/analyst_status_since.sql) só avança
+      // quando status OU current_reason realmente mudam — o heartbeat
+      // repetindo o mesmo status/motivo não pode empurrá-lo pra frente,
+      // senão o cronômetro de almoço "reinicia" toda vez que o sistema é
+      // reaberto (statusSince em /api/auth/me lia last_active, que o
+      // heartbeat sempre atualiza; ver comentário lá).
       await query(
-        `INSERT INTO public.analyst_status (user_id, is_online, last_active, current_reason, status, queue_anchor_at, queue_anchor_date)
-         VALUES ($1, $2, NOW(), $3, $4, CASE WHEN $2 THEN NOW() END, CASE WHEN $2 THEN CURRENT_DATE END)
+        `INSERT INTO public.analyst_status (user_id, is_online, last_active, current_reason, status, status_since, queue_anchor_at, queue_anchor_date)
+         VALUES ($1, $2, NOW(), $3, $4, NOW(), CASE WHEN $2 THEN NOW() END, CASE WHEN $2 THEN CURRENT_DATE END)
          ON CONFLICT (user_id) DO UPDATE SET
            is_online = EXCLUDED.is_online,
            last_active = NOW(),
            current_reason = EXCLUDED.current_reason,
            status = EXCLUDED.status,
+           status_since = CASE
+             WHEN analyst_status.status IS DISTINCT FROM EXCLUDED.status
+               OR analyst_status.current_reason IS DISTINCT FROM EXCLUDED.current_reason
+             THEN NOW() ELSE COALESCE(analyst_status.status_since, NOW()) END,
            queue_anchor_at = CASE
              WHEN EXCLUDED.is_online AND (analyst_status.queue_anchor_date IS NULL OR analyst_status.queue_anchor_date < CURRENT_DATE)
              THEN NOW() ELSE analyst_status.queue_anchor_at END,

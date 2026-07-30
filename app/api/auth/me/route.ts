@@ -50,7 +50,7 @@ export async function GET(request: NextRequest) {
 
     // Buscar status de analista
     const statusResult = await query(
-      'SELECT status, current_reason, last_active FROM public.analyst_status WHERE user_id = $1',
+      'SELECT status, current_reason, last_active, status_since FROM public.analyst_status WHERE user_id = $1',
       [decoded.id]
     );
     const dbStatus = (statusResult.rowCount ?? 0) > 0 ? statusResult.rows[0] : null;
@@ -75,7 +75,13 @@ export async function GET(request: NextRequest) {
         adminOfTeamIds: profile.admin_of_team_ids || [],
         status: status,
         statusReason: dbStatus?.current_reason || null,
-        statusSince: dbStatus?.last_active || null
+        // status_since é quando o status/motivo ATUAL começou (só muda
+        // quando status/current_reason mudam de verdade) — NÃO usar
+        // last_active aqui, que o heartbeat de presença recarrega a cada
+        // ~60s mesmo sem o status mudar (ver migrations/analyst_status_since.sql).
+        // Fallback pra last_active só cobre uma janela entre deploy da
+        // migration e o primeiro heartbeat de cada usuário.
+        statusSince: dbStatus?.status_since || dbStatus?.last_active || null
       }
     });
   } catch (error: any) {

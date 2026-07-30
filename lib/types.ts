@@ -57,7 +57,12 @@ export enum Permission {
   // liberando só o agregado/time; isto aqui é o que hoje some numa reforma
   // futura da granularidade de /reports.
   REPORTS_INDIVIDUAL = 'reports:individual',
-  REPORTS_EXPORT = 'reports:export'
+  REPORTS_EXPORT = 'reports:export',
+  // Widget flutuante do Agente de IA (busca em chat com cliente, chat de
+  // grupo interno, chamados e tickets internos) — concedida por padrão aos
+  // perfis de Equipe/Time Interno na migration que introduziu o agente (ver
+  // migrations/ai_assistant.sql), não só a quem administra o sistema.
+  AI_ASSISTANT_USE = 'ai:assistant'
 }
 
 export interface StatusConfig {
@@ -342,6 +347,7 @@ export interface Hotfix {
   name: string;
   description?: string;
   responsibleId?: string;
+  productId?: string;
   expectedDate: string; // YYYY-MM-DD
   publishedAt?: string;
   createdAt: string;

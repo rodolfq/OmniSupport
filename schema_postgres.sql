@@ -137,6 +137,13 @@ CREATE TABLE public.analyst_status (
   last_active TIMESTAMP WITH TIME ZONE DEFAULT now(),
   current_load INTEGER DEFAULT 0,
   current_reason TEXT,
+  status TEXT DEFAULT 'online',
+  -- Início do status/motivo ATUAL (só muda quando status ou current_reason
+  -- realmente mudam) — diferente de last_active, que o heartbeat de presença
+  -- recarrega a cada ~60s mesmo sem o status mudar. O cronômetro de almoço
+  -- (app-context.tsx) depende de status_since, não de last_active, pra
+  -- sobreviver a fechar/reabrir o sistema no meio do almoço.
+  status_since TIMESTAMP WITH TIME ZONE,
   -- Ordem do rodízio de atendimento (ver migrations/queue_daily_anchor.sql e
   -- lib/services/queue-routing.ts): gravada só na primeira vez que o analista
   -- fica online no dia, pra não perder a posição ao ficar ausente/reconectar.
@@ -201,6 +208,13 @@ CREATE TABLE public.config_products (
   label TEXT NOT NULL UNIQUE,
   created_at TIMESTAMP WITH TIME ZONE DEFAULT now() NOT NULL
 );
+
+-- Indicador de produto no Hotfix — mesma lista usada no campo "Produto" do
+-- chamado. ALTER porque hotfixes é criada antes de config_products neste
+-- script.
+ALTER TABLE public.hotfixes
+  ADD COLUMN IF NOT EXISTS product_id UUID REFERENCES public.config_products(id) ON DELETE SET NULL;
+CREATE INDEX IF NOT EXISTS idx_hotfixes_product_id ON public.hotfixes(product_id);
 
 -- Config Priorities
 CREATE TABLE public.config_priorities (
@@ -322,6 +336,11 @@ CREATE INDEX IF NOT EXISTS idx_tickets_public_number ON public.tickets(public_ti
 CREATE INDEX IF NOT EXISTS idx_tickets_category_id ON public.tickets(category_id);
 CREATE INDEX IF NOT EXISTS idx_tickets_request_type_id ON public.tickets(request_type_id);
 CREATE INDEX IF NOT EXISTS idx_tickets_product_id ON public.tickets(product_id);
+CREATE INDEX IF NOT EXISTS idx_tickets_status ON public.tickets(status);
+CREATE INDEX IF NOT EXISTS idx_tickets_assignee_id ON public.tickets(assignee_id);
+CREATE INDEX IF NOT EXISTS idx_tickets_company_id ON public.tickets(company_id);
+CREATE INDEX IF NOT EXISTS idx_tickets_customer_id ON public.tickets(customer_id);
+CREATE INDEX IF NOT EXISTS idx_tickets_created_at ON public.tickets(created_at DESC);
 
 -- Fila de envio atrasado (status='pending') e histórico/auditoria
 -- (status='sent'|'failed'|'skipped') na mesma tabela. Movida pra depois de
@@ -357,6 +376,10 @@ CREATE TABLE public.ticket_messages (
   created_at TIMESTAMP WITH TIME ZONE DEFAULT now() NOT NULL
 );
 
+-- WHERE ticket_id = $1 ORDER BY created_at — toda abertura de chamado bate
+-- nisso.
+CREATE INDEX IF NOT EXISTS idx_ticket_messages_ticket_id ON public.ticket_messages(ticket_id, created_at);
+
 -- Chat Sessions
 CREATE TABLE public.chat_sessions (
   id UUID PRIMARY KEY DEFAULT (md5(random()::text || clock_timestamp()::text)::uuid),
@@ -374,6 +397,14 @@ CREATE TABLE public.chat_sessions (
   last_message_at TIMESTAMP WITH TIME ZONE,
   awaiting_survey_until TIMESTAMP WITH TIME ZONE
 );
+
+-- Poll de 30s (GET /api/chats?action=sessions) e a subquery correlacionada
+-- em app/api/tickets/route.ts rodam contra esta tabela o tempo todo.
+CREATE INDEX IF NOT EXISTS idx_chat_sessions_status ON public.chat_sessions(status);
+CREATE INDEX IF NOT EXISTS idx_chat_sessions_queue_id ON public.chat_sessions(queue_id);
+CREATE INDEX IF NOT EXISTS idx_chat_sessions_assignee_id ON public.chat_sessions(assignee_id);
+CREATE INDEX IF NOT EXISTS idx_chat_sessions_customer_id ON public.chat_sessions(customer_id);
+CREATE INDEX IF NOT EXISTS idx_chat_sessions_ticket_id ON public.chat_sessions(ticket_id);
 
 -- Chamado -> conversa de origem (N:1, permite mais de um chamado pra mesma
 -- conversa). Fica como ALTER porque chat_sessions é criada depois de tickets
@@ -407,6 +438,8 @@ CREATE TABLE public.chat_messages (
   metadata JSONB DEFAULT '{}'::jsonb,
   created_at TIMESTAMP WITH TIME ZONE DEFAULT now() NOT NULL
 );
+
+CREATE INDEX IF NOT EXISTS idx_chat_messages_session_id ON public.chat_messages(session_id, created_at);
 
 -- Chat Histories Table
 CREATE TABLE public.chat_histories (
@@ -482,6 +515,8 @@ CREATE TABLE public.internal_tickets (
 
 CREATE INDEX IF NOT EXISTS idx_internal_tickets_number ON public.internal_tickets(internal_ticket_number);
 CREATE INDEX IF NOT EXISTS idx_internal_tickets_status ON public.internal_tickets(status);
+CREATE INDEX IF NOT EXISTS idx_internal_tickets_assignee_id ON public.internal_tickets(assignee_id);
+CREATE INDEX IF NOT EXISTS idx_internal_tickets_internal_team_id ON public.internal_tickets(internal_team_id);
 
 -- Ticket Internal Links Table
 CREATE TABLE public.ticket_internal_links (
@@ -561,6 +596,8 @@ CREATE TABLE public.internal_ticket_messages (
     created_at TIMESTAMP WITH TIME ZONE DEFAULT now() NOT NULL
 );
 
+CREATE INDEX IF NOT EXISTS idx_internal_ticket_messages_internal_ticket_id ON public.internal_ticket_messages(internal_ticket_id, created_at);
+
 -- User search history
 CREATE TABLE public.user_search_history (
   id UUID PRIMARY KEY DEFAULT (md5(random()::text || clock_timestamp()::text)::uuid),
@@ -580,6 +617,75 @@ CREATE TABLE public.saved_views (
 
 CREATE INDEX idx_user_search_history_user_id ON public.user_search_history(user_id);
 CREATE INDEX idx_saved_views_user_id ON public.saved_views(user_id);
+
+-- Agente de IA (widget flutuante) — log de auditoria de pergunta/resposta e
+-- das buscas feitas (chat cliente, chat de grupo interno, chamados, tickets
+-- internos). Não é a fonte de verdade da conversa (o client mantém o
+-- histórico em memória) — ver migrations/ai_assistant.sql.
+CREATE TABLE public.ai_assistant_messages (
+  id UUID PRIMARY KEY DEFAULT (md5(random()::text || clock_timestamp()::text)::uuid),
+  user_id UUID REFERENCES public.profiles(id) ON DELETE SET NULL,
+  conversation_id UUID NOT NULL,
+  role TEXT NOT NULL, -- 'user' | 'model'
+  content TEXT NOT NULL,
+  tool_calls JSONB,
+  created_at TIMESTAMP WITH TIME ZONE DEFAULT now() NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_ai_assistant_messages_conversation ON public.ai_assistant_messages(conversation_id, created_at);
+CREATE INDEX IF NOT EXISTS idx_ai_assistant_messages_user ON public.ai_assistant_messages(user_id, created_at);
+
+-- Busca semântica do Agente de IA (embeddings) — ver migrations/ai_embeddings.sql
+-- para a explicação completa das decisões (sem pgvector, sem hook manual
+-- por ponto de inserção). Vetores em array nativo (sem extensão) porque
+-- pgvector não está disponível no Postgres de produção deste projeto.
+CREATE TABLE public.ai_embeddings (
+  id BIGSERIAL PRIMARY KEY,
+  source_type TEXT NOT NULL, -- 'ticket_message' | 'internal_ticket_message' | 'chat_message' | 'internal_chat_message'
+  source_id UUID NOT NULL,
+  parent_id TEXT,
+  content TEXT NOT NULL,
+  embedding DOUBLE PRECISION[] NOT NULL,
+  source_created_at TIMESTAMP WITH TIME ZONE NOT NULL,
+  indexed_at TIMESTAMP WITH TIME ZONE DEFAULT now() NOT NULL
+);
+CREATE UNIQUE INDEX IF NOT EXISTS idx_ai_embeddings_source ON public.ai_embeddings(source_type, source_id);
+CREATE INDEX IF NOT EXISTS idx_ai_embeddings_parent ON public.ai_embeddings(parent_id);
+CREATE INDEX IF NOT EXISTS idx_ai_embeddings_created_at ON public.ai_embeddings(source_created_at DESC);
+
+CREATE TABLE public.ai_embedding_queue (
+  id BIGSERIAL PRIMARY KEY,
+  source_type TEXT NOT NULL,
+  source_id UUID NOT NULL,
+  created_at TIMESTAMP WITH TIME ZONE DEFAULT now() NOT NULL,
+  processed_at TIMESTAMP WITH TIME ZONE
+);
+CREATE INDEX IF NOT EXISTS idx_ai_embedding_queue_pending ON public.ai_embedding_queue(created_at) WHERE processed_at IS NULL;
+
+-- Trigger de banco em cada uma das 4 tabelas de mensagem — garante que
+-- TODA inserção (não importa o caminho de código) entra na fila de
+-- indexação sozinha, sem precisar de hook manual espalhado pelo app.
+CREATE OR REPLACE FUNCTION public.ai_enqueue_embedding() RETURNS TRIGGER AS $$
+BEGIN
+  INSERT INTO public.ai_embedding_queue (source_type, source_id) VALUES (TG_ARGV[0], NEW.id);
+  RETURN NEW;
+END;
+$$ LANGUAGE plpgsql;
+
+CREATE TRIGGER trg_ai_embed_ticket_messages
+  AFTER INSERT ON public.ticket_messages
+  FOR EACH ROW EXECUTE FUNCTION public.ai_enqueue_embedding('ticket_message');
+
+CREATE TRIGGER trg_ai_embed_internal_ticket_messages
+  AFTER INSERT ON public.internal_ticket_messages
+  FOR EACH ROW EXECUTE FUNCTION public.ai_enqueue_embedding('internal_ticket_message');
+
+CREATE TRIGGER trg_ai_embed_chat_messages
+  AFTER INSERT ON public.chat_messages
+  FOR EACH ROW EXECUTE FUNCTION public.ai_enqueue_embedding('chat_message');
+
+CREATE TRIGGER trg_ai_embed_internal_chat_messages
+  AFTER INSERT ON public.internal_chat_messages
+  FOR EACH ROW EXECUTE FUNCTION public.ai_enqueue_embedding('internal_chat_message');
 
 -- =========================================================================
 -- SEED DATA SETUP
@@ -688,14 +794,14 @@ INSERT INTO public.role_permissions (name, role, permissions) VALUES
     'reports:read',
     'internal:view', 'internal:edit',
     'tickets:outside_queue',
-    'dashboard:view', 'chat:internal'
+    'dashboard:view', 'chat:internal', 'ai:assistant'
   ]::TEXT[]),
   ('Cliente', 'Cliente', ARRAY[
     'tickets:read', 'tickets:write', 'customers:read'
   ]::TEXT[]),
   ('Funcionário', 'Funcionário', ARRAY[]::TEXT[]),
   ('Time Interno', 'Time Interno', ARRAY[
-    'internal:view', 'internal:edit', 'chat:internal'
+    'internal:view', 'internal:edit', 'chat:internal', 'ai:assistant'
   ]::TEXT[])
 -- Único índice que cobre (name) sozinho é o parcial (role_permissions_name_global_idx,
 -- WHERE internal_team_id IS NULL) — sem o WHERE aqui, ON CONFLICT (name) não
