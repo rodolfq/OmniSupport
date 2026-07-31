@@ -8,7 +8,7 @@ import { cn, normalizeString } from '@/lib/utils';
 import { motion, AnimatePresence } from 'motion/react';
 import { useApp } from '@/app/app-context';
 import { supabase } from '@/lib/supabase';
-import { useCompaniesQuery, useProfilesQuery } from '@/lib/query-hooks';
+import { useCompaniesQuery, useProfilesLiteQuery } from '@/lib/query-hooks';
 import { toast } from 'sonner';
 
 interface FilterBarProps {
@@ -32,12 +32,14 @@ export function FilterBar({ onFilterChange, originalTickets }: FilterBarProps) {
   const [ticketId, setTicketId] = useState('');
 
   // Compartilhado via TanStack Query (lib/query-hooks.ts) — mesma queryKey
-  // que modern-search-bar.tsx e ticket-detail-modal.tsx usam, então só o
-  // PRIMEIRO desses três a montar de fato busca; os outros reaproveitam.
+  // que modern-search-bar.tsx usa, então só o primeiro dos dois a montar
+  // de fato busca. useProfilesLiteQuery (sem avatar_url — a tabela profiles
+  // tem ~51MB de fotos em base64) é a versão certa aqui, já que só
+  // filtramos por role/is_admin, não mostramos foto nenhuma.
   const { data: companies = [] } = useCompaniesQuery();
-  const { data: profiles = [] } = useProfilesQuery();
+  const { data: profiles = [] } = useProfilesLiteQuery();
   const analysts = useMemo<User[]>(
-    () => (profiles as any[]).filter((u: any) => u.role === 'Equipe' || u.is_admin),
+    () => (profiles as any[]).filter((u: any) => u.role === 'Equipe' || u.isAdmin),
     [profiles]
   );
   const [savedFilters, setSavedFilters] = useState<SavedFilter[]>([]);

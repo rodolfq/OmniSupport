@@ -7,7 +7,7 @@ import { cn } from "@/lib/utils";
 import { motion, AnimatePresence } from "motion/react";
 import { TicketStatus, SavedFilter, UserRole } from "@/lib/types";
 import { useApp } from "@/app/app-context";
-import { supabase } from "@/lib/supabase";
+import { useCompaniesQuery, useProfilesLiteQuery } from "@/lib/query-hooks";
 import { searchTickets, SearchFilters, getSavedViews, saveCustomView, saveSearchHistory } from "@/lib/search";
 
 interface ModernSearchBarProps {
@@ -44,17 +44,17 @@ export function ModernSearchBar({ onSearch, loading, extraControls, quickFilters
   const [endDate, setEndDate] = useState<string>("");
   const [slaOverdue, setSlaOverdue] = useState(false);
   const [includeClosed, setIncludeClosed] = useState(false);
-  const [companies, setCompanies] = useState<any[]>([]);
-  const [users, setUsers] = useState<any[]>([]);
+  // Compartilhado via TanStack Query (lib/query-hooks.ts) — mesma queryKey
+  // que filter-bar.tsx usa, então normalmente já vem do cache em vez de
+  // refazer o fetch. useProfilesLiteQuery busca só id/nome/role (sem
+  // avatar_url) — a tabela profiles tem ~51MB de fotos em base64, então
+  // usar a query "com avatar" (a que ticket-detail-modal.tsx precisa) aqui
+  // custaria esse payload à toa pra um dropdown de filtro.
+  const { data: companies = [] } = useCompaniesQuery();
+  const { data: users = [] } = useProfilesLiteQuery();
 
   const inputRef = useRef<HTMLInputElement>(null);
   const lastSubmittedFiltersRef = useRef(JSON.stringify({}));
-
-  // Load companies and users for filter dropdowns
-  useEffect(() => {
-    supabase.from('companies').select('id, name').then(({ data }) => setCompanies(data || []));
-    supabase.from('profiles').select('id, name').then(({ data }) => setUsers(data || []));
-  }, []);
 
   // Consolidate search and filter changes into a single request.
   useEffect(() => {
@@ -332,13 +332,13 @@ export function ModernSearchBar({ onSearch, loading, extraControls, quickFilters
             )}
             {activeFilters.companyId && (
               <span className="inline-flex items-center gap-1.5 px-3 py-1.5 bg-[var(--surface-success)] text-[var(--text-success)] rounded-full text-xs font-bold">
-                Cliente: {companies.find(c => c.id === activeFilters.companyId)?.name || activeFilters.companyId}
+                Cliente: {companies.find((c: any) => c.id === activeFilters.companyId)?.name || activeFilters.companyId}
                 <button onClick={() => removeFilter("companyId")}><X size={12} /></button>
               </span>
             )}
             {activeFilters.assigneeId && (
               <span className="inline-flex items-center gap-1.5 px-3 py-1.5 bg-purple-50 dark:bg-purple-500/10 text-purple-700 dark:text-purple-300 rounded-full text-xs font-bold">
-                Responsável: {users.find(u => u.id === activeFilters.assigneeId)?.name || activeFilters.assigneeId}
+                Responsável: {users.find((u: any) => u.id === activeFilters.assigneeId)?.name || activeFilters.assigneeId}
                 <button onClick={() => removeFilter("assigneeId")}><X size={12} /></button>
               </span>
             )}
@@ -421,7 +421,7 @@ export function ModernSearchBar({ onSearch, loading, extraControls, quickFilters
                     className="w-full px-3 py-2 rounded-lg border border-[var(--border-default)] text-xs font-bold bg-[var(--surface-card)] focus:border-indigo-400 outline-none"
                   >
                     <option value="">Qualquer Cliente</option>
-                    {companies.map(c => (
+                    {companies.map((c: any) => (
                       <option key={c.id} value={c.id}>{c.name}</option>
                     ))}
                   </StyledSelect>
@@ -438,7 +438,7 @@ export function ModernSearchBar({ onSearch, loading, extraControls, quickFilters
                     className="w-full px-3 py-2 rounded-lg border border-[var(--border-default)] text-xs font-bold bg-[var(--surface-card)] focus:border-indigo-400 outline-none"
                   >
                     <option value="">Qualquer Responsável</option>
-                    {users.map(u => (
+                    {users.map((u: any) => (
                       <option key={u.id} value={u.id}>{u.name}</option>
                     ))}
                   </StyledSelect>

@@ -19,7 +19,25 @@ export async function GET(request: Request) {
   const type = searchParams.get('type') || 'all';
 
   try {
-    if (type === 'employees') {
+    if (type === 'lite') {
+      // Sem avatar_url de propósito: a tabela tem ~51MB de fotos em base64
+      // (sync do Bitrix24) — bom pra tela de Equipe mostrar foto, péssimo
+      // pra dropdown de filtro/responsável que só precisa de id/nome/role.
+      // Usada por lib/query-hooks.ts (useProfilesLiteQuery), compartilhada
+      // entre filter-bar.tsx e modern-search-bar.tsx.
+      const res = await query(
+        'SELECT id, name, email, role, company_id, is_admin, internal_team_ids FROM public.profiles'
+      );
+      return NextResponse.json(res.rows.map(r => ({
+        id: r.id,
+        name: r.name,
+        email: r.email,
+        role: r.role,
+        companyId: r.company_id,
+        isAdmin: r.is_admin,
+        internalTeamIds: r.internal_team_ids
+      })));
+    } else if (type === 'employees') {
       const res = await query(
         "SELECT id, name, email, role, company_id, phone FROM public.profiles WHERE role = 'Cliente' OR role = 'Funcionário'"
       );
