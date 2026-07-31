@@ -1,13 +1,14 @@
 'use client';
 
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useMemo } from 'react';
 import { StyledSelect } from '@/components/styled-select';
 import { Search, Filter, X, ChevronDown, Save, Bookmark, Trash2 } from 'lucide-react';
-import { TicketStatus, User, Company, SavedFilter, UserRole } from '@/lib/types';
+import { TicketStatus, User, SavedFilter, UserRole } from '@/lib/types';
 import { cn, normalizeString } from '@/lib/utils';
 import { motion, AnimatePresence } from 'motion/react';
 import { useApp } from '@/app/app-context';
 import { supabase } from '@/lib/supabase';
+import { useCompaniesQuery, useProfilesQuery } from '@/lib/query-hooks';
 import { toast } from 'sonner';
 
 interface FilterBarProps {
@@ -30,22 +31,18 @@ export function FilterBar({ onFilterChange, originalTickets }: FilterBarProps) {
   const [contentSearch, setContentSearch] = useState('');
   const [ticketId, setTicketId] = useState('');
 
-  const [companies, setCompanies] = useState<Company[]>([]);
-  const [analysts, setAnalysts] = useState<User[]>([]);
+  // Compartilhado via TanStack Query (lib/query-hooks.ts) — mesma queryKey
+  // que modern-search-bar.tsx e ticket-detail-modal.tsx usam, então só o
+  // PRIMEIRO desses três a montar de fato busca; os outros reaproveitam.
+  const { data: companies = [] } = useCompaniesQuery();
+  const { data: profiles = [] } = useProfilesQuery();
+  const analysts = useMemo<User[]>(
+    () => (profiles as any[]).filter((u: any) => u.role === 'Equipe' || u.is_admin),
+    [profiles]
+  );
   const [savedFilters, setSavedFilters] = useState<SavedFilter[]>([]);
   const [newFilterName, setNewFilterName] = useState('');
   const [isSaving, setIsSaving] = useState(false);
-
-  useEffect(() => {
-    async function fetchData() {
-      const { data: compList } = await supabase.from('companies').select('*');
-      const { data: profiles } = await supabase.from('profiles').select('*');
-      
-      if (compList) setCompanies(compList);
-      if (profiles) setAnalysts(profiles.filter((u: any) => u.role === 'Equipe' || u.is_admin) as any);
-    }
-    fetchData();
-  }, []);
 
   useEffect(() => {
     async function fetchSavedFilters() {
@@ -288,7 +285,7 @@ export function FilterBar({ onFilterChange, originalTickets }: FilterBarProps) {
                         className="w-full bg-[var(--surface-card)] border border-[var(--border-default)] rounded-xl px-4 py-2.5 text-sm font-bold focus:ring-2 focus:ring-[var(--accent)]/20 outline-none appearance-none"
                       >
                         <option value="">Qualquer Empresa</option>
-                        {companies.map(c => <option key={c.id} value={c.id}>{c.name}</option>)}
+                        {companies.map((c: any) => <option key={c.id} value={c.id}>{c.name}</option>)}
                       </StyledSelect>
                     </div>
 
