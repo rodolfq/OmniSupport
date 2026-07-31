@@ -2,8 +2,8 @@
 
 import React, { useState, useEffect } from 'react';
 import { StyledSelect } from '@/components/styled-select';
-import { 
-  Search, Mail, Shield, Key, Trash2, Edit2, CheckCircle2, XCircle, Bell, UserPlus, Eye, EyeOff
+import {
+  Search, Mail, Shield, Key, Trash2, Edit2, CheckCircle2, XCircle, Bell, UserPlus, Eye, EyeOff, RefreshCw
 } from 'lucide-react';
 import { ConfirmDialog } from '@/components/confirm-dialog';
 import { cn } from '@/lib/utils';
@@ -55,6 +55,7 @@ export default function TeamManagementPage() {
   const [profiles, setProfiles] = useState<RolePermission[]>([]);
   const [teams, setTeams] = useState<TeamOption[]>([]);
   const [accessProfileId, setAccessProfileId] = useState<string>('');
+  const [isSyncingBitrix24, setIsSyncingBitrix24] = useState(false);
 
   const { currentUser, authInitialized } = useApp();
   const router = useRouter();
@@ -108,6 +109,30 @@ export default function TeamManagementPage() {
       fetchUsers();
     }
   }, [authInitialized, canViewTeam]);
+
+  // Sincronização manual com o Bitrix24 (user.get) — cria/atualiza analista
+  // por e-mail exato, salvando só nome/e-mail/telefone/foto. Ver
+  // lib/services/bitrix24-service.ts.
+  const handleSyncBitrix24 = async () => {
+    if (isSyncingBitrix24) return;
+    setIsSyncingBitrix24(true);
+    try {
+      const res = await fetch('/api/integrations/bitrix24/sync-users', { method: 'POST' });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data?.error || 'Falha ao sincronizar com o Bitrix24.');
+      toast.success(`Bitrix24 sincronizado: ${data.created} novo(s), ${data.updated} atualizado(s)${data.skipped ? `, ${data.skipped} ignorado(s)` : ''}.`);
+      if (Array.isArray(data.errors) && data.errors.length > 0) {
+        console.error('[Bitrix24] Erros durante a sincronização de usuários:', data.errors);
+        toast.warning(`${data.errors.length} usuário(s) falharam ao sincronizar — ver console.`);
+      }
+      await fetchUsers();
+    } catch (err: any) {
+      console.error('Erro ao sincronizar usuários com o Bitrix24:', err);
+      toast.error(err?.message || 'Falha ao sincronizar com o Bitrix24.');
+    } finally {
+      setIsSyncingBitrix24(false);
+    }
+  };
 
   const filteredAnalysts = analysts.filter(a =>
     [UserRole.ADMIN, UserRole.SUPPORT, UserRole.INTERNAL].includes(a.role) &&
@@ -308,6 +333,17 @@ export default function TeamManagementPage() {
             <Bell size={18} />
             Minhas Notificações
           </button>
+          {canManageTeam && (
+            <button
+              onClick={handleSyncBitrix24}
+              disabled={isSyncingBitrix24}
+              title="Sincronizar equipe do Bitrix24"
+              className="hidden md:flex items-center gap-2 px-6 py-3 bg-[var(--surface-card)] border border-[var(--border-default)] text-[var(--text-secondary)] rounded-2xl text-sm font-black uppercase tracking-widest hover:bg-[var(--surface-pill)] transition-all shadow-sm disabled:opacity-50"
+            >
+              <RefreshCw size={18} className={cn(isSyncingBitrix24 && 'animate-spin')} />
+              Sincronizar Bitrix24
+            </button>
+          )}
           {canManageTeam && (
             <button
               onClick={() => handleOpenModal()}

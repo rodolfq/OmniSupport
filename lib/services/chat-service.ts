@@ -414,6 +414,28 @@ export async function fetchSessionMessages(sessionId: string): Promise<SessionMe
   return res.json();
 }
 
+export interface ChatSummaryResult {
+  summary: string;
+  generatedAt: string;
+  cached: boolean;
+}
+
+// "Chat Resumido" — gera (se ainda não existir) ou retorna o resumo por IA
+// já salvo em chat_histories.summary. Usado pelo toggle "Chat completo /
+// Chat Resumido" em app/(portal)/chat-history/page.tsx. Lança com a mensagem
+// vinda da API (motivo claro da falha — ver app/api/chats/route.ts) em vez
+// de um erro genérico.
+export async function summarizeChatHistory(historyId: string): Promise<ChatSummaryResult> {
+  const res = await fetch('/api/chats', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ action: 'summarize-history', historyId })
+  });
+  const data = await res.json().catch(() => ({}));
+  if (!res.ok) throw new Error(data.error || 'Não foi possível gerar o resumo desta conversa.');
+  return data;
+}
+
 export async function transcribeChatAudio(sessionId: string, messageId: string, attachmentId: string): Promise<string> {
   const res = await fetch('/api/chats', {
     method: 'POST',

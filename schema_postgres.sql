@@ -455,6 +455,8 @@ CREATE TABLE public.chat_histories (
     first_response_seconds INTEGER,
     rating INTEGER CHECK (rating IN (-1, 0, 1)),
     transcript TEXT,
+    summary TEXT,
+    summary_generated_at TIMESTAMP WITH TIME ZONE,
     created_at TIMESTAMP WITH TIME ZONE DEFAULT now() NOT NULL
 );
 

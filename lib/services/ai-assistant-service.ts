@@ -1,7 +1,13 @@
-import Groq from 'groq-sdk';
+import type Groq from 'groq-sdk';
 import type { ChatCompletionMessageParam, ChatCompletionTool } from 'groq-sdk/resources/chat/completions';
 import { query } from '@/lib/db';
 import { isEmbeddingEnabled, semanticSearch, truncateText } from './embedding-service';
+import { getGroqClient, GROQ_MODEL_NAME, AssistantNotConfiguredError } from '@/lib/groq-client';
+
+// Re-exportado por compatibilidade — app/api/ai-assistant/route.ts importa
+// AssistantNotConfiguredError daqui (mesma classe de lib/groq-client.ts,
+// instanceof continua funcionando normalmente).
+export { AssistantNotConfiguredError };
 
 // Agente de IA (widget flutuante) — combina duas estratégias de busca:
 // 1) ferramentas específicas por palavra-chave/SQL (search_tickets,
@@ -26,7 +32,7 @@ import { isEmbeddingEnabled, semanticSearch, truncateText } from './embedding-se
 // 4 fontes, sem repetir aqui o escopo fino (por fila/empresa) que cada tela
 // já aplica. Limitação aceita nesta v1, documentada pro usuário.
 
-const MODEL_NAME = process.env.GROQ_MODEL || 'llama-3.3-70b-versatile';
+const MODEL_NAME = GROQ_MODEL_NAME;
 // Reduzido de 4 pra 3 (menos uma rodada de reenvio de schema+histórico no
 // pior caso) e limites de resultado cortados (eram 8/20) — o agente bateu
 // o teto diário de tokens do Groq (100k/dia no tier gratuito); cada
@@ -36,19 +42,7 @@ const MAX_TOOL_ROUNDS = 3;
 const DEFAULT_LIMIT = 5;
 const MAX_LIMIT = 12;
 
-// Erro distinto de propósito — a rota (app/api/ai-assistant/route.ts) usa
-// isso pra devolver "assistente não configurado" em vez da mensagem
-// genérica de falha transitória, que só confunde quem está configurando a
-// chave pela primeira vez.
-export class AssistantNotConfiguredError extends Error {}
-
-function getClient(): Groq {
-  const apiKey = process.env.GROQ_API_KEY;
-  if (!apiKey) {
-    throw new AssistantNotConfiguredError('GROQ_API_KEY não configurada — ver seção 4 do CLAUDE.md.');
-  }
-  return new Groq({ apiKey });
-}
+const getClient = getGroqClient;
 
 // Aceita number OU string — o schema das ferramentas declara `limit` como
 // ['number', 'string'] de propósito (modelos via Groq às vezes mandam
@@ -522,12 +516,14 @@ async function createCompletionWithRetry(client: Groq, messages: ChatCompletionM
   throw lastError;
 }
 
-const SYSTEM_INSTRUCTION = `Você é o assistente interno do SSX Desk (plataforma de atendimento/suporte). Responda SEMPRE em português do Brasil, direto e objetivo — resposta de analista, não redação.
-4 fontes de busca: chamados, tickets internos (dev/infra/QA/produto), chat com cliente, chat interno da equipe. Use ferramenta sempre que depender de dado real — NUNCA invente número de chamado, nome, status ou conteúdo de mensagem.
+const SYSTEM_INSTRUCTION = `Você é o assistente interno do SSX Desk (plataforma de atendimento/suporte), falando com um ANALISTA experiente do sistema — não é o cliente final. Responda SEMPRE em português do Brasil.
 
+Seja breve por padrão: direto ao ponto, sem introdução nem fechamento tipo "espero ter ajudado", frase curta ou lista curta. O foco é praticidade e informação, não redação. Só se estenda se o analista pedir mais detalhe ou a resposta exigir passo a passo.
+NUNCA cite de onde veio a informação (número de chamado, "encontrei no chat com...", nome de ferramenta usada) a menos que o analista pergunte explicitamente a origem/fonte — responda só o que foi perguntado.
+
+4 fontes de busca: chamados, tickets internos (dev/infra/QA/produto), chat com cliente, chat interno da equipe. Use ferramenta sempre que depender de dado real — NUNCA invente número de chamado, nome, status ou conteúdo de mensagem.
 Não desista cedo: "como fazer X"/"onde configuro Y" costuma estar registrado num CHAMADO, não num chat solto. Antes de dizer "não encontrei", tente pelo menos: (1) search_tickets com a palavra-chave literal; (2) se vazio, semantic_search reescrevendo a busca por extenso (ex: "hashauth" → "como gerar hashauth da integração" — termo isolado tem sinal semântico fraco). Não pare na primeira ferramenta vazia.
-Pergunta específica (empresa, nº chamado, status exato) → ferramentas por palavra-chave. Pergunta ampla/vaga → semantic_search. Se semantic_search disser que está desligada, avise o usuário em vez de fingir que não achou nada.
-Cite o número do chamado/ticket interno quando responder com base nele (ex: "chamado #1234").`;
+Pergunta específica (empresa, nº chamado, status exato) → ferramentas por palavra-chave. Pergunta ampla/vaga → semantic_search. Se semantic_search disser que está desligada, avise o usuário em vez de fingir que não achou nada.`;
 
 export async function askAssistant(params: {
   userId: string;

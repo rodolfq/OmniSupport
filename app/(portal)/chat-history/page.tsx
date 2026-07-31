@@ -1,12 +1,12 @@
 'use client';
 
-import React, { useState, useEffect, useMemo, useRef } from 'react';
+import React, { useState, useEffect, useMemo, useRef, useCallback } from 'react';
 import { useSearchParams } from 'next/navigation';
 import { StyledSelect } from '@/components/styled-select';
 import { useApp } from '@/app/app-context';
 import { UserRole, Permission, ChatMessage, Attachment } from '@/lib/types';
 import { isImageAttachment, isAudioAttachment, isVideoAttachment } from '@/lib/attachment-kind';
-import { getChatHistories, fetchSessionMessages, SessionMessagesResult } from '@/lib/services/chat-service';
+import { getChatHistories, fetchSessionMessages, summarizeChatHistory, ChatSummaryResult, SessionMessagesResult } from '@/lib/services/chat-service';
 import { fetchUsers, fetchQueues } from '@/lib/services/config-service';
 import { CompanyService } from '@/lib/services/company-service';
 import { parseTranscript } from '@/lib/transcript-format';
@@ -15,7 +15,7 @@ import { useAutoTranscribeMissingAudio } from '@/hooks/use-auto-transcribe-missi
 import {
   Search, Clock, User, MessageSquare, ThumbsUp, ThumbsDown, Minus, Filter,
   ChevronDown, X, FileText, FileDown, Archive, Ticket as TicketIcon, Building2,
-  GripVertical, Columns3, CheckSquare, Square, Shield
+  GripVertical, Columns3, CheckSquare, Square, Shield, Sparkles, RotateCcw
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { motion, AnimatePresence } from 'motion/react';
@@ -444,6 +444,15 @@ export default function ChatHistoryPage() {
   const [sessionMessages, setSessionMessages] = useState<SessionMessagesResult | null>(null);
   const [loadingSessionMessages, setLoadingSessionMessages] = useState(false);
 
+  // "Chat completo" x "Chat Resumido" (resumo por IA, ver
+  // lib/services/chat-summary-service.ts). O resumo é permanente: uma vez
+  // gerado, fica em chat_histories.summary e as próximas aberturas dessa
+  // mesma conversa não geram de novo (nem aqui, nem via API).
+  const [historyViewMode, setHistoryViewMode] = useState<'full' | 'summary'>('full');
+  const [summaryData, setSummaryData] = useState<ChatSummaryResult | null>(null);
+  const [summaryLoading, setSummaryLoading] = useState(false);
+  const [summaryError, setSummaryError] = useState<string | null>(null);
+
   const [columnOrder, setColumnOrder] = useState<string[]>(() => loadColumnPrefs().order);
   const [hiddenColumns, setHiddenColumns] = useState<string[]>(() => loadColumnPrefs().hidden);
   const [isColumnPickerOpen, setIsColumnPickerOpen] = useState(false);
@@ -497,6 +506,44 @@ export default function ChatHistoryPage() {
       .finally(() => { if (!cancelled) setLoadingSessionMessages(false); });
     return () => { cancelled = true; };
   }, [selectedHistory?.sessionId]);
+
+  // Ao trocar (ou fechar) a conversa selecionada, sempre volta pra "Chat
+  // completo" — evita abrir a próxima conversa já em modo resumido sem o
+  // usuário ter pedido. Se essa conversa já tinha um resumo salvo (veio do
+  // fetch de getChatHistories), pré-popula sem precisar de nova chamada.
+  useEffect(() => {
+    setHistoryViewMode('full');
+    setSummaryError(null);
+    setSummaryLoading(false);
+    setSummaryData(
+      selectedHistory?.summary
+        ? { summary: selectedHistory.summary, generatedAt: selectedHistory.summaryGeneratedAt, cached: true }
+        : null
+    );
+  }, [selectedHistory?.id]);
+
+  const loadSummary = useCallback(() => {
+    if (!selectedHistory) return;
+    setSummaryLoading(true);
+    setSummaryError(null);
+    summarizeChatHistory(selectedHistory.id)
+      .then(result => {
+        setSummaryData(result);
+        // Atualiza a lista em memória — reabrir essa mesma conversa depois
+        // (sem recarregar a página) já mostra o resumo salvo, sem gerar de novo.
+        setHistories(prev => prev.map(h => (
+          h.id === selectedHistory.id ? { ...h, summary: result.summary, summaryGeneratedAt: result.generatedAt } : h
+        )));
+      })
+      .catch(err => setSummaryError(err?.message || 'Não foi possível gerar o resumo desta conversa.'))
+      .finally(() => setSummaryLoading(false));
+  }, [selectedHistory]);
+
+  useEffect(() => {
+    if (historyViewMode === 'summary' && !summaryData && !summaryLoading && !summaryError) {
+      loadSummary();
+    }
+  }, [historyViewMode, summaryData, summaryLoading, summaryError, loadSummary]);
 
   // Transcreve sozinho qualquer áudio dessa conversa que ainda não tenha
   // transcrição (mensagem antiga, ou uma tentativa automática que falhou) —
@@ -950,8 +997,54 @@ export default function ChatHistoryPage() {
                 </button>
               </div>
 
+              <div className="px-8 pt-5 shrink-0">
+                <div className="inline-flex items-center bg-[var(--surface-pill)] rounded-xl p-1">
+                  <button
+                    onClick={() => setHistoryViewMode('full')}
+                    className={cn(
+                      "px-4 py-1.5 rounded-lg text-[10px] font-semibold uppercase tracking-widest transition-all",
+                      historyViewMode === 'full' ? "bg-[var(--surface-card)] text-[var(--text-primary)] shadow-sm" : "text-[var(--text-tertiary)] hover:text-[var(--text-secondary)]"
+                    )}
+                  >
+                    Chat completo
+                  </button>
+                  <button
+                    onClick={() => setHistoryViewMode('summary')}
+                    className={cn(
+                      "flex items-center gap-1.5 px-4 py-1.5 rounded-lg text-[10px] font-semibold uppercase tracking-widest transition-all",
+                      historyViewMode === 'summary' ? "bg-[var(--surface-card)] text-[var(--text-primary)] shadow-sm" : "text-[var(--text-tertiary)] hover:text-[var(--text-secondary)]"
+                    )}
+                  >
+                    <Sparkles size={12} /> Chat Resumido
+                  </button>
+                </div>
+              </div>
+
               <div className="flex-1 overflow-y-auto p-8 bg-[var(--surface-card)]/30">
-                {loadingSessionMessages ? (
+                {historyViewMode === 'summary' ? (
+                  summaryLoading ? (
+                    <p className="text-xs text-[var(--text-tertiary)] font-medium flex items-center gap-2">
+                      <Sparkles size={14} className="animate-pulse text-[var(--accent-text)]" /> Gerando resumo com IA...
+                    </p>
+                  ) : summaryError ? (
+                    <div className="space-y-3">
+                      <p className="text-xs text-[var(--text-danger)] font-semibold leading-relaxed">{summaryError}</p>
+                      <button
+                        onClick={loadSummary}
+                        className="flex items-center gap-2 px-4 py-2 bg-[var(--surface-card)] border-2 border-[var(--border-default)] rounded-xl text-[10px] font-semibold uppercase tracking-widest hover:border-[var(--accent)]/40 transition-all"
+                      >
+                        <RotateCcw size={12} /> Tentar novamente
+                      </button>
+                    </div>
+                  ) : summaryData ? (
+                    <div className="space-y-3">
+                      <p className="text-sm text-[var(--text-secondary)] leading-relaxed whitespace-pre-wrap">{summaryData.summary}</p>
+                      <p className="text-[10px] text-[var(--text-tertiary)] font-semibold uppercase tracking-widest">
+                        Resumo por IA{summaryData.generatedAt ? ` · gerado em ${formatDateTime(summaryData.generatedAt)}` : ''}
+                      </p>
+                    </div>
+                  ) : null
+                ) : loadingSessionMessages ? (
                   <p className="text-xs text-[var(--text-tertiary)] font-medium">Carregando conversa...</p>
                 ) : sessionMessages && sessionMessages.messages.length > 0 ? (
                   <RichHistoryMessages messages={sessionMessages.messages} customerName={selectedHistory.customerName} />

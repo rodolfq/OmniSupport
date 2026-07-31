@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { query } from '@/lib/db';
 import { verifyJWT } from '@/lib/jwt';
 import { askAssistant, AssistantChatMessage, AssistantNotConfiguredError } from '@/lib/services/ai-assistant-service';
+import { parseGroqRetryWait } from '@/lib/groq-client';
 
 // Widget flutuante do Agente de IA (Groq) — Permission.AI_ASSISTANT_USE
 // ('ai:assistant'), concedida por padrão a Equipe/Time Interno (ver
@@ -34,23 +35,6 @@ const MAX_MESSAGE_LENGTH = 2000;
 // 8 já cobre o contexto que importa pra maioria das perguntas de
 // acompanhamento.
 const MAX_HISTORY_TURNS = 8;
-
-// Extrai "25m51.744s" do texto de erro do Groq e devolve algo tipo "26
-// minutos" — bem mais legível que o texto cru da API pro analista que só
-// quer saber quando pode tentar de novo.
-function parseGroqRetryWait(message: string): string | null {
-  const match = /try again in\s+(?:(\d+)h)?(?:(\d+)m)?(?:([\d.]+)s)?/i.exec(message);
-  if (!match || (!match[1] && !match[2] && !match[3])) return null;
-  const totalMinutes = Number(match[1] || 0) * 60 + Number(match[2] || 0) + Number(match[3] || 0) / 60;
-  if (totalMinutes < 1) return 'menos de 1 minuto';
-  const rounded = Math.ceil(totalMinutes);
-  if (rounded >= 60) {
-    const h = Math.floor(rounded / 60);
-    const m = rounded % 60;
-    return m > 0 ? `${h}h${m}min` : `${h}h`;
-  }
-  return `${rounded} minuto${rounded > 1 ? 's' : ''}`;
-}
 
 export async function POST(request: NextRequest) {
   try {

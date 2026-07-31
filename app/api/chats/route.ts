@@ -10,6 +10,8 @@ import { transcribeMessageAudio, isAudioAttachment, isTranscriptionEnabled } fro
 import { Attachment } from '@/lib/types';
 import { runExclusive } from '@/lib/key-mutex';
 import { canForceOthersOffline } from '@/lib/services/presence-authorization';
+import { getOrGenerateChatSummary, ChatSummaryNotFoundError, ChatSummaryGenerationError } from '@/lib/services/chat-summary-service';
+import { AssistantNotConfiguredError, parseGroqRetryWait } from '@/lib/groq-client';
 
 function normalizePhone(value?: string | null): string {
   return (value || '').replace(/\D/g, '');
@@ -385,6 +387,8 @@ export async function GET(request: NextRequest) {
         firstResponseSeconds: h.first_response_seconds,
         rating: h.rating,
         transcript: h.transcript,
+        summary: h.summary,
+        summaryGeneratedAt: h.summary_generated_at,
         ticketId: h.ticket_id,
         ticketNumber: h.ticket_number,
         queueId: h.queue_id,
@@ -1284,6 +1288,76 @@ export async function POST(request: Request) {
       }
       emitInternalChatEvent(chatId, { type: 'reaction', chatId, messageId });
       return NextResponse.json({ success: true });
+    }
+
+    if (action === 'summarize-history') {
+      // Mesma checagem de sessão usada em log-status-change/save-status
+      // (token do cookie), sem exigir permissão fina extra — quem já pode
+      // ver o Histórico de Conversas (tela gated por tickets:read) pode
+      // pedir o resumo dela.
+      const token = (await cookies()).get('token')?.value;
+      const authenticatedUser = token ? await verifyJWT(token) : null;
+      if (!authenticatedUser?.id) {
+        return NextResponse.json({ error: 'Sessão inválida.' }, { status: 401 });
+      }
+      const actorRes = await query(
+        `SELECT p.role, COALESCE(rp.permissions, '{}'::text[]) AS permissions
+         FROM public.profiles p LEFT JOIN public.role_permissions rp ON rp.id = p.access_profile_id
+         WHERE p.id = $1`,
+        [authenticatedUser.id]
+      );
+      const actor = actorRes.rows[0];
+      const authorized = actor?.role === 'Administrador' || (actor?.permissions || []).includes('tickets:read');
+      if (!authorized) {
+        return NextResponse.json({ error: 'Você não tem permissão para resumir conversas.' }, { status: 403 });
+      }
+
+      const historyId = typeof body?.historyId === 'string' ? body.historyId : null;
+      if (!historyId) {
+        return NextResponse.json({ error: 'historyId é obrigatório.' }, { status: 400 });
+      }
+      // UUID inválido faria a query estourar "invalid input syntax for type
+      // uuid" antes mesmo de checar "conversa não encontrada" — valida aqui
+      // pra sempre devolver um erro claro em vez do genérico de falha
+      // transitória.
+      if (!/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(historyId)) {
+        return NextResponse.json({ error: 'historyId inválido.' }, { status: 400 });
+      }
+
+      try {
+        const result = await getOrGenerateChatSummary(historyId);
+        return NextResponse.json(result);
+      } catch (err: any) {
+        // Detalhe técnico completo só no log do servidor — o motivo exato da
+        // falha (config ausente, limite do Groq, sem transcrição) já vira uma
+        // mensagem clara e específica pro cliente, nunca um JSON cru de erro.
+        console.error('[chats] Erro ao gerar resumo de conversa:', err);
+
+        if (err instanceof ChatSummaryNotFoundError) {
+          return NextResponse.json({ error: err.message }, { status: 404 });
+        }
+        if (err instanceof ChatSummaryGenerationError) {
+          return NextResponse.json({ error: err.message }, { status: 422 });
+        }
+        if (err instanceof AssistantNotConfiguredError) {
+          return NextResponse.json(
+            { error: 'Resumo por IA ainda não configurado — peça pra alguém do time técnico configurar a chave do Groq.' },
+            { status: 503 }
+          );
+        }
+
+        const status = err?.status;
+        const code = err?.error?.error?.code ?? err?.error?.code;
+        if (status === 429 || code === 'rate_limit_exceeded') {
+          const wait = parseGroqRetryWait(typeof err?.message === 'string' ? err.message : '');
+          return NextResponse.json(
+            { error: `O resumo por IA atingiu o limite de uso gratuito de hoje.${wait ? ` Tente novamente em ${wait}.` : ' Tente novamente mais tarde.'}` },
+            { status: 429 }
+          );
+        }
+
+        return NextResponse.json({ error: 'Não foi possível gerar o resumo agora. Tente de novo em instantes.' }, { status: 502 });
+      }
     }
 
     if (action === 'save-history') {
