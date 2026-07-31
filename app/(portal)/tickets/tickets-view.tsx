@@ -10,6 +10,8 @@ import {
   Attachment,
 } from "@/lib/types";
 import { useRouter } from "next/navigation";
+import { useQueryClient } from "@tanstack/react-query";
+import { prefetchTicketModalReferenceData } from "@/lib/query-hooks";
 import { TicketService } from "@/lib/services/ticket-service";
 
 import { SearchFilters, searchTickets, getQuickFilterCounts, QuickFilterCounts } from "@/lib/search";
@@ -185,6 +187,11 @@ export function TicketsView({
   openTicketId?: string | null;
 }) {
   const router = useRouter();
+  const queryClient = useQueryClient();
+  // Fase 4 (roadmap de cache): dispara ANTES do clique tudo que o modal do
+  // chamado vai buscar — pelo hover, não pelo clique, pra já estar no cache
+  // (ou pelo menos em voo) quando o modal realmente abrir.
+  const prefetchTicketModal = () => prefetchTicketModalReferenceData(queryClient);
   const { currentUser, hasPermission, notifications, setIsNewTicketModalOpen, pendingTicketDraft, setPendingTicketDraft } = useApp();
   const [internalLinks, setInternalLinks] = useState<InternalLinkRow[]>([]);
   const [filteredTickets, setFilteredTickets] = useState<Ticket[]>([]);
@@ -979,6 +986,7 @@ export function TicketsView({
         animate={{ opacity: 1, y: 0 }}
         whileHover={{ y: -2 }}
         onClick={() => setSelectedTicket(t)}
+        onMouseEnter={prefetchTicketModal}
         className={cn(
           "bg-[var(--surface-card)] border border-[var(--border-default)] rounded-2xl p-5 shadow-sm hover:shadow-md hover:border-[var(--accent)]/40 transition-all cursor-pointer group",
           sla.isOverdue && "bg-[var(--surface-danger)]/30"
@@ -1307,6 +1315,7 @@ export function TicketsView({
                   <tr
                     key={t.id}
                     onClick={() => setSelectedTicket(t)}
+                    onMouseEnter={prefetchTicketModal}
                     className={cn(
                       "hover:bg-[var(--surface-card)]/80 cursor-pointer transition-colors group",
                       getSLAStatus(t).isOverdue && "bg-[var(--surface-danger)]/30",
@@ -1361,6 +1370,7 @@ export function TicketsView({
                 <div
                   key={t.id}
                   onClick={() => setSelectedTicket(t)}
+                  onMouseEnter={prefetchTicketModal}
                   className={cn(
                     "px-5 py-4 active:bg-[var(--surface-card)]/80 transition-colors",
                     sla.isOverdue && "bg-[var(--surface-danger)]/30"
