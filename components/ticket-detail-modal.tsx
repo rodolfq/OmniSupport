@@ -5,7 +5,6 @@ import { StyledSelect } from '@/components/styled-select';
 import { X, User, MessageCircle, Clock, Link2, Paperclip, Save, Maximize2, Minimize2, Send, Lock, History, Download, File, Image as ImageIcon, Film, Loader2, Check, Copy, GitMerge } from 'lucide-react';
 import { motion } from 'motion/react';
 import { Ticket, TicketStatus, User as UserType, Message, UserRole, StatusConfig, Company, Attachment, PriorityConfig, CategoryConfig, RequestTypeConfig, ProductConfig, InternalTicket, Permission } from '@/lib/types';
-import { supabase } from '@/lib/supabase';
 import { cn, stripNotificationHtml } from '@/lib/utils';
 import { useApp } from '@/app/app-context';
 import { Star } from 'lucide-react';
@@ -22,6 +21,10 @@ import { useAutoTranscribeMissingAudio } from '@/hooks/use-auto-transcribe-missi
 import { UserService } from '@/lib/services/user-service';
 import { CompanyService } from '@/lib/services/company-service';
 import { ConfigService } from '@/lib/services/config-service';
+import {
+  useCompaniesQuery, useProfilesWithAvatarQuery, useConfigStatusesQuery, useConfigCategoriesQuery,
+  useConfigRequestTypesQuery, useConfigProductsQuery, useConfigPrioritiesQuery, useInternalTeamsQuery, useQueuesQuery
+} from '@/lib/query-hooks';
 import { isClosedTicketStatus, registerClosedStatusLabels } from '@/lib/ticket-status';
 import { FieldChange, formatChangeMessage } from '@/lib/ticket-diff';
 import { wrapEmailHtml, ticketRefBlock } from '@/lib/email-templates';
@@ -61,7 +64,22 @@ export function TicketDetailModal({ ticket, onClose, initialDraft }: TicketDetai
   const scrollRef = useRef<HTMLDivElement>(null);
   const { currentUser, hasPermission, triggerRefresh, suppressTicketAssignedNotification, notifications } = useApp();
   const isCustomer = currentUser?.role === UserRole.CUSTOMER;
-  
+
+  // As 9 buscas de config/referência abaixo eram feitas do zero (Promise.all)
+  // toda vez que este modal abria — hoje vêm de queries com cache
+  // compartilhado (lib/query-hooks.ts), reaproveitando o que outra tela ou
+  // outro chamado já aberto na mesma sessão já buscou. useProfilesWithAvatarQuery
+  // (não a "lite") porque este modal mostra avatar de analista.
+  const companiesQuery = useCompaniesQuery();
+  const profilesQuery = useProfilesWithAvatarQuery();
+  const statusesQuery = useConfigStatusesQuery('ticket');
+  const categoriesQuery = useConfigCategoriesQuery();
+  const requestTypesQuery = useConfigRequestTypesQuery();
+  const productsQuery = useConfigProductsQuery();
+  const prioritiesQuery = useConfigPrioritiesQuery();
+  const internalTeamsQuery = useInternalTeamsQuery();
+  const queuesQuery = useQueuesQuery();
+
   // States
   const [isFocused, setIsFocused] = useState(false);
   const [activeTab, setActiveTab] = useState<'description' | 'internal' | 'history' | 'attachments' | 'chat'>('description');
@@ -218,73 +236,55 @@ export function TicketDetailModal({ ticket, onClose, initialDraft }: TicketDetai
     return () => { cancelled = true; };
   }, [ticket?.mergedIntoId]);
 
+  // Deriva os 9 estados de config/referência a partir das queries cacheadas
+  // (declaradas no topo do componente) sempre que o modal está aberto e
+  // algum resultado chega/atualiza — substitui o antigo fetchConfigs()
+  // (Promise.all direto no supabase.from(...) a cada abertura de chamado).
   useEffect(() => {
     if (!ticket) return;
 
-    async function fetchConfigs() {
-      // As 9 buscas abaixo são independentes entre si — rodar em paralelo
-      // (Promise.all) em vez de sequencial corta o tempo de abertura do
-      // modal de ~9 round-trips somados pra ~1 (achado numa investigação de
-      // lentidão percebida ao abrir chamado).
-      const [
-        { data: profiles },
-        { data: statusList },
-        { data: categoryList },
-        { data: requestTypeList },
-        { data: productList },
-        { data: priorityList },
-        { data: compList },
-        { data: teamList },
-        { data: queueList }
-      ] = await Promise.all([
-        supabase.from('profiles').select('*, internal_team_ids'),
-        supabase.from('config_statuses').select('*').eq('scope', 'ticket').order('sort_order', { ascending: true }),
-        supabase.from('config_categories').select('*'),
-        supabase.from('config_request_types').select('*'),
-        supabase.from('config_products').select('*'),
-        supabase.from('config_priorities').select('*'),
-        supabase.from('companies').select('*'),
-        supabase.from('internal_teams').select('*'),
-        supabase.from('queues').select('*')
-      ]);
-
-      if (profiles) {
-        setAllUsers(profiles.map((u: any) => ({
-          ...u, 
-          companyId: u.company_id, 
-          internalTeamIds: u.internal_team_ids,
-          avatarUrl: u.avatar_url 
-        })) as any);
-        // Equipe: show all support team
-        // Time Interno: show only members of their internal teams
-        if (currentUser?.role === 'Time Interno' && currentUser?.internalTeamIds) {
-          const userTeams = currentUser.internalTeamIds;
-          setAnalysts(profiles.filter((u: any) => 
-            u.role === 'Equipe' || u.is_admin || (userTeams && u.internal_team_ids?.some((t: string) => userTeams.includes(t)))
-          ) as any);
-        } else {
-          setAnalysts(profiles.filter((u: any) => u.role === 'Equipe' || u.is_admin) as any);
-        }
+    const profiles = profilesQuery.data;
+    if (profiles) {
+      // /api/users?type=all já devolve camelCase (companyId, internalTeamIds,
+      // avatarUrl, isAdmin) — sem precisar remapear como no fetch antigo via
+      // supabase.from(), que trazia a linha crua (snake_case).
+      setAllUsers(profiles as any);
+      // Equipe: show all support team
+      // Time Interno: show only members of their internal teams
+      if (currentUser?.role === 'Time Interno' && currentUser?.internalTeamIds) {
+        const userTeams = currentUser.internalTeamIds;
+        setAnalysts(profiles.filter((u: any) =>
+          u.role === 'Equipe' || u.isAdmin || (userTeams && u.internalTeamIds?.some((t: string) => userTeams.includes(t)))
+        ) as any);
+      } else {
+        setAnalysts(profiles.filter((u: any) => u.role === 'Equipe' || u.isAdmin) as any);
       }
-      if (statusList) {
-        // Guarda a lista inteira (pai + sub-status) — o picker mostra só os
-        // pais como pílula clicável, mas usa os filhos pra montar o menu de
-        // sub-status (hover/clique no pai, ver StatusManager).
-        const normalized = statusList.map((s: any) => ({ ...s, parentStatusId: s.parent_status_id, isClosed: s.is_closed }));
-        setStatuses(normalized as any);
-        registerClosedStatusLabels(normalized);
-      }
-      if (categoryList) setCategories(categoryList as any);
-      if (requestTypeList) setRequestTypes(requestTypeList as any);
-      if (productList) setProducts(productList as any);
-      if (priorityList) setPriorities(priorityList as any);
-      if (compList) setCompanies(compList as any);
-      if (teamList) setInternalTeams(teamList as any);
-      if (queueList) setQueues(queueList as any);
     }
+    const statusList = statusesQuery.data;
+    if (statusList) {
+      // Guarda a lista inteira (pai + sub-status) — o picker mostra só os
+      // pais como pílula clicável, mas usa os filhos pra montar o menu de
+      // sub-status (hover/clique no pai, ver StatusManager).
+      const normalized = statusList.map((s: any) => ({ ...s, parentStatusId: s.parent_status_id, isClosed: s.is_closed }));
+      setStatuses(normalized as any);
+      registerClosedStatusLabels(normalized);
+    }
+    if (categoriesQuery.data) setCategories(categoriesQuery.data as any);
+    if (requestTypesQuery.data) setRequestTypes(requestTypesQuery.data as any);
+    if (productsQuery.data) setProducts(productsQuery.data as any);
+    if (prioritiesQuery.data) setPriorities(prioritiesQuery.data as any);
+    if (companiesQuery.data) setCompanies(companiesQuery.data as any);
+    if (internalTeamsQuery.data) setInternalTeams(internalTeamsQuery.data as any);
+    if (queuesQuery.data) setQueues(queuesQuery.data as any);
+  }, [
+    ticket, currentUser,
+    profilesQuery.data, statusesQuery.data, categoriesQuery.data, requestTypesQuery.data,
+    productsQuery.data, prioritiesQuery.data, companiesQuery.data, internalTeamsQuery.data, queuesQuery.data
+  ]);
 
-    fetchConfigs();
-    
+  useEffect(() => {
+    if (!ticket) return;
+
     setAssigneeId(ticket.assigneeId || '');
     setTicketStatus(ticket.status);
     setTicketSubStatus(ticket.subStatus || null);
@@ -1716,7 +1716,7 @@ const loadMessages = async () => {
                                      >
                                        <option value="">Não atribuído</option>
                                        {analysts
-                                          .filter(a => !itTeam || (a as any).internal_team_ids?.includes(internalTeams.find(t => t.name === itTeam)?.id || ''))
+                                          .filter(a => !itTeam || (a as any).internalTeamIds?.includes(internalTeams.find(t => t.name === itTeam)?.id || ''))
                                           .map(a => <option key={a.id} value={a.id}>{a.name}</option>)}
                                      </StyledSelect>
                                   </div>
