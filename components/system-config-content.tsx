@@ -3,9 +3,17 @@
 import React from 'react';
 import { Plus, Trash2, Star } from 'lucide-react';
 import { supabase } from '@/lib/supabase';
+import { useQueryClient } from '@tanstack/react-query';
 import { toast } from 'sonner';
 
 export function SystemConfigContent({ categories, priorities, requestTypes, products, setCategories, setPriorities, setRequestTypes, setProducts, surveySettings, setSurveySettings }: any) {
+  // Esta tela lê e escreve nessas mesmas tabelas via estado elevado (props
+  // set*), então continua gerenciando sua própria lista local como sempre —
+  // só avisa o cache compartilhado (lib/query-hooks.ts, usado por
+  // new-ticket-modal.tsx/ticket-detail-modal.tsx/etc.) depois de cada escrita
+  // bem-sucedida, pra essas outras telas não ficarem até 60s vendo uma
+  // categoria/prioridade/produto/tipo desatualizado.
+  const queryClient = useQueryClient();
   const [newCatLabel, setNewCatLabel] = React.useState('');
 
   const addCategory = async () => {
@@ -22,6 +30,7 @@ export function SystemConfigContent({ categories, priorities, requestTypes, prod
       setCategories(data);
       if (data.some((c: any) => c.label === label)) {
         toast.success('Categoria adicionada');
+        queryClient.invalidateQueries({ queryKey: ['ref', 'config_categories'] });
       } else {
         toast.error('Erro ao adicionar categoria');
       }
@@ -32,7 +41,11 @@ export function SystemConfigContent({ categories, priorities, requestTypes, prod
 
   const deleteCategory = async (id: string) => {
     const { error } = await supabase.from('config_categories').delete().eq('id', id);
-    if (!error) { setCategories(categories.filter((c: any) => c.id !== id)); toast.success('Categoria removida'); }
+    if (!error) {
+      setCategories(categories.filter((c: any) => c.id !== id));
+      toast.success('Categoria removida');
+      queryClient.invalidateQueries({ queryKey: ['ref', 'config_categories'] });
+    }
   };
 
   const [newReqTypeLabel, setNewReqTypeLabel] = React.useState('');
@@ -48,6 +61,7 @@ export function SystemConfigContent({ categories, priorities, requestTypes, prod
       setRequestTypes(data);
       if (data.some((r: any) => r.label === label)) {
         toast.success('Tipo de solicitação adicionado');
+        queryClient.invalidateQueries({ queryKey: ['ref', 'config_request_types'] });
       } else {
         toast.error('Erro ao adicionar tipo de solicitação');
       }
@@ -58,7 +72,11 @@ export function SystemConfigContent({ categories, priorities, requestTypes, prod
 
   const deleteRequestType = async (id: string) => {
     const { error } = await supabase.from('config_request_types').delete().eq('id', id);
-    if (!error) { setRequestTypes(requestTypes.filter((r: any) => r.id !== id)); toast.success('Tipo de solicitação removido'); }
+    if (!error) {
+      setRequestTypes(requestTypes.filter((r: any) => r.id !== id));
+      toast.success('Tipo de solicitação removido');
+      queryClient.invalidateQueries({ queryKey: ['ref', 'config_request_types'] });
+    }
   };
 
   const [newProductLabel, setNewProductLabel] = React.useState('');
@@ -74,6 +92,7 @@ export function SystemConfigContent({ categories, priorities, requestTypes, prod
       setProducts(data);
       if (data.some((p: any) => p.label === label)) {
         toast.success('Produto adicionado');
+        queryClient.invalidateQueries({ queryKey: ['ref', 'config_products'] });
       } else {
         toast.error('Erro ao adicionar produto');
       }
@@ -84,7 +103,11 @@ export function SystemConfigContent({ categories, priorities, requestTypes, prod
 
   const deleteProduct = async (id: string) => {
     const { error } = await supabase.from('config_products').delete().eq('id', id);
-    if (!error) { setProducts(products.filter((p: any) => p.id !== id)); toast.success('Produto removido'); }
+    if (!error) {
+      setProducts(products.filter((p: any) => p.id !== id));
+      toast.success('Produto removido');
+      queryClient.invalidateQueries({ queryKey: ['ref', 'config_products'] });
+    }
   };
 
   const [slaValues, setSlaValues] = React.useState<Record<string, number>>({});
@@ -123,16 +146,18 @@ export function SystemConfigContent({ categories, priorities, requestTypes, prod
         }
         setPriorities(priorities.map((p: any) => p.id === priority.id ? { ...p, sla_hours: persistedHours } : p));
         toast.success(`SLA de ${label} atualizado para ${days} dias`);
+        queryClient.invalidateQueries({ queryKey: ['ref', 'config_priorities'] });
       }
     } else {
       const { data, error } = await supabase.from('config_priorities').insert({ label, sla_hours: hours, color: 'bg-[var(--surface-pill)] text-[var(--text-secondary)]' }).select();
-      if (error) { 
+      if (error) {
         toast.error('Erro ao ativar prioridade');
         console.error('Insert error:', error);
       }
       else if (data) {
         setPriorities([...priorities, data[0]]);
         toast.success(`${label} ativado com ${days} dias`);
+        queryClient.invalidateQueries({ queryKey: ['ref', 'config_priorities'] });
       }
     }
   };

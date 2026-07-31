@@ -11,6 +11,7 @@ import {
 import { UserService, createUser } from '@/lib/services/user-service';
 import { CompanyService } from '@/lib/services/company-service';
 import { supabase } from '@/lib/supabase';
+import { useQueuesQuery } from '@/lib/query-hooks';
 import { 
   Search, 
   X,
@@ -33,7 +34,7 @@ export function LinkContactModal({
 }) {
   const [users, setUsers] = useState<User[]>([]);
   const [companies, setCompanies] = useState<Company[]>([]);
-  const [queues, setQueues] = useState<any[]>([]);
+  const { data: queues = [] } = useQueuesQuery();
   const [searchTerm, setSearchTerm] = useState('');
   const [isCreatingNew, setIsCreatingNew] = useState(false);
   const [newName, setNewName] = useState('');
@@ -49,8 +50,6 @@ export function LinkContactModal({
           setUsers(emps);
           const comps = await CompanyService.getAll();
           setCompanies(comps);
-          const { data: queuesData } = await supabase.from('queues').select('id, whatsapp_instance_id');
-          setQueues(queuesData || []);
         } catch (e) {
           console.error("Error loading LinkContactModal data:", e);
         }
@@ -64,7 +63,7 @@ export function LinkContactModal({
   // (profiles.avatar_url) assim que ele é vinculado/criado.
   const fetchWhatsappContactPhoto = async (): Promise<string | null> => {
     if (!session?.customerPhone) return null;
-    const queue = queues.find(q => q.id === session.queueId);
+    const queue = queues.find((q: any) => q.id === session.queueId);
     const instanceId = queue?.whatsapp_instance_id || queue?.whatsappInstanceId || 'default';
     try {
       const res = await fetch(`/api/whatsapp/contact-photo?instanceId=${encodeURIComponent(instanceId)}&phone=${encodeURIComponent(session.customerPhone)}`);

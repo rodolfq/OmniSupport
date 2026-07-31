@@ -8,7 +8,7 @@ import { UserRole, type User, type Company } from '@/lib/types';
 import { UserService } from '@/lib/services/user-service';
 import { maskPhone } from '@/lib/utils';
 import { Globe } from 'lucide-react';
-import { supabase } from '@/lib/supabase';
+import { useCompaniesQuery } from '@/lib/query-hooks';
 import { toast } from 'sonner';
 
 export function EditEmployeeModal({ isOpen, onClose, user, onSuccess }: { isOpen: boolean, onClose: () => void, user: User | null, onSuccess?: () => void }) {
@@ -17,7 +17,11 @@ export function EditEmployeeModal({ isOpen, onClose, user, onSuccess }: { isOpen
   const [role, setRole] = useState(UserRole.EMPLOYEE);
   const [phones, setPhones] = useState<string[]>([]);
   const [companyId, setCompanyId] = useState('');
-  const [companies, setCompanies] = useState<Company[]>([]);
+  // enabled: isOpen — este modal fica sempre montado por quem o abre (só o
+  // JSX interno é condicional em isOpen), então sem isso a query dispararia
+  // toda vez que a tela-mãe (ex: /customers) montasse, não só ao editar.
+  const { data: companiesData } = useCompaniesQuery({ enabled: isOpen });
+  const companies = (companiesData || []) as Company[];
   const [isActive, setIsActive] = useState(true);
 
   const [loading, setLoading] = useState(false);
@@ -26,12 +30,6 @@ export function EditEmployeeModal({ isOpen, onClose, user, onSuccess }: { isOpen
   const [passwordCopied, setPasswordCopied] = useState(false);
   const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
   const [deleteLoading, setDeleteLoading] = useState(false);
-
-  useEffect(() => {
-    supabase.from('companies').select('id, name').then(({ data }) => {
-      if (data) setCompanies(data as Company[]);
-    });
-  }, []);
 
   useEffect(() => {
     if (user) {

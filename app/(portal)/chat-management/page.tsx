@@ -46,6 +46,7 @@ import { LinkContactModal } from '@/components/link-contact-modal';
 import { AssignChatMenu } from '@/components/assign-chat-menu';
 import { ConfirmDialog } from '@/components/confirm-dialog';
 import { supabase } from '@/lib/supabase';
+import { useQueuesQuery } from '@/lib/query-hooks';
 import { fetchChatSessions, saveChatHistory } from '@/lib/services/chat-service';
 import { fetchUsers } from '@/lib/services/config-service';
 import { getQuickNotes, saveQuickNote as saveQuickNoteAction, deleteQuickNote, getAnalysts, getCompanies, updateUserStatus, saveTicketFromChatSession, closeChatSessionAfterTicket, assignChatSession, returnChatSessionToQueue } from '@/app/actions';
@@ -60,8 +61,14 @@ export default function ChatManagementPage() {
   const [companies, setCompanies] = useState<Company[]>([]);
   const [activeTab, setActiveTab] = useState<'queue' | 'analysts' | 'notes' | 'history'>('queue');
   const [queueFilter, setQueueFilter] = useState<'all' | 'me' | 'queue'>('all');
-  const [userQueues, setUserQueues] = useState<string[]>([]);
-  const [allQueues, setAllQueues] = useState<any[]>([]);
+  // Filas: dado de referência, via hook compartilhado (cache de 60s) em vez
+  // de buscado do zero a cada refreshData/refreshTrigger.
+  const { data: queuesData } = useQueuesQuery();
+  const allQueues = React.useMemo(() => queuesData || [], [queuesData]);
+  const userQueues = React.useMemo(
+    () => (currentUser ? allQueues.filter((q: any) => q.member_ids?.includes(currentUser.id)).map((q: any) => q.id) : []),
+    [allQueues, currentUser]
+  );
 
   const [isLinkModalOpen, setIsLinkModalOpen] = useState(false);
   const [selectedSessionForLink, setSelectedSessionForLink] = useState<ChatSession | null>(null);
@@ -141,13 +148,6 @@ export default function ChatManagementPage() {
     // Get companies
     const companiesData = await getCompanies();
     setCompanies(companiesData);
-
-    if (currentUser) {
-      const { data: queuesData } = await supabase.from('queues').select('id, name, member_ids, whatsapp_instance_id');
-      const myQueues = queuesData?.filter((q: any) => q.member_ids?.includes(currentUser.id)).map((q: any) => q.id) || [];
-      setUserQueues(myQueues);
-      setAllQueues(queuesData || []);
-    }
   }, [currentUser?.id]);
 
   useEffect(() => {

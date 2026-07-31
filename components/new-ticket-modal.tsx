@@ -29,7 +29,16 @@ import {
 import { cn } from "@/lib/utils";
 import { fileToBase64 } from "@/lib/image-utils";
 import { toast } from "sonner";
-import { supabase } from "@/lib/supabase";
+import {
+  useCompaniesQuery,
+  useProfilesWithAvatarQuery,
+  useConfigCategoriesQuery,
+  useConfigPrioritiesQuery,
+  useConfigStatusesQuery,
+  useQueuesQuery,
+  useConfigRequestTypesQuery,
+  useConfigProductsQuery,
+} from "@/lib/query-hooks";
 import { createTicket } from "@/lib/tickets";
 import { RichEditor } from "./rich-editor";
 import { AttachmentPreviewModal, AttachmentChipThumb, isImageAttachment } from "./attachment-gallery";
@@ -64,25 +73,49 @@ export function NewTicketModal() {
   const [loading, setLoading] = useState(false);
   const [saveSuccess, setSaveSuccess] = useState(false);
 
-  const [companies, setCompanies] = useState<Company[]>([]);
-  const [users, setUsers] = useState<User[]>([]);
-  const [analysts, setAnalysts] = useState<User[]>([]);
-  const [availableCategories, setAvailableCategories] = useState<
-    CategoryConfig[]
-  >([]);
-  const [availableQueues, setAvailableQueues] = useState<
-    Array<{ id: string; name: string }>
-  >([]);
-  const [availableRequestTypes, setAvailableRequestTypes] = useState<
-    RequestTypeConfig[]
-  >([]);
-  const [availableProducts, setAvailableProducts] = useState<
-    ProductConfig[]
-  >([]);
-  const [availablePriorities, setAvailablePriorities] = useState<
-    PriorityConfig[]
-  >([]);
-  const [availableStatuses, setAvailableStatuses] = useState<any[]>([]);
+  // Dado de referência (empresas, usuários, config_*, filas) vem dos hooks
+  // compartilhados de lib/query-hooks.ts (cache de 60s do TanStack Query) em
+  // vez de buscado do zero toda vez que o modal abre — era a causa da
+  // lentidão ao criar um novo chamado (fluxo mais usado do sistema).
+  // `enabled: isNewTicketModalOpen` é essencial aqui: este componente fica
+  // sempre montado no layout do portal (só o JSX interno é condicional),
+  // então sem isso os 8 hooks abaixo disparariam em TODA navegação do
+  // portal, não só quando o modal realmente abre.
+  const { data: companiesData } = useCompaniesQuery({ enabled: isNewTicketModalOpen });
+  const companies = React.useMemo(
+    () => ([...(companiesData || [])] as Company[]).sort((a, b) => a.name.localeCompare(b.name)),
+    [companiesData]
+  );
+
+  const { data: profilesData } = useProfilesWithAvatarQuery({ enabled: isNewTicketModalOpen });
+  const users = (profilesData || []) as User[];
+  const analysts = React.useMemo(
+    () =>
+      users.filter(
+        (u) =>
+          u.role === "Equipe" ||
+          u.role === "Administrador" ||
+          u.isAdmin ||
+          (u.role as any) === "Admin",
+      ),
+    [users]
+  );
+
+  const { data: categoriesData } = useConfigCategoriesQuery({ enabled: isNewTicketModalOpen });
+  const availableCategories = (categoriesData || []) as CategoryConfig[];
+  const { data: queuesData } = useQueuesQuery({ enabled: isNewTicketModalOpen });
+  const availableQueues = (queuesData || []) as Array<{ id: string; name: string }>;
+  const { data: requestTypesData } = useConfigRequestTypesQuery({ enabled: isNewTicketModalOpen });
+  const availableRequestTypes = (requestTypesData || []) as RequestTypeConfig[];
+  const { data: productsData } = useConfigProductsQuery({ enabled: isNewTicketModalOpen });
+  const availableProducts = (productsData || []) as ProductConfig[];
+  const { data: prioritiesData } = useConfigPrioritiesQuery({ enabled: isNewTicketModalOpen });
+  const availablePriorities = (prioritiesData || []) as PriorityConfig[];
+  // Escopado a 'ticket' (não estava antes — buscava status de chamado E de
+  // ticket interno misturados via SELECT * sem filtro). Este modal só cria
+  // chamado, então o filtro é mais correto, não só mais rápido.
+  const { data: statusesData } = useConfigStatusesQuery('ticket', { enabled: isNewTicketModalOpen });
+  const availableStatuses = (statusesData || []) as any[];
 
   const fileInputRef = useRef<HTMLInputElement>(null);
 
@@ -105,115 +138,42 @@ export function NewTicketModal() {
   }, [isNewTicketModalOpen, currentUser, isCustomer, companies.length]);
 
   useEffect(() => {
-    async function fetchData() {
-      if (!isNewTicketModalOpen) return;
+    if (!isNewTicketModalOpen) return;
 
-      // Reinicia os campos de seleção a cada abertura do modal — sem isso,
-      // "Empresa/Cliente" e os demais selects ficavam com o valor da última
-      // vez que um chamado foi criado (só título/descrição/anexos eram
-      // limpos no sucesso do submit), dando a impressão de estar pré-preenchido.
-      setSelectedCompanyId("");
-      setSelectedCustomerId("");
-      setEmployeeIds([]);
-      setQueueId("");
-      setCategoryId("");
-      setRequestTypeId("");
-      setProductId("");
-      setPriority("");
-      setTags([]);
-      setTagInput("");
-      setAssigneeId("");
+    // Reinicia os campos de seleção a cada abertura do modal — sem isso,
+    // "Empresa/Cliente" e os demais selects ficavam com o valor da última
+    // vez que um chamado foi criado (só título/descrição/anexos eram
+    // limpos no sucesso do submit), dando a impressão de estar pré-preenchido.
+    setSelectedCompanyId("");
+    setSelectedCustomerId("");
+    setEmployeeIds([]);
+    setQueueId("");
+    setCategoryId("");
+    setRequestTypeId("");
+    setProductId("");
+    setPriority("");
+    setTags([]);
+    setTagInput("");
+    setAssigneeId("");
 
-      try {
-        console.log("”„ NewTicketModal: Buscando dados para novo chamado...");
-        // Fetch companies (always fetch all)
-        const { data: loadedCompanies, error: companiesError } = await supabase
-          .from("companies")
-          .select("id, name")
-          .order("name", { ascending: true });
-
-        console.log("DEBUG loadedCompanies:", loadedCompanies);
-        if (companiesError) {
-          console.error("DEBUG companiesError:", companiesError);
-          setCompanies([]);
-        } else {
-          setCompanies(loadedCompanies || []);
-        }
-
-        // Fetch users
-        const { data: loadedUsers, error: usersError } = await supabase
-          .from("profiles")
-          .select("*");
-
-        let mappedUsers: User[] = [];
-        if (usersError) {
-          console.error("DEBUG usersError:", usersError);
-          setUsers([]);
-        } else {
-          mappedUsers = (loadedUsers || []).map((u: any) => ({
-            ...u,
-            companyId: u.company_id,
-          })) as User[];
-          setUsers(mappedUsers);
-        }
-
-        const currentUsers = mappedUsers;
-        // Fetch analysts (filtering by role/is_admin)
-        const analystsList = currentUsers.filter(
-          (u) =>
-            u.role === "Equipe" ||
-            u.role === "Administrador" ||
-            u.isAdmin ||
-            u.role === "Admin",
-        );
-        setAnalysts(analystsList);
-
-        // Config tables
-        const [catRes, priRes, staRes, queueRes, reqTypeRes, prodRes] = await Promise.all([
-          supabase.from("config_categories").select("*"),
-          supabase.from("config_priorities").select("*"),
-          supabase.from("config_statuses").select("*"),
-          supabase.from("queues").select("*"),
-          supabase.from("config_request_types").select("*"),
-          supabase.from("config_products").select("*"),
-        ]);
-
-        setAvailableCategories(catRes.data || []);
-        setAvailablePriorities(priRes.data || []);
-        setAvailableStatuses(staRes.data || []);
-        setAvailableQueues(queueRes.data || []);
-        setAvailableProducts(prodRes.data || []);
-        setAvailableRequestTypes(reqTypeRes.data || []);
-
-        if (!priority && priRes.data?.[0]) {
-          setPriority(priRes.data[0].label);
-        }
-
-        // Só pré-preenche empresa/solicitante pra quem é o próprio cliente —
-        // contas internas (Administrador/Equipe) também podem ter um
-        // company_id preenchido no perfil (ex: o admin semeado aponta pra
-        // "Empresa Matriz Ltda"), o que fazia o campo aparecer com uma
-        // empresa "fantasma" já selecionada mesmo pra quem cria chamado em
-        // nome de terceiros.
-        if (isCustomer && currentUser && currentUser.companyId) {
-          setSelectedCompanyId(currentUser.companyId);
-          setSelectedCustomerId(currentUser.id);
-          setEmployeeIds([currentUser.id]); // Auto-select requester
-        }
-
-        if (preselectedCompanyId) {
-          setSelectedCompanyId(preselectedCompanyId);
-        }
-        if (preselectedUserId) {
-          setSelectedCustomerId(preselectedUserId);
-        }
-      } catch (err) {
-        console.error("Erro ao carregar dados do Supabase:", err);
-        toast.error("Erro ao carregar dados do sistema.");
-      }
+    // Só pré-preenche empresa/solicitante pra quem é o próprio cliente —
+    // contas internas (Administrador/Equipe) também podem ter um
+    // company_id preenchido no perfil (ex: o admin semeado aponta pra
+    // "Empresa Matriz Ltda"), o que fazia o campo aparecer com uma
+    // empresa "fantasma" já selecionada mesmo pra quem cria chamado em
+    // nome de terceiros.
+    if (isCustomer && currentUser && currentUser.companyId) {
+      setSelectedCompanyId(currentUser.companyId);
+      setSelectedCustomerId(currentUser.id);
+      setEmployeeIds([currentUser.id]); // Auto-select requester
     }
 
-    fetchData();
+    if (preselectedCompanyId) {
+      setSelectedCompanyId(preselectedCompanyId);
+    }
+    if (preselectedUserId) {
+      setSelectedCustomerId(preselectedUserId);
+    }
 
     return () => {
       // Clear preselection when modal closes
@@ -228,6 +188,16 @@ export function NewTicketModal() {
     preselectedCompanyId,
     isCustomer,
   ]);
+
+  // Prioridade padrão (a primeira cadastrada) — só quando o campo ainda está
+  // vazio, pra não sobrescrever escolha do usuário. Separado do efeito acima
+  // porque agora depende dos dados do hook (podem já estar em cache e
+  // resolver antes/depois do reset de campos).
+  useEffect(() => {
+    if (isNewTicketModalOpen && !priority && availablePriorities[0]) {
+      setPriority(availablePriorities[0].label);
+    }
+  }, [isNewTicketModalOpen, priority, availablePriorities]);
 
   const filteredUsers = users.filter((u) => u.companyId === selectedCompanyId);
 

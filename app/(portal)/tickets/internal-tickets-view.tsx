@@ -9,6 +9,7 @@ import { useApp } from "@/app/app-context";
 import { InternalTicket, Permission, User } from "@/lib/types";
 import { InternalTicketService } from "@/lib/services/ticket-service";
 import { ConfigService } from "@/lib/services/config-service";
+import { useInternalTeamsQuery } from "@/lib/query-hooks";
 import { findStatusColor } from "@/lib/status-colors";
 import {
   Plus, Search, Filter, Clock, Edit3, Loader2,
@@ -160,9 +161,27 @@ export function InternalTicketsView({
   // avançado pra isso.
   const [quickFilter, setQuickFilter] = useState<"all" | "mine" | "unassigned" | "overdue" | "high">("all");
 
-  // Teams state (fetched from DB)
-  const [teams, setTeams] = useState(DEFAULT_TEAM_OPTIONS);
-  const [teamsRaw, setTeamsRaw] = useState<Array<{ id: string; name: string }>>([]);
+  // Teams (dado de referência — via hook compartilhado, cache de 60s, em vez
+  // de buscar internal_teams do zero toda vez que a tela monta).
+  const { data: internalTeamsData } = useInternalTeamsQuery();
+  const sortedInternalTeams = useMemo(
+    () => [...(internalTeamsData || [])].sort((a: any, b: any) => a.name.localeCompare(b.name)),
+    [internalTeamsData]
+  );
+  const teams = useMemo(
+    () => sortedInternalTeams.length > 0
+      ? sortedInternalTeams.map((t: any) => ({
+          value: t.name,
+          label: t.name,
+          color: "bg-[var(--accent)]/20 text-[var(--accent-text)]"
+        }))
+      : DEFAULT_TEAM_OPTIONS,
+    [sortedInternalTeams]
+  );
+  const teamsRaw = useMemo(
+    () => sortedInternalTeams.map((t: any) => ({ id: t.id, name: t.name })),
+    [sortedInternalTeams]
+  );
 
   // Status (fetched de config_statuses, scope=internal_ticket — cadastrados
   // em Configurações > Geral > Status) — DEFAULT_KANBAN_STATUSES só cobre o
@@ -324,26 +343,6 @@ if (filterAssignee) query = query.eq("assignee_id", filterAssignee);
     }
   }, []);
 
-  const fetchTeams = useCallback(async () => {
-    try {
-      const { data, error } = await supabase
-        .from("internal_teams")
-        .select("id, name, description")
-        .order("name");
-      if (error) throw error;
-      if (data && data.length > 0) {
-        setTeamsRaw(data.map((t: any) => ({ id: t.id, name: t.name })));
-        setTeams(data.map((t: any) => ({
-          value: t.name,
-          label: t.name,
-          color: "bg-[var(--accent)]/20 text-[var(--accent-text)]"
-        })));
-      }
-    } catch (error) {
-      console.error("Error loading teams:", error);
-    }
-  }, []);
-
   useEffect(() => {
     fetchTickets(1);
   }, [fetchTickets, triggerRefresh]);
@@ -351,10 +350,6 @@ if (filterAssignee) query = query.eq("assignee_id", filterAssignee);
   useEffect(() => {
     fetchAnalysts();
   }, [fetchAnalysts]);
-
-  useEffect(() => {
-    fetchTeams();
-  }, [fetchTeams]);
 
   useEffect(() => {
     async function loadStatuses() {

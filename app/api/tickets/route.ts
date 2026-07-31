@@ -138,7 +138,17 @@ export async function GET(request: Request) {
     }
     
     if (action === 'teams') {
-      const res = await query('SELECT id, name, member_ids FROM public.internal_teams');
+      // internal_teams não tem coluna member_ids — a relação é invertida,
+      // vive em profiles.internal_team_ids (array, com índice GIN). Deriva
+      // aqui pra manter o mesmo contrato {id, name, member_ids} que o
+      // seletor "Atribuir por equipe" (tickets-view.tsx) já consome.
+      const res = await query(
+        `SELECT it.id, it.name,
+                COALESCE(array_agg(p.id) FILTER (WHERE p.id IS NOT NULL), '{}') AS member_ids
+         FROM public.internal_teams it
+         LEFT JOIN public.profiles p ON it.id = ANY(p.internal_team_ids)
+         GROUP BY it.id, it.name`
+      );
       return NextResponse.json(res.rows.map(t => ({
         id: t.id,
         name: t.name,

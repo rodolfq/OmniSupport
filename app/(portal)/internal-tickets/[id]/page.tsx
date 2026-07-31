@@ -28,6 +28,7 @@ import { ClientTime } from '@/components/client-time';
 import { FieldChange, formatChangeMessage } from '@/lib/ticket-diff';
 import { INTERNAL_PRIORITY_LABELS, computeInternalTicketSla } from '@/lib/sla';
 import { fetchPriorities, ConfigService } from '@/lib/services/config-service';
+import { useAnalystsQuery } from '@/lib/query-hooks';
 import { findStatusColor } from '@/lib/status-colors';
 import { fileToBase64 } from '@/lib/image-utils';
 
@@ -103,7 +104,10 @@ export default function InternalTicketDetailPage() {
   const [formTags, setFormTags] = useState('');
   const [formExpectedPublish, setFormExpectedPublish] = useState('');
   const [formHotfixId, setFormHotfixId] = useState('');
-  const [analysts, setAnalysts] = useState<User[]>([]);
+  // Papéis de equipe (Administrador/Equipe/Time Interno) — via hook
+  // compartilhado, mesmo filtro que o fetch direto tinha.
+  const { data: analystsData } = useAnalystsQuery();
+  const analysts = (analystsData || []) as User[];
   const [priorities, setPriorities] = useState<any[]>([]);
   const [hotfixes, setHotfixes] = useState<Hotfix[]>([]);
   const [statuses, setStatuses] = useState<KanbanStatusMeta[]>(DEFAULT_KANBAN_STATUSES);
@@ -181,11 +185,6 @@ export default function InternalTicketDetailPage() {
     finally { setLoading(false); }
   }, [ticketId, currentUser]);
 
-  const fetchAnalysts = useCallback(async () => {
-    const { data, error } = await supabase.from('profiles').select('id, name, email, avatar_url, role').or('role.eq.Equipe,role.eq.Administrador,role.eq.Time Interno');
-    if (!error) setAnalysts(data || []);
-  }, []);
-
   const fetchPriorityConfig = useCallback(async () => {
     const data = await fetchPriorities();
     setPriorities(data || []);
@@ -213,7 +212,7 @@ export default function InternalTicketDetailPage() {
     catch (error) { console.error('Error loading messages:', error); }
   }, [ticket?.uuid]);
 
-  useEffect(() => { fetchTicket(); fetchAnalysts(); fetchPriorityConfig(); fetchHotfixList(); fetchStatusConfig(); }, [fetchTicket, fetchAnalysts, fetchPriorityConfig, fetchHotfixList, fetchStatusConfig]);
+  useEffect(() => { fetchTicket(); fetchPriorityConfig(); fetchHotfixList(); fetchStatusConfig(); }, [fetchTicket, fetchPriorityConfig, fetchHotfixList, fetchStatusConfig]);
   useEffect(() => { if (ticket) loadMessages(); }, [ticket?.uuid]);
 
   useEffect(() => {

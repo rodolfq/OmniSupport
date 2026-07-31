@@ -5,6 +5,7 @@ import { StyledSelect } from '@/components/styled-select';
 import { motion, AnimatePresence } from 'motion/react';
 import { Search } from 'lucide-react';
 import { supabase } from '@/lib/supabase';
+import { useInternalTeamsQuery } from '@/lib/query-hooks';
 import { InternalTicket } from '@/lib/types';
 
 interface LinkInternalTicketModalProps {
@@ -18,7 +19,11 @@ interface LinkInternalTicketModalProps {
 
 export function LinkInternalTicketModal({ isOpen, onClose, onLink, excludeIds = [] }: LinkInternalTicketModalProps) {
   const [allTickets, setAllTickets] = useState<InternalTicket[]>([]);
-  const [teams, setTeams] = useState<Array<{id: string, name: string}>>([]);
+  const { data: teamsData } = useInternalTeamsQuery();
+  const teams = React.useMemo(
+    () => ([...(teamsData || [])] as Array<{ id: string, name: string }>).sort((a, b) => a.name.localeCompare(b.name)),
+    [teamsData]
+  );
   const [search, setSearch] = useState('');
   const [teamFilter, setTeamFilter] = useState('');
   const [loading, setLoading] = useState(false);
@@ -31,16 +36,6 @@ export function LinkInternalTicketModal({ isOpen, onClose, onLink, excludeIds = 
     }, 300);
     return () => clearTimeout(handler);
   }, [search]);
-
-  // Fetch teams
-  useEffect(() => {
-    if (!isOpen) return;
-    const fetchTeams = async () => {
-      const { data } = await supabase.from('internal_teams').select('id, name').order('name');
-      setTeams(data || []);
-    };
-    fetchTeams();
-  }, [isOpen]);
 
   // Fetch paginated tickets from backend when debounced search changes
   useEffect(() => {

@@ -3,6 +3,7 @@
 import React, { useState, useEffect, useMemo } from 'react';
 import { Permission, RolePermission, User } from '@/lib/types';
 import { supabase } from '@/lib/supabase';
+import { useQueryClient } from '@tanstack/react-query';
 import { useApp } from '@/app/app-context';
 import {
   ShieldCheck,
@@ -239,6 +240,11 @@ function AddProfileForm({
 }
 
 export default function PermissionsManagementPage() {
+  // Cache compartilhado (lib/query-hooks.ts) — avisado depois de mutações em
+  // internal_teams pra useInternalTeamsQuery (usada em outras telas) não
+  // ficar até 60s desatualizada. Esta tela continua com seu próprio
+  // loadAll(), sem mudança de comportamento aqui.
+  const queryClient = useQueryClient();
   const { currentUser, hasPermission, authInitialized } = useApp();
   const isSystemAdmin = currentUser?.role === 'Administrador';
   const myAdminTeamIds = useMemo(() => currentUser?.adminOfTeamIds || [], [currentUser?.adminOfTeamIds]);
@@ -503,6 +509,7 @@ export default function PermissionsManagementPage() {
       return;
     }
     await loadAll();
+    queryClient.invalidateQueries({ queryKey: ['ref', 'internal_teams'] });
     setShowNewTeamModal(false);
     setNewTeamName('');
     setNewTeamDescription('');
@@ -519,6 +526,7 @@ export default function PermissionsManagementPage() {
       return;
     }
     await loadAll();
+    queryClient.invalidateQueries({ queryKey: ['ref', 'internal_teams'] });
     setEditingTeamMeta(null);
     toast.success('Equipe atualizada');
   };
@@ -540,6 +548,7 @@ export default function PermissionsManagementPage() {
     if (selectedMembersTeamId === teamToDelete.id) setSelectedMembersTeamId(null);
     setTeamToDelete(null);
     await loadAll();
+    queryClient.invalidateQueries({ queryKey: ['ref', 'internal_teams'] });
     toast.success('Equipe removida');
   };
 
@@ -604,6 +613,7 @@ export default function PermissionsManagementPage() {
       await supabase.from('internal_teams').update({ admin_ids: finalAdminIds }).eq('id', teamId);
 
       await loadAll();
+      queryClient.invalidateQueries({ queryKey: ['ref', 'internal_teams'] });
       toast.success('Membros, acessos e administradores atualizados');
     } finally {
       setSavingMembers(false);

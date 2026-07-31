@@ -68,44 +68,61 @@ const configPrioritiesDef = { queryKey: ['ref', 'config_priorities'], queryFn: (
 const internalTeamsDef = { queryKey: ['ref', 'internal_teams'], queryFn: () => selectAll('internal_teams') };
 const queuesDef = { queryKey: ['ref', 'queues'], queryFn: () => selectAll('queues') };
 
-export function useCompaniesQuery() {
-  return useQuery(companiesDef);
+// Papéis "de equipe" (Administrador/Equipe/Time Interno) — mesmo filtro de
+// /api/users?type=analysts. Só usar onde o consumidor precisar exatamente
+// desses 3 papéis e não precisar de campo "vivo" (status/status_reason de
+// presença) — esses continuam com fetch próprio, sem cache de 60s.
+const analystsDef = { queryKey: ['ref', 'analysts'], queryFn: () => getJson('/api/users?type=analysts') };
+
+// `enabled` (opcional, default true) existe pra componentes que ficam
+// sempre montados mas só devem buscar quando realmente visíveis/abertos
+// (ex: modais renderizados incondicionalmente no layout, só o JSX interno
+// é condicional em `isOpen`/`isXModalOpen` — sem isso, os hooks disparam
+// em toda navegação do portal, não só quando o modal abre de fato).
+interface QueryOptions { enabled?: boolean }
+
+export function useCompaniesQuery(options?: QueryOptions) {
+  return useQuery({ ...companiesDef, enabled: options?.enabled });
 }
 
-export function useProfilesLiteQuery() {
-  return useQuery(profilesLiteDef);
+export function useProfilesLiteQuery(options?: QueryOptions) {
+  return useQuery({ ...profilesLiteDef, enabled: options?.enabled });
 }
 
-export function useProfilesWithAvatarQuery() {
-  return useQuery(profilesWithAvatarDef);
+export function useProfilesWithAvatarQuery(options?: QueryOptions) {
+  return useQuery({ ...profilesWithAvatarDef, enabled: options?.enabled });
 }
 
-export function useConfigStatusesQuery(scope: 'ticket' | 'internal_ticket' = 'ticket') {
-  return useQuery(configStatusesDef(scope));
+export function useConfigStatusesQuery(scope: 'ticket' | 'internal_ticket' = 'ticket', options?: QueryOptions) {
+  return useQuery({ ...configStatusesDef(scope), enabled: options?.enabled });
 }
 
-export function useConfigCategoriesQuery() {
-  return useQuery(configCategoriesDef);
+export function useConfigCategoriesQuery(options?: QueryOptions) {
+  return useQuery({ ...configCategoriesDef, enabled: options?.enabled });
 }
 
-export function useConfigRequestTypesQuery() {
-  return useQuery(configRequestTypesDef);
+export function useConfigRequestTypesQuery(options?: QueryOptions) {
+  return useQuery({ ...configRequestTypesDef, enabled: options?.enabled });
 }
 
-export function useConfigProductsQuery() {
-  return useQuery(configProductsDef);
+export function useConfigProductsQuery(options?: QueryOptions) {
+  return useQuery({ ...configProductsDef, enabled: options?.enabled });
 }
 
-export function useConfigPrioritiesQuery() {
-  return useQuery(configPrioritiesDef);
+export function useConfigPrioritiesQuery(options?: QueryOptions) {
+  return useQuery({ ...configPrioritiesDef, enabled: options?.enabled });
 }
 
-export function useInternalTeamsQuery() {
-  return useQuery(internalTeamsDef);
+export function useInternalTeamsQuery(options?: QueryOptions) {
+  return useQuery({ ...internalTeamsDef, enabled: options?.enabled });
 }
 
-export function useQueuesQuery() {
-  return useQuery(queuesDef);
+export function useQueuesQuery(options?: QueryOptions) {
+  return useQuery({ ...queuesDef, enabled: options?.enabled });
+}
+
+export function useAnalystsQuery(options?: QueryOptions) {
+  return useQuery({ ...analystsDef, enabled: options?.enabled });
 }
 
 // Prefetch on hover — dispara ANTES do clique (ver tickets-view.tsx, linha

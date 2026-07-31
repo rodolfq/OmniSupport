@@ -12,7 +12,7 @@ import { useApp } from '@/app/app-context';
 import { NotificationSettingsContent } from '@/components/notification-settings';
 import { getUsers, createUser, updateUser, deleteUser, getCompanies, getRolePermissions } from '@/app/actions';
 import { Permission, UserRole, type User, type RolePermission } from '@/lib/types';
-import { supabase } from '@/lib/supabase';
+import { useInternalTeamsQuery } from '@/lib/query-hooks';
 import { toast } from 'sonner';
 import { useRouter } from 'next/navigation';
 
@@ -53,10 +53,14 @@ export default function TeamManagementPage() {
   const [companies, setCompanies] = useState<any[]>([]);
   const [isSaving, setIsSaving] = useState(false);
   const [profiles, setProfiles] = useState<RolePermission[]>([]);
-  const [teams, setTeams] = useState<TeamOption[]>([]);
   const [accessProfileId, setAccessProfileId] = useState<string>('');
   const [isSyncingBitrix24, setIsSyncingBitrix24] = useState(false);
 
+  const { data: teamsData } = useInternalTeamsQuery();
+  const teams = React.useMemo(
+    () => ([...(teamsData || [])] as TeamOption[]).sort((a, b) => a.name.localeCompare(b.name)),
+    [teamsData]
+  );
   const { currentUser, authInitialized } = useApp();
   const router = useRouter();
   const isSystemAdmin = currentUser?.role === UserRole.ADMIN;
@@ -89,16 +93,14 @@ export default function TeamManagementPage() {
 
   const fetchUsers = async () => {
     try {
-      const [users, companiesList, profilesList, teamsRes] = await Promise.all([
+      const [users, companiesList, profilesList] = await Promise.all([
         getUsers(),
         getCompanies(),
-        getRolePermissions(),
-        supabase.from('internal_teams').select('id, name').order('name')
+        getRolePermissions()
       ]);
       setAnalysts(users || []);
       setCompanies(companiesList || []);
       setProfiles((profilesList as RolePermission[]) || []);
-      setTeams(teamsRes.data || []);
     } catch (e) {
       console.error("Erro ao buscar usuários/empresas:", e);
     }
