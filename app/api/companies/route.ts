@@ -1,6 +1,13 @@
 import { NextResponse } from 'next/server';
 import { query } from '@/lib/db';
 
+// Lista de empresas muda pouco minuto a minuto (cadastro manual ou sync
+// Bitrix, ambos esporádicos) — cache curto client-side evita que cada tela
+// que abre (filtro de chamados, modal de chamado, etc.) refaça essa mesma
+// consulta. `private` porque a resposta passa pelo cookie de sessão;
+// stale-while-revalidate deixa a UI nunca travada esperando revalidação.
+const REFERENCE_CACHE_HEADER = 'private, max-age=30, stale-while-revalidate=300';
+
 export async function GET(request: Request) {
   const { searchParams } = new URL(request.url);
   const id = searchParams.get('id');
@@ -14,12 +21,12 @@ export async function GET(request: Request) {
       if (res.rowCount === 0) {
         return NextResponse.json({ error: 'Empresa não encontrada' }, { status: 404 });
       }
-      return NextResponse.json(res.rows[0]);
+      return NextResponse.json(res.rows[0], { headers: { 'Cache-Control': REFERENCE_CACHE_HEADER } });
     } else {
       const res = await query(
         'SELECT id, name, industry, phone, is_in_training AS "isInTraining" FROM public.companies ORDER BY name ASC'
       );
-      return NextResponse.json(res.rows);
+      return NextResponse.json(res.rows, { headers: { 'Cache-Control': REFERENCE_CACHE_HEADER } });
     }
   } catch (error: any) {
     console.error('Error fetching companies in API:', error);

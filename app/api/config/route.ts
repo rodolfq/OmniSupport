@@ -2,6 +2,13 @@ import { NextResponse } from 'next/server';
 import { query } from '@/lib/db';
 import { getAutomationSettings, saveAutomationSetting } from '@/lib/services/automation-service';
 
+// Só nas listas de referência que mudam raramente (editadas manualmente em
+// Configurações, não a cada minuto) — NUNCA em analyst-statuses (presença
+// ao vivo) nem nas configurações administrativas (survey/email/automation/
+// metric-thresholds), que precisam refletir edição imediatamente.
+const REFERENCE_CACHE_HEADER = 'private, max-age=30, stale-while-revalidate=300';
+const cacheableJson = (data: unknown) => NextResponse.json(data, { headers: { 'Cache-Control': REFERENCE_CACHE_HEADER } });
+
 export async function GET(request: Request) {
   const { searchParams } = new URL(request.url);
   const type = searchParams.get('type');
@@ -9,31 +16,31 @@ export async function GET(request: Request) {
   try {
     if (type === 'priorities') {
       const res = await query('SELECT * FROM public.config_priorities');
-      return NextResponse.json(res.rows);
+      return cacheableJson(res.rows);
     } else if (type === 'statuses') {
       const scope = searchParams.get('scope');
       const res = scope
         ? await query('SELECT * FROM public.config_statuses WHERE scope = $1 ORDER BY sort_order, created_at', [scope])
         : await query('SELECT * FROM public.config_statuses ORDER BY sort_order, created_at');
-      return NextResponse.json(res.rows);
+      return cacheableJson(res.rows);
     } else if (type === 'categories') {
       const res = await query('SELECT * FROM public.config_categories');
-      return NextResponse.json(res.rows);
+      return cacheableJson(res.rows);
     } else if (type === 'request-types') {
       const res = await query('SELECT * FROM public.config_request_types');
-      return NextResponse.json(res.rows);
+      return cacheableJson(res.rows);
     } else if (type === 'products') {
       const res = await query('SELECT * FROM public.config_products');
-      return NextResponse.json(res.rows);
+      return cacheableJson(res.rows);
     } else if (type === 'tags') {
       const res = await query('SELECT * FROM public.config_tags');
-      return NextResponse.json(res.rows);
+      return cacheableJson(res.rows);
     } else if (type === 'quick-notes') {
       const res = await query('SELECT * FROM public.quick_notes');
       return NextResponse.json(res.rows);
     } else if (type === 'queues') {
       const res = await query('SELECT * FROM public.queues');
-      return NextResponse.json(res.rows);
+      return cacheableJson(res.rows);
     } else if (type === 'analyst-statuses') {
       // Mapeado pra camelCase porque a interface AnalystStatus (lib/types.ts)
       // e todo consumidor (chat-widget.tsx, chat-management/page.tsx) leem
