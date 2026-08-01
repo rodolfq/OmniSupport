@@ -21,7 +21,10 @@ import {
   CheckCircle2,
   Settings2,
   AlertTriangle,
-  Power
+  Power,
+  X,
+  ChevronLeft,
+  ChevronRight
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { motion, AnimatePresence } from 'motion/react';
@@ -47,6 +50,19 @@ export default function QueuesManagementPage() {
   const [routingStrategy, setRoutingStrategy] = useState('round_robin');
   const [deletingQueue, setDeletingQueue] = useState<Queue | null>(null);
   const [kickingMember, setKickingMember] = useState<{ id: string; name: string } | null>(null);
+
+  // Seletor de membros do modal: busca paginada no servidor (com foto) em
+  // vez de listar todos os analistas de uma vez — ver UserService.searchAnalysts.
+  const MEMBER_PAGE_SIZE = 12;
+  const [memberSearch, setMemberSearch] = useState('');
+  const [debouncedMemberSearch, setDebouncedMemberSearch] = useState('');
+  const [memberPage, setMemberPage] = useState(1);
+  const [memberResults, setMemberResults] = useState<User[]>([]);
+  const [memberTotal, setMemberTotal] = useState(0);
+  const [memberSearchLoading, setMemberSearchLoading] = useState(false);
+  // Cache de usuários já vistos (por busca ou pré-carregados por id), para
+  // mostrar nome/foto de quem está selecionado mas não está na página atual.
+  const [memberDetails, setMemberDetails] = useState<Record<string, User>>({});
 
   const { hasPermission, currentUser } = useApp();
 
@@ -77,6 +93,36 @@ export default function QueuesManagementPage() {
       document.removeEventListener('visibilitychange', refreshStatuses);
     };
   }, []);
+
+  useEffect(() => {
+    const handler = setTimeout(() => setDebouncedMemberSearch(memberSearch), 250);
+    return () => clearTimeout(handler);
+  }, [memberSearch]);
+
+  useEffect(() => {
+    if (!isModalOpen) return;
+    let cancelled = false;
+    const run = async () => {
+      setMemberSearchLoading(true);
+      try {
+        const { items, total } = await UserService.searchAnalysts(debouncedMemberSearch, memberPage, MEMBER_PAGE_SIZE);
+        if (cancelled) return;
+        setMemberResults(items);
+        setMemberTotal(total);
+        setMemberDetails(prev => {
+          const next = { ...prev };
+          items.forEach(u => { next[u.id] = u; });
+          return next;
+        });
+      } catch (e) {
+        console.error('Error searching analysts:', e);
+      } finally {
+        if (!cancelled) setMemberSearchLoading(false);
+      }
+    };
+    run();
+    return () => { cancelled = true; };
+  }, [isModalOpen, debouncedMemberSearch, memberPage]);
 
   const loadData = async () => {
     try {
@@ -131,6 +177,25 @@ export default function QueuesManagementPage() {
       setIncludeInternalChats(true);
       setRoutingStrategy('round_robin');
     }
+
+    // Reseta o seletor de membros e pré-carrega (com foto) só quem já está
+    // na fila, pra aparecer nos chips de selecionados mesmo fora da 1ª página.
+    setMemberSearch('');
+    setDebouncedMemberSearch('');
+    setMemberPage(1);
+    setMemberResults([]);
+    setMemberTotal(0);
+    setMemberDetails({});
+    if (queue && queue.memberIds.length > 0) {
+      UserService.getAnalystsByIds(queue.memberIds).then(list => {
+        setMemberDetails(prev => {
+          const next = { ...prev };
+          list.forEach(u => { next[u.id] = u; });
+          return next;
+        });
+      });
+    }
+
     setIsModalOpen(true);
   };
 
@@ -221,6 +286,26 @@ export default function QueuesManagementPage() {
     });
     return [...online, ...rest];
   };
+
+  // Foto do contato quando existe (avatar_url, ex.: sync do Bitrix24); cai
+  // pra inicial colorida quando não tem — mesmo padrão visual de antes.
+  const MemberAvatar = ({ user, selected, className }: { user?: Pick<User, 'name' | 'avatarUrl'>; selected?: boolean; className?: string }) => (
+    user?.avatarUrl ? (
+      <img
+        src={user.avatarUrl}
+        alt={user.name}
+        className={cn("rounded-xl object-cover shrink-0", className)}
+      />
+    ) : (
+      <div className={cn(
+        "rounded-xl flex items-center justify-center font-black shrink-0",
+        selected ? "bg-[var(--accent)] text-white" : "bg-[var(--surface-card)] text-[var(--text-tertiary)]",
+        className
+      )}>
+        {user?.name?.charAt(0) || '?'}
+      </div>
+    )
+  );
 
   const filteredQueues = queues.filter(q =>
     q.name.toLowerCase().includes(search.toLowerCase()) || 
@@ -427,9 +512,13 @@ export default function QueuesManagementPage() {
                              <div key={mid} title={statusLabel(status)} className="flex items-center gap-2 p-2 bg-[var(--surface-card)] rounded-xl border border-[var(--border-default)] shadow-sm">
                                 <span className="text-[9px] font-black text-[var(--text-tertiary)] w-3 shrink-0 text-center">{status === 'online' ? idx + 1 : '–'}</span>
                                 <div className="relative shrink-0">
-                                   <div className="w-6 h-6 rounded-lg bg-[var(--accent)]/10 flex items-center justify-center text-[10px] font-black text-[var(--accent-text)]">
-                                      {user.name.charAt(0)}
-                                   </div>
+                                   {user.avatarUrl ? (
+                                     <img src={user.avatarUrl} alt={user.name} className="w-6 h-6 rounded-lg object-cover" />
+                                   ) : (
+                                     <div className="w-6 h-6 rounded-lg bg-[var(--accent)]/10 flex items-center justify-center text-[10px] font-black text-[var(--accent-text)]">
+                                        {user.name.charAt(0)}
+                                     </div>
+                                   )}
                                    <span className={cn("absolute -bottom-0.5 -right-0.5 w-2 h-2 rounded-full border border-[var(--surface-card)]", statusDotClass(status))} />
                                 </div>
                                 <span className="text-[10px] font-bold text-[var(--text-secondary)] truncate flex-1">{user.name}</span>
@@ -508,7 +597,11 @@ export default function QueuesManagementPage() {
               </div>
 
               {/* Form Content */}
-              <div className="flex-1 p-8 overflow-y-auto bg-[var(--surface-card)] flex flex-col">
+              {/* Corners próprios (não só do motion.div pai) — em alguns
+                  navegadores o overflow-hidden do ancestral não recorta com
+                  precisão a barra de rolagem nativa de um filho que rola,
+                  fazendo ela "vazar" por cima do canto arredondado. */}
+              <div className="flex-1 p-8 overflow-y-auto overflow-x-hidden bg-[var(--surface-card)] flex flex-col rounded-b-[3rem] md:rounded-b-none md:rounded-tr-[3rem] md:rounded-br-[3rem]">
                 <div className="space-y-8 flex-1">
                    {/* Geral */}
                    <section className="space-y-4">
@@ -586,44 +679,106 @@ export default function QueuesManagementPage() {
                    <section className="space-y-4">
                       <div className="flex items-center justify-between border-b border-[var(--border-default)] pb-2">
                         <h4 className="text-[10px] font-semibold uppercase tracking-widest text-[var(--text-tertiary)]">Escala da Equipe ({selectedMemberIds.length})</h4>
-                        <p className="text-[10px] text-[var(--text-tertiary)] font-bold italic">Selecione quem fará parte desta fila</p>
+                        <p className="text-[10px] text-[var(--text-tertiary)] font-bold italic">Busque quem fará parte desta fila</p>
                       </div>
-                      <div className="grid grid-cols-2 md:grid-cols-3 gap-3">
-                         {users.map(user => (
-                           <button 
-                             key={user.id}
-                             onClick={() => toggleMember(user.id)}
-                             className={cn(
-                               "p-4 rounded-[1.5rem] border text-left transition-all relative flex items-center gap-3",
-                               selectedMemberIds.includes(user.id) 
-                                 ? "bg-[var(--accent)]/10 border-[var(--accent)]/30 ring-2 ring-[var(--accent)]/10"
-                                 : "bg-[var(--surface-card)] border-[var(--border-default)] hover:border-[var(--border-default)]"
-                             )}
+
+                      {selectedMemberIds.length > 0 && (
+                        <div className="flex flex-wrap gap-2">
+                           {selectedMemberIds.map(id => {
+                             const user = memberDetails[id];
+                             return (
+                               <div key={id} className="flex items-center gap-2 pl-1.5 pr-1 py-1 rounded-full bg-[var(--accent)]/10 border border-[var(--accent)]/30">
+                                  <MemberAvatar user={user} selected className="w-6 h-6 text-[10px]" />
+                                  <span className="text-[10px] font-black uppercase text-[var(--text-primary)] max-w-[9rem] truncate">{user?.name || '...'}</span>
+                                  <button
+                                    type="button"
+                                    onClick={() => toggleMember(id)}
+                                    title="Remover da fila"
+                                    className="p-1 text-[var(--text-tertiary)] hover:text-[var(--text-danger)] rounded-full transition-all"
+                                  >
+                                     <X size={12} />
+                                  </button>
+                               </div>
+                             );
+                           })}
+                        </div>
+                      )}
+
+                      <div className="relative">
+                        <Search className="absolute left-4 top-1/2 -translate-y-1/2 text-[var(--text-tertiary)]" size={16} />
+                        <input
+                          type="text"
+                          value={memberSearch}
+                          onChange={(e) => { setMemberSearch(e.target.value); setMemberPage(1); }}
+                          placeholder="Buscar por nome ou e-mail..."
+                          className="w-full bg-[var(--surface-card)] border border-[var(--border-default)] rounded-2xl pl-11 pr-4 py-3 text-sm font-bold focus:ring-4 focus:ring-[var(--accent)]/10 outline-none transition-all"
+                        />
+                      </div>
+
+                      <div className="grid grid-cols-2 md:grid-cols-3 xl:grid-cols-4 gap-2 min-h-[9rem]">
+                         {memberSearchLoading ? (
+                           <p className="col-span-full text-center py-6 text-xs font-bold text-[var(--text-tertiary)]">Buscando...</p>
+                         ) : memberResults.length === 0 ? (
+                           <p className="col-span-full text-center py-6 text-xs font-bold text-[var(--text-tertiary)]">Nenhum usuário encontrado.</p>
+                         ) : (
+                           memberResults.map(user => {
+                             const selected = selectedMemberIds.includes(user.id);
+                             return (
+                               <button
+                                 key={user.id}
+                                 onClick={() => toggleMember(user.id)}
+                                 className={cn(
+                                   "p-2.5 rounded-2xl border text-left transition-all relative flex items-center gap-2",
+                                   selected
+                                     ? "bg-[var(--accent)]/10 border-[var(--accent)]/30 ring-2 ring-[var(--accent)]/10"
+                                     : "bg-[var(--surface-card)] border-[var(--border-default)] hover:border-[var(--border-default)]"
+                                 )}
+                               >
+                                  <div className="relative shrink-0">
+                                    <MemberAvatar user={user} selected={selected} className="w-8 h-8 text-xs" />
+                                    <span
+                                      title={statusLabel(deriveLiveStatus(analystStatuses.get(user.id)))}
+                                      className={cn("absolute -bottom-0.5 -right-0.5 w-2 h-2 rounded-full border border-[var(--surface-card)]", statusDotClass(deriveLiveStatus(analystStatuses.get(user.id))))}
+                                    />
+                                  </div>
+                                  <div className="min-w-0 flex-1 pr-3">
+                                     <p className="text-[11px] font-black uppercase truncate text-[var(--text-primary)] leading-none mb-1">{user.name}</p>
+                                     <p className="text-[9px] text-[var(--text-tertiary)] font-bold truncate">{user.role}</p>
+                                  </div>
+                                  {selected && (
+                                    <div className="absolute top-1.5 right-1.5 text-[var(--accent-text)] shrink-0">
+                                       <CheckCircle2 size={14} />
+                                    </div>
+                                  )}
+                               </button>
+                             );
+                           })
+                         )}
+                      </div>
+
+                      {memberTotal > MEMBER_PAGE_SIZE && (
+                        <div className="flex items-center justify-between pt-1">
+                           <button
+                             type="button"
+                             disabled={memberPage <= 1}
+                             onClick={() => setMemberPage(p => Math.max(1, p - 1))}
+                             className="flex items-center gap-1 px-3 py-2 rounded-xl text-[10px] font-black uppercase tracking-widest text-[var(--text-tertiary)] hover:bg-[var(--surface-pill)] disabled:opacity-30 disabled:hover:bg-transparent transition-all"
                            >
-                              <div className="relative shrink-0">
-                                <div className={cn(
-                                  "w-10 h-10 rounded-xl flex items-center justify-center font-black text-sm transition-all",
-                                  selectedMemberIds.includes(user.id) ? "bg-[var(--accent)] text-white" : "bg-[var(--surface-card)] text-[var(--text-tertiary)]"
-                                )}>
-                                   {user.name.charAt(0)}
-                                </div>
-                                <span
-                                  title={statusLabel(deriveLiveStatus(analystStatuses.get(user.id)))}
-                                  className={cn("absolute -bottom-0.5 -right-0.5 w-2.5 h-2.5 rounded-full border border-[var(--surface-card)]", statusDotClass(deriveLiveStatus(analystStatuses.get(user.id))))}
-                                />
-                              </div>
-                              <div className="min-w-0">
-                                 <p className="text-xs font-black uppercase truncate text-[var(--text-primary)] leading-none mb-1">{user.name}</p>
-                                 <p className="text-[10px] text-[var(--text-tertiary)] font-bold truncate">{user.role}</p>
-                              </div>
-                              {selectedMemberIds.includes(user.id) && (
-                                <div className="absolute top-3 right-3 text-[var(--accent-text)]">
-                                   <CheckCircle2 size={16} />
-                                </div>
-                              )}
+                              <ChevronLeft size={14} /> Anterior
                            </button>
-                         ))}
-                      </div>
+                           <span className="text-[10px] font-bold text-[var(--text-tertiary)]">
+                              Página {memberPage} de {Math.max(1, Math.ceil(memberTotal / MEMBER_PAGE_SIZE))}
+                           </span>
+                           <button
+                             type="button"
+                             disabled={memberPage >= Math.ceil(memberTotal / MEMBER_PAGE_SIZE)}
+                             onClick={() => setMemberPage(p => p + 1)}
+                             className="flex items-center gap-1 px-3 py-2 rounded-xl text-[10px] font-black uppercase tracking-widest text-[var(--text-tertiary)] hover:bg-[var(--surface-pill)] disabled:opacity-30 disabled:hover:bg-transparent transition-all"
+                           >
+                              Próxima <ChevronRight size={14} />
+                           </button>
+                        </div>
+                      )}
                    </section>
                 </div>
 

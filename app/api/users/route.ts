@@ -2,6 +2,7 @@ import { NextResponse } from 'next/server';
 import { query } from '@/lib/db';
 import { hashPassword } from '@/lib/auth-utils';
 import { getCurrentActionUser, assertUserManageable } from '@/app/actions';
+import { generateAvatarThumb } from '@/lib/services/avatar-thumb-service';
 
 // Papéis "de equipe" — os únicos que hoje consomem GET/POST desta rota
 // (Canais de Atendimento, Filas, Hotfixes, vínculo de contato). Cliente/
@@ -23,10 +24,14 @@ export async function GET(request: Request) {
       // Sem avatar_url de propósito: a tabela tem ~51MB de fotos em base64
       // (sync do Bitrix24) — bom pra tela de Equipe mostrar foto, péssimo
       // pra dropdown de filtro/responsável que só precisa de id/nome/role.
+      // avatar_thumb_url é a exceção: já nasce pequena (ver
+      // lib/services/avatar-thumb-service.ts), por isso pode ir aqui e
+      // alimentar o avatar do responsável nas listas de Chamados/Tickets
+      // Internos sem reintroduzir o mesmo problema de peso.
       // Usada por lib/query-hooks.ts (useProfilesLiteQuery), compartilhada
       // entre filter-bar.tsx e modern-search-bar.tsx.
       const res = await query(
-        'SELECT id, name, email, role, company_id, is_admin, internal_team_ids FROM public.profiles'
+        'SELECT id, name, email, role, company_id, is_admin, internal_team_ids, avatar_thumb_url FROM public.profiles'
       );
       return NextResponse.json(res.rows.map(r => ({
         id: r.id,
@@ -35,7 +40,8 @@ export async function GET(request: Request) {
         role: r.role,
         companyId: r.company_id,
         isAdmin: r.is_admin,
-        internalTeamIds: r.internal_team_ids
+        internalTeamIds: r.internal_team_ids,
+        avatarThumbUrl: r.avatar_thumb_url
       })));
     } else if (type === 'employees') {
       const res = await query(
@@ -63,6 +69,63 @@ export async function GET(request: Request) {
         avatarUrl: r.avatar_url,
         internalTeamIds: r.internal_team_ids
       })));
+    } else if (type === 'analysts-search') {
+      // Busca paginada com foto — usada pelo seletor de membros de Fila.
+      // Ao contrário de `type=analysts` (que traz todo mundo de uma vez),
+      // aqui só a página pedida carrega avatar_url, evitando puxar todas as
+      // fotos (base64) da equipe inteira quando o admin só quer achar 1 pessoa.
+      const idsParam = searchParams.get('ids');
+      if (idsParam) {
+        const ids = idsParam.split(',').map(s => s.trim()).filter(Boolean);
+        if (ids.length === 0) return NextResponse.json({ items: [] });
+        const res = await query(
+          `SELECT id, name, email, role, company_id, phone, avatar_url, internal_team_ids
+           FROM public.profiles
+           WHERE role IN ('Administrador', 'Equipe', 'Time Interno') AND id = ANY($1)`,
+          [ids]
+        );
+        return NextResponse.json({
+          items: res.rows.map(r => ({
+            id: r.id,
+            name: r.name,
+            email: r.email,
+            role: r.role,
+            companyId: r.company_id,
+            phone: r.phone,
+            avatarUrl: r.avatar_url,
+            internalTeamIds: r.internal_team_ids
+          }))
+        });
+      }
+
+      const q = (searchParams.get('q') || '').trim();
+      const page = Math.max(1, parseInt(searchParams.get('page') || '1', 10) || 1);
+      const pageSize = Math.min(50, Math.max(1, parseInt(searchParams.get('pageSize') || '9', 10) || 9));
+      const offset = (page - 1) * pageSize;
+      const likeParam = `%${q}%`;
+
+      const res = await query(
+        `SELECT id, name, email, role, company_id, phone, avatar_url, internal_team_ids, COUNT(*) OVER() AS total_count
+         FROM public.profiles
+         WHERE role IN ('Administrador', 'Equipe', 'Time Interno')
+           AND ($1 = '' OR name ILIKE $2 OR email ILIKE $2)
+         ORDER BY name ASC
+         LIMIT $3 OFFSET $4`,
+        [q, likeParam, pageSize, offset]
+      );
+      return NextResponse.json({
+        items: res.rows.map(r => ({
+          id: r.id,
+          name: r.name,
+          email: r.email,
+          role: r.role,
+          companyId: r.company_id,
+          phone: r.phone,
+          avatarUrl: r.avatar_url,
+          internalTeamIds: r.internal_team_ids
+        })),
+        total: res.rows.length > 0 ? parseInt(res.rows[0].total_count, 10) : 0
+      });
     } else {
       const res = await query(
         "SELECT id, name, email, role, company_id, phone, view_all_company_tickets, must_change_password, is_admin, avatar_url, internal_team_ids, is_active FROM public.profiles"
@@ -172,6 +235,11 @@ export async function PUT(request: Request) {
     const internalTeamIds = isSystemAdmin ? (user.internalTeamIds ?? target.internal_team_ids) : target.internal_team_ids;
     const companyId = isSystemAdmin ? (user.companyId ?? target.company_id) : target.company_id;
 
+    // Miniatura gerada aqui (não no client) pra ficar consistente com o
+    // sync do Bitrix24, que também escreve avatar_url direto no banco sem
+    // passar por esta rota — ver lib/services/avatar-thumb-service.ts.
+    const avatarThumbUrl = await generateAvatarThumb(user.avatarUrl || null);
+
     await query(
       `UPDATE public.profiles
        SET name = COALESCE($1, name),
@@ -184,7 +252,8 @@ export async function PUT(request: Request) {
            is_admin = $8,
            avatar_url = $9,
            internal_team_ids = $10,
-           is_active = COALESCE($11, is_active)
+           is_active = COALESCE($11, is_active),
+           avatar_thumb_url = $13
        WHERE id = $12`,
       [
         user.name,
@@ -198,7 +267,8 @@ export async function PUT(request: Request) {
         user.avatarUrl || null,
         internalTeamIds || '{}',
         user.isActive,
-        user.id
+        user.id,
+        avatarThumbUrl
       ]
     );
 

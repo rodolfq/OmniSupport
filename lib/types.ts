@@ -94,6 +94,10 @@ export interface User {
   permissions?: Permission[];
   companyId?: string;
   avatarUrl?: string;
+  // Miniatura de avatarUrl (ver lib/services/avatar-thumb-service.ts) —
+  // usada em listas com muitos avatares ao mesmo tempo (Chamados, Tickets
+  // Internos) pra não pagar o peso da foto original de cada um.
+  avatarThumbUrl?: string;
   phone?: string;
   phones?: string[];
   password?: string;

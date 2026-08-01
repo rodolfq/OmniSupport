@@ -869,9 +869,13 @@ export function TicketsView({
             <div className="flex items-center gap-2">
               {assignee ? (
                 <>
-                  <div className="w-5 h-5 rounded-full bg-[var(--border-default)] flex items-center justify-center text-[8px] font-semibold text-[var(--text-secondary)]">
-                    {assignee.name.charAt(0)}
-                  </div>
+                  {assignee.avatarThumbUrl ? (
+                    <img src={assignee.avatarThumbUrl} alt={assignee.name} className="w-5 h-5 rounded-full object-cover shrink-0" />
+                  ) : (
+                    <div className="w-5 h-5 rounded-full bg-[var(--border-default)] flex items-center justify-center text-[8px] font-semibold text-[var(--text-secondary)]">
+                      {assignee.name.charAt(0)}
+                    </div>
+                  )}
                   <span className="text-sm font-medium text-[var(--text-secondary)]">
                     {assignee.name}
                   </span>
@@ -1034,9 +1038,13 @@ export function TicketsView({
           <div className="flex items-center gap-1.5 min-w-0">
             {assignee ? (
               <>
-                <div className="w-5 h-5 rounded-full bg-[var(--border-default)] flex items-center justify-center text-[8px] font-semibold text-[var(--text-secondary)] shrink-0">
-                  {assignee.name.charAt(0)}
-                </div>
+                {assignee.avatarThumbUrl ? (
+                  <img src={assignee.avatarThumbUrl} alt={assignee.name} className="w-5 h-5 rounded-full object-cover shrink-0" />
+                ) : (
+                  <div className="w-5 h-5 rounded-full bg-[var(--border-default)] flex items-center justify-center text-[8px] font-semibold text-[var(--text-secondary)] shrink-0">
+                    {assignee.name.charAt(0)}
+                  </div>
+                )}
                 <span className="text-[11px] font-medium text-[var(--text-secondary)] truncate">{assignee.name}</span>
               </>
             ) : (
@@ -1428,9 +1436,13 @@ export function TicketsView({
                         <div className="flex items-center gap-1.5 min-w-0">
                           {assignee ? (
                             <>
-                              <div className="w-5 h-5 rounded-full bg-[var(--border-default)] flex items-center justify-center text-[8px] font-semibold text-[var(--text-secondary)] shrink-0">
-                                {assignee.name.charAt(0)}
-                              </div>
+                              {assignee.avatarThumbUrl ? (
+                                <img src={assignee.avatarThumbUrl} alt={assignee.name} className="w-5 h-5 rounded-full object-cover shrink-0" />
+                              ) : (
+                                <div className="w-5 h-5 rounded-full bg-[var(--border-default)] flex items-center justify-center text-[8px] font-semibold text-[var(--text-secondary)] shrink-0">
+                                  {assignee.name.charAt(0)}
+                                </div>
+                              )}
                               <span className="text-[11px] font-medium text-[var(--text-secondary)] truncate">{assignee.name}</span>
                             </>
                           ) : (

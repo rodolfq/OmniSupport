@@ -28,6 +28,27 @@ export class UserService {
     return res.json();
   }
 
+  // Busca paginada de analistas (com foto), usada pelo seletor de membros
+  // de Fila — só a página pedida baixa avatar_url, ao contrário de
+  // getAnalysts() que traz todo mundo de uma vez.
+  static async searchAnalysts(q: string, page: number, pageSize: number): Promise<{ items: User[]; total: number }> {
+    const params = new URLSearchParams({ type: 'analysts-search', q, page: String(page), pageSize: String(pageSize) });
+    const res = await fetch(`/api/users?${params.toString()}`);
+    if (!res.ok) return { items: [], total: 0 };
+    return res.json();
+  }
+
+  // Busca por id específicos (com foto) — usada para hidratar membros já
+  // selecionados que não estejam na página atual da busca.
+  static async getAnalystsByIds(ids: string[]): Promise<User[]> {
+    if (ids.length === 0) return [];
+    const params = new URLSearchParams({ type: 'analysts-search', ids: ids.join(',') });
+    const res = await fetch(`/api/users?${params.toString()}`);
+    if (!res.ok) return [];
+    const data = await res.json();
+    return data.items || [];
+  }
+
   static async updateProfile(
     userId: string,
     updates: Partial<User>,

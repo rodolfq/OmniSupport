@@ -65,6 +65,7 @@ CREATE TABLE public.profiles (
   lives_in_squad BOOLEAN DEFAULT FALSE,
   internal_team_ids UUID[] DEFAULT '{}',
   avatar_url TEXT,
+  avatar_thumb_url TEXT, -- versão minúscula (ver migrations/profiles_avatar_thumb.sql) da avatar_url, pra listas que mostram muitos avatares de uma vez sem pagar o peso da foto original
   phone TEXT,
   password TEXT, -- PBKDF2 hashed password
   must_change_password BOOLEAN DEFAULT TRUE,

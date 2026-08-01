@@ -25,6 +25,7 @@ import { toast } from "sonner";
 interface InternalTicketItem extends InternalTicket {
   linkedTicketTitles?: string[];
   assigneeName?: string;
+  assigneeAvatarThumbUrl?: string | null;
   slaRemaining?: string | null;
   commentCount?: number;
 }
@@ -87,7 +88,7 @@ function colorFor(text: string) {
   return PALETTE[Math.abs(hash) % PALETTE.length];
 }
 
-function Avatar({ name, size = 24 }: { name?: string | null; size?: number }) {
+function Avatar({ name, avatarThumbUrl, size = 24 }: { name?: string | null; avatarThumbUrl?: string | null; size?: number }) {
   if (!name) {
     return (
       <div
@@ -97,6 +98,17 @@ function Avatar({ name, size = 24 }: { name?: string | null; size?: number }) {
       >
         <UserIcon size={size * 0.55} />
       </div>
+    );
+  }
+  if (avatarThumbUrl) {
+    return (
+      <img
+        src={avatarThumbUrl}
+        alt={name}
+        title={name}
+        className="rounded-full object-cover shrink-0"
+        style={{ width: size, height: size }}
+      />
     );
   }
   const c = colorFor(name);
@@ -256,12 +268,14 @@ if (filterAssignee) query = query.eq("assignee_id", filterAssignee);
 
       setTotalPages(Math.ceil((count || 0) / ITEMS_PER_PAGE));
 
-      // Get assignee names separately
+      // Get assignee names (+ foto em miniatura) separately
       const assigneeIds = [...new Set((internalData || []).map((t: any) => t.assignee_id).filter(Boolean))];
       const { data: assignees } = assigneeIds.length
-        ? await supabase.from("profiles").select("id, name").in("id", assigneeIds)
+        ? await supabase.from("profiles").select("id, name, avatar_thumb_url").in("id", assigneeIds)
         : { data: [] as any[] };
-      const assigneeMap = new Map((assignees || []).map((a: any) => [a.id, a.name]));
+      const assigneeMap = new Map<string, { name: string; avatarThumbUrl: string | null }>(
+        (assignees || []).map((a: any) => [a.id, { name: a.name, avatarThumbUrl: a.avatar_thumb_url }])
+      );
 
       // Get linked tickets
       const { data: links } = await supabase
@@ -323,7 +337,8 @@ if (filterAssignee) query = query.eq("assignee_id", filterAssignee);
           teamId: it.team_id || undefined,
           parentTicketIds: linkedIds,
           linkedTicketTitles: linkedIds.map((id: string) => ticketMap.get(id) || "Ticket removido").filter(Boolean),
-          assigneeName: it.assignee_id ? assigneeMap.get(it.assignee_id) || null : null,
+          assigneeName: it.assignee_id ? assigneeMap.get(it.assignee_id)?.name || null : null,
+          assigneeAvatarThumbUrl: it.assignee_id ? assigneeMap.get(it.assignee_id)?.avatarThumbUrl || null : null,
           slaRemaining,
           status: it.status || "Novo",
           tags: it.tags || [],
@@ -722,7 +737,7 @@ function TicketCard({ ticket, onEdit, teams = DEFAULT_TEAM_OPTIONS, statuses = D
             {statusMeta.label}
           </span>
         </div>
-        <Avatar name={ticket.assigneeName} size={24} />
+        <Avatar name={ticket.assigneeName} avatarThumbUrl={ticket.assigneeAvatarThumbUrl} size={24} />
       </div>
 
       <div className="flex items-center gap-3 mt-3 text-[var(--text-tertiary)]">
@@ -793,7 +808,7 @@ function TicketTable({ tickets, onEdit, teams = DEFAULT_TEAM_OPTIONS, statuses =
                 <td className="px-4 py-3"><PriorityBars priority={it.priority || 1} /></td>
                 <td className="px-4 py-3">
                   <div className="flex items-center gap-2">
-                    <Avatar name={it.assigneeName} size={20} />
+                    <Avatar name={it.assigneeName} avatarThumbUrl={it.assigneeAvatarThumbUrl} size={20} />
                     <span className="text-sm text-[var(--text-secondary)] truncate max-w-[120px]">{it.assigneeName || "Não atribuído"}</span>
                   </div>
                 </td>
@@ -1108,7 +1123,7 @@ function KanbanCard({ ticket, onEdit, dragging = false }: { ticket: InternalTick
             </span>
           )}
         </div>
-        <Avatar name={ticket.assigneeName} size={22} />
+        <Avatar name={ticket.assigneeName} avatarThumbUrl={ticket.assigneeAvatarThumbUrl} size={22} />
       </div>
     </div>
   );

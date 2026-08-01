@@ -1,5 +1,6 @@
 import { query } from '@/lib/db';
 import { hashPassword } from '@/lib/auth-utils';
+import { generateAvatarThumb } from '@/lib/services/avatar-thumb-service';
 
 // Sincronização manual (botão "Sincronizar agora", sem job em segundo
 // plano — decisão explícita) com o Bitrix24: empresas (CRM) para
@@ -201,21 +202,24 @@ export async function syncUsersFromBitrix24(): Promise<Bitrix24SyncResult> {
     try {
       const phone = u.PERSONAL_MOBILE || u.WORK_PHONE || null;
       const avatarDataUrl = u.PERSONAL_PHOTO ? await downloadPhotoAsDataUrl(u.PERSONAL_PHOTO) : null;
+      // Só gera miniatura nova quando baixou foto nova — evita reprocessar
+      // à toa quem já tinha avatar_thumb_url e não mudou de foto no Bitrix.
+      const avatarThumbUrl = avatarDataUrl ? await generateAvatarThumb(avatarDataUrl) : null;
 
       const existing = await query('SELECT id FROM public.profiles WHERE email = $1', [email]);
       if (existing.rows.length > 0) {
         // COALESCE na foto: se o download falhou ou não tinha foto nova,
-        // mantém a que já estava salva em vez de apagar.
+        // mantém a que já estava salva em vez de apagar (idem miniatura).
         await query(
-          `UPDATE public.profiles SET name = $1, phone = $2, avatar_url = COALESCE($3, avatar_url) WHERE id = $4`,
-          [name, phone, avatarDataUrl, existing.rows[0].id]
+          `UPDATE public.profiles SET name = $1, phone = $2, avatar_url = COALESCE($3, avatar_url), avatar_thumb_url = COALESCE($5, avatar_thumb_url) WHERE id = $4`,
+          [name, phone, avatarDataUrl, existing.rows[0].id, avatarThumbUrl]
         );
         updated++;
       } else {
         await query(
-          `INSERT INTO public.profiles (email, name, role, phone, avatar_url, password, is_admin, lives_in_squad, access_profile_id)
-           VALUES ($1, $2, 'Equipe', $3, $4, $5, false, true, $6)`,
-          [email, name, phone, avatarDataUrl, defaultPassword, defaultProfileId]
+          `INSERT INTO public.profiles (email, name, role, phone, avatar_url, avatar_thumb_url, password, is_admin, lives_in_squad, access_profile_id)
+           VALUES ($1, $2, 'Equipe', $3, $4, $5, $6, false, true, $7)`,
+          [email, name, phone, avatarDataUrl, avatarThumbUrl, defaultPassword, defaultProfileId]
         );
         created++;
       }
