@@ -4,7 +4,8 @@ import React, { useState, useEffect, useMemo } from 'react';
 import { Ticket as TicketType, TicketStatus, UserRole, TicketPriority, Permission, InternalTicket } from '@/lib/types';
 import { fetchAllTickets } from '@/lib/tickets';
 import { isClosedTicketStatus, isInProgressTicketStatus } from '@/lib/ticket-status';
-import { fetchPriorities, fetchStatuses, fetchUsers, ConfigService } from '@/lib/services/config-service';
+import { fetchPriorities, fetchStatuses, ConfigService } from '@/lib/services/config-service';
+import { useProfilesLiteQuery } from '@/lib/query-hooks';
 import { findStatusColor } from '@/lib/status-colors';
 import { useApp } from '@/app/app-context';
 import { supabase } from '@/lib/supabase';
@@ -40,7 +41,11 @@ export default function DashboardPage() {
 
   const [priorities, setPriorities] = useState<any[]>([]);
   const [statuses, setStatuses] = useState<any[]>([]);
-  const [users, setUsers] = useState<any[]>([]);
+  // Só usado pra achar nome/iniciais do responsável (nunca avatar) — via hook
+  // compartilhado "lite" (sem avatar_url, ~51MB a menos de payload) em vez de
+  // /api/users?type=all buscado do zero a cada carga do Dashboard.
+  const { data: usersLiteData } = useProfilesLiteQuery();
+  const users = useMemo(() => usersLiteData || [], [usersLiteData]);
   const [selectedTicket, setSelectedTicket] = useState<TicketType | null>(null);
 
   // Chave Chamados / Tickets Internos — cada lado só aparece pra quem tem a
@@ -155,11 +160,10 @@ export default function DashboardPage() {
         
         if (controller.signal.aborted) return;
 
-        const [loadedTickets, loadedPriorities, loadedStatuses, loadedUsers] = await Promise.all([
+        const [loadedTickets, loadedPriorities, loadedStatuses] = await Promise.all([
           fetchAllTickets(controller.signal),
           fetchPriorities(controller.signal),
-          fetchStatuses(controller.signal, 'ticket'),
-          fetchUsers(controller.signal)
+          fetchStatuses(controller.signal, 'ticket')
         ]);
         
         let tickets = loadedTickets;
@@ -172,7 +176,6 @@ export default function DashboardPage() {
         setFilteredTickets(tickets);
         setPriorities(loadedPriorities || []);
         setStatuses(loadedStatuses || []);
-        setUsers(loadedUsers || []);
         setLoading(false);
     
         // Auto-open ticket from URL param

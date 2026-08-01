@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useMemo } from 'react';
 import { StyledSelect } from '@/components/styled-select';
 import { 
   ChatSession, 
@@ -34,7 +34,8 @@ export function LinkContactModal({
 }) {
   const [users, setUsers] = useState<User[]>([]);
   const [companies, setCompanies] = useState<Company[]>([]);
-  const { data: queues = [] } = useQueuesQuery();
+  const { data: queuesData } = useQueuesQuery();
+  const queues = useMemo(() => queuesData || [], [queuesData]);
   const [searchTerm, setSearchTerm] = useState('');
   const [isCreatingNew, setIsCreatingNew] = useState(false);
   const [newName, setNewName] = useState('');

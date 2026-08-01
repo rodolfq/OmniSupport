@@ -52,7 +52,8 @@ import {
   Attachment
 } from '@/lib/types';
 import { ChatService, fetchChatSessions, pushChatMessage, createChatSession, saveChatHistory, findExistingChatSessionByPhone, submitSurveyResponse, transcribeChatAudio, getPreviousChatHistories, fetchSessionMessages, PreviousChatHistoriesResult, SessionMessagesResult } from '@/lib/services/chat-service';
-import { fetchQuickNotes, fetchAnalystStatuses, fetchCompanies, fetchUsers, fetchQueues, fetchSurveySettings } from '@/lib/services/config-service';
+import { fetchQuickNotes, fetchAnalystStatuses, fetchCompanies, fetchQueues, fetchSurveySettings } from '@/lib/services/config-service';
+import { useProfilesWithAvatarQuery } from '@/lib/query-hooks';
 import { saveTicketFromChatSession, closeChatSessionAfterTicket, assignChatSession, returnChatSessionToQueue } from '@/app/actions';
 import { cn, maskPhone, matchPhones, safeJsonStringify } from '@/lib/utils';
 import { useApp } from '@/app/app-context';
@@ -358,7 +359,17 @@ export function ChatWidget() {
   const [showQuickNoteSearch, setShowQuickNoteSearch] = useState(false);
   const [analystStatuses, setAnalystStatuses] = useState<AnalystStatus[]>([]);
   const [companies, setCompanies] = useState<Company[]>([]);
-  const [allUsers, setAllUsers] = useState<UserType[]>([]);
+  // Usado pra resolver nome/foto de contato (avatar de verdade é renderizado
+  // neste widget, ver contact.avatarUrl abaixo) — via hook compartilhado
+  // (cache de 60s) em vez de /api/users?type=all buscado do zero toda vez
+  // que o widget carrega E toda vez que é reaberto (desminimizado).
+  const { data: allUsersData, refetch: refetchAllUsers } = useProfilesWithAvatarQuery();
+  // useMemo é essencial aqui: `allUsersData || []` sem memo cria um array
+  // novo a cada render enquanto a query não resolve, e como vários
+  // useEffect/useMemo abaixo dependem de `allUsers`, isso causava "Maximum
+  // update depth exceeded" (loop de render infinito antes dos dados
+  // chegarem).
+  const allUsers = React.useMemo(() => (allUsersData || []) as UserType[], [allUsersData]);
 
   const selectedChatContact = React.useMemo(() => {
     if (!selectedChat) return undefined;
@@ -645,23 +656,20 @@ export function ChatWidget() {
         const notes = await fetchQuickNotes(controller.signal).catch(e => { console.error('notes fetch error:', e); return [] as any; });
         const statuses = await fetchAnalystStatuses(controller.signal).catch(e => { console.error('statuses fetch error:', e); return [] as any; });
         const comp = await fetchCompanies(controller.signal).catch(e => { console.error('companies fetch error:', e); return [] as any; });
-        const users = await fetchUsers(controller.signal).catch(e => { console.error('users fetch error:', e); return [] as any; });
-        
+
         // Check if controller was aborted
         if (controller.signal.aborted) return;
 
-        console.log('ChatWidget: Dados carregados com sucesso', { 
-            sessions: sessions.length, 
-            companies: comp.length, 
-            users: users.length 
+        console.log('ChatWidget: Dados carregados com sucesso', {
+            sessions: sessions.length,
+            companies: comp.length
         });
         setCustomerSessions(sessions);
         setSessionsLoaded(true);
         setQuickNotes(notes);
         setAnalystStatuses(statuses);
         setCompanies(comp);
-        setAllUsers(users);
-        
+
         const queues = await fetchQueues(controller.signal).catch(e => { console.error('queues fetch error:', e); return [] as any; });
         setAllQueues(queues || []);
         if (currentUser) {
@@ -951,16 +959,14 @@ export function ChatWidget() {
     if (!isMinimized) {
       async function loadData() {
         try {
-          const [notes, statuses, comps, usrs] = await Promise.all([
+          const [notes, statuses, comps] = await Promise.all([
             fetchQuickNotes(),
             fetchAnalystStatuses(),
-            fetchCompanies(),
-            fetchUsers()
+            fetchCompanies()
           ]);
           setQuickNotes(notes);
           setAnalystStatuses(statuses);
           setCompanies(comps);
-          setAllUsers(usrs);
         } catch (e) {
           console.error("Error loading chat widget data:", e);
         }
@@ -3083,7 +3089,7 @@ useEffect(() => {
         onClose={() => setIsLinkModalOpen(false)}
         session={selectedChat || null}
         onSuccess={() => {
-          fetchUsers().then(setAllUsers);
+          refetchAllUsers();
           fetchChatSessions().then(setCustomerSessions);
         }}
       />

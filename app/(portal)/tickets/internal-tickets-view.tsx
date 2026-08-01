@@ -9,7 +9,7 @@ import { useApp } from "@/app/app-context";
 import { InternalTicket, Permission, User } from "@/lib/types";
 import { InternalTicketService } from "@/lib/services/ticket-service";
 import { ConfigService } from "@/lib/services/config-service";
-import { useInternalTeamsQuery } from "@/lib/query-hooks";
+import { useInternalTeamsQuery, useProfilesLiteQuery } from "@/lib/query-hooks";
 import { findStatusColor } from "@/lib/status-colors";
 import {
   Plus, Search, Filter, Clock, Edit3, Loader2,
@@ -141,7 +141,15 @@ export function InternalTicketsView({
   const router = useRouter();
   const { currentUser, hasPermission, triggerRefresh } = useApp();
   const [tickets, setTickets] = useState<InternalTicketItem[]>([]);
-  const [analysts, setAnalysts] = useState<User[]>([]);
+  // Só usado em <select> de filtro/responsável (sem avatar, ver componente
+  // Avatar local — só aceita {name,size}) — via hook compartilhado "lite"
+  // filtrado no client, mesmo papel (Equipe/Administrador) que a busca
+  // direta trazia, sem pagar avatar_url de ninguém.
+  const { data: profilesLiteData } = useProfilesLiteQuery();
+  const analysts = useMemo(
+    () => ((profilesLiteData || []) as User[]).filter((u) => u.role === "Equipe" || u.role === "Administrador"),
+    [profilesLiteData]
+  );
   const [loading, setLoading] = useState(true);
   const [loadingMore, setLoadingMore] = useState(false);
   const [currentPage, setCurrentPage] = useState(1);
@@ -330,26 +338,9 @@ if (filterAssignee) query = query.eq("assignee_id", filterAssignee);
     }
   }, [currentUser, searchTerm, filterTeam, filterAssignee, filterPriority, dateFrom, dateTo]);
 
-  const fetchAnalysts = useCallback(async () => {
-    try {
-      const { data, error } = await supabase
-        .from("profiles")
-        .select("id, name, email, avatar_url, role")
-        .or("role.eq.Equipe,role.eq.Administrador");
-      if (error) throw error;
-      setAnalysts(data || []);
-    } catch (error) {
-      console.error("Error loading analysts:", error);
-    }
-  }, []);
-
   useEffect(() => {
     fetchTickets(1);
   }, [fetchTickets, triggerRefresh]);
-
-  useEffect(() => {
-    fetchAnalysts();
-  }, [fetchAnalysts]);
 
   useEffect(() => {
     async function loadStatuses() {

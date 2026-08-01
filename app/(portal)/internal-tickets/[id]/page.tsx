@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useState, useEffect, useCallback } from 'react';
+import React, { useState, useEffect, useCallback, useMemo } from 'react';
 import { StyledSelect } from '@/components/styled-select';
 import { useParams, useRouter } from 'next/navigation';
 import { supabase } from '@/lib/supabase';
@@ -107,7 +107,7 @@ export default function InternalTicketDetailPage() {
   // Papéis de equipe (Administrador/Equipe/Time Interno) — via hook
   // compartilhado, mesmo filtro que o fetch direto tinha.
   const { data: analystsData } = useAnalystsQuery();
-  const analysts = (analystsData || []) as User[];
+  const analysts = useMemo(() => (analystsData || []) as User[], [analystsData]);
   const [priorities, setPriorities] = useState<any[]>([]);
   const [hotfixes, setHotfixes] = useState<Hotfix[]>([]);
   const [statuses, setStatuses] = useState<KanbanStatusMeta[]>(DEFAULT_KANBAN_STATUSES);

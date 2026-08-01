@@ -5,7 +5,7 @@ import { StyledSelect } from '@/components/styled-select';
 import { Clock, Info, AlertCircle, CheckCircle2, Coffee, Users, Filter, Plus, Trash2, ArrowRight } from 'lucide-react';
 import { UserStatusHistory, User } from '@/lib/types';
 import { AbsenceReasonService, UserStatusHistoryService } from '@/lib/services/chat-service';
-import { UserService } from '@/lib/services/user-service';
+import { useProfilesLiteQuery } from '@/lib/query-hooks';
 import { useApp } from '@/app/app-context';
 import { UserRole } from '@/lib/types';
 import { cn } from '@/lib/utils';
@@ -115,7 +115,10 @@ export function StatusHistoryPanel({ userId }: StatusHistoryPanelProps) {
   const isAdmin = currentUser?.role === UserRole.ADMIN;
 
   const [history, setHistory] = useState<UserStatusHistory[]>([]);
-  const [profiles, setProfiles] = useState<User[]>([]);
+  // Só usado no <select> de filtro por nome/papel (sem avatar) — via hook
+  // compartilhado "lite", habilitado só para quem realmente usa (isAdmin).
+  const { data: profilesLiteData } = useProfilesLiteQuery({ enabled: isAdmin });
+  const profiles = useMemo(() => (profilesLiteData || []) as User[], [profilesLiteData]);
   const [selectedUserId, setSelectedUserId] = useState<string>(userId);
   const [periodFilter, setPeriodFilter] = useState<'all' | 'today' | 'month' | 'year' | 'specific'>('all');
   const [selectedDate, setSelectedDate] = useState<string>(new Date().toISOString().split('T')[0]);
@@ -129,15 +132,6 @@ export function StatusHistoryPanel({ userId }: StatusHistoryPanelProps) {
     const id = setInterval(() => setNow(new Date()), 30_000);
     return () => clearInterval(id);
   }, []);
-
-  useEffect(() => {
-    const loadProfiles = async () => {
-      if (isAdmin) {
-        setProfiles(await UserService.getAllUsers());
-      }
-    };
-    loadProfiles();
-  }, [isAdmin]);
 
   useEffect(() => {
     const loadHistory = async () => {

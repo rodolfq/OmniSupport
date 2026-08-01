@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useMemo } from 'react';
 import { StyledSelect } from '@/components/styled-select';
 import { X, Save, Mail, Phone, ShieldCheck, ShieldOff, Lock, Plus, Trash2, AlertTriangle, Copy, Check } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
@@ -21,7 +21,7 @@ export function EditEmployeeModal({ isOpen, onClose, user, onSuccess }: { isOpen
   // JSX interno é condicional em isOpen), então sem isso a query dispararia
   // toda vez que a tela-mãe (ex: /customers) montasse, não só ao editar.
   const { data: companiesData } = useCompaniesQuery({ enabled: isOpen });
-  const companies = (companiesData || []) as Company[];
+  const companies = useMemo(() => (companiesData || []) as Company[], [companiesData]);
   const [isActive, setIsActive] = useState(true);
 
   const [loading, setLoading] = useState(false);

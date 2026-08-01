@@ -11,7 +11,7 @@ import {
 } from "@/lib/types";
 import { useRouter } from "next/navigation";
 import { useQueryClient } from "@tanstack/react-query";
-import { prefetchTicketModalReferenceData } from "@/lib/query-hooks";
+import { prefetchTicketModalReferenceData, useProfilesLiteQuery } from "@/lib/query-hooks";
 import { TicketService } from "@/lib/services/ticket-service";
 
 import { SearchFilters, searchTickets, getQuickFilterCounts, QuickFilterCounts } from "@/lib/search";
@@ -248,7 +248,16 @@ export function TicketsView({
   const [priorities, setPriorities] = useState<any[]>([]);
   const [companies, setCompanies] = useState<any[]>([]);
   const [queues, setQueues] = useState<any[]>([]);
-  const [users, setUsers] = useState<any[]>([]);
+  // Só usado pra achar nome/iniciais do responsável (nunca avatar, ver uso
+  // abaixo) — via hook compartilhado "lite" (sem avatar_url) em vez de
+  // /api/users?type=all buscado do zero toda vez que a tela monta. É a tela
+  // mais visitada do sistema, então esse era o maior desperdício de payload.
+  const { data: usersLiteData } = useProfilesLiteQuery();
+  // useMemo é essencial: `users` entra na dependência de um useEffect abaixo
+  // (loadMembers) que chama setState — sem memo, `(data || [])` cria um
+  // array novo a cada render enquanto a query não resolve, causando loop de
+  // render infinito (mesmo bug já visto e corrigido em chat-widget.tsx).
+  const users = useMemo(() => (usersLiteData || []) as any[], [usersLiteData]);
   const lastAutomaticRequestKeyRef = useRef('');
   const referenceDataUserIdRef = useRef('');
   const canDeleteTickets = hasPermission(Permission.TICKETS_DELETE) || currentUser?.role === UserRole.ADMIN;
@@ -381,15 +390,13 @@ export function TicketsView({
 
     const loadReferenceData = async () => {
       try {
-        const [pRes, cRes, uRes, qRes] = await Promise.all([
+        const [pRes, cRes, qRes] = await Promise.all([
           fetch('/api/config?type=priorities').then(r => r.json()),
           fetch('/api/companies').then(r => r.json()),
-          fetch('/api/users?type=all').then(r => r.json()),
           fetch('/api/config?type=queues').then(r => r.json()),
         ]);
         setPriorities(pRes);
         setCompanies(cRes);
-        setUsers(uRes);
         setQueues(qRes);
       } catch (error) {
         console.error('Error loading ticket reference data:', error);
@@ -662,17 +669,13 @@ export function TicketsView({
       return;
     }
 
-    const loadMembers = async () => {
-      const team = teams.find(t => t.id === selectedTeamId);
-      if (team?.member_ids) {
-        const res = await fetch(`/api/users?type=all`);
-        const allUsers = res.ok ? await res.json() : [];
-        const members = allUsers.filter((u: any) => team.member_ids.includes(u.id));
-        setTeamMembers(members);
-      }
-    };
-    loadMembers();
-  }, [selectedTeamId, teams]);
+    // Deriva do mesmo `users` (hook compartilhado "lite") já carregado acima
+    // — antes buscava /api/users?type=all de novo, do zero, toda vez que o
+    // analista trocava a equipe selecionada no seletor de transferência.
+    const team = teams.find(t => t.id === selectedTeamId);
+    const members = team?.member_ids ? users.filter((u: any) => team.member_ids.includes(u.id)) : [];
+    setTeamMembers(members);
+  }, [selectedTeamId, teams, users]);
 
   useEffect(() => {
     setShowBulkActions(selectedTickets.length > 0);

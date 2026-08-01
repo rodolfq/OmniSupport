@@ -7,8 +7,9 @@ import { useApp } from '@/app/app-context';
 import { UserRole, Permission, ChatMessage, Attachment } from '@/lib/types';
 import { isImageAttachment, isAudioAttachment, isVideoAttachment } from '@/lib/attachment-kind';
 import { getChatHistories, fetchSessionMessages, summarizeChatHistory, ChatSummaryResult, SessionMessagesResult } from '@/lib/services/chat-service';
-import { fetchUsers, fetchQueues } from '@/lib/services/config-service';
+import { fetchQueues } from '@/lib/services/config-service';
 import { CompanyService } from '@/lib/services/company-service';
+import { useProfilesLiteQuery } from '@/lib/query-hooks';
 import { parseTranscript } from '@/lib/transcript-format';
 import { ChatAttachmentList } from '@/components/chat-attachment-list';
 import { useAutoTranscribeMissingAudio } from '@/hooks/use-auto-transcribe-missing-audio';
@@ -424,7 +425,10 @@ export default function ChatHistoryPage() {
   const { currentUser, hasPermission, refreshTrigger } = useApp();
   const searchParams = useSearchParams();
   const [histories, setHistories] = useState<any[]>([]);
-  const [users, setUsers] = useState<any[]>([]);
+  // Só usado em <select> de filtro por nome/papel (sem avatar) — via hook
+  // compartilhado "lite" em vez de /api/users?type=all buscado do zero.
+  const { data: usersLiteData } = useProfilesLiteQuery();
+  const users = useMemo(() => (usersLiteData || []) as any[], [usersLiteData]);
   const [queues, setQueues] = useState<any[]>([]);
   const [companies, setCompanies] = useState<any[]>([]);
   const [search, setSearch] = useState('');
@@ -470,7 +474,6 @@ export default function ChatHistoryPage() {
       .then(setHistories)
       .catch(err => console.error('Error loading chat histories:', err));
 
-    fetchUsers().then(setUsers).catch(() => {});
     fetchQueues().then(setQueues).catch(() => {});
     CompanyService.getAll().then(setCompanies).catch(() => {});
   }, [currentUser?.id, refreshTrigger]);

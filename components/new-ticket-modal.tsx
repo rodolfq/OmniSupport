@@ -31,7 +31,7 @@ import { fileToBase64 } from "@/lib/image-utils";
 import { toast } from "sonner";
 import {
   useCompaniesQuery,
-  useProfilesWithAvatarQuery,
+  useProfilesLiteQuery,
   useConfigCategoriesQuery,
   useConfigPrioritiesQuery,
   useConfigStatusesQuery,
@@ -87,8 +87,15 @@ export function NewTicketModal() {
     [companiesData]
   );
 
-  const { data: profilesData } = useProfilesWithAvatarQuery({ enabled: isNewTicketModalOpen });
-  const users = (profilesData || []) as User[];
+  // Lite (sem avatar_url) — este modal só usa id/name/role/isAdmin nos
+  // selects de solicitante/responsável, nunca renderiza foto.
+  const { data: profilesData } = useProfilesLiteQuery({ enabled: isNewTicketModalOpen });
+  // useMemo é essencial em todos os `(xData || [])` abaixo: `availablePriorities`
+  // entra na dependência de um useEffect que chama setPriority — sem memo,
+  // cada um desses vira um array novo a cada render enquanto a respectiva
+  // query não resolve, arriscando o mesmo loop de render infinito já visto
+  // (e corrigido) em chat-widget.tsx.
+  const users = React.useMemo(() => (profilesData || []) as User[], [profilesData]);
   const analysts = React.useMemo(
     () =>
       users.filter(
@@ -102,20 +109,20 @@ export function NewTicketModal() {
   );
 
   const { data: categoriesData } = useConfigCategoriesQuery({ enabled: isNewTicketModalOpen });
-  const availableCategories = (categoriesData || []) as CategoryConfig[];
+  const availableCategories = React.useMemo(() => (categoriesData || []) as CategoryConfig[], [categoriesData]);
   const { data: queuesData } = useQueuesQuery({ enabled: isNewTicketModalOpen });
-  const availableQueues = (queuesData || []) as Array<{ id: string; name: string }>;
+  const availableQueues = React.useMemo(() => (queuesData || []) as Array<{ id: string; name: string }>, [queuesData]);
   const { data: requestTypesData } = useConfigRequestTypesQuery({ enabled: isNewTicketModalOpen });
-  const availableRequestTypes = (requestTypesData || []) as RequestTypeConfig[];
+  const availableRequestTypes = React.useMemo(() => (requestTypesData || []) as RequestTypeConfig[], [requestTypesData]);
   const { data: productsData } = useConfigProductsQuery({ enabled: isNewTicketModalOpen });
-  const availableProducts = (productsData || []) as ProductConfig[];
+  const availableProducts = React.useMemo(() => (productsData || []) as ProductConfig[], [productsData]);
   const { data: prioritiesData } = useConfigPrioritiesQuery({ enabled: isNewTicketModalOpen });
-  const availablePriorities = (prioritiesData || []) as PriorityConfig[];
+  const availablePriorities = React.useMemo(() => (prioritiesData || []) as PriorityConfig[], [prioritiesData]);
   // Escopado a 'ticket' (não estava antes — buscava status de chamado E de
   // ticket interno misturados via SELECT * sem filtro). Este modal só cria
   // chamado, então o filtro é mais correto, não só mais rápido.
   const { data: statusesData } = useConfigStatusesQuery('ticket', { enabled: isNewTicketModalOpen });
-  const availableStatuses = (statusesData || []) as any[];
+  const availableStatuses = React.useMemo(() => (statusesData || []) as any[], [statusesData]);
 
   const fileInputRef = useRef<HTMLInputElement>(null);
 
