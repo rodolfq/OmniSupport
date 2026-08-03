@@ -436,6 +436,16 @@ export async function summarizeChatHistory(historyId: string): Promise<ChatSumma
   return data;
 }
 
+export async function requeueDissatisfaction(historyId: string): Promise<void> {
+  const res = await fetch('/api/chats', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ action: 'requeue-dissatisfaction', historyId })
+  });
+  const data = await res.json().catch(() => ({}));
+  if (!res.ok) throw new Error(data.error || 'Não foi possível reprocessar esta conversa.');
+}
+
 export async function transcribeChatAudio(sessionId: string, messageId: string, attachmentId: string): Promise<string> {
   const res = await fetch('/api/chats', {
     method: 'POST',

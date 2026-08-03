@@ -21,7 +21,10 @@ const MAX_TRANSCRIPT_CHARS = 12000;
 const HEAD_CHARS = 7000;
 const TAIL_CHARS = 4500;
 
-function truncateTranscriptForSummary(transcript: string): string {
+// Exportada: lib/services/dissatisfaction-service.ts reaproveita o mesmo
+// corte de tamanho, pra não enviar um transcript diferente ao modelo do que
+// o "Chat Resumido" já usa pra este mesmo chat.
+export function truncateTranscriptForSummary(transcript: string): string {
   if (transcript.length <= MAX_TRANSCRIPT_CHARS) return transcript;
   const head = transcript.slice(0, HEAD_CHARS).trim();
   const tail = transcript.slice(-TAIL_CHARS).trim();

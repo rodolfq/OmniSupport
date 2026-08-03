@@ -270,6 +270,20 @@ CREATE TABLE public.config_email_settings (
   CONSTRAINT config_email_settings_single_row CHECK (id = 1)
 );
 
+-- Controle do Agente de IA em Configurações (prompt/modelo/busca semântica
+-- editáveis em runtime) — ver lib/services/ai-assistant-config-service.ts.
+-- Todos os campos NULL = usa o padrão hardcoded/env de sempre.
+CREATE TABLE public.ai_assistant_settings (
+  id INTEGER PRIMARY KEY DEFAULT 1,
+  system_prompt TEXT,
+  model TEXT,
+  semantic_search_enabled BOOLEAN,
+  updated_at TIMESTAMP WITH TIME ZONE DEFAULT now() NOT NULL,
+  updated_by UUID REFERENCES public.profiles(id) ON DELETE SET NULL,
+  CONSTRAINT ai_assistant_settings_singleton CHECK (id = 1)
+);
+INSERT INTO public.ai_assistant_settings (id) VALUES (1) ON CONFLICT (id) DO NOTHING;
+
 -- Mensagens Automáticas: notificações por WhatsApp para ações do analista no chamado.
 -- Seed dos 11 eventos (textos padrão) vive em migrations/add_automated_messages.sql;
 -- novos eventos futuros só precisam de uma entrada no catálogo TS
@@ -465,12 +479,23 @@ CREATE TABLE public.chat_histories (
     transcript TEXT,
     summary TEXT,
     summary_generated_at TIMESTAMP WITH TIME ZONE,
+    -- Detector de insatisfação (ver lib/services/dissatisfaction-service.ts)
+    -- — dissatisfaction_processed_at NULL = ainda não processado.
+    dissatisfaction_processed_at TIMESTAMP WITH TIME ZONE,
+    dissatisfaction_detected BOOLEAN,
+    dissatisfaction_department TEXT,
+    dissatisfaction_category TEXT,
+    dissatisfaction_reason TEXT,
+    dissatisfaction_attempts INTEGER NOT NULL DEFAULT 0,
+    dissatisfaction_last_error TEXT,
     created_at TIMESTAMP WITH TIME ZONE DEFAULT now() NOT NULL
 );
 
 CREATE INDEX IF NOT EXISTS idx_chat_histories_finished_at ON public.chat_histories(finished_at DESC);
 CREATE INDEX IF NOT EXISTS idx_chat_histories_customer_id ON public.chat_histories(customer_id);
 CREATE INDEX IF NOT EXISTS idx_chat_histories_customer_phone ON public.chat_histories(customer_phone);
+CREATE INDEX IF NOT EXISTS idx_chat_histories_dissatisfaction_pending
+  ON public.chat_histories (finished_at ASC) WHERE dissatisfaction_processed_at IS NULL;
 CREATE INDEX IF NOT EXISTS idx_chat_histories_session_id ON public.chat_histories(session_id);
 CREATE INDEX IF NOT EXISTS idx_chat_histories_assignee_id ON public.chat_histories(assignee_id);
 

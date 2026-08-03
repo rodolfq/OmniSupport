@@ -389,6 +389,11 @@ export async function GET(request: NextRequest) {
         transcript: h.transcript,
         summary: h.summary,
         summaryGeneratedAt: h.summary_generated_at,
+        dissatisfactionProcessedAt: h.dissatisfaction_processed_at,
+        dissatisfactionDetected: h.dissatisfaction_detected,
+        dissatisfactionDepartment: h.dissatisfaction_department,
+        dissatisfactionCategory: h.dissatisfaction_category,
+        dissatisfactionReason: h.dissatisfaction_reason,
         ticketId: h.ticket_id,
         ticketNumber: h.ticket_number,
         queueId: h.queue_id,
@@ -1358,6 +1363,46 @@ export async function POST(request: Request) {
 
         return NextResponse.json({ error: 'Não foi possível gerar o resumo agora. Tente de novo em instantes.' }, { status: 502 });
       }
+    }
+
+    if (action === 'requeue-dissatisfaction') {
+      // Mesma checagem de permissão de 'summarize-history' — quem pode ver o
+      // Histórico de Conversas pode pedir reprocessamento manual de uma
+      // linha (backfill do detector é sempre opt-in, uma linha por vez, ver
+      // migrations/chat_histories_dissatisfaction.sql).
+      const token = (await cookies()).get('token')?.value;
+      const authenticatedUser = token ? await verifyJWT(token) : null;
+      if (!authenticatedUser?.id) {
+        return NextResponse.json({ error: 'Sessão inválida.' }, { status: 401 });
+      }
+      const actorRes = await query(
+        `SELECT p.role, COALESCE(rp.permissions, '{}'::text[]) AS permissions
+         FROM public.profiles p LEFT JOIN public.role_permissions rp ON rp.id = p.access_profile_id
+         WHERE p.id = $1`,
+        [authenticatedUser.id]
+      );
+      const actor = actorRes.rows[0];
+      const authorized = actor?.role === 'Administrador' || (actor?.permissions || []).includes('tickets:read');
+      if (!authorized) {
+        return NextResponse.json({ error: 'Você não tem permissão para reprocessar conversas.' }, { status: 403 });
+      }
+
+      const historyId = typeof body?.historyId === 'string' ? body.historyId : null;
+      if (!historyId || !/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(historyId)) {
+        return NextResponse.json({ error: 'historyId inválido.' }, { status: 400 });
+      }
+
+      const res = await query(
+        `UPDATE public.chat_histories
+         SET dissatisfaction_processed_at = NULL, dissatisfaction_attempts = 0, dissatisfaction_last_error = NULL
+         WHERE id = $1
+         RETURNING id`,
+        [historyId]
+      );
+      if (res.rowCount === 0) {
+        return NextResponse.json({ error: 'Conversa não encontrada.' }, { status: 404 });
+      }
+      return NextResponse.json({ success: true });
     }
 
     if (action === 'save-history') {

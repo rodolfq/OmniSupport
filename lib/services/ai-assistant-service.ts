@@ -1,8 +1,9 @@
 import type Groq from 'groq-sdk';
 import type { ChatCompletionMessageParam, ChatCompletionTool } from 'groq-sdk/resources/chat/completions';
 import { query } from '@/lib/db';
-import { isEmbeddingEnabled, semanticSearch, truncateText } from './embedding-service';
-import { getGroqClient, GROQ_MODEL_NAME, AssistantNotConfiguredError } from '@/lib/groq-client';
+import { semanticSearch, truncateText } from './embedding-service';
+import { getGroqClient, AssistantNotConfiguredError } from '@/lib/groq-client';
+import { getEffectiveAssistantConfig } from './ai-assistant-config-service';
 
 // Re-exportado por compatibilidade — app/api/ai-assistant/route.ts importa
 // AssistantNotConfiguredError daqui (mesma classe de lib/groq-client.ts,
@@ -32,7 +33,6 @@ export { AssistantNotConfiguredError };
 // 4 fontes, sem repetir aqui o escopo fino (por fila/empresa) que cada tela
 // já aplica. Limitação aceita nesta v1, documentada pro usuário.
 
-const MODEL_NAME = GROQ_MODEL_NAME;
 // Reduzido de 4 pra 3 (menos uma rodada de reenvio de schema+histórico no
 // pior caso) e limites de resultado cortados (eram 8/20) — o agente bateu
 // o teto diário de tokens do Groq (100k/dia no tier gratuito); cada
@@ -412,9 +412,9 @@ const SOURCE_TYPE_LABEL: Record<string, string> = {
   internal_chat_message: 'chat interno'
 };
 
-async function runSemanticSearch(args: any) {
-  if (!isEmbeddingEnabled()) {
-    return { error: 'Busca semântica está desligada neste ambiente (ENABLE_AI_EMBEDDINGS não ativado) — use as ferramentas de busca por palavra-chave em vez disso.' };
+async function runSemanticSearch(args: any, semanticSearchEnabled: boolean) {
+  if (!semanticSearchEnabled) {
+    return { error: 'Busca semântica está desligada (no ambiente ou na configuração do Agente de IA) — use as ferramentas de busca por palavra-chave em vez disso.' };
   }
   if (!args?.query) return { error: 'Parâmetro "query" é obrigatório.' };
 
@@ -442,7 +442,7 @@ async function runSemanticSearch(args: any) {
   }));
 }
 
-async function executeTool(name: string, args: any): Promise<any> {
+async function executeTool(name: string, args: any, semanticSearchEnabled: boolean): Promise<any> {
   try {
     switch (name) {
       case 'search_tickets': return await searchTickets(args);
@@ -451,7 +451,7 @@ async function executeTool(name: string, args: any): Promise<any> {
       case 'get_internal_ticket_details': return await getInternalTicketDetails(args);
       case 'search_client_chats': return await searchClientChats(args);
       case 'search_internal_chats': return await searchInternalChats(args);
-      case 'semantic_search': return await runSemanticSearch(args);
+      case 'semantic_search': return await runSemanticSearch(args, semanticSearchEnabled);
       default: return { error: `Ferramenta desconhecida: ${name}` };
     }
   } catch (err: any) {
@@ -496,12 +496,12 @@ function isToolUseFailedError(err: any): boolean {
   return typeof err?.message === 'string' && err.message.includes('tool_use_failed');
 }
 
-async function createCompletionWithRetry(client: Groq, messages: ChatCompletionMessageParam[]) {
+async function createCompletionWithRetry(client: Groq, messages: ChatCompletionMessageParam[], model: string) {
   let lastError: any;
   for (let attempt = 0; attempt <= MAX_TOOL_CALL_RETRIES; attempt++) {
     try {
       return await client.chat.completions.create({
-        model: MODEL_NAME,
+        model,
         messages,
         tools,
         tool_choice: 'auto',
@@ -516,15 +516,6 @@ async function createCompletionWithRetry(client: Groq, messages: ChatCompletionM
   throw lastError;
 }
 
-const SYSTEM_INSTRUCTION = `Você é o assistente interno do SSX Desk (plataforma de atendimento/suporte), falando com um ANALISTA experiente do sistema — não é o cliente final. Responda SEMPRE em português do Brasil.
-
-Seja breve por padrão: direto ao ponto, sem introdução nem fechamento tipo "espero ter ajudado", frase curta ou lista curta. O foco é praticidade e informação, não redação. Só se estenda se o analista pedir mais detalhe ou a resposta exigir passo a passo.
-NUNCA cite de onde veio a informação (número de chamado, "encontrei no chat com...", nome de ferramenta usada) a menos que o analista pergunte explicitamente a origem/fonte — responda só o que foi perguntado.
-
-4 fontes de busca: chamados, tickets internos (dev/infra/QA/produto), chat com cliente, chat interno da equipe. Use ferramenta sempre que depender de dado real — NUNCA invente número de chamado, nome, status ou conteúdo de mensagem.
-Não desista cedo: "como fazer X"/"onde configuro Y" costuma estar registrado num CHAMADO, não num chat solto. Antes de dizer "não encontrei", tente pelo menos: (1) search_tickets com a palavra-chave literal; (2) se vazio, semantic_search reescrevendo a busca por extenso (ex: "hashauth" → "como gerar hashauth da integração" — termo isolado tem sinal semântico fraco). Não pare na primeira ferramenta vazia.
-Pergunta específica (empresa, nº chamado, status exato) → ferramentas por palavra-chave. Pergunta ampla/vaga → semantic_search. Se semantic_search disser que está desligada, avise o usuário em vez de fingir que não achou nada.`;
-
 export async function askAssistant(params: {
   userId: string;
   conversationId: string;
@@ -532,9 +523,14 @@ export async function askAssistant(params: {
   history: AssistantChatMessage[];
 }): Promise<AssistantResult> {
   const client = getClient();
+  // Prompt/modelo/busca semântica podem ter sido customizados na aba
+  // "Agente de IA" de Configurações (ver ai-assistant-config-service.ts) —
+  // resolvido a cada pergunta pra pegar mudanças sem precisar reiniciar o
+  // servidor.
+  const config = await getEffectiveAssistantConfig();
 
   const messages: ChatCompletionMessageParam[] = [
-    { role: 'system', content: SYSTEM_INSTRUCTION },
+    { role: 'system', content: config.systemPrompt },
     ...params.history.map((m): ChatCompletionMessageParam => ({
       role: m.role === 'model' ? 'assistant' : 'user',
       content: m.text
@@ -548,7 +544,7 @@ export async function askAssistant(params: {
   for (let round = 0; round <= MAX_TOOL_ROUNDS; round++) {
     let completion;
     try {
-      completion = await createCompletionWithRetry(client, messages);
+      completion = await createCompletionWithRetry(client, messages, config.model);
     } catch (err: any) {
       if (!isToolUseFailedError(err)) throw err;
       // Esgotou as tentativas de retry e o modelo continua não formatando a
@@ -580,7 +576,7 @@ export async function askAssistant(params: {
       let args: any = {};
       try { args = JSON.parse(call.function.arguments || '{}'); } catch { /* args inválidos do modelo — segue com {} */ }
       allToolCalls.push({ name: call.function.name, args });
-      const result = await executeTool(call.function.name, args);
+      const result = await executeTool(call.function.name, args, config.semanticSearchEnabled);
       messages.push({ role: 'tool', tool_call_id: call.id, content: JSON.stringify(result) });
     }
   }

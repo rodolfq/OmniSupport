@@ -3,7 +3,7 @@
 import React, { useState, useEffect } from 'react';
 import { useSearchParams } from 'next/navigation';
 import {
-  Shield, User, Lock, Save, Plus, Key, Globe, Bell, Database, Loader2, Clock, MessageCircleMore, Plug, Mail
+  Shield, User, Lock, Save, Plus, Key, Globe, Bell, Database, Loader2, Clock, MessageCircleMore, Plug, Mail, Bot
 } from 'lucide-react';
 import { cn, maskPhone } from '@/lib/utils';
 import { supabase } from '@/lib/supabase';
@@ -22,8 +22,9 @@ import { fileToCompressedAvatarBase64, isValidImageUrl } from '@/lib/image-utils
 import { toast } from 'sonner';
 import { IntegrationsContent } from '@/components/integrations-content';
 import { EmailSettingsContent } from '@/components/email-settings-content';
+import { AiAssistantSettingsContent } from '@/components/ai-assistant-settings-content';
 
-type Tab = 'profile' | 'security' | 'whatsapp' | 'notifications' | 'system' | 'history' | 'automated-messages' | 'integrations' | 'email';
+type Tab = 'profile' | 'security' | 'whatsapp' | 'notifications' | 'system' | 'history' | 'automated-messages' | 'integrations' | 'email' | 'ai-assistant';
 
 
 export default function SettingsPage() {
@@ -135,6 +136,9 @@ export default function SettingsPage() {
            {hasPermission(Permission.SETTINGS_SYSTEM) && (
              <SettingsNavLink icon={<Database size={18} />} label="Geral do Sistema" active={activeTab === 'system'} onClick={() => setActiveTab('system')} />
            )}
+           {hasPermission(Permission.SETTINGS_SYSTEM) && (
+             <SettingsNavLink icon={<Bot size={18} />} label="Agente de IA" active={activeTab === 'ai-assistant'} onClick={() => setActiveTab('ai-assistant')} />
+           )}
            {hasPermission(Permission.SETTINGS_AUTOMATION) && (
              <SettingsNavLink icon={<MessageCircleMore size={18} />} label="Mensagens Automáticas" active={activeTab === 'automated-messages'} onClick={() => setActiveTab('automated-messages')} />
            )}
@@ -167,6 +171,11 @@ export default function SettingsPage() {
                 />
                 <StatusManager />
                 <TagManager />
+             </div>
+           )}
+           {activeTab === 'ai-assistant' && hasPermission(Permission.SETTINGS_SYSTEM) && (
+             <div className="animate-in fade-in slide-in-from-bottom-4 duration-300">
+                <AiAssistantSettingsContent />
              </div>
            )}
            {activeTab === 'automated-messages' && hasPermission(Permission.SETTINGS_AUTOMATION) && (

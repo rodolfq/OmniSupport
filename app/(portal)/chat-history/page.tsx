@@ -6,7 +6,7 @@ import { StyledSelect } from '@/components/styled-select';
 import { useApp } from '@/app/app-context';
 import { UserRole, Permission, ChatMessage, Attachment } from '@/lib/types';
 import { isImageAttachment, isAudioAttachment, isVideoAttachment } from '@/lib/attachment-kind';
-import { getChatHistories, fetchSessionMessages, summarizeChatHistory, ChatSummaryResult, SessionMessagesResult } from '@/lib/services/chat-service';
+import { getChatHistories, fetchSessionMessages, summarizeChatHistory, requeueDissatisfaction, ChatSummaryResult, SessionMessagesResult } from '@/lib/services/chat-service';
 import { fetchQueues } from '@/lib/services/config-service';
 import { CompanyService } from '@/lib/services/company-service';
 import { useProfilesLiteQuery } from '@/lib/query-hooks';
@@ -54,6 +54,8 @@ const ALL_HISTORY_COLUMNS: HistoryColumnDef[] = [
   { id: 'fim', label: 'Fim', defaultVisible: true },
   { id: 'resposta', label: '1ª Resposta', defaultVisible: true },
   { id: 'avaliacao', label: 'Avaliação', defaultVisible: true },
+  { id: 'resumoProcessado', label: 'Resumo processado', defaultVisible: true },
+  { id: 'insatisfacao', label: 'Insatisfação', defaultVisible: true },
   { id: 'cliente', label: 'Cliente', defaultVisible: true },
   { id: 'funcionario', label: 'Funcionário', defaultVisible: true },
   { id: 'equipe', label: 'Equipe', defaultVisible: true },
@@ -435,6 +437,7 @@ export default function ChatHistoryPage() {
   const [dateFrom, setDateFrom] = useState('');
   const [dateTo, setDateTo] = useState('');
   const [ratingFilter, setRatingFilter] = useState<'all' | 'liked' | 'disliked' | 'unrated'>('all');
+  const [dissatisfactionFilter, setDissatisfactionFilter] = useState<'all' | 'detected' | 'not_detected' | 'unprocessed'>('all');
   const [teamFilter, setTeamFilter] = useState<string>('all');
   const [employeeFilter, setEmployeeFilter] = useState<string>('all');
   const [companyFilter, setCompanyFilter] = useState<string>('all');
@@ -456,6 +459,7 @@ export default function ChatHistoryPage() {
   const [summaryData, setSummaryData] = useState<ChatSummaryResult | null>(null);
   const [summaryLoading, setSummaryLoading] = useState(false);
   const [summaryError, setSummaryError] = useState<string | null>(null);
+  const [isRequeuingDissatisfaction, setIsRequeuingDissatisfaction] = useState(false);
 
   const [columnOrder, setColumnOrder] = useState<string[]>(() => loadColumnPrefs().order);
   const [hiddenColumns, setHiddenColumns] = useState<string[]>(() => loadColumnPrefs().hidden);
@@ -548,6 +552,20 @@ export default function ChatHistoryPage() {
     }
   }, [historyViewMode, summaryData, summaryLoading, summaryError, loadSummary]);
 
+  const handleRequeueDissatisfaction = useCallback(() => {
+    if (!selectedHistory) return;
+    setIsRequeuingDissatisfaction(true);
+    requeueDissatisfaction(selectedHistory.id)
+      .then(() => {
+        toast.success('Conversa marcada pra reprocessar — o detector de insatisfação roda em segundo plano em instantes.');
+        const patch = { dissatisfactionProcessedAt: null, dissatisfactionDetected: null, dissatisfactionDepartment: null, dissatisfactionCategory: null, dissatisfactionReason: null };
+        setHistories(prev => prev.map(h => (h.id === selectedHistory.id ? { ...h, ...patch } : h)));
+        setSelectedHistory((prev: any) => (prev ? { ...prev, ...patch } : prev));
+      })
+      .catch(err => toast.error(err?.message || 'Não foi possível reprocessar esta conversa.'))
+      .finally(() => setIsRequeuingDissatisfaction(false));
+  }, [selectedHistory]);
+
   // Transcreve sozinho qualquer áudio dessa conversa que ainda não tenha
   // transcrição (mensagem antiga, ou uma tentativa automática que falhou) —
   // a tela (e um PDF gerado depois) já saem com o texto, sem precisar de
@@ -637,14 +655,19 @@ export default function ChatHistoryPage() {
       else if (ratingFilter === 'disliked') matchesRating = h.rating === -1;
       else if (ratingFilter === 'unrated') matchesRating = h.rating !== 1 && h.rating !== -1;
 
+      let matchesDissatisfaction = true;
+      if (dissatisfactionFilter === 'detected') matchesDissatisfaction = h.dissatisfactionDetected === true;
+      else if (dissatisfactionFilter === 'not_detected') matchesDissatisfaction = h.dissatisfactionProcessedAt != null && h.dissatisfactionDetected !== true;
+      else if (dissatisfactionFilter === 'unprocessed') matchesDissatisfaction = h.dissatisfactionProcessedAt == null;
+
       const matchesTeam = teamFilter === 'all' || h.assigneeId === teamFilter;
       const matchesEmployee = employeeFilter === 'all' || h.customerId === employeeFilter;
       const matchesCompany = companyFilter === 'all' || h.companyId === companyFilter;
       const matchesQueue = queueFilter === 'all' || h.queueId === queueFilter;
 
-      return matchesSearch && matchesDate && matchesRating && matchesTeam && matchesEmployee && matchesCompany && matchesQueue;
+      return matchesSearch && matchesDate && matchesRating && matchesDissatisfaction && matchesTeam && matchesEmployee && matchesCompany && matchesQueue;
     });
-  }, [histories, search, dateFrom, dateTo, ratingFilter, teamFilter, employeeFilter, companyFilter, queueFilter]);
+  }, [histories, search, dateFrom, dateTo, ratingFilter, dissatisfactionFilter, teamFilter, employeeFilter, companyFilter, queueFilter]);
 
   const handleDownloadTxt = (h: any) => {
     downloadBlob(`${historyFileBaseName(h)}.txt`, new Blob([buildTxtContent(h)], { type: 'text/plain;charset=utf-8' }));
@@ -718,6 +741,31 @@ export default function ChatHistoryPage() {
             {h.rating === 1 && <ThumbsUp className="text-[var(--text-success)]" size={16} />}
             {h.rating === -1 && <ThumbsDown className="text-[var(--text-danger)]" size={16} />}
             {h.rating !== 1 && h.rating !== -1 && <Minus className="text-[var(--text-tertiary)]" size={16} />}
+          </td>
+        );
+      case 'resumoProcessado':
+        return (
+          <td key="resumoProcessado" className="px-5 py-4 text-[10px] font-semibold uppercase tracking-widest whitespace-nowrap">
+            {h.summary
+              ? <span className="text-[var(--text-success)]">Sim</span>
+              : <span className="text-[var(--text-tertiary)]">Não</span>}
+          </td>
+        );
+      case 'insatisfacao':
+        return (
+          <td key="insatisfacao" className="px-5 py-4 whitespace-nowrap">
+            {h.dissatisfactionProcessedAt == null ? (
+              <span className="text-[10px] font-semibold uppercase tracking-widest text-[var(--text-tertiary)]">Não processado</span>
+            ) : h.dissatisfactionDetected ? (
+              <span
+                className="inline-flex items-center gap-1 text-[10px] font-semibold uppercase tracking-widest text-[var(--text-danger)]"
+                title={h.dissatisfactionCategory ? `${h.dissatisfactionDepartment} · ${h.dissatisfactionCategory}` : undefined}
+              >
+                <ThumbsDown size={12} /> Sim
+              </span>
+            ) : (
+              <span className="text-[10px] font-semibold uppercase tracking-widest text-[var(--text-success)]">Não</span>
+            )}
           </td>
         );
       case 'cliente':
@@ -899,6 +947,27 @@ export default function ChatHistoryPage() {
                 </button>
               ))}
             </div>
+
+            <div className="flex items-center gap-2">
+              <Filter size={16} className="text-[var(--text-tertiary)]" />
+              {[
+                { value: 'all', label: 'Todos' },
+                { value: 'detected', label: 'Insatisfeitos' },
+                { value: 'not_detected', label: 'Sem insatisfação' },
+                { value: 'unprocessed', label: 'Não processado' }
+              ].map(opt => (
+                <button
+                  key={opt.value}
+                  onClick={() => setDissatisfactionFilter(opt.value as any)}
+                  className={cn(
+                    "px-3 py-1.5 rounded-lg text-[10px] font-semibold uppercase tracking-widest transition-all",
+                    dissatisfactionFilter === opt.value ? "bg-[var(--text-danger)] text-white" : "bg-[var(--surface-pill)] text-[var(--text-secondary)] hover:bg-[var(--border-default)]"
+                  )}
+                >
+                  {opt.label}
+                </button>
+              ))}
+            </div>
           </div>
 
           <div className="relative" ref={columnPickerRef}>
@@ -1045,6 +1114,30 @@ export default function ChatHistoryPage() {
                       <p className="text-[10px] text-[var(--text-tertiary)] font-semibold uppercase tracking-widest">
                         Resumo por IA{summaryData.generatedAt ? ` · gerado em ${formatDateTime(summaryData.generatedAt)}` : ''}
                       </p>
+
+                      {selectedHistory.dissatisfactionDetected && (
+                        <div className="p-4 rounded-2xl border border-[var(--text-danger)]/30 bg-[var(--surface-danger)]/40 space-y-1">
+                          <p className="text-[10px] font-semibold uppercase tracking-widest text-[var(--text-danger)] flex items-center gap-1.5">
+                            <ThumbsDown size={12} /> Insatisfação identificada
+                          </p>
+                          <p className="text-xs font-bold text-[var(--text-primary)]">
+                            {selectedHistory.dissatisfactionDepartment || 'Departamento não classificado'}
+                            {selectedHistory.dissatisfactionCategory ? ` · ${selectedHistory.dissatisfactionCategory}` : ''}
+                          </p>
+                          {selectedHistory.dissatisfactionReason && (
+                            <p className="text-xs text-[var(--text-secondary)] leading-relaxed">&ldquo;{selectedHistory.dissatisfactionReason}&rdquo;</p>
+                          )}
+                        </div>
+                      )}
+
+                      <button
+                        onClick={handleRequeueDissatisfaction}
+                        disabled={isRequeuingDissatisfaction}
+                        className="flex items-center gap-2 px-4 py-2 bg-[var(--surface-card)] border-2 border-[var(--border-default)] rounded-xl text-[10px] font-semibold uppercase tracking-widest hover:border-[var(--accent)]/40 transition-all disabled:opacity-60"
+                      >
+                        <RotateCcw size={12} className={isRequeuingDissatisfaction ? 'animate-spin' : ''} />
+                        {selectedHistory.dissatisfactionProcessedAt == null ? 'Detector de insatisfação: não processado ainda' : 'Reprocessar detector de insatisfação'}
+                      </button>
                     </div>
                   ) : null
                 ) : loadingSessionMessages ? (

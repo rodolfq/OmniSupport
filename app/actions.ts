@@ -12,6 +12,8 @@ import { runExclusive } from '@/lib/key-mutex';
 import { canForceOthersOffline } from '@/lib/services/presence-authorization';
 import { CustomerEvaluationScores, CustomerProfileTag, CustomerEvaluationSummary, CustomerEvaluationOrigin } from '@/lib/types';
 import { logAudit } from '@/lib/audit-log';
+import { getEffectiveAssistantConfig, getRawAssistantSettings, saveAssistantConfig as saveAssistantConfigService, DEFAULT_SYSTEM_INSTRUCTION } from '@/lib/services/ai-assistant-config-service';
+import { isEmbeddingEnabled } from '@/lib/services/embedding-service';
 
 export async function getCurrentActionUser() {
   const token = (await cookies()).get('token')?.value;
@@ -1739,5 +1741,56 @@ export async function getCustomerEvaluationSummary(companyId: string): Promise<C
   } catch (err: any) {
     console.error('Error getting customer evaluation summary in actions:', err);
     return { error: err.message || 'Erro ao carregar avaliações do cliente.' };
+  }
+}
+
+async function assertCanManageAssistant(): Promise<{ ok: true; actor: any } | { ok: false; error: string }> {
+  const actor = await getCurrentActionUser();
+  if (!actor) return { ok: false, error: 'Sessão inválida.' };
+  if (actor.role === 'Administrador') return { ok: true, actor };
+  const permissions = await getActorEffectivePermissions(actor.id);
+  if (!permissions.includes('settings:system')) return { ok: false, error: 'Você não tem permissão para gerenciar o Agente de IA.' };
+  return { ok: true, actor };
+}
+
+// Dados pra aba "Agente de IA" em Configurações: status ao vivo (chave
+// configurada? busca semântica disponível neste ambiente?) + valores
+// efetivos (com fallback já resolvido) e o override cru salvo (pro toggle
+// de busca semântica saber seu próprio estado, distinto do valor efetivo
+// quando o env desliga por cima — ver ai-assistant-config-service.ts).
+export async function getAssistantConfig() {
+  try {
+    const check = await assertCanManageAssistant();
+    if (!check.ok) return { error: check.error };
+
+    const [effective, raw] = await Promise.all([getEffectiveAssistantConfig(), getRawAssistantSettings()]);
+    return {
+      groqApiKeyConfigured: !!process.env.GROQ_API_KEY,
+      embeddingsEnabledInEnv: isEmbeddingEnabled(),
+      defaultSystemInstruction: DEFAULT_SYSTEM_INSTRUCTION,
+      effectiveSystemPrompt: effective.systemPrompt,
+      effectiveModel: effective.model,
+      effectiveSemanticSearchEnabled: effective.semanticSearchEnabled,
+      isPromptCustomized: effective.isPromptCustomized,
+      isModelCustomized: effective.isModelCustomized,
+      rawSemanticSearchOverride: raw.semanticSearchEnabled
+    };
+  } catch (err: any) {
+    console.error('Error getting assistant config in actions:', err);
+    return { error: err.message || 'Erro ao carregar configuração do Agente de IA.' };
+  }
+}
+
+export async function saveAssistantConfig(systemPrompt: string | null, model: string | null, semanticSearchEnabled: boolean | null) {
+  try {
+    const check = await assertCanManageAssistant();
+    if (!check.ok) return { error: check.error };
+    const { actor } = check;
+
+    await saveAssistantConfigService(actor.id, actor.name, { systemPrompt, model, semanticSearchEnabled });
+    return { success: true };
+  } catch (err: any) {
+    console.error('Error saving assistant config in actions:', err);
+    return { error: err.message || 'Erro ao salvar configuração do Agente de IA.' };
   }
 }
