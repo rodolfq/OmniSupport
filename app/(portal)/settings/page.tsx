@@ -17,7 +17,7 @@ import { StatusHistoryPanel } from '@/components/status-history-panel';
 import { TagManager } from '@/components/tag-manager';
 import { StatusManager } from '@/components/status-manager';
 import { ChangePasswordModal } from '@/components/change-password-modal';
-import { WhatsAppConnect } from '@/components/whatsapp-connect';
+import { WhatsAppChannelManager } from '@/components/whatsapp-channel-manager';
 import { fileToCompressedAvatarBase64, isValidImageUrl } from '@/lib/image-utils';
 import { toast } from 'sonner';
 import { IntegrationsContent } from '@/components/integrations-content';
@@ -33,12 +33,16 @@ export default function SettingsPage() {
     playSound,
     hasPermission
   } = useApp();
-  // A aba WhatsApp usa o mesmo componente simples (instância única,
-  // WhatsAppConnect) que já funcionava em /whatsapp — a versão multi-
-  // instância que existia aqui antes nunca funcionou de verdade (exigia
+  // A aba WhatsApp usa WhatsAppChannelManager: canal Baileys fixo (QR Code,
+  // 'default', igual ao que já funcionava em /whatsapp) + lista de canais
+  // Meta Cloud API (0..N, criados/editados na própria tela — ver
+  // components/whatsapp-channel-manager.tsx). A versão multi-instância
+  // Baileys que existia aqui antes nunca funcionou de verdade (exigia
   // cadastrar um canal manualmente antes de mostrar qualquer QR Code, sem
-  // nenhuma indicação disso na tela) e foi removida. /whatsapp agora só
-  // redireciona pra cá — ?tab= permite abrir direto nesta aba.
+  // nenhuma indicação disso na tela) e foi removida — não confundir com a
+  // multi-instância Meta atual, que não tem esse problema (não depende de
+  // QR Code/sessão pareada). /whatsapp agora só redireciona pra cá — ?tab=
+  // permite abrir direto nesta aba.
   const searchParams = useSearchParams();
   const initialTab = searchParams.get('tab');
   const [activeTab, setActiveTab] = useState<Tab>(initialTab === 'whatsapp' ? 'whatsapp' : 'profile');
@@ -182,13 +186,13 @@ export default function SettingsPage() {
                 <h3 className="text-xl font-black text-[var(--text-primary)] uppercase tracking-tight flex items-center gap-2">
                   <Globe className="text-[var(--accent-text)]" size={24} /> WhatsApp
                 </h3>
-                <p className="text-xs text-[var(--text-tertiary)] font-bold uppercase tracking-widest mt-1">Conecte o número da empresa escaneando o QR Code</p>
+                <p className="text-xs text-[var(--text-tertiary)] font-bold uppercase tracking-widest mt-1">Conecte via QR Code ou configure um canal oficial da Meta</p>
               </div>
-              <WhatsAppConnect instanceId="default" />
               <div className="bg-[var(--surface-warning)] border border-[var(--border-alert)] rounded-2xl p-4">
-                <p className="text-xs font-bold text-[var(--text-warning)]">Requer servidor persistente (não funciona em hospedagem serverless, ex: Vercel).</p>
-                <p className="text-[10px] text-[var(--text-warning)] mt-1">A conexão é gerenciada automaticamente pelo próprio servidor — não é necessário rodar nenhum processo separado.</p>
+                <p className="text-xs font-bold text-[var(--text-warning)]">QR Code requer servidor persistente (não funciona em hospedagem serverless, ex: Vercel).</p>
+                <p className="text-[10px] text-[var(--text-warning)] mt-1">Pra produção serverless, use um canal Meta Cloud API abaixo — não depende de processo em segundo plano.</p>
               </div>
+              <WhatsAppChannelManager />
             </div>
           )}
           {activeTab === 'notifications' && (

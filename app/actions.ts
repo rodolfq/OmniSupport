@@ -765,38 +765,115 @@ export async function markHotfixPublished(id: string) {
   }
 }
 
+async function assertCanManageWhatsapp(): Promise<{ ok: true; actor: any } | { ok: false; error: string }> {
+  const actor = await getCurrentActionUser();
+  if (!actor) return { ok: false, error: 'Sessão inválida.' };
+  if (actor.role === 'Administrador') return { ok: true, actor };
+  const permissions = await getActorEffectivePermissions(actor.id);
+  if (!permissions.includes('whatsapp:manage')) return { ok: false, error: 'Você não tem permissão para gerenciar WhatsApp.' };
+  return { ok: true, actor };
+}
+
+// Lista sem segredo nenhum: access_token nunca sai do servidor (só um
+// booleano indicando se já foi configurado) — outras telas (Fila, filtro de
+// relatórios) chamam essa mesma função só pra listar canais, sem precisar de
+// Permission.WHATSAPP_MANAGE.
 export async function getWhatsappInstances() {
   try {
-    const res = await query('SELECT * FROM public.whatsapp_instances');
-    return res.rows;
+    const res = await query(
+      `SELECT id, name, phone, status, provider, phone_number_id, verify_token,
+              (access_token IS NOT NULL AND access_token <> '') AS has_access_token
+       FROM public.whatsapp_instances ORDER BY created_at ASC`
+    );
+    return res.rows.map(r => ({
+      id: r.id,
+      name: r.name,
+      phone: r.phone,
+      status: r.status,
+      provider: r.provider || 'baileys',
+      phoneNumberId: r.phone_number_id || undefined,
+      hasAccessToken: r.has_access_token,
+      verifyToken: r.verify_token || undefined
+    }));
   } catch (err) {
     console.error("Error getting WhatsApp instances in actions:", err);
     return [];
   }
 }
 
-export async function saveWhatsappInstance(id: string | null, name: string, phone: string, status: string) {
+export async function saveWhatsappInstance(
+  id: string | null,
+  name: string,
+  phone: string,
+  status: string,
+  provider: 'baileys' | 'meta' = 'baileys',
+  meta?: { phoneNumberId?: string; accessToken?: string; verifyToken?: string }
+) {
   try {
+    const check = await assertCanManageWhatsapp();
+    if (!check.ok) return { error: check.error };
+    const { actor } = check;
+
+    if (!name?.trim()) return { error: 'Informe um nome para o canal.' };
+
     if (id) {
+      // access_token: string vazia significa "não mexer" (o campo fica em
+      // branco na edição pra não reexibir o segredo já salvo) — só
+      // sobrescreve quando vier um valor novo de verdade.
       await query(
         `UPDATE public.whatsapp_instances
-         SET name = $1, phone = $2, status = $3, updated_at = NOW()
-         WHERE id = $4`,
-        [name, phone, status, id]
+         SET name = $1, phone = $2, status = $3, provider = $4,
+             phone_number_id = $5,
+             verify_token = COALESCE($6, verify_token),
+             access_token = CASE WHEN $7 = '' THEN access_token ELSE $7 END,
+             updated_at = NOW()
+         WHERE id = $8`,
+        [name.trim(), phone || null, status, provider, meta?.phoneNumberId || null, meta?.verifyToken || null, meta?.accessToken ?? '', id]
       );
+      logAudit({ actorId: actor.id, actorName: actor.name, action: 'update', entityType: 'whatsapp_instance', entityId: id, entityLabel: name, changes: { name, provider, phoneNumberId: meta?.phoneNumberId } });
       return { id };
     } else {
       const newId = crypto.randomUUID();
+      // Canal Meta precisa de verify_token pra configurar o webhook no
+      // painel da Meta — gera um se quem criou não informou nenhum.
+      const verifyToken = provider === 'meta' ? (meta?.verifyToken || crypto.randomUUID().replace(/-/g, '')) : null;
       await query(
-        `INSERT INTO public.whatsapp_instances (id, name, phone, status)
-         VALUES ($1, $2, $3, $4)`,
-        [newId, name, phone, status]
+        `INSERT INTO public.whatsapp_instances (id, name, phone, status, provider, phone_number_id, access_token, verify_token)
+         VALUES ($1, $2, $3, $4, $5, $6, $7, $8)`,
+        [newId, name.trim(), phone || null, status, provider, meta?.phoneNumberId || null, meta?.accessToken || null, verifyToken]
       );
+      logAudit({ actorId: actor.id, actorName: actor.name, action: 'create', entityType: 'whatsapp_instance', entityId: newId, entityLabel: name, changes: { name, provider, phoneNumberId: meta?.phoneNumberId } });
       return { id: newId };
     }
-  } catch (err) {
+  } catch (err: any) {
     console.error("Error saving WhatsApp instance in actions:", err);
-    return { error: 'Erro ao salvar instância.' };
+    return { error: err.message || 'Erro ao salvar instância.' };
+  }
+}
+
+export async function deleteWhatsappInstance(id: string) {
+  try {
+    const check = await assertCanManageWhatsapp();
+    if (!check.ok) return { error: check.error };
+    const { actor } = check;
+
+    if (id === 'default') {
+      return { error: 'O canal padrão do WhatsApp (QR Code) não pode ser excluído.' };
+    }
+
+    const inUse = await query('SELECT name FROM public.queues WHERE whatsapp_instance_id = $1', [id]);
+    if ((inUse.rowCount ?? 0) > 0) {
+      const names = inUse.rows.map((r: any) => r.name).join(', ');
+      return { error: `Não é possível excluir: canal em uso pela(s) fila(s) ${names}. Desvincule antes de excluir.` };
+    }
+
+    const existing = await query('SELECT name FROM public.whatsapp_instances WHERE id = $1', [id]);
+    await query('DELETE FROM public.whatsapp_instances WHERE id = $1', [id]);
+    logAudit({ actorId: actor.id, actorName: actor.name, action: 'delete', entityType: 'whatsapp_instance', entityId: id, entityLabel: existing.rows[0]?.name || null });
+    return { success: true };
+  } catch (err: any) {
+    console.error("Error deleting WhatsApp instance in actions:", err);
+    return { error: err.message || 'Erro ao excluir canal de WhatsApp.' };
   }
 }
 

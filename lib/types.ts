@@ -330,12 +330,22 @@ export interface Attachment {
   transcription?: string;
 }
 
+export type WhatsappProvider = 'baileys' | 'meta';
+
 export interface WhatsappInstance {
   id: string;
   name: string;
   phone: string;
   status: 'connected' | 'disconnected' | 'connecting' | 'error';
   qrCode?: string;
+  // 'baileys' (QR Code, WhatsApp Web não-oficial) ou 'meta' (Cloud API
+  // oficial). Campos abaixo só fazem sentido para 'meta'.
+  provider: WhatsappProvider;
+  phoneNumberId?: string;
+  // Nunca inclui o access_token de verdade pro client — só se já está
+  // configurado ou não (ver getWhatsappInstances em app/actions.ts).
+  hasAccessToken?: boolean;
+  verifyToken?: string;
 }
 
 export interface Queue {

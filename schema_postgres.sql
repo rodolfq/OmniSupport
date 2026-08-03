@@ -544,12 +544,18 @@ CREATE TABLE public.whatsapp_sessions (
   updated_at TIMESTAMP WITH TIME ZONE DEFAULT now() NOT NULL
 );
 
--- WhatsApp Instances Table (for UI management)
+-- WhatsApp Instances Table (for UI management) — cada linha é um "canal" de
+-- WhatsApp, com provider 'baileys' (QR Code) ou 'meta' (Cloud API oficial).
+-- Os campos meta-específicos ficam NULL em canais Baileys.
 CREATE TABLE public.whatsapp_instances (
   id TEXT PRIMARY KEY,
   name TEXT,
   phone TEXT,
   status TEXT DEFAULT 'disconnected',
+  provider TEXT NOT NULL DEFAULT 'baileys',
+  access_token TEXT,
+  phone_number_id TEXT,
+  verify_token TEXT,
   created_at TIMESTAMP WITH TIME ZONE DEFAULT now() NOT NULL,
   updated_at TIMESTAMP WITH TIME ZONE DEFAULT now() NOT NULL
 );
@@ -761,6 +767,14 @@ INSERT INTO public.absence_reasons (label) VALUES
 ('Pessoal'), 
 ('Pausa')
 ON CONFLICT (label) DO NOTHING;
+
+-- Seed Default WhatsApp Channel — a tela de Configurações > WhatsApp sempre
+-- usou o id fixo 'default' pro canal Baileys (ver components/whatsapp-
+-- connect.tsx), então uma linha correspondente precisa existir pra Fila
+-- conseguir listar/vincular esse canal.
+INSERT INTO public.whatsapp_instances (id, name, phone, status, provider) VALUES
+('default', 'WhatsApp Principal', NULL, 'disconnected', 'baileys')
+ON CONFLICT (id) DO NOTHING;
 
 -- Seed Default Quick Notes
 INSERT INTO public.quick_notes (shortcut, content, category) VALUES 

@@ -1,0 +1,280 @@
+"use client";
+
+import React, { useState } from 'react';
+import { Copy, Check, Eye, EyeOff, RefreshCw, Trash2, PlugZap, Loader2, CheckCircle2 } from 'lucide-react';
+import { saveWhatsappInstance, deleteWhatsappInstance } from '@/app/actions';
+import { WhatsappInstance } from '@/lib/types';
+import { cn } from '@/lib/utils';
+import { ConfirmDialog } from '@/components/confirm-dialog';
+import { toast } from 'sonner';
+
+function generateVerifyToken() {
+  return crypto.randomUUID().replace(/-/g, '');
+}
+
+function CopyField({ label, value }: { label: string; value: string }) {
+  const [copied, setCopied] = useState(false);
+  const copy = async () => {
+    await navigator.clipboard.writeText(value);
+    setCopied(true);
+    setTimeout(() => setCopied(false), 1500);
+  };
+  return (
+    <div className="space-y-1.5">
+      {label && <label className="text-[10px] font-black uppercase tracking-widest text-[var(--text-tertiary)] ml-1">{label}</label>}
+      <div className="flex gap-2">
+        <input
+          readOnly
+          value={value}
+          onFocus={(e) => e.target.select()}
+          className="flex-1 min-w-0 bg-[var(--surface-pill)] border border-[var(--border-default)] rounded-xl px-4 py-3 text-xs font-mono text-[var(--text-secondary)] outline-none"
+        />
+        <button
+          type="button"
+          onClick={copy}
+          className="px-3 rounded-xl bg-[var(--surface-pill)] border border-[var(--border-default)] text-[var(--text-tertiary)] hover:text-[var(--accent-text)] hover:border-[var(--accent)] transition-all shrink-0"
+          title="Copiar"
+        >
+          {copied ? <Check size={15} className="text-[var(--text-success)]" /> : <Copy size={15} />}
+        </button>
+      </div>
+    </div>
+  );
+}
+
+export function MetaWhatsAppChannelForm({
+  instance,
+  onSaved,
+  onCancel
+}: {
+  instance: WhatsappInstance | null;
+  onSaved: () => void;
+  onCancel?: () => void;
+}) {
+  const isEditing = !!instance;
+  const [name, setName] = useState(instance?.name || 'WhatsApp Meta');
+  const [phoneNumberId, setPhoneNumberId] = useState(instance?.phoneNumberId || '');
+  const [accessToken, setAccessToken] = useState('');
+  const [showAccessToken, setShowAccessToken] = useState(false);
+  const [verifyToken, setVerifyToken] = useState(instance?.verifyToken || generateVerifyToken());
+  const [isSaving, setIsSaving] = useState(false);
+  const [isTesting, setIsTesting] = useState(false);
+  const [isDeleting, setIsDeleting] = useState(false);
+  const [confirmingDelete, setConfirmingDelete] = useState(false);
+  const [testResult, setTestResult] = useState<{ verifiedName?: string; displayPhoneNumber?: string } | null>(null);
+
+  const webhookUrl = typeof window !== 'undefined' ? `${window.location.origin}/api/whatsapp/webhook` : '';
+
+  const handleSave = async () => {
+    if (!name.trim()) {
+      toast.error('Informe um nome para o canal.');
+      return;
+    }
+    setIsSaving(true);
+    try {
+      const result = await saveWhatsappInstance(
+        instance?.id || null,
+        name.trim(),
+        instance?.phone || '',
+        instance?.status || 'disconnected',
+        'meta',
+        { phoneNumberId: phoneNumberId.trim(), accessToken: accessToken.trim(), verifyToken }
+      );
+      if ('error' in result && result.error) throw new Error(result.error);
+      toast.success('Canal Meta salvo!');
+      setAccessToken('');
+      onSaved();
+    } catch (e: any) {
+      toast.error(e.message || 'Erro ao salvar canal Meta.');
+    } finally {
+      setIsSaving(false);
+    }
+  };
+
+  const handleTest = async () => {
+    if (!instance) return;
+    setIsTesting(true);
+    setTestResult(null);
+    try {
+      const res = await fetch('/api/whatsapp/meta/test', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ instanceId: instance.id })
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || 'Falha ao testar conexão.');
+      setTestResult(data.data);
+      // Guarda o número confirmado pela Meta e marca como conectado — não
+      // precisa esperar o usuário salvar de novo pra ver o status atualizado.
+      // phoneNumberId precisa ir junto: phone_number_id não é COALESCE (ao
+      // contrário de access_token/verify_token) porque o campo é sempre
+      // editável e reenviado a cada save normal — sem ele aqui, essa
+      // chamada zeraria o phone_number_id que acabou de ser testado.
+      await saveWhatsappInstance(instance.id, name.trim(), data.data?.displayPhoneNumber || instance.phone || '', 'connected', 'meta', { phoneNumberId: phoneNumberId.trim() });
+      toast.success('Conexão com a Meta Cloud API confirmada!');
+      onSaved();
+    } catch (e: any) {
+      toast.error(e.message || 'Falha ao testar conexão.');
+    } finally {
+      setIsTesting(false);
+    }
+  };
+
+  const handleDelete = async () => {
+    if (!instance) return;
+    setIsDeleting(true);
+    try {
+      const result = await deleteWhatsappInstance(instance.id);
+      if ('error' in result && result.error) throw new Error(result.error);
+      toast.success('Canal excluído.');
+      onSaved();
+    } catch (e: any) {
+      toast.error(e.message || 'Erro ao excluir canal.');
+    } finally {
+      setIsDeleting(false);
+      setConfirmingDelete(false);
+    }
+  };
+
+  return (
+    <div className="bg-[var(--surface-card)] border border-[var(--border-default)] rounded-3xl p-6 space-y-5">
+      <div className="flex items-center justify-between">
+        <div className="flex items-center gap-3">
+          <div className={cn(
+            "w-10 h-10 rounded-xl flex items-center justify-center",
+            instance?.status === 'connected' ? "bg-[var(--surface-success)] text-[var(--text-success)]" : "bg-[var(--surface-pill)] text-[var(--text-tertiary)]"
+          )}>
+            <PlugZap size={18} />
+          </div>
+          <div>
+            <p className="text-xs font-black text-[var(--text-primary)] uppercase tracking-widest">WhatsApp Oficial (Meta)</p>
+            {instance?.status === 'connected' && (
+              <p className="text-[10px] font-bold text-[var(--text-success)] flex items-center gap-1"><CheckCircle2 size={11} /> Conectado</p>
+            )}
+          </div>
+        </div>
+        {isEditing && instance && (
+          <button
+            type="button"
+            onClick={() => setConfirmingDelete(true)}
+            className="p-2 rounded-lg text-[var(--text-danger)] hover:bg-[var(--surface-danger)] transition-all"
+            title="Excluir canal"
+          >
+            <Trash2 size={16} />
+          </button>
+        )}
+      </div>
+
+      <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+        <div className="space-y-1.5">
+          <label className="text-[10px] font-black uppercase tracking-widest text-[var(--text-tertiary)] ml-1">Nome do Canal</label>
+          <input
+            type="text"
+            value={name}
+            onChange={(e) => setName(e.target.value)}
+            placeholder="Ex: WhatsApp Comercial"
+            className="w-full bg-[var(--surface-card)] border border-[var(--border-default)] rounded-xl px-4 py-3 text-sm font-medium focus:ring-2 focus:ring-[var(--accent)]/20 focus:border-[var(--accent)] outline-none transition-all"
+          />
+        </div>
+        <div className="space-y-1.5">
+          <label className="text-[10px] font-black uppercase tracking-widest text-[var(--text-tertiary)] ml-1">Phone Number ID</label>
+          <input
+            type="text"
+            value={phoneNumberId}
+            onChange={(e) => setPhoneNumberId(e.target.value)}
+            placeholder="Ex: 109876543210987"
+            className="w-full bg-[var(--surface-card)] border border-[var(--border-default)] rounded-xl px-4 py-3 text-sm font-mono focus:ring-2 focus:ring-[var(--accent)]/20 focus:border-[var(--accent)] outline-none transition-all"
+          />
+        </div>
+      </div>
+
+      <div className="space-y-1.5">
+        <label className="text-[10px] font-black uppercase tracking-widest text-[var(--text-tertiary)] ml-1">Access Token</label>
+        <div className="relative">
+          <input
+            type={showAccessToken ? 'text' : 'password'}
+            value={accessToken}
+            onChange={(e) => setAccessToken(e.target.value)}
+            placeholder={instance?.hasAccessToken ? '•••••••• (já configurado — deixe em branco para manter)' : 'Token permanente da Meta Cloud API'}
+            className="w-full bg-[var(--surface-card)] border border-[var(--border-default)] rounded-xl px-4 pr-11 py-3 text-sm font-mono focus:ring-2 focus:ring-[var(--accent)]/20 focus:border-[var(--accent)] outline-none transition-all"
+          />
+          <button
+            type="button"
+            onClick={() => setShowAccessToken(v => !v)}
+            className="absolute right-3 top-1/2 -translate-y-1/2 p-1 text-[var(--text-tertiary)] hover:text-[var(--accent-text)]"
+          >
+            {showAccessToken ? <EyeOff size={16} /> : <Eye size={16} />}
+          </button>
+        </div>
+      </div>
+
+      <div className="p-4 bg-[var(--accent)]/5 border border-[var(--accent)]/15 rounded-2xl space-y-3">
+        <p className="text-[10px] font-black text-[var(--accent-text)] uppercase tracking-widest">Configuração do Webhook na Meta</p>
+        <CopyField label="Callback URL" value={webhookUrl} />
+        <div className="space-y-1.5">
+          <div className="flex items-center justify-between ml-1">
+            <label className="text-[10px] font-black uppercase tracking-widest text-[var(--text-tertiary)]">Verify Token</label>
+            <button
+              type="button"
+              onClick={() => setVerifyToken(generateVerifyToken())}
+              className="text-[9px] font-bold uppercase text-[var(--accent-text)] hover:underline flex items-center gap-1"
+            >
+              <RefreshCw size={10} /> Gerar novo
+            </button>
+          </div>
+          <CopyField label="" value={verifyToken} />
+        </div>
+        <p className="text-[10px] text-[var(--text-tertiary)] font-medium leading-relaxed">
+          No painel do App da Meta, em WhatsApp → Configuração → Webhook, cole a Callback URL e o Verify Token acima, e assine os campos <span className="font-bold text-[var(--text-secondary)]">messages</span>.
+        </p>
+      </div>
+
+      {testResult && (
+        <div className="p-3 bg-[var(--surface-success)] border border-[var(--text-success)]/20 rounded-xl text-xs font-bold text-[var(--text-success)]">
+          {testResult.verifiedName || 'Conectado'} {testResult.displayPhoneNumber ? `• ${testResult.displayPhoneNumber}` : ''}
+        </div>
+      )}
+
+      <div className="flex items-center gap-2 pt-1">
+        <button
+          type="button"
+          onClick={handleSave}
+          disabled={isSaving}
+          className="flex-1 py-3 bg-[var(--accent)] text-white rounded-xl text-xs font-black uppercase tracking-widest shadow-md hover:bg-[var(--accent-hover)] transition-all disabled:opacity-60 flex items-center justify-center gap-2"
+        >
+          {isSaving && <Loader2 size={14} className="animate-spin" />}
+          {isEditing ? 'Salvar Alterações' : 'Criar Canal'}
+        </button>
+        <button
+          type="button"
+          onClick={handleTest}
+          disabled={!isEditing || isTesting}
+          title={!isEditing ? 'Salve o canal antes de testar' : 'Testar Conexão'}
+          className="flex-1 py-3 bg-[var(--surface-pill)] border border-[var(--border-default)] text-[var(--text-secondary)] rounded-xl text-xs font-black uppercase tracking-widest hover:border-[var(--accent)] transition-all disabled:opacity-50 flex items-center justify-center gap-2"
+        >
+          {isTesting ? <Loader2 size={14} className="animate-spin" /> : <PlugZap size={14} />}
+          Testar Conexão
+        </button>
+        {onCancel && (
+          <button
+            type="button"
+            onClick={onCancel}
+            className="py-3 px-4 text-[var(--text-tertiary)] hover:text-[var(--text-secondary)] text-xs font-black uppercase tracking-widest transition-all"
+          >
+            Cancelar
+          </button>
+        )}
+      </div>
+
+      <ConfirmDialog
+        isOpen={confirmingDelete}
+        onClose={() => setConfirmingDelete(false)}
+        onConfirm={handleDelete}
+        title="Excluir canal Meta?"
+        description={`Isso remove as credenciais salvas de "${instance?.name}". Se alguma Fila estiver usando esse canal, a exclusão será bloqueada até você desvincular.`}
+        confirmLabel={isDeleting ? 'Excluindo...' : 'Excluir'}
+        variant="danger"
+      />
+    </div>
+  );
+}

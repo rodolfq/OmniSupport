@@ -151,7 +151,7 @@ export default function QueuesManagementPage() {
           name: i.name,
           phone: i.phone || '',
           status: i.status || 'disconnected',
-          createdAt: i.created_at
+          provider: i.provider || 'baileys'
         })));
       }
     } catch (e) {
