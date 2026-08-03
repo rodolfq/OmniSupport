@@ -14,6 +14,7 @@ import { CustomerEvaluationScores, CustomerProfileTag, CustomerEvaluationSummary
 import { logAudit } from '@/lib/audit-log';
 import { getEffectiveAssistantConfig, getRawAssistantSettings, saveAssistantConfig as saveAssistantConfigService, DEFAULT_SYSTEM_INSTRUCTION } from '@/lib/services/ai-assistant-config-service';
 import { isEmbeddingEnabled } from '@/lib/services/embedding-service';
+import { processDissatisfactionQueueBatch } from '@/lib/services/dissatisfaction-service';
 
 export async function getCurrentActionUser() {
   const token = (await cookies()).get('token')?.value;
@@ -1792,5 +1793,76 @@ export async function saveAssistantConfig(systemPrompt: string | null, model: st
   } catch (err: any) {
     console.error('Error saving assistant config in actions:', err);
     return { error: err.message || 'Erro ao salvar configuração do Agente de IA.' };
+  }
+}
+
+// Progresso do processamento em segundo plano do Detector de Insatisfação
+// (lib/services/dissatisfaction-scheduler.ts). Distingue 3 casos que todos
+// têm dissatisfaction_detected NULL, pra não confundir "nunca foi
+// analisado" com "foi tentado e desistiu":
+// - pending: dissatisfaction_processed_at IS NULL (ainda na fila)
+// - failed: processed_at preenchido, detected NULL, mas attempts > 0 —
+//   tentou e esgotou as tentativas (ver MAX_DISSATISFACTION_ATTEMPTS)
+// - o resto das linhas com processed_at preenchido e attempts = 0 é o
+//   backlog marcado como "pulado" pela própria migration (nunca chegou a
+//   ser enviado ao Groq) — não entra em "analyzed" nem em "failed".
+export async function getDissatisfactionStats() {
+  try {
+    const check = await assertCanManageAssistant();
+    if (!check.ok) return { error: check.error };
+
+    const res = await query(`
+      SELECT
+        count(*)::int AS total,
+        count(*) FILTER (WHERE dissatisfaction_processed_at IS NULL)::int AS pending,
+        count(*) FILTER (WHERE dissatisfaction_detected IS NOT NULL)::int AS analyzed,
+        count(*) FILTER (WHERE dissatisfaction_detected = true)::int AS detected,
+        count(*) FILTER (
+          WHERE dissatisfaction_processed_at IS NOT NULL
+            AND dissatisfaction_detected IS NULL
+            AND dissatisfaction_attempts > 0
+        )::int AS failed,
+        max(dissatisfaction_processed_at) FILTER (
+          WHERE dissatisfaction_attempts > 0 OR dissatisfaction_detected IS NOT NULL
+        ) AS last_activity_at
+      FROM public.chat_histories
+    `);
+    const row = res.rows[0];
+    return {
+      enabled: process.env.ENABLE_DISSATISFACTION_DETECTOR === 'true',
+      total: row.total,
+      pending: row.pending,
+      analyzed: row.analyzed,
+      detected: row.detected,
+      failed: row.failed,
+      lastActivityAt: row.last_activity_at
+    };
+  } catch (err: any) {
+    console.error('Error getting dissatisfaction stats in actions:', err);
+    return { error: err.message || 'Erro ao carregar estatísticas do detector de insatisfação.' };
+  }
+}
+
+// Botão "Sincronizar agora" — processa um lote imediatamente, ignorando a
+// flag ENABLE_DISSATISFACTION_DETECTOR (ver processDissatisfactionQueueBatch
+// force). Lote maior que o do scheduler automático (10 vs 5) porque é uma
+// ação explícita: quem clicou já está esperando a resposta na tela, não faz
+// sentido devolver pouco e pedir pra clicar de novo repetidas vezes.
+const MANUAL_SYNC_BATCH_SIZE = 10;
+
+export async function runDissatisfactionBatchNow() {
+  try {
+    const check = await assertCanManageAssistant();
+    if (!check.ok) return { error: check.error };
+
+    if (!process.env.GROQ_API_KEY) {
+      return { error: 'GROQ_API_KEY não configurada — configure a chave antes de sincronizar.' };
+    }
+
+    const processed = await processDissatisfactionQueueBatch(MANUAL_SYNC_BATCH_SIZE, { force: true });
+    return { success: true, processed };
+  } catch (err: any) {
+    console.error('Error running manual dissatisfaction batch in actions:', err);
+    return { error: err.message || 'Erro ao sincronizar o detector de insatisfação.' };
   }
 }

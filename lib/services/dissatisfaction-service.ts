@@ -175,10 +175,15 @@ async function processRow(client: ReturnType<typeof getGroqClient>, model: strin
   }
 }
 
-// Chamada pelo scheduler (dissatisfaction-scheduler.ts) e pelo modo de
-// verificação manual — retorna quantas linhas foram tentadas nesta rodada.
-export async function processDissatisfactionQueueBatch(limit: number): Promise<number> {
-  if (!isDissatisfactionDetectorEnabled()) return 0;
+// Chamada pelo scheduler (dissatisfaction-scheduler.ts) e pelo botão
+// "Sincronizar agora" (ver runDissatisfactionBatchNow em app/actions.ts) —
+// retorna quantas linhas foram tentadas nesta rodada. `force` ignora a flag
+// ENABLE_DISSATISFACTION_DETECTOR: um clique explícito do usuário já é o
+// consentimento humano que a flag existe pra exigir antes de gastar cota
+// automaticamente — não faz sentido bloquear a mesma ação quando é pedida
+// na hora, só a recorrência automática sem ninguém pedir.
+export async function processDissatisfactionQueueBatch(limit: number, options?: { force?: boolean }): Promise<number> {
+  if (!options?.force && !isDissatisfactionDetectorEnabled()) return 0;
 
   let client: ReturnType<typeof getGroqClient>;
   try {

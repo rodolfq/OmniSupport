@@ -1,8 +1,9 @@
 'use client';
 
 import React, { useEffect, useState } from 'react';
-import { Bot, Save, CheckCircle2, XCircle, RotateCcw, Search, MessageSquareText, Ticket, MessageCircle } from 'lucide-react';
-import { getAssistantConfig, saveAssistantConfig } from '@/app/actions';
+import Link from 'next/link';
+import { Bot, Save, CheckCircle2, XCircle, RotateCcw, Search, MessageSquareText, Ticket, MessageCircle, Frown, Clock, ListChecks, ArrowUpRight, RefreshCw } from 'lucide-react';
+import { getAssistantConfig, saveAssistantConfig, getDissatisfactionStats, runDissatisfactionBatchNow } from '@/app/actions';
 import { cn } from '@/lib/utils';
 import { toast } from 'sonner';
 
@@ -16,6 +17,16 @@ interface AssistantConfigData {
   isPromptCustomized: boolean;
   isModelCustomized: boolean;
   rawSemanticSearchOverride: boolean | null;
+}
+
+interface DissatisfactionStatsData {
+  enabled: boolean;
+  total: number;
+  pending: number;
+  analyzed: number;
+  detected: number;
+  failed: number;
+  lastActivityAt: string | null;
 }
 
 const SOURCES = [
@@ -35,6 +46,21 @@ export function AiAssistantSettingsContent() {
   const [modelDraft, setModelDraft] = useState('');
   const [semanticSearchDraft, setSemanticSearchDraft] = useState(true);
 
+  const [stats, setStats] = useState<DissatisfactionStatsData | null>(null);
+  const [statsError, setStatsError] = useState<string | null>(null);
+  const [isSyncing, setIsSyncing] = useState(false);
+
+  const loadStats = () => {
+    getDissatisfactionStats().then(result => {
+      if ('error' in result) {
+        setStatsError(result.error as string);
+        return;
+      }
+      setStatsError(null);
+      setStats(result as DissatisfactionStatsData);
+    });
+  };
+
   useEffect(() => {
     let cancelled = false;
     getAssistantConfig().then(result => {
@@ -51,8 +77,24 @@ export function AiAssistantSettingsContent() {
     }).finally(() => {
       if (!cancelled) setLoading(false);
     });
+    loadStats();
     return () => { cancelled = true; };
   }, []);
+
+  const handleSyncNow = async () => {
+    setIsSyncing(true);
+    try {
+      const result = await runDissatisfactionBatchNow();
+      if ('error' in result && result.error) throw new Error(result.error);
+      const processed = (result as { processed: number }).processed;
+      toast.success(processed > 0 ? `${processed} conversa(s) processada(s) agora.` : 'Nenhuma conversa pendente para processar.');
+      loadStats();
+    } catch (err: any) {
+      toast.error(err.message || 'Erro ao sincronizar o detector de insatisfação.');
+    } finally {
+      setIsSyncing(false);
+    }
+  };
 
   const handleRestoreDefault = () => {
     if (!data) return;
@@ -105,6 +147,91 @@ export function AiAssistantSettingsContent() {
 
   return (
     <div className="space-y-6">
+      {/* Detector de Insatisfação — progresso do processamento em segundo
+          plano (ver lib/services/dissatisfaction-scheduler.ts). */}
+      <div className="bg-[var(--surface-card)] border border-[var(--border-default)] rounded-[2rem] p-8 shadow-sm space-y-6">
+        <div className="flex items-center justify-between gap-4 flex-wrap">
+          <div>
+            <h3 className="text-xl font-black text-[var(--text-primary)] uppercase tracking-tight flex items-center gap-2">
+              <Frown className="text-[var(--accent-text)]" size={22} /> Detector de Insatisfação
+            </h3>
+            <p className="text-[10px] text-[var(--text-tertiary)] font-bold uppercase tracking-widest mt-1">
+              Resume e classifica cada chat encerrado em segundo plano — ver colunas em Histórico de Conversas
+            </p>
+          </div>
+          {stats && (
+            <span className={cn(
+              "text-[10px] font-black uppercase tracking-widest px-3 py-1.5 rounded-lg flex items-center gap-1.5 shrink-0",
+              stats.enabled ? "bg-[var(--surface-success)] text-[var(--text-success)]" : "bg-[var(--surface-pill)] text-[var(--text-tertiary)]"
+            )}>
+              {stats.enabled ? <CheckCircle2 size={12} /> : <XCircle size={12} />}
+              {stats.enabled ? 'Ligado' : 'Desligado (ENABLE_DISSATISFACTION_DETECTOR)'}
+            </span>
+          )}
+        </div>
+
+        {statsError ? (
+          <p className="text-xs text-[var(--text-danger)] font-bold">{statsError}</p>
+        ) : !stats ? (
+          <p className="text-[var(--text-tertiary)] text-xs font-bold uppercase tracking-widest italic">Carregando estatísticas...</p>
+        ) : (
+          <>
+            <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
+              <div className="p-4 bg-[var(--surface-pill)] rounded-xl space-y-1">
+                <p className="text-[9px] font-black uppercase tracking-widest text-[var(--text-tertiary)] flex items-center gap-1"><Clock size={11} /> Pendentes</p>
+                <p className="text-xl font-black text-[var(--text-primary)]">{stats.pending}</p>
+              </div>
+              <div className="p-4 bg-[var(--surface-pill)] rounded-xl space-y-1">
+                <p className="text-[9px] font-black uppercase tracking-widest text-[var(--text-tertiary)] flex items-center gap-1"><ListChecks size={11} /> Analisadas</p>
+                <p className="text-xl font-black text-[var(--text-primary)]">{stats.analyzed}</p>
+              </div>
+              <div className="p-4 bg-[var(--surface-danger)] rounded-xl space-y-1">
+                <p className="text-[9px] font-black uppercase tracking-widest text-[var(--text-danger)] flex items-center gap-1"><Frown size={11} /> Insatisfação</p>
+                <p className="text-xl font-black text-[var(--text-danger)]">{stats.detected}</p>
+              </div>
+              <div className="p-4 bg-[var(--surface-pill)] rounded-xl space-y-1">
+                <p className="text-[9px] font-black uppercase tracking-widest text-[var(--text-tertiary)] flex items-center gap-1"><XCircle size={11} /> Falhas</p>
+                <p className={cn("text-xl font-black", stats.failed > 0 ? "text-[var(--text-warning)]" : "text-[var(--text-primary)]")}>{stats.failed}</p>
+              </div>
+            </div>
+
+            <div className="flex items-center justify-between gap-4 flex-wrap pt-2">
+              <p className="text-[10px] text-[var(--text-tertiary)] font-semibold uppercase tracking-widest">
+                {stats.lastActivityAt
+                  ? `Última atividade: ${new Date(stats.lastActivityAt).toLocaleString('pt-BR')}`
+                  : 'Nenhum processamento registrado ainda'}
+                {' · '}{stats.total} conversa(s) no histórico
+              </p>
+              <div className="flex items-center gap-3">
+                <button
+                  onClick={handleSyncNow}
+                  disabled={isSyncing || stats.pending === 0}
+                  title={stats.pending === 0 ? 'Nenhuma conversa pendente' : `Processar até ${Math.min(stats.pending, 10)} conversa(s) agora`}
+                  className="flex items-center gap-1.5 text-[10px] font-black uppercase tracking-widest text-[var(--accent-text)] bg-[var(--accent)]/10 px-3 py-1.5 rounded-lg hover:bg-[var(--accent)]/20 transition-all disabled:opacity-50 disabled:cursor-not-allowed"
+                >
+                  <RefreshCw size={12} className={isSyncing ? 'animate-spin' : ''} />
+                  {isSyncing ? 'Sincronizando...' : 'Sincronizar agora'}
+                </button>
+                <Link
+                  href="/chat-history"
+                  className="flex items-center gap-1.5 text-[10px] font-black uppercase tracking-widest text-[var(--accent-text)] hover:underline"
+                >
+                  Ver Histórico de Conversas <ArrowUpRight size={12} />
+                </Link>
+              </div>
+            </div>
+
+            {!stats.enabled && (
+              <div className="p-3 bg-[var(--surface-warning)] border border-[var(--border-alert)] rounded-xl">
+                <p className="text-[10px] font-bold text-[var(--text-warning)]">
+                  Processamento automático desligado neste ambiente — defina <span className="font-mono">ENABLE_DISSATISFACTION_DETECTOR=true</span> no .env pra rodar sozinho em segundo plano. O botão &ldquo;Sincronizar agora&rdquo; funciona mesmo assim, sob demanda.
+                </p>
+              </div>
+            )}
+          </>
+        )}
+      </div>
+
       {/* Documentação / status */}
       <div className="bg-[var(--surface-card)] border border-[var(--border-default)] rounded-[2rem] p-8 shadow-sm space-y-6">
         <div>
