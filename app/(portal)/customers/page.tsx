@@ -3,12 +3,13 @@
 import React, { useState, useEffect, useMemo } from 'react';
 import { getUsers, getCompanies, deleteCompany } from '@/app/actions';
 import { Company, User, UserRole, Permission } from '@/lib/types';
-import { Building2, User as UserIcon, Mail, Phone, Plus, MessageCircle, Ticket, ShieldCheck, ShieldOff, Search, X, Check, Pencil, UserPlus, RefreshCw } from 'lucide-react';
+import { Building2, User as UserIcon, Mail, Phone, Plus, MessageCircle, Ticket, ShieldCheck, ShieldOff, Search, X, Check, Pencil, UserPlus, RefreshCw, Headset, Briefcase } from 'lucide-react';
 import { cn, normalizeString, normalizePhone, maskPhone } from '@/lib/utils';
 import { NewEmployeeModal } from '@/components/new-employee-modal';
 import { EditEmployeeModal } from '@/components/edit-employee-modal';
 import { NewCompanyModal } from '@/components/new-company-modal';
 import { ConfirmModal } from '@/components/confirm-modal';
+import { UserService } from '@/lib/services/user-service';
 import { useApp } from '@/app/app-context';
 import { motion, AnimatePresence } from 'motion/react';
 import { supabase } from '@/lib/supabase';
@@ -130,6 +131,7 @@ export default function CustomersPage() {
   const [isLoading, setIsLoading] = useState(true);
   const [companies, setCompanies] = useState<Company[]>([]);
   const [users, setUsers] = useState<User[]>([]);
+  const [internalUsers, setInternalUsers] = useState<User[]>([]);
   const [selectedCompanyId, setSelectedCompanyId] = useState<string | null>(null);
   const [isEmployeeModalOpen, setIsEmployeeModalOpen] = useState(false);
   const [isEditEmployeeModalOpen, setIsEditEmployeeModalOpen] = useState(false);
@@ -180,7 +182,14 @@ if (isCompanyPortalUser) {
 
         setCompanies(filteredCompanies);
         setUsers(filteredUsers);
-        
+
+        // CS/Comercial Responsável são perfil interno — Cliente/Funcionário
+        // não tem acesso a /api/users?type=analysts (403), nem precisa ver
+        // esse dado.
+        if (!isCompanyPortalUser) {
+          UserService.getAnalysts().then(setInternalUsers).catch(() => setInternalUsers([]));
+        }
+
         if (filteredCompanies.length > 0 && (!selectedCompanyId || !filteredCompanies.some(c => c.id === selectedCompanyId))) {
           setSelectedCompanyId(filteredCompanies[0].id);
         }
@@ -242,9 +251,11 @@ if (isCompanyPortalUser) {
     });
   }, [companies, users, searchQuery]);
 
-  const selectedCompany = useMemo(() => 
+  const selectedCompany = useMemo(() =>
     companies.find(c => c.id === selectedCompanyId),
   [companies, selectedCompanyId]);
+
+  const resolveInternalUser = (id?: string) => internalUsers.find(u => u.id === id);
 
   const companyEmployees = useMemo(() => 
     users
@@ -330,14 +341,15 @@ if (isCompanyPortalUser) {
           <div className="flex items-center justify-center h-64 text-sm text-[var(--text-tertiary)] font-medium">Carregando quadro de funcionários...</div>
         ) : selectedCompany ? (
           <>
-            <div className="bg-[var(--surface-card)] p-8 rounded-2xl border border-[var(--border-default)] shadow-sm flex justify-between items-start">
+            <div className="bg-[var(--surface-card)] rounded-2xl border border-[var(--border-default)] shadow-sm overflow-hidden">
+            <div className="p-8 flex justify-between items-start">
               <div className="flex items-center gap-6">
                 <div className="w-20 h-20 bg-[var(--accent)]/10 rounded-2xl flex items-center justify-center text-[var(--accent-text)]">
                   <Building2 size={40} />
                 </div>
                 <div>
                   <h1 className="text-3xl font-black text-[var(--text-primary)] tracking-tight">{selectedCompany.name}</h1>
-                  <p className="text-[var(--text-tertiary)] text-sm font-medium">{selectedCompany.industry} • {selectedCompany.phone || 'Sem telefone'}</p>
+                  <p className="text-[var(--text-tertiary)] text-sm font-medium">{selectedCompany.industry || 'Sem setor definido'}</p>
                 </div>
               </div>
               <div className="flex items-center gap-2">
@@ -368,6 +380,50 @@ if (isCompanyPortalUser) {
                   </button>
                 )}
               </div>
+            </div>
+
+            <div className="px-8 py-5 border-t border-[var(--border-default)] bg-[var(--surface-pill)]/40 grid grid-cols-2 md:grid-cols-4 gap-6">
+              <div className="flex items-center gap-3">
+                <div className="w-9 h-9 rounded-lg bg-[var(--surface-card)] border border-[var(--border-default)] flex items-center justify-center text-[var(--text-tertiary)] shrink-0">
+                  <Phone size={15} />
+                </div>
+                <div className="min-w-0">
+                  <p className="text-[9px] font-black uppercase tracking-widest text-[var(--text-tertiary)]">Telefone</p>
+                  <p className="text-sm font-bold text-[var(--text-primary)] truncate">{selectedCompany.phone || 'Sem telefone'}</p>
+                </div>
+              </div>
+              <div className="flex items-center gap-3">
+                <div className="w-9 h-9 rounded-lg bg-[var(--surface-card)] border border-[var(--border-default)] flex items-center justify-center text-[var(--text-tertiary)] shrink-0">
+                  <UserIcon size={15} />
+                </div>
+                <div className="min-w-0">
+                  <p className="text-[9px] font-black uppercase tracking-widest text-[var(--text-tertiary)]">Funcionários</p>
+                  <p className="text-sm font-bold text-[var(--text-primary)] truncate">{companyEmployees.length}</p>
+                </div>
+              </div>
+              {!isCompanyPortalUser && (
+                <>
+                  <div className="flex items-center gap-3">
+                    <div className="w-9 h-9 rounded-lg bg-[var(--surface-card)] border border-[var(--border-default)] flex items-center justify-center text-[var(--text-tertiary)] shrink-0">
+                      <Headset size={15} />
+                    </div>
+                    <div className="min-w-0">
+                      <p className="text-[9px] font-black uppercase tracking-widest text-[var(--text-tertiary)]">CS Responsável</p>
+                      <p className="text-sm font-bold text-[var(--text-primary)] truncate">{resolveInternalUser(selectedCompany.csResponsavelId)?.name || 'Não definido'}</p>
+                    </div>
+                  </div>
+                  <div className="flex items-center gap-3">
+                    <div className="w-9 h-9 rounded-lg bg-[var(--surface-card)] border border-[var(--border-default)] flex items-center justify-center text-[var(--text-tertiary)] shrink-0">
+                      <Briefcase size={15} />
+                    </div>
+                    <div className="min-w-0">
+                      <p className="text-[9px] font-black uppercase tracking-widest text-[var(--text-tertiary)]">Comercial Responsável</p>
+                      <p className="text-sm font-bold text-[var(--text-primary)] truncate">{resolveInternalUser(selectedCompany.comercialResponsavelId)?.name || 'Não definido'}</p>
+                    </div>
+                  </div>
+                </>
+              )}
+            </div>
             </div>
 
             <div className="space-y-4">

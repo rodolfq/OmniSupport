@@ -191,6 +191,11 @@ export interface Company {
   // (ver components/chat-widget.tsx). Ver CustomerEvaluation acima para o
   // histórico de avaliações por trás da média mostrada no cadastro.
   isInTraining?: boolean;
+  // CS e Comercial responsáveis pela empresa — hoje atribuídos manualmente a
+  // um usuário da equipe interna (Administrador/Equipe/Time Interno);
+  // pensados para vir de uma API externa no futuro.
+  csResponsavelId?: string;
+  comercialResponsavelId?: string;
 }
 
 export interface PriorityConfig {

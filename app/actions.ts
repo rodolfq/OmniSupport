@@ -192,7 +192,9 @@ export async function saveCompany(
   name: string,
   industry: string,
   phone: string,
-  adminUser?: { name: string; email: string; password: string; phone?: string }
+  adminUser?: { name: string; email: string; password: string; phone?: string },
+  csResponsavelId?: string | null,
+  comercialResponsavelId?: string | null
 ) {
   try {
     const actor = await getCurrentActionUser();
@@ -216,10 +218,10 @@ export async function saveCompany(
 
     if (id) {
       await query(
-        'UPDATE public.companies SET name=$1, industry=$2, phone=$3 WHERE id=$4',
-        [name, industry, phone, id]
+        'UPDATE public.companies SET name=$1, industry=$2, phone=$3, cs_responsavel_id=$4, comercial_responsavel_id=$5 WHERE id=$6',
+        [name, industry, phone, csResponsavelId || null, comercialResponsavelId || null, id]
       );
-      logAudit({ actorId: actor.id, actorName: actor.name, action: 'update', entityType: 'company', entityId: id, entityLabel: name, changes: { name, industry, phone } });
+      logAudit({ actorId: actor.id, actorName: actor.name, action: 'update', entityType: 'company', entityId: id, entityLabel: name, changes: { name, industry, phone, csResponsavelId, comercialResponsavelId } });
       return { id };
     } else {
       if (!adminUser?.name?.trim() || !adminUser?.email?.trim() || !adminUser?.password?.trim()) {
@@ -237,8 +239,8 @@ export async function saveCompany(
       try {
         await client.query('BEGIN');
         await client.query(
-          'INSERT INTO public.companies (id, name, industry, phone) VALUES ($1, $2, $3, $4)',
-          [newId, name, industry, phone]
+          'INSERT INTO public.companies (id, name, industry, phone, cs_responsavel_id, comercial_responsavel_id) VALUES ($1, $2, $3, $4, $5, $6)',
+          [newId, name, industry, phone, csResponsavelId || null, comercialResponsavelId || null]
         );
         await client.query(
           `INSERT INTO public.profiles (
@@ -306,7 +308,9 @@ export async function getCompanies() {
       createdAt: c.created_at,
       // Nunca inclui pra quem é da própria empresa (Cliente/Funcionário) —
       // é perfil interno, não deve nem trafegar pro navegador do cliente.
-      isInTraining: isCompanyUser ? undefined : (c.is_in_training || false)
+      isInTraining: isCompanyUser ? undefined : (c.is_in_training || false),
+      csResponsavelId: c.cs_responsavel_id || undefined,
+      comercialResponsavelId: c.comercial_responsavel_id || undefined
     }));
   } catch (err) {
     console.error("Error getting companies in actions:", err);

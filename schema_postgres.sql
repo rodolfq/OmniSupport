@@ -73,6 +73,13 @@ CREATE TABLE public.profiles (
   created_at TIMESTAMP WITH TIME ZONE DEFAULT now() NOT NULL
 );
 
+-- CS Responsável / Comercial Responsável da empresa-cliente (usuário da
+-- equipe interna) — coluna adicionada aqui, depois de public.profiles
+-- existir, porque companies é criada antes de profiles (profiles.company_id
+-- referencia companies.id).
+ALTER TABLE public.companies ADD COLUMN cs_responsavel_id UUID REFERENCES public.profiles(id) ON DELETE SET NULL;
+ALTER TABLE public.companies ADD COLUMN comercial_responsavel_id UUID REFERENCES public.profiles(id) ON DELETE SET NULL;
+
 -- Hotfixes Table (item 17 do roadmap — cadastro de hotfix / janela de release)
 CREATE TABLE public.hotfixes (
   id UUID PRIMARY KEY DEFAULT (md5(random()::text || clock_timestamp()::text)::uuid),

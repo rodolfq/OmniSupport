@@ -1,13 +1,15 @@
 ﻿'use client';
 
 import React, { useState } from 'react';
-import { X, Building2, Phone, Mail, Lock, UserPlus, RefreshCw, Eye, EyeOff, GraduationCap, ShieldAlert, AlertTriangle, Trash2 } from 'lucide-react';
+import { X, Building2, Phone, Mail, Lock, UserPlus, RefreshCw, Eye, EyeOff, GraduationCap, ShieldAlert, AlertTriangle, Trash2, Headset, Briefcase } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import { saveCompany, getCustomerEvaluationSummary, updateCompanyTraining, saveCustomerEvaluation } from '@/app/actions';
-import { Company, type CustomerEvaluationScores, type CustomerEvaluationSummary, type CustomerProfileTag, MIN_RELIABLE_EVALUATION_COUNT } from '@/lib/types';
+import { Company, User, type CustomerEvaluationScores, type CustomerEvaluationSummary, type CustomerProfileTag, MIN_RELIABLE_EVALUATION_COUNT } from '@/lib/types';
 import { maskPhone, cn } from '@/lib/utils';
 import { useApp } from '@/app/app-context';
 import { StarRating } from '@/components/star-rating';
+import { StyledSelect } from '@/components/styled-select';
+import { UserService } from '@/lib/services/user-service';
 import { toast } from 'sonner';
 
 function generateTemporaryPassword() {
@@ -52,6 +54,12 @@ export function NewCompanyModal({ isOpen, onClose, onSuccess, company, showInter
   const [isLoading, setIsLoading] = useState(false);
   const isEditing = !!company;
 
+  // CS/Comercial responsável — hoje um usuário da equipe interna escolhido
+  // manualmente; pensado pra vir de uma API externa no futuro.
+  const [csResponsavelId, setCsResponsavelId] = useState('');
+  const [comercialResponsavelId, setComercialResponsavelId] = useState('');
+  const [internalUsers, setInternalUsers] = useState<User[]>([]);
+
   // Perfil interno — nunca exposto ao cliente, só faz sentido pra uma
   // empresa que já existe (precisa de um id pra vincular as avaliações).
   const [isInTraining, setIsInTraining] = useState(false);
@@ -68,6 +76,8 @@ export function NewCompanyModal({ isOpen, onClose, onSuccess, company, showInter
       setName(company.name || '');
       setPhone(company.phone || '');
       setIsInTraining(company.isInTraining || false);
+      setCsResponsavelId(company.csResponsavelId || '');
+      setComercialResponsavelId(company.comercialResponsavelId || '');
     } else {
       setName('');
       setPhone('');
@@ -76,8 +86,15 @@ export function NewCompanyModal({ isOpen, onClose, onSuccess, company, showInter
       setAdminPassword(generateTemporaryPassword());
       setAdminPhone('');
       setIsInTraining(false);
+      setCsResponsavelId('');
+      setComercialResponsavelId('');
     }
   }, [company, isOpen]);
+
+  React.useEffect(() => {
+    if (!isOpen) return;
+    UserService.getAnalysts().then(setInternalUsers).catch(() => setInternalUsers([]));
+  }, [isOpen]);
 
   React.useEffect(() => {
     if (!isOpen || !company || !showInternalSection) {
@@ -126,7 +143,9 @@ export function NewCompanyModal({ isOpen, onClose, onSuccess, company, showInter
           email: adminEmail,
           password: adminPassword,
           phone: adminPhone
-        }
+        },
+        csResponsavelId || null,
+        comercialResponsavelId || null
       );
       
       if (result.error) {
@@ -160,6 +179,8 @@ export function NewCompanyModal({ isOpen, onClose, onSuccess, company, showInter
         setAdminEmail('');
         setAdminPassword(generateTemporaryPassword());
         setAdminPhone('');
+        setCsResponsavelId('');
+        setComercialResponsavelId('');
       }
     } catch (e: any) {
       console.error('Error saving company:', e);
@@ -229,6 +250,42 @@ export function NewCompanyModal({ isOpen, onClose, onSuccess, company, showInter
                     maxLength={15}
                     className="w-full bg-[var(--surface-card)] border border-[var(--border-default)] rounded-xl pl-12 pr-4 py-3 text-sm font-medium focus:ring-2 focus:ring-[var(--accent)]/20 focus:border-[var(--accent)] outline-none transition-all"
                   />
+                </div>
+              </div>
+
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                <div className="space-y-2">
+                  <label className="text-[10px] font-black uppercase tracking-widest text-[var(--text-tertiary)] ml-1">CS Responsável</label>
+                  <div className="relative">
+                    <Headset className="absolute left-4 top-1/2 -translate-y-1/2 text-[var(--text-tertiary)] z-10" size={16} />
+                    <StyledSelect
+                      value={csResponsavelId}
+                      onChange={(e) => setCsResponsavelId(e.target.value)}
+                      className="w-full bg-[var(--surface-card)] border border-[var(--border-default)] rounded-xl pl-12 pr-4 py-3 text-sm font-medium focus:ring-2 focus:ring-[var(--accent)]/20 focus:border-[var(--accent)] outline-none transition-all"
+                    >
+                      <option value="">Sem CS definido</option>
+                      {internalUsers.map(u => (
+                        <option key={u.id} value={u.id}>{u.name}</option>
+                      ))}
+                    </StyledSelect>
+                  </div>
+                </div>
+
+                <div className="space-y-2">
+                  <label className="text-[10px] font-black uppercase tracking-widest text-[var(--text-tertiary)] ml-1">Comercial Responsável</label>
+                  <div className="relative">
+                    <Briefcase className="absolute left-4 top-1/2 -translate-y-1/2 text-[var(--text-tertiary)] z-10" size={16} />
+                    <StyledSelect
+                      value={comercialResponsavelId}
+                      onChange={(e) => setComercialResponsavelId(e.target.value)}
+                      className="w-full bg-[var(--surface-card)] border border-[var(--border-default)] rounded-xl pl-12 pr-4 py-3 text-sm font-medium focus:ring-2 focus:ring-[var(--accent)]/20 focus:border-[var(--accent)] outline-none transition-all"
+                    >
+                      <option value="">Sem comercial definido</option>
+                      {internalUsers.map(u => (
+                        <option key={u.id} value={u.id}>{u.name}</option>
+                      ))}
+                    </StyledSelect>
+                  </div>
                 </div>
               </div>
 
