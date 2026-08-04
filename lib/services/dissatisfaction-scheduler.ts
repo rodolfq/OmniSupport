@@ -1,4 +1,4 @@
-import { isDissatisfactionDetectorEnabled, processDissatisfactionQueueBatch } from './dissatisfaction-service';
+import { processDissatisfactionQueueBatch } from './dissatisfaction-service';
 
 // Mesmo padrão de embedding-scheduler.ts/hotfix-scheduler.ts: setInterval +
 // guarda em globalThis pra sobreviver ao hot-reload do Next.js em dev.
@@ -16,8 +16,12 @@ declare global {
 const POLL_INTERVAL_MS = 2 * 60_000; // 2 minutos
 const BATCH_SIZE = 5;
 
+// Sempre registra o interval, independente da flag — o toggle agora vive no
+// banco (ai_assistant_settings.dissatisfaction_detector_enabled, ver tela
+// Configurações > Agente de IA) e pode ligar depois do boot, sem redeploy.
+// processDissatisfactionQueueBatch já resolve a flag efetiva (banco > env) a
+// cada rodada e sai rápido (1 SELECT) quando está desligado.
 export function startDissatisfactionScheduler(): void {
-  if (!isDissatisfactionDetectorEnabled()) return;
   if (global.dissatisfactionSchedulerStarted) return;
   global.dissatisfactionSchedulerStarted = true;
 

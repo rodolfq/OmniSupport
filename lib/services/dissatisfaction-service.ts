@@ -2,6 +2,7 @@ import { query } from '@/lib/db';
 import { getGroqClient, GROQ_MODEL_NAME, AssistantNotConfiguredError } from '@/lib/groq-client';
 import { truncateTranscriptForSummary } from './chat-summary-service';
 import { formatTaxonomyForPrompt, isValidDissatisfactionPair } from '@/lib/dissatisfaction-taxonomy';
+import { getEffectiveAssistantConfig } from './ai-assistant-config-service';
 
 // "Detector de insatisfação do cliente" — item 9 do ROADMAP_MELHORIAS_2.md.
 // Processado 100% em segundo plano (ver dissatisfaction-scheduler.ts) sobre
@@ -19,8 +20,14 @@ export class DissatisfactionGenerationError extends Error {}
 // tentativas de retry antes (o 429 do Groq se resolve sozinho com o tempo).
 export const MAX_DISSATISFACTION_ATTEMPTS = 5;
 
-export function isDissatisfactionDetectorEnabled(): boolean {
-  return process.env.ENABLE_DISSATISFACTION_DETECTOR === 'true';
+// Fica em ai_assistant_settings (dissatisfaction_detector_enabled) — NULL
+// segue o env ENABLE_DISSATISFACTION_DETECTOR de sempre, preenchido decide
+// por cima dele. Só assim o toggle na tela funciona sem redeploy: rota de
+// integração/scheduler chamam essa função a cada rodada em vez de ler o env
+// direto (ver dissatisfaction-scheduler.ts).
+export async function isDissatisfactionDetectorEnabled(): Promise<boolean> {
+  const config = await getEffectiveAssistantConfig();
+  return config.dissatisfactionDetectorEnabled;
 }
 
 interface PendingRow {
@@ -38,27 +45,35 @@ interface ClassificationResult {
   reason: string | null;
 }
 
-const COMBINED_SYSTEM_INSTRUCTION = `Você analisa conversas de atendimento ao cliente do SSX Desk para um analista interno. Responda SEMPRE em português do Brasil, em JSON estrito, sem nenhum texto fora do JSON, exatamente no formato:
+// extraInstructions vem de ai_assistant_settings.dissatisfaction_extra_instructions
+// (tela Configurações > Agente de IA) — critério de negócio adicional do que
+// contar como insatisfação, acrescentado ao prompt SEM tocar no contrato
+// JSON nem na taxonomia fixa abaixo (ambos exigidos pelo parseClassification).
+function buildCombinedSystemInstruction(extraInstructions: string): string {
+  return `Você analisa conversas de atendimento ao cliente do SSX Desk para um analista interno. Responda SEMPRE em português do Brasil, em JSON estrito, sem nenhum texto fora do JSON, exatamente no formato:
 {"summary": string, "dissatisfactionDetected": boolean, "department": string|null, "category": string|null, "reason": string|null}
 
 "summary": 3 a 6 frases em texto corrido cobrindo motivo do contato, o que foi feito, e como terminou. Baseie-se só no que está na conversa — nunca invente número de chamado, nome ou fato que não apareça no texto. Não escreva saudação, introdução nem comentário fora do resumo em si.
 
 "dissatisfactionDetected": true SOMENTE se o cliente demonstrou claramente insatisfação, frustração ou reclamação explícita durante a conversa — não marque true por reclamação neutra/técnica sem carga emocional, nem por perguntas normais.
-
+${extraInstructions ? `\nCritério de negócio adicional definido pela equipe:\n${extraInstructions}\n` : ''}
 Se dissatisfactionDetected for true, classifique com EXATAMENTE um departamento e uma categoria da lista abaixo (nunca invente um valor fora dela) e preencha "reason" com uma frase curta ou trecho/citação da conversa que justifique a escolha:
 ${formatTaxonomyForPrompt()}
 
 Se dissatisfactionDetected for false, "department", "category" e "reason" devem ser null.`;
+}
 
-const CLASSIFICATION_ONLY_SYSTEM_INSTRUCTION = `Você classifica conversas de atendimento ao cliente do SSX Desk para um analista interno. Responda SEMPRE em português do Brasil, em JSON estrito, sem nenhum texto fora do JSON, exatamente no formato:
+function buildClassificationOnlySystemInstruction(extraInstructions: string): string {
+  return `Você classifica conversas de atendimento ao cliente do SSX Desk para um analista interno. Responda SEMPRE em português do Brasil, em JSON estrito, sem nenhum texto fora do JSON, exatamente no formato:
 {"dissatisfactionDetected": boolean, "department": string|null, "category": string|null, "reason": string|null}
 
 "dissatisfactionDetected": true SOMENTE se o cliente demonstrou claramente insatisfação, frustração ou reclamação explícita durante a conversa — não marque true por reclamação neutra/técnica sem carga emocional, nem por perguntas normais.
-
+${extraInstructions ? `\nCritério de negócio adicional definido pela equipe:\n${extraInstructions}\n` : ''}
 Se true, classifique com EXATAMENTE um departamento e uma categoria da lista abaixo (nunca invente um valor fora dela) e preencha "reason" com uma frase curta ou trecho/citação da conversa que justifique a escolha:
 ${formatTaxonomyForPrompt()}
 
 Se false, "department", "category" e "reason" devem ser null.`;
+}
 
 function parseClassification(raw: string, expectSummary: boolean): { summary: string | null; result: ClassificationResult } {
   let parsed: any;
@@ -98,14 +113,19 @@ function parseClassification(raw: string, expectSummary: boolean): { summary: st
 
 async function classifyWithGroq(
   client: ReturnType<typeof getGroqClient>,
-  params: { transcript: string; customerName: string | null; needsSummary: boolean; model: string }
+  params: { transcript: string; customerName: string | null; needsSummary: boolean; model: string; extraInstructions: string }
 ): Promise<{ summary: string | null; result: ClassificationResult }> {
   const completion = await client.chat.completions.create({
     model: params.model,
     max_tokens: 500,
     response_format: { type: 'json_object' },
     messages: [
-      { role: 'system', content: params.needsSummary ? COMBINED_SYSTEM_INSTRUCTION : CLASSIFICATION_ONLY_SYSTEM_INSTRUCTION },
+      {
+        role: 'system',
+        content: params.needsSummary
+          ? buildCombinedSystemInstruction(params.extraInstructions)
+          : buildClassificationOnlySystemInstruction(params.extraInstructions)
+      },
       { role: 'user', content: `Conversa com ${params.customerName || 'o cliente'}:\n\n${params.transcript}` }
     ]
   });
@@ -128,7 +148,7 @@ async function markDone(id: string, v: {
   ).catch(err => console.error('[dissatisfaction-service] Falha ao gravar resultado:', id, err));
 }
 
-async function processRow(client: ReturnType<typeof getGroqClient>, model: string, row: PendingRow): Promise<void> {
+async function processRow(client: ReturnType<typeof getGroqClient>, model: string, row: PendingRow, extraInstructions: string): Promise<void> {
   const transcript = (row.transcript || '').trim();
   const nextAttempts = row.dissatisfaction_attempts + 1;
 
@@ -141,7 +161,7 @@ async function processRow(client: ReturnType<typeof getGroqClient>, model: strin
   const truncated = truncateTranscriptForSummary(transcript);
 
   try {
-    const { summary, result } = await classifyWithGroq(client, { transcript: truncated, customerName: row.customer_name, needsSummary, model });
+    const { summary, result } = await classifyWithGroq(client, { transcript: truncated, customerName: row.customer_name, needsSummary, model, extraInstructions });
 
     if (needsSummary && summary) {
       // WHERE summary IS NULL: não sobrescreve um resumo manual que possa
@@ -183,7 +203,8 @@ async function processRow(client: ReturnType<typeof getGroqClient>, model: strin
 // automaticamente — não faz sentido bloquear a mesma ação quando é pedida
 // na hora, só a recorrência automática sem ninguém pedir.
 export async function processDissatisfactionQueueBatch(limit: number, options?: { force?: boolean }): Promise<number> {
-  if (!options?.force && !isDissatisfactionDetectorEnabled()) return 0;
+  const config = await getEffectiveAssistantConfig();
+  if (!options?.force && !config.dissatisfactionDetectorEnabled) return 0;
 
   let client: ReturnType<typeof getGroqClient>;
   try {
@@ -208,7 +229,7 @@ export async function processDissatisfactionQueueBatch(limit: number, options?: 
     for (const row of pending.rows) {
       // Sequencial de propósito — mesma cota Groq do Agente de IA/Chat
       // Resumido, não paralelizar.
-      await processRow(client, GROQ_MODEL_NAME, row);
+      await processRow(client, GROQ_MODEL_NAME, row, config.dissatisfactionExtraInstructions);
     }
     return pending.rows.length;
   } catch (err) {

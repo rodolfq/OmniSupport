@@ -28,16 +28,38 @@ export interface EffectiveAssistantConfig {
   semanticSearchEnabled: boolean;
   isPromptCustomized: boolean;
   isModelCustomized: boolean;
+  // Detector de Insatisfação (ver dissatisfaction-service.ts): dissatisfactionDetectorEnabled
+  // já resolve o fallback pra ENABLE_DISSATISFACTION_DETECTOR quando ninguém
+  // decidiu nada aqui — dissatisfactionExtraInstructions é sempre '' quando
+  // não customizado (concatenado direto no prompt, sem placeholder a limpar).
+  dissatisfactionDetectorEnabled: boolean;
+  dissatisfactionExtraInstructions: string;
+}
+
+interface SettingsRow {
+  system_prompt: string | null;
+  model: string | null;
+  semantic_search_enabled: boolean | null;
+  dissatisfaction_detector_enabled: boolean | null;
+  dissatisfaction_extra_instructions: string | null;
+}
+
+async function fetchSettingsRow(): Promise<SettingsRow> {
+  const res = await query(
+    `SELECT system_prompt, model, semantic_search_enabled, dissatisfaction_detector_enabled, dissatisfaction_extra_instructions
+     FROM public.ai_assistant_settings WHERE id = 1`
+  );
+  return res.rows[0] || {
+    system_prompt: null, model: null, semantic_search_enabled: null,
+    dissatisfaction_detector_enabled: null, dissatisfaction_extra_instructions: null
+  };
 }
 
 export async function getEffectiveAssistantConfig(): Promise<EffectiveAssistantConfig> {
-  const res = await query(
-    'SELECT system_prompt, model, semantic_search_enabled FROM public.ai_assistant_settings WHERE id = 1'
-  );
-  const row = res.rows[0];
-  const promptOverride: string | null = row?.system_prompt?.trim() || null;
-  const modelOverride: string | null = row?.model?.trim() || null;
-  const semanticOverride: boolean | null = row?.semantic_search_enabled ?? null;
+  const row = await fetchSettingsRow();
+  const promptOverride: string | null = row.system_prompt?.trim() || null;
+  const modelOverride: string | null = row.model?.trim() || null;
+  const semanticOverride: boolean | null = row.semantic_search_enabled ?? null;
 
   return {
     systemPrompt: promptOverride || DEFAULT_SYSTEM_INSTRUCTION,
@@ -48,34 +70,54 @@ export async function getEffectiveAssistantConfig(): Promise<EffectiveAssistantC
     // tabela consegue ligar algo que não roda neste ambiente.
     semanticSearchEnabled: isEmbeddingEnabled() && (semanticOverride ?? true),
     isPromptCustomized: !!promptOverride,
-    isModelCustomized: !!modelOverride
+    isModelCustomized: !!modelOverride,
+    // Aqui é o oposto do padrão acima: não existe infra que precise estar
+    // presente no servidor pra "ligar por cima" — é só uma fila SQL e uma
+    // chamada Groq (mesma usada pelo botão "Sincronizar agora"), então o
+    // override em banco pode tanto ligar quanto desligar por cima do env.
+    dissatisfactionDetectorEnabled: row.dissatisfaction_detector_enabled ?? (process.env.ENABLE_DISSATISFACTION_DETECTOR === 'true'),
+    dissatisfactionExtraInstructions: row.dissatisfaction_extra_instructions?.trim() || ''
   };
 }
 
 // Visibilidade pro card de status da tela — não precisa da config completa
 // (com fallback já resolvido), só o que está de fato salvo no override.
-export async function getRawAssistantSettings(): Promise<{ systemPrompt: string | null; model: string | null; semanticSearchEnabled: boolean | null }> {
-  const res = await query(
-    'SELECT system_prompt, model, semantic_search_enabled FROM public.ai_assistant_settings WHERE id = 1'
-  );
-  const row = res.rows[0];
+export async function getRawAssistantSettings(): Promise<{
+  systemPrompt: string | null; model: string | null; semanticSearchEnabled: boolean | null;
+  dissatisfactionDetectorEnabled: boolean | null; dissatisfactionExtraInstructions: string | null;
+}> {
+  const row = await fetchSettingsRow();
   return {
-    systemPrompt: row?.system_prompt || null,
-    model: row?.model || null,
-    semanticSearchEnabled: row?.semantic_search_enabled ?? null
+    systemPrompt: row.system_prompt || null,
+    model: row.model || null,
+    semanticSearchEnabled: row.semantic_search_enabled ?? null,
+    dissatisfactionDetectorEnabled: row.dissatisfaction_detector_enabled ?? null,
+    dissatisfactionExtraInstructions: row.dissatisfaction_extra_instructions || null
   };
 }
 
 export async function saveAssistantConfig(
   actorId: string,
   actorName: string,
-  updates: { systemPrompt: string | null; model: string | null; semanticSearchEnabled: boolean | null }
+  updates: {
+    systemPrompt: string | null; model: string | null; semanticSearchEnabled: boolean | null;
+    dissatisfactionDetectorEnabled: boolean | null; dissatisfactionExtraInstructions: string | null;
+  }
 ): Promise<void> {
   await query(
     `UPDATE public.ai_assistant_settings
-     SET system_prompt = $1, model = $2, semantic_search_enabled = $3, updated_at = now(), updated_by = $4
+     SET system_prompt = $1, model = $2, semantic_search_enabled = $3,
+         dissatisfaction_detector_enabled = $4, dissatisfaction_extra_instructions = $5,
+         updated_at = now(), updated_by = $6
      WHERE id = 1`,
-    [updates.systemPrompt?.trim() || null, updates.model?.trim() || null, updates.semanticSearchEnabled, actorId]
+    [
+      updates.systemPrompt?.trim() || null,
+      updates.model?.trim() || null,
+      updates.semanticSearchEnabled,
+      updates.dissatisfactionDetectorEnabled,
+      updates.dissatisfactionExtraInstructions?.trim() || null,
+      actorId
+    ]
   );
   logAudit({
     actorId,
@@ -88,7 +130,9 @@ export async function saveAssistantConfig(
       promptCustomized: !!updates.systemPrompt?.trim(),
       promptLength: updates.systemPrompt?.trim()?.length || 0,
       model: updates.model,
-      semanticSearchEnabled: updates.semanticSearchEnabled
+      semanticSearchEnabled: updates.semanticSearchEnabled,
+      dissatisfactionDetectorEnabled: updates.dissatisfactionDetectorEnabled,
+      dissatisfactionExtraInstructionsLength: updates.dissatisfactionExtraInstructions?.trim()?.length || 0
     }
   });
 }

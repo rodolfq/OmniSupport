@@ -17,6 +17,9 @@ interface AssistantConfigData {
   isPromptCustomized: boolean;
   isModelCustomized: boolean;
   rawSemanticSearchOverride: boolean | null;
+  effectiveDissatisfactionDetectorEnabled: boolean;
+  rawDissatisfactionDetectorEnabled: boolean | null;
+  dissatisfactionExtraInstructions: string;
 }
 
 interface DissatisfactionStatsData {
@@ -45,6 +48,8 @@ export function AiAssistantSettingsContent() {
   const [promptDraft, setPromptDraft] = useState('');
   const [modelDraft, setModelDraft] = useState('');
   const [semanticSearchDraft, setSemanticSearchDraft] = useState(true);
+  const [dissatisfactionEnabledDraft, setDissatisfactionEnabledDraft] = useState(false);
+  const [dissatisfactionInstructionsDraft, setDissatisfactionInstructionsDraft] = useState('');
 
   const [stats, setStats] = useState<DissatisfactionStatsData | null>(null);
   const [statsError, setStatsError] = useState<string | null>(null);
@@ -74,6 +79,8 @@ export function AiAssistantSettingsContent() {
       setPromptDraft(cfg.effectiveSystemPrompt);
       setModelDraft(cfg.effectiveModel);
       setSemanticSearchDraft(cfg.rawSemanticSearchOverride ?? true);
+      setDissatisfactionEnabledDraft(cfg.rawDissatisfactionDetectorEnabled ?? cfg.effectiveDissatisfactionDetectorEnabled);
+      setDissatisfactionInstructionsDraft(cfg.dissatisfactionExtraInstructions);
     }).finally(() => {
       if (!cancelled) setLoading(false);
     });
@@ -109,7 +116,13 @@ export function AiAssistantSettingsContent() {
       // "customizado" fantasma no banco só porque o texto bate por acaso).
       const promptOverride = promptDraft.trim() && promptDraft.trim() !== data.defaultSystemInstruction.trim() ? promptDraft.trim() : null;
       const modelOverride = modelDraft.trim() || null;
-      const result = await saveAssistantConfig(promptOverride, modelOverride, semanticSearchDraft);
+      const result = await saveAssistantConfig(
+        promptOverride,
+        modelOverride,
+        semanticSearchDraft,
+        dissatisfactionEnabledDraft,
+        dissatisfactionInstructionsDraft.trim() || null
+      );
       if ('error' in result && result.error) throw new Error(result.error);
       toast.success('Configuração do Agente de IA salva!');
       const refreshed = await getAssistantConfig();
@@ -119,7 +132,10 @@ export function AiAssistantSettingsContent() {
         setPromptDraft(cfg.effectiveSystemPrompt);
         setModelDraft(cfg.effectiveModel);
         setSemanticSearchDraft(cfg.rawSemanticSearchOverride ?? true);
+        setDissatisfactionEnabledDraft(cfg.rawDissatisfactionDetectorEnabled ?? cfg.effectiveDissatisfactionDetectorEnabled);
+        setDissatisfactionInstructionsDraft(cfg.dissatisfactionExtraInstructions);
       }
+      loadStats();
     } catch (err: any) {
       toast.error(err.message || 'Erro ao salvar configuração do Agente de IA.');
     } finally {
@@ -159,16 +175,34 @@ export function AiAssistantSettingsContent() {
               Resume e classifica cada chat encerrado em segundo plano — ver colunas em Histórico de Conversas
             </p>
           </div>
-          {stats && (
+          <div className="flex items-center gap-3 shrink-0">
             <span className={cn(
-              "text-[10px] font-black uppercase tracking-widest px-3 py-1.5 rounded-lg flex items-center gap-1.5 shrink-0",
-              stats.enabled ? "bg-[var(--surface-success)] text-[var(--text-success)]" : "bg-[var(--surface-pill)] text-[var(--text-tertiary)]"
+              "text-[10px] font-black uppercase tracking-widest",
+              dissatisfactionEnabledDraft ? "text-[var(--text-success)]" : "text-[var(--text-tertiary)]"
             )}>
-              {stats.enabled ? <CheckCircle2 size={12} /> : <XCircle size={12} />}
-              {stats.enabled ? 'Ligado' : 'Desligado (ENABLE_DISSATISFACTION_DETECTOR)'}
+              {dissatisfactionEnabledDraft ? 'Ligado' : 'Desligado'}
             </span>
-          )}
+            <div
+              onClick={() => setDissatisfactionEnabledDraft(v => !v)}
+              title="Liga/desliga o processamento automático em segundo plano — salvar pra aplicar"
+              className={cn(
+                "w-12 h-6 rounded-full p-1 transition-all shrink-0 cursor-pointer",
+                dissatisfactionEnabledDraft ? "bg-[var(--accent)]" : "bg-[var(--border-default)]"
+              )}
+            >
+              <div className={cn(
+                "w-4 h-4 rounded-full bg-[var(--surface-card)] shadow-sm transition-transform",
+                dissatisfactionEnabledDraft ? "translate-x-6" : "translate-x-0"
+              )} />
+            </div>
+          </div>
         </div>
+
+        {stats && dissatisfactionEnabledDraft !== stats.enabled && (
+          <p className="text-[10px] font-bold text-[var(--text-warning)] uppercase tracking-widest">
+            Alteração pendente — clique em &ldquo;Salvar&rdquo; no final da página pra {dissatisfactionEnabledDraft ? 'ligar' : 'desligar'} o processamento automático.
+          </p>
+        )}
 
         {statsError ? (
           <p className="text-xs text-[var(--text-danger)] font-bold">{statsError}</p>
@@ -224,12 +258,24 @@ export function AiAssistantSettingsContent() {
             {!stats.enabled && (
               <div className="p-3 bg-[var(--surface-warning)] border border-[var(--border-alert)] rounded-xl">
                 <p className="text-[10px] font-bold text-[var(--text-warning)]">
-                  Processamento automático desligado neste ambiente — defina <span className="font-mono">ENABLE_DISSATISFACTION_DETECTOR=true</span> no .env pra rodar sozinho em segundo plano. O botão &ldquo;Sincronizar agora&rdquo; funciona mesmo assim, sob demanda.
+                  Processamento automático desligado — use o toggle acima pra ligar (aplica sem precisar de redeploy). O botão &ldquo;Sincronizar agora&rdquo; funciona mesmo desligado, sob demanda.
                 </p>
               </div>
             )}
           </>
         )}
+
+        <div className="space-y-2 pt-2 border-t border-[var(--border-default)]">
+          <label className="text-[10px] font-black uppercase tracking-widest text-[var(--text-tertiary)] ml-1">Critério adicional de insatisfação (opcional)</label>
+          <textarea
+            value={dissatisfactionInstructionsDraft}
+            onChange={(e) => setDissatisfactionInstructionsDraft(e.target.value)}
+            rows={4}
+            placeholder="Ex: considere insatisfação também quando o cliente pedir reembolso ou mencionar cancelamento do contrato."
+            className="w-full bg-[var(--surface-pill)] border border-[var(--border-default)] rounded-2xl px-4 py-3 text-xs font-mono text-[var(--text-primary)] leading-relaxed focus:ring-4 focus:ring-[var(--accent)]/10 focus:border-[var(--accent)] outline-none transition-all"
+          />
+          <p className="text-[10px] text-[var(--text-tertiary)] font-medium">Acrescentado ao prompt de classificação, sem substituir o formato JSON nem a taxonomia de departamento/categoria.</p>
+        </div>
       </div>
 
       {/* Documentação / status */}

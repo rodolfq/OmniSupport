@@ -14,7 +14,7 @@ import { CustomerEvaluationScores, CustomerProfileTag, CustomerEvaluationSummary
 import { logAudit } from '@/lib/audit-log';
 import { getEffectiveAssistantConfig, getRawAssistantSettings, saveAssistantConfig as saveAssistantConfigService, DEFAULT_SYSTEM_INSTRUCTION } from '@/lib/services/ai-assistant-config-service';
 import { isEmbeddingEnabled } from '@/lib/services/embedding-service';
-import { processDissatisfactionQueueBatch } from '@/lib/services/dissatisfaction-service';
+import { processDissatisfactionQueueBatch, isDissatisfactionDetectorEnabled } from '@/lib/services/dissatisfaction-service';
 
 export async function getCurrentActionUser() {
   const token = (await cookies()).get('token')?.value;
@@ -1774,7 +1774,10 @@ export async function getAssistantConfig() {
       effectiveSemanticSearchEnabled: effective.semanticSearchEnabled,
       isPromptCustomized: effective.isPromptCustomized,
       isModelCustomized: effective.isModelCustomized,
-      rawSemanticSearchOverride: raw.semanticSearchEnabled
+      rawSemanticSearchOverride: raw.semanticSearchEnabled,
+      effectiveDissatisfactionDetectorEnabled: effective.dissatisfactionDetectorEnabled,
+      rawDissatisfactionDetectorEnabled: raw.dissatisfactionDetectorEnabled,
+      dissatisfactionExtraInstructions: raw.dissatisfactionExtraInstructions || ''
     };
   } catch (err: any) {
     console.error('Error getting assistant config in actions:', err);
@@ -1782,13 +1785,21 @@ export async function getAssistantConfig() {
   }
 }
 
-export async function saveAssistantConfig(systemPrompt: string | null, model: string | null, semanticSearchEnabled: boolean | null) {
+export async function saveAssistantConfig(
+  systemPrompt: string | null,
+  model: string | null,
+  semanticSearchEnabled: boolean | null,
+  dissatisfactionDetectorEnabled: boolean | null,
+  dissatisfactionExtraInstructions: string | null
+) {
   try {
     const check = await assertCanManageAssistant();
     if (!check.ok) return { error: check.error };
     const { actor } = check;
 
-    await saveAssistantConfigService(actor.id, actor.name, { systemPrompt, model, semanticSearchEnabled });
+    await saveAssistantConfigService(actor.id, actor.name, {
+      systemPrompt, model, semanticSearchEnabled, dissatisfactionDetectorEnabled, dissatisfactionExtraInstructions
+    });
     return { success: true };
   } catch (err: any) {
     console.error('Error saving assistant config in actions:', err);
@@ -1829,7 +1840,7 @@ export async function getDissatisfactionStats() {
     `);
     const row = res.rows[0];
     return {
-      enabled: process.env.ENABLE_DISSATISFACTION_DETECTOR === 'true',
+      enabled: await isDissatisfactionDetectorEnabled(),
       total: row.total,
       pending: row.pending,
       analyzed: row.analyzed,

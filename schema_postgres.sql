@@ -278,6 +278,8 @@ CREATE TABLE public.ai_assistant_settings (
   system_prompt TEXT,
   model TEXT,
   semantic_search_enabled BOOLEAN,
+  dissatisfaction_detector_enabled BOOLEAN,
+  dissatisfaction_extra_instructions TEXT,
   updated_at TIMESTAMP WITH TIME ZONE DEFAULT now() NOT NULL,
   updated_by UUID REFERENCES public.profiles(id) ON DELETE SET NULL,
   CONSTRAINT ai_assistant_settings_singleton CHECK (id = 1)
