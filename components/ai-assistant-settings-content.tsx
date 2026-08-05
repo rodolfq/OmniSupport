@@ -4,6 +4,9 @@ import React, { useEffect, useState } from 'react';
 import Link from 'next/link';
 import { Bot, Save, CheckCircle2, XCircle, RotateCcw, Search, MessageSquareText, Ticket, MessageCircle, Frown, Clock, ListChecks, ArrowUpRight, RefreshCw, History } from 'lucide-react';
 import { getAssistantConfig, saveAssistantConfig, getDissatisfactionStats, runDissatisfactionBatchNow } from '@/app/actions';
+import { AiAssistantIcon } from '@/components/ai-assistant-icon';
+import { AiAssistantAvatarCropEditor } from '@/components/ai-assistant-avatar-crop-editor';
+import { AI_ASSISTANT_AVATAR_OPTIONS, AiAssistantAvatarSource, AvatarCropOverrides, getAvatarOption } from '@/lib/ai-assistant-avatar-options';
 import { cn } from '@/lib/utils';
 import { toast } from 'sonner';
 
@@ -20,6 +23,8 @@ interface AssistantConfigData {
   effectiveDissatisfactionDetectorEnabled: boolean;
   rawDissatisfactionDetectorEnabled: boolean | null;
   dissatisfactionExtraInstructions: string;
+  avatarSource: AiAssistantAvatarSource;
+  avatarCropOverrides: AvatarCropOverrides;
 }
 
 interface DissatisfactionStatsData {
@@ -51,6 +56,8 @@ export function AiAssistantSettingsContent() {
   const [semanticSearchDraft, setSemanticSearchDraft] = useState(true);
   const [dissatisfactionEnabledDraft, setDissatisfactionEnabledDraft] = useState(false);
   const [dissatisfactionInstructionsDraft, setDissatisfactionInstructionsDraft] = useState('');
+  const [avatarSourceDraft, setAvatarSourceDraft] = useState<AiAssistantAvatarSource>('default');
+  const [avatarCropDraft, setAvatarCropDraft] = useState<AvatarCropOverrides>({});
 
   const [stats, setStats] = useState<DissatisfactionStatsData | null>(null);
   const [statsError, setStatsError] = useState<string | null>(null);
@@ -82,6 +89,8 @@ export function AiAssistantSettingsContent() {
       setSemanticSearchDraft(cfg.rawSemanticSearchOverride ?? true);
       setDissatisfactionEnabledDraft(cfg.rawDissatisfactionDetectorEnabled ?? cfg.effectiveDissatisfactionDetectorEnabled);
       setDissatisfactionInstructionsDraft(cfg.dissatisfactionExtraInstructions);
+      setAvatarSourceDraft(cfg.avatarSource);
+      setAvatarCropDraft(cfg.avatarCropOverrides);
     }).finally(() => {
       if (!cancelled) setLoading(false);
     });
@@ -128,7 +137,9 @@ export function AiAssistantSettingsContent() {
         modelOverride,
         semanticSearchDraft,
         dissatisfactionEnabledDraft,
-        dissatisfactionInstructionsDraft.trim() || null
+        dissatisfactionInstructionsDraft.trim() || null,
+        avatarSourceDraft,
+        avatarCropDraft
       );
       if ('error' in result && result.error) throw new Error(result.error);
       toast.success('Configuração do Agente de IA salva!');
@@ -141,6 +152,8 @@ export function AiAssistantSettingsContent() {
         setSemanticSearchDraft(cfg.rawSemanticSearchOverride ?? true);
         setDissatisfactionEnabledDraft(cfg.rawDissatisfactionDetectorEnabled ?? cfg.effectiveDissatisfactionDetectorEnabled);
         setDissatisfactionInstructionsDraft(cfg.dissatisfactionExtraInstructions);
+      setAvatarSourceDraft(cfg.avatarSource);
+      setAvatarCropDraft(cfg.avatarCropOverrides);
       }
       loadStats();
     } catch (err: any) {
@@ -335,6 +348,66 @@ export function AiAssistantSettingsContent() {
             </p>
           </div>
         </div>
+      </div>
+
+      {/* Ícone do agente */}
+      <div className="bg-[var(--surface-card)] border border-[var(--border-default)] rounded-[2rem] p-8 shadow-sm space-y-5">
+        <div>
+          <h4 className="text-sm font-black text-[var(--text-primary)] uppercase tracking-tight">Ícone do agente</h4>
+          <p className="text-[10px] text-[var(--text-tertiary)] font-bold uppercase tracking-widest mt-1">
+            Mostrado no botão flutuante e no cabeçalho do painel — cada opção já reage do jeito que o arquivo foi feito (algumas seguem o cursor, outras reagem só ao clique). A miniatura abaixo é estática; salve e veja animando de verdade no botão flutuante.
+          </p>
+        </div>
+        <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
+          {AI_ASSISTANT_AVATAR_OPTIONS.map(option => {
+            const selected = avatarSourceDraft === option.id;
+            return (
+              <button
+                key={option.id}
+                type="button"
+                onClick={() => setAvatarSourceDraft(option.id)}
+                className={cn(
+                  'flex flex-col items-center gap-2.5 p-4 rounded-2xl border-2 text-center transition-all',
+                  selected
+                    ? 'border-[var(--accent)] bg-[var(--accent)]/5'
+                    : 'border-transparent bg-[var(--surface-pill)] hover:border-[var(--border-default)]'
+                )}
+              >
+                <div className="w-12 h-12 rounded-full overflow-hidden shrink-0 ring-2 ring-[var(--border-default)]">
+                  {option.previewImage ? (
+                    // eslint-disable-next-line @next/next/no-img-element
+                    <img src={option.previewImage} alt={option.label} className="w-full h-full object-cover" />
+                  ) : (
+                    <AiAssistantIcon avatarSource={option.id} size={48} />
+                  )}
+                </div>
+                <div>
+                  <p className={cn('text-[11px] font-black uppercase tracking-wide', selected ? 'text-[var(--accent-text)]' : 'text-[var(--text-primary)]')}>
+                    {option.label}
+                  </p>
+                  <p className="text-[9px] text-[var(--text-tertiary)] font-medium leading-snug mt-1">{option.description}</p>
+                </div>
+              </button>
+            );
+          })}
+        </div>
+
+        {/* Editor de posição/zoom — só faz sentido pra personagens Rive (o
+            padrão em SVG não usa recorte). Salva junto com o botão "Salvar"
+            no final da página, no mesmo lugar global de sempre — vale pra
+            todo mundo, não é preferência por usuário. */}
+        {getAvatarOption(avatarSourceDraft).riveSrc && (
+          <div className="pt-5 border-t border-[var(--border-default)] space-y-3">
+            <p className="text-[10px] font-black uppercase tracking-widest text-[var(--text-tertiary)]">
+              Ajustar posição — {getAvatarOption(avatarSourceDraft).label}
+            </p>
+            <AiAssistantAvatarCropEditor
+              option={getAvatarOption(avatarSourceDraft)}
+              crop={avatarCropDraft[avatarSourceDraft] || getAvatarOption(avatarSourceDraft).defaultCrop}
+              onChange={(crop) => setAvatarCropDraft(prev => ({ ...prev, [avatarSourceDraft]: crop }))}
+            />
+          </div>
+        )}
       </div>
 
       {/* Prompt */}

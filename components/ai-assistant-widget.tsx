@@ -3,6 +3,8 @@
 import React, { useEffect, useRef, useState } from 'react';
 import { motion, AnimatePresence } from 'motion/react';
 import { Sparkles, X, Send, Loader2, RotateCcw } from 'lucide-react';
+import { AiAssistantIcon } from '@/components/ai-assistant-icon';
+import { AiAssistantAvatarSource, AvatarCrop, DEFAULT_AI_ASSISTANT_AVATAR, getAvatarOption } from '@/lib/ai-assistant-avatar-options';
 import { cn } from '@/lib/utils';
 import { useApp } from '@/app/app-context';
 import { Permission } from '@/lib/types';
@@ -40,6 +42,8 @@ export function AiAssistantWidget() {
   const [input, setInput] = useState('');
   const [isSending, setIsSending] = useState(false);
   const [embeddingStatus, setEmbeddingStatus] = useState<EmbeddingStatus | null>(null);
+  const [avatarSource, setAvatarSource] = useState<AiAssistantAvatarSource>(DEFAULT_AI_ASSISTANT_AVATAR);
+  const [avatarCrop, setAvatarCrop] = useState<AvatarCrop>(() => getAvatarOption(DEFAULT_AI_ASSISTANT_AVATAR).defaultCrop);
   const conversationIdRef = useRef<string>('');
   const scrollRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLTextAreaElement>(null);
@@ -73,6 +77,22 @@ export function AiAssistantWidget() {
     const interval = setInterval(fetchStatus, EMBEDDING_STATUS_POLL_MS);
     return () => { cancelled = true; clearInterval(interval); };
   }, [isOpen]);
+
+  // Ícone configurado em Configurações > Agente de IA — busca uma vez ao
+  // montar (não depende de isOpen: o botão flutuante já precisa do ícone
+  // certo antes do painel ser aberto).
+  useEffect(() => {
+    let cancelled = false;
+    fetch('/api/ai-assistant/avatar')
+      .then(res => res.ok ? res.json() : null)
+      .then(data => {
+        if (cancelled || !data?.avatarSource) return;
+        setAvatarSource(data.avatarSource);
+        if (data.crop) setAvatarCrop(data.crop);
+      })
+      .catch(() => {});
+    return () => { cancelled = true; };
+  }, []);
 
   if (!currentUser || !hasPermission(Permission.AI_ASSISTANT_USE)) return null;
 
@@ -131,8 +151,8 @@ export function AiAssistantWidget() {
             {/* Header */}
             <div className="bg-[var(--accent)] px-4 py-3 flex items-center justify-between text-white shrink-0">
               <div className="flex items-center gap-2.5">
-                <div className="w-8 h-8 bg-white/20 rounded-xl flex items-center justify-center backdrop-blur-md">
-                  <Sparkles size={16} />
+                <div className="w-8 h-8 rounded-full overflow-hidden shrink-0">
+                  <AiAssistantIcon avatarSource={avatarSource} crop={avatarCrop} size={32} />
                 </div>
                 <div>
                   <h3 className="text-xs font-black uppercase tracking-widest text-white">Assistente IA</h3>
@@ -230,10 +250,10 @@ export function AiAssistantWidget() {
       {!isOpen && (
         <button
           onClick={() => setIsOpen(true)}
-          className="w-14 h-14 rounded-full bg-[var(--accent)] text-white shadow-2xl flex items-center justify-center hover:scale-110 active:scale-95 transition-all"
+          className="w-14 h-14 rounded-full overflow-hidden shadow-2xl hover:scale-110 active:scale-95 transition-all"
           title="Assistente IA"
         >
-          <Sparkles size={22} />
+          <AiAssistantIcon avatarSource={avatarSource} crop={avatarCrop} size={56} />
         </button>
       )}
     </div>

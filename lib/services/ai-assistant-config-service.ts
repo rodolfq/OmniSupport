@@ -2,6 +2,10 @@ import { query } from '@/lib/db';
 import { GROQ_MODEL_NAME } from '@/lib/groq-client';
 import { isEmbeddingEnabled } from './embedding-service';
 import { logAudit } from '@/lib/audit-log';
+import {
+  AiAssistantAvatarSource, AvatarCrop, AvatarCropOverrides, DEFAULT_AI_ASSISTANT_AVATAR,
+  getEffectiveCrop, isValidAvatarSource, sanitizeCropOverrides
+} from '@/lib/ai-assistant-avatar-options';
 
 // Controle do Agente de IA em Configurações (aba "Agente de IA") — prompt,
 // modelo e busca semântica passam a ser ajustáveis em runtime, guardados
@@ -34,6 +38,8 @@ export interface EffectiveAssistantConfig {
   // não customizado (concatenado direto no prompt, sem placeholder a limpar).
   dissatisfactionDetectorEnabled: boolean;
   dissatisfactionExtraInstructions: string;
+  avatarSource: AiAssistantAvatarSource;
+  avatarCrop: AvatarCrop;
 }
 
 interface SettingsRow {
@@ -42,16 +48,19 @@ interface SettingsRow {
   semantic_search_enabled: boolean | null;
   dissatisfaction_detector_enabled: boolean | null;
   dissatisfaction_extra_instructions: string | null;
+  avatar_source: string | null;
+  avatar_crop_overrides: AvatarCropOverrides | null;
 }
 
 async function fetchSettingsRow(): Promise<SettingsRow> {
   const res = await query(
-    `SELECT system_prompt, model, semantic_search_enabled, dissatisfaction_detector_enabled, dissatisfaction_extra_instructions
+    `SELECT system_prompt, model, semantic_search_enabled, dissatisfaction_detector_enabled, dissatisfaction_extra_instructions, avatar_source, avatar_crop_overrides
      FROM public.ai_assistant_settings WHERE id = 1`
   );
   return res.rows[0] || {
     system_prompt: null, model: null, semantic_search_enabled: null,
-    dissatisfaction_detector_enabled: null, dissatisfaction_extra_instructions: null
+    dissatisfaction_detector_enabled: null, dissatisfaction_extra_instructions: null, avatar_source: null,
+    avatar_crop_overrides: null
   };
 }
 
@@ -76,7 +85,12 @@ export async function getEffectiveAssistantConfig(): Promise<EffectiveAssistantC
     // chamada Groq (mesma usada pelo botão "Sincronizar agora"), então o
     // override em banco pode tanto ligar quanto desligar por cima do env.
     dissatisfactionDetectorEnabled: row.dissatisfaction_detector_enabled ?? (process.env.ENABLE_DISSATISFACTION_DETECTOR === 'true'),
-    dissatisfactionExtraInstructions: row.dissatisfaction_extra_instructions?.trim() || ''
+    dissatisfactionExtraInstructions: row.dissatisfaction_extra_instructions?.trim() || '',
+    avatarSource: isValidAvatarSource(row.avatar_source) ? row.avatar_source : DEFAULT_AI_ASSISTANT_AVATAR,
+    avatarCrop: getEffectiveCrop(
+      isValidAvatarSource(row.avatar_source) ? row.avatar_source : DEFAULT_AI_ASSISTANT_AVATAR,
+      row.avatar_crop_overrides
+    )
   };
 }
 
@@ -85,6 +99,8 @@ export async function getEffectiveAssistantConfig(): Promise<EffectiveAssistantC
 export async function getRawAssistantSettings(): Promise<{
   systemPrompt: string | null; model: string | null; semanticSearchEnabled: boolean | null;
   dissatisfactionDetectorEnabled: boolean | null; dissatisfactionExtraInstructions: string | null;
+  avatarSource: AiAssistantAvatarSource | null;
+  avatarCropOverrides: AvatarCropOverrides;
 }> {
   const row = await fetchSettingsRow();
   return {
@@ -92,7 +108,9 @@ export async function getRawAssistantSettings(): Promise<{
     model: row.model || null,
     semanticSearchEnabled: row.semantic_search_enabled ?? null,
     dissatisfactionDetectorEnabled: row.dissatisfaction_detector_enabled ?? null,
-    dissatisfactionExtraInstructions: row.dissatisfaction_extra_instructions || null
+    dissatisfactionExtraInstructions: row.dissatisfaction_extra_instructions || null,
+    avatarSource: isValidAvatarSource(row.avatar_source) ? row.avatar_source : null,
+    avatarCropOverrides: sanitizeCropOverrides(row.avatar_crop_overrides)
   };
 }
 
@@ -102,13 +120,21 @@ export async function saveAssistantConfig(
   updates: {
     systemPrompt: string | null; model: string | null; semanticSearchEnabled: boolean | null;
     dissatisfactionDetectorEnabled: boolean | null; dissatisfactionExtraInstructions: string | null;
+    avatarSource: string | null;
+    avatarCropOverrides: AvatarCropOverrides | null;
   }
 ): Promise<void> {
+  // Valor fora do catálogo (lib/ai-assistant-avatar-options.ts) vira NULL
+  // (= padrão) em vez de gravar lixo — mesmo raciocínio de
+  // isValidDissatisfactionPair em dissatisfaction-taxonomy.ts.
+  const avatarSourceToSave = isValidAvatarSource(updates.avatarSource) ? updates.avatarSource : null;
+  const cropOverridesToSave = sanitizeCropOverrides(updates.avatarCropOverrides);
+
   await query(
     `UPDATE public.ai_assistant_settings
      SET system_prompt = $1, model = $2, semantic_search_enabled = $3,
          dissatisfaction_detector_enabled = $4, dissatisfaction_extra_instructions = $5,
-         updated_at = now(), updated_by = $6
+         avatar_source = $6, avatar_crop_overrides = $7, updated_at = now(), updated_by = $8
      WHERE id = 1`,
     [
       updates.systemPrompt?.trim() || null,
@@ -116,6 +142,8 @@ export async function saveAssistantConfig(
       updates.semanticSearchEnabled,
       updates.dissatisfactionDetectorEnabled,
       updates.dissatisfactionExtraInstructions?.trim() || null,
+      avatarSourceToSave,
+      JSON.stringify(cropOverridesToSave),
       actorId
     ]
   );
@@ -132,7 +160,9 @@ export async function saveAssistantConfig(
       model: updates.model,
       semanticSearchEnabled: updates.semanticSearchEnabled,
       dissatisfactionDetectorEnabled: updates.dissatisfactionDetectorEnabled,
-      dissatisfactionExtraInstructionsLength: updates.dissatisfactionExtraInstructions?.trim()?.length || 0
+      dissatisfactionExtraInstructionsLength: updates.dissatisfactionExtraInstructions?.trim()?.length || 0,
+      avatarSource: avatarSourceToSave,
+      avatarCropOverrides: cropOverridesToSave
     }
   });
 }

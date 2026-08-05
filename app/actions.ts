@@ -15,6 +15,7 @@ import { logAudit } from '@/lib/audit-log';
 import { getEffectiveAssistantConfig, getRawAssistantSettings, saveAssistantConfig as saveAssistantConfigService, DEFAULT_SYSTEM_INSTRUCTION } from '@/lib/services/ai-assistant-config-service';
 import { isEmbeddingEnabled } from '@/lib/services/embedding-service';
 import { processDissatisfactionQueueBatch, isDissatisfactionDetectorEnabled, requeueSkippedDissatisfactionBacklog } from '@/lib/services/dissatisfaction-service';
+import { AvatarCropOverrides } from '@/lib/ai-assistant-avatar-options';
 
 export async function getCurrentActionUser() {
   const token = (await cookies()).get('token')?.value;
@@ -1777,7 +1778,9 @@ export async function getAssistantConfig() {
       rawSemanticSearchOverride: raw.semanticSearchEnabled,
       effectiveDissatisfactionDetectorEnabled: effective.dissatisfactionDetectorEnabled,
       rawDissatisfactionDetectorEnabled: raw.dissatisfactionDetectorEnabled,
-      dissatisfactionExtraInstructions: raw.dissatisfactionExtraInstructions || ''
+      dissatisfactionExtraInstructions: raw.dissatisfactionExtraInstructions || '',
+      avatarSource: effective.avatarSource,
+      avatarCropOverrides: raw.avatarCropOverrides
     };
   } catch (err: any) {
     console.error('Error getting assistant config in actions:', err);
@@ -1790,7 +1793,9 @@ export async function saveAssistantConfig(
   model: string | null,
   semanticSearchEnabled: boolean | null,
   dissatisfactionDetectorEnabled: boolean | null,
-  dissatisfactionExtraInstructions: string | null
+  dissatisfactionExtraInstructions: string | null,
+  avatarSource: string | null,
+  avatarCropOverrides: AvatarCropOverrides | null
 ) {
   try {
     const check = await assertCanManageAssistant();
@@ -1798,7 +1803,7 @@ export async function saveAssistantConfig(
     const { actor } = check;
 
     await saveAssistantConfigService(actor.id, actor.name, {
-      systemPrompt, model, semanticSearchEnabled, dissatisfactionDetectorEnabled, dissatisfactionExtraInstructions
+      systemPrompt, model, semanticSearchEnabled, dissatisfactionDetectorEnabled, dissatisfactionExtraInstructions, avatarSource, avatarCropOverrides
     });
     return { success: true };
   } catch (err: any) {
