@@ -195,6 +195,26 @@ async function processRow(client: ReturnType<typeof getGroqClient>, model: strin
   }
 }
 
+// Backlog marcado como "pulado" pela migration original (ver
+// migrations/chat_histories_dissatisfaction.sql) — processed_at preenchido
+// mas nunca chegou a ser enviado ao Groq (attempts = 0, detected NULL).
+// Botão "Sincronizar agora" chama isto antes do lote (ver
+// runDissatisfactionBatchNow em app/actions.ts): devolve esse backlog pra
+// fila real (processed_at = NULL), pra tanto o lote imediato quanto o
+// scheduler automático (a cada 2min, ver dissatisfaction-scheduler.ts)
+// passarem a enxergá-lo como pendente. Não processa nada aqui — só
+// reabre a fila; quem drena é o lote seguinte + o scheduler, aos poucos.
+export async function requeueSkippedDissatisfactionBacklog(): Promise<number> {
+  const res = await query(
+    `UPDATE public.chat_histories
+     SET dissatisfaction_processed_at = NULL
+     WHERE dissatisfaction_processed_at IS NOT NULL
+       AND dissatisfaction_detected IS NULL
+       AND dissatisfaction_attempts = 0`
+  );
+  return res.rowCount ?? 0;
+}
+
 // Chamada pelo scheduler (dissatisfaction-scheduler.ts) e pelo botão
 // "Sincronizar agora" (ver runDissatisfactionBatchNow em app/actions.ts) —
 // retorna quantas linhas foram tentadas nesta rodada. `force` ignora a flag

@@ -195,12 +195,23 @@ async function searchTickets(args: any) {
   const conditions: string[] = [];
   const params: any[] = [];
   let i = 1;
-  if (args?.query) { conditions.push(`(t.title ILIKE $${i} OR t.description ILIKE $${i})`); params.push(`%${args.query}%`); i++; }
+  // Full-text (search_vector, ver migrations/fulltext_search.sql) em vez de
+  // ILIKE '%termo%' — ranking por relevância (ts_rank) sem custo de API nem
+  // modelo local, ao contrário da busca semântica (desligada de propósito).
+  let queryParamIndex: number | null = null;
+  if (args?.query) {
+    queryParamIndex = i;
+    conditions.push(`t.search_vector @@ websearch_to_tsquery('portuguese', $${i})`);
+    params.push(args.query); i++;
+  }
   if (args?.companyName) { conditions.push(`c.name ILIKE $${i}`); params.push(`%${args.companyName}%`); i++; }
   if (args?.status) { conditions.push(`t.status = $${i}`); params.push(args.status); i++; }
   const ticketNumber = toNumberOrUndefined(args?.ticketNumber);
   if (ticketNumber !== undefined) { conditions.push(`t.public_ticket_number = $${i}`); params.push(ticketNumber); i++; }
   const where = conditions.length ? `WHERE ${conditions.join(' AND ')}` : '';
+  const orderBy = queryParamIndex !== null
+    ? `ts_rank(t.search_vector, websearch_to_tsquery('portuguese', $${queryParamIndex})) DESC, t.created_at DESC`
+    : `t.created_at DESC`;
 
   const res = await query(
     `SELECT t.public_ticket_number, t.title, t.status, t.priority, t.created_at,
@@ -209,7 +220,7 @@ async function searchTickets(args: any) {
      LEFT JOIN public.companies c ON c.id = t.company_id
      LEFT JOIN public.profiles p ON p.id = t.assignee_id
      ${where}
-     ORDER BY t.created_at DESC
+     ORDER BY ${orderBy}
      LIMIT ${limit}`,
     params
   );
@@ -278,10 +289,19 @@ async function searchInternalTickets(args: any) {
   const conditions: string[] = [];
   const params: any[] = [];
   let i = 1;
-  if (args?.query) { conditions.push(`(it.title ILIKE $${i} OR it.description ILIKE $${i})`); params.push(`%${args.query}%`); i++; }
+  // Full-text (search_vector) — mesmo raciocínio de searchTickets acima.
+  let queryParamIndex: number | null = null;
+  if (args?.query) {
+    queryParamIndex = i;
+    conditions.push(`it.search_vector @@ websearch_to_tsquery('portuguese', $${i})`);
+    params.push(args.query); i++;
+  }
   if (args?.teamName) { conditions.push(`team.name ILIKE $${i}`); params.push(`%${args.teamName}%`); i++; }
   if (args?.status) { conditions.push(`it.status = $${i}`); params.push(args.status); i++; }
   const where = conditions.length ? `WHERE ${conditions.join(' AND ')}` : '';
+  const orderBy = queryParamIndex !== null
+    ? `ts_rank(it.search_vector, websearch_to_tsquery('portuguese', $${queryParamIndex})) DESC, it.created_at DESC`
+    : `it.created_at DESC`;
 
   const res = await query(
     `SELECT it.internal_ticket_number, it.title, it.status, it.priority, it.created_at,
@@ -290,7 +310,7 @@ async function searchInternalTickets(args: any) {
      LEFT JOIN public.internal_teams team ON team.id = it.internal_team_id
      LEFT JOIN public.profiles p ON p.id = it.assignee_id
      ${where}
-     ORDER BY it.created_at DESC
+     ORDER BY ${orderBy}
      LIMIT ${limit}`,
     params
   );
@@ -354,10 +374,19 @@ async function searchClientChats(args: any) {
   const conditions: string[] = [`m.type NOT IN ('system')`, `m.text IS NOT NULL`];
   const params: any[] = [];
   let i = 1;
-  if (args?.query) { conditions.push(`m.text ILIKE $${i}`); params.push(`%${args.query}%`); i++; }
+  // Full-text (search_vector) — mesmo raciocínio de searchTickets acima.
+  let queryParamIndex: number | null = null;
+  if (args?.query) {
+    queryParamIndex = i;
+    conditions.push(`m.search_vector @@ websearch_to_tsquery('portuguese', $${i})`);
+    params.push(args.query); i++;
+  }
   if (args?.customerName) { conditions.push(`s.customer_name ILIKE $${i}`); params.push(`%${args.customerName}%`); i++; }
   if (args?.companyName) { conditions.push(`comp.name ILIKE $${i}`); params.push(`%${args.companyName}%`); i++; }
   const where = `WHERE ${conditions.join(' AND ')}`;
+  const orderBy = queryParamIndex !== null
+    ? `ts_rank(m.search_vector, websearch_to_tsquery('portuguese', $${queryParamIndex})) DESC, m.created_at DESC`
+    : `m.created_at DESC`;
 
   const res = await query(
     `SELECT m.text, m.created_at, s.customer_name, s.customer_phone, s.status, comp.name AS company_name
@@ -366,7 +395,7 @@ async function searchClientChats(args: any) {
      LEFT JOIN public.profiles cust ON cust.id = s.customer_id
      LEFT JOIN public.companies comp ON comp.id = cust.company_id
      ${where}
-     ORDER BY m.created_at DESC
+     ORDER BY ${orderBy}
      LIMIT ${limit}`,
     params
   );
@@ -385,15 +414,24 @@ async function searchInternalChats(args: any) {
   const conditions: string[] = [`m.type NOT IN ('system')`, `m.text IS NOT NULL`];
   const params: any[] = [];
   let i = 1;
-  if (args?.query) { conditions.push(`m.text ILIKE $${i}`); params.push(`%${args.query}%`); i++; }
+  // Full-text (search_vector) — mesmo raciocínio de searchTickets acima.
+  let queryParamIndex: number | null = null;
+  if (args?.query) {
+    queryParamIndex = i;
+    conditions.push(`m.search_vector @@ websearch_to_tsquery('portuguese', $${i})`);
+    params.push(args.query); i++;
+  }
   const where = `WHERE ${conditions.join(' AND ')}`;
+  const orderBy = queryParamIndex !== null
+    ? `ts_rank(m.search_vector, websearch_to_tsquery('portuguese', $${queryParamIndex})) DESC, m.created_at DESC`
+    : `m.created_at DESC`;
 
   const res = await query(
     `SELECT m.text, m.sender_name, m.created_at, c.name AS chat_name, c.type AS chat_type
      FROM public.internal_chat_messages m
      JOIN public.internal_chats c ON c.id = m.chat_id
      ${where}
-     ORDER BY m.created_at DESC
+     ORDER BY ${orderBy}
      LIMIT ${limit}`,
     params
   );

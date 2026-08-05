@@ -14,7 +14,7 @@ import { CustomerEvaluationScores, CustomerProfileTag, CustomerEvaluationSummary
 import { logAudit } from '@/lib/audit-log';
 import { getEffectiveAssistantConfig, getRawAssistantSettings, saveAssistantConfig as saveAssistantConfigService, DEFAULT_SYSTEM_INSTRUCTION } from '@/lib/services/ai-assistant-config-service';
 import { isEmbeddingEnabled } from '@/lib/services/embedding-service';
-import { processDissatisfactionQueueBatch, isDissatisfactionDetectorEnabled } from '@/lib/services/dissatisfaction-service';
+import { processDissatisfactionQueueBatch, isDissatisfactionDetectorEnabled, requeueSkippedDissatisfactionBacklog } from '@/lib/services/dissatisfaction-service';
 
 export async function getCurrentActionUser() {
   const token = (await cookies()).get('token')?.value;
@@ -1833,6 +1833,11 @@ export async function getDissatisfactionStats() {
             AND dissatisfaction_detected IS NULL
             AND dissatisfaction_attempts > 0
         )::int AS failed,
+        count(*) FILTER (
+          WHERE dissatisfaction_processed_at IS NOT NULL
+            AND dissatisfaction_detected IS NULL
+            AND dissatisfaction_attempts = 0
+        )::int AS skipped,
         max(dissatisfaction_processed_at) FILTER (
           WHERE dissatisfaction_attempts > 0 OR dissatisfaction_detected IS NOT NULL
         ) AS last_activity_at
@@ -1846,6 +1851,11 @@ export async function getDissatisfactionStats() {
       analyzed: row.analyzed,
       detected: row.detected,
       failed: row.failed,
+      // Backlog pulado pela migration original (nunca chegou a ser enviado
+      // ao Groq) — "Sincronizar agora" reenfileira isso antes do lote (ver
+      // runDissatisfactionBatchNow abaixo), então a tela usa este número pra
+      // decidir se o botão tem o que fazer mesmo com pending = 0.
+      skipped: row.skipped,
       lastActivityAt: row.last_activity_at
     };
   } catch (err: any) {
@@ -1870,8 +1880,15 @@ export async function runDissatisfactionBatchNow() {
       return { error: 'GROQ_API_KEY não configurada — configure a chave antes de sincronizar.' };
     }
 
+    // Primeiro devolve pra fila o backlog "pulado" (ver
+    // requeueSkippedDissatisfactionBacklog) — sem isso, essas conversas
+    // nunca voltam a ser candidatas (processed_at já preenchido = não conta
+    // como pendente). Depois desse requeue, o lote abaixo processa as mais
+    // antigas na hora e o scheduler automático (a cada 2min) drena o resto
+    // sozinho, sem precisar clicar de novo.
+    const requeued = await requeueSkippedDissatisfactionBacklog();
     const processed = await processDissatisfactionQueueBatch(MANUAL_SYNC_BATCH_SIZE, { force: true });
-    return { success: true, processed };
+    return { success: true, processed, requeued };
   } catch (err: any) {
     console.error('Error running manual dissatisfaction batch in actions:', err);
     return { error: err.message || 'Erro ao sincronizar o detector de insatisfação.' };

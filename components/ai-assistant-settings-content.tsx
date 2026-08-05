@@ -2,7 +2,7 @@
 
 import React, { useEffect, useState } from 'react';
 import Link from 'next/link';
-import { Bot, Save, CheckCircle2, XCircle, RotateCcw, Search, MessageSquareText, Ticket, MessageCircle, Frown, Clock, ListChecks, ArrowUpRight, RefreshCw } from 'lucide-react';
+import { Bot, Save, CheckCircle2, XCircle, RotateCcw, Search, MessageSquareText, Ticket, MessageCircle, Frown, Clock, ListChecks, ArrowUpRight, RefreshCw, History } from 'lucide-react';
 import { getAssistantConfig, saveAssistantConfig, getDissatisfactionStats, runDissatisfactionBatchNow } from '@/app/actions';
 import { cn } from '@/lib/utils';
 import { toast } from 'sonner';
@@ -29,6 +29,7 @@ interface DissatisfactionStatsData {
   analyzed: number;
   detected: number;
   failed: number;
+  skipped: number;
   lastActivityAt: string | null;
 }
 
@@ -93,8 +94,14 @@ export function AiAssistantSettingsContent() {
     try {
       const result = await runDissatisfactionBatchNow();
       if ('error' in result && result.error) throw new Error(result.error);
-      const processed = (result as { processed: number }).processed;
-      toast.success(processed > 0 ? `${processed} conversa(s) processada(s) agora.` : 'Nenhuma conversa pendente para processar.');
+      const { processed, requeued } = result as { processed: number; requeued: number };
+      if (processed === 0 && requeued === 0) {
+        toast.success('Nenhuma conversa pendente para processar.');
+      } else {
+        const parts = [`${processed} conversa(s) processada(s) agora`];
+        if (requeued > processed) parts.push(`mais ${requeued - processed} devolvida(s) à fila — o restante processa sozinho em segundo plano`);
+        toast.success(`${parts.join(', ')}.`);
+      }
       loadStats();
     } catch (err: any) {
       toast.error(err.message || 'Erro ao sincronizar o detector de insatisfação.');
@@ -210,7 +217,7 @@ export function AiAssistantSettingsContent() {
           <p className="text-[var(--text-tertiary)] text-xs font-bold uppercase tracking-widest italic">Carregando estatísticas...</p>
         ) : (
           <>
-            <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
+            <div className="grid grid-cols-2 md:grid-cols-5 gap-3">
               <div className="p-4 bg-[var(--surface-pill)] rounded-xl space-y-1">
                 <p className="text-[9px] font-black uppercase tracking-widest text-[var(--text-tertiary)] flex items-center gap-1"><Clock size={11} /> Pendentes</p>
                 <p className="text-xl font-black text-[var(--text-primary)]">{stats.pending}</p>
@@ -227,6 +234,10 @@ export function AiAssistantSettingsContent() {
                 <p className="text-[9px] font-black uppercase tracking-widest text-[var(--text-tertiary)] flex items-center gap-1"><XCircle size={11} /> Falhas</p>
                 <p className={cn("text-xl font-black", stats.failed > 0 ? "text-[var(--text-warning)]" : "text-[var(--text-primary)]")}>{stats.failed}</p>
               </div>
+              <div className="p-4 bg-[var(--surface-pill)] rounded-xl space-y-1">
+                <p className="text-[9px] font-black uppercase tracking-widest text-[var(--text-tertiary)] flex items-center gap-1"><History size={11} /> Nunca analisadas</p>
+                <p className={cn("text-xl font-black", stats.skipped > 0 ? "text-[var(--text-warning)]" : "text-[var(--text-primary)]")}>{stats.skipped}</p>
+              </div>
             </div>
 
             <div className="flex items-center justify-between gap-4 flex-wrap pt-2">
@@ -239,8 +250,14 @@ export function AiAssistantSettingsContent() {
               <div className="flex items-center gap-3">
                 <button
                   onClick={handleSyncNow}
-                  disabled={isSyncing || stats.pending === 0}
-                  title={stats.pending === 0 ? 'Nenhuma conversa pendente' : `Processar até ${Math.min(stats.pending, 10)} conversa(s) agora`}
+                  disabled={isSyncing || (stats.pending === 0 && stats.skipped === 0)}
+                  title={
+                    stats.pending === 0 && stats.skipped === 0
+                      ? 'Nenhuma conversa pendente'
+                      : stats.skipped > 0
+                        ? `Devolve ${stats.skipped} conversa(s) nunca analisada(s) pra fila e processa até 10 agora — o resto continua em segundo plano`
+                        : `Processar até ${Math.min(stats.pending, 10)} conversa(s) agora`
+                  }
                   className="flex items-center gap-1.5 text-[10px] font-black uppercase tracking-widest text-[var(--accent-text)] bg-[var(--accent)]/10 px-3 py-1.5 rounded-lg hover:bg-[var(--accent)]/20 transition-all disabled:opacity-50 disabled:cursor-not-allowed"
                 >
                   <RefreshCw size={12} className={isSyncing ? 'animate-spin' : ''} />

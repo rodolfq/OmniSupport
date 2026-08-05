@@ -353,7 +353,11 @@ CREATE TABLE public.tickets (
   created_by UUID REFERENCES public.profiles(id) ON DELETE SET NULL,
   employee_ids UUID[] DEFAULT '{}',
   created_at TIMESTAMP WITH TIME ZONE DEFAULT now() NOT NULL,
-  updated_at TIMESTAMP WITH TIME ZONE DEFAULT now() NOT NULL
+  updated_at TIMESTAMP WITH TIME ZONE DEFAULT now() NOT NULL,
+  -- Full-text search (Agente de IA, search_tickets — ver
+  -- lib/services/ai-assistant-service.ts) — gerada sozinha em todo
+  -- INSERT/UPDATE, sem trigger manual.
+  search_vector TSVECTOR GENERATED ALWAYS AS (to_tsvector('portuguese', coalesce(title, '') || ' ' || coalesce(description, ''))) STORED
 );
 
 CREATE INDEX IF NOT EXISTS idx_tickets_public_number ON public.tickets(public_ticket_number);
@@ -363,6 +367,7 @@ CREATE INDEX IF NOT EXISTS idx_tickets_product_id ON public.tickets(product_id);
 CREATE INDEX IF NOT EXISTS idx_tickets_status ON public.tickets(status);
 CREATE INDEX IF NOT EXISTS idx_tickets_assignee_id ON public.tickets(assignee_id);
 CREATE INDEX IF NOT EXISTS idx_tickets_company_id ON public.tickets(company_id);
+CREATE INDEX IF NOT EXISTS idx_tickets_search_vector ON public.tickets USING GIN (search_vector);
 CREATE INDEX IF NOT EXISTS idx_tickets_customer_id ON public.tickets(customer_id);
 CREATE INDEX IF NOT EXISTS idx_tickets_created_at ON public.tickets(created_at DESC);
 
@@ -460,10 +465,14 @@ CREATE TABLE public.chat_messages (
   text TEXT,
   type TEXT DEFAULT 'text',
   metadata JSONB DEFAULT '{}'::jsonb,
-  created_at TIMESTAMP WITH TIME ZONE DEFAULT now() NOT NULL
+  created_at TIMESTAMP WITH TIME ZONE DEFAULT now() NOT NULL,
+  -- Full-text search (Agente de IA, search_client_chats) — ver comentário
+  -- equivalente em public.tickets.
+  search_vector TSVECTOR GENERATED ALWAYS AS (to_tsvector('portuguese', coalesce(text, ''))) STORED
 );
 
 CREATE INDEX IF NOT EXISTS idx_chat_messages_session_id ON public.chat_messages(session_id, created_at);
+CREATE INDEX IF NOT EXISTS idx_chat_messages_search_vector ON public.chat_messages USING GIN (search_vector);
 
 -- Chat Histories Table
 CREATE TABLE public.chat_histories (
@@ -547,13 +556,17 @@ CREATE TABLE public.internal_tickets (
   updated_at TIMESTAMP WITH TIME ZONE DEFAULT now() NOT NULL,
   sla_limit TIMESTAMP WITH TIME ZONE, -- calculado a partir da prioridade + SLA configurado em Configurações (ver InternalTicketService.saveWithDetails / handleUpdateTicket), não editado manualmente
   expected_publish_date TIMESTAMP WITH TIME ZONE, -- "Publicação prevista": estimativa do dev, independente do SLA
-  hotfix_id UUID REFERENCES public.hotfixes(id) ON DELETE SET NULL -- marcador informativo: hotfix cadastrado ao qual este ticket se refere
+  hotfix_id UUID REFERENCES public.hotfixes(id) ON DELETE SET NULL, -- marcador informativo: hotfix cadastrado ao qual este ticket se refere
+  -- Full-text search (Agente de IA, search_internal_tickets) — ver
+  -- comentário equivalente em public.tickets.
+  search_vector TSVECTOR GENERATED ALWAYS AS (to_tsvector('portuguese', coalesce(title, '') || ' ' || coalesce(description, ''))) STORED
 );
 
 CREATE INDEX IF NOT EXISTS idx_internal_tickets_number ON public.internal_tickets(internal_ticket_number);
 CREATE INDEX IF NOT EXISTS idx_internal_tickets_status ON public.internal_tickets(status);
 CREATE INDEX IF NOT EXISTS idx_internal_tickets_assignee_id ON public.internal_tickets(assignee_id);
 CREATE INDEX IF NOT EXISTS idx_internal_tickets_internal_team_id ON public.internal_tickets(internal_team_id);
+CREATE INDEX IF NOT EXISTS idx_internal_tickets_search_vector ON public.internal_tickets USING GIN (search_vector);
 
 -- Ticket Internal Links Table
 CREATE TABLE public.ticket_internal_links (
@@ -622,11 +635,15 @@ CREATE TABLE public.internal_chat_messages (
   text TEXT,
   type TEXT DEFAULT 'text',
   metadata JSONB DEFAULT '{}',
-  created_at TIMESTAMP WITH TIME ZONE DEFAULT now() NOT NULL
+  created_at TIMESTAMP WITH TIME ZONE DEFAULT now() NOT NULL,
+  -- Full-text search (Agente de IA, search_internal_chats) — ver comentário
+  -- equivalente em public.tickets.
+  search_vector TSVECTOR GENERATED ALWAYS AS (to_tsvector('portuguese', coalesce(text, ''))) STORED
 );
 
 CREATE INDEX IF NOT EXISTS idx_internal_chat_messages_chat_id ON public.internal_chat_messages(chat_id);
 CREATE INDEX IF NOT EXISTS idx_internal_chat_messages_created_at ON public.internal_chat_messages(created_at DESC);
+CREATE INDEX IF NOT EXISTS idx_internal_chat_messages_search_vector ON public.internal_chat_messages USING GIN (search_vector);
 
 -- Internal ticket messages table
 CREATE TABLE public.internal_ticket_messages (

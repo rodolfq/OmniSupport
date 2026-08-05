@@ -746,7 +746,15 @@ export function ChatWidget() {
   const abortControllerRef = useRef<AbortController | null>(null);
 
   useEffect(() => {
-    if (!currentUser?.id || !isOmniChatOpen) return;
+    // Sem gate em isOmniChatOpen de propósito: é este poll que alimenta
+    // customerSessions/chatsAwaitingResponseCount, ou seja, o número no
+    // badge do botão flutuante MINIMIZADO (ver "Launcher Button" mais
+    // abaixo) — se só rodasse com o widget aberto, o badge nunca saberia de
+    // um chat novo enquanto estivesse fechado, justamente o estado em que
+    // ele existe pra avisar. O sino (app-context.tsx, /api/notifications/
+    // check a cada 10s) já não tinha esse problema por ser independente
+    // disso — daí soar sem o badge acompanhar.
+    if (!currentUser?.id) return;
 
     async function loadSessions() {
       if (abortControllerRef.current) {
@@ -788,7 +796,7 @@ export function ChatWidget() {
         abortControllerRef.current.abort();
       }
     };
-  }, [currentUser?.id, isOmniChatOpen]);
+  }, [currentUser?.id]);
 
   // Tempo real de verdade via SSE para a conversa aberta (substitui o antigo
   // supabase.channel(...).on('postgres_changes', ...), que nunca funcionou de
@@ -2438,11 +2446,7 @@ useEffect(() => {
                                 {m.senderName}:
                               </p>
                             )}
-                            {isStaffSender && !isOwnMessage ? (
-                              <>&quot;{renderLinkedText(m.text, isOwnMessage)}&quot;</>
-                            ) : (
-                              renderLinkedText(m.text, isOwnMessage)
-                            )}
+                            {renderLinkedText(m.text, isOwnMessage)}
                             {attachments.length > 0 && (
                               <div className="mt-3 space-y-2 whitespace-normal">
                                 {attachments.map((attachment: Attachment) => {
