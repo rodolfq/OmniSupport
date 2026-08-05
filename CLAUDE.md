@@ -163,7 +163,11 @@ schema_postgres.sql     # Schema completo + seeds — fonte de verdade do banco
 supabase_schema.sql      # ⚠️ Desatualizado (faltam ~6 tabelas) — não usar como referência
 scripts/diagnostics/     # Scripts SQL/TS ad-hoc de debug — não fazem parte do fluxo oficial
 public/                 # Ícones, manifest PWA, service worker (sw.js)
-manuais/                # Manuais em HTML/PDF (admin, funcionário, desenvolvedor)
+manuais/                # HTML/PDF — organizados em subpastas por tipo
+  usuario/               # Manuais do usuário final (admin, funcionário, desenvolvedor/time interno)
+  tecnico/                # Guias técnicos/DevOps (ex.: guia-implementacao-servidor)
+  roadmap/                # ROADMAP_MELHORIAS*.md/.pdf e RESUMO_ROADMAP*.pdf (movidos da raiz)
+  assets/                 # manual.css compartilhado por tudo acima (referenciado como ../assets/manual.css)
 ```
 
 ---
@@ -375,7 +379,7 @@ A API de integração (`/api/integrations/v1/*`) usa **autenticação por API ke
 
 ## 13. Roadmap / backlog
 
-Backlog vivo e priorizado está em [`ROADMAP_MELHORIAS.md`](ROADMAP_MELHORIAS.md) (atualizado em 2026-07-24) — **consultar esse arquivo antes de assumir prioridade**, o resumo abaixo é um retrato do que restava nele:
+Backlog vivo e priorizado está em [`manuais/roadmap/ROADMAP_MELHORIAS.md`](manuais/roadmap/ROADMAP_MELHORIAS.md) (1ª rodada, concluída, atualizado em 2026-07-24) e na sequência em [`manuais/roadmap/ROADMAP_MELHORIAS_2.md`](manuais/roadmap/ROADMAP_MELHORIAS_2.md) (2ª rodada — Bitrix24 + IA, atualizado em 2026-08-05) — ambos movidos da raiz para `manuais/roadmap/` — **consultar esses arquivos antes de assumir prioridade**, o resumo abaixo é um retrato do que restava na 1ª rodada:
 
 | Prioridade | Item | Complexidade | Arquivos prováveis |
 |---|---|---|---|

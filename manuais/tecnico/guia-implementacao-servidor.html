@@ -1,0 +1,373 @@
+<!doctype html>
+<html lang="pt-BR">
+<head>
+<meta charset="utf-8">
+<title>Guia de Implementação — Migração para Servidor Definitivo — SSX Desk</title>
+<link rel="stylesheet" href="../assets/manual.css">
+<style>
+  /* Estilos extras só deste guia (não mexe no manual.css compartilhado
+     pelos manuais de usuário — este documento é técnico/DevOps, precisa
+     de bloco de código e checklist que os outros manuais não usam). */
+  .code-block {
+    background: #0B1220; color: #D6E4F0; font-family: 'Consolas', 'SF Mono', 'Menlo', monospace;
+    font-size: 11px; line-height: 1.65; padding: 13px 16px; border-radius: 10px;
+    margin: 4px 0 16px 0; white-space: pre-wrap; word-break: break-word;
+  }
+  .code-block .c { color: #64748B; }
+  .code-label {
+    font-size: 10px; font-weight: 800; text-transform: uppercase; letter-spacing: 0.08em;
+    color: var(--text-3); margin: 0 0 6px 0;
+  }
+  ul.checklist { list-style: none; margin: 0 0 16px 0; padding: 0; }
+  ul.checklist li {
+    display: flex; align-items: flex-start; gap: 10px; padding: 6px 2px;
+    font-size: 12.5px; color: var(--text-2); font-weight: 600; border-bottom: 1px dashed var(--border);
+  }
+  ul.checklist li:last-child { border-bottom: none; }
+  ul.checklist li::before {
+    content: ''; width: 15px; height: 15px; border-radius: 5px; border: 2px solid var(--border-strong);
+    flex-shrink: 0; margin-top: 2px;
+  }
+  table.envtable { width: 100%; border-collapse: collapse; margin: 6px 0 16px 0; font-size: 11px; }
+  table.envtable th {
+    text-align: left; font-size: 9.5px; text-transform: uppercase; letter-spacing: 0.06em;
+    color: var(--text-3); font-weight: 800; padding: 6px 8px; border-bottom: 2px solid var(--border);
+  }
+  table.envtable td { padding: 7px 8px; border-bottom: 1px solid var(--border); color: var(--text-2); vertical-align: top; }
+  table.envtable td.var { font-family: 'Consolas', monospace; font-weight: 700; color: var(--navy); white-space: nowrap; }
+  .badge { display:inline-block; font-size: 9.5px; font-weight: 800; padding: 3px 9px; border-radius: 999px; background: var(--info-bg); color: var(--navy-2); border: 1px solid #C7DCF2; margin-left: 8px; }
+</style>
+</head>
+<body>
+
+<!-- ============ CAPA ============ -->
+<div class="page cover">
+  <div class="glow"></div>
+  <div class="brand-mark"><div class="dot"></div><span>SSX Desk</span></div>
+  <div>
+    <div class="kicker">Guia Técnico · DevOps</div>
+    <h1>Guia de Implementação<br>Migração para o Servidor Definitivo</h1>
+    <div class="role-pill">⚙ Uso interno — Time de Desenvolvimento</div>
+    <p class="lede">Checklist e comandos pra sair da Vercel (serverless) e colocar o SSX Desk no ar num servidor dedicado — com WhatsApp, transcrição de áudio e busca semântica funcionando de verdade.</p>
+  </div>
+  <div class="cover-footer">
+    <div class="meta"><b>SSX Desk</b>Plataforma de Atendimento ao Cliente</div>
+    <div class="meta"><b>Versão 1.0</b>Guia de Implementação</div>
+  </div>
+</div>
+
+<!-- ============ SUMÁRIO ============ -->
+<div class="page">
+  <div class="page-head"><span class="tag">Sumário</span><span class="brand">SSX Desk · Guia de Implementação</span></div>
+  <h2 class="section-title">O que tem neste guia</h2>
+  <p class="section-lede">10 capítulos, na ordem em que devem ser executados.</p>
+  <ul class="toc-list">
+    <li><span class="toc-num">01</span><span class="toc-label">Antes de começar</span><span class="toc-desc">Pré-requisitos e premissas</span></li>
+    <li><span class="toc-num">02</span><span class="toc-label">Sistema operacional & Node.js</span><span class="toc-desc">Runtime base do servidor</span></li>
+    <li><span class="toc-num">03</span><span class="toc-label">PostgreSQL</span><span class="toc-desc">Instalação, schema e migrations</span></li>
+    <li><span class="toc-num">04</span><span class="toc-label">Projeto & dependências</span><span class="toc-desc">Clonar, instalar, binários nativos</span></li>
+    <li><span class="toc-num">05</span><span class="toc-label">Modelos de IA locais</span><span class="toc-desc">Whisper e embeddings</span></li>
+    <li><span class="toc-num">06</span><span class="toc-label">Variáveis de ambiente</span><span class="toc-desc">.env completo</span></li>
+    <li><span class="toc-num">07</span><span class="toc-label">Build & processo persistente</span><span class="toc-desc">next build + PM2</span></li>
+    <li><span class="toc-num">08</span><span class="toc-label">Domínio, HTTPS & proxy</span><span class="toc-desc">Nginx + Let's Encrypt</span></li>
+    <li><span class="toc-num">09</span><span class="toc-label">Rede & contas externas</span><span class="toc-desc">Portas, chaves, webhooks</span></li>
+    <li><span class="toc-num">10</span><span class="toc-label">Checklist final</span><span class="toc-desc">Confirmação ponta a ponta</span></li>
+  </ul>
+</div>
+
+<!-- ============ 01 ANTES DE COMEÇAR ============ -->
+<div class="page">
+  <div class="page-head"><span class="tag">Capítulo 01 · Introdução</span><span class="brand">SSX Desk · Guia de Implementação</span></div>
+  <div class="section-icon-row"><div class="section-icon">●</div><h2 class="section-title mt-0">Antes de começar</h2></div>
+  <p class="section-lede">Por que sair da Vercel — e o que este guia assume.</p>
+
+  <p>O SSX Desk roda hoje na Vercel (serverless). Isso funciona bem pra maior parte do sistema, mas <b>três recursos precisam de um processo persistente</b> pra funcionar de verdade: WhatsApp via Baileys (conexão contínua), transcrição de áudio (Whisper local) e busca semântica (embeddings locais) — todos documentados no código como "não ligar na Vercel".</p>
+
+  <div class="callout info"><span class="ico">i</span><p>Este guia assume um servidor <b>Ubuntu 22.04/24.04 LTS</b> (VPS ou dedicado), que é o mesmo alvo Linux x64 pra qual os binários nativos do projeto (sharp, onnxruntime-node) já são otimizados no <code>next.config.ts</code>. Outra distro/arquitetura (ex: ARM) funciona, mas os comandos de instalação de pacote mudam.</p></div>
+
+  <h3 class="sub-title"><span class="num">i</span>O que você vai precisar ter em mãos</h3>
+  <ul class="checklist">
+    <li>Acesso root/sudo ao servidor</li>
+    <li>Um domínio próprio apontando pro IP do servidor (obrigatório — Web Push só funciona em HTTPS)</li>
+    <li>Backup/dump do banco de dados atual, se for migrar dados existentes</li>
+    <li>As credenciais atuais: <code>GROQ_API_KEY</code>, chaves VAPID, webhook do Bitrix24 (se usar)</li>
+  </ul>
+
+  <div class="callout warn"><span class="ico">!</span><p>O schema (<code>schema_postgres.sql</code>) começa com <code>DROP TABLE ... CASCADE</code>. Só rode contra um banco novo/vazio — nunca contra um banco com dados reais.</p></div>
+
+  <div class="page-foot"><span>SSX Desk</span><span>01 — Antes de começar</span></div>
+</div>
+
+<!-- ============ 02 SO & NODE ============ -->
+<div class="page">
+  <div class="page-head"><span class="tag">Capítulo 02 · Runtime</span><span class="brand">SSX Desk · Guia de Implementação</span></div>
+  <div class="section-icon-row"><div class="section-icon">▣</div><h2 class="section-title mt-0">Sistema operacional & Node.js</h2></div>
+  <p class="section-lede">Pacotes de sistema e Node na versão exigida pelo Next.js 15.<span class="badge">Ubuntu 22.04/24.04</span></p>
+
+  <h3 class="sub-title"><span class="num">1</span>Atualizar o sistema e instalar utilitários base</h3>
+  <div class="code-block">sudo apt update && sudo apt upgrade -y
+sudo apt install -y curl git build-essential ca-certificates gnupg</div>
+
+  <h3 class="sub-title"><span class="num">2</span>Instalar o Node.js (20 LTS — exigido: ^18.18 / ^19.8 / &gt;=20)</h3>
+  <div class="code-block"><span class="c"># NodeSource — instala Node 20 LTS + npm</span>
+curl -fsSL https://deb.nodesource.com/setup_20.x | sudo -E bash -
+sudo apt install -y nodejs
+
+<span class="c"># conferir versões</span>
+node -v
+npm -v</div>
+
+  <h3 class="sub-title"><span class="num">3</span>Gerenciador de processo (mantém o Next.js no ar)</h3>
+  <div class="code-block">sudo npm install -g pm2</div>
+
+  <div class="callout tip"><span class="ico">✓</span><p>Não precisa instalar <b>ffmpeg</b> separadamente — o pacote <code>ffmpeg-static</code> baixa o próprio binário durante o <code>npm install</code> do projeto (capítulo 04).</p></div>
+
+  <div class="page-foot"><span>SSX Desk</span><span>02 — Sistema operacional & Node.js</span></div>
+</div>
+
+<!-- ============ 03 POSTGRESQL ============ -->
+<div class="page">
+  <div class="page-head"><span class="tag">Capítulo 03 · Banco de dados</span><span class="brand">SSX Desk · Guia de Implementação</span></div>
+  <div class="section-icon-row"><div class="section-icon">▤</div><h2 class="section-title mt-0">PostgreSQL</h2></div>
+  <p class="section-lede">Instalação, criação do banco, schema e migrations — sem extensões especiais.</p>
+
+  <h3 class="sub-title"><span class="num">1</span>Instalar o PostgreSQL</h3>
+  <div class="code-block">sudo apt install -y postgresql postgresql-contrib
+sudo systemctl enable postgresql --now</div>
+
+  <h3 class="sub-title"><span class="num">2</span>Criar usuário e banco do sistema</h3>
+  <div class="code-block">sudo -u postgres psql -c "CREATE USER ssxdesk WITH PASSWORD 'TROQUE_ESTA_SENHA';"
+sudo -u postgres psql -c "CREATE DATABASE ssxdesk OWNER ssxdesk;"</div>
+
+  <div class="callout info"><span class="ico">i</span><p>Nenhuma extensão do Postgres é necessária — nem <code>pgvector</code> nem <code>pgcrypto</code>/<code>uuid-ossp</code>. UUIDs são gerados via <code>md5(random()...)</code> e a similaridade de embedding é calculada em JavaScript (ver comentário em <code>migrations/ai_embeddings.sql</code>).</p></div>
+
+  <h3 class="sub-title"><span class="num">3</span>Aplicar o schema base (fonte de verdade)</h3>
+  <div class="code-block"><span class="c"># dentro da pasta do projeto (ver capítulo 04)</span>
+psql "postgres://ssxdesk:TROQUE_ESTA_SENHA@localhost:5432/ssxdesk" -f schema_postgres.sql</div>
+
+  <h3 class="sub-title"><span class="num">4</span>Aplicar as migrations, em ordem</h3>
+  <p>Não existe runner automático — cada arquivo de <code>migrations/*.sql</code> é aplicado uma vez, manualmente. São 60+ arquivos hoje; rodar todos em ordem alfabética/cronológica cobre o estado atual:</p>
+  <div class="code-block">for f in migrations/*.sql; do
+  echo "Aplicando $f..."
+  psql "postgres://ssxdesk:TROQUE_ESTA_SENHA@localhost:5432/ssxdesk" -f "$f" || break
+done</div>
+  <div class="callout warn"><span class="ico">!</span><p>Confira o resultado de cada arquivo antes de seguir pro próximo (o script acima já para no primeiro erro com <code>|| break</code>). Nunca edite uma migration já aplicada — crie uma nova em vez disso.</p></div>
+
+  <div class="page-foot"><span>SSX Desk</span><span>03 — PostgreSQL</span></div>
+</div>
+
+<!-- ============ 04 PROJETO & DEPENDÊNCIAS ============ -->
+<div class="page">
+  <div class="page-head"><span class="tag">Capítulo 04 · Aplicação</span><span class="brand">SSX Desk · Guia de Implementação</span></div>
+  <div class="section-icon-row"><div class="section-icon">⌘</div><h2 class="section-title mt-0">Projeto & dependências</h2></div>
+  <p class="section-lede">Clonar o repositório e instalar as dependências, incluindo os módulos nativos.</p>
+
+  <h3 class="sub-title"><span class="num">1</span>Clonar o projeto</h3>
+  <div class="code-block">cd /opt
+sudo git clone &lt;URL_DO_REPOSITORIO&gt; ssx-desk
+sudo chown -R $USER:$USER ssx-desk
+cd ssx-desk</div>
+
+  <h3 class="sub-title"><span class="num">2</span>Instalar as dependências</h3>
+  <div class="code-block">npm install</div>
+  <p>Isso já resolve os módulos nativos que o projeto precisa — nenhum é instalado à parte no sistema operacional:</p>
+  <div class="grid-2">
+    <div class="info-card"><div class="k">sharp</div><div class="v">Processamento de imagem (avatares, fotos de contato)</div></div>
+    <div class="info-card"><div class="k">onnxruntime-node</div><div class="v">Motor de inferência do Whisper e dos embeddings</div></div>
+    <div class="info-card"><div class="k">bufferutil / utf-8-validate</div><div class="v">Aceleração WebSocket (Baileys / ws)</div></div>
+    <div class="info-card"><div class="k">ffmpeg-static</div><div class="v">Binário próprio do ffmpeg (decodifica áudio)</div></div>
+  </div>
+  <div class="callout tip"><span class="ico">✓</span><p>Em Ubuntu 22.04/24.04 x64 (o alvo já otimizado no <code>next.config.ts</code>), esses módulos baixam binário pré-compilado — não deve ser preciso compilar nada localmente.</p></div>
+
+  <div class="page-foot"><span>SSX Desk</span><span>04 — Projeto & dependências</span></div>
+</div>
+
+<!-- ============ 05 MODELOS DE IA ============ -->
+<div class="page">
+  <div class="page-head"><span class="tag">Capítulo 05 · Agente de IA</span><span class="brand">SSX Desk · Guia de Implementação</span></div>
+  <div class="section-icon-row"><div class="section-icon">◈</div><h2 class="section-title mt-0">Modelos de IA locais</h2></div>
+  <p class="section-lede">Whisper (transcrição) e o modelo de embedding (busca semântica) — nada disso vem no <code>npm install</code>.</p>
+
+  <p>Os dois modelos são baixados do Hugging Face Hub <b>na primeira vez</b> que a funcionalidade correspondente é usada, não durante o deploy. Nada a "instalar" aqui além de garantir os pré-requisitos abaixo antes de ligar as flags do capítulo 06:</p>
+
+  <ul class="checklist">
+    <li>Acesso de saída à internet liberado pro Hugging Face Hub (<code>huggingface.co</code> / CDN)</li>
+    <li>Espaço em disco livre: ~150MB pro Whisper (<code>Xenova/whisper-base</code>) + espaço menor pro modelo de embedding (<code>Xenova/paraphrase-multilingual-MiniLM-L12-v2</code>)</li>
+    <li>Permissão de escrita no diretório de cache do processo (padrão da biblioteca <code>@huggingface/transformers</code>)</li>
+  </ul>
+
+  <h3 class="sub-title"><span class="num">1</span>Testar o download antecipadamente (opcional)</h3>
+  <p>Pra não deixar o primeiro cliente esperando o download na hora, pode-se "esquentar" o cache manualmente após o primeiro <code>pm2 start</code> (capítulo 07): dispare uma transcrição de teste e uma pergunta ao Agente de IA assim que o serviço subir, antes de anunciar o servidor como pronto.</p>
+
+  <div class="callout info"><span class="ico">i</span><p>É por isso que essas duas flags (<code>ENABLE_AUDIO_TRANSCRIPTION</code> e <code>ENABLE_AI_EMBEDDINGS</code>) ficam desligadas por padrão na Vercel: função serverless não tem disco persistente nem CPU dedicada pra isso. Num servidor próprio como este, ligar as duas é seguro.</p></div>
+
+  <div class="page-foot"><span>SSX Desk</span><span>05 — Modelos de IA locais</span></div>
+</div>
+
+<!-- ============ 06 VARIÁVEIS DE AMBIENTE ============ -->
+<div class="page">
+  <div class="page-head"><span class="tag">Capítulo 06 · Configuração</span><span class="brand">SSX Desk · Guia de Implementação</span></div>
+  <div class="section-icon-row"><div class="section-icon">⚙</div><h2 class="section-title mt-0">Variáveis de ambiente</h2></div>
+  <p class="section-lede">Criar <code>.env</code> na raiz do projeto — não existe <code>.env.example</code> no repositório, use esta tabela.</p>
+
+  <table class="envtable">
+    <tr><th>Variável</th><th>Valor / observação</th></tr>
+    <tr><td class="var">DATABASE_URL</td><td>Connection string do Postgres criado no capítulo 03</td></tr>
+    <tr><td class="var">JWT_SECRET</td><td>String aleatória longa e única para este servidor</td></tr>
+    <tr><td class="var">NODE_ENV</td><td><code>production</code></td></tr>
+    <tr><td class="var">VAPID_PUBLIC_KEY / VAPID_PRIVATE_KEY</td><td>Gerar com <code>npx web-push generate-vapid-keys</code> (ou reaproveitar as atuais)</td></tr>
+    <tr><td class="var">VAPID_SUBJECT</td><td><code>mailto:</code> de contato da equipe</td></tr>
+    <tr><td class="var">NEXT_PUBLIC_VAPID_PUBLIC_KEY</td><td>Igual a <code>VAPID_PUBLIC_KEY</code></td></tr>
+    <tr><td class="var">GROQ_API_KEY</td><td>console.groq.com/keys</td></tr>
+    <tr><td class="var">GROQ_MODEL</td><td>Opcional — default <code>llama-3.3-70b-versatile</code></td></tr>
+    <tr><td class="var">ENABLE_AUDIO_TRANSCRIPTION</td><td><code>true</code> — seguro num servidor dedicado</td></tr>
+    <tr><td class="var">NEXT_PUBLIC_ENABLE_AUDIO_TRANSCRIPTION</td><td>Igual ao anterior: <code>true</code></td></tr>
+    <tr><td class="var">TRANSCRIPTION_MODEL</td><td>Opcional — default <code>Xenova/whisper-base</code></td></tr>
+    <tr><td class="var">ENABLE_AI_EMBEDDINGS</td><td><code>true</code> — seguro num servidor dedicado</td></tr>
+    <tr><td class="var">EMBEDDING_MODEL</td><td>Opcional — default <code>Xenova/paraphrase-multilingual-MiniLM-L12-v2</code></td></tr>
+    <tr><td class="var">ENABLE_DISSATISFACTION_DETECTOR</td><td>Opcional — avaliar cota do Groq antes de ligar</td></tr>
+    <tr><td class="var">BITRIX24_WEBHOOK_URL</td><td>Só se for usar a sincronização com Bitrix24</td></tr>
+  </table>
+
+  <div class="code-label">Gerar novas chaves VAPID</div>
+  <div class="code-block">npx web-push generate-vapid-keys</div>
+
+  <div class="callout warn"><span class="ico">!</span><p>Se reaproveitar chaves VAPID diferentes das que já estavam em uso, as inscrições de push já cadastradas (navegadores dos usuários) param de funcionar até o usuário reabrir o app e reinscrever.</p></div>
+
+  <div class="page-foot"><span>SSX Desk</span><span>06 — Variáveis de ambiente</span></div>
+</div>
+
+<!-- ============ 07 BUILD & PM2 ============ -->
+<div class="page">
+  <div class="page-head"><span class="tag">Capítulo 07 · Deploy</span><span class="brand">SSX Desk · Guia de Implementação</span></div>
+  <div class="section-icon-row"><div class="section-icon">▶</div><h2 class="section-title mt-0">Build & processo persistente</h2></div>
+  <p class="section-lede">Diferente da Vercel: aqui o processo Node precisa ficar sempre no ar.</p>
+
+  <h3 class="sub-title"><span class="num">1</span>Build de produção</h3>
+  <div class="code-block"><span class="c"># roda check:encoding automaticamente antes (script prebuild)</span>
+npm run build</div>
+
+  <h3 class="sub-title"><span class="num">2</span>Subir com PM2</h3>
+  <div class="code-block">pm2 start npm --name "ssx-desk" -- start
+pm2 save
+pm2 startup   <span class="c"># segue a instrução impressa pra registrar no boot do SO</span></div>
+
+  <div class="callout info"><span class="ico">i</span><p>É esse processo único e contínuo que faz a diferença em relação à Vercel: a conexão WebSocket do WhatsApp (Baileys) e os schedulers internos (fila de embeddings, alerta de hotfix vencido, detector de insatisfação) rodam dentro dele via <code>setInterval</code> — registrados em <code>instrumentation-node.ts</code> na subida do processo.</p></div>
+
+  <h3 class="sub-title"><span class="num">3</span>Comandos úteis do dia a dia</h3>
+  <div class="code-block">pm2 logs ssx-desk       <span class="c"># acompanhar logs em tempo real</span>
+pm2 restart ssx-desk    <span class="c"># reiniciar (ex: depois de mudar o .env)</span>
+pm2 status               <span class="c"># ver se está no ar</span></div>
+
+  <div class="page-foot"><span>SSX Desk</span><span>07 — Build & processo persistente</span></div>
+</div>
+
+<!-- ============ 08 DOMÍNIO / HTTPS / NGINX ============ -->
+<div class="page">
+  <div class="page-head"><span class="tag">Capítulo 08 · Rede</span><span class="brand">SSX Desk · Guia de Implementação</span></div>
+  <div class="section-icon-row"><div class="section-icon">◎</div><h2 class="section-title mt-0">Domínio, HTTPS & proxy reverso</h2></div>
+  <p class="section-lede">HTTPS é obrigatório — Web Push e Service Worker não funcionam em HTTP fora de <code>localhost</code>.</p>
+
+  <h3 class="sub-title"><span class="num">1</span>Instalar Nginx</h3>
+  <div class="code-block">sudo apt install -y nginx</div>
+
+  <h3 class="sub-title"><span class="num">2</span>Configurar o site (proxy pra porta 3000)</h3>
+  <div class="code-block"><span class="c">sudo nano /etc/nginx/sites-available/ssx-desk</span>
+
+server {
+    listen 80;
+    server_name SEU_DOMINIO.com.br;
+
+    location / {
+        proxy_pass http://localhost:3000;
+        proxy_http_version 1.1;
+        proxy_set_header Upgrade $http_upgrade;
+        proxy_set_header Connection 'upgrade';
+        proxy_set_header Host $host;
+        proxy_set_header X-Real-IP $remote_addr;
+        proxy_cache_bypass $http_upgrade;
+    }
+}</div>
+  <div class="code-block">sudo ln -s /etc/nginx/sites-available/ssx-desk /etc/nginx/sites-enabled/
+sudo nginx -t
+sudo systemctl reload nginx</div>
+
+  <h3 class="sub-title"><span class="num">3</span>Certificado HTTPS (Let's Encrypt)</h3>
+  <div class="code-block">sudo apt install -y certbot python3-certbot-nginx
+sudo certbot --nginx -d SEU_DOMINIO.com.br</div>
+
+  <div class="callout tip"><span class="ico">✓</span><p>O <code>proxy_set_header Upgrade</code> acima é o que permite o SSE (<code>/api/chats/stream</code>) funcionar corretamente atrás do Nginx — não remova.</p></div>
+
+  <div class="page-foot"><span>SSX Desk</span><span>08 — Domínio, HTTPS & proxy</span></div>
+</div>
+
+<!-- ============ 09 REDE & CONTAS EXTERNAS ============ -->
+<div class="page">
+  <div class="page-head"><span class="tag">Capítulo 09 · Integrações</span><span class="brand">SSX Desk · Guia de Implementação</span></div>
+  <div class="section-icon-row"><div class="section-icon">⇄</div><h2 class="section-title mt-0">Rede & contas externas</h2></div>
+  <p class="section-lede">O que o firewall precisa liberar e o que precisa estar pronto do lado de fora.</p>
+
+  <h3 class="sub-title"><span class="num">1</span>Saída (outbound) liberada para</h3>
+  <ul class="checklist">
+    <li>Servidores do WhatsApp (Baileys — WebSocket)</li>
+    <li><code>api.groq.com</code> (Agente de IA)</li>
+    <li>Hugging Face Hub (download dos modelos locais)</li>
+    <li>Bitrix24, se for usar a sincronização (<code>BITRIX24_WEBHOOK_URL</code>)</li>
+    <li>Serviços de push do navegador do cliente (FCM/APNs/Mozilla, conforme o browser)</li>
+    <li><code>use.typekit.net</code> (fonte da marca, Adobe Fonts)</li>
+  </ul>
+
+  <h3 class="sub-title"><span class="num">2</span>Entrada (inbound) liberada para</h3>
+  <ul class="checklist">
+    <li>Portas 80/443 (HTTPS via Nginx)</li>
+    <li><code>/api/whatsapp/webhook</code> roteável publicamente, se for usar o WhatsApp oficial (Meta Cloud API)</li>
+  </ul>
+
+  <h3 class="sub-title"><span class="num">3</span>Contas/credenciais a providenciar</h3>
+  <div class="grid-2">
+    <div class="info-card"><div class="k">Groq</div><div class="v">Chave de API de produção — decidir se reaproveita a atual ou cria uma nova (cota é por conta)</div></div>
+    <div class="info-card"><div class="k">VAPID</div><div class="v">Par de chaves gerado no capítulo 06</div></div>
+    <div class="info-card"><div class="k">Bitrix24</div><div class="v">Webhook de entrada, se for sincronizar empresas/equipe</div></div>
+    <div class="info-card"><div class="k">Meta for Developers</div><div class="v">App configurado, só se for usar WhatsApp oficial (Cloud API)</div></div>
+  </div>
+
+  <div class="callout info"><span class="ico">i</span><p>Não é preciso provisionar S3/object storage: anexos de chat são gravados como <code>data:</code> URL direto no Postgres (<code>chat_messages.metadata</code>). Nenhum serviço de armazenamento externo entra nesta lista.</p></div>
+
+  <div class="page-foot"><span>SSX Desk</span><span>09 — Rede & contas externas</span></div>
+</div>
+
+<!-- ============ 10 CHECKLIST FINAL ============ -->
+<div class="page">
+  <div class="page-head"><span class="tag">Capítulo 10 · Validação</span><span class="brand">SSX Desk · Guia de Implementação</span></div>
+  <div class="section-icon-row"><div class="section-icon">✓</div><h2 class="section-title mt-0">Checklist final</h2></div>
+  <p class="section-lede">Confirmação ponta a ponta antes de anunciar o servidor como pronto.</p>
+
+  <ul class="checklist">
+    <li>Node.js 20 LTS instalado (<code>node -v</code> dentro da faixa exigida)</li>
+    <li>PostgreSQL no ar, schema aplicado, todas as migrations rodadas em ordem</li>
+    <li><code>npm install</code> concluído sem erro nos módulos nativos (sharp, onnxruntime-node, bufferutil, utf-8-validate)</li>
+    <li><code>.env</code> completo (tabela do capítulo 06), incluindo <code>ENABLE_AUDIO_TRANSCRIPTION</code> e <code>ENABLE_AI_EMBEDDINGS</code></li>
+    <li><code>npm run build</code> concluído sem erro</li>
+    <li>PM2 rodando o processo, com <code>pm2 startup</code> registrado (sobrevive a reboot)</li>
+    <li>Domínio resolvendo pro servidor, HTTPS válido (cadeado no navegador)</li>
+    <li>Login funcionando (<code>/login</code>)</li>
+    <li>WhatsApp conectando (QR code em Configurações, se for usar Baileys)</li>
+    <li>Notificação push chegando (testar em Configurações → Notificações)</li>
+    <li>Transcrição de áudio funcionando num chat de teste (baixa o modelo na 1ª vez)</li>
+    <li>Agente de IA respondendo, inclusive com <code>semantic_search</code> (pergunta parafraseada encontra chamado antigo)</li>
+  </ul>
+
+  <div class="callout tip"><span class="ico">✓</span><p>Com tudo isso marcado, o servidor cobre os três recursos que a Vercel nunca conseguiu rodar de forma confiável: WhatsApp persistente, transcrição de áudio e busca semântica.</p></div>
+
+  <div class="page-foot"><span>SSX Desk</span><span>10 — Checklist final</span></div>
+</div>
+
+<!-- ============ CONTRACAPA ============ -->
+<div class="page backcover">
+  <div class="dot"></div>
+  <h3>SSX Desk</h3>
+  <p>Guia de Implementação — Migração para Servidor Definitivo<br>Documento de uso interno do Time de Desenvolvimento.</p>
+</div>
+
+</body>
+</html>

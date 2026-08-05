@@ -149,15 +149,20 @@ export function AiAssistantWidget() {
             className="mb-3 w-[min(380px,calc(100vw-2rem))] h-[min(540px,calc(100vh-8rem))] bg-[var(--surface-card)] border border-[var(--border-default)] shadow-2xl rounded-2xl flex flex-col overflow-hidden"
           >
             {/* Header */}
-            <div className="bg-[var(--accent)] px-4 py-3 flex items-center justify-between text-white shrink-0">
+            <div className="bg-[var(--accent)] px-4 py-3 flex items-center justify-between text-white shrink-0 relative">
               <div className="flex items-center gap-2.5">
-                <div className="w-8 h-8 rounded-full overflow-hidden shrink-0">
-                  <AiAssistantIcon avatarSource={avatarSource} crop={avatarCrop} size={32} />
-                </div>
+                {/* Spacer invisível: reserva o espaço horizontal do avatar
+                    grande (64px) sem esticar a altura da barra — o avatar de
+                    verdade é o próximo elemento, posicionado absoluto pra
+                    poder vazar pra baixo sem afetar este fluxo. */}
+                <div className="w-16 h-8 shrink-0" aria-hidden="true" />
                 <div>
-                  <h3 className="text-xs font-black uppercase tracking-widest text-white">Assistente IA</h3>
+                  <h3 className="text-xs font-black uppercase tracking-widest text-white">Sasha</h3>
                   <p className="text-[9px] text-white/80 font-bold uppercase tracking-widest">Chamados · Tickets · Chats</p>
                 </div>
+              </div>
+              <div className="absolute top-3 left-4 w-16 h-16 rounded-full overflow-hidden ring-4 ring-[var(--surface-card)] shadow-lg z-10">
+                <AiAssistantIcon avatarSource={avatarSource} crop={avatarCrop} size={64} />
               </div>
               <div className="flex items-center gap-1">
                 <button onClick={startNewConversation} title="Nova conversa" className="p-1.5 hover:bg-white/10 rounded-lg transition-all">
@@ -251,7 +256,7 @@ export function AiAssistantWidget() {
         <button
           onClick={() => setIsOpen(true)}
           className="w-14 h-14 rounded-full overflow-hidden shadow-2xl hover:scale-110 active:scale-95 transition-all"
-          title="Assistente IA"
+          title="Sasha"
         >
           <AiAssistantIcon avatarSource={avatarSource} crop={avatarCrop} size={56} />
         </button>
