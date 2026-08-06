@@ -258,6 +258,44 @@ export async function findExistingChatSessionByPhone(phone: string): Promise<str
   return (dialable || match[0]).id;
 }
 
+// Acha/retoma ou cria a sessão de WhatsApp pro número informado — usado
+// tanto pelo modal manual "Novo WhatsApp" quanto pelo clique num número de
+// telefone detectado dentro do texto de uma mensagem (ver
+// components/linked-chat-text.tsx), em mais de uma tela (ChatWidget e o
+// preview de conversa em chat-management/page.tsx), daí viver aqui em vez
+// de dentro de um componente. Cada chamador decide o que fazer com o
+// resultado (selecionar localmente, ou entregar pro widget global).
+export async function resolveChatSessionForPhone(
+  rawNumber: string,
+  displayName?: string
+): Promise<{ sessionId: string; reopened: boolean } | { error: string }> {
+  const digits = rawNumber.replace(/\D/g, '');
+  if (digits.length >= 14) {
+    return { error: 'Use o número de telefone (ex: 21991778567), não o ID interno do WhatsApp.' };
+  }
+  const phone = digits.length <= 11 && !digits.startsWith('55') ? `55${digits}` : digits;
+
+  const existingSessionId = await findExistingChatSessionByPhone(phone);
+  if (existingSessionId) {
+    const sessionId = await createChatSession({
+      id: existingSessionId,
+      customerName: displayName || phone,
+      customerPhone: phone,
+      status: 'active',
+      startedAt: new Date().toISOString()
+    } as any);
+    return { sessionId, reopened: true };
+  }
+
+  const sessionId = await createChatSession({
+    customerName: displayName || phone,
+    customerPhone: phone,
+    status: 'active',
+    startedAt: new Date().toISOString()
+  } as any);
+  return { sessionId, reopened: false };
+}
+
 export async function fetchChatSessions(signal?: AbortSignal, userId?: string): Promise<ChatSession[]> {
   try {
     const sessions = await ChatService.getSessions(userId);

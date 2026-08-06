@@ -47,7 +47,8 @@ import { AssignChatMenu } from '@/components/assign-chat-menu';
 import { ConfirmDialog } from '@/components/confirm-dialog';
 import { supabase } from '@/lib/supabase';
 import { useQueuesQuery } from '@/lib/query-hooks';
-import { fetchChatSessions, saveChatHistory } from '@/lib/services/chat-service';
+import { fetchChatSessions, saveChatHistory, resolveChatSessionForPhone } from '@/lib/services/chat-service';
+import { renderLinkedText } from '@/components/linked-chat-text';
 import { fetchUsers } from '@/lib/services/config-service';
 import { getQuickNotes, saveQuickNote as saveQuickNoteAction, deleteQuickNote, getAnalysts, getCompanies, updateUserStatus, saveTicketFromChatSession, closeChatSessionAfterTicket, assignChatSession, returnChatSessionToQueue } from '@/app/actions';
 
@@ -79,6 +80,21 @@ export default function ChatManagementPage() {
   const handleOpenLinkModal = (session: ChatSession) => {
     setSelectedSessionForLink(session);
     setIsLinkModalOpen(true);
+  };
+
+  // Clique num número de telefone detectado dentro do texto de uma
+  // mensagem no preview de conversa (ver renderLinkedText mais abaixo) —
+  // acha/cria a sessão (lib/services/chat-service.ts) e entrega pro widget
+  // global, mesmo caminho que "Abrir Chat Completo" já usa.
+  const handleOpenPhoneFromPreview = async (phone: string) => {
+    const result = await resolveChatSessionForPhone(phone);
+    if ('error' in result) {
+      toast.error(result.error);
+      return;
+    }
+    setViewingSession(null);
+    setActiveOmniChatId(result.sessionId);
+    setIsOmniChatOpen(true);
   };
 // ... rest of the component
 
@@ -1266,7 +1282,10 @@ const handleDeleteNote = async () => {
                         "max-w-[85%] px-4 py-2.5 rounded-2xl text-sm font-medium whitespace-pre-wrap break-words",
                         m.senderId === viewingSession.customerId ? "bg-[var(--surface-pill)] text-[var(--text-secondary)]" : "bg-[var(--accent)]/10 text-[var(--text-primary)]"
                       )}>
-                        {m.text || <span className="italic opacity-60">Mensagem sem texto (anexo)</span>}
+                        {/* isOwnMessage=false sempre aqui: as duas bolhas deste preview usam
+                            fundo claro (pill ou accent/10%), diferente do ChatWidget — texto
+                            branco (variante "own") ficaria ilegível em qualquer uma das duas. */}
+                        {m.text ? renderLinkedText(m.text, false, handleOpenPhoneFromPreview) : <span className="italic opacity-60">Mensagem sem texto (anexo)</span>}
                       </p>
                     </div>
                   ))

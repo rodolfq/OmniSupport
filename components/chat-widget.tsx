@@ -51,7 +51,7 @@ import {
   Company,
   Attachment
 } from '@/lib/types';
-import { ChatService, fetchChatSessions, pushChatMessage, createChatSession, saveChatHistory, findExistingChatSessionByPhone, submitSurveyResponse, transcribeChatAudio, getPreviousChatHistories, fetchSessionMessages, PreviousChatHistoriesResult, SessionMessagesResult } from '@/lib/services/chat-service';
+import { ChatService, fetchChatSessions, pushChatMessage, createChatSession, saveChatHistory, resolveChatSessionForPhone, submitSurveyResponse, transcribeChatAudio, getPreviousChatHistories, fetchSessionMessages, PreviousChatHistoriesResult, SessionMessagesResult } from '@/lib/services/chat-service';
 import { fetchQuickNotes, fetchAnalystStatuses, fetchCompanies, fetchQueues, fetchSurveySettings } from '@/lib/services/config-service';
 import { useProfilesWithAvatarQuery } from '@/lib/query-hooks';
 import { saveTicketFromChatSession, closeChatSessionAfterTicket, assignChatSession, returnChatSessionToQueue } from '@/app/actions';
@@ -62,6 +62,7 @@ import { deriveLiveStatus } from '@/lib/presence';
 import { supabase } from '@/lib/supabase';
 import { useSearchParams } from 'next/navigation';
 import { LinkContactModal } from '@/components/link-contact-modal';
+import { renderLinkedText } from '@/components/linked-chat-text';
 import { ClientTime } from '@/components/client-time';
 import { AssignChatMenu } from '@/components/assign-chat-menu';
 import { AudioPlayer } from '@/components/audio-player';
@@ -72,31 +73,7 @@ import { isImageAttachment, isAudioAttachment, isVideoAttachment } from '@/lib/a
 import { useIsMobile } from '@/hooks/use-mobile';
 import { toast } from 'sonner';
 
-const URL_PATTERN = /(https?:\/\/[^\s<]+|www\.[^\s<]+)/gi;
 const MAX_CHAT_ATTACHMENT_SIZE = 8 * 1024 * 1024;
-
-function renderLinkedText(text: string, isOwnMessage: boolean) {
-  return text.split(URL_PATTERN).map((part, index) => {
-    if (!part.match(URL_PATTERN)) return <React.Fragment key={index}>{part}</React.Fragment>;
-
-    const href = part.startsWith('http') ? part : `https://${part}`;
-    return (
-      <a
-        key={index}
-        href={href}
-        target="_blank"
-        rel="noopener noreferrer"
-        onClick={(event) => event.stopPropagation()}
-        className={cn(
-          "font-black underline underline-offset-4 break-all",
-          isOwnMessage ? "text-white decoration-white/70" : "text-[var(--accent-text)] decoration-[var(--accent)]"
-        )}
-      >
-        {part}
-      </a>
-    );
-  });
-}
 
 function fileToDataUrl(file: Blob): Promise<string> {
   return new Promise((resolve, reject) => {
@@ -495,6 +472,7 @@ export function ChatWidget() {
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const scrollRef = useRef<HTMLDivElement>(null);
   const chatFileInputRef = useRef<HTMLInputElement>(null);
+  const messageInputRef = useRef<HTMLTextAreaElement>(null);
 
   const [isRecording, setIsRecording] = useState(false);
   const [recordingSeconds, setRecordingSeconds] = useState(0);
@@ -1171,54 +1149,41 @@ useEffect(() => {
     setShowQuickNoteSearch(false);
   };
 
-  const handleStartNewChat = async () => {
-    if (!newChatNumber) return;
-    
+  // Acha/retoma ou cria a sessão de WhatsApp pro número informado e a
+  // seleciona. Compartilhado por dois gatilhos: o modal "Novo WhatsApp"
+  // (digitação manual, ver handleStartNewChat) e o clique num número de
+  // telefone detectado dentro do texto de uma mensagem (ver
+  // components/linked-chat-text.tsx) — igual ao que o WhatsApp Web faz. A
+  // resolução em si (achar/criar sessão) mora em lib/services/chat-service.ts
+  // (resolveChatSessionForPhone), reaproveitada também pelo preview de
+  // conversa em chat-management/page.tsx. Retorna se deu certo, pra quem
+  // chama decidir se fecha modal/limpa campo.
+  const openChatForPhone = async (rawNumber: string, displayName?: string): Promise<boolean> => {
     try {
-      const digits = newChatNumber.replace(/\D/g, '');
-      if (digits.length >= 14) {
-        toast.error('Use o número de telefone (ex: 21991778567), não o ID interno do WhatsApp.');
-        return;
+      const result = await resolveChatSessionForPhone(rawNumber, displayName);
+      if ('error' in result) {
+        toast.error(result.error);
+        return false;
       }
-      const phone = digits.length <= 11 && !digits.startsWith('55') ? `55${digits}` : digits;
-
-      const existingSessionId = await findExistingChatSessionByPhone(phone);
-      if (existingSessionId) {
-        const sessionId = await createChatSession({
-          id: existingSessionId,
-          customerName: newChatName || phone,
-          customerPhone: phone,
-          status: 'active',
-          startedAt: new Date().toISOString()
-        } as any);
-        setSelectedChatId(sessionId);
-        const sessions = await fetchChatSessions();
-        setCustomerSessions(sessions);
-        setIsNewChatModalOpen(false);
-        setNewChatNumber('');
-        setNewChatName('');
-        toast.info('Conversa existente reaberta.');
-        return;
-      }
-
-      const sessionId = await createChatSession({
-        customerName: newChatName || phone,
-        customerPhone: phone,
-        status: 'active',
-        startedAt: new Date().toISOString()
-      } as any);
-      
-      setSelectedChatId(sessionId);
+      setSelectedChatId(result.sessionId);
       const sessions = await fetchChatSessions();
       setCustomerSessions(sessions);
-      setIsNewChatModalOpen(false);
-      setNewChatNumber('');
-      setNewChatName('');
-      toast.success('Conversa WhatsApp iniciada!');
+      toast[result.reopened ? 'info' : 'success'](result.reopened ? 'Conversa existente reaberta.' : 'Conversa WhatsApp iniciada!');
+      return true;
     } catch (error) {
       console.error('Error starting chat:', error);
       toast.error('Erro ao iniciar conversa.');
+      return false;
     }
+  };
+
+  const handleStartNewChat = async () => {
+    if (!newChatNumber) return;
+    const ok = await openChatForPhone(newChatNumber, newChatName);
+    if (!ok) return;
+    setIsNewChatModalOpen(false);
+    setNewChatNumber('');
+    setNewChatName('');
   };
 
   // Arquiva a conversa ATUAL (grava snapshot em chat_histories, mesmo formato
@@ -1544,7 +1509,18 @@ useEffect(() => {
     }
   };
 
-  const handleInputChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+  // Cresce junto com o texto (até um teto, depois rola por dentro) — via
+  // efeito ligado a `message` em vez de só onInput, pra também encolher de
+  // volta quando a mensagem é limpa no envio ou preenchida por fora (nota
+  // rápida selecionada via '/', ver selectQuickNote).
+  useEffect(() => {
+    const el = messageInputRef.current;
+    if (!el) return;
+    el.style.height = 'auto';
+    el.style.height = `${Math.min(el.scrollHeight, 120)}px`;
+  }, [message]);
+
+  const handleInputChange = (e: React.ChangeEvent<HTMLTextAreaElement>) => {
     const val = e.target.value;
     setMessage(val);
     if (val.startsWith('/') && currentUser?.role !== UserRole.EMPLOYEE) {
@@ -1672,7 +1648,7 @@ useEffect(() => {
   // pro operador, já que os dois usam este mesmo componente de chat. Só
   // intercepta quando há de fato um arquivo/imagem colado; colar texto
   // normal continua funcionando sem interferência.
-  const handleChatPaste = async (e: React.ClipboardEvent<HTMLInputElement>) => {
+  const handleChatPaste = async (e: React.ClipboardEvent<HTMLTextAreaElement>) => {
     const items = e.clipboardData?.items;
     if (!items || items.length === 0) return;
 
@@ -2446,7 +2422,7 @@ useEffect(() => {
                                 {m.senderName}:
                               </p>
                             )}
-                            {renderLinkedText(m.text, isOwnMessage)}
+                            {renderLinkedText(m.text, isOwnMessage, isCustomer ? undefined : (phone) => openChatForPhone(phone))}
                             {attachments.length > 0 && (
                               <div className="mt-3 space-y-2 whitespace-normal">
                                 {attachments.map((attachment: Attachment) => {
@@ -2807,13 +2783,23 @@ useEffect(() => {
                       >
                         <Mic size={17} />
                       </button>
-                      <input
-                        type="text"
+                      <textarea
+                        ref={messageInputRef}
+                        rows={1}
                         value={message}
                         onChange={handleInputChange}
                         onPaste={handleChatPaste}
+                        onKeyDown={(e) => {
+                          // Enter sozinho envia (textarea não submete o form
+                          // sozinho como <input> fazia); Shift+Enter quebra
+                          // linha normalmente.
+                          if (e.key === 'Enter' && !e.shiftKey) {
+                            e.preventDefault();
+                            handleSendMessage();
+                          }
+                        }}
                         placeholder="Resposta padrão '/' para atalhos... (Ctrl+V cola prints e arquivos)"
-                        className="flex-1 min-w-0 bg-[var(--surface-card)] border border-[var(--border-default)] rounded-2xl px-4 py-3.5 text-base font-bold focus:ring-4 focus:ring-[var(--accent)]/10 outline-none transition-all"
+                        className="flex-1 min-w-0 bg-[var(--surface-card)] border border-[var(--border-default)] rounded-2xl px-4 py-3.5 text-base font-bold focus:ring-4 focus:ring-[var(--accent)]/10 outline-none transition-all resize-none leading-relaxed"
                       />
                       <button
                         type="submit"
@@ -3108,8 +3094,12 @@ useEffect(() => {
         }}
       />
 
-      {/* Launcher Button */}
-      {(!isExpanded || isMinimized) && (
+      {/* Launcher Button — escondido no mobile: a bolha pra abrir já é
+          redundante com a aba "Chat" da bottom nav (mobile-bottom-nav.tsx,
+          mesma permissão que libera este widget), e o "X" pra fechar
+          quando aberto é redundante com o ChevronDown do próprio cabeçalho
+          do chat (poucas linhas acima). */}
+      {!isMobileViewport && (!isExpanded || isMinimized) && (
         <button 
           onClick={() => {
             if (isMinimized) {

@@ -8,6 +8,7 @@ import { motion, AnimatePresence } from "motion/react";
 import { useApp } from "@/app/app-context";
 import { InternalTicket, Permission, User } from "@/lib/types";
 import { InternalTicketService } from "@/lib/services/ticket-service";
+import { NewInternalTicketModal } from "@/components/new-internal-ticket-modal";
 import { ConfigService } from "@/lib/services/config-service";
 import { useInternalTeamsQuery, useProfilesLiteQuery } from "@/lib/query-hooks";
 import { findStatusColor } from "@/lib/status-colors";
@@ -20,7 +21,6 @@ import {
   DndContext, DragOverlay, useDraggable, useDroppable, PointerSensor, useSensor, useSensors,
   type DragStartEvent, type DragEndEvent
 } from "@dnd-kit/core";
-import { toast } from "sonner";
 
 interface InternalTicketItem extends InternalTicket {
   linkedTicketTitles?: string[];
@@ -198,10 +198,6 @@ export function InternalTicketsView({
       : DEFAULT_TEAM_OPTIONS,
     [sortedInternalTeams]
   );
-  const teamsRaw = useMemo(
-    () => sortedInternalTeams.map((t: any) => ({ id: t.id, name: t.name })),
-    [sortedInternalTeams]
-  );
 
   // Status (fetched de config_statuses, scope=internal_ticket — cadastrados
   // em Configurações > Geral > Status) — DEFAULT_KANBAN_STATUSES só cobre o
@@ -210,13 +206,6 @@ export function InternalTicketsView({
 
 // Modal states
   const [showNewModal, setShowNewModal] = useState(false);
-
-  // Form state
-  const [formTitle, setFormTitle] = useState("");
-  const [formDescription, setFormDescription] = useState("");
-  const [formTeam, setFormTeam] = useState("Desenvolvimento");
-  const [formPriority, setFormPriority] = useState(1);
-  const [formAssignee, setFormAssignee] = useState("");
 
   // View mode state
   const fetchTickets = useCallback(async (page = 1, isLoadMore = false) => {
@@ -408,42 +397,6 @@ if (filterAssignee) query = query.eq("assignee_id", filterAssignee);
     high: tickets.filter(t => t.priority === 3).length,
   }), [tickets, currentUser?.id]);
 
-  const handleCreateOrUpdate = async () => {
-    if (!currentUser || !formTitle) {
-      console.error("Missing required: currentUser or formTitle");
-      return;
-    }
-
-    try {
-      const ticketData = {
-        title: formTitle,
-        description: formDescription,
-        teamId: formTeam,
-        internalTeamId: teamsRaw.find(t => t.name === formTeam)?.id,
-        priority: formPriority,
-        assigneeId: formAssignee || undefined,
-        creatorId: currentUser.id,
-        tags: [],
-      };
-
-      const savedId = await InternalTicketService.save(ticketData);
-      setShowNewModal(false);
-      resetForm();
-      fetchTickets(1);
-    } catch (error) {
-      console.error("Error saving ticket:", error);
-      toast.error("Erro ao salvar: " + ((error as any)?.message || "erro desconhecido"));
-    }
-};
-
-  const resetForm = () => {
-    setFormTitle("");
-    setFormDescription("");
-    setFormTeam("Desenvolvimento");
-    setFormPriority(1);
-    setFormAssignee("");
-  };
-
 const openEditModal = (ticket: InternalTicketItem) => {
      router.push(`/internal-tickets/${ticket.id}`);
    };
@@ -483,10 +436,7 @@ const openEditModal = (ticket: InternalTicketItem) => {
             {viewToggle}
             {hasPermission(Permission.INTERNAL_TICKETS_EDIT) && (
               <button
-                onClick={() => {
-                  resetForm();
-                  setShowNewModal(true);
-                }}
+                onClick={() => setShowNewModal(true)}
                 className="px-4 py-2 bg-[var(--text-warning-strong)] text-white rounded-xl text-xs font-semibold uppercase tracking-widest hover:bg-[var(--accent-warning-hover)] transition-all flex items-center gap-2"
               >
                 <Plus size={16} />
@@ -652,31 +602,11 @@ const openEditModal = (ticket: InternalTicketItem) => {
       )}
 
       {/* Modal - Only for creating new tickets */}
-          <AnimatePresence>
-            {showNewModal && (
-<TicketModal
-                 isOpen={showNewModal}
-                 onClose={() => {
-                   setShowNewModal(false);
-                   resetForm();
-                 }}
-                 onSubmit={handleCreateOrUpdate}
-                 formTitle={formTitle}
-                 setFormTitle={setFormTitle}
-                 formDescription={formDescription}
-                 setFormDescription={setFormDescription}
-                 formTeam={formTeam}
-                 setFormTeam={setFormTeam}
-                 formPriority={formPriority}
-                 setFormPriority={setFormPriority}
-                 formAssignee={formAssignee}
-                 setFormAssignee={setFormAssignee}
-                 analysts={analysts}
-                 teams={teams}
-                 isEdit={false}
-               />
-            )}
-          </AnimatePresence>
+      <NewInternalTicketModal
+        isOpen={showNewModal}
+        onClose={() => setShowNewModal(false)}
+        onCreated={() => fetchTickets(1)}
+      />
         </div>
       );
     }
@@ -827,147 +757,6 @@ function TicketTable({ tickets, onEdit, teams = DEFAULT_TEAM_OPTIONS, statuses =
         </tbody>
       </table>
     </div>
-  );
-}
-
-// Ticket Modal Component
-function TicketModal({
-  isOpen,
-  onClose,
-  onSubmit,
-  formTitle,
-  setFormTitle,
-  formDescription,
-  setFormDescription,
-  formTeam,
-  setFormTeam,
-  formPriority,
-  setFormPriority,
-  formAssignee,
-  setFormAssignee,
-  analysts,
-  teams = DEFAULT_TEAM_OPTIONS,
-  isEdit,
-}: {
-  isOpen: boolean;
-  onClose: () => void;
-  onSubmit: () => void;
-  formTitle: string;
-  setFormTitle: (v: string) => void;
-  formDescription: string;
-  setFormDescription: (v: string) => void;
-  formTeam: string;
-  setFormTeam: (v: string) => void;
-  formPriority: number;
-  setFormPriority: (v: number) => void;
-  formAssignee: string;
-  setFormAssignee: (v: string) => void;
-  analysts: User[];
-  teams?: typeof DEFAULT_TEAM_OPTIONS;
-  isEdit: boolean;
-}) {
-  if (!isOpen) return null;
-
-  return (
-    <motion.div
-      initial={{ opacity: 0 }}
-      animate={{ opacity: 1 }}
-      exit={{ opacity: 0 }}
-      className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4"
-      onClick={onClose}
-    >
-      <motion.div
-        initial={{ scale: 0.9, opacity: 0 }}
-        animate={{ scale: 1, opacity: 1 }}
-        exit={{ scale: 0.9, opacity: 0 }}
-        className="bg-[var(--surface-card)] rounded-2xl p-6 max-w-lg w-full"
-        onClick={(e) => e.stopPropagation()}
-      >
-        <h2 className="text-lg font-black text-[var(--text-primary)] mb-4 uppercase">
-          {isEdit ? "Editar Ticket" : "Novo Ticket Interno"}
-        </h2>
-
-        <div className="space-y-4">
-          <div>
-            <label className="text-[10px] font-semibold text-[var(--text-secondary)] uppercase mb-1 block">Título *</label>
-            <input
-              value={formTitle}
-              onChange={(e) => setFormTitle(e.target.value)}
-              placeholder="Título do ticket"
-              className="w-full px-3 py-2 rounded-lg border border-[var(--border-default)] focus:border-[var(--text-warning-strong)] outline-none text-sm font-medium"
-            />
-          </div>
-
-          <div>
-            <label className="text-[10px] font-semibold text-[var(--text-secondary)] uppercase mb-1 block">Descrição</label>
-            <textarea
-              value={formDescription}
-              onChange={(e) => setFormDescription(e.target.value)}
-              placeholder="Detalhes técnicos..."
-              className="w-full px-3 py-2 rounded-lg border border-[var(--border-default)] focus:border-[var(--text-warning-strong)] outline-none text-sm min-h-[100px]"
-            />
-          </div>
-
-          <div className="grid grid-cols-2 gap-4">
-            <div>
-              <label className="text-[10px] font-semibold text-[var(--text-secondary)] uppercase mb-1 block">Equipe</label>
-<StyledSelect
-                 value={formTeam}
-                 onChange={(e) => setFormTeam(e.target.value)}
-                 className="w-full px-3 py-2 rounded-lg border border-[var(--border-default)] text-sm font-medium bg-[var(--surface-card)]"
-               >
-                 {teams.map((t) => (
-                   <option key={t.value} value={t.value}>{t.label}</option>
-                 ))}
-               </StyledSelect>
-            </div>
-
-            <div>
-              <label className="text-[10px] font-semibold text-[var(--text-secondary)] uppercase mb-1 block">Prioridade</label>
-              <StyledSelect
-                value={formPriority}
-                onChange={(e) => setFormPriority(Number(e.target.value))}
-                className="w-full px-3 py-2 rounded-lg border border-[var(--border-default)] text-sm font-medium bg-[var(--surface-card)]"
-              >
-                <option value={1}>Baixa</option>
-                <option value={2}>Média</option>
-                <option value={3}>Alta</option>
-              </StyledSelect>
-            </div>
-          </div>
-
-          <div>
-            <label className="text-[10px] font-semibold text-[var(--text-secondary)] uppercase mb-1 block">Responsável</label>
-            <StyledSelect
-              value={formAssignee}
-              onChange={(e) => setFormAssignee(e.target.value)}
-              className="w-full px-3 py-2 rounded-lg border border-[var(--border-default)] text-sm font-medium bg-[var(--surface-card)]"
-            >
-              <option value="">Não atribuído</option>
-              {analysts.map((a) => (
-                <option key={a.id} value={a.id}>{a.name}</option>
-              ))}
-            </StyledSelect>
-          </div>
-        </div>
-
-        <div className="flex gap-3 mt-6">
-          <button
-            onClick={onClose}
-            className="flex-1 px-4 py-2 rounded-lg border border-[var(--border-default)] text-[var(--text-secondary)] hover:bg-[var(--surface-card)] transition-all text-sm font-bold"
-          >
-            Cancelar
-          </button>
-          <button
-            onClick={onSubmit}
-            disabled={!formTitle}
-            className="flex-1 px-4 py-2 rounded-lg bg-[var(--text-warning-strong)] text-white font-black uppercase tracking-widest hover:bg-[var(--accent-warning-hover)] transition-all disabled:opacity-50 text-sm"
-          >
-            {isEdit ? "Salvar" : "Criar"}
-          </button>
-        </div>
-      </motion.div>
-    </motion.div>
   );
 }
 

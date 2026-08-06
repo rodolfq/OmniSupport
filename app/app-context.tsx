@@ -55,6 +55,15 @@ interface AppContextType {
   setPreselectedUserId: (id: string | null) => void;
   preselectedCompanyId: string | null;
   setPreselectedCompanyId: (id: string | null) => void;
+  // Título/descrição prontos para o NewTicketModal (components/new-ticket-
+  // modal.tsx) abrir já preenchido — usado ao transformar uma mensagem do
+  // chat interno em chamado (ver app/(portal)/chat-internal/page.tsx).
+  // Mesma ideia de preselectedUserId/CompanyId acima, só que pro conteúdo
+  // em vez de quem/qual empresa.
+  prefilledTicketTitle: string | null;
+  setPrefilledTicketTitle: (title: string | null) => void;
+  prefilledTicketDescription: string | null;
+  setPrefilledTicketDescription: (description: string | null) => void;
   // Rascunho de mensagem "copiado" de um Ticket Interno para virar resposta
   // de um Chamado — precisa sobreviver à navegação client-side entre
   // /internal-tickets/[id] e /tickets (rotas diferentes, mesmo AppProvider).
@@ -160,6 +169,8 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
   const [isNewTicketModalOpen, setIsNewTicketModalOpen] = useState(false);
   const [preselectedUserId, setPreselectedUserId] = useState<string | null>(null);
   const [preselectedCompanyId, setPreselectedCompanyId] = useState<string | null>(null);
+  const [prefilledTicketTitle, setPrefilledTicketTitle] = useState<string | null>(null);
+  const [prefilledTicketDescription, setPrefilledTicketDescription] = useState<string | null>(null);
   const [pendingTicketDraft, setPendingTicketDraft] = useState<AppContextType['pendingTicketDraft']>(null);
   const [isOmniChatOpen, setIsOmniChatOpen] = useState(false);
   const [isOmniChatExpanded, setIsOmniChatExpanded] = useState(false);
@@ -832,6 +843,10 @@ return (
       setPreselectedUserId,
       preselectedCompanyId,
       setPreselectedCompanyId,
+      prefilledTicketTitle,
+      setPrefilledTicketTitle,
+      prefilledTicketDescription,
+      setPrefilledTicketDescription,
       pendingTicketDraft,
       setPendingTicketDraft,
       isOmniChatOpen,

@@ -95,6 +95,11 @@ export default function LoginPage() {
       <button
         type="button"
         onClick={toggleTheme}
+        // suppressHydrationWarning: título/ícone dependem de `mounted`
+        // (resolvido só depois do mount, ver theme-provider.tsx) — trata
+        // como intencional em vez de erro caso o dev overlay ainda acuse
+        // divergência num hot-reload no meio da troca de tema.
+        suppressHydrationWarning
         className="absolute top-6 right-6 p-2.5 rounded-xl text-[var(--text-tertiary)] hover:text-[var(--text-secondary)] hover:bg-[var(--surface-card)] transition-all"
         title={mounted && theme === 'dark' ? 'Ativar modo claro' : 'Ativar modo escuro'}
       >

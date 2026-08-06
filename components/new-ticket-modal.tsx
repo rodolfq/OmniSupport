@@ -53,6 +53,10 @@ export function NewTicketModal() {
     setPreselectedUserId,
     preselectedCompanyId,
     setPreselectedCompanyId,
+    prefilledTicketTitle,
+    setPrefilledTicketTitle,
+    prefilledTicketDescription,
+    setPrefilledTicketDescription,
   } = useApp();
   const [title, setTitle] = useState("");
   const [description, setDescription] = useState("");
@@ -66,6 +70,26 @@ export function NewTicketModal() {
   const [priority, setPriority] = useState("");
   const [tags, setTags] = useState<string[]>([]);
   const [tagInput, setTagInput] = useState("");
+  // Aplica título/descrição prontos (ex.: mensagem do chat interno
+  // transformada em chamado, ver app/(portal)/chat-internal/page.tsx)
+  // DURANTE o render, não num useEffect — se fosse por efeito, o
+  // RichEditor (components/rich-editor.tsx) já montava com content="" no
+  // primeiro render e só corrigia depois via sync; na prática isso não
+  // chegava a aparecer de forma confiável (o editor Tiptap é desmontado e
+  // remontado a cada abertura do modal, e cada remontagem tem sua própria
+  // corrida entre "criar editor" e "sincronizar content"). Setando aqui
+  // (padrão oficial do React pra "ajustar estado ao detectar uma transição
+  // de prop", ver react.dev "You Might Not Need an Effect"), o formulário
+  // só chega a ser desenhado já com o valor certo — sem instante vazio.
+  const [wasOpen, setWasOpen] = useState(isNewTicketModalOpen);
+  if (wasOpen !== isNewTicketModalOpen) {
+    setWasOpen(isNewTicketModalOpen);
+    if (isNewTicketModalOpen) {
+      setTitle(prefilledTicketTitle || "");
+      setDescription(prefilledTicketDescription || "");
+    }
+  }
+
   const [attachments, setAttachments] = useState<Attachment[]>([]);
   const [previewAttachment, setPreviewAttachment] = useState<Attachment | null>(null);
   const [isDragging, setIsDragging] = useState(false);
@@ -182,10 +206,16 @@ export function NewTicketModal() {
       setSelectedCustomerId(preselectedUserId);
     }
 
+    // Título/descrição prontos são aplicados durante o render, não aqui
+    // (ver o `if (wasOpen !== isNewTicketModalOpen)` logo acima dos
+    // useState) — só a limpeza do rascunho no context (abaixo) continua
+    // precisando ser um efeito de verdade.
     return () => {
       // Clear preselection when modal closes
       setPreselectedUserId(null);
       setPreselectedCompanyId(null);
+      setPrefilledTicketTitle(null);
+      setPrefilledTicketDescription(null);
     };
   }, [
     isNewTicketModalOpen,

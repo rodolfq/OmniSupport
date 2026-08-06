@@ -34,16 +34,22 @@ import {
   Clock,
   Eye,
   Loader2,
-  Reply
+  Reply,
+  MoreHorizontal,
+  Ticket,
+  ClipboardList
 } from 'lucide-react';
 import { cn, normalizeString } from '@/lib/utils';
 import { useApp } from '@/app/app-context';
 import { InternalGroup, ChatMessage, User, UserRole, Permission, AnalystStatus } from '@/lib/types';
 import { supabase } from '@/lib/supabase';
 import { ClientTime } from '@/components/client-time';
-import { InternalChatService } from '@/lib/services/chat-service';
+import { InternalChatService, resolveChatSessionForPhone } from '@/lib/services/chat-service';
 import { UserService } from '@/lib/services/user-service';
 import { fetchAnalystStatuses } from '@/lib/services/config-service';
+import { deriveLiveStatus } from '@/lib/presence';
+import { NewInternalTicketModal } from '@/components/new-internal-ticket-modal';
+import { renderLinkedText } from '@/components/linked-chat-text';
 import { useRouter } from 'next/navigation';
 import { motion, AnimatePresence } from 'motion/react';
 import EmojiPicker, { Theme as EmojiTheme } from 'emoji-picker-react';
@@ -136,7 +142,7 @@ const getCroppedImg = (imageSrc: string, pixelCrop: Area): Promise<string> => {
 };
 
 export default function ChatInternalPage() {
-   const { currentUser, setCurrentUser, authInitialized } = useApp();
+   const { currentUser, setCurrentUser, authInitialized, hasPermission, setIsNewTicketModalOpen, setPrefilledTicketTitle, setPrefilledTicketDescription, setActiveOmniChatId, setIsOmniChatOpen } = useApp();
    const router = useRouter();
   const [rooms, setRooms] = useState<InternalGroup[]>([]);
   const [selectedRoomId, setSelectedRoomId] = useState<string | null>(null);
@@ -186,13 +192,18 @@ export default function ChatInternalPage() {
   const typingTimeoutsRef = useRef<Record<string, ReturnType<typeof setTimeout>>>({});
   const lastTypingSentAtRef = useRef(0);
   const [reactionPickerMessageId, setReactionPickerMessageId] = useState<string | null>(null);
+  // Menu "transformar em chamado" por mensagem, e o rascunho pro modal de
+  // Ticket Interno (que não passa pelo AppContext global como o de Chamado
+  // — ver components/new-internal-ticket-modal.tsx).
+  const [ticketMenuMessageId, setTicketMenuMessageId] = useState<string | null>(null);
+  const [internalTicketDraft, setInternalTicketDraft] = useState<{ title: string; description: string } | null>(null);
 
   const stickerInputRef = useRef<HTMLInputElement>(null);
 
   const fileInputRef = useRef<HTMLInputElement>(null);
   const groupImageRef = useRef<HTMLInputElement>(null);
   const messagesEndRef = useRef<HTMLDivElement>(null);
-  const messageInputRef = useRef<HTMLInputElement>(null);
+  const messageInputRef = useRef<HTMLTextAreaElement>(null);
 
   useEffect(() => {
     if (!authInitialized || !currentUser) return;
@@ -400,7 +411,18 @@ export default function ChatInternalPage() {
         .slice(0, 6)
     : [];
 
-  const handleMessageInputChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+  // Cresce junto com o texto (até um teto, depois rola por dentro) — via
+  // efeito ligado a `message` em vez de só onInput, pra também encolher de
+  // volta quando a mensagem é limpa no envio (setMessage('')) ou preenchida
+  // por fora (menção inserida por clique, ver insertMention).
+  useEffect(() => {
+    const el = messageInputRef.current;
+    if (!el) return;
+    el.style.height = 'auto';
+    el.style.height = `${Math.min(el.scrollHeight, 120)}px`;
+  }, [message]);
+
+  const handleMessageInputChange = (e: React.ChangeEvent<HTMLTextAreaElement>) => {
     const value = e.target.value;
     setMessage(value);
 
@@ -447,17 +469,34 @@ export default function ChatInternalPage() {
     });
   };
 
+  // Clique num número de telefone detectado dentro do texto de uma
+  // mensagem (ver renderMessageText/renderLinkedText) — acha/cria a sessão
+  // de WhatsApp (lib/services/chat-service.ts) e entrega pro widget global
+  // de chat, igual ao mesmo recurso já existente em chat-management/page.tsx
+  // e no ChatWidget. Faz sentido aqui porque é comum colar o telefone de um
+  // cliente no chat interno da equipe pra outro analista assumir o contato.
+  const handleOpenPhoneFromMessage = async (phone: string) => {
+    const result = await resolveChatSessionForPhone(phone);
+    if ('error' in result) {
+      toast.error(result.error);
+      return;
+    }
+    setActiveOmniChatId(result.sessionId);
+    setIsOmniChatOpen(true);
+  };
+
   // Destaca @Nome no texto renderizado da mensagem — só as menções
   // "congeladas" em metadata.mentions no envio (ver handleSendMessage),
-  // não qualquer "@" solto no texto.
-  const renderMessageText = (text: string, mentions: { id: string; name: string }[] | undefined) => {
-    if (!mentions || mentions.length === 0) return text;
+  // não qualquer "@" solto no texto. Fora dos trechos de menção, o texto
+  // ainda passa por renderLinkedText (URL/telefone clicável).
+  const renderMessageText = (text: string, mentions: { id: string; name: string }[] | undefined, isMine: boolean) => {
+    if (!mentions || mentions.length === 0) return renderLinkedText(text, isMine, handleOpenPhoneFromMessage);
     const sorted = [...mentions].sort((a, b) => b.name.length - a.name.length);
     const pattern = sorted.map(m => `@${escapeRegex(m.name)}`).join('|');
     const parts = text.split(new RegExp(`(${pattern})`, 'g'));
     return parts.map((part, i) => {
       const mention = mentions.find(m => `@${m.name}` === part);
-      if (!mention) return <React.Fragment key={i}>{part}</React.Fragment>;
+      if (!mention) return <React.Fragment key={i}>{renderLinkedText(part, isMine, handleOpenPhoneFromMessage)}</React.Fragment>;
       return (
         <span
           key={i}
@@ -569,6 +608,63 @@ export default function ChatInternalPage() {
     } catch (error: any) {
       toast.error(error.message || 'Erro ao excluir mensagem');
     }
+  };
+
+  const TICKET_TITLE_MAX_LENGTH = 60;
+
+  // Assunto automático usa só a PRIMEIRA LINHA da mensagem, cortada numa
+  // palavra inteira — título é campo de uma linha só (lista de chamados,
+  // cabeçalho etc.), então replicar a mensagem inteira (que pode ter várias
+  // linhas e passar de uma tela) quebrava a exibição em vários lugares.
+  const buildTitleFromText = (text: string) => {
+    const firstLine = text.split('\n')[0].trim();
+    if (firstLine.length <= TICKET_TITLE_MAX_LENGTH) return firstLine;
+    const truncated = firstLine.slice(0, TICKET_TITLE_MAX_LENGTH);
+    const lastSpace = truncated.lastIndexOf(' ');
+    // Só corta na última palavra inteira se sobrar um título minimamente
+    // útil — evita virar 2-3 caracteres quando a primeira "palavra" já é
+    // enorme (ex.: um link colado sem espaço).
+    const cut = lastSpace > 20 ? truncated.slice(0, lastSpace) : truncated;
+    return `${cut}...`;
+  };
+
+  // Transforma o conteúdo de uma mensagem em ponto de partida pra um
+  // Chamado ou Ticket Interno — título curto pro campo "Assunto"/"Título",
+  // descrição com o texto completo + de onde veio (pra quem for tratar não
+  // perder o contexto da conversa original).
+  const buildTicketDraftFromMessage = (msg: ChatMessage) => {
+    const room = rooms.find(r => r.id === selectedRoomId);
+    const rawText = msg.text?.trim() || (msg.metadata?.fileName ? `Arquivo: ${msg.metadata.fileName}` : 'Mensagem sem texto');
+    const title = buildTitleFromText(rawText);
+    const description = `Mensagem de ${msg.senderName} no chat interno${room ? ` "${room.name}"` : ''}:\n\n${rawText}`;
+    return { title, description };
+  };
+
+  const escapeHtmlForRichEditor = (value: string) =>
+    value.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+
+  // O campo "Descrição Detalhada" do NewTicketModal é o RichEditor (Tiptap),
+  // que guarda/lê HTML — texto puro cru vira uma única linha corrida (Tiptap
+  // ignora \n solto), por isso convertemos quebra dupla em parágrafo e
+  // quebra simples em <br>, pra chegar lá já formatado e continuar editável.
+  const messageToRichEditorHtml = (text: string) =>
+    text
+      .split(/\n{2,}/)
+      .map(paragraph => `<p>${escapeHtmlForRichEditor(paragraph).replace(/\n/g, '<br>')}</p>`)
+      .join('');
+
+  const handleCreateTicketFromMessage = (msg: ChatMessage) => {
+    const { title, description } = buildTicketDraftFromMessage(msg);
+    setPrefilledTicketTitle(title);
+    setPrefilledTicketDescription(messageToRichEditorHtml(description));
+    setIsNewTicketModalOpen(true);
+    setTicketMenuMessageId(null);
+  };
+
+  const handleCreateInternalTicketFromMessage = (msg: ChatMessage) => {
+    const { title, description } = buildTicketDraftFromMessage(msg);
+    setInternalTicketDraft({ title, description });
+    setTicketMenuMessageId(null);
   };
 
   const togglePin = async (e: React.MouseEvent, roomId: string) => {
@@ -783,6 +879,7 @@ export default function ChatInternalPage() {
       closeContextMenu();
       setStickerContextMenu(null);
       setReactionPickerMessageId(null);
+      setTicketMenuMessageId(null);
     };
     window.addEventListener('click', handleGlobalClick);
     return () => window.removeEventListener('click', handleGlobalClick);
@@ -906,15 +1003,15 @@ export default function ChatInternalPage() {
   const getPresenceIndicator = (userId?: string): { colorClass: string; title: string } | null => {
     const presence = getPresence(userId);
     if (!presence) return null;
-    if (presence.status === 'away') {
+    // deriveLiveStatus (lib/presence.ts) trata last_active velho como
+    // offline — sem isso, a bolinha ficava "Online"/"Ausente" pra sempre
+    // depois que a pessoa fechava a aba sem trocar de status, porque não
+    // existe um heartbeat de "adeus" explícito.
+    const live = deriveLiveStatus(presence);
+    if (live === 'away') {
       return { colorClass: 'bg-[var(--text-warning-strong)]', title: presence.currentReason || 'Ausente' };
     }
-    if (presence.status === 'online') {
-      return { colorClass: 'bg-[var(--text-success)]', title: 'Online' };
-    }
-    // Registros antigos sem a coluna `status` preenchida — cai pro binário
-    // isOnline que já existia antes, em vez de perder o indicador de vez.
-    if (!presence.status && presence.isOnline) {
+    if (live === 'online') {
       return { colorClass: 'bg-[var(--text-success)]', title: 'Online' };
     }
     return null;
@@ -933,11 +1030,12 @@ export default function ChatInternalPage() {
   const presenceLabel = (userId?: string) => {
     const presence = getPresence(userId);
     if (!presence) return '';
-    // is_online vira false ao ficar Ausente (ver /api/chats
-    // "log-status-change"), então checar isOnline aqui escondia o "Ausente"
-    // e mostrava "visto há Xmin" pra quem só saiu pro almoço/reunião.
-    if (presence.status === 'away') return presence.currentReason ? `Ausente > ${presence.currentReason}` : 'Ausente';
-    if (presence.status === 'online' || (!presence.status && presence.isOnline)) return 'Online';
+    // deriveLiveStatus (lib/presence.ts) — mesma checagem de staleness usada
+    // em chat-management/queues/chat-widget. Sem ela, "Ausente"/"Online"
+    // ficava valendo pra sempre depois que a aba fechava sem heartbeat.
+    const live = deriveLiveStatus(presence);
+    if (live === 'away') return presence.currentReason ? `Ausente > ${presence.currentReason}` : 'Ausente';
+    if (live === 'online') return 'Online';
     return formatLastActive(presence.lastActive).replace(/^v/, 'V');
   };
 
@@ -1169,7 +1267,7 @@ export default function ChatInternalPage() {
                       </span>
                     ) : selectedRoom.type === 'group' ? (
                       `${selectedRoom.memberIds?.length || 0} membros${(() => {
-                        const onlineCount = selectedRoom.memberIds?.filter(id => getPresence(id)?.isOnline).length || 0;
+                        const onlineCount = selectedRoom.memberIds?.filter(id => deriveLiveStatus(getPresence(id)) === 'online').length || 0;
                         return onlineCount > 0 ? ` · ${onlineCount} online` : '';
                       })()}`
                     ) : (
@@ -1335,7 +1433,7 @@ export default function ChatInternalPage() {
                         ) : (
                           <>
                             {msg.type === 'text' && (
-                              <p className="leading-relaxed whitespace-pre-wrap break-words">{renderMessageText(msg.text, msg.metadata?.mentions)}</p>
+                              <p className="leading-relaxed whitespace-pre-wrap break-words">{renderMessageText(msg.text, msg.metadata?.mentions, isMine)}</p>
                             )}
                             
                             {msg.type === 'image' && (
@@ -1420,6 +1518,13 @@ export default function ChatInternalPage() {
                               >
                                 {isPinned ? <PinOff size={13} /> : <Pin size={13} />}
                               </button>
+                              <button
+                                onClick={(e) => { e.stopPropagation(); setTicketMenuMessageId(ticketMenuMessageId === msg.id ? null : msg.id); }}
+                                title="Transformar em chamado"
+                                className="p-1 rounded-full text-[var(--text-tertiary)] hover:text-[var(--accent-text)] hover:bg-[var(--surface-pill)] transition-colors"
+                              >
+                                <MoreHorizontal size={13} />
+                              </button>
                             </>
                           )}
                           {isMine && !msg.isDeleted && (
@@ -1450,6 +1555,33 @@ export default function ChatInternalPage() {
                                 {emoji}
                               </button>
                             ))}
+                          </div>
+                        )}
+
+                        {ticketMenuMessageId === msg.id && (
+                          <div
+                            className={cn(
+                              "absolute top-3 z-20 w-52 py-1.5 bg-[var(--surface-card)] border border-[var(--border-default)] rounded-2xl shadow-xl",
+                              isMine ? "right-2" : "left-2"
+                            )}
+                            onClick={(e) => e.stopPropagation()}
+                          >
+                            <button
+                              onClick={() => handleCreateTicketFromMessage(msg)}
+                              className="w-full flex items-center gap-2.5 px-3.5 py-2 text-xs font-bold text-[var(--text-secondary)] hover:bg-[var(--surface-pill)] hover:text-[var(--accent-text)] transition-colors text-left"
+                            >
+                              <Ticket size={14} />
+                              Criar chamado
+                            </button>
+                            {hasPermission(Permission.INTERNAL_TICKETS_EDIT) && (
+                              <button
+                                onClick={() => handleCreateInternalTicketFromMessage(msg)}
+                                className="w-full flex items-center gap-2.5 px-3.5 py-2 text-xs font-bold text-[var(--text-secondary)] hover:bg-[var(--surface-pill)] hover:text-[var(--accent-text)] transition-colors text-left"
+                              >
+                                <ClipboardList size={14} />
+                                Criar chamado interno
+                              </button>
+                            )}
                           </div>
                         )}
                       </div>
@@ -1733,9 +1865,9 @@ export default function ChatInternalPage() {
                          </motion.div>
                        )}
                      </AnimatePresence>
-                     <input
+                     <textarea
                        ref={messageInputRef}
-                       type="text"
+                       rows={1}
                        value={message}
                        onChange={handleMessageInputChange}
                        onKeyDown={(e) => {
@@ -1761,13 +1893,15 @@ export default function ChatInternalPage() {
                              return;
                            }
                          }
+                         // Enter sozinho envia; Shift+Enter deixa o textarea
+                         // quebrar linha normalmente (sem preventDefault).
                          if (e.key === 'Enter' && !e.shiftKey) {
                            e.preventDefault();
                            handleSendMessage();
                          }
                        }}
                        placeholder={selectedRoom?.type === 'group' ? "Escreva uma mensagem... (@ para citar alguém)" : "Escreva sua mensagem..."}
-                       className="w-full bg-transparent border-none outline-none text-sm font-bold text-[var(--text-secondary)]"
+                       className="w-full bg-transparent border-none outline-none text-sm font-bold text-[var(--text-secondary)] resize-none leading-relaxed py-1"
                      />
                    </div>
 
@@ -2474,6 +2608,17 @@ export default function ChatInternalPage() {
           </motion.div>
         )}
       </AnimatePresence>
+
+      {/* "Criar chamado interno" a partir de uma mensagem (menu ⋯ na barra
+          flutuante de cada balão) — o de Chamado comum reaproveita o
+          NewTicketModal global via AppContext, mas ticket interno não tem
+          equivalente global, então o rascunho fica em estado local aqui. */}
+      <NewInternalTicketModal
+        isOpen={!!internalTicketDraft}
+        onClose={() => setInternalTicketDraft(null)}
+        initialTitle={internalTicketDraft?.title}
+        initialDescription={internalTicketDraft?.description}
+      />
     </div>
   );
 }
