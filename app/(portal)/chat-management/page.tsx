@@ -47,8 +47,9 @@ import { AssignChatMenu } from '@/components/assign-chat-menu';
 import { ConfirmDialog } from '@/components/confirm-dialog';
 import { supabase } from '@/lib/supabase';
 import { useQueuesQuery } from '@/lib/query-hooks';
-import { fetchChatSessions, saveChatHistory, resolveChatSessionForPhone } from '@/lib/services/chat-service';
+import { fetchChatSessions, saveChatHistory } from '@/lib/services/chat-service';
 import { renderLinkedText } from '@/components/linked-chat-text';
+import { PhoneContactPanel } from '@/components/phone-contact-panel';
 import { fetchUsers } from '@/lib/services/config-service';
 import { getQuickNotes, saveQuickNote as saveQuickNoteAction, deleteQuickNote, getAnalysts, getCompanies, updateUserStatus, saveTicketFromChatSession, closeChatSessionAfterTicket, assignChatSession, returnChatSessionToQueue } from '@/app/actions';
 
@@ -82,19 +83,14 @@ export default function ChatManagementPage() {
     setIsLinkModalOpen(true);
   };
 
-  // Clique num número de telefone detectado dentro do texto de uma
-  // mensagem no preview de conversa (ver renderLinkedText mais abaixo) —
-  // acha/cria a sessão (lib/services/chat-service.ts) e entrega pro widget
-  // global, mesmo caminho que "Abrir Chat Completo" já usa.
-  const handleOpenPhoneFromPreview = async (phone: string) => {
-    const result = await resolveChatSessionForPhone(phone);
-    if ('error' in result) {
-      toast.error(result.error);
-      return;
-    }
+  // Clique num número de telefone detectado dentro do texto de uma mensagem
+  // no preview de conversa (ver renderLinkedText mais abaixo) — mostra o
+  // painel de confirmação (components/phone-contact-panel.tsx) em vez de
+  // achar/abrir a conversa direto.
+  const [phoneContactPanelPhone, setPhoneContactPanelPhone] = useState<string | null>(null);
+  const handleOpenPhoneFromPreview = (phone: string) => {
     setViewingSession(null);
-    setActiveOmniChatId(result.sessionId);
-    setIsOmniChatOpen(true);
+    setPhoneContactPanelPhone(phone);
   };
 // ... rest of the component
 
@@ -1316,6 +1312,18 @@ const handleDeleteNote = async () => {
         session={selectedSessionForLink}
         onSuccess={refreshData}
       />
+
+      {currentUser && (
+        <PhoneContactPanel
+          phone={phoneContactPanelPhone}
+          onClose={() => setPhoneContactPanelPhone(null)}
+          onOpenChat={(sessionId) => {
+            setActiveOmniChatId(sessionId);
+            setIsOmniChatOpen(true);
+          }}
+          currentUserId={currentUser.id}
+        />
+      )}
 
       <ConfirmDialog
         isOpen={!!disconnectingUser}

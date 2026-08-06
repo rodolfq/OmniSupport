@@ -44,12 +44,14 @@ import { useApp } from '@/app/app-context';
 import { InternalGroup, ChatMessage, User, UserRole, Permission, AnalystStatus } from '@/lib/types';
 import { supabase } from '@/lib/supabase';
 import { ClientTime } from '@/components/client-time';
-import { InternalChatService, resolveChatSessionForPhone } from '@/lib/services/chat-service';
+import { InternalChatService } from '@/lib/services/chat-service';
 import { UserService } from '@/lib/services/user-service';
 import { fetchAnalystStatuses } from '@/lib/services/config-service';
 import { deriveLiveStatus } from '@/lib/presence';
+import { GROUP_AVATAR_PRESETS } from '@/lib/group-avatar-presets';
 import { NewInternalTicketModal } from '@/components/new-internal-ticket-modal';
 import { renderLinkedText } from '@/components/linked-chat-text';
+import { PhoneContactPanel } from '@/components/phone-contact-panel';
 import { useRouter } from 'next/navigation';
 import { motion, AnimatePresence } from 'motion/react';
 import EmojiPicker, { Theme as EmojiTheme } from 'emoji-picker-react';
@@ -469,20 +471,15 @@ export default function ChatInternalPage() {
     });
   };
 
-  // Clique num número de telefone detectado dentro do texto de uma
-  // mensagem (ver renderMessageText/renderLinkedText) — acha/cria a sessão
-  // de WhatsApp (lib/services/chat-service.ts) e entrega pro widget global
-  // de chat, igual ao mesmo recurso já existente em chat-management/page.tsx
-  // e no ChatWidget. Faz sentido aqui porque é comum colar o telefone de um
-  // cliente no chat interno da equipe pra outro analista assumir o contato.
-  const handleOpenPhoneFromMessage = async (phone: string) => {
-    const result = await resolveChatSessionForPhone(phone);
-    if ('error' in result) {
-      toast.error(result.error);
-      return;
-    }
-    setActiveOmniChatId(result.sessionId);
-    setIsOmniChatOpen(true);
+  // Clique num número de telefone detectado dentro do texto de uma mensagem
+  // (ver renderMessageText/renderLinkedText) — mostra o painel de
+  // confirmação (components/phone-contact-panel.tsx) em vez de achar/abrir
+  // a conversa direto. Faz sentido aqui porque é comum colar o telefone de
+  // um cliente no chat interno da equipe pra outro analista assumir o
+  // contato.
+  const [phoneContactPanelPhone, setPhoneContactPanelPhone] = useState<string | null>(null);
+  const handleOpenPhoneFromMessage = (phone: string) => {
+    setPhoneContactPanelPhone(phone);
   };
 
   // Destaca @Nome no texto renderizado da mensagem — só as menções
@@ -1040,6 +1037,7 @@ export default function ChatInternalPage() {
   };
 
   const filteredUsers = allUsers.filter(u =>
+    u.id !== currentUser?.id &&
     normalizeString(u.name).includes(normalizeString(searchTerm)) &&
     !rooms.some(room => isDirectChatWith(room, u.id))
   );
@@ -1266,9 +1264,16 @@ export default function ChatInternalPage() {
                         {selectedRoom.type === 'group' ? `${Object.values(typingUsers).join(', ')} digitando...` : 'digitando...'}
                       </span>
                     ) : selectedRoom.type === 'group' ? (
-                      `${selectedRoom.memberIds?.length || 0} membros${(() => {
-                        const onlineCount = selectedRoom.memberIds?.filter(id => deriveLiveStatus(getPresence(id)) === 'online').length || 0;
-                        return onlineCount > 0 ? ` · ${onlineCount} online` : '';
+                      `${(() => {
+                        // Set: alguns grupos antigos têm o próprio id
+                        // duplicado em memberIds (bug do seletor de "Novo
+                        // Grupo", já corrigido — deixava a pessoa se marcar
+                        // como membro além de já entrar sozinha na criação),
+                        // então contar o array cru inflava tanto "membros"
+                        // quanto "online" quando o duplicado estava online.
+                        const uniqueMemberIds = [...new Set(selectedRoom.memberIds || [])];
+                        const onlineCount = uniqueMemberIds.filter(id => deriveLiveStatus(getPresence(id)) === 'online').length;
+                        return `${uniqueMemberIds.length} membros${onlineCount > 0 ? ` · ${onlineCount} online` : ''}`;
                       })()}`
                     ) : (
                       presenceLabel(getDirectChatUser(selectedRoom)?.id) || 'Offline'
@@ -1971,13 +1976,32 @@ export default function ChatInternalPage() {
                             <Plus size={24} className="text-white" />
                          </div>
                       </div>
-                      <input 
-                        type="file" 
-                        className="hidden" 
-                        ref={groupImageRef} 
+                      <input
+                        type="file"
+                        className="hidden"
+                        ref={groupImageRef}
                         onChange={handleGroupImageUpload}
                         accept="image/*"
                       />
+                   </div>
+
+                   {/* Galeria de ícones prontos — alternativa rápida ao
+                       upload acima, ver lib/group-avatar-presets.ts. */}
+                   <div className="flex justify-center gap-2 flex-wrap">
+                      {GROUP_AVATAR_PRESETS.map((preset) => (
+                        <button
+                          key={preset.id}
+                          type="button"
+                          onClick={() => setNewGroupImage(preset.url)}
+                          title={preset.label}
+                          className={cn(
+                            "w-9 h-9 rounded-xl overflow-hidden transition-all hover:scale-110",
+                            newGroupImage === preset.url ? "ring-2 ring-[var(--accent)] ring-offset-2" : "ring-1 ring-[var(--border-default)]"
+                          )}
+                        >
+                          <img src={preset.url} alt={preset.label} className="w-full h-full object-cover" />
+                        </button>
+                      ))}
                    </div>
 
                    <div className="space-y-2">
@@ -1996,8 +2020,15 @@ export default function ChatInternalPage() {
                    <div className="space-y-3">
                       <label className="text-[10px] font-semibold uppercase text-[var(--text-tertiary)] tracking-widest">Membros (Mais de 1 vira grupo)</label>
                       <div className="max-h-[300px] overflow-y-auto space-y-1 pr-2">
-                         {allUsers.map((user, uIdx) => (
-                           <button 
+                         {/* Exclui o próprio usuário logado — ele já entra
+                             sozinho na criação (memberIds: [currentUser.id,
+                             ...selectedMembers], ver createRoom), então
+                             mostrá-lo aqui como opção marcável deixava
+                             selecioná-lo por engano e duplicar o próprio id
+                             em memberIds (causa da chave repetida/membro
+                             aparecendo 2x na lista de Configurações). */}
+                         {allUsers.filter(u => u.id !== currentUser?.id).map((user, uIdx) => (
+                           <button
                              key={`create-group-user-${user.id}-${uIdx}`}
                              onClick={() => toggleMemberSelection(user.id)}
                              className={cn(
@@ -2106,11 +2137,33 @@ export default function ChatInternalPage() {
                    </div>
                 </div>
 
+                {/* Galeria de ícones prontos — alternativa rápida ao upload
+                    acima, ver lib/group-avatar-presets.ts. */}
+                <div className="space-y-2">
+                  <label className="text-[10px] font-semibold uppercase text-[var(--text-tertiary)] tracking-widest ml-1">Ícones prontos</label>
+                  <div className="flex gap-2 flex-wrap">
+                    {GROUP_AVATAR_PRESETS.map((preset) => (
+                      <button
+                        key={preset.id}
+                        type="button"
+                        onClick={() => handleUpdateGroup({ imageUrl: preset.url })}
+                        title={preset.label}
+                        className={cn(
+                          "w-9 h-9 rounded-xl overflow-hidden transition-all hover:scale-110",
+                          selectedRoom.imageUrl === preset.url ? "ring-2 ring-[var(--accent)] ring-offset-2" : "ring-1 ring-[var(--border-default)]"
+                        )}
+                      >
+                        <img src={preset.url} alt={preset.label} className="w-full h-full object-cover" />
+                      </button>
+                    ))}
+                  </div>
+                </div>
+
                 {/* Member List */}
                 <div className="space-y-4">
                   <div className="flex items-center justify-between">
                     <div className="flex items-center gap-2 text-[10px] font-semibold uppercase text-[var(--text-tertiary)] tracking-widest">
-                       <Users size={14} /> Membros ({selectedRoom.memberIds?.length || 0})
+                       <Users size={14} /> Membros ({new Set(selectedRoom.memberIds || []).size})
                     </div>
                     <button 
                       onClick={() => setIsAddingMember(!isAddingMember)}
@@ -2149,7 +2202,12 @@ export default function ChatInternalPage() {
                   )}
 
                   <div className="space-y-2">
-                    {(selectedRoom.memberIds || []).map((userId, idx) => {
+                    {/* Set: alguns grupos antigos têm o próprio id duplicado
+                        em memberIds (bug já corrigido no seletor de "Novo
+                        Grupo", que deixava a pessoa se marcar como membro
+                        além de já entrar sozinha na criação) — sem isso,
+                        dava key repetida e o membro aparecia 2x na lista. */}
+                    {[...new Set(selectedRoom.memberIds || [])].map((userId, idx) => {
                       const user = allUsers.find(u => u.id === userId) || (userId === currentUser?.id ? currentUser : null);
                       if (!user) return null;
                       return (
@@ -2532,12 +2590,14 @@ export default function ChatInternalPage() {
 
                    <div className="h-px bg-[var(--surface-pill)] my-1 mx-2" />
 
-                   <button 
-                     className="w-full flex items-center gap-3 px-4 py-3 hover:bg-[var(--surface-card)] text-[var(--text-secondary)] transition-colors text-sm font-bold"
-                   >
-                      <UserCircle size={16} className="text-[var(--text-tertiary)]" />
-                      Visualizar perfil
-                   </button>
+                   {room.type === 'direct' && (
+                     <button
+                       className="w-full flex items-center gap-3 px-4 py-3 hover:bg-[var(--surface-card)] text-[var(--text-secondary)] transition-colors text-sm font-bold"
+                     >
+                        <UserCircle size={16} className="text-[var(--text-tertiary)]" />
+                        Visualizar perfil
+                     </button>
+                   )}
 
                    {otherUserId && (
                      <button 
@@ -2619,6 +2679,18 @@ export default function ChatInternalPage() {
         initialTitle={internalTicketDraft?.title}
         initialDescription={internalTicketDraft?.description}
       />
+
+      {currentUser && (
+        <PhoneContactPanel
+          phone={phoneContactPanelPhone}
+          onClose={() => setPhoneContactPanelPhone(null)}
+          onOpenChat={(sessionId) => {
+            setActiveOmniChatId(sessionId);
+            setIsOmniChatOpen(true);
+          }}
+          currentUserId={currentUser.id}
+        />
+      )}
     </div>
   );
 }

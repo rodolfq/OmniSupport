@@ -12,13 +12,14 @@ import { runExclusive } from '@/lib/key-mutex';
 import { canForceOthersOffline } from '@/lib/services/presence-authorization';
 import { getOrGenerateChatSummary, ChatSummaryNotFoundError, ChatSummaryGenerationError } from '@/lib/services/chat-summary-service';
 import { AssistantNotConfiguredError, parseGroqRetryWait } from '@/lib/groq-client';
+import { normalizeBrazilianPhoneDigits } from '@/lib/utils';
 
 function normalizePhone(value?: string | null): string {
   return (value || '').replace(/\D/g, '');
 }
 
 function phoneLookupVariants(phone?: string | null): string[] {
-  const digits = normalizePhone(phone);
+  const digits = normalizeBrazilianPhoneDigits(normalizePhone(phone));
   if (!digits) return [];
   const variants = new Set<string>([digits]);
   if (digits.startsWith('55') && digits.length > 11) {
@@ -458,33 +459,53 @@ export async function GET(request: NextRequest) {
       })));
     }
 
-    // Usado ao clicar num telefone detectado dentro de uma mensagem (ver
-    // components/linked-chat-text.tsx + resolveChatSessionForPhone em
-    // lib/services/chat-service.ts) — antes de criar uma sessão "anônima"
-    // só com o número, tenta achar um funcionário/cliente já cadastrado com
-    // esse telefone, pra abrir a conversa já com nome e empresa certos em
-    // vez de um contato novo do zero.
-    if (action === 'find-profile-by-phone') {
+    // Painel de confirmação ao clicar num telefone dentro de uma mensagem
+    // (ver components/phone-contact-panel.tsx) — leitura pura, não
+    // acha/cria nada: só diz se o número bate com um perfil cadastrado e/ou
+    // se já tem uma conversa ABERTA (não fechada) com ele, pra decidir o que
+    // mostrar (nome+empresa / "cadastrar contato", e se precisa avisar sobre
+    // conversa em andamento antes de abrir uma nova).
+    if (action === 'contact-lookup') {
       const variants = phoneLookupVariants(searchParams.get('phone'));
-      if (!variants.length) return NextResponse.json(null);
+      if (!variants.length) return NextResponse.json({ profile: null, activeSession: null });
+
       const placeholders = variants.map((_, i) => `$${i + 1}`).join(',');
-      const res = await query(
+      const profileRes = await query(
         `SELECT p.id, p.name, p.role, p.company_id, c.name AS company_name
          FROM public.profiles p
          LEFT JOIN public.companies c ON c.id = p.company_id
          WHERE regexp_replace(COALESCE(p.phone, ''), '\\D', '', 'g') IN (${placeholders})
-         ORDER BY p.created_at ASC
          LIMIT 1`,
         variants
       );
-      const row = res.rows[0];
-      return NextResponse.json(row ? {
-        id: row.id,
-        name: row.name,
-        role: row.role,
-        companyId: row.company_id,
-        companyName: row.company_name
-      } : null);
+      const sessionRes = await query(
+        `SELECT s.id, s.customer_id, s.customer_name, s.customer_phone, s.assignee_id,
+                p.name AS assignee_name, s.created_at, s.last_message_at
+         FROM public.chat_sessions s
+         LEFT JOIN public.profiles p ON p.id = s.assignee_id
+         WHERE regexp_replace(COALESCE(s.customer_phone, ''), '\\D', '', 'g') IN (${placeholders})
+           AND s.status != 'closed'
+         ORDER BY s.updated_at DESC LIMIT 1`,
+        variants
+      );
+
+      const p = profileRes.rows[0];
+      const s = sessionRes.rows[0];
+      return NextResponse.json({
+        profile: p ? {
+          id: p.id, name: p.name, role: p.role, companyId: p.company_id, companyName: p.company_name
+        } : null,
+        activeSession: s ? {
+          id: s.id,
+          customerId: s.customer_id,
+          customerName: s.customer_name,
+          customerPhone: s.customer_phone,
+          assigneeId: s.assignee_id,
+          assigneeName: s.assignee_name,
+          startedAt: s.created_at,
+          lastMessageAt: s.last_message_at
+        } : null
+      });
     }
 
     if (action === 'internal-chats') {
@@ -663,11 +684,37 @@ export async function POST(request: Request) {
     if (action === 'create-session') {
       const { session } = body;
       const phoneVariants = phoneLookupVariants(session.customerPhone);
+
+      // Quando quem chamou não já sabe quem é (nem customerId nem
+      // customerName vieram prontos — é o caso do clique num telefone
+      // detectado dentro de uma mensagem, ver resolveChatSessionForPhone em
+      // lib/services/chat-service.ts), tenta achar um funcionário/cliente já
+      // cadastrado com esse telefone ANTES de decidir achar/criar a sessão —
+      // assim a conversa (nova ou reaproveitada) já nasce com nome/empresa
+      // corretos em vez de "anônima" só com o número. Fica aqui (servidor)
+      // em vez de round-trip separado do client: menos requisição, e não
+      // corre risco de o widget ler uma sessão "anônima" antes do
+      // enriquecimento chegar.
+      let resolvedCustomerId: string | null = session.customerId || null;
+      let resolvedCustomerName: string | null = session.customerName || null;
+      if (!resolvedCustomerId && !resolvedCustomerName && phoneVariants.length > 0) {
+        const profileRes = await query(
+          `SELECT id, name FROM public.profiles
+           WHERE regexp_replace(COALESCE(phone, ''), '\\D', '', 'g') IN (${phoneVariants.map((_, i) => `$${i + 1}`).join(',')})
+           LIMIT 1`,
+          phoneVariants
+        );
+        if (profileRes.rows[0]) {
+          resolvedCustomerId = profileRes.rows[0].id;
+          resolvedCustomerName = profileRes.rows[0].name;
+        }
+      }
+
       const lookupClauses: string[] = [];
       const lookupParams: any[] = [];
 
-      if (session.customerId) {
-        lookupParams.push(session.customerId);
+      if (resolvedCustomerId) {
+        lookupParams.push(resolvedCustomerId);
         lookupClauses.push(`customer_id = $${lookupParams.length}`);
       }
 
@@ -691,7 +738,7 @@ export async function POST(request: Request) {
       // simultânea do mesmo cliente (ex.: widget montando duas vezes, aba
       // duplicada) esperar esta terminar em vez de rodar em paralelo — mesma
       // proteção que já existia pro lado do WhatsApp, agora também aqui.
-      const mutexKey = session.customerId || phoneVariants[0] || `anon:${session.id || 'new'}`;
+      const mutexKey = resolvedCustomerId || phoneVariants[0] || `anon:${session.id || 'new'}`;
       const result = await runExclusive(`create-session:${mutexKey}`, async () => {
         // "Fechada" significa fechada de verdade: um novo contato do mesmo
         // cliente é sempre outro atendimento, com sessão (e número de
@@ -710,8 +757,8 @@ export async function POST(request: Request) {
                  updated_at = NOW()
              WHERE id = $5`,
             [
-              session.customerId || null,
-              session.customerName || null,
+              resolvedCustomerId,
+              resolvedCustomerName,
               session.customerPhone || null,
               session.status || 'active',
               existing.id
@@ -753,7 +800,7 @@ export async function POST(request: Request) {
              VALUES ($1, $2, $3, $4, $5, NULL, $6, $7, NOW())
              ON CONFLICT DO NOTHING
              RETURNING id, assignee_id`,
-            [id, session.customerId || null, session.customerName || null, session.customerPhone || null, status, assigneeId, session.startedAt]
+            [id, resolvedCustomerId, resolvedCustomerName, session.customerPhone || null, status, assigneeId, session.startedAt]
           );
         });
 

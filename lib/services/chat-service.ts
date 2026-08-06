@@ -1,5 +1,6 @@
 import { ChatSession, ChatMessage, AnalystStatus, UserStatusHistory, AbsenceReason, User, InternalGroup } from '../types';
-import { normalizePhone } from '../utils';
+import { closeChatSessionAfterTicket } from '@/app/actions';
+import { normalizeBrazilianPhoneDigits } from '../utils';
 
 export class ChatService {
   // userId opcional: quando informado, o servidor marca como "entregues" (2o
@@ -227,35 +228,58 @@ export class InternalChatService {
 
 // Compatibility helper functions
 
-function phoneSessionLookupVariants(phone: string): string[] {
-  const digits = normalizePhone(phone);
-  if (!digits) return [];
-  const variants = new Set<string>([digits]);
-  if (digits.startsWith('55') && digits.length > 11) {
-    variants.add(digits.slice(2));
-  } else if (digits.length <= 11) {
-    variants.add(`55${digits}`);
+// Acha/retoma ou cria a sessão de WhatsApp pro número informado — usado
+// tanto pelo modal manual "Novo WhatsApp" quanto pelo clique num número de
+// telefone detectado dentro do texto de uma mensagem (ver
+// components/linked-chat-text.tsx), em mais de uma tela (ChatWidget e o
+// preview de conversa em chat-management/page.tsx), daí viver aqui em vez
+// de dentro de um componente. Uma única chamada a create-session: achar
+// sessão existente, casar telefone com funcionário/cliente cadastrado (pra
+// nome/empresa corretos) e criar/atualizar tudo roda no servidor, dentro do
+// mesmo lock (ver app/api/chats/route.ts) — nada disso é decidido aqui, só
+// repassamos o telefone e lemos de volta o que o servidor resolveu
+// (`reused`), em vez de fazer 2-3 requisições prévias (getSessions() sem
+// filtro chega a trazer TODAS as sessões abertas com mensagens, pesado à
+// toa) que ainda corriam risco de o widget ler o resultado antes de pronto.
+export async function resolveChatSessionForPhone(
+  rawNumber: string,
+  displayName?: string
+): Promise<{ sessionId: string; reopened: boolean } | { error: string }> {
+  // normalizeBrazilianPhoneDigits já resolve "0" de tronco, DDD/prefixo
+  // redundante colado antes do "55" e a adição do "55" quando falta — ver
+  // lib/utils.ts. Checa o tamanho DEPOIS de normalizar (não antes): boa
+  // parte do que corrigimos ali só parece "grande demais" antes de limpar.
+  const phone = normalizeBrazilianPhoneDigits(rawNumber.replace(/\D/g, ''));
+  if (phone.length > 13) {
+    return { error: 'Use o número de telefone (ex: 21991778567), não o ID interno do WhatsApp.' };
   }
-  return [...variants];
-}
 
-function isLikelyDialablePhone(digits: string): boolean {
-  return digits.startsWith('55') && digits.length >= 12 && digits.length <= 13;
-}
-
-export async function findExistingChatSessionByPhone(phone: string): Promise<string | null> {
-  const sessions = await ChatService.getSessions();
-  const variants = phoneSessionLookupVariants(phone);
-  if (!variants.length) return null;
-
-  const match = sessions
-    .filter(s => variants.includes(normalizePhone(s.customerPhone || '')))
-    .sort((a, b) => new Date(b.lastMessageAt).getTime() - new Date(a.lastMessageAt).getTime());
-
-  if (!match.length) return null;
-
-  const dialable = match.find(s => isLikelyDialablePhone(normalizePhone(s.customerPhone || '')));
-  return (dialable || match[0]).id;
+  try {
+    const res = await fetch('/api/chats', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        action: 'create-session',
+        // customerName de propósito ausente quando não informado: deixa o
+        // servidor tentar casar por telefone com um perfil cadastrado antes
+        // de cair no fallback "nome = telefone" (ver app/api/chats/route.ts).
+        session: {
+          customerName: displayName || undefined,
+          customerPhone: phone,
+          status: 'active',
+          startedAt: new Date().toISOString()
+        }
+      })
+    });
+    const body = await res.json().catch(() => ({}));
+    if (!res.ok) {
+      return { error: body.error || 'Erro ao iniciar conversa.' };
+    }
+    return { sessionId: body.id, reopened: !!body.reused };
+  } catch (err: any) {
+    console.error('Error resolving chat session for phone:', err);
+    return { error: 'Erro ao iniciar conversa.' };
+  }
 }
 
 export interface PhoneMatchedProfile {
@@ -266,63 +290,88 @@ export interface PhoneMatchedProfile {
   companyName: string | null;
 }
 
-// Funcionário/cliente já cadastrado com esse telefone (profiles.phone) —
-// usado por resolveChatSessionForPhone abaixo pra abrir a conversa já com
-// nome/empresa certos em vez de um contato "anônimo" só com o número.
-export async function findProfileByPhone(phone: string): Promise<PhoneMatchedProfile | null> {
+export interface ActiveSessionInfo {
+  id: string;
+  customerId: string | null;
+  customerName: string | null;
+  customerPhone: string | null;
+  assigneeId: string | null;
+  assigneeName: string | null;
+  startedAt: string;
+  lastMessageAt: string;
+}
+
+export interface ContactLookupResult {
+  profile: PhoneMatchedProfile | null;
+  activeSession: ActiveSessionInfo | null;
+}
+
+// Leitura pura pro painel de confirmação (ver components/phone-contact-panel.tsx)
+// — não acha/cria sessão nenhuma, só diz o que existe pra esse telefone.
+export async function getContactLookup(phone: string): Promise<ContactLookupResult> {
   try {
-    const res = await fetch(`/api/chats?action=find-profile-by-phone&phone=${encodeURIComponent(phone)}`);
-    if (!res.ok) return null;
+    const res = await fetch(`/api/chats?action=contact-lookup&phone=${encodeURIComponent(phone)}`);
+    if (!res.ok) return { profile: null, activeSession: null };
     return await res.json();
-  } catch {
-    return null;
+  } catch (err) {
+    console.error('Error looking up contact by phone:', err);
+    return { profile: null, activeSession: null };
   }
 }
 
-// Acha/retoma ou cria a sessão de WhatsApp pro número informado — usado
-// tanto pelo modal manual "Novo WhatsApp" quanto pelo clique num número de
-// telefone detectado dentro do texto de uma mensagem (ver
-// components/linked-chat-text.tsx), em mais de uma tela (ChatWidget e o
-// preview de conversa em chat-management/page.tsx), daí viver aqui em vez
-// de dentro de um componente. Cada chamador decide o que fazer com o
-// resultado (selecionar localmente, ou entregar pro widget global).
-export async function resolveChatSessionForPhone(
-  rawNumber: string,
-  displayName?: string
-): Promise<{ sessionId: string; reopened: boolean } | { error: string }> {
-  const digits = rawNumber.replace(/\D/g, '');
-  if (digits.length >= 14) {
-    return { error: 'Use o número de telefone (ex: 21991778567), não o ID interno do WhatsApp.' };
-  }
-  const phone = digits.length <= 11 && !digits.startsWith('55') ? `55${digits}` : digits;
+// Encerra a sessão informada (salva transcript completo em chat_histories,
+// mesmo formato de handleDuplicateChat em chat-widget.tsx) e abre uma nova
+// pro mesmo contato — usado tanto por "Duplicar conversa" (dentro de um chat
+// já aberto) quanto pelo botão "Encerrar e iniciar nova" do painel de
+// contato, quando o telefone clicado já tem uma conversa em andamento.
+export async function closeAndStartFreshSession(
+  session: { id: string; customerId?: string | null; customerName?: string | null; customerPhone?: string | null; assigneeId?: string | null; startedAt: string },
+  currentUserId: string
+): Promise<string> {
+  const { messages } = await fetchSessionMessages(session.id);
 
-  // Só busca perfil quando ninguém já disse o nome explicitamente (modal
-  // manual com nome preenchido continua respeitando o que a pessoa digitou).
-  const matchedProfile = displayName ? null : await findProfileByPhone(phone);
-  const customerName = displayName || matchedProfile?.name || phone;
-  const customerId = matchedProfile?.id;
+  const formattedChatLog = messages.map(m => {
+    const time = new Date(m.timestamp).toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' });
+    return `[${time}] ${m.senderName}: ${m.text}`;
+  }).join('\n');
+  const chatHistoryText = `===== HISTÓRICO DO CHAT =====\n${formattedChatLog}\n===== FIM DO HISTÓRICO =====\n\nConversa encerrada em: ${new Date().toLocaleString('pt-BR')} (novo atendimento aberto para o mesmo contato)`;
 
-  const existingSessionId = await findExistingChatSessionByPhone(phone);
-  if (existingSessionId) {
-    const sessionId = await createChatSession({
-      id: existingSessionId,
-      customerId,
-      customerName,
-      customerPhone: phone,
-      status: 'active',
-      startedAt: new Date().toISOString()
-    } as any);
-    return { sessionId, reopened: true };
-  }
+  const startedAt = session.startedAt ? new Date(session.startedAt) : new Date();
+  const finishedAt = new Date();
+  const durationSeconds = Math.floor((finishedAt.getTime() - startedAt.getTime()) / 1000);
 
-  const sessionId = await createChatSession({
-    customerId,
-    customerName,
-    customerPhone: phone,
+  const firstAnalystMsg = messages.find(m =>
+    m.senderId !== session.customerId &&
+    m.type !== 'system' &&
+    m.text &&
+    !m.text.includes('criou o grupo')
+  );
+  const firstResponseSeconds = firstAnalystMsg?.timestamp
+    ? Math.floor((new Date(firstAnalystMsg.timestamp).getTime() - startedAt.getTime()) / 1000)
+    : undefined;
+
+  await saveChatHistory({
+    sessionId: session.id,
+    customerId: session.customerId,
+    customerName: session.customerName,
+    customerPhone: session.customerPhone,
+    assigneeId: session.assigneeId || currentUserId,
+    startedAt: startedAt.toISOString(),
+    finishedAt: finishedAt.toISOString(),
+    durationSeconds,
+    firstResponseSeconds,
+    transcript: chatHistoryText
+  });
+
+  await closeChatSessionAfterTicket(session.id, null);
+
+  return createChatSession({
+    customerId: session.customerId,
+    customerName: session.customerName,
+    customerPhone: session.customerPhone,
     status: 'active',
     startedAt: new Date().toISOString()
   } as any);
-  return { sessionId, reopened: false };
 }
 
 export async function fetchChatSessions(signal?: AbortSignal, userId?: string): Promise<ChatSession[]> {

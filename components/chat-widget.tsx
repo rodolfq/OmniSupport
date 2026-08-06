@@ -63,6 +63,7 @@ import { supabase } from '@/lib/supabase';
 import { useSearchParams } from 'next/navigation';
 import { LinkContactModal } from '@/components/link-contact-modal';
 import { renderLinkedText } from '@/components/linked-chat-text';
+import { PhoneContactPanel } from '@/components/phone-contact-panel';
 import { ClientTime } from '@/components/client-time';
 import { AssignChatMenu } from '@/components/assign-chat-menu';
 import { AudioPlayer } from '@/components/audio-player';
@@ -170,6 +171,10 @@ export function ChatWidget() {
   const isMobileViewport = useIsMobile();
 
   const [customerSessions, setCustomerSessions] = useState<ChatSession[]>([]);
+  // Telefone clicado dentro de uma mensagem (ver renderLinkedText abaixo) —
+  // não abre mais a conversa direto, mostra o painel de confirmação
+  // (components/phone-contact-panel.tsx) primeiro.
+  const [phoneContactPanelPhone, setPhoneContactPanelPhone] = useState<string | null>(null);
   const [sessionsLoaded, setSessionsLoaded] = useState(false);
   // "Fulano está digitando..." (SSE, ver useEffect do EventSource abaixo) —
   // só a conversa aberta importa, por isso um único nome basta (não um mapa
@@ -2436,7 +2441,7 @@ useEffect(() => {
                                 {m.senderName}:
                               </p>
                             )}
-                            {renderLinkedText(m.text, isOwnMessage, isCustomer ? undefined : (phone) => openChatForPhone(phone))}
+                            {renderLinkedText(m.text, isOwnMessage, isCustomer ? undefined : (phone) => setPhoneContactPanelPhone(phone))}
                             {attachments.length > 0 && (
                               <div className="mt-3 space-y-2 whitespace-normal">
                                 {attachments.map((attachment: Attachment) => {
@@ -2813,7 +2818,7 @@ useEffect(() => {
                           }
                         }}
                         placeholder="Digite uma mensagem..."
-                        className="flex-1 min-w-0 bg-[var(--surface-card)] border border-[var(--border-default)] rounded-2xl px-4 py-3.5 text-base font-bold focus:ring-4 focus:ring-[var(--accent)]/10 outline-none transition-all resize-none leading-relaxed"
+                        className="flex-1 min-w-0 bg-[var(--surface-card)] border border-[var(--border-default)] rounded-2xl px-4 py-3.5 text-base font-bold focus:ring-4 focus:ring-[var(--accent)]/10 outline-none transition-all resize-none leading-relaxed placeholder:text-sm placeholder:font-medium placeholder:whitespace-nowrap"
                       />
                       <button
                         type="submit"
@@ -3107,6 +3112,18 @@ useEffect(() => {
           fetchChatSessions().then(setCustomerSessions);
         }}
       />
+
+      {currentUser && (
+        <PhoneContactPanel
+          phone={phoneContactPanelPhone}
+          onClose={() => setPhoneContactPanelPhone(null)}
+          onOpenChat={(sessionId) => {
+            setSelectedChatId(sessionId);
+            fetchChatSessions().then(setCustomerSessions);
+          }}
+          currentUserId={currentUser.id}
+        />
+      )}
 
       {/* Launcher Button — escondido no mobile: a bolha pra abrir já é
           redundante com a aba "Chat" da bottom nav (mobile-bottom-nav.tsx,

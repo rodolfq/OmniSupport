@@ -17,6 +17,49 @@ export function normalizePhone(phone: string) {
   return phone.replace(/\D/g, "");
 }
 
+// Alguns contatos digitam um "0" de tronco antes do DDD (convenção antiga
+// de discagem, ex.: "021991778567", "(021) 99177-8567") — nenhum DDD
+// brasileiro de verdade começa com 0 (vão de 11 a 99), então um "0" líder
+// aqui só pode ser esse prefixo, nunca parte do DDD. Removido antes de
+// decidir se falta o "55" na frente (ver resolveChatSessionForPhone em
+// lib/services/chat-service.ts e phoneLookupVariants em
+// app/api/chats/route.ts) — sem isso, o número normalizado ficava com um
+// dígito a mais e nunca batia com o telefone de verdade cadastrado.
+export function stripTrunkPrefix(digits: string): string {
+  if (digits.startsWith('0') && (digits.length === 11 || digits.length === 12)) {
+    return digits.slice(1);
+  }
+  return digits;
+}
+
+// Forma canônica de um telefone brasileiro pra busca/criação de conversa —
+// sempre "55" + DDD(2) + assinante(8 ou 9), a partir de dígitos já
+// limpos (ver normalizePhone). Junta duas correções, nessa ordem:
+// 1) stripTrunkPrefix (o "0" de tronco antes do DDD).
+// 2) Dígitos a mais logo depois do "55" — alguém copia/cola um número já
+//    com DDI e ainda sobra um DDD/prefixo redundante na frente (ex.:
+//    "551121991778567" → o número de verdade é só os últimos 11 dígitos,
+//    "21991778567"). Só corrige até 4 dígitos de excesso (total ≤ 17): além
+//    disso é bem mais provável ser outra coisa (ID interno do WhatsApp,
+//    protocolo) do que telefone de verdade, então preferimos deixar
+//    "grande demais" pro chamador rejeitar em vez de inventar um número.
+// Quando ainda não tem "55" e cabe em 11 dígitos (DDD+assinante sozinho),
+// completa o prefixo.
+export function normalizeBrazilianPhoneDigits(rawDigits: string): string {
+  let digits = stripTrunkPrefix(rawDigits);
+
+  if (digits.startsWith('55') && digits.length > 13 && digits.length <= 17) {
+    const excess = digits.length - 13;
+    digits = `55${digits.slice(2 + excess)}`;
+  }
+
+  if (digits.length <= 11 && !digits.startsWith('55')) {
+    digits = `55${digits}`;
+  }
+
+  return digits;
+}
+
 export function matchPhones(p1: string | undefined, p2: string | undefined): boolean {
   if (!p1 || !p2) return false;
   

@@ -1,36 +1,67 @@
 'use client';
 
-import React, { useState } from 'react';
+import React, { useEffect, useState } from 'react';
 import { X, UserPlus, Mail, Phone, Plus } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import { createUser } from '@/app/actions';
-import { UserRole } from '@/lib/types';
+import { UserRole, Company } from '@/lib/types';
 import { maskPhone } from '@/lib/utils';
+import { useCompaniesQuery } from '@/lib/query-hooks';
+import { StyledSelect } from '@/components/styled-select';
 
-export function NewEmployeeModal({ isOpen, onClose, companyId, onSuccess }: { isOpen: boolean, onClose: () => void, companyId?: string, onSuccess?: () => void }) {
+export function NewEmployeeModal({ isOpen, onClose, companyId, initialPhone, onSuccess }: { isOpen: boolean, onClose: () => void, companyId?: string, initialPhone?: string, onSuccess?: () => void }) {
   const [name, setName] = useState('');
   const [email, setEmail] = useState('');
   const [phones, setPhones] = useState<string[]>(['']);
+  // Só busca a lista de empresas quando o modal precisa escolher uma
+  // sozinho (companyId não veio pronto de quem abriu, ex.: painel de
+  // contato do telefone, ver components/phone-contact-panel.tsx) — quando
+  // já vem de uma tela de empresa específica (customers/page.tsx), nem
+  // monta esse select.
+  const needsCompanyPicker = !companyId;
+  const [selectedCompanyId, setSelectedCompanyId] = useState('');
+  const { data: companiesData } = useCompaniesQuery({ enabled: isOpen && needsCompanyPicker });
+  const companies = React.useMemo(
+    () => ([...(companiesData || [])] as Company[]).sort((a, b) => a.name.localeCompare(b.name)),
+    [companiesData]
+  );
 
   const [loading, setLoading] = useState(false);
   const [saveSuccess, setSaveSuccess] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
+  // Reseta a cada abertura — mesmo raciocínio de NewTicketModal (sem isso,
+  // reabrir mostra os valores da última vez).
+  useEffect(() => {
+    if (!isOpen) return;
+    setName('');
+    setEmail('');
+    setPhones([initialPhone || '']);
+    setSelectedCompanyId('');
+    setError(null);
+  }, [isOpen, initialPhone]);
+
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     if (loading) return;
-    
+
+    const effectiveCompanyId = companyId || selectedCompanyId || null;
+    if (needsCompanyPicker && !effectiveCompanyId) {
+      setError('Selecione uma empresa.');
+      return;
+    }
+
     setLoading(true);
     setError(null);
-    
+
     try {
       // Adjust role: if companyId is present, it's a employee (Funcionário), otherwise it's support (Equipe)
-      const role = companyId ? UserRole.EMPLOYEE : UserRole.SUPPORT;
+      const role = effectiveCompanyId ? UserRole.EMPLOYEE : UserRole.SUPPORT;
       const result = await createUser(
         email,
         name,
         role,
-        companyId || null,
+        effectiveCompanyId,
         phones,
         // Funcionário sempre enxerga só os próprios chamados — sem opção de
         // ver todos os chamados da empresa nesta tela (ver ROADMAP/pedido).
@@ -96,6 +127,23 @@ export function NewEmployeeModal({ isOpen, onClose, companyId, onSuccess }: { is
             </div>
 
             <form onSubmit={handleSubmit} className="p-8 space-y-5">
+              {needsCompanyPicker && (
+                <div className="space-y-2">
+                  <label className="text-[10px] font-semibold uppercase tracking-widest text-[var(--text-tertiary)] ml-1">Empresa</label>
+                  <StyledSelect
+                    value={selectedCompanyId}
+                    onChange={(e) => setSelectedCompanyId(e.target.value)}
+                    className="w-full bg-[var(--surface-card)] border border-[var(--border-default)] rounded-xl px-4 py-3 text-sm font-medium focus:ring-2 focus:ring-[var(--accent)]/20 focus:border-[var(--accent)] outline-none transition-all appearance-none"
+                    required
+                  >
+                    <option value="">Selecione uma empresa</option>
+                    {companies.map((c) => (
+                      <option key={c.id} value={c.id}>{c.name}</option>
+                    ))}
+                  </StyledSelect>
+                </div>
+              )}
+
               <div className="space-y-2">
                 <label className="text-[10px] font-semibold uppercase tracking-widest text-[var(--text-tertiary)] ml-1">Nome Completo</label>
                 <input
