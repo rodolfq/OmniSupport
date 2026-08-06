@@ -1768,6 +1768,9 @@ export async function getAssistantConfig() {
     const [effective, raw] = await Promise.all([getEffectiveAssistantConfig(), getRawAssistantSettings()]);
     return {
       groqApiKeyConfigured: !!process.env.GROQ_API_KEY,
+      // Booleano só (ver getRawAssistantSettings) — o valor da chave em si
+      // nunca sai do servidor.
+      groqApiKeyOverrideConfigured: raw.groqApiKeyOverrideConfigured,
       embeddingsEnabledInEnv: isEmbeddingEnabled(),
       defaultSystemInstruction: DEFAULT_SYSTEM_INSTRUCTION,
       effectiveSystemPrompt: effective.systemPrompt,
@@ -1795,7 +1798,11 @@ export async function saveAssistantConfig(
   dissatisfactionDetectorEnabled: boolean | null,
   dissatisfactionExtraInstructions: string | null,
   avatarSource: string | null,
-  avatarCropOverrides: AvatarCropOverrides | null
+  avatarCropOverrides: AvatarCropOverrides | null,
+  // Tri-state (ver ai-assistant-config-service.ts saveAssistantConfig):
+  // omitido/undefined = não mexe na chave salva; null = remove o override
+  // (volta a usar GROQ_API_KEY do .env); string = troca pra essa chave nova.
+  groqApiKey?: string | null
 ) {
   try {
     const check = await assertCanManageAssistant();
@@ -1803,7 +1810,7 @@ export async function saveAssistantConfig(
     const { actor } = check;
 
     await saveAssistantConfigService(actor.id, actor.name, {
-      systemPrompt, model, semanticSearchEnabled, dissatisfactionDetectorEnabled, dissatisfactionExtraInstructions, avatarSource, avatarCropOverrides
+      systemPrompt, model, semanticSearchEnabled, dissatisfactionDetectorEnabled, dissatisfactionExtraInstructions, avatarSource, avatarCropOverrides, groqApiKey
     });
     return { success: true };
   } catch (err: any) {

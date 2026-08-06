@@ -1,5 +1,6 @@
 import { query } from '@/lib/db';
 import { getGroqClient, GROQ_MODEL_NAME } from '@/lib/groq-client';
+import { getEffectiveAssistantConfig } from './ai-assistant-config-service';
 
 // "Chat Resumido" — item 6 do ROADMAP_MELHORIAS_2.md. Resumo gerado por IA
 // (Groq, mesmo provedor do Agente de IA) de uma conversa já encerrada
@@ -59,10 +60,12 @@ export async function getOrGenerateChatSummary(historyId: string): Promise<ChatS
     throw new ChatSummaryGenerationError('Esta conversa não tem transcrição registrada para resumir.');
   }
 
-  // getGroqClient() lança AssistantNotConfiguredError se GROQ_API_KEY não
-  // estiver setada — propagada pro chamador (rota da API), não capturada
-  // aqui, pra virar um 503 com mensagem clara em vez de "falha genérica".
-  const client = getGroqClient();
+  // getGroqClient() lança AssistantNotConfiguredError se nem o override de
+  // Configurações > Agente de IA nem GROQ_API_KEY estiverem setados —
+  // propagada pro chamador (rota da API), não capturada aqui, pra virar um
+  // 503 com mensagem clara em vez de "falha genérica".
+  const { groqApiKey } = await getEffectiveAssistantConfig();
+  const client = getGroqClient(groqApiKey);
 
   const completion = await client.chat.completions.create({
     model: GROQ_MODEL_NAME,

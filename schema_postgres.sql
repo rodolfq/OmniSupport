@@ -282,6 +282,9 @@ CREATE TABLE public.ai_assistant_settings (
   dissatisfaction_extra_instructions TEXT,
   avatar_source TEXT,
   avatar_crop_overrides JSONB,
+  -- Chave Groq trocável por aqui (Configurações > Agente de IA), sem editar
+  -- o .env — NULL = usa GROQ_API_KEY do ambiente (ver lib/groq-client.ts).
+  groq_api_key TEXT,
   updated_at TIMESTAMP WITH TIME ZONE DEFAULT now() NOT NULL,
   updated_by UUID REFERENCES public.profiles(id) ON DELETE SET NULL,
   CONSTRAINT ai_assistant_settings_singleton CHECK (id = 1)

@@ -2,7 +2,7 @@
 
 import React, { useEffect, useState } from 'react';
 import Link from 'next/link';
-import { Bot, Save, CheckCircle2, XCircle, RotateCcw, Search, MessageSquareText, Ticket, MessageCircle, Frown, Clock, ListChecks, ArrowUpRight, RefreshCw, History } from 'lucide-react';
+import { Bot, Save, CheckCircle2, XCircle, RotateCcw, Search, MessageSquareText, Ticket, MessageCircle, Frown, Clock, ListChecks, ArrowUpRight, RefreshCw, History, KeyRound, Trash2 } from 'lucide-react';
 import { getAssistantConfig, saveAssistantConfig, getDissatisfactionStats, runDissatisfactionBatchNow } from '@/app/actions';
 import { AiAssistantIcon } from '@/components/ai-assistant-icon';
 import { AiAssistantAvatarCropEditor } from '@/components/ai-assistant-avatar-crop-editor';
@@ -12,6 +12,7 @@ import { toast } from 'sonner';
 
 interface AssistantConfigData {
   groqApiKeyConfigured: boolean;
+  groqApiKeyOverrideConfigured: boolean;
   embeddingsEnabledInEnv: boolean;
   defaultSystemInstruction: string;
   effectiveSystemPrompt: string;
@@ -58,6 +59,12 @@ export function AiAssistantSettingsContent() {
   const [dissatisfactionInstructionsDraft, setDissatisfactionInstructionsDraft] = useState('');
   const [avatarSourceDraft, setAvatarSourceDraft] = useState<AiAssistantAvatarSource>('default');
   const [avatarCropDraft, setAvatarCropDraft] = useState<AvatarCropOverrides>({});
+  // Nunca pré-preenchido com a chave atual (ela não volta do servidor, ver
+  // getRawAssistantSettings) — em branco = "não mexe" no save; "Remover"
+  // marca clearGroqApiKeyOverride, mas digitar uma chave nova sempre vence
+  // (ver cálculo em handleSave).
+  const [groqApiKeyDraft, setGroqApiKeyDraft] = useState('');
+  const [clearGroqApiKeyOverride, setClearGroqApiKeyOverride] = useState(false);
 
   const [stats, setStats] = useState<DissatisfactionStatsData | null>(null);
   const [statsError, setStatsError] = useState<string | null>(null);
@@ -132,6 +139,11 @@ export function AiAssistantSettingsContent() {
       // "customizado" fantasma no banco só porque o texto bate por acaso).
       const promptOverride = promptDraft.trim() && promptDraft.trim() !== data.defaultSystemInstruction.trim() ? promptDraft.trim() : null;
       const modelOverride = modelDraft.trim() || null;
+      // Digitar uma chave nova sempre vence sobre "Remover" marcado por
+      // engano antes; em branco e sem "Remover" = undefined = não mexe.
+      const groqApiKeyUpdate = groqApiKeyDraft.trim()
+        ? groqApiKeyDraft.trim()
+        : clearGroqApiKeyOverride ? null : undefined;
       const result = await saveAssistantConfig(
         promptOverride,
         modelOverride,
@@ -139,10 +151,13 @@ export function AiAssistantSettingsContent() {
         dissatisfactionEnabledDraft,
         dissatisfactionInstructionsDraft.trim() || null,
         avatarSourceDraft,
-        avatarCropDraft
+        avatarCropDraft,
+        groqApiKeyUpdate
       );
       if ('error' in result && result.error) throw new Error(result.error);
       toast.success('Configuração do Agente de IA salva!');
+      setGroqApiKeyDraft('');
+      setClearGroqApiKeyOverride(false);
       const refreshed = await getAssistantConfig();
       if (!('error' in refreshed)) {
         const cfg = refreshed as AssistantConfigData;
@@ -330,10 +345,10 @@ export function AiAssistantSettingsContent() {
 
         <div className="grid grid-cols-1 md:grid-cols-3 gap-4 pt-2 border-t border-[var(--border-default)]">
           <div className="pt-4 space-y-1">
-            <p className="text-[9px] font-black uppercase tracking-widest text-[var(--text-tertiary)]">Chave Groq (GROQ_API_KEY)</p>
-            <p className={cn("text-xs font-bold flex items-center gap-1.5", data.groqApiKeyConfigured ? "text-[var(--text-success)]" : "text-[var(--text-danger)]")}>
-              {data.groqApiKeyConfigured ? <CheckCircle2 size={13} /> : <XCircle size={13} />}
-              {data.groqApiKeyConfigured ? 'Configurada' : 'Não configurada'}
+            <p className="text-[9px] font-black uppercase tracking-widest text-[var(--text-tertiary)]">Chave Groq</p>
+            <p className={cn("text-xs font-bold flex items-center gap-1.5", (data.groqApiKeyOverrideConfigured || data.groqApiKeyConfigured) ? "text-[var(--text-success)]" : "text-[var(--text-danger)]")}>
+              {(data.groqApiKeyOverrideConfigured || data.groqApiKeyConfigured) ? <CheckCircle2 size={13} /> : <XCircle size={13} />}
+              {data.groqApiKeyOverrideConfigured ? 'Customizada (Configurações)' : data.groqApiKeyConfigured ? 'Configurada (.env)' : 'Não configurada'}
             </p>
           </div>
           <div className="pt-4 space-y-1">
@@ -347,6 +362,54 @@ export function AiAssistantSettingsContent() {
               {data.effectiveSemanticSearchEnabled ? 'Ligada' : embeddingsToggleDisabled ? 'Desligada neste servidor' : 'Desligada'}
             </p>
           </div>
+        </div>
+
+        {/* Trocar a chave Groq — sobrescreve o GROQ_API_KEY do .env sem
+            precisar editar arquivo nem redeployar (ver lib/groq-client.ts).
+            A chave atual nunca é reenviada pro browser (nem mascarada) —
+            este campo é sempre "escreva pra trocar", nunca mostra o valor
+            salvo. Ficou "atingiu o limite"/"não foi possível falar com o
+            assistente" no widget quando a chave configurada foi rejeitada
+            pelo provedor (ver app/api/ai-assistant/route.ts) — trocar por
+            aqui é o jeito rápido de recuperar sem depender de deploy. */}
+        <div className="pt-4 border-t border-[var(--border-default)] space-y-2">
+          <label className="text-[10px] font-black uppercase tracking-widest text-[var(--text-tertiary)] ml-1 flex items-center gap-1.5">
+            <KeyRound size={12} /> Trocar chave da API Groq
+          </label>
+          <div className="flex items-center gap-2 max-w-md">
+            <input
+              type="password"
+              autoComplete="off"
+              value={groqApiKeyDraft}
+              onChange={(e) => { setGroqApiKeyDraft(e.target.value); if (e.target.value) setClearGroqApiKeyOverride(false); }}
+              placeholder={data.groqApiKeyOverrideConfigured ? 'Já customizada — digite uma nova pra trocar' : 'gsk_... (deixe em branco pra manter a do .env)'}
+              className="flex-1 bg-[var(--surface-card)] border border-[var(--border-default)] rounded-xl px-4 py-3 text-sm font-mono focus:ring-2 focus:ring-[var(--accent)]/20 focus:border-[var(--accent)] outline-none transition-all"
+            />
+            {data.groqApiKeyOverrideConfigured && (
+              <button
+                type="button"
+                onClick={() => { setClearGroqApiKeyOverride(v => !v); setGroqApiKeyDraft(''); }}
+                title="Remover a chave customizada — volta a usar GROQ_API_KEY do .env"
+                className={cn(
+                  "shrink-0 p-3 rounded-xl border transition-all",
+                  clearGroqApiKeyOverride
+                    ? "bg-[var(--surface-danger)] border-[var(--border-alert)] text-[var(--text-danger)]"
+                    : "border-[var(--border-default)] text-[var(--text-tertiary)] hover:text-[var(--text-danger)] hover:bg-[var(--surface-danger)]"
+                )}
+              >
+                <Trash2 size={16} />
+              </button>
+            )}
+          </div>
+          {clearGroqApiKeyOverride && !groqApiKeyDraft && (
+            <p className="text-[10px] font-bold text-[var(--text-warning)] uppercase tracking-widest">
+              Marcado pra remover — ao salvar, volta a usar a chave do .env deste servidor.
+            </p>
+          )}
+          <p className="text-[10px] text-[var(--text-tertiary)] font-medium">
+            Nunca mostrada de novo depois de salva, por segurança — gere uma chave nova em{' '}
+            <a href="https://console.groq.com/keys" target="_blank" rel="noopener noreferrer" className="text-[var(--accent-text)] underline">console.groq.com/keys</a>.
+          </p>
         </div>
       </div>
 

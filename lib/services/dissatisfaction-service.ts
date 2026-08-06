@@ -228,7 +228,7 @@ export async function processDissatisfactionQueueBatch(limit: number, options?: 
 
   let client: ReturnType<typeof getGroqClient>;
   try {
-    client = getGroqClient();
+    client = getGroqClient(config.groqApiKey);
   } catch (err) {
     if (err instanceof AssistantNotConfiguredError) {
       console.warn('[dissatisfaction-service] GROQ_API_KEY não configurada — fila não processada nesta rodada.');

@@ -9,8 +9,12 @@ export class AssistantNotConfiguredError extends Error {}
 
 export const GROQ_MODEL_NAME = process.env.GROQ_MODEL || 'llama-3.3-70b-versatile';
 
-export function getGroqClient(): Groq {
-  const apiKey = process.env.GROQ_API_KEY;
+// `apiKeyOverride` vem de ai_assistant_settings.groq_api_key (ver
+// lib/services/ai-assistant-config-service.ts) — chave trocável em
+// Configurações > Agente de IA sem precisar editar o .env nem redeployar.
+// NULL/vazio = comportamento de sempre, cai pro GROQ_API_KEY do ambiente.
+export function getGroqClient(apiKeyOverride?: string | null): Groq {
+  const apiKey = apiKeyOverride || process.env.GROQ_API_KEY;
   if (!apiKey) {
     throw new AssistantNotConfiguredError('GROQ_API_KEY não configurada — ver seção 4 do CLAUDE.md.');
   }

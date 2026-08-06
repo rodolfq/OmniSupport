@@ -195,14 +195,17 @@ async function searchTickets(args: any) {
   const conditions: string[] = [];
   const params: any[] = [];
   let i = 1;
-  // Full-text (search_vector, ver migrations/fulltext_search.sql) em vez de
-  // ILIKE '%termo%' — ranking por relevância (ts_rank) sem custo de API nem
-  // modelo local, ao contrário da busca semântica (desligada de propósito).
+  // Full-text (search_vector, ver migrations/fulltext_search.sql) COM
+  // fallback ILIKE '%termo%' no OR — full-text sozinho (só tentado antes)
+  // não casa substring nenhuma: buscar um telefone parcial ("999999999"
+  // dentro de "5521999999999"), pedaço de protocolo ou termo fora do
+  // dicionário pt-BR voltava vazio, mesmo com o chamado existindo. Full-text
+  // ainda manda no ranking (ts_rank) quando bate; ILIKE só amplia recall.
   let queryParamIndex: number | null = null;
   if (args?.query) {
     queryParamIndex = i;
-    conditions.push(`t.search_vector @@ websearch_to_tsquery('portuguese', $${i})`);
-    params.push(args.query); i++;
+    conditions.push(`(t.search_vector @@ websearch_to_tsquery('portuguese', $${i}) OR t.title ILIKE $${i + 1} OR t.description ILIKE $${i + 1})`);
+    params.push(args.query, `%${args.query}%`); i += 2;
   }
   if (args?.companyName) { conditions.push(`c.name ILIKE $${i}`); params.push(`%${args.companyName}%`); i++; }
   if (args?.status) { conditions.push(`t.status = $${i}`); params.push(args.status); i++; }
@@ -289,12 +292,12 @@ async function searchInternalTickets(args: any) {
   const conditions: string[] = [];
   const params: any[] = [];
   let i = 1;
-  // Full-text (search_vector) — mesmo raciocínio de searchTickets acima.
+  // Full-text + fallback ILIKE — mesmo raciocínio de searchTickets acima.
   let queryParamIndex: number | null = null;
   if (args?.query) {
     queryParamIndex = i;
-    conditions.push(`it.search_vector @@ websearch_to_tsquery('portuguese', $${i})`);
-    params.push(args.query); i++;
+    conditions.push(`(it.search_vector @@ websearch_to_tsquery('portuguese', $${i}) OR it.title ILIKE $${i + 1} OR it.description ILIKE $${i + 1})`);
+    params.push(args.query, `%${args.query}%`); i += 2;
   }
   if (args?.teamName) { conditions.push(`team.name ILIKE $${i}`); params.push(`%${args.teamName}%`); i++; }
   if (args?.status) { conditions.push(`it.status = $${i}`); params.push(args.status); i++; }
@@ -374,12 +377,12 @@ async function searchClientChats(args: any) {
   const conditions: string[] = [`m.type NOT IN ('system')`, `m.text IS NOT NULL`];
   const params: any[] = [];
   let i = 1;
-  // Full-text (search_vector) — mesmo raciocínio de searchTickets acima.
+  // Full-text + fallback ILIKE — mesmo raciocínio de searchTickets acima.
   let queryParamIndex: number | null = null;
   if (args?.query) {
     queryParamIndex = i;
-    conditions.push(`m.search_vector @@ websearch_to_tsquery('portuguese', $${i})`);
-    params.push(args.query); i++;
+    conditions.push(`(m.search_vector @@ websearch_to_tsquery('portuguese', $${i}) OR m.text ILIKE $${i + 1})`);
+    params.push(args.query, `%${args.query}%`); i += 2;
   }
   if (args?.customerName) { conditions.push(`s.customer_name ILIKE $${i}`); params.push(`%${args.customerName}%`); i++; }
   if (args?.companyName) { conditions.push(`comp.name ILIKE $${i}`); params.push(`%${args.companyName}%`); i++; }
@@ -414,12 +417,12 @@ async function searchInternalChats(args: any) {
   const conditions: string[] = [`m.type NOT IN ('system')`, `m.text IS NOT NULL`];
   const params: any[] = [];
   let i = 1;
-  // Full-text (search_vector) — mesmo raciocínio de searchTickets acima.
+  // Full-text + fallback ILIKE — mesmo raciocínio de searchTickets acima.
   let queryParamIndex: number | null = null;
   if (args?.query) {
     queryParamIndex = i;
-    conditions.push(`m.search_vector @@ websearch_to_tsquery('portuguese', $${i})`);
-    params.push(args.query); i++;
+    conditions.push(`(m.search_vector @@ websearch_to_tsquery('portuguese', $${i}) OR m.text ILIKE $${i + 1})`);
+    params.push(args.query, `%${args.query}%`); i += 2;
   }
   const where = `WHERE ${conditions.join(' AND ')}`;
   const orderBy = queryParamIndex !== null
@@ -560,12 +563,13 @@ export async function askAssistant(params: {
   message: string;
   history: AssistantChatMessage[];
 }): Promise<AssistantResult> {
-  const client = getClient();
-  // Prompt/modelo/busca semântica podem ter sido customizados na aba
+  // Prompt/modelo/busca semântica/chave podem ter sido customizados na aba
   // "Agente de IA" de Configurações (ver ai-assistant-config-service.ts) —
   // resolvido a cada pergunta pra pegar mudanças sem precisar reiniciar o
-  // servidor.
+  // servidor. Config antes do client: se a chave foi trocada por lá, o
+  // client tem que nascer com a nova, não com a do .env.
   const config = await getEffectiveAssistantConfig();
+  const client = getClient(config.groqApiKey);
 
   const messages: ChatCompletionMessageParam[] = [
     { role: 'system', content: config.systemPrompt },

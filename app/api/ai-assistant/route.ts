@@ -102,6 +102,20 @@ export async function POST(request: NextRequest) {
       );
     }
 
+    // Chave rejeitada pela API (revogada/copiada errado/trocada sem
+    // atualizar aqui) — "tentar de novo" nunca resolve esse caso, diferente
+    // de uma falha transitória, então merece mensagem própria dizendo o que
+    // fazer. Desde que a chave também pode ser trocada em Configurações >
+    // Agente de IA (sem precisar editar .env nem redeployar, ver
+    // lib/services/ai-assistant-config-service.ts), a mensagem aponta pra
+    // lá primeiro — é o caminho mais rápido pra quem tem acesso ao admin.
+    if (status === 401 || code === 'invalid_api_key') {
+      return NextResponse.json(
+        { error: 'A chave do assistente de IA foi rejeitada pelo provedor. Peça pra um administrador gerar uma chave nova em console.groq.com/keys e trocá-la em Configurações > Agente de IA.' },
+        { status: 503 }
+      );
+    }
+
     return NextResponse.json({ error: 'Não foi possível falar com o assistente agora. Tente de novo em instantes.' }, { status: 502 });
   }
 }

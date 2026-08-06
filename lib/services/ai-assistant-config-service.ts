@@ -40,6 +40,12 @@ export interface EffectiveAssistantConfig {
   dissatisfactionExtraInstructions: string;
   avatarSource: AiAssistantAvatarSource;
   avatarCrop: AvatarCrop;
+  // Chave Groq trocável em Configurações > Agente de IA (ver
+  // lib/groq-client.ts) — NULL = usa GROQ_API_KEY do ambiente. Só pra
+  // consumo interno do servidor (askAssistant, dissatisfaction-service,
+  // chat-summary-service); NUNCA repassar pro client — ver
+  // getRawAssistantSettings abaixo, que só devolve um booleano.
+  groqApiKey: string | null;
 }
 
 interface SettingsRow {
@@ -50,17 +56,18 @@ interface SettingsRow {
   dissatisfaction_extra_instructions: string | null;
   avatar_source: string | null;
   avatar_crop_overrides: AvatarCropOverrides | null;
+  groq_api_key: string | null;
 }
 
 async function fetchSettingsRow(): Promise<SettingsRow> {
   const res = await query(
-    `SELECT system_prompt, model, semantic_search_enabled, dissatisfaction_detector_enabled, dissatisfaction_extra_instructions, avatar_source, avatar_crop_overrides
+    `SELECT system_prompt, model, semantic_search_enabled, dissatisfaction_detector_enabled, dissatisfaction_extra_instructions, avatar_source, avatar_crop_overrides, groq_api_key
      FROM public.ai_assistant_settings WHERE id = 1`
   );
   return res.rows[0] || {
     system_prompt: null, model: null, semantic_search_enabled: null,
     dissatisfaction_detector_enabled: null, dissatisfaction_extra_instructions: null, avatar_source: null,
-    avatar_crop_overrides: null
+    avatar_crop_overrides: null, groq_api_key: null
   };
 }
 
@@ -90,7 +97,8 @@ export async function getEffectiveAssistantConfig(): Promise<EffectiveAssistantC
     avatarCrop: getEffectiveCrop(
       isValidAvatarSource(row.avatar_source) ? row.avatar_source : DEFAULT_AI_ASSISTANT_AVATAR,
       row.avatar_crop_overrides
-    )
+    ),
+    groqApiKey: row.groq_api_key?.trim() || null
   };
 }
 
@@ -101,6 +109,10 @@ export async function getRawAssistantSettings(): Promise<{
   dissatisfactionDetectorEnabled: boolean | null; dissatisfactionExtraInstructions: string | null;
   avatarSource: AiAssistantAvatarSource | null;
   avatarCropOverrides: AvatarCropOverrides;
+  // Booleano só — NUNCA o valor cru aqui. Prompt/modelo acima não são
+  // segredo (por isso voltam como texto pro form de edição), a chave é;
+  // quem chama isso (app/actions.ts) repassa só este flag pro client.
+  groqApiKeyOverrideConfigured: boolean;
 }> {
   const row = await fetchSettingsRow();
   return {
@@ -110,7 +122,8 @@ export async function getRawAssistantSettings(): Promise<{
     dissatisfactionDetectorEnabled: row.dissatisfaction_detector_enabled ?? null,
     dissatisfactionExtraInstructions: row.dissatisfaction_extra_instructions || null,
     avatarSource: isValidAvatarSource(row.avatar_source) ? row.avatar_source : null,
-    avatarCropOverrides: sanitizeCropOverrides(row.avatar_crop_overrides)
+    avatarCropOverrides: sanitizeCropOverrides(row.avatar_crop_overrides),
+    groqApiKeyOverrideConfigured: !!row.groq_api_key?.trim()
   };
 }
 
@@ -122,6 +135,13 @@ export async function saveAssistantConfig(
     dissatisfactionDetectorEnabled: boolean | null; dissatisfactionExtraInstructions: string | null;
     avatarSource: string | null;
     avatarCropOverrides: AvatarCropOverrides | null;
+    // Tri-state, diferente dos campos acima: o form nunca pré-preenche a
+    // chave atual (é segredo, ver getRawAssistantSettings), então "campo em
+    // branco" não pode significar "apagar" — undefined = não mexe na
+    // coluna, null = remove o override (volta a usar o .env), string = novo
+    // valor. Por isso essa coluna entra no UPDATE condicionalmente abaixo,
+    // em vez de sempre no SET fixo como as outras.
+    groqApiKey?: string | null;
   }
 ): Promise<void> {
   // Valor fora do catálogo (lib/ai-assistant-avatar-options.ts) vira NULL
@@ -130,22 +150,29 @@ export async function saveAssistantConfig(
   const avatarSourceToSave = isValidAvatarSource(updates.avatarSource) ? updates.avatarSource : null;
   const cropOverridesToSave = sanitizeCropOverrides(updates.avatarCropOverrides);
 
+  const setClauses = [
+    'system_prompt = $1', 'model = $2', 'semantic_search_enabled = $3',
+    'dissatisfaction_detector_enabled = $4', 'dissatisfaction_extra_instructions = $5',
+    'avatar_source = $6', 'avatar_crop_overrides = $7', 'updated_at = now()', 'updated_by = $8'
+  ];
+  const params: any[] = [
+    updates.systemPrompt?.trim() || null,
+    updates.model?.trim() || null,
+    updates.semanticSearchEnabled,
+    updates.dissatisfactionDetectorEnabled,
+    updates.dissatisfactionExtraInstructions?.trim() || null,
+    avatarSourceToSave,
+    JSON.stringify(cropOverridesToSave),
+    actorId
+  ];
+  if (updates.groqApiKey !== undefined) {
+    params.push(updates.groqApiKey?.trim() || null);
+    setClauses.push(`groq_api_key = $${params.length}`);
+  }
+
   await query(
-    `UPDATE public.ai_assistant_settings
-     SET system_prompt = $1, model = $2, semantic_search_enabled = $3,
-         dissatisfaction_detector_enabled = $4, dissatisfaction_extra_instructions = $5,
-         avatar_source = $6, avatar_crop_overrides = $7, updated_at = now(), updated_by = $8
-     WHERE id = 1`,
-    [
-      updates.systemPrompt?.trim() || null,
-      updates.model?.trim() || null,
-      updates.semanticSearchEnabled,
-      updates.dissatisfactionDetectorEnabled,
-      updates.dissatisfactionExtraInstructions?.trim() || null,
-      avatarSourceToSave,
-      JSON.stringify(cropOverridesToSave),
-      actorId
-    ]
+    `UPDATE public.ai_assistant_settings SET ${setClauses.join(', ')} WHERE id = 1`,
+    params
   );
   logAudit({
     actorId,
@@ -162,7 +189,10 @@ export async function saveAssistantConfig(
       dissatisfactionDetectorEnabled: updates.dissatisfactionDetectorEnabled,
       dissatisfactionExtraInstructionsLength: updates.dissatisfactionExtraInstructions?.trim()?.length || 0,
       avatarSource: avatarSourceToSave,
-      avatarCropOverrides: cropOverridesToSave
+      avatarCropOverrides: cropOverridesToSave,
+      // Nunca logar a chave em si (nem no audit log) — só se a ação foi
+      // "trocar"/"remover"/"sem alteração".
+      groqApiKeyAction: updates.groqApiKey === undefined ? 'unchanged' : updates.groqApiKey ? 'set' : 'cleared'
     }
   });
 }

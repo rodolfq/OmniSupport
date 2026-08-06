@@ -123,8 +123,13 @@ export function AiAssistantWidget() {
       setMessages(prev => [...prev, { role: 'model', text: data.text || '(sem resposta)' }]);
     } catch (err: any) {
       console.error('Erro no assistente de IA:', err);
-      toast.error(err?.message || 'Não foi possível falar com o assistente.');
-      setMessages(prev => [...prev, { role: 'model', text: 'Não consegui responder agora — tenta de novo em instantes.' }]);
+      // Mensagem específica do servidor (ex.: chave rejeitada, limite
+      // diário atingido) tem que aparecer na PRÓPRIA conversa, não só no
+      // toast — toast some sozinho em poucos segundos, e um texto genérico
+      // aqui escondia a causa real de quem não viu o toast a tempo.
+      const errorMessage = err?.message || 'Não consegui responder agora — tenta de novo em instantes.';
+      toast.error(errorMessage);
+      setMessages(prev => [...prev, { role: 'model', text: errorMessage }]);
     } finally {
       setIsSending(false);
       inputRef.current?.focus();
