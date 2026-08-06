@@ -458,6 +458,35 @@ export async function GET(request: NextRequest) {
       })));
     }
 
+    // Usado ao clicar num telefone detectado dentro de uma mensagem (ver
+    // components/linked-chat-text.tsx + resolveChatSessionForPhone em
+    // lib/services/chat-service.ts) — antes de criar uma sessão "anônima"
+    // só com o número, tenta achar um funcionário/cliente já cadastrado com
+    // esse telefone, pra abrir a conversa já com nome e empresa certos em
+    // vez de um contato novo do zero.
+    if (action === 'find-profile-by-phone') {
+      const variants = phoneLookupVariants(searchParams.get('phone'));
+      if (!variants.length) return NextResponse.json(null);
+      const placeholders = variants.map((_, i) => `$${i + 1}`).join(',');
+      const res = await query(
+        `SELECT p.id, p.name, p.role, p.company_id, c.name AS company_name
+         FROM public.profiles p
+         LEFT JOIN public.companies c ON c.id = p.company_id
+         WHERE regexp_replace(COALESCE(p.phone, ''), '\\D', '', 'g') IN (${placeholders})
+         ORDER BY p.created_at ASC
+         LIMIT 1`,
+        variants
+      );
+      const row = res.rows[0];
+      return NextResponse.json(row ? {
+        id: row.id,
+        name: row.name,
+        role: row.role,
+        companyId: row.company_id,
+        companyName: row.company_name
+      } : null);
+    }
+
     if (action === 'internal-chats') {
       const token = request.cookies.get('token')?.value;
       const authenticatedUser = token ? await verifyJWT(token) : null;

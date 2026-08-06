@@ -258,6 +258,27 @@ export async function findExistingChatSessionByPhone(phone: string): Promise<str
   return (dialable || match[0]).id;
 }
 
+export interface PhoneMatchedProfile {
+  id: string;
+  name: string;
+  role: string;
+  companyId: string | null;
+  companyName: string | null;
+}
+
+// Funcionário/cliente já cadastrado com esse telefone (profiles.phone) —
+// usado por resolveChatSessionForPhone abaixo pra abrir a conversa já com
+// nome/empresa certos em vez de um contato "anônimo" só com o número.
+export async function findProfileByPhone(phone: string): Promise<PhoneMatchedProfile | null> {
+  try {
+    const res = await fetch(`/api/chats?action=find-profile-by-phone&phone=${encodeURIComponent(phone)}`);
+    if (!res.ok) return null;
+    return await res.json();
+  } catch {
+    return null;
+  }
+}
+
 // Acha/retoma ou cria a sessão de WhatsApp pro número informado — usado
 // tanto pelo modal manual "Novo WhatsApp" quanto pelo clique num número de
 // telefone detectado dentro do texto de uma mensagem (ver
@@ -275,11 +296,18 @@ export async function resolveChatSessionForPhone(
   }
   const phone = digits.length <= 11 && !digits.startsWith('55') ? `55${digits}` : digits;
 
+  // Só busca perfil quando ninguém já disse o nome explicitamente (modal
+  // manual com nome preenchido continua respeitando o que a pessoa digitou).
+  const matchedProfile = displayName ? null : await findProfileByPhone(phone);
+  const customerName = displayName || matchedProfile?.name || phone;
+  const customerId = matchedProfile?.id;
+
   const existingSessionId = await findExistingChatSessionByPhone(phone);
   if (existingSessionId) {
     const sessionId = await createChatSession({
       id: existingSessionId,
-      customerName: displayName || phone,
+      customerId,
+      customerName,
       customerPhone: phone,
       status: 'active',
       startedAt: new Date().toISOString()
@@ -288,7 +316,8 @@ export async function resolveChatSessionForPhone(
   }
 
   const sessionId = await createChatSession({
-    customerName: displayName || phone,
+    customerId,
+    customerName,
     customerPhone: phone,
     status: 'active',
     startedAt: new Date().toISOString()

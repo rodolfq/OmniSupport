@@ -212,6 +212,20 @@ export function ChatWidget() {
     }
   }, [activeOmniChatId, setIsOmniChatOpen, markNotificationsAsReadByTarget]);
 
+  // Rede de segurança pra quando OUTRO componente manda abrir uma conversa
+  // por aqui sem passar pelo fluxo interno deste widget — ex.: clicar num
+  // telefone dentro de uma mensagem em chat-management/page.tsx ou
+  // chat-internal/page.tsx, que só sabe fazer setActiveOmniChatId +
+  // setIsOmniChatOpen (não tem acesso ao setCustomerSessions local daqui).
+  // Sem isso, uma sessão criada agora mesmo por outra tela não existe ainda
+  // na lista local (só seria pega no próximo poll/SSE), e o painel abria
+  // "vazio" — sem nome, empresa nem histórico, até a próxima atualização.
+  useEffect(() => {
+    if (!activeOmniChatId) return;
+    if (customerSessions.some(s => s.id === activeOmniChatId)) return;
+    fetchChatSessions().then(setCustomerSessions);
+  }, [activeOmniChatId, customerSessions]);
+
   useEffect(() => {
     const chatId = searchParams?.get('chat');
     if (chatId) {
@@ -2798,7 +2812,7 @@ useEffect(() => {
                             handleSendMessage();
                           }
                         }}
-                        placeholder="Resposta padrão '/' para atalhos... (Ctrl+V cola prints e arquivos)"
+                        placeholder="Digite uma mensagem..."
                         className="flex-1 min-w-0 bg-[var(--surface-card)] border border-[var(--border-default)] rounded-2xl px-4 py-3.5 text-base font-bold focus:ring-4 focus:ring-[var(--accent)]/10 outline-none transition-all resize-none leading-relaxed"
                       />
                       <button
