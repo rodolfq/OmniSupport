@@ -8,7 +8,7 @@
 // do runtime do Rive (rive.contents / viewModelInstance.properties) sobre os
 // arquivos em public/rive/, não são um palpite — ver components/
 // ai-assistant-avatar-rive.tsx pra como isso é consumido.
-export type AiAssistantAvatarSource = 'default' | 'expressive-faces' | 'girl-cursor-tracking' | 'vermelha';
+export type AiAssistantAvatarSource = 'default' | 'expressive-faces' | 'vermelha' | 'mulher-05' | 'girl-cursor-tracking';
 
 // Recorte manual sobre o artboard (renderizado com Fit.Cover) — nenhum dos 3
 // arquivos .riv tem fundo transparente nem cara centralizada de fábrica (o
@@ -34,6 +34,11 @@ export interface AiAssistantAvatarOption {
   // null = personagem padrão em SVG (components/ai-assistant-avatar.tsx),
   // não usa Rive nem recorte.
   riveSrc: string | null;
+  // Alternativa ao Rive pra personagens em Lottie (JSON do After Effects/
+  // bodymovin, sem state machine nem view model) — ver components/
+  // ai-assistant-avatar-lottie.tsx. Mutuamente exclusivo com riveSrc: uma
+  // opção nunca tem os dois preenchidos.
+  lottieSrc: string | null;
   // Miniatura estática (PNG) — usada só como ícone de seleção na grade.
   // Nunca montamos mais de um <canvas> Rive ao mesmo tempo na tela de
   // Configurações fora do editor de posição: montar vários simultaneamente
@@ -62,6 +67,7 @@ export const AI_ASSISTANT_AVATAR_OPTIONS: AiAssistantAvatarOption[] = [
     label: 'Padrão (vetor)',
     description: 'Personagem própria em SVG — pisca, respira e o cabelo balança em loop.',
     riveSrc: null,
+    lottieSrc: null,
     previewImage: null,
     stateMachine: null,
     clickTrigger: null,
@@ -73,6 +79,7 @@ export const AI_ASSISTANT_AVATAR_OPTIONS: AiAssistantAvatarOption[] = [
     label: 'Ruiva (Expressive Faces)',
     description: 'Recortada de um arquivo com 4 personagens — só a ruiva fica visível. Sem rastreio de cursor: clique dispara a expressão.',
     riveSrc: '/rive/expressive-faces.riv',
+    lottieSrc: null,
     previewImage: '/rive/expressive-faces-preview.png',
     stateMachine: 'STATE MACHINE ALL',
     clickTrigger: 'red head trigger',
@@ -80,26 +87,40 @@ export const AI_ASSISTANT_AVATAR_OPTIONS: AiAssistantAvatarOption[] = [
     globalCursorTracking: false
   },
   {
-    id: 'girl-cursor-tracking',
-    label: 'Garota (segue o cursor)',
-    description: 'Olhos seguem o mouse em qualquer parte da tela, pisca sozinha e reage ao clique.',
-    riveSrc: '/rive/girl-cursor-tracking.riv',
-    previewImage: '/rive/girl-cursor-tracking-preview.png',
-    stateMachine: 'State Machine 1',
-    clickTrigger: null,
-    defaultCrop: { focusX: 0.40, focusY: 0.42, zoom: 1.6 },
-    globalCursorTracking: true
-  },
-  {
     id: 'vermelha',
     label: 'Vermelha (respiração)',
     description: 'Loop de respiração contínuo, baseado em tempo — sem interação por mouse.',
     riveSrc: '/rive/vermelha.riv',
+    lottieSrc: null,
     previewImage: '/rive/vermelha-preview.png',
     stateMachine: 'State Machine 1',
     clickTrigger: null,
     defaultCrop: { focusX: 0.5, focusY: 0.33, zoom: 1.40 },
     globalCursorTracking: false
+  },
+  {
+    id: 'mulher-05',
+    label: 'Mulher (loop simples)',
+    description: 'Animação Lottie mais simples do catálogo — loop contínuo, sem state machine e sem reação a clique ou cursor.',
+    riveSrc: null,
+    lottieSrc: '/lottie/female-05.json',
+    previewImage: '/lottie/female-05-preview.png',
+    stateMachine: null,
+    clickTrigger: null,
+    defaultCrop: { focusX: 0.5, focusY: 0.42, zoom: 1.6 },
+    globalCursorTracking: false
+  },
+  {
+    id: 'girl-cursor-tracking',
+    label: 'Garota (segue o cursor)',
+    description: 'Olhos seguem o mouse em qualquer parte da tela, pisca sozinha e reage ao clique.',
+    riveSrc: '/rive/girl-cursor-tracking.riv',
+    lottieSrc: null,
+    previewImage: '/rive/girl-cursor-tracking-preview.png',
+    stateMachine: 'State Machine 1',
+    clickTrigger: null,
+    defaultCrop: { focusX: 0.40, focusY: 0.42, zoom: 1.6 },
+    globalCursorTracking: true
   }
 ];
 
@@ -135,7 +156,7 @@ export function sanitizeCropOverrides(raw: any): AvatarCropOverrides {
   const result: AvatarCropOverrides = {};
   if (!raw || typeof raw !== 'object') return result;
   for (const option of AI_ASSISTANT_AVATAR_OPTIONS) {
-    if (!option.riveSrc) continue;
+    if (!option.riveSrc && !option.lottieSrc) continue;
     const candidate = raw[option.id];
     if (isValidCrop(candidate)) {
       result[option.id] = { focusX: candidate.focusX, focusY: candidate.focusY, zoom: candidate.zoom };

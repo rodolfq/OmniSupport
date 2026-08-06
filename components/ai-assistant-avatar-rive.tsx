@@ -58,11 +58,12 @@ export function AiAssistantAvatarRive({
       stateMachines: stateMachine,
       autoplay: true,
       // Precisa de autoBind sempre que o arquivo usa View Model pra
-      // QUALQUER coisa em runtime — não só pro trigger de clique. O
-      // "girl-cursor-tracking.riv" não tem clickTrigger, mas o Listener de
-      // rastreio de cursor escreve em propriedades do View Model (Mouse X/
-      // Mouse Y); sem instância vinculada, essas escritas não vão a lugar
-      // nenhum e o rastreio simplesmente não faz nada, sem erro nenhum.
+      // QUALQUER coisa em runtime — não só pro trigger de clique. Um
+      // arquivo com globalCursorTracking mas sem clickTrigger ainda pode
+      // escrever em propriedades do View Model (ex.: Mouse X/Mouse Y) via
+      // Listener de rastreio de cursor; sem instância vinculada, essas
+      // escritas não vão a lugar nenhum e o rastreio simplesmente não faz
+      // nada, sem erro nenhum.
       autoBind: !!clickTrigger || globalCursorTracking,
       layout: new Layout({ fit: Fit.Cover, alignment: Alignment.Center })
     });

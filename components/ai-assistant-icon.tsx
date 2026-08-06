@@ -3,6 +3,7 @@
 import React from 'react';
 import { AiAssistantAvatar } from '@/components/ai-assistant-avatar';
 import { AiAssistantAvatarRive } from '@/components/ai-assistant-avatar-rive';
+import { AiAssistantAvatarLottie } from '@/components/ai-assistant-avatar-lottie';
 import { AiAssistantAvatarSource, AvatarCrop, getAvatarOption } from '@/lib/ai-assistant-avatar-options';
 
 interface AiAssistantIconProps {
@@ -21,24 +22,36 @@ interface AiAssistantIconProps {
 // grade de seleção da tela de Configurações, pra nunca desalinhar os dois.
 export function AiAssistantIcon({ avatarSource, crop, size = 40, className }: AiAssistantIconProps) {
   const option = getAvatarOption(avatarSource);
-
-  if (!option.riveSrc || !option.stateMachine) {
-    return <AiAssistantAvatar size={size} className={className} />;
-  }
-
   const effectiveCrop = crop || option.defaultCrop;
 
-  return (
-    <AiAssistantAvatarRive
-      src={option.riveSrc}
-      stateMachine={option.stateMachine}
-      clickTrigger={option.clickTrigger}
-      focusX={effectiveCrop.focusX}
-      focusY={effectiveCrop.focusY}
-      zoom={effectiveCrop.zoom}
-      globalCursorTracking={option.globalCursorTracking}
-      size={size}
-      className={className}
-    />
-  );
+  if (option.riveSrc && option.stateMachine) {
+    return (
+      <AiAssistantAvatarRive
+        src={option.riveSrc}
+        stateMachine={option.stateMachine}
+        clickTrigger={option.clickTrigger}
+        focusX={effectiveCrop.focusX}
+        focusY={effectiveCrop.focusY}
+        zoom={effectiveCrop.zoom}
+        globalCursorTracking={option.globalCursorTracking}
+        size={size}
+        className={className}
+      />
+    );
+  }
+
+  if (option.lottieSrc) {
+    return (
+      <AiAssistantAvatarLottie
+        src={option.lottieSrc}
+        focusX={effectiveCrop.focusX}
+        focusY={effectiveCrop.focusY}
+        zoom={effectiveCrop.zoom}
+        size={size}
+        className={className}
+      />
+    );
+  }
+
+  return <AiAssistantAvatar size={size} className={className} />;
 }

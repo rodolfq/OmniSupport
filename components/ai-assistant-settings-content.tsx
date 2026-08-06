@@ -392,11 +392,11 @@ export function AiAssistantSettingsContent() {
           })}
         </div>
 
-        {/* Editor de posição/zoom — só faz sentido pra personagens Rive (o
-            padrão em SVG não usa recorte). Salva junto com o botão "Salvar"
-            no final da página, no mesmo lugar global de sempre — vale pra
-            todo mundo, não é preferência por usuário. */}
-        {getAvatarOption(avatarSourceDraft).riveSrc && (
+        {/* Editor de posição/zoom — só faz sentido pra personagens Rive ou
+            Lottie (o padrão em SVG não usa recorte). Salva junto com o
+            botão "Salvar" no final da página, no mesmo lugar global de
+            sempre — vale pra todo mundo, não é preferência por usuário. */}
+        {(getAvatarOption(avatarSourceDraft).riveSrc || getAvatarOption(avatarSourceDraft).lottieSrc) && (
           <div className="pt-5 border-t border-[var(--border-default)] space-y-3">
             <p className="text-[10px] font-black uppercase tracking-widest text-[var(--text-tertiary)]">
               Ajustar posição — {getAvatarOption(avatarSourceDraft).label}

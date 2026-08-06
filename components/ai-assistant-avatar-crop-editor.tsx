@@ -1,7 +1,8 @@
 'use client';
 
-import React, { useEffect, useRef } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import { Rive, Layout, Fit, Alignment } from '@rive-app/canvas';
+import Lottie from 'lottie-react';
 import { RotateCcw, ZoomIn } from 'lucide-react';
 import { AiAssistantAvatarOption, AvatarCrop } from '@/lib/ai-assistant-avatar-options';
 
@@ -35,6 +36,20 @@ export function AiAssistantAvatarCropEditor({ option, crop, onChange }: AiAssist
   cropRef.current = crop;
 
   const canvasSize = VIEWPORT_SIZE * crop.zoom;
+  const [lottieData, setLottieData] = useState<object | null>(null);
+
+  // Mesmo fetch manual de ai-assistant-avatar-lottie.tsx — animationData do
+  // lottie-react precisa do JSON já parseado.
+  useEffect(() => {
+    if (!option.lottieSrc) { setLottieData(null); return; }
+    let cancelled = false;
+    setLottieData(null);
+    fetch(option.lottieSrc)
+      .then((res) => res.json())
+      .then((data) => { if (!cancelled) setLottieData(data); })
+      .catch(() => {});
+    return () => { cancelled = true; };
+  }, [option.lottieSrc]);
 
   useEffect(() => {
     const canvas = canvasRef.current;
@@ -107,17 +122,35 @@ export function AiAssistantAvatarCropEditor({ option, crop, onChange }: AiAssist
         style={{ width: VIEWPORT_SIZE, height: VIEWPORT_SIZE, background: '#12181f' }}
         onMouseDown={handleMouseDown}
       >
-        <canvas
-          ref={canvasRef}
-          style={{
-            position: 'absolute',
-            width: canvasSize,
-            height: canvasSize,
-            left: VIEWPORT_SIZE / 2 - crop.focusX * canvasSize,
-            top: VIEWPORT_SIZE / 2 - crop.focusY * canvasSize,
-            pointerEvents: 'none'
-          }}
-        />
+        {option.riveSrc && (
+          <canvas
+            ref={canvasRef}
+            style={{
+              position: 'absolute',
+              width: canvasSize,
+              height: canvasSize,
+              left: VIEWPORT_SIZE / 2 - crop.focusX * canvasSize,
+              top: VIEWPORT_SIZE / 2 - crop.focusY * canvasSize,
+              pointerEvents: 'none'
+            }}
+          />
+        )}
+        {option.lottieSrc && lottieData && (
+          <Lottie
+            animationData={lottieData}
+            loop
+            autoplay
+            rendererSettings={{ preserveAspectRatio: 'xMidYMid slice' }}
+            style={{
+              position: 'absolute',
+              width: canvasSize,
+              height: canvasSize,
+              left: VIEWPORT_SIZE / 2 - crop.focusX * canvasSize,
+              top: VIEWPORT_SIZE / 2 - crop.focusY * canvasSize,
+              pointerEvents: 'none'
+            }}
+          />
+        )}
         {/* Escurece fora do círculo (as 4 pontas do quadrado) — é exatamente
             o que o ícone circular real corta fora. */}
         <div
