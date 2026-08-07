@@ -15,7 +15,7 @@ export default function LoginPage() {
   const [showPassword, setShowPassword] = useState(false);
   const [isLoading, setIsLoading] = useState(false);
   const { currentUser, setCurrentUser, authInitialized } = useApp();
-  const { theme, toggleTheme, mounted } = useTheme();
+  const { toggleTheme } = useTheme();
   const router = useRouter();
   const isSubmittingRef = React.useRef(false);
 
@@ -86,24 +86,24 @@ export default function LoginPage() {
 
   return (
     <div className="min-h-screen flex items-center justify-center bg-[var(--surface-card)] p-6 relative">
-      {/* Antes de `mounted`, o server sempre renderiza 'light' (localStorage
-          não existe no server) — usar `mounted && theme === 'dark'` garante
-          que o primeiro render do client bate exatamente com o do server
-          (sempre Moon/"Ativar modo escuro"), evitando o hydration mismatch
-          que estava regenerando a árvore (causa provável do glitch visual
-          de logo duplicada). O ícone corrige sozinho no frame seguinte. */}
+      {/* Os dois ícones são sempre renderizados e quem decide qual aparece é
+          o CSS (variante `dark`, ligada à classe .dark do <html> — ver
+          @custom-variant em globals.css). Ramificar o JSX por `theme` aqui,
+          mesmo protegido por `mounted`, voltava a dar hydration mismatch
+          sempre que o bundle do client saía de sincronia com o HTML do
+          server (um erro de compilação em outra rota já basta) — e o
+          mismatch regenerava a árvore, causando o glitch de logo duplicada.
+          Sem branch no JSX, o markup é idêntico nos dois lados por
+          construção. */}
       <button
         type="button"
         onClick={toggleTheme}
-        // suppressHydrationWarning: título/ícone dependem de `mounted`
-        // (resolvido só depois do mount, ver theme-provider.tsx) — trata
-        // como intencional em vez de erro caso o dev overlay ainda acuse
-        // divergência num hot-reload no meio da troca de tema.
-        suppressHydrationWarning
         className="absolute top-6 right-6 p-2.5 rounded-xl text-[var(--text-tertiary)] hover:text-[var(--text-secondary)] hover:bg-[var(--surface-card)] transition-all"
-        title={mounted && theme === 'dark' ? 'Ativar modo claro' : 'Ativar modo escuro'}
+        title="Alternar tema"
+        aria-label="Alternar tema"
       >
-        {mounted && theme === 'dark' ? <Sun size={20} /> : <Moon size={20} />}
+        <Sun size={20} className="hidden dark:block" />
+        <Moon size={20} className="block dark:hidden" />
       </button>
       <div className="w-full max-w-md -mt-10 sm:-mt-14">
         <div className="text-center mb-4">

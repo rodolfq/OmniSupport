@@ -8,8 +8,7 @@ import {
   Paperclip, 
   Smile, 
   Image as ImageIcon, 
-  MoreVertical, 
-  Phone, 
+  Phone,
   Video,
   Users,
   Search as SearchIcon,
@@ -96,6 +95,19 @@ const STICKERS = [
   { name: 'Surprised', url: 'https://fonts.gstatic.com/s/e/notoemoji/latest/1f632/512.gif' },
 ];
 
+// Nome do autor colorido na lista de fixadas (como no Discord, que usa a cor
+// do cargo). Aqui não existe cor por cargo/perfil, então ela sai de um hash
+// do id do usuário: fica estável entre sessões e entre aparelhos, e nomes
+// diferentes quase sempre caem em cores diferentes. Cores em hex inline
+// porque classe montada em runtime não é vista pelo scanner do Tailwind
+// (mesma armadilha do BUBBLE_COLOR_BG_CLASS acima).
+const PINNED_AUTHOR_COLORS = ['#F0736A', '#E8A33C', '#D8B93A', '#4FBF7F', '#3FB6BE', '#5B9BF0', '#A78BFA', '#EC7FB4'];
+const getAuthorColor = (userId: string) => {
+  let hash = 0;
+  for (let i = 0; i < userId.length; i++) hash = (hash + userId.charCodeAt(i)) % PINNED_AUTHOR_COLORS.length;
+  return PINNED_AUTHOR_COLORS[hash];
+};
+
 const preloadAvatars = (users: User[]) => Promise.all(
   users
     .map(user => user.avatarUrl)
@@ -175,7 +187,8 @@ export default function ChatInternalPage() {
   const [zoom, setZoom] = useState(1);
   const [croppedAreaPixels, setCroppedAreaPixels] = useState<Area | null>(null);
   const [replyingToId, setReplyingToId] = useState<string | null>(null);
-  const [showPinnedOnly, setShowPinnedOnly] = useState(false);
+  const [showPinnedPanel, setShowPinnedPanel] = useState(false);
+  const [highlightedMessageId, setHighlightedMessageId] = useState<string | null>(null);
   const [isChatReady, setIsChatReady] = useState(false);
   // Citação @nome (só faz sentido em grupo — 1:1 já sabe pra quem é).
   // mentionQuery !== null = dropdown de autocomplete aberto; string vazia =
@@ -206,6 +219,7 @@ export default function ChatInternalPage() {
   const groupImageRef = useRef<HTMLInputElement>(null);
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const messageInputRef = useRef<HTMLTextAreaElement>(null);
+  const pinnedPanelRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
     if (!authInitialized || !currentUser) return;
@@ -250,6 +264,13 @@ export default function ChatInternalPage() {
   }, [authInitialized, currentUser?.id, currentUser?.role, currentUser?.permissions, router]);
 
   const selectedRoom = rooms.find(r => r.id === selectedRoomId);
+
+  // Mais recentes primeiro, como o painel de fixadas do Discord. Mensagens
+  // fixadas que não estão no lote carregado simplesmente não aparecem — não
+  // dá pra montar o cartão sem o conteúdo delas.
+  const pinnedMessages = (selectedRoom?.messages || [])
+    .filter(m => selectedRoom?.pinnedMessageIds?.includes(m.id))
+    .sort((a, b) => new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime());
 
   useEffect(() => {
     scrollToBottom();
@@ -803,6 +824,46 @@ export default function ChatInternalPage() {
     }
   };
 
+  // Painel de fixadas: some ao clicar fora ou no Esc. O ref envolve o botão
+  // do header junto com o painel, então clicar no próprio botão não conta
+  // como "clique fora" (senão o toggle abriria e fecharia no mesmo evento).
+  useEffect(() => {
+    if (!showPinnedPanel) return;
+    const handleClickOutside = (event: MouseEvent) => {
+      if (pinnedPanelRef.current && !pinnedPanelRef.current.contains(event.target as Node)) {
+        setShowPinnedPanel(false);
+      }
+    };
+    const handleEsc = (event: KeyboardEvent) => {
+      if (event.key === 'Escape') setShowPinnedPanel(false);
+    };
+    document.addEventListener('mousedown', handleClickOutside);
+    document.addEventListener('keydown', handleEsc);
+    return () => {
+      document.removeEventListener('mousedown', handleClickOutside);
+      document.removeEventListener('keydown', handleEsc);
+    };
+  }, [showPinnedPanel]);
+
+  // Fechar o painel ao trocar de conversa evita mostrar as fixadas da sala
+  // anterior por um frame enquanto as mensagens da nova ainda carregam.
+  useEffect(() => {
+    setShowPinnedPanel(false);
+    setHighlightedMessageId(null);
+  }, [selectedRoomId]);
+
+  const jumpToMessage = (messageId: string) => {
+    setShowPinnedPanel(false);
+    const element = document.getElementById(`chat-msg-anchor-${messageId}`);
+    if (!element) {
+      toast.error('Mensagem não encontrada nesta conversa');
+      return;
+    }
+    element.scrollIntoView({ behavior: 'smooth', block: 'center' });
+    setHighlightedMessageId(messageId);
+    window.setTimeout(() => setHighlightedMessageId(current => (current === messageId ? null : current)), 2200);
+  };
+
   const QUICK_REACTION_EMOJIS = ['👍', '❤️', '😂', '😮', '😢', '🙏'];
 
   const toggleReaction = async (messageId: string, emoji: string) => {
@@ -1310,44 +1371,168 @@ export default function ChatInternalPage() {
                 >
                     {selectedRoom.mutedBy?.includes(currentUser?.id || '') ? <BellOff size={20} /> : <Bell size={20} />}
                 </button>
-                <div className="relative group/menu">
-                  <button className="p-3 text-[var(--text-tertiary)] hover:text-[var(--accent-text)] hover:bg-[var(--accent)]/10 rounded-2xl transition-all">
-                    <MoreVertical size={20} />
+                {/* Fixadas: ícone no header abre a lista em cartões (estilo
+                    Discord). Antes era um item de menu que filtrava a própria
+                    conversa, escondendo o resto das mensagens. */}
+                <div className="relative" ref={pinnedPanelRef}>
+                  <button
+                    onClick={() => setShowPinnedPanel(prev => !prev)}
+                    className={cn(
+                      "relative p-3 rounded-2xl transition-all",
+                      showPinnedPanel
+                        ? "text-[var(--accent-text)] bg-[var(--accent)]/10"
+                        : "text-[var(--text-tertiary)] hover:text-[var(--accent-text)] hover:bg-[var(--accent)]/10"
+                    )}
+                    title="Mensagens fixadas"
+                  >
+                    <Pin size={20} />
+                    {!!pinnedMessages.length && (
+                      <span className="absolute top-0.5 right-0.5 min-w-[16px] h-4 px-1 rounded-full bg-[var(--accent)] text-white text-[9px] font-black flex items-center justify-center ring-2 ring-[var(--surface-card)]">
+                        {pinnedMessages.length}
+                      </span>
+                    )}
                   </button>
-                  <div className="absolute right-0 top-full mt-2 w-48 bg-[var(--surface-card)] border border-[var(--border-default)] rounded-2xl shadow-xl opacity-0 group-hover/menu:opacity-100 pointer-events-none group-hover/menu:pointer-events-auto transition-all z-50 before:absolute before:-top-4 before:-left-4 before:h-4 before:w-[calc(100%+2rem)] before:content-['']">
-                    <button 
-                      onClick={() => setShowPinnedOnly(!showPinnedOnly)}
-                      className="w-full rounded-2xl px-4 py-3 text-left text-xs font-bold text-[var(--text-secondary)] hover:bg-[var(--surface-card)] flex items-center gap-2"
-                    >
-                      <Pin size={14} className="text-[var(--accent-text)]" />
-                      {showPinnedOnly ? 'Ver todas as msgs' : 'Mensagens fixadas'}
-                    </button>
-                  </div>
+
+                  <AnimatePresence>
+                    {showPinnedPanel && (
+                      <motion.div
+                        initial={{ opacity: 0, y: -8, scale: 0.98 }}
+                        animate={{ opacity: 1, y: 0, scale: 1 }}
+                        exit={{ opacity: 0, y: -8, scale: 0.98 }}
+                        transition={{ duration: 0.15 }}
+                        className="absolute right-0 top-full mt-3 w-[420px] max-w-[calc(100vw-4rem)] bg-[var(--surface-card)] border border-[var(--border-default)] rounded-2xl shadow-2xl z-50 overflow-hidden origin-top-right"
+                      >
+                        <div className="px-4 py-3.5 border-b border-[var(--border-default)] flex items-center gap-2">
+                          <Pin size={16} className="text-[var(--accent-text)] fill-[var(--accent-text)]" />
+                          <h3 className="text-base font-black text-[var(--text-primary)] tracking-tight">Mensagens fixadas</h3>
+                        </div>
+
+                        <div className="max-h-[420px] overflow-y-auto p-2.5 space-y-2.5">
+                          {pinnedMessages.length === 0 ? (
+                            <div className="flex flex-col items-center justify-center gap-2 py-10 px-6 text-center">
+                              <Pin size={28} className="text-[var(--text-tertiary)]" />
+                              <p className="text-xs font-bold text-[var(--text-secondary)]">Nenhuma mensagem fixada aqui</p>
+                              <p className="text-[11px] font-medium text-[var(--text-tertiary)] leading-relaxed">
+                                Passe o mouse sobre uma mensagem e use o ícone de alfinete para fixá-la nesta conversa.
+                              </p>
+                            </div>
+                          ) : (
+                            pinnedMessages.map(msg => {
+                              const sender = allUsers.find(u => u.id === msg.senderId);
+                              return (
+                                <div
+                                  key={`pinned-${msg.id}`}
+                                  className="group/pin relative rounded-xl bg-[var(--surface-page)] border border-[var(--border-default)] p-3 hover:border-[var(--accent)]/40 transition-colors"
+                                >
+                                  <div className="flex gap-3">
+                                    <div className="w-10 h-10 rounded-full bg-[var(--border-default)] shrink-0 overflow-hidden">
+                                      {sender?.avatarUrl ? (
+                                        <img src={sender.avatarUrl} alt={msg.senderName} className="w-full h-full object-cover" />
+                                      ) : (
+                                        <div className="w-full h-full flex items-center justify-center text-xs font-black text-[var(--text-tertiary)]">
+                                          {msg.senderName.charAt(0)}
+                                        </div>
+                                      )}
+                                    </div>
+
+                                    <div className="flex-1 min-w-0">
+                                      <div className="flex items-baseline gap-2 flex-wrap">
+                                        <span className="text-sm font-black truncate" style={{ color: getAuthorColor(msg.senderId) }}>
+                                          {msg.senderName}
+                                        </span>
+                                        <span className="text-[11px] font-medium text-[var(--text-tertiary)]">
+                                          <ClientTime date={msg.timestamp} showDate showTime />
+                                        </span>
+                                      </div>
+
+                                      <div className="mt-1 text-sm font-medium text-[var(--text-secondary)] break-words">
+                                        {msg.isDeleted ? (
+                                          <p className="italic opacity-60">{msg.text || 'Mensagem apagada'}</p>
+                                        ) : (
+                                          <>
+                                            {msg.type === 'text' && (
+                                              <p className="whitespace-pre-wrap leading-relaxed">
+                                                {renderMessageText(msg.text, msg.metadata?.mentions, false)}
+                                                {msg.isEdited && (
+                                                  <span className="ml-1 text-[10px] font-medium text-[var(--text-tertiary)]">(editado)</span>
+                                                )}
+                                              </p>
+                                            )}
+
+                                            {msg.type === 'image' && (
+                                              <button
+                                                type="button"
+                                                onClick={() => setPreviewImageUrl(msg.metadata?.fileUrl || null)}
+                                                className="block rounded-lg overflow-hidden border border-[var(--border-default)] hover:opacity-90 transition-opacity"
+                                              >
+                                                <img
+                                                  src={msg.metadata?.fileUrl}
+                                                  alt={msg.metadata?.fileName || 'Imagem'}
+                                                  className="max-w-full max-h-48 object-cover"
+                                                />
+                                              </button>
+                                            )}
+
+                                            {msg.type === 'file' && (
+                                              <a
+                                                href={msg.metadata?.fileUrl}
+                                                download={msg.metadata?.fileName}
+                                                className="flex items-center gap-2.5 rounded-lg bg-[var(--surface-pill)] p-2 hover:bg-[var(--surface-card)] transition-colors"
+                                              >
+                                                <FileText size={16} className="shrink-0 text-[var(--accent-text)]" />
+                                                <span className="text-xs font-bold truncate flex-1">{msg.metadata?.fileName || 'Arquivo'}</span>
+                                                <Download size={14} className="shrink-0 text-[var(--text-tertiary)]" />
+                                              </a>
+                                            )}
+
+                                            {msg.type === 'gif' && (
+                                              <div className="rounded-lg overflow-hidden border border-[var(--border-default)]">
+                                                <img src={msg.metadata?.gifUrl} alt="GIF" className="max-w-full max-h-48" />
+                                              </div>
+                                            )}
+
+                                            {msg.type === 'sticker' && (
+                                              <img src={msg.metadata?.stickerUrl} alt="Sticker" className="w-20 h-20" />
+                                            )}
+                                          </>
+                                        )}
+                                      </div>
+                                    </div>
+                                  </div>
+
+                                  {/* Ações só no hover, como no Discord (lá elas
+                                      ficam no canto superior direito do cartão). */}
+                                  <div className="absolute top-2 right-2 flex items-center gap-1 opacity-0 group-hover/pin:opacity-100 transition-opacity">
+                                    <button
+                                      onClick={() => jumpToMessage(msg.id)}
+                                      title="Ir para a mensagem"
+                                      className="px-2 py-1 rounded-lg bg-[var(--surface-card)] border border-[var(--border-default)] text-[10px] font-black uppercase tracking-wide text-[var(--accent-text)] hover:bg-[var(--accent)]/10 transition-colors shadow-sm"
+                                    >
+                                      Ir
+                                    </button>
+                                    <button
+                                      onClick={() => togglePinMessage(msg.id)}
+                                      title="Desafixar"
+                                      className="p-1.5 rounded-lg bg-[var(--surface-card)] border border-[var(--border-default)] text-[var(--text-tertiary)] hover:text-[var(--text-danger)] transition-colors shadow-sm"
+                                    >
+                                      <PinOff size={12} />
+                                    </button>
+                                  </div>
+                                </div>
+                              );
+                            })
+                          )}
+                        </div>
+                      </motion.div>
+                    )}
+                  </AnimatePresence>
                 </div>
               </div>
             </div>
 
-            {/* Pinned Messages Bar */}
-            {selectedRoom.pinnedMessageIds && selectedRoom.pinnedMessageIds.length > 0 && !showPinnedOnly && (
-               <div className="bg-[var(--accent)]/10 border-b border-[var(--accent)]/20 px-8 py-2 flex items-center justify-between">
-                  <div className="flex items-center gap-2 overflow-hidden flex-1">
-                     <Pin size={12} className="text-[var(--accent-text)] shrink-0" />
-                     <p className="text-[10px] font-bold text-[var(--accent-text)] truncate">
-                        {selectedRoom.pinnedMessageIds.length} mensagem(ns) fixada(s)
-                     </p>
-                  </div>
-                  <button 
-                    onClick={() => setShowPinnedOnly(true)}
-                    className="text-[10px] font-semibold uppercase text-[var(--accent-text)] hover:underline shrink-0"
-                  >
-                    Ver Tudo
-                  </button>
-               </div>
-            )}
-
             {/* Messages */}
             <div className="flex-1 overflow-y-auto p-8 space-y-6 bg-[var(--surface-card)]/50">
-              {(showPinnedOnly ? selectedRoom.messages.filter(m => selectedRoom.pinnedMessageIds?.includes(m.id)) : selectedRoom.messages).map((msg, idx) => {
+              {selectedRoom.messages.map((msg, idx) => {
                 const isMine = msg.senderId === currentUser?.id;
                 const prevMsg = selectedRoom.messages[idx - 1];
                 const showSender = !isMine && (!prevMsg || prevMsg.senderId !== msg.senderId);
@@ -1381,11 +1566,13 @@ export default function ChatInternalPage() {
                 }
 
                 return (
-                  <div 
-                    key={`chat-msg-${msg.id}-${idx}`} 
+                  <div
+                    key={`chat-msg-${msg.id}-${idx}`}
+                    id={`chat-msg-anchor-${msg.id}`}
                     className={cn(
-                      "flex gap-3 max-w-[85%] group animate-in fade-in slide-in-from-bottom-2 duration-300",
-                      isMine ? "ml-auto flex-row-reverse" : "mr-auto flex-row"
+                      "flex gap-3 max-w-[85%] group animate-in fade-in slide-in-from-bottom-2 duration-300 rounded-3xl transition-colors duration-500",
+                      isMine ? "ml-auto flex-row-reverse" : "mr-auto flex-row",
+                      highlightedMessageId === msg.id && "bg-[var(--accent)]/10 ring-2 ring-[var(--accent)]/30"
                     )}
                   >
                     {!isMine && avatarSize !== 'none' && (
@@ -1413,7 +1600,7 @@ export default function ChatInternalPage() {
                         msg.isDeleted && "italic opacity-80",
                         isPinned && "ring-2 ring-[var(--accent)]/20"
                       )}>
-                        {isPinned && !showPinnedOnly && (
+                        {isPinned && (
                            <div className="absolute -top-2 -right-2 w-5 h-5 bg-[var(--accent)] rounded-full flex items-center justify-center text-white shadow-lg border border-white">
                               <Pin size={10} className="fill-white" />
                            </div>
