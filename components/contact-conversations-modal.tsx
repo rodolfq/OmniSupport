@@ -2,7 +2,7 @@
 
 import React, { useEffect, useState } from 'react';
 import { motion, AnimatePresence } from 'motion/react';
-import { X, History, ChevronRight, Loader2, Star, MessageCircle } from 'lucide-react';
+import { X, History, ChevronRight, Loader2, ThumbsUp, ThumbsDown, MessageCircle } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { ClientTime } from '@/components/client-time';
 import { getPreviousChatHistories, fetchSessionMessages, PreviousChatHistoriesResult, ActiveSessionInfo } from '@/lib/services/chat-service';
@@ -143,10 +143,11 @@ export function ContactConversationsModal({ isOpen, onClose, phone, contactName,
                           {h.assigneeName ? ` · ${h.assigneeName}` : ''}
                           {durationLabel ? ` · ${durationLabel}` : ''}
                         </span>
-                        {!!h.rating && (
-                          <span className="flex items-center gap-0.5 text-[var(--text-warning)] shrink-0">
-                            <Star size={11} className="fill-current" /> {h.rating}
-                          </span>
+                        {h.rating === 1 && (
+                          <ThumbsUp size={11} className="text-[var(--text-success)] shrink-0" />
+                        )}
+                        {h.rating === -1 && (
+                          <ThumbsDown size={11} className="text-[var(--text-danger)] shrink-0" />
                         )}
                       </div>
                       <ChevronRight size={14} className={cn("shrink-0 text-[var(--text-tertiary)] transition-transform", isExpanded && "rotate-90")} />

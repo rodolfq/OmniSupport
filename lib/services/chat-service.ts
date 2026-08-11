@@ -388,7 +388,9 @@ export async function pushChatMessage(sessionId: string, message: ChatMessage): 
   return ChatService.pushMessage(sessionId, message);
 }
 
-export async function submitSurveyResponse(sessionId: string, rating: 0 | 1, message: ChatMessage): Promise<void> {
+// rating na escala de chat_histories: -1 (negativo) / 1 (positivo). Não é o
+// "0"/"1" que o cliente digita — a conversão fica em quem chama.
+export async function submitSurveyResponse(sessionId: string, rating: -1 | 1, message: ChatMessage): Promise<void> {
   const res = await fetch('/api/chats', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },

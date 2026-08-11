@@ -87,7 +87,10 @@ export async function GET(request: NextRequest) {
 
       const total = responses.length;
       const satisfied = responses.filter(r => r.rating === 1).length;
-      const toImprove = responses.filter(r => r.rating === 0).length;
+      // rating -1 = negativo. Havia registros gravados como 0 pelo canal
+      // WhatsApp (bug corrigido + migration fix_survey_negative_rating.sql);
+      // 0 aqui significa "neutro", não "a melhorar".
+      const toImprove = responses.filter(r => r.rating === -1).length;
       const satisfactionRate = total > 0 ? satisfied / total : 0;
 
       return NextResponse.json({ total, satisfied, toImprove, satisfactionRate, responses });

@@ -4,7 +4,7 @@ import { runExclusive } from '../key-mutex';
 import { emitChatEvent, excludeActiveViewers } from '../chat-events';
 import { notifyUser } from './push-service';
 import { getChatRecipientIds } from './notification-recipients';
-import { resolveQueueForInstance, pickNextQueueAssignee } from './queue-routing';
+import { resolveQueueForInstance, pickNextQueueAssignee, dispatchPendingChatSessions } from './queue-routing';
 
 interface MetaWebhookPayload {
   object: string;
@@ -241,6 +241,21 @@ export class MetaWhatsAppService {
       `UPDATE public.chat_sessions SET last_message_at = NOW(), updated_at = NOW() WHERE id = $1`,
       [session.id]
     );
+
+    // Conversa que ficou 'pending' por não haver ninguém online quando chegou
+    // tenta a distribuição de novo a cada mensagem nova (mesmo gatilho do
+    // widget e do canal Baileys) — no-op barato quando ela já tem responsável.
+    try {
+      const dispatched = await dispatchPendingChatSessions({ sessionId: session.id });
+      await Promise.all(dispatched.map(d => notifyUser(d.assigneeId, {
+        title: 'Novo atendimento atribuído a você',
+        body: `${d.customerName || 'Cliente'} está aguardando atendimento.`,
+        url: `/chat?chat=${d.sessionId}`,
+        tag: `chat_assign:${d.sessionId}`
+      })));
+    } catch (err) {
+      console.error('[MetaWhatsApp] Falha ao redistribuir atendimento pendente:', err);
+    }
 
     const savedMessage = messageRes.rows[0];
     if (savedMessage) {

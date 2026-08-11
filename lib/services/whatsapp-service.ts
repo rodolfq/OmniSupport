@@ -11,7 +11,7 @@ import { emitChatEvent, excludeActiveViewers } from '../chat-events';
 import { notifyUser } from './push-service';
 import { getChatRecipientIds } from './notification-recipients';
 import { runExclusive } from '../key-mutex';
-import { resolveQueueForInstance, pickNextQueueAssignee } from './queue-routing';
+import { resolveQueueForInstance, pickNextQueueAssignee, dispatchPendingChatSessions } from './queue-routing';
 import { transcribeMessageAudio, isAudioAttachment, isTranscriptionEnabled } from './transcription-service';
 
 const log = pino({ level: (process.env.WHATSAPP_LOG_LEVEL as any) || 'warn' });
@@ -821,7 +821,12 @@ export class WhatsAppService {
           await query(
             `UPDATE public.chat_histories SET rating = $1
              WHERE id = (SELECT id FROM public.chat_histories WHERE session_id = $2 ORDER BY created_at DESC LIMIT 1)`,
-            [parseInt(trimmedAnswer, 10), surveySession.id]
+            // O cliente responde "1" (positivo) / "0" (negativo), mas
+            // chat_histories.rating é -1/0/1 (negativo/neutro/positivo) em todo
+            // o resto do app (histórico, relatórios, dashboard). Gravar o "0"
+            // cru fazia a avaliação negativa virar "neutro" e sumir de todas as
+            // contagens — por isso o mapeamento explícito aqui.
+            [trimmedAnswer === '1' ? 1 : -1, surveySession.id]
           );
           await query('UPDATE public.chat_sessions SET awaiting_survey_until = NULL WHERE id = $1', [surveySession.id]);
 
@@ -880,6 +885,22 @@ export class WhatsAppService {
         'UPDATE public.chat_sessions SET last_message_at = NOW(), updated_at = NOW() WHERE id = $1',
         [session.id]
       );
+
+      // Conversa que ficou 'pending' por não haver ninguém online quando
+      // chegou tenta a distribuição de novo a cada mensagem nova (mesmo
+      // gatilho do widget, ver app/api/chats/route.ts) — no-op barato quando
+      // ela já tem responsável.
+      try {
+        const dispatched = await dispatchPendingChatSessions({ sessionId: session.id });
+        await Promise.all(dispatched.map(d => notifyUser(d.assigneeId, {
+          title: 'Novo atendimento atribuído a você',
+          body: `${d.customerName || 'Cliente'} está aguardando atendimento.`,
+          url: `/chat?chat=${d.sessionId}`,
+          tag: `chat_assign:${d.sessionId}`
+        })));
+      } catch (err) {
+        console.error(`[WhatsApp:${instanceId}] Falha ao redistribuir atendimento pendente:`, err);
+      }
 
       // Mesma notificação em tempo real (SSE) e push que uma mensagem enviada
       // pelo widget web já dispara (app/api/chats/route.ts) — sem isso, uma

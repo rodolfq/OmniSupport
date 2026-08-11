@@ -7,7 +7,7 @@ import { cookies } from 'next/headers';
 import { emitChatEvent, excludeActiveViewers } from '@/lib/chat-events';
 import { notifyUser } from '@/lib/services/push-service';
 import { getChatRecipientIds, getTeamUserIds } from '@/lib/services/notification-recipients';
-import { pickNextQueueAssignee } from '@/lib/services/queue-routing';
+import { pickNextQueueAssignee, dispatchPendingChatSessions } from '@/lib/services/queue-routing';
 import { runExclusive } from '@/lib/key-mutex';
 import { canForceOthersOffline } from '@/lib/services/presence-authorization';
 import { CustomerEvaluationScores, CustomerProfileTag, CustomerEvaluationSummary, CustomerEvaluationOrigin } from '@/lib/types';
@@ -566,6 +566,29 @@ export async function updateUserStatus(userId: string, isOnline: boolean, reason
        VALUES ($1, $2, $3)`,
       [userId, status, reason || null]
     );
+
+    // Conversas que chegaram enquanto ninguém estava online ficam em 'pending'
+    // sem responsável (pickNextQueueAssignee devolve null). Voltar a ficar
+    // online é justamente o evento que muda esse cenário — sem isso elas só
+    // saíam da fila se alguém as pegasse na mão. Não é só pro usuário que
+    // acabou de entrar: a distribuição normal (rodízio/equilíbrio diário) é
+    // quem decide o destino, considerando todo mundo que está online agora.
+    if (isOnline) {
+      try {
+        const dispatched = await dispatchPendingChatSessions();
+        await Promise.all(dispatched.map(d => notifyUser(d.assigneeId, {
+          title: 'Novo atendimento atribuído a você',
+          body: `${d.customerName || 'Cliente'} está aguardando atendimento.`,
+          url: `/chat?chat=${d.sessionId}`,
+          tag: `chat_assign:${d.sessionId}`
+        })));
+      } catch (err) {
+        // Falhar a distribuição não pode derrubar a mudança de status — o
+        // atendimento continua pendente e sai na próxima tentativa.
+        console.error('Error dispatching pending chat sessions after status change:', err);
+      }
+    }
+
     return { success: true };
   } catch (err) {
     console.error("Error updating user status in actions:", err);

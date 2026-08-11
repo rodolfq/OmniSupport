@@ -2,7 +2,7 @@
 
 import React, { useEffect, useState } from 'react';
 import { useParams, useRouter } from 'next/navigation';
-import { ChevronLeft, Building2, Phone, Ticket as TicketIcon, MessageCircle, Loader2, Star, Circle } from 'lucide-react';
+import { ChevronLeft, Building2, Phone, Ticket as TicketIcon, MessageCircle, Loader2, ThumbsUp, ThumbsDown, Circle } from 'lucide-react';
 import { Company, Ticket } from '@/lib/types';
 import { CompanyService } from '@/lib/services/company-service';
 import { TicketService } from '@/lib/services/ticket-service';
@@ -214,10 +214,11 @@ export default function CompanyDetailPage() {
                     <div key={h.id} className="p-3 rounded-xl border border-[var(--border-default)] bg-[var(--surface-card)]">
                       <div className="flex items-center justify-between gap-2">
                         <p className="text-xs font-bold text-[var(--text-secondary)] truncate">{h.customerName || 'Sem nome'}</p>
-                        {!!h.rating && (
-                          <span className="flex items-center gap-0.5 text-[var(--text-warning)] shrink-0 text-[10px] font-bold">
-                            <Star size={11} className="fill-current" /> {h.rating}
-                          </span>
+                        {h.rating === 1 && (
+                          <ThumbsUp size={11} className="text-[var(--text-success)] shrink-0" />
+                        )}
+                        {h.rating === -1 && (
+                          <ThumbsDown size={11} className="text-[var(--text-danger)] shrink-0" />
                         )}
                       </div>
                       <p className="text-[10px] text-[var(--text-tertiary)] font-medium mt-0.5">

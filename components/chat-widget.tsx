@@ -35,7 +35,8 @@ import {
   CheckCheck,
   History,
   ChevronRight,
-  Star,
+  ThumbsUp,
+  ThumbsDown,
   Copy,
   Link2
 } from 'lucide-react';
@@ -279,8 +280,16 @@ export function ChatWidget() {
   }, [selectedChat?.messages, isCustomer]);
 
   // Troca de conversa: histórico de atendimentos anteriores é por contato,
-  // não faz sentido carregar sobre o chat errado.
+  // não faz sentido carregar sobre o chat errado. Sair de "sem conversa" (null)
+  // para a sessão recém-criada na primeira mensagem do cliente NÃO é troca de
+  // contato — limpar ali faria o histórico que ele acabou de carregar sumir na
+  // hora em que escreve.
+  const previousHistoriesChatIdRef = useRef<string | null>(selectedChatId);
   useEffect(() => {
+    const previousId = previousHistoriesChatIdRef.current;
+    previousHistoriesChatIdRef.current = selectedChatId;
+    if (previousId === null && selectedChatId) return;
+
     setPreviousHistories([]);
     setPreviousHistoriesOffset(0);
     setPreviousHistoriesTotal(0);
@@ -288,16 +297,27 @@ export function ChatWidget() {
     setHistoryMessagesById({});
   }, [selectedChatId]);
 
+  // De quem é o histórico a carregar. Normalmente vem da conversa aberta, mas o
+  // cliente pode estar com o widget aberto sem atendimento nenhum (a conversa só
+  // nasce na primeira mensagem) — aí o contato é o próprio usuário logado, senão
+  // o botão "Carregar histórico anterior" sumiria justamente pra quem ainda não
+  // começou a conversar.
+  const previousHistoriesContact = selectedChat
+    ? { customerId: selectedChat.customerId, customerPhone: selectedChat.customerPhone, excludeSessionId: selectedChat.id }
+    : (isCustomer && currentUser
+        ? { customerId: currentUser.id, customerPhone: currentUser.phone, excludeSessionId: undefined }
+        : null);
+
   const handleLoadPreviousHistories = async () => {
-    if (!selectedChat || loadingPreviousHistories) return;
-    if (!selectedChat.customerId && !selectedChat.customerPhone) return;
+    if (!previousHistoriesContact || loadingPreviousHistories) return;
+    if (!previousHistoriesContact.customerId && !previousHistoriesContact.customerPhone) return;
 
     setLoadingPreviousHistories(true);
     try {
       const result = await getPreviousChatHistories({
-        customerId: selectedChat.customerId,
-        customerPhone: selectedChat.customerPhone,
-        excludeSessionId: selectedChat.id,
+        customerId: previousHistoriesContact.customerId,
+        customerPhone: previousHistoriesContact.customerPhone,
+        excludeSessionId: previousHistoriesContact.excludeSessionId,
         limit: 2,
         offset: previousHistoriesOffset
       });
@@ -997,32 +1017,81 @@ export function ChatWidget() {
 
 useEffect(() => {
     if (isCustomer && !isMinimized && currentUser) {
-       // Ensure one historical session exists for this customer.
-       const loadOrCreateSession = async () => {
+       // Abrir o widget NÃO cria atendimento. Antes, este efeito chamava
+       // createChatSession no primeiro render aberto, e o simples clique no
+       // ícone do chat já fazia uma conversa 'pending' aparecer na fila dos
+       // analistas (e entrar no rodízio de atribuição) mesmo sem o cliente ter
+       // escrito nada. A sessão passa a nascer só na primeira mensagem, em
+       // handleSendMessage — aqui só retomamos um atendimento que já exista.
+       const loadSession = async () => {
          try {
-            const sessionId = await createChatSession({
-              customerId: currentUser.id,
-              customerName: currentUser.name,
-              customerPhone: currentUser.phone,
-              status: 'pending',
-              startedAt: new Date().toISOString()
-            } as any);
-            setSelectedChatId(sessionId);
             const sessions = await fetchChatSessions();
             setCustomerSessions(sessions);
+            // action=sessions devolve as sessões de TODO mundo (o widget da
+            // equipe depende disso) — filtrar pelo próprio usuário aqui é
+            // obrigatório, senão o cliente cairia na conversa de outra pessoa.
+            const mine = sessions.filter(s => s.customerId === currentUser.id);
+            // Atendimento em andamento tem prioridade; senão, uma sessão
+            // fechada ainda dentro da janela da pesquisa de satisfação precisa
+            // continuar selecionada pro "1"/"0" do cliente virar avaliação em
+            // vez de abrir conversa nova (ver isSurveyResponse).
+            const ongoing = mine.find(s => s.status !== 'closed');
+            const awaitingSurvey = mine.find(
+              s => s.awaitingSurveyUntil && new Date(s.awaitingSurveyUntil) > new Date()
+            );
+            setSelectedChatId((ongoing || awaitingSurvey)?.id ?? null);
           } catch (error) {
-            console.error('Error creating customer chat session:', error);
+            console.error('Error loading customer chat session:', error);
           }
         };
-        loadOrCreateSession();
+        loadSession();
     }
   }, [isCustomer, isMinimized, currentUser, setSelectedChatId]);
 
+  // O cliente não tem lista lateral pra escolher conversa: se existir um
+  // atendimento dele, é sempre esse que o widget mostra. Como o widget não cria
+  // mais sessão ao abrir, isso também cobre o caso de um analista iniciar a
+  // conversa enquanto o cliente está com o widget aberto — a sessão nova chega
+  // pelo polling de 30s e é selecionada aqui.
+  useEffect(() => {
+    if (!isCustomer || !currentUser || selectedChatId) return;
+    const mine = customerSessions.filter(s => s.customerId === currentUser.id);
+    const next =
+      mine.find(s => s.status !== 'closed') ||
+      mine.find(s => s.awaitingSurveyUntil && new Date(s.awaitingSurveyUntil) > new Date());
+    if (next) setSelectedChatId(next.id);
+  }, [isCustomer, currentUser, selectedChatId, customerSessions, setSelectedChatId]);
+
    const handleSendMessage = async () => {
     console.log('[DEBUG] handleSendMessage called', { message, selectedChatId, hasCurrentUser: !!currentUser, attachments: chatAttachments.length });
-    if ((!message?.trim() && chatAttachments.length === 0) || !selectedChatId || !currentUser) return;
+    if ((!message?.trim() && chatAttachments.length === 0) || !currentUser) return;
+    // Cliente pode estar sem sessão: abrir o widget não cria mais atendimento
+    // (ver efeito acima). A equipe continua precisando de uma conversa
+    // selecionada — não há o que criar sem saber pra quem.
+    if (!selectedChatId && !isCustomer) return;
 
     const trimmedText = message.trim();
+
+    // Primeira mensagem do cliente: é AQUI que o atendimento nasce e entra na
+    // fila/rodízio ('pending' faz o servidor rodar a distribuição automática,
+    // ver action=create-session em app/api/chats/route.ts).
+    let activeChatId = selectedChatId;
+    if (!activeChatId) {
+      try {
+        activeChatId = await createChatSession({
+          customerId: currentUser.id,
+          customerName: currentUser.name,
+          customerPhone: currentUser.phone,
+          status: 'pending',
+          startedAt: new Date().toISOString()
+        } as any);
+        setSelectedChatId(activeChatId);
+      } catch (error) {
+        console.error('Error creating customer chat session:', error);
+        toast.error('Erro ao iniciar conversa.');
+        return;
+      }
+    }
 
     const newMessage: ChatMessage = {
       id: crypto.randomUUID(),
@@ -1035,12 +1104,12 @@ useEffect(() => {
       metadata: chatAttachments.length > 0 ? { attachments: chatAttachments } : undefined
     };
 
-    const session = customerSessions.find(s => s.id === selectedChatId);
+    const session = customerSessions.find(s => s.id === activeChatId);
     if (session) {
       try {
         // Optimistic UI update
         const updatedSessions = customerSessions.map(s => {
-          if (s.id === selectedChatId) {
+          if (s.id === activeChatId) {
             return {
               ...s,
               messages: [...(s.messages || []), newMessage],
@@ -1068,15 +1137,18 @@ useEffect(() => {
           new Date(session.awaitingSurveyUntil) > new Date() &&
           (trimmedText === '0' || trimmedText === '1');
 
-        let effectiveSessionId = selectedChatId;
+        let effectiveSessionId = activeChatId;
         if (isSurveyResponse) {
-          await submitSurveyResponse(selectedChatId, trimmedText === '1' ? 1 : 0, newMessage);
+          // -1 = negativo (não 0, que significa "neutro" em chat_histories.rating
+          // e some das contagens de avaliação) — mesma conversão do canal
+          // WhatsApp em lib/services/whatsapp-service.ts.
+          await submitSurveyResponse(activeChatId, trimmedText === '1' ? 1 : -1, newMessage);
         } else {
           // Save via Supabase first, then attempt WhatsApp delivery. Se a sessão
           // já estava encerrada de verdade, o servidor cria um atendimento novo
           // e devolve o id dele — precisa acompanhar a conversa ativa pra lá.
-          effectiveSessionId = await pushChatMessage(selectedChatId, newMessage);
-          if (effectiveSessionId !== selectedChatId) {
+          effectiveSessionId = await pushChatMessage(activeChatId, newMessage);
+          if (effectiveSessionId !== activeChatId) {
             setSelectedChatId(effectiveSessionId);
           }
         }
@@ -1134,14 +1206,16 @@ useEffect(() => {
         toast.error('Erro ao enviar mensagem.');
       }
     } else {
-      // Session might not be loaded yet - try to save anyway
+      // Sessão ainda não está no estado local — é o caso normal da primeira
+      // mensagem do cliente (acabou de ser criada acima) e também o de uma
+      // sessão que ainda não terminou de carregar.
       console.log('[DEBUG] Session not in state, sending directly to Supabase');
       try {
         setShouldAutoScroll(true);
-        
+
         // Optimistic update
         const optimisticSession: ChatSession = {
-          id: selectedChatId,
+          id: activeChatId,
           customerId: currentUser.id,
           customerName: currentUser.name,
           status: 'pending',
@@ -1149,12 +1223,12 @@ useEffect(() => {
           startedAt: new Date().toISOString(),
           lastMessageAt: newMessage.timestamp
         };
-        setCustomerSessions(prev => [optimisticSession, ...prev.filter(s => s.id !== selectedChatId)]);
+        setCustomerSessions(prev => [optimisticSession, ...prev.filter(s => s.id !== activeChatId)]);
         setMessage('');
         setChatAttachments([]);
 
-        const effectiveSessionId = await pushChatMessage(selectedChatId, newMessage);
-        if (effectiveSessionId !== selectedChatId) {
+        const effectiveSessionId = await pushChatMessage(activeChatId, newMessage);
+        if (effectiveSessionId !== activeChatId) {
           setSelectedChatId(effectiveSessionId);
         }
         const refreshedSessions = await fetchChatSessions();
@@ -2052,7 +2126,11 @@ useEffect(() => {
               )}
 
               {/* Chat Content */}
-              {selectedChatId ? (
+              {/* Cliente sempre vê a área de conversa, mesmo sem selectedChatId:
+                  o atendimento só é criado na primeira mensagem, então até lá
+                  ele precisa de um campo de digitação (e não do vazio
+                  "selecione um chat", que só faz sentido pra equipe). */}
+              {(selectedChatId || isCustomer) ? (
                 <div className="flex-1 flex flex-col bg-[var(--surface-card)] min-w-0">
                   {/* Chat Header */}
                   {/* Sem flex-wrap: com nome de responsável muito longo, a linha
@@ -2260,7 +2338,7 @@ useEffect(() => {
                     onScroll={handleScroll}
                     className="flex-1 overflow-y-auto px-8 py-6 space-y-3 bg-[var(--surface-card)]/30 scroll-smooth"
                   >
-                    {(selectedChat?.customerId || selectedChat?.customerPhone) && !(previousHistoriesOffset > 0 && previousHistoriesOffset >= previousHistoriesTotal) && (
+                    {(previousHistoriesContact?.customerId || previousHistoriesContact?.customerPhone) && !(previousHistoriesOffset > 0 && previousHistoriesOffset >= previousHistoriesTotal) && (
                       <div className="flex justify-center pb-2">
                         <button
                           type="button"
@@ -2297,10 +2375,11 @@ useEffect(() => {
                                     {h.assigneeName ? ` · ${h.assigneeName}` : ''}
                                     {durationLabel ? ` · ${durationLabel}` : ''}
                                   </span>
-                                  {!!h.rating && (
-                                    <span className="flex items-center gap-0.5 text-[var(--text-warning)] shrink-0">
-                                      <Star size={11} className="fill-current" /> {h.rating}
-                                    </span>
+                                  {h.rating === 1 && (
+                                    <ThumbsUp size={11} className="text-[var(--text-success)] shrink-0" />
+                                  )}
+                                  {h.rating === -1 && (
+                                    <ThumbsDown size={11} className="text-[var(--text-danger)] shrink-0" />
                                   )}
                                 </div>
                                 <ChevronRight size={14} className={cn("shrink-0 text-[var(--text-tertiary)] transition-transform", isExpanded && "rotate-90")} />

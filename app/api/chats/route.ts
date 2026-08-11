@@ -5,11 +5,12 @@ import { verifyJWT } from '@/lib/jwt';
 import { emitChatEvent, excludeActiveViewers, emitInternalChatEvent } from '@/lib/chat-events';
 import { notifyUser } from '@/lib/services/push-service';
 import { getChatRecipientIds, isTeamRole } from '@/lib/services/notification-recipients';
-import { resolveCombinedQueuePool, pickNextQueueAssignee, RoutingQueue } from '@/lib/services/queue-routing';
+import { resolveCombinedQueuePool, pickNextQueueAssignee, dispatchPendingChatSessions, RoutingQueue } from '@/lib/services/queue-routing';
 import { transcribeMessageAudio, isAudioAttachment, isTranscriptionEnabled } from '@/lib/services/transcription-service';
 import { Attachment } from '@/lib/types';
 import { runExclusive } from '@/lib/key-mutex';
 import { canForceOthersOffline } from '@/lib/services/presence-authorization';
+import { isStalePresence } from '@/lib/presence';
 import { getOrGenerateChatSummary, ChatSummaryNotFoundError, ChatSummaryGenerationError } from '@/lib/services/chat-summary-service';
 import { AssistantNotConfiguredError, parseGroqRetryWait } from '@/lib/groq-client';
 import { normalizeBrazilianPhoneDigits } from '@/lib/utils';
@@ -771,9 +772,11 @@ export async function POST(request: Request) {
         const initialStatus = session.status || 'pending';
 
         // Distribuição automática: só entra em ação quando a conversa chega como
-        // 'pending' (é o caso do widget abrindo sozinho o chat de um usuário
-        // logado, chat-widget.tsx) — se já veio 'active' é porque um agente
-        // iniciou a conversa manualmente (ex.: "Novo WhatsApp"), e nesse caso o
+        // 'pending' (é o caso da primeira mensagem de um cliente logado pelo
+        // widget, chat-widget.tsx — abrir o widget não cria nada, justamente
+        // pra não ocupar a fila sem ninguém ter escrito) — se já veio 'active'
+        // é porque um agente iniciou a conversa manualmente (ex.: "Novo
+        // WhatsApp"), e nesse caso o
         // próprio agente já é quem está assumindo, sem round-robin. Como essa
         // conversa não chegou por nenhuma instância de WhatsApp específica, usa
         // o pool combinado de todas as filas (mesmo comportamento/rodízio das
@@ -884,6 +887,22 @@ export async function POST(request: Request) {
         `UPDATE public.chat_sessions SET last_message_at = $1, updated_at = NOW() WHERE id = $2`,
         [message.timestamp, targetSessionId]
       );
+
+      // Conversa que ficou 'pending' por não haver ninguém online na hora tenta
+      // a distribuição de novo a cada mensagem nova — no-op barato (o filtro é
+      // por id + status) quando ela já tem responsável.
+      try {
+        const dispatched = await dispatchPendingChatSessions({ sessionId: targetSessionId });
+        await Promise.all(dispatched.map(d => notifyUser(d.assigneeId, {
+          title: 'Novo atendimento atribuído a você',
+          body: `${d.customerName || 'Cliente'} está aguardando atendimento.`,
+          url: `/chat?chat=${d.sessionId}`,
+          tag: `chat_assign:${d.sessionId}`
+        })));
+      } catch (err) {
+        console.error('[queue] Falha ao redistribuir atendimento pendente:', err);
+      }
+
       emitChatEvent(targetSessionId, {
         type: 'message',
         sessionId: targetSessionId,
@@ -1124,10 +1143,15 @@ export async function POST(request: Request) {
         });
       }
 
+      // Escala de chat_histories.rating é -1 (negativo) / 1 (positivo) — o
+      // widget já manda nessa escala, mas clientes com bundle antigo em cache
+      // ainda mandam 0 para "ruim", que seria lido como "neutro" e sumiria de
+      // todas as contagens de avaliação. Normaliza aqui também.
+      const normalizedRating = rating === 1 ? 1 : -1;
       await query(
         `UPDATE public.chat_histories SET rating = $1
          WHERE id = (SELECT id FROM public.chat_histories WHERE session_id = $2 ORDER BY created_at DESC LIMIT 1)`,
-        [rating, sessionId]
+        [normalizedRating, sessionId]
       );
       await query(
         'UPDATE public.chat_sessions SET awaiting_survey_until = NULL WHERE id = $1',
@@ -1186,6 +1210,19 @@ export async function POST(request: Request) {
       }
 
       const isOnline = status === 'online';
+
+      // Estado ANTES do upsert, pra decidir lá embaixo se vale reprocessar a
+      // fila de pendentes. Esta rota é usada tanto pelo toggle manual quanto
+      // pelo heartbeat de 60s (app-context.tsx) — reprocessar a cada heartbeat
+      // de cada analista online seria puro desperdício.
+      const beforeRes = await query(
+        'SELECT status, last_active FROM public.analyst_status WHERE user_id = $1',
+        [userId]
+      );
+      const before = beforeRes.rows[0];
+      const wasOnline = before?.status === 'online';
+      const wasStale = !before || isStalePresence(before.last_active);
+
       // Mesma lógica de âncora diária de app/actions.ts#updateUserStatus —
       // ver migrations/queue_daily_anchor.sql. Este é o ponto usado tanto
       // pelo toggle manual quanto pelo heartbeat de 60s (app-context.tsx),
@@ -1222,6 +1259,26 @@ export async function POST(request: Request) {
          VALUES ($1, $2, $3, NOW())`,
         [userId, status, reason || null]
       );
+
+      // Atendimentos que ficaram em 'pending' por não haver ninguém elegível
+      // quando chegaram (ver dispatchPendingChatSessions). Só vale a pena
+      // tentar quando este analista passou a contar pro rodízio agora: entrou
+      // como online, ou voltou de uma presença já vencida (is_online seguia
+      // true, mas sem heartbeat pickNextQueueAssignee o ignorava).
+      if (isOnline && (!wasOnline || wasStale)) {
+        try {
+          const dispatched = await dispatchPendingChatSessions();
+          await Promise.all(dispatched.map(d => notifyUser(d.assigneeId, {
+            title: 'Novo atendimento atribuído a você',
+            body: `${d.customerName || 'Cliente'} está aguardando atendimento.`,
+            url: `/chat?chat=${d.sessionId}`,
+            tag: `chat_assign:${d.sessionId}`
+          })));
+        } catch (err) {
+          console.error('[queue] Falha ao redistribuir atendimentos pendentes após mudança de status:', err);
+        }
+      }
+
       return NextResponse.json({ success: true });
     }
 
@@ -1496,7 +1553,8 @@ export async function POST(request: Request) {
           history.finishedAt,
           history.durationSeconds || null,
           history.firstResponseSeconds || null,
-          history.rating || null,
+          // ?? e não || : rating 0 ("neutro") é valor válido e virava null aqui.
+          history.rating ?? null,
           history.transcript || ''
         ]
       );
