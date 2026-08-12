@@ -5,12 +5,12 @@ import { subscribeToChatEvents, markViewerActive, markViewerInactive } from '@/l
 
 // Precisa rodar em runtime Node (não edge) porque `query()` usa o driver `pg`.
 export const dynamic = 'force-dynamic';
-// Na Vercel, funções serverless têm um limite de duração — sem isso, o
-// padrão é bem curto (ex.: 10s no plano Hobby) e a conexão SSE cai quase
-// imediatamente. Fora da Vercel (servidor próprio) esse valor é ignorado,
-// sem efeito nenhum. Ajuste conforme o teto do seu plano.
-export const maxDuration = 60;
 
+// A conexão SSE fica aberta indefinidamente; quem a mantém viva é o heartbeat
+// abaixo. Atrás de reverse proxy, lembre de desligar o buffering
+// (`proxy_buffering off` no Nginx) e de dar um read timeout maior que este
+// intervalo — com buffer, o realtime degrada em silêncio para o polling de 30s
+// do cliente e ninguém percebe que parou de funcionar.
 const HEARTBEAT_MS = 25000;
 const TEAM_ROLES = ['Administrador', 'Equipe', 'Time Interno'];
 

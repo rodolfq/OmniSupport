@@ -6,6 +6,7 @@ import { fetchAllTickets } from '@/lib/tickets';
 import { isClosedTicketStatus, isInProgressTicketStatus } from '@/lib/ticket-status';
 import { fetchPriorities, fetchStatuses, ConfigService } from '@/lib/services/config-service';
 import { useProfilesLiteQuery } from '@/lib/query-hooks';
+import { UserAvatar } from '@/components/user-avatar';
 import { findStatusColor } from '@/lib/status-colors';
 import { useApp } from '@/app/app-context';
 import { supabase } from '@/lib/supabase';
@@ -20,6 +21,9 @@ interface InternalTicketItem extends InternalTicket {
   uuid: string;
   displayId: string;
   assigneeName?: string | null;
+  // Miniatura do responsável (profiles.avatar_thumb_url) — o card mostra a
+  // foto em vez da inicial. Vem junto do nome na mesma busca.
+  assigneeAvatarThumbUrl?: string | null;
   slaRemaining?: string | null;
 }
 
@@ -91,10 +95,14 @@ export default function DashboardPage() {
         if (error) throw error;
 
         const assigneeIds = [...new Set((data || []).map((it: any) => it.assignee_id).filter(Boolean))];
+        // Traz a miniatura junto do nome (~1,3kB por pessoa, ver
+        // lib/services/avatar-thumb-service.ts) pros cards mostrarem a foto do
+        // responsável em vez da inicial. A foto cheia (avatar_url) fica de
+        // fora de propósito: são até 2,7MB por pessoa.
         const { data: assignees } = assigneeIds.length
-          ? await supabase.from('profiles').select('id, name').in('id', assigneeIds)
+          ? await supabase.from('profiles').select('id, name, avatar_thumb_url').in('id', assigneeIds)
           : { data: [] as any[] };
-        const assigneeMap = new Map((assignees || []).map((a: any) => [a.id, a.name]));
+        const assigneeMap = new Map<string, any>((assignees || []).map((a: any) => [a.id, a]));
 
         setInternalTickets((data || []).map((it: any) => {
           // Mesmo cálculo de "tempo restante" usado em /internal-tickets —
@@ -117,7 +125,8 @@ export default function DashboardPage() {
             displayId: `INT-${it.internal_ticket_number?.toString().padStart(4, '0') || it.id.slice(0, 8)}`,
             teamId: it.team_id,
             assigneeId: it.assignee_id,
-            assigneeName: it.assignee_id ? assigneeMap.get(it.assignee_id) || null : null,
+            assigneeName: it.assignee_id ? assigneeMap.get(it.assignee_id)?.name || null : null,
+            assigneeAvatarThumbUrl: it.assignee_id ? assigneeMap.get(it.assignee_id)?.avatar_thumb_url || null : null,
             priority: it.priority,
             tags: it.tags || [],
             status: it.status || 'Novo',
@@ -525,10 +534,12 @@ function InternalDashboard({ tickets, loading, router, statuses }: { tickets: In
   }, [tickets]);
 
   const workload = useMemo(() => {
-    const map = new Map<string, { id: string; name: string; count: number }>();
+    const map = new Map<string, { id: string; name: string; count: number; thumbUrl?: string | null }>();
     tickets.filter(t => !isClosedTicketStatus(t.status) && t.assigneeId).forEach(t => {
       const key = t.assigneeId as string;
-      const entry = map.get(key) || { id: key, name: t.assigneeName || 'Analista', count: 0 };
+      // A miniatura viaja no próprio item (não há a lista de perfis aqui
+      // dentro — este é um componente filho que só recebe `tickets`).
+      const entry = map.get(key) || { id: key, name: t.assigneeName || 'Analista', count: 0, thumbUrl: t.assigneeAvatarThumbUrl };
       entry.count += 1;
       map.set(key, entry);
     });
@@ -591,9 +602,12 @@ function InternalDashboard({ tickets, loading, router, statuses }: { tickets: In
               <div className="space-y-2.5">
                 {workload.map(w => (
                   <div key={w.id} className="flex items-center gap-3">
-                    <div className="w-6 h-6 rounded-full bg-[var(--accent)]/15 text-[var(--accent-text)] flex items-center justify-center font-black text-[10px] shrink-0">
-                      {w.name.charAt(0).toUpperCase()}
-                    </div>
+                    <UserAvatar
+                      name={w.name}
+                      thumbUrl={w.thumbUrl}
+                      size={24}
+                      fallbackClassName="bg-[var(--accent)]/15 text-[var(--accent-text)] font-black"
+                    />
                     <span className="text-xs font-semibold text-[var(--text-secondary)] flex-1 truncate">{w.name}</span>
                     <div className="w-24 h-1.5 bg-[var(--surface-pill)] rounded-full overflow-hidden">
                       <div className="h-full bg-[var(--accent)] rounded-full" style={{ width: `${Math.min(100, (w.count / (workload[0]?.count || 1)) * 100)}%` }} />
@@ -665,9 +679,12 @@ function InternalDashboard({ tickets, loading, router, statuses }: { tickets: In
                           <span className="flex items-center gap-1 font-semibold text-orange-600 dark:text-orange-400"><Clock size={11} />{ticket.slaRemaining}</span>
                         ) : <span className="truncate max-w-[100px]">{ticket.teamId || 'Sem equipe'}</span>}
                         {ticket.assigneeName ? (
-                          <span className="w-5 h-5 rounded-full bg-[var(--accent)]/15 text-[var(--accent-text)] flex items-center justify-center font-black text-[10px]" title={ticket.assigneeName}>
-                            {ticket.assigneeName.charAt(0).toUpperCase()}
-                          </span>
+                          <UserAvatar
+                            name={ticket.assigneeName}
+                            thumbUrl={ticket.assigneeAvatarThumbUrl}
+                            size={20}
+                            fallbackClassName="bg-[var(--accent)]/15 text-[var(--accent-text)] font-black"
+                          />
                         ) : (
                           <span className="w-5 h-5 rounded-full bg-[var(--surface-pill)] border border-dashed border-[var(--border-default)] flex items-center justify-center">
                             <User size={11} className="text-[var(--text-tertiary)]" />
@@ -734,9 +751,13 @@ function InternalPriorityList({ title, tickets, color, router }: {
                 <span className="text-[9px] text-[var(--text-tertiary)]">•</span>
                 {t.assigneeName ? (
                   <div className="flex items-center gap-1">
-                    <div className="w-4 h-4 rounded bg-[var(--accent)]/15 flex items-center justify-center text-[7px] font-semibold text-[var(--accent-text)] uppercase">
-                      {t.assigneeName.charAt(0)}
-                    </div>
+                    <UserAvatar
+                      name={t.assigneeName}
+                      thumbUrl={t.assigneeAvatarThumbUrl}
+                      size={16}
+                      rounded="rounded"
+                      fallbackClassName="bg-[var(--accent)]/15 text-[var(--accent-text)]"
+                    />
                     <span className="text-[9px] text-[var(--text-tertiary)] font-semibold truncate max-w-[80px]">{t.assigneeName.split(' ')[0]}</span>
                   </div>
                 ) : (
@@ -818,9 +839,13 @@ function PriorityList({ title, tickets, color, onSelect, priorities, users }: {
                   <span className="text-[9px] text-[var(--text-tertiary)]">•</span>
                   {assignee ? (
                     <div className="flex items-center gap-1">
-                      <div className="w-4 h-4 rounded bg-[var(--accent)]/15 flex items-center justify-center text-[7px] font-semibold text-[var(--accent-text)] uppercase">
-                        {assignee.name.charAt(0)}
-                      </div>
+                      <UserAvatar
+                        name={assignee.name}
+                        thumbUrl={(assignee as any).avatarThumbUrl}
+                        size={16}
+                        rounded="rounded"
+                        fallbackClassName="bg-[var(--accent)]/15 text-[var(--accent-text)]"
+                      />
                       <span className="text-[9px] text-[var(--text-tertiary)] font-semibold truncate max-w-[80px]">{assignee.name.split(' ')[0]}</span>
                     </div>
                   ) : (
@@ -960,9 +985,14 @@ function TicketCard({ ticket, availablePriorities, users, onClick }: { ticket: T
            {assignee ? (
              <div className="flex items-center gap-2">
                <span className="text-[9px] text-[var(--text-tertiary)] font-semibold truncate max-w-[60px] hidden sm:inline">{assignee.name.split(' ')[0]}</span>
-               <div className="w-6 h-6 rounded-lg bg-[var(--accent)] flex items-center justify-center font-semibold text-white text-[9px] uppercase shadow-sm" title={assignee.name}>
-                 {assignee.name.charAt(0)}
-               </div>
+               <UserAvatar
+                 name={assignee.name}
+                 thumbUrl={(assignee as any).avatarThumbUrl}
+                 size={24}
+                 rounded="rounded-lg"
+                 fallbackClassName="bg-[var(--accent)] text-white shadow-sm"
+                 className="shadow-sm"
+               />
              </div>
            ) : (
              <div className={cn(

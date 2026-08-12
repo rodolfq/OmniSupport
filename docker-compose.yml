@@ -17,6 +17,15 @@ services:
     build:
       context: .
       dockerfile: Dockerfile
+      # Interpolado do .env da raiz pelo próprio Compose. Estas três são
+      # embutidas no bundle em tempo de build (ver ARG no Dockerfile) — passá-las
+      # só em env_file não funciona, o código compilado já teria `undefined`.
+      args:
+        NEXT_PUBLIC_VAPID_PUBLIC_KEY: ${NEXT_PUBLIC_VAPID_PUBLIC_KEY:-}
+        NEXT_PUBLIC_ENABLE_AUDIO_TRANSCRIPTION: ${NEXT_PUBLIC_ENABLE_AUDIO_TRANSCRIPTION:-false}
+        # URL pública do portal, usada nos links "Abrir chamado" do e-mail
+        # automático. Vazia = e-mail sai sem botão de link.
+        NEXT_PUBLIC_APP_URL: ${NEXT_PUBLIC_APP_URL:-}
     image: ssx-desk:latest
     restart: unless-stopped
     env_file:
@@ -37,6 +46,36 @@ services:
     # Sem isso o Compose pode subir 2 containers num `up --scale` distraído.
     deploy:
       replicas: 1
+
+  # Túnel Cloudflare — publica o portal em HTTPS sem abrir porta no roteador e
+  # sem IP fixo: quem inicia a conexão é este container, de dentro da rede.
+  #
+  # Opcional de propósito (profile): num servidor com Nginx/Caddy na frente ele
+  # não deve subir. Para ligar:  docker compose --profile tunnel up -d
+  #
+  # O cloudflared alcança a aplicação por `app:3000` pela rede do Compose — por
+  # isso a porta do serviço acima continua publicada só no loopback do host. No
+  # painel da Cloudflare, o hostname público aponta para http://app:3000.
+  #
+  # HTTPS aqui não é conforto: o cookie de sessão é gravado com `secure` quando
+  # NODE_ENV=production (app/api/auth/login/route.ts), então em HTTP puro o
+  # navegador descarta o cookie e o login falha em silêncio.
+  cloudflared:
+    image: cloudflare/cloudflared:latest
+    restart: unless-stopped
+    profiles:
+      - tunnel
+    # Token por variável de ambiente, não por argumento: argumento de processo
+    # aparece em `docker ps` e no `ps` do host, e este token dá controle do
+    # túnel. Vazio = cloudflared sai com erro explícito no start (só acontece
+    # com o profile ligado; sem `:?` aqui porque o Compose interpola o arquivo
+    # inteiro mesmo com o profile desligado, e isso travaria o `up` normal).
+    command: tunnel --no-autoupdate run
+    environment:
+      TUNNEL_TOKEN: ${TUNNEL_TOKEN:-}
+    depends_on:
+      app:
+        condition: service_healthy
 
 volumes:
   # Anexos de chamado/chat. Único estado da aplicação fora do Postgres —

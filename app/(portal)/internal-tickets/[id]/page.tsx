@@ -5,7 +5,7 @@ import { StyledSelect } from '@/components/styled-select';
 import { useParams, useRouter } from 'next/navigation';
 import { supabase } from '@/lib/supabase';
 import { useApp } from '@/app/app-context';
-import { InternalTicket, Message, User, Hotfix } from '@/lib/types';
+import { InternalTicket, Message, User, Hotfix, EffortConfig, OutcomeConfig } from '@/lib/types';
 import { MessageService, InternalTicketService } from '@/lib/services/ticket-service';
 import { getHotfixes } from '@/app/actions';
 import { cn } from '@/lib/utils';
@@ -28,7 +28,7 @@ import { ClientTime } from '@/components/client-time';
 import { FieldChange, formatChangeMessage } from '@/lib/ticket-diff';
 import { INTERNAL_PRIORITY_LABELS, computeInternalTicketSla } from '@/lib/sla';
 import { fetchPriorities, ConfigService } from '@/lib/services/config-service';
-import { useAnalystsQuery } from '@/lib/query-hooks';
+import { useAnalystsQuery, useConfigEffortsQuery, useConfigOutcomesQuery } from '@/lib/query-hooks';
 import { findStatusColor } from '@/lib/status-colors';
 import { fileToBase64 } from '@/lib/image-utils';
 
@@ -57,13 +57,17 @@ interface KanbanStatusMeta {
   value: string;
   label: string;
   color: string;
+  // Vem de config_statuses.is_closed. Necessário para saber quando cobrar a
+  // classificação da solução — o rótulo que "conclui" é configurável, não dá
+  // pra comparar com a string "Concluído" no código.
+  isClosed?: boolean;
 }
 
 const DEFAULT_KANBAN_STATUSES: KanbanStatusMeta[] = [
   { value: "Novo", label: "Novo", color: "bg-[var(--surface-info)] text-[var(--text-info)]" },
   { value: "Em Andamento", label: "Em Andamento", color: "bg-[var(--surface-warning)] text-[var(--text-warning)]" },
   { value: "Em Espera", label: "Em Espera", color: "bg-[var(--surface-pill)] text-[var(--text-secondary)]" },
-  { value: "Concluído", label: "Concluído", color: "bg-[var(--surface-success)] text-[var(--text-success)]" },
+  { value: "Concluído", label: "Concluído", color: "bg-[var(--surface-success)] text-[var(--text-success)]", isClosed: true },
 ];
 
 interface InternalTicketWithExtras extends InternalTicket {
@@ -104,6 +108,15 @@ export default function InternalTicketDetailPage() {
   const [formTags, setFormTags] = useState('');
   const [formExpectedPublish, setFormExpectedPublish] = useState('');
   const [formHotfixId, setFormHotfixId] = useState('');
+  // Classificação da solução (ver EffortConfig/OutcomeConfig). Esforço
+  // alimenta a carga ponderada e Desfecho a taxa de defeito no relatório de
+  // Carga e Complexidade.
+  const [formEffortId, setFormEffortId] = useState('');
+  const [formOutcomeId, setFormOutcomeId] = useState('');
+  const { data: effortsData } = useConfigEffortsQuery();
+  const { data: outcomesData } = useConfigOutcomesQuery();
+  const efforts = useMemo(() => (effortsData || []) as EffortConfig[], [effortsData]);
+  const outcomes = useMemo(() => (outcomesData || []) as OutcomeConfig[], [outcomesData]);
   // Papéis de equipe (Administrador/Equipe/Time Interno) — via hook
   // compartilhado, mesmo filtro que o fetch direto tinha.
   const { data: analystsData } = useAnalystsQuery();
@@ -111,6 +124,12 @@ export default function InternalTicketDetailPage() {
   const [priorities, setPriorities] = useState<any[]>([]);
   const [hotfixes, setHotfixes] = useState<Hotfix[]>([]);
   const [statuses, setStatuses] = useState<KanbanStatusMeta[]>(DEFAULT_KANBAN_STATUSES);
+  // "Concluído" é configurável (config_statuses, scope internal_ticket), então
+  // a checagem usa a lista carregada em vez de comparar com rótulo fixo.
+  const needsClassification = useMemo(
+    () => statuses.some(s => s.value === formStatus && s.isClosed),
+    [statuses, formStatus]
+  );
 
   // Vincular chamado existente a este ticket interno
   const [showLinkTicketModal, setShowLinkTicketModal] = useState(false);
@@ -168,6 +187,8 @@ export default function InternalTicketDetailPage() {
         slaLimit: data.sla_limit,
         expectedPublishDate: data.expected_publish_date,
         hotfixId: data.hotfix_id,
+        effortId: data.effort_id,
+        outcomeId: data.outcome_id,
         status: data.status || 'Novo',
         assigneeName: data.assignee_id ? profileMap.get(data.assignee_id) || null : null,
         creatorName: data.creator_id ? profileMap.get(data.creator_id) || null : null,
@@ -181,6 +202,8 @@ export default function InternalTicketDetailPage() {
       setFormTags((data.tags || []).join(', '));
       setFormExpectedPublish(toDateOnly(data.expected_publish_date));
       setFormHotfixId(data.hotfix_id || '');
+      setFormEffortId(data.effort_id || '');
+      setFormOutcomeId(data.outcome_id || '');
     } catch (error) { console.error('Error loading ticket:', error); toast.error('Erro ao carregar ticket'); }
     finally { setLoading(false); }
   }, [ticketId, currentUser]);
@@ -201,7 +224,7 @@ export default function InternalTicketDetailPage() {
     if (topLevel.length > 0) {
       setStatuses(topLevel.map(s => {
         const c = findStatusColor(s.color);
-        return { value: s.label, label: s.label, color: `${c.bg} ${c.text}` };
+        return { value: s.label, label: s.label, color: `${c.bg} ${c.text}`, isClosed: !!s.isClosed };
       }));
     }
   }, []);
@@ -289,6 +312,8 @@ export default function InternalTicketDetailPage() {
         sla_limit: slaIso,
         expected_publish_date: expectedPublishIso,
         hotfix_id: formHotfixId || null,
+        effort_id: formEffortId || null,
+        outcome_id: formOutcomeId || null,
         updated_at: new Date().toISOString()
       }).eq('id', ticket.uuid);
       if (error) throw error;
@@ -335,6 +360,14 @@ export default function InternalTicketDetailPage() {
         const hotfixName = (id: string) => id ? (hotfixes.find(h => h.id === id)?.name || 'hotfix removido') : 'Nenhum';
         changes.push({ label: 'Hotfix', from: hotfixName(prevHotfixId), to: hotfixName(formHotfixId) });
       }
+      if (formEffortId !== (ticket.effortId || '')) {
+        const effortName = (id: string) => id ? (efforts.find(e => e.id === id)?.label || 'removido') : 'Não classificado';
+        changes.push({ label: 'Esforço', from: effortName(ticket.effortId || ''), to: effortName(formEffortId) });
+      }
+      if (formOutcomeId !== (ticket.outcomeId || '')) {
+        const outcomeName = (id: string) => id ? (outcomes.find(o => o.id === id)?.label || 'removido') : 'Não classificado';
+        changes.push({ label: 'Desfecho', from: outcomeName(ticket.outcomeId || ''), to: outcomeName(formOutcomeId) });
+      }
       if (changes.length > 0) {
         await InternalTicketService.logEvent(ticket.uuid, currentUser?.id, formatChangeMessage(changes));
       }
@@ -347,7 +380,7 @@ export default function InternalTicketDetailPage() {
 
       setFormStatus(nextStatus);
       setFormAssignee(nextAssignee);
-      setTicket(prev => prev ? { ...prev, status: nextStatus as InternalTicketWithExtras['status'], assigneeId: nextAssignee, tags, teamId: formTeam, priority: formPriority, title: formTitle, slaLimit: slaIso, expectedPublishDate: expectedPublishIso, hotfixId: formHotfixId || null, description: formDescription } : prev);
+      setTicket(prev => prev ? { ...prev, status: nextStatus as InternalTicketWithExtras['status'], assigneeId: nextAssignee, tags, teamId: formTeam, priority: formPriority, title: formTitle, slaLimit: slaIso, expectedPublishDate: expectedPublishIso, hotfixId: formHotfixId || null, effortId: formEffortId || null, outcomeId: formOutcomeId || null, description: formDescription } : prev);
       if (changes.length > 0 || descriptionChanged) loadMessages();
       toast.success('Ticket atualizado');
       triggerRefresh();
@@ -512,6 +545,44 @@ export default function InternalTicketDetailPage() {
                     📅 Previsto: {new Date(`${hotfixes.find(h => h.id === formHotfixId)!.expectedDate}T00:00:00`).toLocaleDateString('pt-BR')}
                   </p>
                 )}
+              </div>
+              {/* Classificação da solução. Fica visível o tempo todo (e não
+                  só ao concluir) porque quem está resolvendo às vezes já sabe
+                  o desfecho no meio do caminho; o selo "falta" só aparece
+                  quando o ticket já está concluído sem preencher — cobrar
+                  desde a abertura viraria ruído e o campo acabaria preenchido
+                  no automático, que é pior do que vazio. */}
+              <div>
+                <p className="text-[10px] text-[var(--text-tertiary)] font-bold uppercase mb-1 flex items-center gap-1">
+                  Esforço
+                  {needsClassification && !formEffortId && (
+                    <span className="text-[8px] font-black px-1.5 py-0.5 rounded-full bg-[var(--surface-warning)] text-[var(--text-warning-strong)]">falta</span>
+                  )}
+                </p>
+                <StyledSelect
+                  value={formEffortId}
+                  onChange={(e) => { setFormEffortId(e.target.value); setTimeout(() => handleUpdateTicket(), 0); }}
+                  className="w-full bg-[var(--surface-card)] border border-[var(--border-default)] rounded-lg px-3 py-2 text-xs font-bold text-[var(--text-primary)]"
+                >
+                  <option value="">Não classificado</option>
+                  {efforts.map(e => <option key={e.id} value={e.id}>{e.label}</option>)}
+                </StyledSelect>
+              </div>
+              <div>
+                <p className="text-[10px] text-[var(--text-tertiary)] font-bold uppercase mb-1 flex items-center gap-1">
+                  Desfecho
+                  {needsClassification && !formOutcomeId && (
+                    <span className="text-[8px] font-black px-1.5 py-0.5 rounded-full bg-[var(--surface-warning)] text-[var(--text-warning-strong)]">falta</span>
+                  )}
+                </p>
+                <StyledSelect
+                  value={formOutcomeId}
+                  onChange={(e) => { setFormOutcomeId(e.target.value); setTimeout(() => handleUpdateTicket(), 0); }}
+                  className="w-full bg-[var(--surface-card)] border border-[var(--border-default)] rounded-lg px-3 py-2 text-xs font-bold text-[var(--text-primary)]"
+                >
+                  <option value="">Não classificado</option>
+                  {outcomes.map(o => <option key={o.id} value={o.id}>{o.label}</option>)}
+                </StyledSelect>
               </div>
               <div><p className="text-[10px] text-[var(--text-tertiary)] font-bold uppercase mb-1">Publicação Prevista</p>
                 <input

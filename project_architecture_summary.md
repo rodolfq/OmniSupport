@@ -54,11 +54,11 @@ Existem dois caminhos distintos no código para lidar com o WhatsApp:
   1. Extrai o JID (número do remetente).
   2. Executa a expansão e busca por variantes de telefone do Brasil (com/sem DDI `55`, com/sem o nono dígito `9`), localizando ou criando a `chat_session`.
   3. Insere a mensagem na tabela `chat_messages` e atualiza a última data na sessão.
-- **Produção (Serverless)**: Como o ambiente serverless (ex: Vercel) desliga processos inativos, o Baileys não pode rodar diretamente na API Next.js. O worker (`whatsapp-worker.ts`) deve ser hospedado separadamente em um servidor persistente (como VPS, Railway ou Render) conectado ao mesmo banco de dados PostgreSQL.
+- **Produção**: roda dentro do próprio container da aplicação (ver `docker-compose.yml`). A conexão é reaberta no boot do processo por `instrumentation-node.ts`, que percorre as instâncias de `whatsapp_instances`. Isso exige que a aplicação rode como **um processo contínuo e único** — duas réplicas brigariam pela mesma sessão do Baileys.
 
 ### B. Integração Oficial (Meta Cloud API / Webhook)
 - **Como funciona**: Meta envia um `POST` contendo os dados da mensagem ao endpoint `/api/whatsapp/webhook` toda vez que um cliente envia algo.
-- **Status**: Tratado pelo arquivo [/lib/services/meta-whatsapp-service.ts](file:///c:/Users/rafael/OmniSupport/lib/services/meta-whatsapp-service.ts). Ele processa a lista de mensagens (`entry.changes.value.messages`), extrai o número do remetente (`from`), executa a busca pelas variantes de 9º dígito e insere diretamente no banco Postgres via queries SQL nativas. Esse fluxo funciona 100% de forma serverless.
+- **Status**: Tratado pelo arquivo [/lib/services/meta-whatsapp-service.ts](file:///c:/Users/rafael/OmniSupport/lib/services/meta-whatsapp-service.ts). Ele processa a lista de mensagens (`entry.changes.value.messages`), extrai o número do remetente (`from`), executa a busca pelas variantes de 9º dígito e insere diretamente no banco Postgres via queries SQL nativas. Por ser webhook, esse fluxo não depende de manter nenhuma conexão aberta.
 
 ---
 

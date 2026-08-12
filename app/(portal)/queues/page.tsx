@@ -127,7 +127,9 @@ export default function QueuesManagementPage() {
   const loadData = async () => {
     try {
       const dbQueues = await getQueues();
-      const emps = await UserService.getAnalysts();
+      // Única tela que exibe a foto dos membros (MemberAvatar), então aqui a
+      // foto é pedida de propósito — nas demais ela não vem, ver UserService.
+      const emps = await UserService.getAnalysts({ withAvatar: true });
       const dbInstances = await getWhatsappInstances();
       const statuses: AnalystStatus[] = await fetchAnalystStatuses();
       setAnalystStatuses(new Map(statuses.map(s => [s.userId, s])));

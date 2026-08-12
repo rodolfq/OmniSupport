@@ -26,10 +26,39 @@ export function addDaysUTC(d: Date, days: number): Date {
   return copy;
 }
 
-export type PeriodPreset = 'today' | 'week' | 'month' | 'custom';
+export type PeriodPreset = 'today' | 'week' | 'month' | 'year' | 'all' | 'custom';
 
-export async function resolvePeriod(searchParams: URLSearchParams): Promise<{ startDate: string; endDate: string }> {
+// Início usado pelo preset 'all'. Data fixa e bem anterior a qualquer registro
+// em vez de MIN(created_at): evita uma consulta extra só pra descobrir o
+// começo, e o resultado é o mesmo — nenhum registro do sistema é anterior a
+// isso. Só faz sentido em relatório de baixa cardinalidade (ver o comentário
+// em components/reports/metrics-filter-bar.tsx).
+const ALL_TIME_START = '2000-01-01';
+// Fim do 'all' quando o relatório também olha pra frente (extendToPeriodEnd).
+const ALL_TIME_END = '2100-12-31';
+
+export interface ResolvePeriodOptions {
+  /**
+   * Fecha o intervalo no FIM do período de calendário em vez de "hoje".
+   *
+   * O padrão (false) é o certo para relatório de coisa que já aconteceu —
+   * atendimento, satisfação: não existe conversa em data futura, e terminar
+   * em hoje evita sugerir que o mês inteiro foi medido.
+   *
+   * Já um relatório de PLANEJAMENTO precisa enxergar o futuro: em Hotfixes a
+   * situação "Pendente" (data prevista ainda não chegou) só existe para
+   * registro com data à frente de hoje — cortar em hoje faria esse estado
+   * nunca aparecer.
+   */
+  extendToPeriodEnd?: boolean;
+}
+
+export async function resolvePeriod(
+  searchParams: URLSearchParams,
+  options: ResolvePeriodOptions = {}
+): Promise<{ startDate: string; endDate: string }> {
   const preset = (searchParams.get('period') || 'month') as PeriodPreset;
+  const extend = !!options.extendToPeriodEnd;
   if (preset === 'custom') {
     const startDate = searchParams.get('startDate');
     const endDate = searchParams.get('endDate');
@@ -46,11 +75,22 @@ export async function resolvePeriod(searchParams: URLSearchParams): Promise<{ st
     const weekday = today.getUTCDay(); // 0=Dom..6=Sáb
     const daysSinceMonday = (weekday + 6) % 7;
     const monday = addDaysUTC(today, -daysSinceMonday);
-    return { startDate: toDateOnly(monday), endDate: toDateOnly(today) };
+    const sunday = addDaysUTC(monday, 6);
+    return { startDate: toDateOnly(monday), endDate: toDateOnly(extend ? sunday : today) };
+  }
+  if (preset === 'year') {
+    const yearStart = new Date(Date.UTC(today.getUTCFullYear(), 0, 1));
+    const yearEnd = new Date(Date.UTC(today.getUTCFullYear(), 11, 31));
+    return { startDate: toDateOnly(yearStart), endDate: toDateOnly(extend ? yearEnd : today) };
+  }
+  if (preset === 'all') {
+    return { startDate: ALL_TIME_START, endDate: extend ? ALL_TIME_END : toDateOnly(today) };
   }
   // 'month'
   const monthStart = new Date(Date.UTC(today.getUTCFullYear(), today.getUTCMonth(), 1));
-  return { startDate: toDateOnly(monthStart), endDate: toDateOnly(today) };
+  // Dia 0 do mês seguinte = último dia deste mês, sem tabela de 28/30/31.
+  const monthEnd = new Date(Date.UTC(today.getUTCFullYear(), today.getUTCMonth() + 1, 0));
+  return { startDate: toDateOnly(monthStart), endDate: toDateOnly(extend ? monthEnd : today) };
 }
 
 // Filtro comum (período resolvido + fila/instância/empresa) — todo relatório

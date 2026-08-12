@@ -60,10 +60,12 @@ export function subscribeToInternalChatEvents(chatId: string, listener: (payload
 // não mandar push pra quem já está olhando a mensagem chegar na hora, do
 // mesmo jeito que o WhatsApp não notifica a conversa que você já tem aberta.
 //
-// Persistido no banco (não em memória do processo): numa implantação
-// serverless (ex.: Vercel), a conexão SSE e o disparo do push podem cair em
+// Persistido no banco (não em memória do processo): com mais de um processo
+// servindo a aplicação, a conexão SSE e o disparo do push podem cair em
 // instâncias isoladas sem nenhuma memória em comum — um Map local nunca
-// seria visto pela instância que despacha o push. A tabela
+// seria visto pela instância que despacha o push. Hoje roda um container só
+// (ver docker-compose.yml), mas manter isso no banco é o que permite subir a
+// segunda réplica sem reescrever a regra de push. A tabela
 // chat_session_viewers (ver migrations/chat_session_viewers.sql) é o único
 // lugar que todas as instâncias realmente compartilham. A rota SSE
 // (app/api/chats/stream/route.ts) renova o "last_seen_at" a cada heartbeat;

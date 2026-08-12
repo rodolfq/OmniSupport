@@ -76,7 +76,7 @@ export function WhatsAppChannelManager() {
             {!isAddingMeta && metaInstances.length === 0 && (
               <div className="p-6 text-center bg-[var(--surface-card)] rounded-2xl border border-dashed border-[var(--border-default)]">
                 <p className="text-xs font-bold text-[var(--text-tertiary)] uppercase tracking-widest">Nenhum canal Meta configurado</p>
-                <p className="text-[10px] text-[var(--text-tertiary)] mt-1">Recomendado para produção — a conexão via QR Code não é confiável em hospedagem serverless.</p>
+                <p className="text-[10px] text-[var(--text-tertiary)] mt-1">Recomendado para produção — não depende de manter uma sessão conectada, e sobrevive a reinício do servidor.</p>
               </div>
             )}
           </div>

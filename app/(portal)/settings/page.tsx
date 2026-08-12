@@ -16,6 +16,7 @@ import { AutomatedMessagesContent } from '@/components/automated-messages-conten
 import { StatusHistoryPanel } from '@/components/status-history-panel';
 import { TagManager } from '@/components/tag-manager';
 import { StatusManager } from '@/components/status-manager';
+import { TicketClassificationManager } from '@/components/ticket-classification-manager';
 import { ChangePasswordModal } from '@/components/change-password-modal';
 import { WhatsAppChannelManager } from '@/components/whatsapp-channel-manager';
 import { fileToCompressedAvatarBase64, isValidImageUrl } from '@/lib/image-utils';
@@ -170,6 +171,7 @@ export default function SettingsPage() {
                   setSurveySettings={setSurveySettings}
                 />
                 <StatusManager />
+                <TicketClassificationManager />
                 <TagManager />
              </div>
            )}
@@ -196,10 +198,6 @@ export default function SettingsPage() {
                   <Globe className="text-[var(--accent-text)]" size={24} /> WhatsApp
                 </h3>
                 <p className="text-xs text-[var(--text-tertiary)] font-bold uppercase tracking-widest mt-1">Conecte via QR Code ou configure um canal oficial da Meta</p>
-              </div>
-              <div className="bg-[var(--surface-warning)] border border-[var(--border-alert)] rounded-2xl p-4">
-                <p className="text-xs font-bold text-[var(--text-warning)]">QR Code requer servidor persistente (não funciona em hospedagem serverless, ex: Vercel).</p>
-                <p className="text-[10px] text-[var(--text-warning)] mt-1">Pra produção serverless, use um canal Meta Cloud API abaixo — não depende de processo em segundo plano.</p>
               </div>
               <WhatsAppChannelManager />
             </div>

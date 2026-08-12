@@ -224,6 +224,50 @@ ALTER TABLE public.hotfixes
   ADD COLUMN IF NOT EXISTS product_id UUID REFERENCES public.config_products(id) ON DELETE SET NULL;
 CREATE INDEX IF NOT EXISTS idx_hotfixes_product_id ON public.hotfixes(product_id);
 
+-- Classificação de solução do TICKET INTERNO (ver
+-- migrations/internal_ticket_effort_outcome.sql). Dois campos preenchidos na
+-- conclusão: Esforço responde "quanto custou" e Desfecho responde "qual foi a
+-- natureza da solução". São dimensões independentes — um ticket trivial pode
+-- exigir ação e um complexo pode terminar sem alteração nenhuma.
+CREATE TABLE public.config_effort_levels (
+  id UUID PRIMARY KEY DEFAULT (md5(random()::text || clock_timestamp()::text)::uuid),
+  label TEXT NOT NULL UNIQUE,
+  -- Peso da carga ponderada nos relatórios: contar chamado por cabeça premia
+  -- quem pega os fáceis.
+  weight NUMERIC(5,2) NOT NULL DEFAULT 1,
+  color TEXT NOT NULL DEFAULT '#64748b',
+  sort_order INTEGER NOT NULL DEFAULT 0,
+  created_at TIMESTAMP WITH TIME ZONE DEFAULT now() NOT NULL
+);
+
+CREATE TABLE public.config_outcomes (
+  id UUID PRIMARY KEY DEFAULT (md5(random()::text || clock_timestamp()::text)::uuid),
+  label TEXT NOT NULL UNIQUE,
+  -- Marca o que é defeito de produto, para a taxa de "bug que escapou ao
+  -- cliente" não depender do rótulo literal continuar se chamando "Bug".
+  counts_as_defect BOOLEAN NOT NULL DEFAULT false,
+  color TEXT NOT NULL DEFAULT '#64748b',
+  sort_order INTEGER NOT NULL DEFAULT 0,
+  created_at TIMESTAMP WITH TIME ZONE DEFAULT now() NOT NULL
+);
+
+INSERT INTO public.config_effort_levels (label, weight, color, sort_order) VALUES
+  ('Imediato', 1, '#22c55e', 1),
+  ('Rotina', 2, '#3b82f6', 2),
+  ('Complexo', 5, '#f59e0b', 3),
+  ('Crítico', 8, '#ef4444', 4)
+ON CONFLICT (label) DO NOTHING;
+
+INSERT INTO public.config_outcomes (label, counts_as_defect, color, sort_order) VALUES
+  ('Orientação/dúvida', false, '#3b82f6', 1),
+  ('Configuração', false, '#8b5cf6', 2),
+  ('Correção de dado', false, '#06b6d4', 3),
+  ('Bug (virou ticket interno)', true, '#ef4444', 4),
+  ('Melhoria/pedido novo', false, '#f59e0b', 5),
+  ('Não reproduzido', false, '#64748b', 6),
+  ('Duplicado', false, '#94a3b8', 7)
+ON CONFLICT (label) DO NOTHING;
+
 -- Config Priorities
 CREATE TABLE public.config_priorities (
   id UUID PRIMARY KEY DEFAULT (md5(random()::text || clock_timestamp()::text)::uuid),
@@ -309,33 +353,6 @@ CREATE TABLE public.automation_settings (
   updated_at TIMESTAMP WITH TIME ZONE DEFAULT now() NOT NULL
 );
 
-<<<<<<< HEAD
-=======
--- Fila de envio atrasado (status='pending') e histórico/auditoria
--- (status='sent'|'failed'|'skipped') na mesma tabela.
-CREATE TABLE public.automation_dispatches (
-  id UUID PRIMARY KEY DEFAULT (md5(random()::text || clock_timestamp()::text)::uuid),
-  event_key TEXT NOT NULL,
-  ticket_id TEXT REFERENCES public.tickets(id) ON DELETE CASCADE,
-  recipient_id UUID REFERENCES public.profiles(id) ON DELETE SET NULL,
-  recipient_name TEXT,
-  recipient_phone TEXT,
-  -- 'whatsapp' (default, dados acima) ou 'email' (usa recipient_email/subject).
-  channel TEXT NOT NULL DEFAULT 'whatsapp',
-  recipient_email TEXT,
-  subject TEXT,
-  message TEXT NOT NULL,
-  status TEXT NOT NULL DEFAULT 'pending',
-  error TEXT,
-  send_at TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT now(),
-  sent_at TIMESTAMP WITH TIME ZONE,
-  created_at TIMESTAMP WITH TIME ZONE DEFAULT now() NOT NULL
-);
-
-CREATE INDEX IF NOT EXISTS idx_automation_dispatches_pending ON public.automation_dispatches(status, send_at) WHERE status = 'pending';
-CREATE INDEX IF NOT EXISTS idx_automation_dispatches_ticket_event ON public.automation_dispatches(ticket_id, event_key, status);
-
->>>>>>> origin/main
 -- Tickets Table
 CREATE TABLE public.tickets (
   id TEXT PRIMARY KEY DEFAULT (md5(random()::text || clock_timestamp()::text)::text),
@@ -387,6 +404,10 @@ CREATE TABLE public.automation_dispatches (
   recipient_id UUID REFERENCES public.profiles(id) ON DELETE SET NULL,
   recipient_name TEXT,
   recipient_phone TEXT,
+  -- 'whatsapp' (default, dados acima) ou 'email' (usa recipient_email/subject).
+  channel TEXT NOT NULL DEFAULT 'whatsapp',
+  recipient_email TEXT,
+  subject TEXT,
   message TEXT NOT NULL,
   status TEXT NOT NULL DEFAULT 'pending',
   error TEXT,
@@ -562,6 +583,11 @@ CREATE TABLE public.internal_tickets (
   sla_limit TIMESTAMP WITH TIME ZONE, -- calculado a partir da prioridade + SLA configurado em Configurações (ver InternalTicketService.saveWithDetails / handleUpdateTicket), não editado manualmente
   expected_publish_date TIMESTAMP WITH TIME ZONE, -- "Publicação prevista": estimativa do dev, independente do SLA
   hotfix_id UUID REFERENCES public.hotfixes(id) ON DELETE SET NULL, -- marcador informativo: hotfix cadastrado ao qual este ticket se refere
+  -- Classificação da solução, preenchida na conclusão (ver
+  -- config_effort_levels / config_outcomes). Esforço = quanto custou resolver;
+  -- Desfecho = natureza da solução. Base do relatório de Carga e Complexidade.
+  effort_id UUID REFERENCES public.config_effort_levels(id) ON DELETE SET NULL,
+  outcome_id UUID REFERENCES public.config_outcomes(id) ON DELETE SET NULL,
   -- Full-text search (Agente de IA, search_internal_tickets) — ver
   -- comentário equivalente em public.tickets.
   search_vector TSVECTOR GENERATED ALWAYS AS (to_tsvector('portuguese', coalesce(title, '') || ' ' || coalesce(description, ''))) STORED

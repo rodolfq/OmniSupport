@@ -2,6 +2,7 @@
 
 import React, { useState, useEffect, useRef } from 'react';
 import { StyledSelect } from '@/components/styled-select';
+import { UserAvatar } from '@/components/user-avatar';
 import { X, User, MessageCircle, Clock, Link2, Paperclip, Save, Maximize2, Minimize2, Send, Lock, History, Download, File, Image as ImageIcon, Film, Loader2, Check, Copy, GitMerge } from 'lucide-react';
 import { motion } from 'motion/react';
 import { Ticket, TicketStatus, User as UserType, Message, UserRole, StatusConfig, Company, Attachment, PriorityConfig, CategoryConfig, RequestTypeConfig, ProductConfig, InternalTicket, Permission } from '@/lib/types';
@@ -1288,6 +1289,15 @@ const loadMessages = async () => {
                        <div className="flex items-start gap-4">
                           <span className="text-[11px] font-semibold uppercase text-[var(--text-tertiary)] w-24 pt-0.5">Responsável</span>
                           <div className="flex items-center gap-2">
+                             {/* A foto fica fora do <select> porque <option>
+                                 não aceita imagem — ela acompanha o valor
+                                 selecionado, do mesmo jeito que aparece no
+                                 card do chamado. */}
+                             <UserAvatar
+                               name={analysts.find(a => a.id === assigneeId)?.name}
+                               thumbUrl={analysts.find(a => a.id === assigneeId)?.avatarThumbUrl}
+                               size={22}
+                             />
                              {hasPermission(Permission.TICKETS_ASSIGN) ? (
                                <StyledSelect
                                  value={assigneeId}
@@ -1309,6 +1319,7 @@ const loadMessages = async () => {
                              )}
                           </div>
                        </div>
+
 <div className="flex items-start gap-4">
                            <span className="text-[11px] font-semibold uppercase text-[var(--text-tertiary)] w-24 pt-0.5">Vencimento</span>
                            <div className="flex flex-col">
@@ -1875,9 +1886,13 @@ const loadMessages = async () => {
                     return (
                       <div key={m.id} className="group animate-in fade-in slide-in-from-right-2 duration-300">
                         <div className="flex gap-3">
-                          <div className="w-8 h-8 rounded-full flex-shrink-0 flex items-center justify-center text-[10px] font-black text-white shadow-sm mt-1 bg-[var(--text-warning-strong)]">
-                            {sender?.name.charAt(0) || 'U'}
-                          </div>
+                          <UserAvatar
+                            name={sender?.name || 'U'}
+                            thumbUrl={sender?.avatarThumbUrl}
+                            size={32}
+                            fallbackClassName="bg-[var(--text-warning-strong)] text-white font-black shadow-sm"
+                            className="mt-1"
+                          />
                           <div className="flex-1 min-w-0">
                             <div className="flex items-center gap-2 mb-1">
                               <span className="text-xs font-black text-[var(--text-primary)]">{sender?.name}</span>
@@ -2022,12 +2037,16 @@ const loadMessages = async () => {
                   return (
                     <div key={m.id} className="group animate-in fade-in slide-in-from-right-2 duration-300">
                       <div className="flex gap-3">
-                        <div className={cn(
-                          "w-8 h-8 rounded-full flex-shrink-0 flex items-center justify-center text-[10px] font-black text-white shadow-sm mt-1",
-                          isInternal ? "bg-[var(--text-warning-strong)]" : "bg-[var(--accent)]"
-                        )}>
-                          {sender?.name.charAt(0) || 'U'}
-                        </div>
+                        <UserAvatar
+                          name={sender?.name || 'U'}
+                          thumbUrl={sender?.avatarThumbUrl}
+                          size={32}
+                          fallbackClassName={cn(
+                            "text-white font-black shadow-sm",
+                            isInternal ? "bg-[var(--text-warning-strong)]" : "bg-[var(--accent)]"
+                          )}
+                          className="mt-1"
+                        />
                         <div className="flex-1 min-w-0">
                           <div className="flex items-center gap-2 mb-1">
                             <span className="text-xs font-black text-[var(--text-primary)]">{sender?.name}</span>

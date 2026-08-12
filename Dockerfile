@@ -21,6 +21,21 @@ COPY . .
 # Telemetria desligada: build offline não deve depender de rede externa.
 ENV NEXT_TELEMETRY_DISABLED=1
 ENV NODE_ENV=production
+
+# Variáveis NEXT_PUBLIC_* precisam existir AQUI, não em runtime: o Next as
+# substitui pelo valor literal dentro do bundle durante o build. Como o .env
+# não entra na imagem (é segredo, ver .dockerignore), sem estes ARGs elas
+# viram `undefined` no código compilado e o env_file do compose não recupera
+# mais nada depois — o sintoma é o Web Push parar de assinar (a chave VAPID
+# pública some no client) sem nenhum erro no log do servidor.
+# O compose preenche os três a partir do próprio .env (ver build.args lá).
+ARG NEXT_PUBLIC_VAPID_PUBLIC_KEY
+ARG NEXT_PUBLIC_ENABLE_AUDIO_TRANSCRIPTION
+ARG NEXT_PUBLIC_APP_URL
+ENV NEXT_PUBLIC_VAPID_PUBLIC_KEY=$NEXT_PUBLIC_VAPID_PUBLIC_KEY
+ENV NEXT_PUBLIC_ENABLE_AUDIO_TRANSCRIPTION=$NEXT_PUBLIC_ENABLE_AUDIO_TRANSCRIPTION
+ENV NEXT_PUBLIC_APP_URL=$NEXT_PUBLIC_APP_URL
+
 # `npm run build` dispara o prebuild (check:encoding) — mantido de propósito,
 # é a única checagem que roda sozinha no build (tipo/lint estão ignorados em
 # next.config.ts, ver seção 14 do CLAUDE.md).

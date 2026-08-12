@@ -1,6 +1,14 @@
 import { NextResponse } from 'next/server';
-import { query } from '@/lib/db';
+import { query, pool } from '@/lib/db';
 import { getAutomationSettings, saveAutomationSetting } from '@/lib/services/automation-service';
+
+// Rótulos de status que o código compara literalmente — renomear qualquer um
+// deles quebra comportamento mesmo com o dado migrado:
+//   lib/ticket-status.ts (CLOSED_TICKET_STATUSES) decide o que conta como
+//   fechado (SLA, dashboards, relatórios); mergeTickets grava 'Mesclado';
+//   o botão FINALIZAR do ticket interno grava 'Concluído'.
+// Para liberá-los seria preciso antes tornar essas regras dinâmicas.
+const RESERVED_STATUS_LABELS = ['Concluído', 'Fechado', 'Encerrado', 'Mesclado'];
 
 // Só nas listas de referência que mudam raramente (editadas manualmente em
 // Configurações, não a cada minuto) — NUNCA em analyst-statuses (presença
@@ -32,6 +40,28 @@ export async function GET(request: Request) {
     } else if (type === 'products') {
       const res = await query('SELECT * FROM public.config_products');
       return cacheableJson(res.rows);
+    } else if (type === 'efforts') {
+      // camelCase já daqui: os consumidores (modal do chamado, relatório de
+      // carga) leem weight/sortOrder, e devolver a linha crua faria esses
+      // campos chegarem undefined — mesmo tropeço já corrigido em
+      // analyst-statuses logo abaixo.
+      const res = await query('SELECT * FROM public.config_effort_levels ORDER BY sort_order ASC, label ASC');
+      return cacheableJson(res.rows.map((r: any) => ({
+        id: r.id,
+        label: r.label,
+        weight: Number(r.weight),
+        color: r.color,
+        sortOrder: r.sort_order
+      })));
+    } else if (type === 'outcomes') {
+      const res = await query('SELECT * FROM public.config_outcomes ORDER BY sort_order ASC, label ASC');
+      return cacheableJson(res.rows.map((r: any) => ({
+        id: r.id,
+        label: r.label,
+        countsAsDefect: r.counts_as_defect,
+        color: r.color,
+        sortOrder: r.sort_order
+      })));
     } else if (type === 'tags') {
       const res = await query('SELECT * FROM public.config_tags');
       return cacheableJson(res.rows);
@@ -129,6 +159,58 @@ export async function POST(request: Request) {
         await query('DELETE FROM public.config_tags WHERE id = $1', [tag.id]);
         return NextResponse.json({ success: true });
       }
+    } else if (type === 'efforts') {
+      const { effort } = body;
+      if (action === 'delete') {
+        // tickets.effort_id é ON DELETE SET NULL: o chamado sobrevive e só
+        // perde a classificação. Não bloqueia a exclusão do rótulo.
+        await query('DELETE FROM public.config_effort_levels WHERE id = $1', [effort.id]);
+        return NextResponse.json({ success: true });
+      }
+      const res = effort.id
+        ? await query(
+            `INSERT INTO public.config_effort_levels (id, label, weight, color, sort_order)
+             VALUES ($1, $2, $3, $4, $5)
+             ON CONFLICT (id) DO UPDATE SET
+               label = EXCLUDED.label, weight = EXCLUDED.weight,
+               color = EXCLUDED.color, sort_order = EXCLUDED.sort_order
+             RETURNING *`,
+            [effort.id, effort.label, effort.weight ?? 1, effort.color || '#64748b', effort.sortOrder ?? 0]
+          )
+        : await query(
+            `INSERT INTO public.config_effort_levels (label, weight, color, sort_order)
+             VALUES ($1, $2, $3, $4) RETURNING *`,
+            [effort.label, effort.weight ?? 1, effort.color || '#64748b', effort.sortOrder ?? 0]
+          );
+      const row = res.rows[0];
+      return NextResponse.json({
+        id: row.id, label: row.label, weight: Number(row.weight), color: row.color, sortOrder: row.sort_order
+      });
+    } else if (type === 'outcomes') {
+      const { outcome } = body;
+      if (action === 'delete') {
+        await query('DELETE FROM public.config_outcomes WHERE id = $1', [outcome.id]);
+        return NextResponse.json({ success: true });
+      }
+      const res = outcome.id
+        ? await query(
+            `INSERT INTO public.config_outcomes (id, label, counts_as_defect, color, sort_order)
+             VALUES ($1, $2, $3, $4, $5)
+             ON CONFLICT (id) DO UPDATE SET
+               label = EXCLUDED.label, counts_as_defect = EXCLUDED.counts_as_defect,
+               color = EXCLUDED.color, sort_order = EXCLUDED.sort_order
+             RETURNING *`,
+            [outcome.id, outcome.label, !!outcome.countsAsDefect, outcome.color || '#64748b', outcome.sortOrder ?? 0]
+          )
+        : await query(
+            `INSERT INTO public.config_outcomes (label, counts_as_defect, color, sort_order)
+             VALUES ($1, $2, $3, $4) RETURNING *`,
+            [outcome.label, !!outcome.countsAsDefect, outcome.color || '#64748b', outcome.sortOrder ?? 0]
+          );
+      const row = res.rows[0];
+      return NextResponse.json({
+        id: row.id, label: row.label, countsAsDefect: row.counts_as_defect, color: row.color, sortOrder: row.sort_order
+      });
     } else if (type === 'categories') {
       const { category } = body;
       const id = category.id || undefined;
@@ -147,7 +229,38 @@ export async function POST(request: Request) {
         );
       }
       return NextResponse.json({ success: true });
+    } else if (type === 'request-types' || type === 'products') {
+      // Renomear é seguro nestas duas listas (e em categories acima) porque o
+      // chamado aponta pra elas por id — tickets.request_type_id /
+      // tickets.product_id. Prioridade e Status NÃO têm endpoint de rename de
+      // propósito: tickets.priority e tickets.status guardam o RÓTULO em
+      // texto, então renomear lá deixaria todo registro existente apontando
+      // pra um valor que não existe mais.
+      const table = type === 'products' ? 'config_products' : 'config_request_types';
+      const item = body.item;
+      if (!item?.id) return NextResponse.json({ error: 'id é obrigatório.' }, { status: 400 });
+
+      if (action === 'delete') {
+        await query(`DELETE FROM public.${table} WHERE id = $1`, [item.id]);
+        return NextResponse.json({ success: true });
+      }
+
+      const label = (item.label || '').trim();
+      if (!label) return NextResponse.json({ error: 'O nome não pode ficar vazio.' }, { status: 400 });
+      const res = await query(
+        `UPDATE public.${table} SET label = $2 WHERE id = $1 RETURNING id, label`,
+        [item.id, label]
+      );
+      if (res.rowCount === 0) return NextResponse.json({ error: 'Item não encontrado.' }, { status: 404 });
+      return NextResponse.json(res.rows[0]);
     } else if (type === 'priorities') {
+      // Sem rename aqui de propósito. Além de tickets.priority guardar o
+      // rótulo em texto (o que a migração resolveria), os quatro nomes estão
+      // fixos no código em mais de dez pontos — enum TicketPriority, mapa de
+      // SLA em ticket-service, ordenação e filtros do Kanban, e
+      // `priority IN ('Alta','Urgente')` na API de busca. Renomear quebraria
+      // esses caminhos mesmo com o dado migrado; liberar exige antes tornar
+      // essas regras dinâmicas.
       const { priority } = body;
       const id = priority.id || undefined;
       if (id) {
@@ -168,6 +281,79 @@ export async function POST(request: Request) {
         );
       }
       return NextResponse.json({ success: true });
+    } else if (type === 'statuses' && action === 'rename') {
+      // Renomear status/sub-status exige migrar junto TODA coluna de texto que
+      // guarda o rótulo — config_statuses é referenciada por LABEL, não por id:
+      //   tickets.status, tickets.sub_status  (escopo 'ticket')
+      //   automation_settings.trigger_status  (escopo 'ticket')
+      //   internal_tickets.status             (escopo 'internal_ticket')
+      // Tudo numa transação: renomear o rótulo e deixar os registros pra trás
+      // significaria chamado sumindo de filtro, SLA parando de contar e
+      // automação deixando de disparar, sem erro nenhum aparecer.
+      const { status } = body;
+      const label = (status?.label || '').trim();
+      if (!status?.id || !label) {
+        return NextResponse.json({ error: 'id e nome são obrigatórios.' }, { status: 400 });
+      }
+
+      const current = await query(
+        'SELECT label, scope FROM public.config_statuses WHERE id = $1',
+        [status.id]
+      );
+      if (current.rowCount === 0) return NextResponse.json({ error: 'Status não encontrado.' }, { status: 404 });
+      const { label: oldLabel, scope } = current.rows[0];
+      if (oldLabel === label) return NextResponse.json({ id: status.id, label, migrated: 0 });
+
+      // Rótulos que o CÓDIGO compara literalmente (lib/ticket-status.ts,
+      // botão FINALIZAR do ticket interno, ranking do Kanban). Migrar o dado
+      // não bastaria: o comportamento continuaria preso ao texto antigo.
+      if (RESERVED_STATUS_LABELS.includes(oldLabel)) {
+        return NextResponse.json(
+          { error: `"${oldLabel}" não pode ser renomeado: o sistema usa esse nome em regras internas (fechamento, mesclagem, SLA).` },
+          { status: 409 }
+        );
+      }
+
+      // config_statuses não tem UNIQUE(label) — dois status com o mesmo nome
+      // no mesmo escopo tornariam tickets.status ambíguo.
+      const clash = await query(
+        'SELECT 1 FROM public.config_statuses WHERE scope = $1 AND label = $2 AND id <> $3',
+        [scope, label, status.id]
+      );
+      if ((clash.rowCount ?? 0) > 0) {
+        return NextResponse.json({ error: 'Já existe um status com esse nome neste escopo.' }, { status: 409 });
+      }
+
+      const client = await pool.connect();
+      try {
+        await client.query('BEGIN');
+        await client.query('UPDATE public.config_statuses SET label = $2 WHERE id = $1', [status.id, label]);
+
+        let migrated = 0;
+        if (scope === 'internal_ticket') {
+          const r = await client.query(
+            'UPDATE public.internal_tickets SET status = $2 WHERE status = $1',
+            [oldLabel, label]
+          );
+          migrated += r.rowCount ?? 0;
+        } else {
+          const r1 = await client.query('UPDATE public.tickets SET status = $2 WHERE status = $1', [oldLabel, label]);
+          const r2 = await client.query('UPDATE public.tickets SET sub_status = $2 WHERE sub_status = $1', [oldLabel, label]);
+          const r3 = await client.query(
+            'UPDATE public.automation_settings SET trigger_status = $2 WHERE trigger_status = $1',
+            [oldLabel, label]
+          );
+          migrated += (r1.rowCount ?? 0) + (r2.rowCount ?? 0) + (r3.rowCount ?? 0);
+        }
+
+        await client.query('COMMIT');
+        return NextResponse.json({ id: status.id, label, migrated });
+      } catch (err) {
+        await client.query('ROLLBACK').catch(() => {});
+        throw err;
+      } finally {
+        client.release();
+      }
     } else if (type === 'statuses') {
       const { status } = body;
       if (action === 'save') {
@@ -298,6 +484,13 @@ export async function POST(request: Request) {
     return NextResponse.json({ error: 'Action or type not supported' }, { status: 400 });
   } catch (error: any) {
     console.error('Error in config POST:', error);
+    // Todas as listas de configuração têm UNIQUE(label). Sem tratar aqui, o
+    // usuário que tenta renomear para um nome já existente recebia a mensagem
+    // crua do Postgres ("duplicate key value violates unique constraint
+    // config_products_label_key"), que não diz o que fazer.
+    if (error?.code === '23505') {
+      return NextResponse.json({ error: 'Já existe um item com esse nome.' }, { status: 409 });
+    }
     return NextResponse.json({ error: error.message }, { status: 500 });
   }
 }

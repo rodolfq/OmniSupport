@@ -104,7 +104,7 @@
 
 **Pedido original:** API Key da Meta oficial para implementar a API do WhatsApp.
 
-**Situação:** a integração via Meta Cloud API já estava implementada no código (`app/api/whatsapp/webhook/route.ts`, `lib/services/meta-whatsapp-service.ts`) — é o caminho recomendado para produção, já que a conexão via Baileys/QR code não é confiável em hospedagem serverless (ver seção 11 do `CLAUDE.md`).
+**Situação:** a integração via Meta Cloud API já estava implementada no código (`app/api/whatsapp/webhook/route.ts`, `lib/services/meta-whatsapp-service.ts`) — é o caminho recomendado para produção, já que a conexão via Baileys/QR code depende de manter uma sessão viva no processo (ver seção 11 do `CLAUDE.md`).
 
 **Feito desde então:** `whatsapp_instances` passou a suportar múltiplos provedores lado a lado (`migrations/whatsapp_instances_meta_provider.sql` — coluna `provider` `'baileys'`/`'meta'`, mais `access_token`/`phone_number_id`/`verify_token`). A tela Configurações > WhatsApp ganhou o gerenciador de canais (`components/whatsapp-channel-manager.tsx` + `components/meta-whatsapp-channel-form.tsx`): permite cadastrar N canais Meta Cloud API (gera a URL de webhook e o verify token, copia pronto pra colar no painel da Meta) e testar a conexão contra a Graph API de verdade antes de assumir que está funcionando (`app/api/whatsapp/meta/test/route.ts`). Ou seja: **o trabalho do nosso lado está pronto** — falta só a credencial real da Meta chegar e ser cadastrada na tela.
 

@@ -1,4 +1,4 @@
-import { CategoryConfig, PriorityConfig, StatusConfig, TagConfig, QuickNote, SurveySettings, EmailSettings, ProductConfig } from '../types';
+import { CategoryConfig, PriorityConfig, StatusConfig, TagConfig, QuickNote, SurveySettings, EmailSettings, ProductConfig, EffortConfig, OutcomeConfig } from '../types';
 import { registerClosedStatusLabels } from '../ticket-status';
 
 export class ConfigService {
@@ -10,6 +10,101 @@ export class ConfigService {
   static async getProducts(): Promise<ProductConfig[]> {
     const res = await fetch('/api/config?type=products');
     return res.json();
+  }
+
+  // Renomear item de lista simples. Só existe para as listas referenciadas
+  // por ID (categoria, tipo de solicitação, produto) — ver o comentário do
+  // endpoint em app/api/config/route.ts sobre por que Prioridade e Status
+  // ficam de fora.
+  static async renameSimpleItem(
+    type: 'categories' | 'request-types' | 'products',
+    id: string,
+    label: string
+  ): Promise<void> {
+    const body = type === 'categories'
+      ? { type, category: { id, label } }
+      : { type, action: 'save', item: { id, label } };
+
+    const res = await fetch('/api/config', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(body)
+    });
+    if (!res.ok) {
+      // A rota devolve mensagem pronta para nome duplicado (409); repassar ela
+      // é o que permite a tela mostrar "Já existe um item com esse nome."
+      const data = await res.json().catch(() => null);
+      throw new Error(data?.error || 'Erro ao renomear o item.');
+    }
+  }
+
+  // Renomear status/sub-status. Endpoint separado do saveStatus porque a
+  // operação não é só trocar o rótulo: o servidor migra na mesma transação
+  // toda coluna de texto que guarda esse nome (tickets.status, sub_status,
+  // internal_tickets.status, automation_settings.trigger_status). Devolve
+  // quantos registros foram migrados, pra tela poder informar.
+  static async renameStatus(id: string, label: string): Promise<{ label: string; migrated: number }> {
+    const res = await fetch('/api/config', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ type: 'statuses', action: 'rename', status: { id, label } })
+    });
+    if (!res.ok) {
+      const data = await res.json().catch(() => null);
+      throw new Error(data?.error || 'Erro ao renomear o status.');
+    }
+    return res.json();
+  }
+
+  // Classificação de solução do ticket interno — duas listas independentes,
+  // ambas editáveis em Configurações
+  // (ver migrations/internal_ticket_effort_outcome.sql).
+  static async getEfforts(): Promise<EffortConfig[]> {
+    const res = await fetch('/api/config?type=efforts');
+    return res.json();
+  }
+
+  static async saveEffort(effort: Partial<EffortConfig> & { label: string }): Promise<EffortConfig> {
+    const res = await fetch('/api/config', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ type: 'efforts', action: 'save', effort })
+    });
+    if (!res.ok) throw new Error('Erro ao salvar nível de esforço.');
+    return res.json();
+  }
+
+  static async deleteEffort(id: string): Promise<void> {
+    const res = await fetch('/api/config', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ type: 'efforts', action: 'delete', effort: { id } })
+    });
+    if (!res.ok) throw new Error('Erro ao remover nível de esforço.');
+  }
+
+  static async getOutcomes(): Promise<OutcomeConfig[]> {
+    const res = await fetch('/api/config?type=outcomes');
+    return res.json();
+  }
+
+  static async saveOutcome(outcome: Partial<OutcomeConfig> & { label: string }): Promise<OutcomeConfig> {
+    const res = await fetch('/api/config', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ type: 'outcomes', action: 'save', outcome })
+    });
+    if (!res.ok) throw new Error('Erro ao salvar desfecho.');
+    return res.json();
+  }
+
+  static async deleteOutcome(id: string): Promise<void> {
+    const res = await fetch('/api/config', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ type: 'outcomes', action: 'delete', outcome: { id } })
+    });
+    if (!res.ok) throw new Error('Erro ao remover desfecho.');
   }
 
   static async saveCategory(category: CategoryConfig): Promise<void> {

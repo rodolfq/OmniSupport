@@ -9,6 +9,7 @@ import { useApp } from '@/app/app-context';
 import { cn } from '@/lib/utils';
 import { toast } from 'sonner';
 import { ConfirmDialog } from '@/components/confirm-dialog';
+import { EditableLabel } from '@/components/editable-label';
 import {
   DndContext,
   closestCenter,
@@ -128,6 +129,27 @@ export function StatusManager() {
       setStatuses(prev => prev.map(s => s.id === status.id ? updated : s));
     } catch {
       toast.error('Erro ao atualizar status.');
+    }
+  };
+
+  // Renomear status ou sub-status. O servidor migra, na mesma transação, toda
+  // coluna de texto que guarda esse rótulo (chamados, sub-status, tickets
+  // internos e o gatilho das mensagens automáticas) — config_statuses é
+  // referenciada por NOME, não por id. O retorno diz quantos registros foram
+  // migrados; informar isso importa porque a operação mexe em dado histórico,
+  // não só na configuração.
+  const handleRename = async (status: StatusConfig, label: string) => {
+    try {
+      const result = await ConfigService.renameStatus(status.id, label);
+      setStatuses(prev => prev.map(s => (s.id === status.id ? { ...s, label: result.label } : s)));
+      toast.success(
+        result.migrated > 0
+          ? `Renomeado — ${result.migrated} registro(s) atualizado(s) junto.`
+          : 'Renomeado.'
+      );
+    } catch (err: any) {
+      toast.error(err?.message || 'Erro ao renomear o status.');
+      throw err;
     }
   };
 
@@ -286,6 +308,7 @@ export function StatusManager() {
                   onToggleClosed={() => handleToggleClosed(status)}
                   onDelete={() => handleDelete(status)}
                   onDeleteChild={(child) => handleDelete(child)}
+                  onRename={handleRename}
                   addingSub={addingSubFor === status.id}
                   onStartAddSub={() => { setAddingSubFor(status.id); setNewSubLabel(''); }}
                   newSubLabel={newSubLabel}
@@ -329,7 +352,7 @@ export function StatusManager() {
 }
 
 function StatusRow({
-  status, color, isAdmin, children, expanded, onToggleExpanded, onToggleClosed, onDelete, onDeleteChild,
+  status, color, isAdmin, children, expanded, onToggleExpanded, onToggleClosed, onDelete, onDeleteChild, onRename,
   addingSub, onStartAddSub, newSubLabel, onChangeSubLabel, onConfirmAddSub, onCancelAddSub,
 }: {
   status: StatusConfig;
@@ -341,6 +364,8 @@ function StatusRow({
   onToggleClosed: () => void;
   onDelete: () => void;
   onDeleteChild: (child: StatusConfig) => void;
+  // Serve tanto pro status pai quanto pro sub-status — por isso recebe qual.
+  onRename: (status: StatusConfig, label: string) => Promise<void>;
   addingSub: boolean;
   onStartAddSub: () => void;
   newSubLabel: string;
@@ -376,10 +401,15 @@ function StatusRow({
           {children.length > 0 ? (expanded ? <ChevronDown size={16} /> : <ChevronRight size={16} />) : <span className="w-4 h-4 inline-block" />}
         </button>
 
-        <span className={cn("px-3 py-1.5 rounded-xl text-xs font-black uppercase tracking-tight flex items-center gap-2", color.bg, color.text)}>
-          <span className={cn("w-1.5 h-1.5 rounded-full", color.dot)} />
-          {status.label}
-          {isProtected && <Lock size={11} className="opacity-70" />}
+        <span className={cn("px-3 py-1.5 rounded-xl text-xs font-black uppercase tracking-tight flex items-center gap-2 min-w-0", color.bg, color.text)}>
+          <span className={cn("w-1.5 h-1.5 rounded-full shrink-0", color.dot)} />
+          <EditableLabel
+            value={status.label}
+            disabled={!isAdmin || isProtected}
+            onSave={(next) => onRename(status, next)}
+            inputClassName="text-xs font-black uppercase"
+          />
+          {isProtected && <Lock size={11} className="opacity-70 shrink-0" />}
         </span>
 
         {children.length > 0 && (
@@ -422,8 +452,14 @@ function StatusRow({
         <div className="pl-12 pr-3 pb-3 space-y-2">
           {children.map((child) => (
             <div key={child.id} className="flex items-center gap-2 py-1.5">
-              <span className="w-1 h-1 rounded-full bg-[var(--text-tertiary)]" />
-              <span className="text-xs font-bold text-[var(--text-secondary)]">{child.label}</span>
+              <span className="w-1 h-1 rounded-full bg-[var(--text-tertiary)] shrink-0" />
+              <EditableLabel
+                value={child.label}
+                disabled={!isAdmin}
+                onSave={(next) => onRename(child, next)}
+                className="text-xs font-bold text-[var(--text-secondary)]"
+                inputClassName="text-xs font-bold"
+              />
               {isAdmin && (
                 <button onClick={() => onDeleteChild(child)} className="ml-auto p-1 text-[var(--text-tertiary)] hover:text-[var(--text-danger)] transition-all">
                   <Trash2 size={12} />

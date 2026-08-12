@@ -174,6 +174,14 @@ export async function GET(request: Request) {
         ticketNumber: data.public_ticket_number,
         companyId: data.company_id,
         customerId: data.customer_id,
+        // O spread acima só entrega snake_case (assignee_id/sub_status); a
+        // interface Ticket lê camelCase. Sem estes dois apelidos o valor existe
+        // no banco mas chega como `undefined` na tela — o responsável some da
+        // tela de detalhe ("Não atribuído") logo depois de ser salvo, e cada
+        // gravação seguinte registra de novo "Não atribuído -> Fulano" no
+        // histórico, dando a impressão de que o save não funciona.
+        assigneeId: data.assignee_id || undefined,
+        subStatus: data.sub_status ?? null,
         employeeIds: data.employee_ids || [],
         attachments: data.attachments_data || [],
         chatSessionId: data.chat_session_id,
@@ -220,6 +228,10 @@ export async function GET(request: Request) {
         companyId: t.company_id,
         customerId: t.customer_id,
         customerName: customerMap.get(t.customer_id),
+        // Mesmo apelido do branch de chamado único acima — a lista alimenta o
+        // modal de detalhe, então sem isto o modal abre já sem responsável.
+        assigneeId: t.assignee_id || undefined,
+        subStatus: t.sub_status ?? null,
         employeeIds: t.employee_ids || [],
         attachments: t.attachments_data || [],
         chatSessionId: t.chat_session_id,

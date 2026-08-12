@@ -224,6 +224,29 @@ export interface ProductConfig {
   label: string;
 }
 
+// Classificação da solução do TICKET INTERNO, preenchida na conclusão. Duas
+// listas editáveis em Configurações — ver
+// migrations/internal_ticket_effort_outcome.sql para o porquê de serem dois
+// campos e não um.
+export interface EffortConfig {
+  id: string;
+  label: string;
+  // Peso na carga ponderada dos relatórios (Imediato 1 … Crítico 8).
+  weight: number;
+  color: string;
+  sortOrder: number;
+}
+
+export interface OutcomeConfig {
+  id: string;
+  label: string;
+  // Desfecho que representa defeito de produto — base da taxa de "bug que
+  // escapou ao cliente", independente do rótulo escolhido.
+  countsAsDefect: boolean;
+  color: string;
+  sortOrder: number;
+}
+
 export interface TagConfig {
   id: string;
   label: string;
@@ -259,6 +282,11 @@ export interface InternalTicket {
   // Marcador informativo: hotfix cadastrado ao qual este ticket se refere —
   // ver app/(portal)/hotfixes/page.tsx.
   hotfixId?: string | null;
+  // Classificação da solução, preenchida na conclusão (ver EffortConfig /
+  // OutcomeConfig). Esforço alimenta a carga ponderada e Desfecho a taxa de
+  // defeito no relatório de Carga e Complexidade.
+  effortId?: string | null;
+  outcomeId?: string | null;
   // Lista de valores possíveis passou a ser configurável (Configurações >
   // Geral > Status), não dá mais pra travar num union fixo de strings.
   status?: string;

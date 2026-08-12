@@ -12,7 +12,13 @@ import { getWhatsappInstances } from '@/app/actions';
 // instância/empresa nunca divergirem visualmente ou de comportamento entre
 // as telas que os usam.
 
-export type MetricsPeriodPreset = 'today' | 'week' | 'month' | 'custom';
+// 'year' e 'all' existem para relatórios de baixa cardinalidade (Hotfixes:
+// dezenas de linhas por ano). NÃO entram na lista padrão de propósito — nos
+// relatórios de chat, "todo o período" varre chat_messages inteiro e a tela
+// trava sem avisar. Quem quiser esses dois passa `periods` explicitamente.
+export type MetricsPeriodPreset = 'today' | 'week' | 'month' | 'year' | 'all' | 'custom';
+
+export const DEFAULT_PERIOD_PRESETS: MetricsPeriodPreset[] = ['today', 'week', 'month', 'custom'];
 
 export interface MetricsFilterState {
   period: MetricsPeriodPreset;
@@ -57,16 +63,27 @@ const PERIOD_LABELS: Record<MetricsPeriodPreset, string> = {
   today: 'Hoje',
   week: 'Semana',
   month: 'Mês',
+  year: 'Ano',
+  all: 'Todos',
   custom: 'Intervalo customizado'
 };
 
 // Etapa 9 (export) — resumo legível da seleção atual, pro cabeçalho do PDF
 // (sem isso o PDF ficaria com UUIDs, inútil pra reunião). Só monta a
 // string, não decide nada de layout.
-function buildFilterSummary(state: MetricsFilterState, queues: any[], instances: any[], companies: any[]): string {
+function buildFilterSummary(
+  state: MetricsFilterState,
+  queues: any[],
+  instances: any[],
+  companies: any[],
+  showScopeFilters: boolean
+): string {
   const periodPart = state.period === 'custom'
     ? `Período: ${state.customStart || '?'} a ${state.customEnd || '?'}`
     : `Período: ${PERIOD_LABELS[state.period]}`;
+  // Sem os seletores de escopo na tela, repetir "Fila: todas · Instância:
+  // todas" no cabeçalho do PDF é ruído — o relatório nem tem essas dimensões.
+  if (!showScopeFilters) return periodPart;
   const queueLabel = state.queueId ? (queues.find(q => q.id === state.queueId)?.name ?? state.queueId) : 'todas';
   const instanceLabel = state.instanceId ? (instances.find(i => i.id === state.instanceId)?.name ?? state.instanceId) : 'todas';
   const companyLabel = state.companyId ? (companies.find(c => c.id === state.companyId)?.name ?? state.companyId) : 'todas';
@@ -77,22 +94,42 @@ interface MetricsFilterBarProps {
   value: MetricsFilterState;
   onChange: (next: MetricsFilterState) => void;
   onFilterSummaryChange?: (summary: string) => void;
+  /**
+   * Fila, instância e empresa. Desligar em relatório que não tem essas
+   * dimensões (Hotfixes é sobre janela de release, não sobre atendimento) —
+   * seletor que não filtra nada só confunde quem lê.
+   */
+  showScopeFilters?: boolean;
+  /** Presets de período oferecidos. Ver DEFAULT_PERIOD_PRESETS. */
+  periods?: MetricsPeriodPreset[];
+  /** Conteúdo extra à direita (ex.: filtro de situação no relatório de Hotfixes). */
+  children?: React.ReactNode;
 }
 
-export function MetricsFilterBar({ value, onChange, onFilterSummaryChange }: MetricsFilterBarProps) {
+export function MetricsFilterBar({
+  value,
+  onChange,
+  onFilterSummaryChange,
+  showScopeFilters = true,
+  periods = DEFAULT_PERIOD_PRESETS,
+  children
+}: MetricsFilterBarProps) {
   const [queues, setQueues] = useState<any[]>([]);
   const [instances, setInstances] = useState<any[]>([]);
   const [companies, setCompanies] = useState<any[]>([]);
 
   useEffect(() => {
+    // Sem os seletores de escopo não há por que buscar filas, instâncias e
+    // empresas — eram três requisições por carga de tela sem uso nenhum.
+    if (!showScopeFilters) return;
     fetchQueues().then(setQueues);
     getWhatsappInstances().then(setInstances).catch(() => setInstances([]));
     fetchCompanies().then(setCompanies).catch(() => setCompanies([]));
-  }, []);
+  }, [showScopeFilters]);
 
   useEffect(() => {
-    onFilterSummaryChange?.(buildFilterSummary(value, queues, instances, companies));
-  }, [value, queues, instances, companies, onFilterSummaryChange]);
+    onFilterSummaryChange?.(buildFilterSummary(value, queues, instances, companies, showScopeFilters));
+  }, [value, queues, instances, companies, onFilterSummaryChange, showScopeFilters]);
 
   const set = <K extends keyof MetricsFilterState>(key: K, val: MetricsFilterState[K]) => {
     onChange({ ...value, [key]: val });
@@ -107,10 +144,9 @@ export function MetricsFilterBar({ value, onChange, onFilterSummaryChange }: Met
           onChange={(e) => set('period', e.target.value as MetricsPeriodPreset)}
           className="min-w-[160px] bg-[var(--surface-card)] border border-[var(--border-default)] rounded-xl px-4 py-2.5 text-sm font-bold focus:ring-2 focus:ring-[var(--accent)]/20 outline-none"
         >
-          <option value="today">Hoje</option>
-          <option value="week">Semana</option>
-          <option value="month">Mês</option>
-          <option value="custom">Intervalo customizado</option>
+          {periods.map(p => (
+            <option key={p} value={p}>{PERIOD_LABELS[p]}</option>
+          ))}
         </StyledSelect>
       </div>
 
@@ -137,6 +173,8 @@ export function MetricsFilterBar({ value, onChange, onFilterSummaryChange }: Met
         </>
       )}
 
+      {showScopeFilters && (
+      <>
       <div className="space-y-1.5">
         <label className="text-[10px] font-semibold uppercase text-[var(--text-tertiary)] tracking-widest ml-1">Fila</label>
         <StyledSelect
@@ -172,6 +210,10 @@ export function MetricsFilterBar({ value, onChange, onFilterSummaryChange }: Met
           {companies.map((c) => <option key={c.id} value={c.id}>{c.name}</option>)}
         </StyledSelect>
       </div>
+      </>
+      )}
+
+      {children}
     </div>
   );
 }

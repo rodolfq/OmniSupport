@@ -5,8 +5,9 @@ import { query } from '@/lib/db';
 // de lib/services/transcription-service.ts: modelo open-source rodando no
 // próprio servidor via @huggingface/transformers, sem API paga nem gasto
 // por uso). Desligado por padrão (ENABLE_AI_EMBEDDINGS) pelo mesmo motivo
-// da transcrição: baixa um modelo na primeira vez e é CPU-bound — não roda
-// bem em ambiente serverless (Vercel), ligar só em servidor dedicado.
+// da transcrição: baixa um modelo na primeira vez e é CPU-bound — pesa no
+// mesmo container que atende as requisições, então ligar só quando a máquina
+// tiver CPU sobrando.
 //
 // Sem pgvector (não disponível no Postgres de produção — ver
 // migrations/ai_embeddings.sql): os vetores ficam num array nativo do
@@ -16,7 +17,14 @@ import { query } from '@/lib/db';
 // linhas, não milhões).
 const ENABLED = process.env.ENABLE_AI_EMBEDDINGS === 'true';
 const MODEL_NAME = process.env.EMBEDDING_MODEL || 'Xenova/paraphrase-multilingual-MiniLM-L12-v2';
-const CACHE_DIR = path.resolve(process.cwd(), '.cache', 'embedding-models');
+// Cache do modelo. Respeita HF_HOME quando definido (no container ele aponta
+// pro volume `models`, ver docker-compose.yml) e só cai em ./.cache fora dele.
+// Sem isso o container tentava gravar em /app/.cache, que pertence ao root
+// enquanto o processo roda como `node`: o download falhava com EACCES a cada
+// mensagem nova, em silêncio — a indexação simplesmente nunca acontecia.
+const CACHE_DIR = process.env.HF_HOME
+  ? path.join(process.env.HF_HOME, 'embedding-models')
+  : path.resolve(process.cwd(), '.cache', 'embedding-models');
 
 export function isEmbeddingEnabled(): boolean {
   return ENABLED;

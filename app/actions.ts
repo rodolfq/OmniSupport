@@ -486,8 +486,12 @@ export async function getAnalysts() {
     // 'Equipe' (o papel padrão de quem atende chamado/chat) da lista, o que
     // fazia membro de fila sumir de Canais de Atendimento mesmo já tendo
     // status de presença gravado.
+    // Colunas explícitas em vez de SELECT *: o map abaixo descarta tudo o que
+    // não está aqui, mas o `*` ainda trazia `avatar_url` do banco pro servidor
+    // — são ~50MB de foto em base64 pra montar uma lista de nomes.
     const res = await query(
-      "SELECT * FROM public.profiles WHERE role IN ('Administrador', 'Equipe', 'Time Interno') ORDER BY name ASC"
+      `SELECT id, name, email, role, company_id, phone
+       FROM public.profiles WHERE role IN ('Administrador', 'Equipe', 'Time Interno') ORDER BY name ASC`
     );
     return res.rows.map(u => ({
       id: u.id,

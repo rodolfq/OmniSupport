@@ -56,8 +56,20 @@ export async function GET(request: Request) {
         phone: r.phone
       })));
     } else if (type === 'analysts') {
+      // A foto NÃO vem por padrão. `avatar_url` guarda a imagem inteira como
+      // `data:` URL em base64 (é assim que o sync do Bitrix24 grava), e a
+      // equipe inteira soma dezenas de MB — a maior foto sozinha passa de 2MB.
+      // Quase todos os consumidores só querem `id` + `name` pra preencher um
+      // <select> ou resolver o nome de um responsável; baixar as fotos deixava
+      // telas de dados triviais (Hotfixes, Empresas) lentas sem motivo.
+      // Quem precisa de foto pede explicitamente com ?withAvatar=1.
+      // A miniatura (avatar_thumb_url) vem sempre: ~1,3kB por pessoa, é o que
+      // alimenta o avatar em card/lista. Só a foto cheia é opt-in.
+      const withAvatar = searchParams.get('withAvatar') === '1';
       const res = await query(
-        "SELECT id, name, email, role, company_id, phone, avatar_url, internal_team_ids FROM public.profiles WHERE role IN ('Administrador', 'Equipe', 'Time Interno')"
+        `SELECT id, name, email, role, company_id, phone, internal_team_ids, avatar_thumb_url
+                ${withAvatar ? ', avatar_url' : ''}
+         FROM public.profiles WHERE role IN ('Administrador', 'Equipe', 'Time Interno')`
       );
       return NextResponse.json(res.rows.map(r => ({
         id: r.id,
@@ -66,7 +78,8 @@ export async function GET(request: Request) {
         role: r.role,
         companyId: r.company_id,
         phone: r.phone,
-        avatarUrl: r.avatar_url,
+        avatarUrl: withAvatar ? r.avatar_url : undefined,
+        avatarThumbUrl: r.avatar_thumb_url,
         internalTeamIds: r.internal_team_ids
       })));
     } else if (type === 'analysts-search') {
@@ -127,8 +140,13 @@ export async function GET(request: Request) {
         total: res.rows.length > 0 ? parseInt(res.rows[0].total_count, 10) : 0
       });
     } else {
+      // avatar_thumb_url viaja junto com avatar_url aqui: são ~1,3kB por
+      // pessoa (48x48 JPEG, ver lib/services/avatar-thumb-service.ts) e é o
+      // que as listas/cards devem usar. A foto cheia continua vindo porque
+      // várias telas ainda a exibem em tamanho grande — ver o comentário do
+      // branch 'analysts' sobre o peso disso.
       const res = await query(
-        "SELECT id, name, email, role, company_id, phone, view_all_company_tickets, must_change_password, is_admin, avatar_url, internal_team_ids, is_active FROM public.profiles"
+        "SELECT id, name, email, role, company_id, phone, view_all_company_tickets, must_change_password, is_admin, avatar_url, avatar_thumb_url, internal_team_ids, is_active FROM public.profiles"
       );
       return NextResponse.json(res.rows.map(r => ({
         id: r.id,
@@ -141,6 +159,7 @@ export async function GET(request: Request) {
         mustChangePassword: r.must_change_password,
         isAdmin: r.is_admin,
         avatarUrl: r.avatar_url,
+        avatarThumbUrl: r.avatar_thumb_url,
         internalTeamIds: r.internal_team_ids,
         isActive: r.is_active
       })));

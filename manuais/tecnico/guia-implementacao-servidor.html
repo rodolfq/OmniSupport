@@ -48,7 +48,7 @@
     <div class="kicker">Guia Técnico · DevOps</div>
     <h1>Guia de Implementação<br>Migração para o Servidor Definitivo</h1>
     <div class="role-pill">⚙ Uso interno — Time de Desenvolvimento</div>
-    <p class="lede">Checklist e comandos pra sair da Vercel (serverless) e colocar o SSX Desk no ar num servidor dedicado — com WhatsApp, transcrição de áudio e busca semântica funcionando de verdade.</p>
+    <p class="lede">Checklist e comandos pra colocar o SSX Desk no ar num servidor dedicado — com WhatsApp, transcrição de áudio e busca semântica funcionando de verdade.</p>
   </div>
   <div class="cover-footer">
     <div class="meta"><b>SSX Desk</b>Plataforma de Atendimento ao Cliente</div>
@@ -79,9 +79,9 @@
 <div class="page">
   <div class="page-head"><span class="tag">Capítulo 01 · Introdução</span><span class="brand">SSX Desk · Guia de Implementação</span></div>
   <div class="section-icon-row"><div class="section-icon">●</div><h2 class="section-title mt-0">Antes de começar</h2></div>
-  <p class="section-lede">Por que sair da Vercel — e o que este guia assume.</p>
+  <p class="section-lede">Por que servidor dedicado — e o que este guia assume.</p>
 
-  <p>O SSX Desk roda hoje na Vercel (serverless). Isso funciona bem pra maior parte do sistema, mas <b>três recursos precisam de um processo persistente</b> pra funcionar de verdade: WhatsApp via Baileys (conexão contínua), transcrição de áudio (Whisper local) e busca semântica (embeddings locais) — todos documentados no código como "não ligar na Vercel".</p>
+  <p>O SSX Desk roda como um <b>processo Node único e contínuo</b>, num container Docker. Isso não é preferência: <b>três recursos só funcionam de verdade com um processo que não é reciclado</b> — WhatsApp via Baileys (conexão WebSocket contínua), transcrição de áudio (Whisper local) e busca semântica (embeddings locais). Os três carregam modelo ou seguram conexão em memória, e nenhum sobrevive a um ambiente que desliga o processo entre requisições.</p>
 
   <div class="callout info"><span class="ico">i</span><p>Este guia assume um servidor <b>Ubuntu 22.04/24.04 LTS</b> (VPS ou dedicado), que é o mesmo alvo Linux x64 pra qual os binários nativos do projeto (sharp, onnxruntime-node) já são otimizados no <code>next.config.ts</code>. Outra distro/arquitetura (ex: ARM) funciona, mas os comandos de instalação de pacote mudam.</p></div>
 
@@ -199,7 +199,7 @@ cd ssx-desk</div>
   <h3 class="sub-title"><span class="num">1</span>Testar o download antecipadamente (opcional)</h3>
   <p>Pra não deixar o primeiro cliente esperando o download na hora, pode-se "esquentar" o cache manualmente após o primeiro <code>pm2 start</code> (capítulo 07): dispare uma transcrição de teste e uma pergunta ao Agente de IA assim que o serviço subir, antes de anunciar o servidor como pronto.</p>
 
-  <div class="callout info"><span class="ico">i</span><p>É por isso que essas duas flags (<code>ENABLE_AUDIO_TRANSCRIPTION</code> e <code>ENABLE_AI_EMBEDDINGS</code>) ficam desligadas por padrão na Vercel: função serverless não tem disco persistente nem CPU dedicada pra isso. Num servidor próprio como este, ligar as duas é seguro.</p></div>
+  <div class="callout info"><span class="ico">i</span><p>É por isso que essas duas flags (<code>ENABLE_AUDIO_TRANSCRIPTION</code> e <code>ENABLE_AI_EMBEDDINGS</code>) vêm desligadas por padrão: exigem disco pro cache do modelo e CPU dedicada. Num servidor próprio como este, ligar as duas é seguro — no container, o cache precisa apontar pro volume (<code>HF_HOME=/data/models</code>), senão cada restart rebaixa o modelo inteiro.</p></div>
 
   <div class="page-foot"><span>SSX Desk</span><span>05 — Modelos de IA locais</span></div>
 </div>
@@ -241,7 +241,7 @@ cd ssx-desk</div>
 <div class="page">
   <div class="page-head"><span class="tag">Capítulo 07 · Deploy</span><span class="brand">SSX Desk · Guia de Implementação</span></div>
   <div class="section-icon-row"><div class="section-icon">▶</div><h2 class="section-title mt-0">Build & processo persistente</h2></div>
-  <p class="section-lede">Diferente da Vercel: aqui o processo Node precisa ficar sempre no ar.</p>
+  <p class="section-lede">O processo Node precisa ficar sempre no ar — e ser um só.</p>
 
   <h3 class="sub-title"><span class="num">1</span>Build de produção</h3>
   <div class="code-block"><span class="c"># roda check:encoding automaticamente antes (script prebuild)</span>
@@ -252,7 +252,7 @@ npm run build</div>
 pm2 save
 pm2 startup   <span class="c"># segue a instrução impressa pra registrar no boot do SO</span></div>
 
-  <div class="callout info"><span class="ico">i</span><p>É esse processo único e contínuo que faz a diferença em relação à Vercel: a conexão WebSocket do WhatsApp (Baileys) e os schedulers internos (fila de embeddings, alerta de hotfix vencido, detector de insatisfação) rodam dentro dele via <code>setInterval</code> — registrados em <code>instrumentation-node.ts</code> na subida do processo.</p></div>
+  <div class="callout info"><span class="ico">i</span><p>É esse processo único e contínuo que sustenta o sistema: a conexão WebSocket do WhatsApp (Baileys) e os schedulers internos (fila de embeddings, alerta de hotfix vencido, detector de insatisfação) rodam dentro dele via <code>setInterval</code> — registrados em <code>instrumentation-node.ts</code> na subida do processo. <b>Único mesmo</b>: dois processos contra o mesmo banco duplicam a mensagem automática enviada ao cliente e brigam pela sessão do WhatsApp.</p></div>
 
   <h3 class="sub-title"><span class="num">3</span>Comandos úteis do dia a dia</h3>
   <div class="code-block">pm2 logs ssx-desk       <span class="c"># acompanhar logs em tempo real</span>
@@ -357,7 +357,7 @@ sudo certbot --nginx -d SEU_DOMINIO.com.br</div>
     <li>Agente de IA respondendo, inclusive com <code>semantic_search</code> (pergunta parafraseada encontra chamado antigo)</li>
   </ul>
 
-  <div class="callout tip"><span class="ico">✓</span><p>Com tudo isso marcado, o servidor cobre os três recursos que a Vercel nunca conseguiu rodar de forma confiável: WhatsApp persistente, transcrição de áudio e busca semântica.</p></div>
+  <div class="callout tip"><span class="ico">✓</span><p>Com tudo isso marcado, o servidor cobre os três recursos que exigem processo contínuo: WhatsApp persistente, transcrição de áudio e busca semântica.</p></div>
 
   <div class="page-foot"><span>SSX Desk</span><span>10 — Checklist final</span></div>
 </div>

@@ -2,6 +2,7 @@
 
 import React, { useState, useEffect, useMemo } from 'react';
 import { StyledSelect } from '@/components/styled-select';
+import { UserAvatar } from '@/components/user-avatar';
 import { Clock, Info, AlertCircle, CheckCircle2, Coffee, Users, Filter, Plus, Trash2, ArrowRight } from 'lucide-react';
 import { UserStatusHistory, User } from '@/lib/types';
 import { AbsenceReasonService, UserStatusHistoryService } from '@/lib/services/chat-service';
@@ -209,6 +210,8 @@ export function StatusHistoryPanel({ userId }: StatusHistoryPanelProps) {
     return user ? user.name : 'Usuário removido';
   };
 
+  const getUserThumb = (id: string) => profiles.find(p => p.id === id)?.avatarThumbUrl || null;
+
   return (
     <div className="space-y-6 animate-in fade-in slide-in-from-bottom-4 duration-300">
       {/* Header com Filtros */}
@@ -365,6 +368,7 @@ export function StatusHistoryPanel({ userId }: StatusHistoryPanelProps) {
               filteredTotalSeconds={filteredTotalSeconds}
               isAdmin={isAdmin}
               getUserName={getUserName}
+              getUserThumb={getUserThumb}
               now={now}
             />
           </div>
@@ -379,6 +383,7 @@ export function StatusHistoryPanel({ userId }: StatusHistoryPanelProps) {
           filteredTotalSeconds={filteredTotalSeconds}
           isAdmin={isAdmin}
           getUserName={getUserName}
+          getUserThumb={getUserThumb}
           now={now}
         />
       )}
@@ -427,6 +432,7 @@ function TurnList({
   filteredTotalSeconds,
   isAdmin,
   getUserName,
+  getUserThumb,
   now
 }: {
   turns: StatusTurn[];
@@ -435,6 +441,7 @@ function TurnList({
   filteredTotalSeconds: number;
   isAdmin: boolean;
   getUserName: (id: string) => string;
+  getUserThumb: (id: string) => string | null;
   now: Date;
 }) {
   return (
@@ -461,9 +468,13 @@ function TurnList({
           groupedByUser.map(([uid, userTurns]) => (
             <div key={uid}>
               <div className="px-8 py-3 bg-[var(--surface-card)]/70 flex items-center gap-3">
-                <div className="w-7 h-7 rounded-lg bg-[var(--accent)]/10 flex items-center justify-center text-[10px] font-black text-[var(--accent-text)] shrink-0">
-                  {getUserName(uid).charAt(0)}
-                </div>
+                <UserAvatar
+                  name={getUserName(uid)}
+                  thumbUrl={getUserThumb(uid)}
+                  size={28}
+                  rounded="rounded-lg"
+                  fallbackClassName="bg-[var(--accent)]/10 text-[var(--accent-text)] font-black"
+                />
                 <p className="text-xs font-black text-[var(--text-primary)] uppercase tracking-tight truncate flex-1">{getUserName(uid)}</p>
                 <span className="text-[9px] font-semibold uppercase text-[var(--text-tertiary)] tracking-widest shrink-0">
                   {userTurns.length} turno{userTurns.length === 1 ? '' : 's'}

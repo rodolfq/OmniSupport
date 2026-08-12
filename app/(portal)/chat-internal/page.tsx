@@ -40,6 +40,7 @@ import {
 } from 'lucide-react';
 import { cn, normalizeString } from '@/lib/utils';
 import { useApp } from '@/app/app-context';
+import { UserAvatar } from '@/components/user-avatar';
 import { InternalGroup, ChatMessage, User, UserRole, Permission, AnalystStatus } from '@/lib/types';
 import { supabase } from '@/lib/supabase';
 import { ClientTime } from '@/components/client-time';
@@ -2048,9 +2049,13 @@ export default function ChatInternalPage() {
                                  idx === mentionActiveIndex ? "bg-[var(--accent)]/10" : "hover:bg-[var(--surface-pill)]"
                                )}
                              >
-                               <div className="w-8 h-8 rounded-full bg-[var(--accent)] text-white flex items-center justify-center text-[10px] font-black shrink-0">
-                                 {user.name.charAt(0)}
-                               </div>
+                               <UserAvatar
+                                 name={user.name}
+                                 thumbUrl={user.avatarThumbUrl}
+                                 url={user.avatarUrl}
+                                 size={32}
+                                 fallbackClassName="bg-[var(--accent)] text-white font-black"
+                               />
                                <span className="text-xs font-bold text-[var(--text-primary)] truncate">{user.name}</span>
                              </button>
                            ))}
@@ -2223,12 +2228,17 @@ export default function ChatInternalPage() {
                                selectedMembers.includes(user.id) ? "bg-[var(--accent)]/10" : "hover:bg-[var(--surface-card)]"
                              )}
                            >
-                              <div className={cn(
-                                "w-10 h-10 rounded-xl flex items-center justify-center text-white font-black",
-                                selectedMembers.includes(user.id) ? "bg-[var(--accent)]" : "bg-[var(--text-tertiary)]"
-                              )}>
-                                {user.name.charAt(0)}
-                              </div>
+                              <UserAvatar
+                                name={user.name}
+                                thumbUrl={user.avatarThumbUrl}
+                                url={user.avatarUrl}
+                                size={40}
+                                rounded="rounded-xl"
+                                fallbackClassName={cn(
+                                  "text-white font-black",
+                                  selectedMembers.includes(user.id) ? "bg-[var(--accent)]" : "bg-[var(--text-tertiary)]"
+                                )}
+                              />
                               <div className="flex-1 text-left">
                                  <p className="text-sm font-black text-[var(--text-primary)]">{user.name}</p>
                                  <p className="text-[10px] font-bold text-[var(--text-tertiary)] uppercase tracking-tighter">{user.role}</p>

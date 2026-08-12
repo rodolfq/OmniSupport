@@ -23,8 +23,12 @@ export class UserService {
     return res.json();
   }
 
-  static async getAnalysts(): Promise<User[]> {
-    const res = await fetch('/api/users?type=analysts');
+  // Lista da equipe interna para preencher select/resolver nome. Vem SEM foto
+  // de propósito (ver comentário em app/api/users/route.ts): os avatares são
+  // `data:` URL em base64 e somam dezenas de MB. Só peça `withAvatar` na tela
+  // que de fato exibe a imagem.
+  static async getAnalysts(options?: { withAvatar?: boolean }): Promise<User[]> {
+    const res = await fetch(`/api/users?type=analysts${options?.withAvatar ? '&withAvatar=1' : ''}`);
     return res.json();
   }
 

@@ -15,11 +15,18 @@ import { ATTACHMENT_URL_PREFIX, parseDataUrl, readAttachmentFile } from '@/lib/s
 // servidor via @huggingface/transformers + onnxruntime), sem API paga nem
 // gasto por uso — só o processamento da própria máquina. Desligada por
 // padrão (ENABLE_AUDIO_TRANSCRIPTION) porque depende de baixar um modelo
-// (~150MB na primeira transcrição) e rodar um binário de ffmpeg — não roda
-// bem num ambiente serverless (Vercel); ligar só no servidor dedicado.
+// (~150MB na primeira transcrição) e rodar um binário de ffmpeg. No container
+// o download vai pro volume `models` (HF_HOME=/data/models); sem esse volume
+// cada restart rebaixa o modelo inteiro.
 const ENABLED = process.env.ENABLE_AUDIO_TRANSCRIPTION === 'true';
 const MODEL_NAME = process.env.TRANSCRIPTION_MODEL || 'Xenova/whisper-base';
-const CACHE_DIR = path.resolve(process.cwd(), '.cache', 'transcription-models');
+// Mesmo tratamento de lib/services/embedding-service.ts: HF_HOME quando
+// existir (volume `models` no container), ./.cache fora dele. O caminho fixo
+// em process.cwd() falhava com EACCES dentro do container e ainda perdia o
+// download a cada restart, por não estar em volume.
+const CACHE_DIR = process.env.HF_HOME
+  ? path.join(process.env.HF_HOME, 'transcription-models')
+  : path.resolve(process.cwd(), '.cache', 'transcription-models');
 
 // Mensagem devolvida (em vez de null/erro) quando o áudio está mudo/vazio ou
 // quando o Whisper "alucina" em cima de silêncio/ruído — problema conhecido

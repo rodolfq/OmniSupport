@@ -98,7 +98,9 @@ const REPORT_LINKS = [
   { href: '/reports/analysts', title: 'Desempenho por Analista', description: 'Chats por hora online, tempo de resposta, satisfação — sempre contra a mediana do time.', icon: <Users size={18} /> },
   { href: '/reports/capacity', title: 'Carga e Capacidade', description: 'A escala cobre a demanda? Carga simultânea x analistas online, por faixa horária.', icon: <Gauge size={18} /> },
   { href: '/reports/satisfaction', title: 'Satisfação e Qualidade', description: 'Avaliações negativas com link pra conversa, tendência e cruzamento com tempo de resposta.', icon: <Star size={18} /> },
-  { href: '/reports/accounts', title: 'Conta/Cliente', description: 'Visão comercial da carteira — recorrência, minutos consumidos e sinal de risco por empresa.', icon: <Building2 size={18} /> }
+  { href: '/reports/accounts', title: 'Conta/Cliente', description: 'Visão comercial da carteira — recorrência, minutos consumidos e sinal de risco por empresa.', icon: <Building2 size={18} /> },
+  { href: '/reports/hotfixes', title: 'Hotfixes', description: 'Janela de release: publicado no prazo ou com atraso, responsável, anotações e chamados que cada hotfix carregava.', icon: <Rocket size={18} /> },
+  { href: '/reports/workload', title: 'Carga e Complexidade', description: 'Tickets internos: carga ponderada por esforço, índice objetivo de complexidade e taxa de defeito de produto.', icon: <Gauge size={18} /> }
 ];
 
 const TAG_LABELS: Record<'technical' | 'beginner' | 'challenging', string> = {

@@ -5,6 +5,8 @@ import { Plus, Trash2, Star } from 'lucide-react';
 import { supabase } from '@/lib/supabase';
 import { useQueryClient } from '@tanstack/react-query';
 import { toast } from 'sonner';
+import { EditableLabel } from '@/components/editable-label';
+import { ConfigService } from '@/lib/services/config-service';
 
 export function SystemConfigContent({ categories, priorities, requestTypes, products, setCategories, setPriorities, setRequestTypes, setProducts, surveySettings, setSurveySettings }: any) {
   // Esta tela lê e escreve nessas mesmas tabelas via estado elevado (props
@@ -110,6 +112,39 @@ export function SystemConfigContent({ categories, priorities, requestTypes, prod
     }
   };
 
+  // Renomear item de lista. Vale só para Categorias, Tipos de Solicitação e
+  // Produtos: o chamado aponta pra elas por id (category_id/request_type_id/
+  // product_id), então trocar o rótulo não desliga nada. Prioridade e Status
+  // ficam de fora de propósito — tickets.priority e tickets.status guardam o
+  // RÓTULO em texto, e renomear lá deixaria os chamados existentes apontando
+  // pra um valor inexistente.
+  //
+  // Antes disso, corrigir um nome errado só era possível excluindo e criando
+  // de novo — o que gera um id novo e solta todos os chamados que já usavam o
+  // item antigo.
+  const renameItem = async (
+    type: 'categories' | 'request-types' | 'products',
+    id: string,
+    label: string
+  ) => {
+    const setters: Record<string, [any[], (v: any[]) => void, string, string]> = {
+      'categories': [categories, setCategories, 'config_categories', 'Categoria'],
+      'request-types': [requestTypes, setRequestTypes, 'config_request_types', 'Tipo de solicitação'],
+      'products': [products, setProducts, 'config_products', 'Produto']
+    };
+    const [list, setList, queryKey, noun] = setters[type];
+
+    try {
+      await ConfigService.renameSimpleItem(type, id, label);
+      setList(list.map((i: any) => (i.id === id ? { ...i, label } : i)));
+      queryClient.invalidateQueries({ queryKey: ['ref', queryKey] });
+      toast.success(`${noun} renomeado.`);
+    } catch (err: any) {
+      toast.error(err?.message || `Erro ao renomear ${noun.toLowerCase()}.`);
+      throw err;
+    }
+  };
+
   const [slaValues, setSlaValues] = React.useState<Record<string, number>>({});
 
   React.useEffect(() => {
@@ -205,9 +240,9 @@ export function SystemConfigContent({ categories, priorities, requestTypes, prod
         </div>
         <div className="bg-[var(--surface-card)] rounded-2xl p-4 space-y-2">
           {categories.map((c: any) => (
-            <div key={c.id} className="flex justify-between items-center bg-[var(--surface-card)] p-3 rounded-lg border border-[var(--border-default)] text-sm font-medium">
-              {c.label}
-              <button onClick={() => deleteCategory(c.id)} className="text-[var(--text-danger)] hover:opacity-70 transition-opacity"><Trash2 size={16}/></button>
+            <div key={c.id} className="flex justify-between items-center gap-2 bg-[var(--surface-card)] p-3 rounded-lg border border-[var(--border-default)] text-sm font-medium">
+              <EditableLabel value={c.label} onSave={(next) => renameItem('categories', c.id, next)} />
+              <button onClick={() => deleteCategory(c.id)} className="shrink-0 text-[var(--text-danger)] hover:opacity-70 transition-opacity"><Trash2 size={16}/></button>
             </div>
           ))}
         </div>
@@ -221,9 +256,9 @@ export function SystemConfigContent({ categories, priorities, requestTypes, prod
         </div>
         <div className="bg-[var(--surface-card)] rounded-2xl p-4 space-y-2">
           {requestTypes.map((r: any) => (
-            <div key={r.id} className="flex justify-between items-center bg-[var(--surface-card)] p-3 rounded-lg border border-[var(--border-default)] text-sm font-medium">
-              {r.label}
-              <button onClick={() => deleteRequestType(r.id)} className="text-[var(--text-danger)] hover:opacity-70 transition-opacity"><Trash2 size={16}/></button>
+            <div key={r.id} className="flex justify-between items-center gap-2 bg-[var(--surface-card)] p-3 rounded-lg border border-[var(--border-default)] text-sm font-medium">
+              <EditableLabel value={r.label} onSave={(next) => renameItem('request-types', r.id, next)} />
+              <button onClick={() => deleteRequestType(r.id)} className="shrink-0 text-[var(--text-danger)] hover:opacity-70 transition-opacity"><Trash2 size={16}/></button>
             </div>
           ))}
         </div>
@@ -237,9 +272,9 @@ export function SystemConfigContent({ categories, priorities, requestTypes, prod
         </div>
         <div className="bg-[var(--surface-card)] rounded-2xl p-4 space-y-2">
           {products.map((p: any) => (
-            <div key={p.id} className="flex justify-between items-center bg-[var(--surface-card)] p-3 rounded-lg border border-[var(--border-default)] text-sm font-medium">
-              {p.label}
-              <button onClick={() => deleteProduct(p.id)} className="text-[var(--text-danger)] hover:opacity-70 transition-opacity"><Trash2 size={16}/></button>
+            <div key={p.id} className="flex justify-between items-center gap-2 bg-[var(--surface-card)] p-3 rounded-lg border border-[var(--border-default)] text-sm font-medium">
+              <EditableLabel value={p.label} onSave={(next) => renameItem('products', p.id, next)} />
+              <button onClick={() => deleteProduct(p.id)} className="shrink-0 text-[var(--text-danger)] hover:opacity-70 transition-opacity"><Trash2 size={16}/></button>
             </div>
           ))}
         </div>

@@ -65,6 +65,12 @@ const configCategoriesDef = { queryKey: ['ref', 'config_categories'], queryFn: (
 const configRequestTypesDef = { queryKey: ['ref', 'config_request_types'], queryFn: () => selectAll('config_request_types') };
 const configProductsDef = { queryKey: ['ref', 'config_products'], queryFn: () => selectAll('config_products') };
 const configPrioritiesDef = { queryKey: ['ref', 'config_priorities'], queryFn: () => selectAll('config_priorities') };
+// Classificação de solução do chamado. Vai por /api/config (não pelo shim
+// supabase.from) porque a rota já devolve camelCase com weight numérico e
+// ordenado por sort_order — código novo não deve reintroduzir o shim.
+const configEffortsDef = { queryKey: ['ref', 'config_efforts'], queryFn: () => getJson('/api/config?type=efforts') };
+const configOutcomesDef = { queryKey: ['ref', 'config_outcomes'], queryFn: () => getJson('/api/config?type=outcomes') };
+
 const internalTeamsDef = { queryKey: ['ref', 'internal_teams'], queryFn: () => selectAll('internal_teams') };
 const queuesDef = { queryKey: ['ref', 'queues'], queryFn: () => selectAll('queues') };
 
@@ -113,6 +119,14 @@ export function useConfigPrioritiesQuery(options?: QueryOptions) {
   return useQuery({ ...configPrioritiesDef, enabled: options?.enabled });
 }
 
+export function useConfigEffortsQuery(options?: QueryOptions) {
+  return useQuery({ ...configEffortsDef, enabled: options?.enabled });
+}
+
+export function useConfigOutcomesQuery(options?: QueryOptions) {
+  return useQuery({ ...configOutcomesDef, enabled: options?.enabled });
+}
+
 export function useInternalTeamsQuery(options?: QueryOptions) {
   return useQuery({ ...internalTeamsDef, enabled: options?.enabled });
 }
@@ -139,6 +153,8 @@ export function prefetchTicketModalReferenceData(queryClient: QueryClient) {
     configRequestTypesDef,
     configProductsDef,
     configPrioritiesDef,
+    configEffortsDef,
+    configOutcomesDef,
     internalTeamsDef,
     queuesDef
   ];
