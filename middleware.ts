@@ -15,6 +15,7 @@ const PUBLIC_PATHS = new Set([
   '/api/auth/login',
   '/api/auth/logout',
   '/api/whatsapp/webhook', // chamado pela Meta, sem sessão de usuário
+  '/api/health', // healthcheck do container (Dockerfile), sem sessão de usuário
   '/manifest.webmanifest',
   '/sw.js',
 ]);

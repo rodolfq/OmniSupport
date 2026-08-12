@@ -1,7 +1,12 @@
 import type { NextConfig } from "next";
 
 const nextConfig: NextConfig = {
-  /* config options here */
+  // Empacotamento em container (ver Dockerfile): 'standalone' gera
+  // .next/standalone com um server.js e SÓ as dependências que o runtime
+  // realmente usa (resolvidas pelo mesmo tracing do outputFileTracingExcludes
+  // abaixo). Sem isso a imagem teria que carregar o node_modules inteiro —
+  // com os binários nativos de onnxruntime/sharp/ffmpeg, alguns GB à toa.
+  output: 'standalone',
   images: {
     remotePatterns: [
       {

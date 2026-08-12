@@ -1,0 +1,47 @@
+# SSX Desk — produção.
+#
+# O Postgres NÃO está aqui de propósito: o banco é próprio, hospedado no
+# servidor da equipe, e continua sendo apontado por DATABASE_URL no .env.
+#
+# IMPORTANTE — uma réplica só. Não é limitação do Docker, é do código:
+#  - lib/chat-events.ts faz o fan-out do SSE por EventEmitter em memória do
+#    processo (dois containers = cada um só notifica quem está conectado nele);
+#  - instrumentation-node.ts sobe 4 schedulers (automação, hotfix, embeddings,
+#    insatisfação) em TODO processo que inicia — duplicar containers duplica
+#    mensagem automática enviada ao cliente.
+# Para escalar horizontalmente é preciso antes trocar o fan-out por
+# pg LISTEN/NOTIFY e eleger um único processo dono dos schedulers.
+
+services:
+  app:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    image: ssx-desk:latest
+    restart: unless-stopped
+    env_file:
+      - .env
+    environment:
+      # Sobrescrevem o .env: dentro do container os caminhos são fixos e
+      # correspondem aos volumes abaixo.
+      HF_HOME: /data/models
+      ATTACHMENTS_DIR: /data/attachments
+      NODE_ENV: production
+    ports:
+      # Publicado só no loopback: quem fala com a internet é o reverse proxy
+      # (TLS). Trocar para "80:3000" apenas se não houver proxy na frente.
+      - "127.0.0.1:3000:3000"
+    volumes:
+      - attachments:/data/attachments
+      - models:/data/models
+    # Sem isso o Compose pode subir 2 containers num `up --scale` distraído.
+    deploy:
+      replicas: 1
+
+volumes:
+  # Anexos de chamado/chat. Único estado da aplicação fora do Postgres —
+  # incluir no backup junto com o dump do banco.
+  attachments:
+  # Só cache (modelos Whisper/embeddings baixados sob demanda): pode ser
+  # descartado, o container rebaixa na próxima necessidade.
+  models:

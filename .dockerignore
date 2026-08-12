@@ -1,0 +1,39 @@
+# Nunca entra na imagem: segredo (o compose injeta via env_file em runtime).
+.env
+.env.*
+
+# Reinstalados/regerados dentro do build — copiar de um host Windows traria
+# binários nativos da plataforma errada.
+node_modules
+.next
+tsconfig.tsbuildinfo
+
+# Anexos/cache de modelo do ambiente local — em produção são volumes.
+data
+.cache
+
+.git
+.gitignore
+.vscode
+.claude
+
+# Documentação e material de apoio: nada disso é servido pela aplicação.
+manuais
+README.md
+CLAUDE.md
+AGENTS.md
+REFACTOR_PLAN.md
+project_architecture_summary.md
+
+# Scripts ad-hoc de debug (ver seção 5 do CLAUDE.md) — fora do fluxo oficial.
+scripts/diagnostics
+
+# Schema completo começa com DROP TABLE ... CASCADE: não pode viajar junto
+# com a imagem de produção, pra ninguém rodar por engano no servidor.
+schema_postgres.sql
+supabase_schema.sql
+
+contatos_para_validar.csv
+Dockerfile
+docker-compose.yml
+.dockerignore

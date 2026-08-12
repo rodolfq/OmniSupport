@@ -5,6 +5,7 @@ import { verifyJWT } from '@/lib/jwt';
 import { handleTicketCreated, handleTicketUpdated, handleTicketMessageCreated } from '@/lib/services/automation-service';
 import { notifyUser } from '@/lib/services/push-service';
 import { getTeamUserIds, getTicketRecipients, pushToTicketRecipients, ticketLabel } from '@/lib/services/notification-recipients';
+import { persistAttachments } from '@/lib/services/attachment-storage';
 
 async function getTicketActor(request: NextRequest) {
   const token = request.cookies.get('token')?.value;
@@ -275,6 +276,10 @@ export async function POST(request: Request) {
         userRole = profileCheck.rows[0].role;
       }
 
+      // Anexo chega do client como data: URL e é gravado em disco aqui (ver
+      // lib/services/attachment-storage.ts) — no banco fica só a URL curta.
+      const ticketAttachments = await persistAttachments(ticket.attachments || []);
+
       const res = await query(
         `INSERT INTO public.tickets (title, description, status, priority, queue_id, category_id, request_type_id, product_id, tags, company_id, customer_id, created_by, attachments_data, employee_ids, assignee_id)
          VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15)
@@ -292,7 +297,7 @@ export async function POST(request: Request) {
           companyId,
           ticket.customerId || userId,
           userId,
-          JSON.stringify(ticket.attachments || []),
+          JSON.stringify(ticketAttachments),
           ticket.employeeIds || [],
           ticket.assigneeId || null
         ]
@@ -334,7 +339,11 @@ export async function POST(request: Request) {
 
     if (action === 'create-message') {
       const { message } = body;
-      
+
+      // Anexo chega do client como data: URL e é gravado em disco aqui (ver
+      // lib/services/attachment-storage.ts) — no banco fica só a URL curta.
+      const messageAttachments = await persistAttachments(message.attachments || []);
+
       const res = await query(
         `INSERT INTO public.ticket_messages (id, ticket_id, author_id, content, created_at, is_visible_to_customer, type, attachments_data)
          VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
@@ -347,7 +356,7 @@ export async function POST(request: Request) {
           message.timestamp || new Date().toISOString(),
           message.isVisibleToCustomer !== false,
           message.type || 'text',
-          JSON.stringify(message.attachments || [])
+          JSON.stringify(messageAttachments)
         ]
       );
       

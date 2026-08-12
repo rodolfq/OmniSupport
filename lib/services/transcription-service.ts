@@ -9,6 +9,7 @@ import { emitChatEvent, excludeActiveViewers } from '@/lib/chat-events';
 import { getTeamUserIds } from '@/lib/services/notification-recipients';
 import { notifyUser } from '@/lib/services/push-service';
 import type { Attachment } from '@/lib/types';
+import { ATTACHMENT_URL_PREFIX, parseDataUrl, readAttachmentFile } from '@/lib/services/attachment-storage';
 
 // Transcrição de áudio 100% local (Whisper open-source rodando no próprio
 // servidor via @huggingface/transformers + onnxruntime), sem API paga nem
@@ -99,15 +100,29 @@ async function getTranscriber() {
   return transcriberPromise;
 }
 
-// Decodifica um data URL de áudio (qualquer formato que o ffmpeg entenda —
-// wav do gravador do widget, ogg/opus do WhatsApp, etc.) para PCM float32
-// mono 16kHz, o formato que o Whisper espera. Usa arquivos temporários em vez
-// de pipe porque o ffmpeg-static no Windows lida melhor com arquivo do que
-// com stdin/stdout binário.
-async function decodeToPcm16k(dataUrl: string): Promise<Float32Array> {
-  const match = /^data:([^;]+);base64,(.+)$/.exec(dataUrl);
-  if (!match) throw new Error('URL de áudio inválida (esperado data: URL em base64)');
-  const buffer = Buffer.from(match[2], 'base64');
+// Lê o áudio de onde ele estiver: anexo novo mora em disco (/api/files/...,
+// ver lib/services/attachment-storage.ts), anexo antigo ainda é data: URL no
+// banco enquanto a migração não passa por ele.
+async function loadAudioBuffer(url: string): Promise<Buffer> {
+  const parsed = parseDataUrl(url);
+  if (parsed) return parsed.buffer;
+
+  if (url?.startsWith(ATTACHMENT_URL_PREFIX)) {
+    const buffer = await readAttachmentFile(url.slice(ATTACHMENT_URL_PREFIX.length));
+    if (buffer) return buffer;
+    throw new Error('Arquivo de áudio não encontrado no volume de anexos');
+  }
+
+  throw new Error('URL de áudio inválida (esperado data: URL ou anexo em disco)');
+}
+
+// Decodifica um áudio (qualquer formato que o ffmpeg entenda — wav do gravador
+// do widget, ogg/opus do WhatsApp, etc.) para PCM float32 mono 16kHz, o
+// formato que o Whisper espera. Usa arquivos temporários em vez de pipe porque
+// o ffmpeg-static no Windows lida melhor com arquivo do que com stdin/stdout
+// binário.
+async function decodeToPcm16k(audioUrl: string): Promise<Float32Array> {
+  const buffer = await loadAudioBuffer(audioUrl);
 
   const tmpDir = os.tmpdir();
   const jobId = randomUUID();
@@ -178,15 +193,16 @@ function withTimeout<T>(promise: Promise<T>, ms: number, message: string): Promi
   });
 }
 
-// Transcreve um áudio (data URL) e devolve o texto, ou null se a transcrição
-// estiver desligada. Diferente de antes, um erro real (ffmpeg travado,
-// timeout na inferência, etc.) agora é relançado em vez de virar `null`
-// silencioso — quem chama (transcribeMessageAudio) decide como alertar.
-export async function transcribeAudio(dataUrl: string): Promise<string | null> {
+// Transcreve um áudio (URL do anexo: /api/files/... em disco, ou data: URL
+// legado) e devolve o texto, ou null se a transcrição estiver desligada.
+// Diferente de antes, um erro real (ffmpeg travado, timeout na inferência,
+// etc.) agora é relançado em vez de virar `null` silencioso — quem chama
+// (transcribeMessageAudio) decide como alertar.
+export async function transcribeAudio(audioUrl: string): Promise<string | null> {
   if (!ENABLED) return null;
 
   return enqueue(async () => {
-    const samples = await decodeToPcm16k(dataUrl);
+    const samples = await decodeToPcm16k(audioUrl);
     if (isSilentAudio(samples)) return NO_SPEECH_TEXT;
 
     const durationSeconds = samples.length / 16000;

@@ -10,3 +10,7 @@ coverage/
 # Modelo Whisper baixado por lib/services/transcription-service.ts (cache local,
 # nao deve ir pro git — cada servidor baixa a sua copia na primeira transcricao)
 .cache/
+
+# Anexos gravados por lib/services/attachment-storage.ts em desenvolvimento
+# (em produção isto é o volume do container, ver ATTACHMENTS_DIR).
+data/

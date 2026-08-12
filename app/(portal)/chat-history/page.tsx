@@ -217,13 +217,30 @@ async function buildHistoryPdfBlob(h: any, messages?: ChatMessage[]): Promise<Bl
       y += boxHeight + 10;
     };
 
+    // jsPDF.addImage só aceita data: URL / base64 — anexo que hoje mora no
+    // volume (/api/files/...) precisa ser baixado e convertido antes, senão a
+    // imagem simplesmente não entra no PDF.
+    const toDataUrl = async (url: string): Promise<string> => {
+      if (url.startsWith('data:')) return url;
+      const res = await fetch(url);
+      if (!res.ok) throw new Error('Falha ao baixar anexo');
+      const blob = await res.blob();
+      return await new Promise<string>((resolve, reject) => {
+        const reader = new FileReader();
+        reader.onload = () => resolve(String(reader.result || ''));
+        reader.onerror = () => reject(reader.error || new Error('Falha ao ler anexo'));
+        reader.readAsDataURL(blob);
+      });
+    };
+
     const addImageBlock = async (attachment: Attachment): Promise<boolean> => {
       try {
+        const imageDataUrl = await toDataUrl(attachment.url);
         const dims = await new Promise<{ w: number; h: number }>((resolve, reject) => {
           const img = new window.Image();
           img.onload = () => resolve({ w: img.naturalWidth, h: img.naturalHeight });
           img.onerror = () => reject(new Error('Falha ao carregar imagem'));
-          img.src = attachment.url;
+          img.src = imageDataUrl;
         });
         if (!dims.w || !dims.h) throw new Error('Dimensões inválidas');
 
@@ -234,8 +251,8 @@ async function buildHistoryPdfBlob(h: any, messages?: ChatMessage[]): Promise<Bl
           drawWidth = drawHeight * (dims.w / dims.h);
         }
         ensureSpace(Math.ceil(drawHeight / 13) + 2, 13);
-        const format = (attachment.url.match(/^data:image\/(\w+)/)?.[1] || 'JPEG').toUpperCase().replace('JPG', 'JPEG');
-        doc.addImage(attachment.url, format, marginX, y, drawWidth, drawHeight);
+        const format = (imageDataUrl.match(/^data:image\/(\w+)/)?.[1] || 'JPEG').toUpperCase().replace('JPG', 'JPEG');
+        doc.addImage(imageDataUrl, format, marginX, y, drawWidth, drawHeight);
         y += drawHeight + 10;
         return true;
       } catch {

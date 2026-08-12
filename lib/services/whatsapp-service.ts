@@ -12,6 +12,7 @@ import { notifyUser } from './push-service';
 import { getChatRecipientIds } from './notification-recipients';
 import { runExclusive } from '../key-mutex';
 import { resolveQueueForInstance, pickNextQueueAssignee, dispatchPendingChatSessions } from './queue-routing';
+import { storeAttachmentBuffer } from './attachment-storage';
 import { transcribeMessageAudio, isAudioAttachment, isTranscriptionEnabled } from './transcription-service';
 
 const log = pino({ level: (process.env.WHATSAPP_LOG_LEVEL as any) || 'warn' });
@@ -744,13 +745,22 @@ export class WhatsAppService {
     const extension = baseMimetype.split('/')[1] || 'bin';
     const fileName = mediaMessage.fileName || `whatsapp-${Date.now()}.${extension}`;
 
-    return {
-      id: uuidv4(),
-      name: fileName,
-      type: baseMimetype,
-      url: `data:${baseMimetype};base64,${buffer.toString('base64')}`,
-      size: buffer.length
-    };
+    // Mídia recebida vai direto pro disco (volume), não como data: URL no
+    // banco — ver lib/services/attachment-storage.ts. Se a gravação falhar,
+    // cai no comportamento antigo (inline) em vez de perder o anexo.
+    try {
+      const stored = await storeAttachmentBuffer(buffer, baseMimetype, fileName);
+      return { id: uuidv4(), name: fileName, type: baseMimetype, url: stored.url, size: stored.size };
+    } catch (err) {
+      console.error('[WhatsApp] Falha ao gravar mídia recebida em disco, mantendo inline:', err);
+      return {
+        id: uuidv4(),
+        name: fileName,
+        type: baseMimetype,
+        url: `data:${baseMimetype};base64,${buffer.toString('base64')}`,
+        size: buffer.length
+      };
+    }
   }
 
   private static async processIncomingMessage(msg: any, instanceId: string) {

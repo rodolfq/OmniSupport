@@ -3,6 +3,7 @@ import { query } from '@/lib/db';
 import { handleTicketCreated, handleTicketUpdated, handleTicketMessageCreated } from '@/lib/services/automation-service';
 import { handleInternalTicketCreated, handleInternalTicketUpdated } from '@/lib/services/internal-ticket-notifications';
 import { getTicketRecipients, pushToTicketRecipients, ticketLabel } from '@/lib/services/notification-recipients';
+import { persistAttachmentsInRecord } from '@/lib/services/attachment-storage';
 
 // Versão independente (params próprios, sempre a partir de $1) da mesma
 // lógica de filtros usada por buildWhereClause() dentro do POST — usada só
@@ -283,7 +284,12 @@ export async function POST(request: Request) {
 
       const nativeArrayColumns = await getNativeArrayColumns(table);
       const returned: any[] = [];
-      for (const record of records) {
+      for (const rawRecord of records) {
+        // Anexo em data: URL vira arquivo no volume antes de qualquer INSERT
+        // (ver lib/services/attachment-storage.ts). Fica aqui, no tradutor,
+        // porque as escritas que ainda passam pelo shim (ex.: mensagem de
+        // ticket interno) não têm rota própria onde interceptar.
+        const record = await persistAttachmentsInRecord(rawRecord);
         const columns = Object.keys(record);
         const placeholders = columns.map((_, i) => `$${paramIndex + i}`).join(',');
         const recordParams = columns.map(col => {
@@ -365,13 +371,16 @@ export async function POST(request: Request) {
     }
 
     if (action === 'update') {
-      const columns = Object.keys(payload);
+      // Mesma conversão do insert: um UPDATE que reescreve attachments_data
+      // (ex.: editar mensagem com anexo) não pode voltar a gravar base64.
+      const updatePayload = await persistAttachmentsInRecord(payload);
+      const columns = Object.keys(updatePayload);
       if (columns.length === 0) return NextResponse.json([]);
 
       const nativeArrayColumns = await getNativeArrayColumns(table);
       const setAssignments = columns.map((col, idx) => `${col} = $${paramIndex + idx}`).join(', ');
       const updateParams = columns.map(col => {
-        let val = payload[col];
+        let val = updatePayload[col];
         if (val === '') {
           if (col === 'id' || col.endsWith('_id')) {
             val = null;

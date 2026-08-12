@@ -11,6 +11,7 @@ import { Attachment } from '@/lib/types';
 import { runExclusive } from '@/lib/key-mutex';
 import { canForceOthersOffline } from '@/lib/services/presence-authorization';
 import { isStalePresence } from '@/lib/presence';
+import { persistAttachments } from '@/lib/services/attachment-storage';
 import { getOrGenerateChatSummary, ChatSummaryNotFoundError, ChatSummaryGenerationError } from '@/lib/services/chat-summary-service';
 import { AssistantNotConfiguredError, parseGroqRetryWait } from '@/lib/groq-client';
 import { normalizeBrazilianPhoneDigits } from '@/lib/utils';
@@ -868,7 +869,12 @@ export async function POST(request: Request) {
         targetSessionId = newId;
       }
 
-      const metadata = { ...(message.metadata || {}), attachments: message.attachments || message.metadata?.attachments || [] };
+      // Anexo chega do client como data: URL e é gravado em disco aqui (ver
+      // lib/services/attachment-storage.ts) — no banco fica só a URL curta.
+      const persistedAttachments = await persistAttachments(
+        message.attachments || message.metadata?.attachments || []
+      );
+      const metadata = { ...(message.metadata || {}), attachments: persistedAttachments };
       await query(
         `INSERT INTO public.chat_messages (id, session_id, sender_id, sender_name, text, type, metadata, created_at)
          VALUES ($1, $2, $3, $4, $5, $6, $7::jsonb, $8)`,
@@ -1366,7 +1372,10 @@ export async function POST(request: Request) {
 
     if (action === 'save-internal-message') {
       const { chatId, message } = body;
-      const internalMetadata = { ...message.metadata, attachments: message.attachments || [] };
+      // Anexo chega do client como data: URL e é gravado em disco aqui (ver
+      // lib/services/attachment-storage.ts) — no banco fica só a URL.
+      const internalAttachments = await persistAttachments(message.attachments || []);
+      const internalMetadata = { ...message.metadata, attachments: internalAttachments };
       const inserted = await query(
         `INSERT INTO public.internal_chat_messages (chat_id, sender_id, sender_name, text, type, metadata, created_at)
          VALUES ($1, $2, $3, $4, $5, $6::jsonb, $7)
