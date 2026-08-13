@@ -28,8 +28,12 @@ export async function getCurrentActionUser() {
   const decoded = await verifyJWT(token);
   if (!decoded?.id) return null;
 
+  // internal_team_ids vem junto porque é dado de AUTORIZAÇÃO: decide quais
+  // tickets internos e quais equipes a pessoa enxerga (ver
+  // app/api/internal-tickets/route.ts). Buscá-lo à parte em cada rota levaria
+  // a alguma esquecer, e o modo de falhar é abrir demais, não de menos.
   const result = await query(
-    'SELECT id, name, role, company_id FROM public.profiles WHERE id = $1',
+    'SELECT id, name, role, company_id, internal_team_ids FROM public.profiles WHERE id = $1',
     [decoded.id]
   );
 

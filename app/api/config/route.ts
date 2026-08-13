@@ -1,6 +1,7 @@
 import { NextResponse } from 'next/server';
 import { query, pool } from '@/lib/db';
 import { getAutomationSettings, saveAutomationSetting } from '@/lib/services/automation-service';
+import { getCurrentActionUser, getActorEffectivePermissions } from '@/lib/server-auth';
 
 // Rótulos de status que o código compara literalmente — renomear qualquer um
 // deles quebra comportamento mesmo com o dado migrado:
@@ -102,10 +103,37 @@ export async function GET(request: Request) {
       })));
     } else if (type === 'internal-teams') {
       // Lista de referência das equipes internas (seletor de equipe no ticket
-      // interno). Era a única das listas usadas por lib/query-hooks.ts que
-      // ainda não tinha rota própria, e por isso seguia passando pelo shim.
-      const res = await query('SELECT * FROM public.internal_teams ORDER BY name ASC');
-      return cacheableJson(res.rows);
+      // interno), RECORTADA pelo que o usuário participa.
+      //
+      // Antes devolvia todas para qualquer sessão. Como o ticket interno é
+      // visível só a quem pertence à equipe dele, listar as demais aqui
+      // entregava o organograma interno e permitia filtrar por uma equipe
+      // alheia — pedido que agora volta vazio, mas sem motivo aparente.
+      //
+      // Administrador e quem tem `internal:view_all` continuam vendo todas:
+      // é a mesma exceção aplicada em app/api/internal-tickets/route.ts, e
+      // sem ela a tela de gestão de equipes ficaria sem lista.
+      const actor = await getCurrentActionUser();
+      if (!actor) return NextResponse.json({ error: 'Sessão inválida.' }, { status: 401 });
+
+      let verTudo = actor.role === 'Administrador';
+      if (!verTudo) {
+        const permissions = await getActorEffectivePermissions(actor.id);
+        verTudo = permissions.includes('internal:view_all');
+      }
+
+      if (verTudo) {
+        const res = await query('SELECT * FROM public.internal_teams ORDER BY name ASC');
+        return cacheableJson(res.rows);
+      }
+
+      const minhas = await query(
+        `SELECT * FROM public.internal_teams
+          WHERE id = ANY($1::uuid[]) OR $2 = ANY(admin_ids)
+          ORDER BY name ASC`,
+        [actor.internal_team_ids || [], actor.id]
+      );
+      return cacheableJson(minhas.rows);
     } else if (type === 'efforts') {
       // camelCase já daqui: os consumidores (modal do chamado, relatório de
       // carga) leem weight/sortOrder, e devolver a linha crua faria esses
