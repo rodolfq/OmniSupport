@@ -28,7 +28,17 @@ async function getActor(request: NextRequest) {
 }
 
 function canManageIntegrations(actor: any) {
-  return actor?.role === 'Administrador' || (actor?.permissions || []).includes('settings:system');
+  // `settings:integrations` existe e é oferecida na tela de Perfis de Acesso
+  // como "Integrações", mas esta rota só olhava `settings:system` — conceder a
+  // permissão específica não surtia efeito nenhum, e quem a recebia continuava
+  // levando 403 sem entender por quê.
+  //
+  // `settings:system` continua valendo para não tirar acesso de quem já
+  // administra o sistema hoje (o perfil "Acesso" é um caso real disso).
+  const permissions = actor?.permissions || [];
+  return actor?.role === 'Administrador'
+    || permissions.includes('settings:integrations')
+    || permissions.includes('settings:system');
 }
 
 function serializeKey(row: any) {

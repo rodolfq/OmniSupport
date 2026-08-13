@@ -90,6 +90,10 @@ const permissionGroups = [
     title: 'Comunicação',
     permissions: [
       { id: Permission.CHAT_INTERNAL_VIEW, label: 'Chat interno', desc: 'Permite visualizar e participar das conversas internas da equipe' },
+      // Estava sendo exigida por app/api/ai-assistant/* mas não aparecia aqui:
+      // ninguém conseguia conceder nem revogar pela interface, e quem ficava
+      // sem ela via o widget falhar sem explicação.
+      { id: Permission.AI_ASSISTANT_USE, label: 'Agente de IA', desc: 'Permite usar o widget do Agente de IA — busca em chamados, tickets internos e conversas' },
       { id: Permission.WHATSAPP_MANAGE, label: 'Conectar canais de WhatsApp', desc: 'Permite parear QR Code / configurar Meta API — mais sensível que só atender chats' },
     ]
   },

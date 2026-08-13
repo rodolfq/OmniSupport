@@ -73,47 +73,22 @@ async function getSessionUser(request: NextRequest) {
 }
 
 /**
- * Escopo de equipe do usuário — decidido AQUI, no servidor.
+ * VISIBILIDADE: ticket interno é aberto a toda a equipe interna.
  *
- * Antes, o recorte por equipe dependia de a TELA mandar `scope=my-teams`, e ela
- * só mandava quando o usuário não tinha `internal:view_all`. Ou seja: bastava
- * chamar a rota sem esse parâmetro para receber os tickets de todas as
- * equipes. Testado: um usuário sem equipe nenhuma recebia a lista inteira, e o
- * `detail` entregava qualquer ticket pelo número (int-0001 é enumerável).
+ * Já existiu aqui um recorte que escondia o ticket de quem não pertencia à
+ * equipe dele. Foi REVERTIDO por decisão de produto: o time trabalha
+ * atravessado (dev abre para infra, QA acompanha o que produto pediu), e
+ * esconder por equipe transformava colaboração normal em pedido de acesso.
  *
- * Regra do produto: só quem pertence à equipe do ticket enxerga o ticket.
+ * O que substituiu o recorte é FILTRO, não permissão: a tela deixa escolher
+ * quais equipes exibir (parâmetro `teamIds` na action `board`), e a escolha
+ * fica salva no navegador. Filtro é do usuário e reversível; recorte de
+ * visibilidade não era nenhum dos dois.
  *
- * Duas exceções deliberadas:
- *   - `internal:view_all` (e Administrador do sistema) enxerga tudo — é a
- *     permissão que existe justamente para isso;
- *   - responsável e criador enxergam o próprio ticket mesmo fora da equipe.
- *     Sem isso, alguém atribuído a um ticket de outra equipe não conseguiria
- *     abrir o que precisa resolver.
+ * Quem entra continua precisando de sessão válida — `middleware.ts` barra
+ * qualquer requisição sem cookie antes de chegar aqui. O que caiu foi o
+ * recorte POR EQUIPE, não a autenticação.
  */
-async function getEscopoEquipes(actor: any): Promise<{ verTudo: boolean; equipes: string[] }> {
-  if (!actor) return { verTudo: false, equipes: [] };
-  if (actor.role === 'Administrador') return { verTudo: true, equipes: [] };
-
-  const res = await query(
-    `SELECT COALESCE(rp.permissions, '{}'::text[]) AS permissions
-       FROM public.profiles p
-       LEFT JOIN public.role_permissions rp ON rp.id = p.access_profile_id
-      WHERE p.id = $1`,
-    [actor.id]
-  );
-  const permissions: string[] = res.rows[0]?.permissions || [];
-  if (permissions.includes('internal:view_all')) return { verTudo: true, equipes: [] };
-
-  return { verTudo: false, equipes: actor.internal_team_ids || [] };
-}
-
-/** Este usuário pode ver ESTE ticket? Usada nas ações que leem um só. */
-async function podeVerTicket(actor: any, ticket: any): Promise<boolean> {
-  const { verTudo, equipes } = await getEscopoEquipes(actor);
-  if (verTudo) return true;
-  if (ticket.assignee_id === actor?.id || ticket.creator_id === actor?.id) return true;
-  return !!ticket.internal_team_id && equipes.includes(ticket.internal_team_id);
-}
 
 export async function GET(request: NextRequest) {
   const { searchParams } = new URL(request.url);
@@ -191,6 +166,14 @@ export async function GET(request: NextRequest) {
       // internal_team_id, que é a FK — a tela filtra pela primeira.
       const teamId = searchParams.get('teamId');
       if (teamId) addCondition('team_id = $?', teamId);
+      // Várias equipes de uma vez. `teamId` (uma só) continua aceito porque
+      // outras telas ainda o mandam; quando os dois vêm, valem os dois — o
+      // AND resolve, e mandar os dois é erro de quem chama, não caso de uso.
+      const teamIds = (searchParams.get('teamIds') || '')
+        .split(',')
+        .map(s => s.trim())
+        .filter(Boolean);
+      if (teamIds.length > 0) addCondition('team_id = ANY($?)', teamIds);
       const assigneeId = searchParams.get('assigneeId');
       if (assigneeId) addCondition('assignee_id = $?', assigneeId);
       const status = searchParams.get('status');
@@ -201,34 +184,6 @@ export async function GET(request: NextRequest) {
       if (dateFrom) addCondition('created_at >= $?', `${dateFrom}T00:00:00`);
       const dateTo = searchParams.get('dateTo');
       if (dateTo) addCondition('created_at <= $?', `${dateTo}T23:59:59`);
-
-      // Recorte por equipe SEMPRE aplicado no servidor, independente do que o
-      // cliente pediu. Antes isso dependia de `scope=my-teams` vir na URL — a
-      // tela mandava, mas quem chamasse a rota direto sem esse parâmetro
-      // recebia os tickets de todas as equipes.
-      const boardUser = await getSessionUser(request);
-      if (!boardUser) return NextResponse.json({ error: 'Não autenticado.' }, { status: 401 });
-
-      const { verTudo, equipes } = await getEscopoEquipes(boardUser);
-      if (!verTudo) {
-        // Escrito direto (sem addCondition) porque a condição usa o mesmo
-        // parâmetro duas vezes — responsável E criador —, e o ajudante só
-        // sabe lidar com um valor por condição.
-        //
-        // Responsável/criador entram no OU de propósito: quem foi atribuído a
-        // um ticket de outra equipe precisa continuar enxergando o que tem de
-        // resolver.
-        params.push(boardUser.id);
-        const pUser = `$${params.length}`;
-        if (equipes.length === 0) {
-          conditions.push(`(assignee_id = ${pUser} OR creator_id = ${pUser})`);
-        } else {
-          params.push(equipes);
-          conditions.push(
-            `(internal_team_id = ANY($${params.length}) OR assignee_id = ${pUser} OR creator_id = ${pUser})`
-          );
-        }
-      }
 
       // Concluídos ficam FORA por padrão — mesmo comportamento da lista de
       // chamados. Sem isso a tela abre carregando todo o histórico encerrado,
@@ -326,15 +281,6 @@ export async function GET(request: NextRequest) {
       if (ticketRes.rowCount === 0) return NextResponse.json({ error: 'Ticket interno não encontrado.' }, { status: 404 });
       const row = ticketRes.rows[0];
 
-      // Checagem de equipe: sem ela, qualquer sessão lia qualquer ticket pelo
-      // número, que é sequencial e portanto trivial de enumerar (int-0001,
-      // int-0002...). Devolve 404 e não 403 de propósito — 403 confirmaria
-      // que o ticket existe, e a existência já é informação.
-      const detailUser = await getSessionUser(request);
-      if (!(await podeVerTicket(detailUser, row))) {
-        return NextResponse.json({ error: 'Ticket interno não encontrado.' }, { status: 404 });
-      }
-
       const [linkedRes, profilesRes] = await Promise.all([
         query(
           `SELECT t.id, t.title, t.public_ticket_number
@@ -381,14 +327,6 @@ export async function GET(request: NextRequest) {
     if (action === 'messages') {
       const internalTicketId = searchParams.get('internalTicketId');
       if (!internalTicketId) return NextResponse.json({ error: 'internalTicketId é obrigatório.' }, { status: 400 });
-
-      // Mesma trava do detail: sem ela, bloquear só o `detail` seria inútil —
-      // dava para ler a discussão inteira do ticket por aqui.
-      const msgUser = await getSessionUser(request);
-      const donoRes = await query('SELECT internal_team_id, assignee_id, creator_id FROM public.internal_tickets WHERE id = $1', [internalTicketId]);
-      if (donoRes.rowCount === 0 || !(await podeVerTicket(msgUser, donoRes.rows[0]))) {
-        return NextResponse.json({ error: 'Ticket interno não encontrado.' }, { status: 404 });
-      }
 
       const res = await query(
         `SELECT * FROM public.internal_ticket_messages
@@ -508,18 +446,6 @@ export async function POST(request: NextRequest) {
       const { id, fields } = body;
       if (!id || !fields) return NextResponse.json({ error: 'id e fields são obrigatórios.' }, { status: 400 });
 
-      // Escrita também passa pela trava de equipe: ler foi bloqueado acima, e
-      // sem esta checagem ainda daria para ALTERAR (status, responsável) um
-      // ticket de outra equipe sem nunca conseguir vê-lo.
-      const updUser = await getSessionUser(request);
-      const atualRes = await query(
-        'SELECT internal_team_id, assignee_id, creator_id FROM public.internal_tickets WHERE id = $1',
-        [id]
-      );
-      if (atualRes.rowCount === 0 || !(await podeVerTicket(updUser, atualRes.rows[0]))) {
-        return NextResponse.json({ error: 'Ticket interno não encontrado.' }, { status: 404 });
-      }
-
       const COLUMNS: Record<string, string> = {
         title: 'title',
         description: 'description',
@@ -572,18 +498,6 @@ export async function POST(request: NextRequest) {
 
     if (action === 'message') {
       const { internalTicketId, message } = body;
-      // Comentar num ticket que não se pode ver seria um jeito de escrever
-      // dentro da discussão de outra equipe.
-      if (internalTicketId) {
-        const msgUser = await getSessionUser(request);
-        const donoRes = await query(
-          'SELECT internal_team_id, assignee_id, creator_id FROM public.internal_tickets WHERE id = $1',
-          [internalTicketId]
-        );
-        if (donoRes.rowCount === 0 || !(await podeVerTicket(msgUser, donoRes.rows[0]))) {
-          return NextResponse.json({ error: 'Ticket interno não encontrado.' }, { status: 404 });
-        }
-      }
       if (!internalTicketId || !message) {
         return NextResponse.json({ error: 'internalTicketId e message são obrigatórios.' }, { status: 400 });
       }

@@ -29,6 +29,23 @@ function canDeleteTickets(actor: any) {
   return actor?.role === 'Administrador' || (actor?.permissions || []).includes('tickets:delete');
 }
 
+/**
+ * Editar chamado existente (PUT e PATCH em lote).
+ *
+ * `tickets:write` era declarada, aparecia na tela de Perfis de Acesso e nunca
+ * era conferida no servidor: qualquer sessão autenticada podia alterar status,
+ * responsável e conteúdo de qualquer chamado chamando a rota direto. A tela
+ * escondia os controles, o que não é barreira.
+ *
+ * Não vale para a CRIAÇÃO (POST action=create): Cliente e Funcionário abrem os
+ * próprios chamados pelo portal e não têm — nem devem ter — `tickets:write`,
+ * que é a permissão de atuar sobre chamado alheio. Exigi-la ali trancaria os
+ * cinco usuários do perfil "Funcionário" fora do próprio portal.
+ */
+function canWriteTickets(actor: any) {
+  return actor?.role === 'Administrador' || (actor?.permissions || []).includes('tickets:write');
+}
+
 export async function GET(request: Request) {
   const { searchParams } = new URL(request.url);
   const id = searchParams.get('id');
@@ -163,6 +180,34 @@ export async function GET(request: Request) {
           createdAt: t.created_at
         }))
       });
+    }
+
+    if (action === 'open-count-by-company') {
+      // Quantos chamados a empresa tem em aberto — mostrado ao lado do nome da
+      // empresa no cabeçalho do chat, para o atendente saber com o que já
+      // estão lidando antes de responder.
+      const companyId = searchParams.get('companyId');
+      if (!companyId) return NextResponse.json({ error: 'companyId é obrigatório' }, { status: 400 });
+
+      // "Em aberto" = tudo que não é status de encerramento. A lista sai de
+      // config_statuses (is_closed), porque status é configurável, MAIS os
+      // rótulos fixos de lib/ticket-status.ts — "Mesclado" é o caso que
+      // importa: chamado absorvido por outro não está em aberto, e não é um
+      // status cadastrado na tela de configuração.
+      const fechadosRes = await query(
+        `SELECT label FROM public.config_statuses WHERE scope = 'ticket' AND is_closed = true`
+      );
+      const fechados = [
+        ...new Set([...CLOSED_TICKET_STATUSES, ...fechadosRes.rows.map((r: any) => r.label)])
+      ];
+
+      const res = await query(
+        `SELECT COUNT(*)::int AS count
+           FROM public.tickets
+          WHERE company_id = $1 AND (status IS NULL OR status <> ALL($2))`,
+        [companyId, fechados]
+      );
+      return NextResponse.json({ count: res.rows[0]?.count || 0 });
     }
 
     if (action === 'internal-links') {
@@ -457,7 +502,15 @@ export async function POST(request: Request) {
   }
 }
 
-export async function PUT(request: Request) {
+// NextRequest (e não Request) porque getTicketActor lê o cookie de sessão por
+// request.cookies, que só existe no tipo do Next.
+export async function PUT(request: NextRequest) {
+  const actor = await getTicketActor(request);
+  if (!actor) return NextResponse.json({ error: 'Não autenticado.' }, { status: 401 });
+  if (!canWriteTickets(actor)) {
+    return NextResponse.json({ error: 'Você não tem permissão para editar chamados.' }, { status: 403 });
+  }
+
   const { searchParams } = new URL(request.url);
   const id = searchParams.get('id');
 
@@ -570,7 +623,13 @@ export async function PUT(request: Request) {
   }
 }
 
-export async function PATCH(request: Request) {
+export async function PATCH(request: NextRequest) {
+  const actor = await getTicketActor(request);
+  if (!actor) return NextResponse.json({ error: 'Não autenticado.' }, { status: 401 });
+  if (!canWriteTickets(actor)) {
+    return NextResponse.json({ error: 'Você não tem permissão para editar chamados.' }, { status: 403 });
+  }
+
   try {
     const { ids, updates } = await request.json();
     

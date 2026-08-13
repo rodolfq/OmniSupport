@@ -12,6 +12,7 @@ import { ConfigService } from "@/lib/services/config-service";
 import { useInternalTeamsQuery, useProfilesLiteQuery } from "@/lib/query-hooks";
 import { findStatusColor } from "@/lib/status-colors";
 import { InlineAssigneePicker } from "@/components/inline-assignee-picker";
+import { MultiSelectFilter } from "@/components/multi-select-filter";
 import { toast } from "sonner";
 import {
   Plus, Search, Filter, Clock, Edit3, Loader2,
@@ -134,6 +135,72 @@ function TagChip({ tag }: { tag: string }) {
   );
 }
 
+/**
+ * Filtros da tela, guardados no navegador.
+ *
+ * Quem trabalha em ticket interno volta pra mesma fatia todo dia (a própria
+ * equipe, quase sempre). Refazer a seleção a cada visita é atrito puro — e é o
+ * que substituiu o antigo recorte automático por equipe: em vez de o sistema
+ * decidir o que esconder, o usuário escolhe uma vez e a escolha persiste.
+ *
+ * Por usuário do navegador, não por conta: é preferência de tela, não dado de
+ * negócio, e mandar isso pro banco custaria uma ida a mais em cada visita.
+ *
+ * O sufixo -v1 na chave é proposital: mudando o formato do que é salvo, basta
+ * subir pra -v2 e as preferências antigas são ignoradas em vez de quebrarem a
+ * tela com um formato que o código novo não entende.
+ */
+const FILTROS_STORAGE_KEY = 'internal-tickets-filtros-v1';
+
+interface FiltrosSalvos {
+  searchTerm: string;
+  filterTeams: string[];
+  filterAssignee: string;
+  filterStatus: string;
+  filterPriority: string;
+  dateFrom: string;
+  dateTo: string;
+  showClosed: boolean;
+  quickFilter: "all" | "mine" | "unassigned" | "overdue" | "high";
+}
+
+const FILTROS_PADRAO: FiltrosSalvos = {
+  searchTerm: "",
+  filterTeams: [],
+  filterAssignee: "",
+  filterStatus: "",
+  filterPriority: "",
+  dateFrom: "",
+  dateTo: "",
+  showClosed: false,
+  quickFilter: "all",
+};
+
+function carregarFiltros(): FiltrosSalvos {
+  if (typeof window === 'undefined') return FILTROS_PADRAO;
+  try {
+    const raw = localStorage.getItem(FILTROS_STORAGE_KEY);
+    if (!raw) return FILTROS_PADRAO;
+    const p = JSON.parse(raw);
+    // Campo a campo, checando tipo: o que está no localStorage veio de uma
+    // versão anterior do código ou de edição manual, e um array onde se espera
+    // string quebra a montagem da query silenciosamente.
+    return {
+      searchTerm: typeof p.searchTerm === 'string' ? p.searchTerm : "",
+      filterTeams: Array.isArray(p.filterTeams) ? p.filterTeams.filter((t: any) => typeof t === 'string') : [],
+      filterAssignee: typeof p.filterAssignee === 'string' ? p.filterAssignee : "",
+      filterStatus: typeof p.filterStatus === 'string' ? p.filterStatus : "",
+      filterPriority: typeof p.filterPriority === 'string' ? p.filterPriority : "",
+      dateFrom: typeof p.dateFrom === 'string' ? p.dateFrom : "",
+      dateTo: typeof p.dateTo === 'string' ? p.dateTo : "",
+      showClosed: p.showClosed === true,
+      quickFilter: ["all", "mine", "unassigned", "overdue", "high"].includes(p.quickFilter) ? p.quickFilter : "all",
+    };
+  } catch {
+    return FILTROS_PADRAO;
+  }
+}
+
 // Default team options (will be replaced by DB values)
 const DEFAULT_TEAM_OPTIONS = [
   { value: "Desenvolvimento", label: "Desenvolvimento", color: "bg-[var(--accent)]/20 text-[var(--accent-text)]" },
@@ -179,21 +246,67 @@ export function InternalTicketsView({
   const [totalPages, setTotalPages] = useState(1);
 
 // Filters
-  const [searchTerm, setSearchTerm] = useState("");
-  const [filterTeam, setFilterTeam] = useState("");
-  const [filterAssignee, setFilterAssignee] = useState("");
-  const [filterStatus, setFilterStatus] = useState("");
-  const [filterPriority, setFilterPriority] = useState("");
-  const [dateFrom, setDateFrom] = useState("");
-  const [dateTo, setDateTo] = useState("");
+  const [searchTerm, setSearchTerm] = useState(FILTROS_PADRAO.searchTerm);
+  // Várias equipes de uma vez: o normal é acompanhar a própria E as vizinhas
+  // com quem o trabalho cruza, não uma só.
+  const [filterTeams, setFilterTeams] = useState<string[]>(FILTROS_PADRAO.filterTeams);
+  const [filterAssignee, setFilterAssignee] = useState(FILTROS_PADRAO.filterAssignee);
+  const [filterStatus, setFilterStatus] = useState(FILTROS_PADRAO.filterStatus);
+  const [filterPriority, setFilterPriority] = useState(FILTROS_PADRAO.filterPriority);
+  const [dateFrom, setDateFrom] = useState(FILTROS_PADRAO.dateFrom);
+  const [dateTo, setDateTo] = useState(FILTROS_PADRAO.dateTo);
   // Encerrados fora por padrão: abrir a tela carregando todo o histórico
   // concluído é justamente o que ninguém está procurando.
-  const [showClosed, setShowClosed] = useState(false);
+  const [showClosed, setShowClosed] = useState(FILTROS_PADRAO.showClosed);
   const [showFilters, setShowFilters] = useState(false);
   // Chips de atalho — a mesma ideia do "Minhas tarefas"/"Sem responsável"
   // que Jira/Linear/ClickUp sempre têm de cara, sem precisar abrir filtro
   // avançado pra isso.
-  const [quickFilter, setQuickFilter] = useState<"all" | "mine" | "unassigned" | "overdue" | "high">("all");
+  const [quickFilter, setQuickFilter] = useState<"all" | "mine" | "unassigned" | "overdue" | "high">(FILTROS_PADRAO.quickFilter);
+
+  // Restauração das preferências salvas.
+  //
+  // Feita depois da montagem, e não como valor inicial do useState, porque
+  // este componente também é renderizado no servidor: ler localStorage no
+  // primeiro render faz o HTML do servidor divergir do cliente. O `hidratado`
+  // segura a primeira busca até a restauração terminar — sem ele a tela faria
+  // duas requisições, uma com os filtros vazios e outra com os salvos, e a
+  // lista piscaria o resultado errado no caminho.
+  const [hidratado, setHidratado] = useState(false);
+  useEffect(() => {
+    const salvos = carregarFiltros();
+    setSearchTerm(salvos.searchTerm);
+    setFilterTeams(salvos.filterTeams);
+    setFilterAssignee(salvos.filterAssignee);
+    setFilterStatus(salvos.filterStatus);
+    setFilterPriority(salvos.filterPriority);
+    setDateFrom(salvos.dateFrom);
+    setDateTo(salvos.dateTo);
+    setShowClosed(salvos.showClosed);
+    setQuickFilter(salvos.quickFilter);
+    // Filtro avançado já aberto quando algum deles está valendo — senão a
+    // lista volta recortada por um filtro invisível, que é o jeito mais rápido
+    // de alguém achar que "sumiram tickets".
+    const temFiltroAvancado = salvos.filterTeams.length > 0 || !!salvos.filterAssignee
+      || !!salvos.filterStatus || !!salvos.filterPriority || !!salvos.dateFrom || !!salvos.dateTo
+      || salvos.showClosed;
+    if (temFiltroAvancado) setShowFilters(true);
+    setHidratado(true);
+  }, []);
+
+  useEffect(() => {
+    if (!hidratado) return; // não sobrescrever o salvo com os padrões antes de ler
+    const atual: FiltrosSalvos = {
+      searchTerm, filterTeams, filterAssignee, filterStatus,
+      filterPriority, dateFrom, dateTo, showClosed, quickFilter
+    };
+    try {
+      localStorage.setItem(FILTROS_STORAGE_KEY, JSON.stringify(atual));
+    } catch {
+      // Sem espaço ou storage bloqueado: preferência de filtro não vale
+      // interromper a tela.
+    }
+  }, [hidratado, searchTerm, filterTeams, filterAssignee, filterStatus, filterPriority, dateFrom, dateTo, showClosed, quickFilter]);
 
   // Teams (dado de referência — via hook compartilhado, cache de 60s, em vez
   // de buscar internal_teams do zero toda vez que a tela monta).
@@ -234,7 +347,7 @@ export function InternalTicketsView({
       // saindo do navegador (ver action=board em app/api/internal-tickets).
       const qs = new URLSearchParams({ page: String(page), pageSize: String(ITEMS_PER_PAGE) });
       if (searchTerm) qs.set('search', searchTerm);
-      if (filterTeam) qs.set('teamId', filterTeam);
+      if (filterTeams.length > 0) qs.set('teamIds', filterTeams.join(','));
       if (filterAssignee) qs.set('assigneeId', filterAssignee);
       if (filterStatus) qs.set('status', filterStatus);
       if (filterPriority) qs.set('priority', filterPriority);
@@ -242,9 +355,9 @@ export function InternalTicketsView({
       if (dateTo) qs.set('dateTo', dateTo);
       if (showClosed) qs.set('includeClosed', '1');
 
-      // Sem permissão de ver todas as equipes: só as próprias — e quais são
-      // é o servidor que resolve, pela sessão.
-      if (!hasPermission(Permission.INTERNAL_TICKETS_VIEW_ALL)) qs.set('scope', 'my-teams');
+      // Nenhum recorte automático por equipe aqui: ticket interno é visível a
+      // todo o time (ver app/api/internal-tickets/route.ts). Quem quiser ver
+      // só a própria equipe usa o filtro de equipes, que fica salvo.
 
       const boardRes = await fetch(`/api/internal-tickets?action=board&${qs}`);
       if (!boardRes.ok) throw new Error(`Falha ao carregar tickets internos (HTTP ${boardRes.status}).`);
@@ -319,11 +432,12 @@ export function InternalTicketsView({
     // controle muda de estado mas a lista não recarrega, e o filtro parece
     // simplesmente não funcionar. filterStatus já estava faltando antes —
     // trocar o status no filtro avançado também não surtia efeito.
-  }, [currentUser, searchTerm, filterTeam, filterAssignee, filterStatus, filterPriority, dateFrom, dateTo, showClosed]);
+  }, [currentUser, searchTerm, filterTeams, filterAssignee, filterStatus, filterPriority, dateFrom, dateTo, showClosed]);
 
   useEffect(() => {
+    if (!hidratado) return; // espera a restauração dos filtros salvos
     fetchTickets(1);
-  }, [fetchTickets, triggerRefresh]);
+  }, [hidratado, fetchTickets, triggerRefresh]);
 
   // Troca de responsável direto no card, sem abrir o ticket. Otimista, com
   // desfazer em caso de recusa — mesma escolha da lista de chamados.
@@ -388,14 +502,23 @@ export function InternalTicketsView({
 
   const resetFilters = () => {
     setSearchTerm("");
-    setFilterTeam("");
+    setFilterTeams([]);
     setFilterAssignee("");
     setFilterStatus("");
     setFilterPriority("");
     setDateFrom("");
     setDateTo("");
+    setShowClosed(false);
     setQuickFilter("all");
   };
+
+  // Quantos filtros avançados estão valendo — vira o contador no botão
+  // "Filtros". Filtro salvo que não se anuncia é filtro que some da vista:
+  // com a barra fechada, a lista volta recortada sem nada explicando por quê.
+  const filtrosAtivos = useMemo(() => (
+    (filterTeams.length > 0 ? 1 : 0) + (filterAssignee ? 1 : 0) + (filterStatus ? 1 : 0)
+    + (filterPriority ? 1 : 0) + (dateFrom ? 1 : 0) + (dateTo ? 1 : 0) + (showClosed ? 1 : 0)
+  ), [filterTeams, filterAssignee, filterStatus, filterPriority, dateFrom, dateTo, showClosed]);
 
   // Aplicado sobre o que já veio do servidor — os filtros avançados (equipe,
   // responsável, status, prioridade, data) já filtraram lá; os chips rápidos
@@ -489,11 +612,16 @@ const openEditModal = (ticket: InternalTicketItem) => {
             onClick={() => setShowFilters(!showFilters)}
             className={cn(
               "px-4 py-2 rounded-xl text-xs font-semibold uppercase tracking-widest transition-all flex items-center gap-2",
-              showFilters ? "bg-[var(--text-warning-strong)] text-white" : "bg-[var(--surface-pill)] text-[var(--text-secondary)] hover:bg-[var(--border-default)]"
+              showFilters || filtrosAtivos > 0
+                ? "bg-[var(--text-warning-strong)] text-white"
+                : "bg-[var(--surface-pill)] text-[var(--text-secondary)] hover:bg-[var(--border-default)]"
             )}
           >
             <Filter size={16} />
             Filtros
+            {filtrosAtivos > 0 && (
+              <span className="px-1.5 rounded-full bg-white/25 text-[10px] leading-4">{filtrosAtivos}</span>
+            )}
           </button>
         </div>
 
@@ -535,16 +663,16 @@ const openEditModal = (ticket: InternalTicketItem) => {
               className="overflow-hidden"
             >
               <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-3 pt-3 border-t border-[var(--border-default)]">
-                <StyledSelect
-                  value={filterTeam}
-                  onChange={(e) => setFilterTeam(e.target.value)}
-                  className="px-3 py-2 rounded-lg border border-[var(--border-default)] text-sm font-medium bg-[var(--surface-card)]"
-                >
-                  <option value="">Todas Equipes</option>
-                  {teams.map((t) => (
-                    <option key={t.value} value={t.value}>{t.label}</option>
-                  ))}
-                </StyledSelect>
+                {/* Múltipla escolha: acompanhar duas ou três equipes ao mesmo
+                    tempo é o caso comum de quem trabalha atravessado. */}
+                <MultiSelectFilter
+                  options={teams.map((t) => ({ value: t.value, label: t.label }))}
+                  selected={filterTeams}
+                  onChange={setFilterTeams}
+                  allLabel="Todas Equipes"
+                  itemLabelPlural="equipes"
+                  searchPlaceholder="Buscar equipe..."
+                />
 
                 <StyledSelect
                   value={filterAssignee}
@@ -610,6 +738,19 @@ const openEditModal = (ticket: InternalTicketItem) => {
                     Mostrar encerrados
                   </span>
                 </label>
+
+                {/* Saída única para voltar ao estado limpo. Ganhou importância
+                    agora que os filtros ficam salvos: sem isto, desfazer uma
+                    combinação antiga vira campo a campo. */}
+                {(filtrosAtivos > 0 || searchTerm) && (
+                  <button
+                    type="button"
+                    onClick={resetFilters}
+                    className="px-3 py-2 rounded-lg border border-[var(--border-default)] text-xs font-semibold uppercase tracking-wide text-[var(--text-tertiary)] hover:text-[var(--text-secondary)] hover:bg-[var(--surface-pill)] transition-colors"
+                  >
+                    Limpar filtros
+                  </button>
+                )}
               </div>
             </motion.div>
           )}

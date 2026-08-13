@@ -55,6 +55,7 @@ import {
 import { ChatService, fetchChatSessions, pushChatMessage, createChatSession, saveChatHistory, resolveChatSessionForPhone, submitSurveyResponse, transcribeChatAudio, getPreviousChatHistories, fetchSessionMessages, PreviousChatHistoriesResult, SessionMessagesResult } from '@/lib/services/chat-service';
 import { fetchQuickNotes, fetchAnalystStatuses, fetchCompanies, fetchQueues, fetchSurveySettings } from '@/lib/services/config-service';
 import { useProfilesWithAvatarQuery } from '@/lib/query-hooks';
+import { TicketService } from '@/lib/services/ticket-service';
 import { saveTicketFromChatSession, closeChatSessionAfterTicket, assignChatSession, returnChatSessionToQueue } from '@/lib/services/chat-session-actions';
 import { cn, maskPhone, matchPhones, safeJsonStringify } from '@/lib/utils';
 import { useApp } from '@/app/app-context';
@@ -386,6 +387,12 @@ export function ChatWidget() {
   // chegarem).
   const allUsers = React.useMemo(() => (allUsersData || []) as UserType[], [allUsersData]);
 
+  // Chamados em aberto da empresa do contato — some ao lado do nome da empresa
+  // no cabeçalho. Quem atende precisa saber, antes de responder, se a empresa
+  // já tem coisa em andamento: muda o que se pergunta e evita abrir chamado
+  // repetido do mesmo assunto.
+  const [companyOpenTickets, setCompanyOpenTickets] = useState<number | null>(null);
+
   const selectedChatContact = React.useMemo(() => {
     if (!selectedChat) return undefined;
     return allUsers.find(u =>
@@ -394,6 +401,26 @@ export function ChatWidget() {
       (u.phones && u.phones.some(p => matchPhones(p, selectedChat.customerPhone)))
     );
   }, [selectedChat, allUsers]);
+
+  const selectedChatCompanyId = selectedChatContact?.companyId || null;
+  useEffect(() => {
+    // O próprio cliente não vê o contador (é informação de operação interna),
+    // e sem empresa vinculada não há o que contar.
+    if (isCustomer || !selectedChatCompanyId) {
+      setCompanyOpenTickets(null);
+      return;
+    }
+    let cancelado = false;
+    // Zera antes de buscar: sem isso, trocar de conversa mostraria por um
+    // instante a contagem da empresa anterior ao lado do nome da nova.
+    setCompanyOpenTickets(null);
+    TicketService.getOpenCountByCompany(selectedChatCompanyId)
+      .then(total => { if (!cancelado) setCompanyOpenTickets(total); })
+      .catch(() => { if (!cancelado) setCompanyOpenTickets(null); });
+    return () => { cancelado = true; };
+    // triggerRefresh entra para a contagem acompanhar chamado aberto/fechado
+    // durante o próprio atendimento — inclusive o que nasce desta conversa.
+  }, [selectedChatCompanyId, isCustomer, triggerRefresh]);
 
   const onlineAssignTargets = React.useMemo(() => {
     // deriveLiveStatus, não `s.isOnline` cru: sem heartbeat de verdade,
@@ -2226,6 +2253,21 @@ useEffect(() => {
                                  >
                                    {company.name}
                                  </a>
+                                 {/* Chamados em aberto da empresa. Só aparece
+                                     quando existe algum: um "0" ao lado do nome
+                                     ocuparia espaço no cabeçalho pra dizer que
+                                     não há nada a saber. */}
+                                 {companyOpenTickets !== null && companyOpenTickets > 0 && (
+                                   <a
+                                     href={`/customers/${company.id}`}
+                                     target="_blank"
+                                     rel="noopener noreferrer"
+                                     title={`${companyOpenTickets} ${companyOpenTickets === 1 ? 'chamado em aberto' : 'chamados em aberto'} nesta empresa`}
+                                     className="text-[8px] font-black uppercase tracking-widest px-1.5 py-0.5 rounded-full bg-[var(--surface-info)] text-[var(--text-info)] hover:opacity-80 transition-opacity"
+                                   >
+                                     {companyOpenTickets} em aberto
+                                   </a>
+                                 )}
                                  {/* Só a equipe interna vê (este bloco inteiro já só
                                      renderiza quando !isCustomer) — nunca aparece pro
                                      próprio cliente/funcionário da empresa. */}

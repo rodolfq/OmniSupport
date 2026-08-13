@@ -103,37 +103,17 @@ export async function GET(request: Request) {
       })));
     } else if (type === 'internal-teams') {
       // Lista de referência das equipes internas (seletor de equipe no ticket
-      // interno), RECORTADA pelo que o usuário participa.
+      // interno e filtro por equipe da tela de Tickets Internos): TODAS, para
+      // qualquer sessão.
       //
-      // Antes devolvia todas para qualquer sessão. Como o ticket interno é
-      // visível só a quem pertence à equipe dele, listar as demais aqui
-      // entregava o organograma interno e permitia filtrar por uma equipe
-      // alheia — pedido que agora volta vazio, mas sem motivo aparente.
-      //
-      // Administrador e quem tem `internal:view_all` continuam vendo todas:
-      // é a mesma exceção aplicada em app/api/internal-tickets/route.ts, e
-      // sem ela a tela de gestão de equipes ficaria sem lista.
-      const actor = await getCurrentActionUser();
-      if (!actor) return NextResponse.json({ error: 'Sessão inválida.' }, { status: 401 });
-
-      let verTudo = actor.role === 'Administrador';
-      if (!verTudo) {
-        const permissions = await getActorEffectivePermissions(actor.id);
-        verTudo = permissions.includes('internal:view_all');
-      }
-
-      if (verTudo) {
-        const res = await query('SELECT * FROM public.internal_teams ORDER BY name ASC');
-        return cacheableJson(res.rows);
-      }
-
-      const minhas = await query(
-        `SELECT * FROM public.internal_teams
-          WHERE id = ANY($1::uuid[]) OR $2 = ANY(admin_ids)
-          ORDER BY name ASC`,
-        [actor.internal_team_ids || [], actor.id]
-      );
-      return cacheableJson(minhas.rows);
+      // Esta lista já foi recortada pelas equipes do usuário, junto com a
+      // trava de visibilidade do ticket interno. As duas coisas foram
+      // revertidas juntas de propósito: com o ticket aberto a todo o time
+      // (ver app/api/internal-tickets/route.ts), devolver menos equipes aqui
+      // só deixaria o filtro incompleto — daria para ver o ticket de uma
+      // equipe mas não para filtrar por ela.
+      const res = await query('SELECT * FROM public.internal_teams ORDER BY name ASC');
+      return cacheableJson(res.rows);
     } else if (type === 'efforts') {
       // camelCase já daqui: os consumidores (modal do chamado, relatório de
       // carga) leem weight/sortOrder, e devolver a linha crua faria esses
@@ -233,10 +213,49 @@ export async function GET(request: Request) {
   }
 }
 
+/**
+ * Tipos de configuração que são ADMINISTRAÇÃO do sistema e exigem permissão.
+ *
+ * Nenhuma escrita desta rota conferia permissão: qualquer sessão autenticada
+ * podia renomear status, mexer em SLA, alterar a pesquisa de satisfação e as
+ * mensagens automáticas (que são DISPARADAS ao cliente). A tela escondia os
+ * controles, o que não é barreira para quem chama a rota direto.
+ *
+ * `quick-notes` fica FORA da lista de propósito: notas rápidas são ferramenta
+ * de produtividade do atendente, criadas na própria tela de atendimento — o
+ * perfil "Equipe" não tem settings:write, e exigi-la ali tiraria dos 20
+ * analistas algo que eles usam todo dia.
+ */
+const TIPOS_ADMINISTRATIVOS = new Set([
+  'tags', 'efforts', 'outcomes', 'categories', 'request-types', 'products',
+  'priorities', 'statuses', 'survey-settings', 'email-settings',
+  'automation-settings', 'metric-thresholds'
+]);
+
 export async function POST(request: Request) {
   try {
     const body = await request.json();
     const { type, action } = body;
+
+    if (TIPOS_ADMINISTRATIVOS.has(type)) {
+      const actor = await getCurrentActionUser();
+      if (!actor) return NextResponse.json({ error: 'Sessão inválida.' }, { status: 401 });
+
+      if (actor.role !== 'Administrador') {
+        const permissions = await getActorEffectivePermissions(actor.id);
+        // Aceita as duas: `settings:write` é a permissão da tela de
+        // Configurações e `settings:system` é a de "Geral do sistema" — o
+        // perfil "Acesso", que administra hoje, tem só a segunda. Exigir
+        // apenas uma delas tiraria acesso de quem já administra.
+        const pode = permissions.includes('settings:write') || permissions.includes('settings:system');
+        if (!pode) {
+          return NextResponse.json(
+            { error: 'Você não tem permissão para alterar configurações do sistema.' },
+            { status: 403 }
+          );
+        }
+      }
+    }
 
     if (type === 'tags') {
       const { tag } = body;

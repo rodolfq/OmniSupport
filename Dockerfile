@@ -81,6 +81,20 @@ RUN mkdir -p /data/models /data/attachments && chown -R node:node /data
 COPY --from=build --chown=node:node /app/public ./public
 COPY --from=build --chown=node:node /app/.next/standalone ./
 COPY --from=build --chown=node:node /app/.next/static ./.next/static
+
+# O BINÁRIO do ffmpeg, à mão.
+#
+# O tracing do `output: 'standalone'` copia o pacote ffmpeg-static (index.js +
+# package.json) mas NÃO o executável: ele não é `require`ado, é baixado pelo
+# postinstall e só referenciado como caminho em runtime — o tracer não tem como
+# enxergar isso. Resultado: a transcrição de áudio quebrava com
+# `spawn /app/node_modules/ffmpeg-static/ffmpeg ENOENT`, e só no momento em que
+# alguém clicava em "Transcrever" — build, healthcheck e o resto da aplicação
+# passavam limpos.
+#
+# Vem do estágio `deps` (é onde o postinstall rodou) e não do sistema: instalar
+# o ffmpeg do apt traria dezenas de dependências pra usar um binário só.
+COPY --from=deps --chown=node:node /app/node_modules/ffmpeg-static/ffmpeg ./node_modules/ffmpeg-static/ffmpeg
 # Migrations e o runner viajam na imagem pra permitir
 # `docker compose run --rm app node scripts/run-migrations.js` no servidor.
 COPY --from=build --chown=node:node /app/migrations ./migrations

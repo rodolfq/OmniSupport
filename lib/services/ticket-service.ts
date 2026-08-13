@@ -61,6 +61,18 @@ export class TicketService {
     return res.json();
   }
 
+  // Só a contagem de chamados em aberto da empresa — cabeçalho do chat. Uma
+  // rota própria em vez de reaproveitar getByCompanyPaginated: ali o total
+  // conta TODOS os chamados (inclusive encerrados), e trazer a lista inteira
+  // para contar em memória seria pagar o payload de novo a cada conversa
+  // aberta.
+  static async getOpenCountByCompany(companyId: string): Promise<number> {
+    const res = await fetch(`/api/tickets?action=open-count-by-company&companyId=${encodeURIComponent(companyId)}`);
+    if (!res.ok) return 0;
+    const data = await res.json().catch(() => null);
+    return Number(data?.count) || 0;
+  }
+
   static calculateSLA(createdAt: string, priorityLabel: string): string | undefined {
     const prioritySLA: Record<string, number> = {
       'Baixa': 120,

@@ -1159,7 +1159,18 @@ export async function POST(request: Request) {
         return NextResponse.json({ error: 'Anexo de áudio não encontrado' }, { status: 404 });
       }
 
-      const transcription = await transcribeMessageAudio({ messageId, sessionId, attachment });
+      // throwOnError: aqui tem alguém esperando na tela. Devolver a causa real
+      // (ffmpeg ausente, timeout, arquivo sumido do volume) evita que todo
+      // problema diferente apareça como a mesma frase genérica.
+      let transcription: string | null;
+      try {
+        transcription = await transcribeMessageAudio({ messageId, sessionId, attachment, throwOnError: true });
+      } catch (err: any) {
+        return NextResponse.json(
+          { error: `Não foi possível transcrever o áudio: ${err?.message || 'erro desconhecido'}` },
+          { status: 500 }
+        );
+      }
       if (!transcription) {
         return NextResponse.json({ error: 'Não foi possível transcrever o áudio' }, { status: 500 });
       }

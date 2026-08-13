@@ -128,8 +128,27 @@ async function loadAudioBuffer(url: string): Promise<Buffer> {
 // formato que o Whisper espera. Usa arquivos temporários em vez de pipe porque
 // o ffmpeg-static no Windows lida melhor com arquivo do que com stdin/stdout
 // binário.
+// Caminho do ffmpeg. FFMPEG_PATH primeiro (escape para quem já tem o binário
+// no sistema), depois o do ffmpeg-static, e por último o PATH.
+const FFMPEG_BIN = process.env.FFMPEG_PATH || (ffmpegPath as unknown as string) || 'ffmpeg';
+
 async function decodeToPcm16k(audioUrl: string): Promise<Float32Array> {
   const buffer = await loadAudioBuffer(audioUrl);
+
+  // Falta do binário é erro de EMPACOTAMENTO, não do áudio: o ENOENT cru
+  // ("spawn .../ffmpeg ENOENT") chegava ao usuário como "não foi possível
+  // transcrever", que manda procurar no lugar errado. Ver a cópia explícita do
+  // binário no Dockerfile — o tracing do standalone não o leva sozinho.
+  if (FFMPEG_BIN !== 'ffmpeg') {
+    try {
+      await fs.access(FFMPEG_BIN);
+    } catch {
+      throw new Error(
+        `ffmpeg não encontrado em ${FFMPEG_BIN} — o binário do ffmpeg-static não foi para a imagem. ` +
+        'Reconstrua a imagem (docker compose up -d --build) ou aponte FFMPEG_PATH para um ffmpeg instalado.'
+      );
+    }
+  }
 
   const tmpDir = os.tmpdir();
   const jobId = randomUUID();
@@ -140,7 +159,7 @@ async function decodeToPcm16k(audioUrl: string): Promise<Float32Array> {
 
   try {
     await new Promise<void>((resolve, reject) => {
-      const ffmpeg = spawn(ffmpegPath as unknown as string, [
+      const ffmpeg = spawn(FFMPEG_BIN, [
         '-hide_banner', '-loglevel', 'error',
         '-y',
         '-i', inputPath,
@@ -279,6 +298,15 @@ export async function transcribeMessageAudio(params: {
   messageId: string;
   sessionId: string;
   attachment: Attachment;
+  /**
+   * Relança o erro em vez de devolver null. Usado pelo botão "Transcrever":
+   * ali existe alguém esperando resposta na tela, e um null vira sempre a
+   * mesma frase genérica ("não foi possível transcrever"), que esconde a causa
+   * real — o ffmpeg ausente na imagem passou despercebido exatamente assim.
+   * O disparo automático continua com null: não há a quem responder, e o
+   * alerta por push/SSE já cobre o caso.
+   */
+  throwOnError?: boolean;
 }): Promise<string | null> {
   if (!ENABLED) return null;
   const { messageId, sessionId, attachment } = params;
@@ -291,6 +319,7 @@ export async function transcribeMessageAudio(params: {
     console.error('[transcription-service] Falha ao transcrever áudio:', err);
     emitChatEvent(sessionId, { type: 'transcription-error', sessionId, messageId, attachmentId: attachment.id });
     await alertTranscriptionFailure({ sessionId, messageId, attachment, error: err });
+    if (params.throwOnError) throw err;
     return null;
   }
   if (!text) return null;
