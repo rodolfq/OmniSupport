@@ -330,12 +330,13 @@ if (isCompanyPortalUser) {
                     "font-bold text-sm truncate",
                     inativa ? "text-[var(--text-tertiary)]" : "text-[var(--text-primary)]"
                   )}>{c.name}</p>
-                  {inativa ? (
+                  {/* Setor removido do card a pedido — continua no cadastro
+                      (Editar Empresa). A etiqueta de desativada permanece:
+                      é o que explica por que a empresa aparece em cinza. */}
+                  {inativa && (
                     <span className="inline-block mt-0.5 text-[9px] font-black uppercase tracking-widest px-1.5 py-0.5 rounded bg-[var(--surface-pill)] text-[var(--text-tertiary)]">
                       Desativada
                     </span>
-                  ) : (
-                    <p className="text-[9px] text-[var(--text-tertiary)] font-bold uppercase tracking-wider truncate">{c.industry}</p>
                   )}
                 </div>
               </button>
