@@ -301,14 +301,58 @@ export async function PUT(request: Request) {
     // Por isso avatar_url (e a miniatura) só são reescritos quando chega uma
     // IMAGEM de verdade, ou seja, uma `data:` URL. Qualquer outra coisa deixa
     // as duas colunas como estão.
+    // E-mail é UNIQUE em profiles. Sem esta checagem, editar um funcionário e
+    // pôr um e-mail que já pertence a outra pessoa estourava a constraint, e o
+    // catch devolvia a mensagem crua do Postgres
+    // ("duplicate key value violates unique constraint profiles_email_key")
+    // direto na tela — o modal de edição mostra error.message como está.
+    // Comparação sem diferenciar maiúsculas e espaços: para quem usa o sistema
+    // "Joao@x.com" e "joao@x.com " são o mesmo e-mail, e deixar passar criaria
+    // dois cadastros para a mesma pessoa.
+    if (typeof user.email === 'string' && user.email.trim()) {
+      // Traz papel e empresa junto do nome: nomes se repetem no sistema (o
+      // fluxo "Criar e vincular" de link-contact-modal.tsx cria um perfil novo
+      // a cada vinculação, então a mesma pessoa aparece várias vezes), e só o
+      // nome não diz QUAL cadastro está com o e-mail.
+      const emailEmUso = await query(
+        `SELECT p.name, p.role, c.name AS company_name
+           FROM public.profiles p
+           LEFT JOIN public.companies c ON c.id = p.company_id
+          WHERE lower(btrim(p.email)) = lower(btrim($1)) AND p.id <> $2
+          LIMIT 1`,
+        [user.email, user.id]
+      );
+      if (emailEmUso.rowCount) {
+        const dono = emailEmUso.rows[0];
+        const detalhe = [dono.role, dono.company_name].filter(Boolean).join(' — ');
+        return NextResponse.json(
+          {
+            error: `Este e-mail já está em uso por ${dono.name || 'outro cadastro'}`
+              + (detalhe ? ` (${detalhe}).` : '.')
+          },
+          { status: 409 }
+        );
+      }
+    }
+
     const incomingAvatar: string | null = typeof user.avatarUrl === 'string' ? user.avatarUrl : null;
     const isNewImage = !!incomingAvatar && incomingAvatar.startsWith('data:');
     const avatarThumbUrl = isNewImage ? await generateAvatarThumb(incomingAvatar) : null;
 
+    // E-mail é opcional (migrations/profiles_email_opcional.sql). Campo
+    // esvaziado na tela vira NULL, nunca string vazia: '' = '' é verdadeiro no
+    // índice único, então dois cadastros sem e-mail colidiriam; com NULL, não.
+    // `undefined` (chave ausente no corpo) continua significando "não mexer",
+    // via o COALESCE abaixo.
+    const emailParaGravar = user.email === undefined
+      ? null
+      : (typeof user.email === 'string' && user.email.trim() ? user.email.trim() : null);
+    const limpandoEmail = user.email !== undefined && !emailParaGravar;
+
     await query(
       `UPDATE public.profiles
        SET name = COALESCE($1, name),
-           email = COALESCE($2, email),
+           email = CASE WHEN $15::boolean THEN NULL ELSE COALESCE($2, email) END,
            role = $3,
            company_id = $4,
            -- COALESCE como em name/email: esta rota também é chamada com um
@@ -326,7 +370,7 @@ export async function PUT(request: Request) {
        WHERE id = $12`,
       [
         user.name,
-        user.email,
+        emailParaGravar,
         role,
         companyId || null,
         user.phone ?? null,
@@ -338,14 +382,24 @@ export async function PUT(request: Request) {
         user.isActive,
         user.id,
         avatarThumbUrl,
-        isNewImage
+        isNewImage,
+        limpandoEmail
       ]
     );
 
     return NextResponse.json({ success: true });
   } catch (error: any) {
     console.error('Error in users PUT:', error);
-    return NextResponse.json({ error: error.message }, { status: 500 });
+    // 23505 = unique_violation. A checagem acima já cobre o caso do e-mail,
+    // mas duas edições simultâneas ainda podem passar por ela — aqui é a rede
+    // de segurança, para o usuário nunca ler o texto da constraint.
+    if (error?.code === '23505') {
+      return NextResponse.json(
+        { error: 'Já existe um cadastro com esse e-mail.' },
+        { status: 409 }
+      );
+    }
+    return NextResponse.json({ error: 'Não foi possível salvar o cadastro. Tente novamente.' }, { status: 500 });
   }
 }
 

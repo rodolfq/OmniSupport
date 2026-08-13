@@ -89,7 +89,13 @@ export interface RolePermission {
 export interface User {
   id: string;
   name: string;
-  email: string;
+  // Opcional: contato criado a partir de uma conversa costuma ter só nome e
+  // telefone. Ver migrations/profiles_email_opcional.sql — antes o código
+  // inventava um endereço fictício para satisfazer a coluna obrigatória, e
+  // como ele nunca se repetia, nunca avisava que a pessoa já existia.
+  // Quem não tem e-mail não faz login (a consulta de login casa por e-mail) e
+  // não recebe resposta de chamado por e-mail — a tela avisa nesse caso.
+  email?: string | null;
   role: string;
   permissions?: Permission[];
   companyId?: string;
@@ -196,6 +202,13 @@ export interface Company {
   // pensados para vir de uma API externa no futuro.
   csResponsavelId?: string;
   comercialResponsavelId?: string;
+  // Empresa desativada continua existindo, com pessoas e histórico intactos —
+  // só sai do uso corrente. Substitui a exclusão, que era destrutiva de um
+  // jeito silencioso: apagar a empresa deixava as pessoas dela SEM empresa
+  // (FK ON DELETE SET NULL) e, por consequência, invisíveis na tela, embora
+  // com todos os chamados e conversas ainda no banco.
+  // Ver migrations/companies_desativar.sql.
+  isActive?: boolean;
 }
 
 export interface PriorityConfig {

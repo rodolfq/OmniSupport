@@ -1,0 +1,27 @@
+-- Torna profiles.email OPCIONAL.
+--
+-- Motivo: contato criado a partir de uma conversa (botão "Criar e vincular",
+-- components/link-contact-modal.tsx) quase nunca tem e-mail conhecido — só
+-- nome e telefone. Como a coluna era obrigatória, o código inventava um
+-- endereço: `contact_${Date.now()}@placeholder.com`.
+--
+-- O efeito colateral era pior que o problema original: como o endereço
+-- inventado é sempre diferente, ele NUNCA colidia, então o sistema nunca
+-- avisava que a pessoa já estava cadastrada. Cada vinculação da mesma pessoa
+-- criava mais um perfil. Em produção isso rendeu três "José Cliente" e quatro
+-- perfis com e-mail fictício, com histórico de chamados e conversas espalhado
+-- entre eles.
+--
+-- Sobre o índice único: em Postgres, UNIQUE permite MÚLTIPLOS NULLs (NULL não
+-- é igual a NULL). Ou seja, profiles_email_key continua impedindo dois
+-- cadastros com o MESMO e-mail e passa a aceitar vários sem e-mail nenhum —
+-- exatamente o comportamento desejado, sem precisar recriar o índice.
+--
+-- Quem não tem e-mail não consegue fazer login (a consulta de login casa por
+-- e-mail), o que é correto: contato de conversa não é usuário do portal.
+--
+-- Fase aditiva: só relaxa uma restrição, não altera dado existente. Os
+-- endereços @placeholder.com já gravados continuam onde estão — limpá-los é
+-- decisão à parte, porque envolve mesclar cadastros duplicados.
+
+ALTER TABLE public.profiles ALTER COLUMN email DROP NOT NULL;

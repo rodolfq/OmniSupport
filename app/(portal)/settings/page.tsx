@@ -302,7 +302,7 @@ export default function SettingsPage() {
                   <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                     <div className="space-y-2">
                       <label className="text-[10px] font-black uppercase text-[var(--text-tertiary)] tracking-widest">Email Corporativo</label>
-                      <input type="email" defaultValue={currentUser.email} className="w-full bg-[var(--surface-card)] border border-[var(--border-default)] rounded-xl px-4 py-2.5 text-sm font-bold text-[var(--text-tertiary)]" disabled />
+                      <input type="email" defaultValue={currentUser.email ?? ''} placeholder="Sem e-mail cadastrado" className="w-full bg-[var(--surface-card)] border border-[var(--border-default)] rounded-xl px-4 py-2.5 text-sm font-bold text-[var(--text-tertiary)]" disabled />
                     </div>
                     <div className="space-y-2">
                       <label className="text-[10px] font-black uppercase text-[var(--text-tertiary)] tracking-widest">Telefone</label>

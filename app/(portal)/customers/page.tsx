@@ -1,7 +1,7 @@
 'use client';
 
 import React, { useState, useEffect, useMemo } from 'react';
-import { getUsers, getCompanies, deleteCompany, assignChatSession } from '@/app/actions';
+import { getUsers, getCompanies, setCompanyActive, assignChatSession } from '@/app/actions';
 import { Company, User, UserRole, Permission } from '@/lib/types';
 import { Building2, User as UserIcon, Mail, Phone, Plus, MessageCircle, Ticket, ShieldCheck, ShieldOff, Search, X, Check, Pencil, UserPlus, RefreshCw, Headset, Briefcase } from 'lucide-react';
 import { cn, normalizeString, normalizePhone, maskPhone } from '@/lib/utils';
@@ -123,7 +123,11 @@ export default function CustomersPage() {
   const [isWhatsAppModalOpen, setIsWhatsAppModalOpen] = useState(false);
   const [isCompanyModalOpen, setIsCompanyModalOpen] = useState(false);
   const [companyToEdit, setCompanyToEdit] = useState<Company | null>(null);
-  const [companyToDelete, setCompanyToDelete] = useState<Company | null>(null);
+  // Empresa não é mais excluída pela tela — é desativada (reversível, preserva
+  // pessoas e histórico). deleteCompany continua existindo em app/actions.ts,
+  // sem botão que a acione.
+  const [companyToToggle, setCompanyToToggle] = useState<Company | null>(null);
+  const [toggleError, setToggleError] = useState('');
   const [deleteError, setDeleteError] = useState<string>('');
   const [searchQuery, setSearchQuery] = useState('');
   const [isSyncingBitrix24, setIsSyncingBitrix24] = useState(false);
@@ -211,7 +215,12 @@ if (isCompanyPortalUser) {
   };
 
   const filteredCompanies = useMemo(() => {
-    if (!searchQuery.trim()) return companies;
+    // Sem busca: só as ativas, para a lista do dia a dia ficar limpa.
+    // COM busca: as inativas voltam a aparecer (marcadas como tal). Esconder
+    // sempre repetiria o problema que a desativação veio resolver — registro
+    // que existe no banco e não aparece em lugar nenhum, deixando quem procura
+    // achar que sumiu.
+    if (!searchQuery.trim()) return companies.filter(c => c.isActive !== false);
 
     const lowerQuery = normalizeString(searchQuery);
     // Só compara dígitos quando a busca realmente tem algum — evita que uma
@@ -286,7 +295,13 @@ if (isCompanyPortalUser) {
           {isLoading ? (
             <div className="p-8 text-center text-sm text-[var(--text-tertiary)] font-medium">Buscando empresas...</div>
           ) : filteredCompanies.length > 0 ? (
-            filteredCompanies.map(c => (
+            filteredCompanies.map(c => {
+              // Empresa desativada aparece em cinza e com etiqueta. O contraste
+              // reduzido não é enfeite: ela só chega aqui quando alguém a
+              // procurou de propósito, e precisa ficar evidente à primeira
+              // vista que não está em uso — sem esconder o registro.
+              const inativa = c.isActive === false;
+              return (
               <button
                 key={c.id}
                 onClick={() => setSelectedCompanyId(c.id)}
@@ -294,23 +309,36 @@ if (isCompanyPortalUser) {
                   "w-full flex items-center gap-3 p-3 rounded-xl border text-left transition-all group",
                   selectedCompanyId === c.id
                     ? "bg-[var(--surface-card)] border-[var(--accent)] shadow-sm ring-2 ring-[var(--accent)]/5 translate-x-1"
-                    : "bg-[var(--surface-card)] border-[var(--border-default)] hover:border-[var(--border-default)] hover:bg-[var(--surface-card)]"
+                    : "bg-[var(--surface-card)] border-[var(--border-default)] hover:border-[var(--border-default)] hover:bg-[var(--surface-card)]",
+                  inativa && "opacity-60 border-dashed"
                 )}
               >
                 <div className={cn(
                   "w-10 h-10 rounded-lg flex items-center justify-center transition-all",
-                  selectedCompanyId === c.id
-                    ? "bg-[var(--accent)] text-white scale-110"
-                    : "bg-[var(--surface-pill)] text-[var(--text-tertiary)] group-hover:bg-[var(--border-default)]"
+                  inativa
+                    ? "bg-[var(--surface-pill)] text-[var(--text-tertiary)] grayscale"
+                    : selectedCompanyId === c.id
+                      ? "bg-[var(--accent)] text-white scale-110"
+                      : "bg-[var(--surface-pill)] text-[var(--text-tertiary)] group-hover:bg-[var(--border-default)]"
                 )}>
                   <Building2 size={20} />
                 </div>
                 <div className="flex-1 min-w-0">
-                  <p className="font-bold text-sm text-[var(--text-primary)] truncate">{c.name}</p>
-                  <p className="text-[9px] text-[var(--text-tertiary)] font-bold uppercase tracking-wider truncate">{c.industry}</p>
+                  <p className={cn(
+                    "font-bold text-sm truncate",
+                    inativa ? "text-[var(--text-tertiary)]" : "text-[var(--text-primary)]"
+                  )}>{c.name}</p>
+                  {inativa ? (
+                    <span className="inline-block mt-0.5 text-[9px] font-black uppercase tracking-widest px-1.5 py-0.5 rounded bg-[var(--surface-pill)] text-[var(--text-tertiary)]">
+                      Desativada
+                    </span>
+                  ) : (
+                    <p className="text-[9px] text-[var(--text-tertiary)] font-bold uppercase tracking-wider truncate">{c.industry}</p>
+                  )}
                 </div>
               </button>
-            ))
+              );
+            })
           ) : (
             <div className="p-8 text-center bg-[var(--surface-card)] rounded-2xl border border-dashed border-[var(--border-default)]">
               <Building2 className="mx-auto text-slate-300 mb-2" size={32} />
@@ -325,15 +353,43 @@ if (isCompanyPortalUser) {
           <div className="flex items-center justify-center h-64 text-sm text-[var(--text-tertiary)] font-medium">Carregando quadro de funcionários...</div>
         ) : selectedCompany ? (
           <>
-            <div className="bg-[var(--surface-card)] rounded-2xl border border-[var(--border-default)] shadow-sm overflow-hidden">
-            <div className="p-8 flex justify-between items-start">
+            <div className={cn(
+              "bg-[var(--surface-card)] rounded-2xl border shadow-sm overflow-hidden",
+              selectedCompany.isActive === false
+                ? "border-dashed border-[var(--text-tertiary)]/40"
+                : "border-[var(--border-default)]"
+            )}>
+            {/* Faixa fixa, não um aviso passageiro: a situação da empresa é
+                estado permanente da tela e precisa continuar visível enquanto
+                alguém trabalha nela. */}
+            {selectedCompany.isActive === false && (
+              <div className="px-8 py-3 bg-[var(--surface-pill)] border-b border-[var(--border-default)] flex items-center gap-2">
+                <ShieldOff size={16} className="text-[var(--text-tertiary)] shrink-0" />
+                <p className="text-xs font-bold text-[var(--text-secondary)]">
+                  Empresa desativada
+                  <span className="font-medium text-[var(--text-tertiary)]">
+                    {' '}— não aparece na lista nem nos seletores do dia a dia. Cadastro, pessoas e histórico continuam intactos.
+                  </span>
+                </p>
+              </div>
+            )}
+            <div className={cn("p-8 flex justify-between items-start", selectedCompany.isActive === false && "opacity-70")}>
               <div className="flex items-center gap-6">
-                <div className="w-20 h-20 bg-[var(--accent)]/10 rounded-2xl flex items-center justify-center text-[var(--accent-text)]">
+                <div className={cn(
+                  "w-20 h-20 rounded-2xl flex items-center justify-center",
+                  selectedCompany.isActive === false
+                    ? "bg-[var(--surface-pill)] text-[var(--text-tertiary)]"
+                    : "bg-[var(--accent)]/10 text-[var(--accent-text)]"
+                )}>
                   <Building2 size={40} />
                 </div>
                 <div>
-                  <h1 className="text-3xl font-black text-[var(--text-primary)] tracking-tight">{selectedCompany.name}</h1>
-                  <p className="text-[var(--text-tertiary)] text-sm font-medium">{selectedCompany.industry || 'Sem setor definido'}</p>
+                  <h1 className={cn(
+                    "text-3xl font-black tracking-tight",
+                    selectedCompany.isActive === false ? "text-[var(--text-tertiary)]" : "text-[var(--text-primary)]"
+                  )}>{selectedCompany.name}</h1>
+                  {/* Setor removido do cabeçalho a pedido: continua no cadastro
+                      (Editar Empresa) e no card da lista lateral. */}
                 </div>
               </div>
               <div className="flex items-center gap-2">
@@ -355,6 +411,10 @@ if (isCompanyPortalUser) {
                     <Pencil size={16} /> Editar Empresa
                   </button>
                 )}
+                {/* Desativar/Reativar mora só dentro de "Editar Empresa" (ver
+                    components/new-company-modal.tsx). É ação de manutenção do
+                    cadastro, não do dia a dia — no cabeçalho ficava ao lado de
+                    ações corriqueiras, convidando ao clique acidental. */}
                 {canCreateEmployees && (
                   <button
                     onClick={() => setIsEmployeeModalOpen(true)}
@@ -467,7 +527,12 @@ if (isCompanyPortalUser) {
 
                     <div className="space-y-3 mb-6">
                       <div className="flex items-center gap-3 text-sm text-[var(--text-secondary)] font-medium bg-[var(--surface-card)] p-2 rounded-lg border border-[var(--border-default)]">
-                        <Mail size={16} className="text-[var(--text-tertiary)]" /> {employee.email}
+                        <Mail size={16} className="text-[var(--text-tertiary)]" />
+                        {/* E-mail é opcional: contato vindo de conversa tem só
+                            nome e telefone. Dizer que não há é mais útil que
+                            uma linha vazia — e explica por que ele não recebe
+                            resposta de chamado por e-mail. */}
+                        {employee.email || <span className="italic text-[var(--text-tertiary)]">Sem e-mail cadastrado</span>}
                       </div>
                       <div className="flex items-center gap-3 text-sm text-[var(--text-secondary)] font-medium bg-[var(--surface-card)] p-2 rounded-lg border border-[var(--border-default)]">
                         <Phone size={16} className="text-[var(--text-tertiary)]" /> {employee.phone || '(11) 99999-0000'}
@@ -523,9 +588,9 @@ if (isCompanyPortalUser) {
         company={companyToEdit}
         onSuccess={loadData}
         showInternalSection={canManageCompanies}
-        onRequestDelete={() => {
+        onRequestDeactivate={() => {
           setIsCompanyModalOpen(false);
-          setCompanyToDelete(companyToEdit);
+          setCompanyToToggle(companyToEdit);
         }}
       />
       <WhatsAppNumberModal
@@ -533,29 +598,61 @@ if (isCompanyPortalUser) {
         onClose={() => { setIsWhatsAppModalOpen(false); setSelectedEmployee(null); }}
         user={selectedEmployee}
       />
-      <ConfirmModal
-        isOpen={!!companyToDelete}
-        title="Excluir Empresa"
-        message={`Tem certeza que deseja excluir a empresa ${companyToDelete?.name}? Isso não poderá ser desfeito.`}
-        error={deleteError}
-        onCancel={() => { setCompanyToDelete(null); setDeleteError(''); }}
-        onConfirm={async () => {
-          if (companyToDelete) {
-             try {
-                const result = await deleteCompany(companyToDelete.id);
-                if (result.error) {
-                    setDeleteError(result.error);
-                } else {
-                    setCompanyToDelete(null);
-                    setDeleteError('');
-                    loadData();
-                }
-             } catch (e: any) {
-                setDeleteError(e.message || 'Erro inesperado ao excluir empresa.');
-             }
-          }
-        }}
-      />
+      {/* Confirmação de desativar/reativar. Não usa ConfirmModal porque aquele
+          tem botão fixo "Confirmar Exclusão" em vermelho — aqui nada é
+          excluído, e o botão precisa dizer a ação de verdade. */}
+      {companyToToggle && (
+        <div className="fixed inset-0 bg-slate-900/50 backdrop-blur-sm z-50 flex items-center justify-center p-4">
+          <div className="bg-[var(--surface-card)] rounded-2xl shadow-xl w-full max-w-md overflow-hidden">
+            <div className="p-6 border-b border-[var(--border-default)] flex items-center gap-3">
+              <div className="w-10 h-10 rounded-full bg-[var(--surface-pill)] flex items-center justify-center text-[var(--text-secondary)]">
+                {companyToToggle.isActive === false ? <ShieldCheck size={20} /> : <ShieldOff size={20} />}
+              </div>
+              <h3 className="font-bold text-[var(--text-primary)]">
+                {companyToToggle.isActive === false ? 'Reativar empresa?' : 'Desativar empresa?'}
+              </h3>
+            </div>
+            <div className="p-6 space-y-3">
+              {toggleError && (
+                <div className="bg-[var(--surface-danger)] border border-[var(--text-danger)]/30 text-[var(--text-danger)] rounded-xl p-4 text-sm font-medium">
+                  {toggleError}
+                </div>
+              )}
+              <p className="text-[var(--text-secondary)]">
+                {companyToToggle.isActive === false
+                  ? <><b>{companyToToggle.name}</b> volta a aparecer nas listas e seletores do dia a dia.</>
+                  : <><b>{companyToToggle.name}</b> sai das listas e dos seletores do dia a dia. Nada é apagado: cadastro, pessoas, chamados e conversas continuam no lugar, e ela reaparece marcada como desativada quando alguém buscar por ela.</>}
+              </p>
+            </div>
+            <div className="p-6 bg-[var(--surface-card)] flex gap-3 justify-end border-t border-[var(--border-default)]">
+              <button
+                onClick={() => { setCompanyToToggle(null); setToggleError(''); }}
+                className="px-4 py-2 font-semibold text-[var(--text-secondary)] bg-[var(--surface-pill)] hover:bg-[var(--border-default)] rounded-lg transition-colors"
+              >
+                Cancelar
+              </button>
+              <button
+                onClick={async () => {
+                  const alvo = companyToToggle;
+                  const ativar = alvo.isActive === false;
+                  const result = await setCompanyActive(alvo.id, ativar);
+                  if (result.error) {
+                    setToggleError(result.error);
+                    return;
+                  }
+                  setCompanyToToggle(null);
+                  setToggleError('');
+                  toast.success(ativar ? 'Empresa reativada.' : 'Empresa desativada.');
+                  loadData();
+                }}
+                className="px-4 py-2 font-semibold text-white bg-[var(--accent)] hover:bg-[var(--accent-hover)] rounded-lg transition-colors shadow-sm"
+              >
+                {companyToToggle.isActive === false ? 'Reativar empresa' : 'Desativar empresa'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

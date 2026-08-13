@@ -155,9 +155,32 @@ export async function createUser(
       finalProfileId = p.rows[0]?.id || null;
     }
 
-    const checkRes = await query('SELECT id FROM public.profiles WHERE email = $1', [email]);
-    if ((checkRes.rowCount ?? 0) > 0) {
-      return { error: 'Usuário com este e-mail já existe.' };
+    // E-mail é OPCIONAL (ver migrations/profiles_email_opcional.sql): contato
+    // criado a partir de uma conversa costuma ter só nome e telefone. Vazio
+    // vira NULL — nunca string vazia, senão dois contatos sem e-mail colidiriam
+    // no índice único ('' = '' é verdadeiro, NULL = NULL não é).
+    const emailNormalizado = typeof email === 'string' && email.trim() ? email.trim() : null;
+
+    if (emailNormalizado) {
+      // Comparação sem diferenciar maiúsculas/espaços: a constraint UNIQUE do
+      // banco é sobre o texto exato, então "Joao@x.com" e "joao@x.com" passariam
+      // as duas e virariam dois cadastros da mesma pessoa. Aqui a checagem é mais
+      // estrita que a do banco, de propósito.
+      const checkRes = await query(
+        `SELECT p.name, p.role, c.name AS company_name
+           FROM public.profiles p
+           LEFT JOIN public.companies c ON c.id = p.company_id
+          WHERE lower(btrim(p.email)) = lower(btrim($1)) LIMIT 1`,
+        [emailNormalizado]
+      );
+      if ((checkRes.rowCount ?? 0) > 0) {
+        const dono = checkRes.rows[0];
+        const detalhe = [dono.role, dono.company_name].filter(Boolean).join(' — ');
+        return {
+          error: `Este e-mail já está em uso por ${dono.name || 'outro cadastro'}`
+            + (detalhe ? ` (${detalhe}).` : '.')
+        };
+      }
     }
 
     const newId = crypto.randomUUID();
@@ -170,7 +193,7 @@ export async function createUser(
        VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)`,
       [
         newId,
-        email,
+        emailNormalizado,
         name,
         finalRole,
         companyId || null,
@@ -187,7 +210,13 @@ export async function createUser(
     return { id: newId };
   } catch (err: any) {
     console.error("Error in server action createUser:", err);
-    return { error: err.message || 'Erro inesperado no servidor.' };
+    // 23505 = unique_violation. A checagem acima cobre o caso normal; isto pega
+    // a corrida entre dois cadastros simultâneos, para não devolver o texto da
+    // constraint do Postgres à tela.
+    if (err?.code === '23505') {
+      return { error: 'Já existe um cadastro com esse e-mail.' };
+    }
+    return { error: 'Não foi possível criar o cadastro. Tente novamente.' };
   }
 }
 
@@ -277,6 +306,44 @@ export async function saveCompany(
   }
 }
 
+// Desativar é o caminho oferecido na tela. A empresa continua existindo, com
+// as pessoas ainda vinculadas e todo o histórico no lugar — só sai do uso
+// corrente e passa a aparecer marcada como inativa.
+export async function setCompanyActive(id: string, active: boolean) {
+  try {
+    const actor = await getCurrentActionUser();
+    if (!actor || actor.role !== 'Administrador') {
+      return { error: 'Você não tem permissão para gerenciar empresas.' };
+    }
+
+    const res = await query(
+      'UPDATE public.companies SET is_active = $2 WHERE id = $1 RETURNING name, is_active',
+      [id, active]
+    );
+    if (res.rowCount === 0) return { error: 'Empresa não encontrada.' };
+
+    logAudit({
+      actorId: actor.id,
+      actorName: actor.name,
+      action: 'update',
+      entityType: 'company',
+      entityId: id,
+      entityLabel: res.rows[0].name,
+      changes: { isActive: active }
+    });
+    return { success: true, isActive: res.rows[0].is_active };
+  } catch (err: any) {
+    console.error('Error toggling company active in actions:', err);
+    return { error: 'Não foi possível alterar a situação da empresa.' };
+  }
+}
+
+// MANTIDA de propósito, mas SEM botão na interface (pedido do usuário: manter o
+// registro). Excluir uma empresa deixa as pessoas dela sem empresa — e, por
+// consequência, invisíveis na tela — mesmo com chamados e conversas no banco.
+// Para tirar uma empresa de uso, chame setCompanyActive(id, false).
+// A trava de "tem gente vinculada" abaixo continua valendo para quem chamar
+// esta função diretamente.
 export async function deleteCompany(id: string) {
   try {
     const actor = await getCurrentActionUser();
@@ -285,6 +352,29 @@ export async function deleteCompany(id: string) {
     }
 
     const existing = await query('SELECT name FROM public.companies WHERE id = $1', [id]);
+
+    // profiles.company_id é ON DELETE SET NULL: excluir a empresa NÃO apaga as
+    // pessoas dela — deixa cada uma sem empresa. E como a tela Empresas lista
+    // pessoas dentro do card de uma empresa, quem fica sem empresa desaparece
+    // da interface, sem erro nenhum, ainda que continue no banco com todo o
+    // histórico de chamados e conversas.
+    //
+    // Foi exatamente o que aconteceu com a empresa de exemplo do schema: ela
+    // foi excluída e o contato "José Cliente" virou invisível, sem que nada
+    // avisasse. Bloquear aqui é o que impede o caso de se repetir.
+    const vinculados = await query(
+      `SELECT COUNT(*)::int AS total FROM public.profiles WHERE company_id = $1`,
+      [id]
+    );
+    const total = vinculados.rows[0]?.total || 0;
+    if (total > 0) {
+      return {
+        error: `Esta empresa tem ${total} pessoa(s) vinculada(s). `
+          + 'Mova-as para outra empresa (ou exclua os cadastros) antes de excluir a empresa — '
+          + 'excluí-la agora deixaria essas pessoas sem empresa e invisíveis na tela.'
+      };
+    }
+
     await query('DELETE FROM public.companies WHERE id = $1', [id]);
     logAudit({ actorId: actor.id, actorName: actor.name, action: 'delete', entityType: 'company', entityId: id, entityLabel: existing.rows[0]?.name || null });
     return { success: true };
@@ -314,7 +404,12 @@ export async function getCompanies() {
       // é perfil interno, não deve nem trafegar pro navegador do cliente.
       isInTraining: isCompanyUser ? undefined : (c.is_in_training || false),
       csResponsavelId: c.cs_responsavel_id || undefined,
-      comercialResponsavelId: c.comercial_responsavel_id || undefined
+      comercialResponsavelId: c.comercial_responsavel_id || undefined,
+      // Empresas desativadas continuam vindo na lista, de propósito: a tela as
+      // esconde do uso corrente mas precisa conseguir mostrá-las quando alguém
+      // procura por elas — esconder aqui repetiria o problema que a
+      // desativação veio resolver (registro que existe e não aparece).
+      isActive: c.is_active !== false
     }));
   } catch (err) {
     console.error("Error getting companies in actions:", err);

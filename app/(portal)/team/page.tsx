@@ -141,15 +141,18 @@ export default function TeamManagementPage() {
     // Admin de equipe só vê/gerencia o próprio setor; Administrador do
     // sistema vê todo mundo.
     (isSystemAdmin || (a.internalTeamIds || []).some((t: string) => myAdminTeamIds.includes(t))) &&
+    // `?? ''` porque e-mail passou a ser opcional
+    // (migrations/profiles_email_opcional.sql) — sem isso a busca quebra ao
+    // esbarrar num contato sem e-mail.
     (a.name.toLowerCase().includes(search.toLowerCase()) ||
-    a.email.toLowerCase().includes(search.toLowerCase()))
+    (a.email ?? '').toLowerCase().includes(search.toLowerCase()))
   );
 
   const handleOpenModal = (user?: User) => {
     if (user) {
       setSelectedUser(user);
       setName(user.name);
-      setEmail(user.email);
+      setEmail(user.email ?? '');
       setRole(user.role);
       setCompanyId(user.companyId);
       setViewAllCompanyTickets(user.viewAllCompanyTickets || false);

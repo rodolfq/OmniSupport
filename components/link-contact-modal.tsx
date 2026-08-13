@@ -148,10 +148,17 @@ export function LinkContactModal({
         return;
       }
 
+      // Sem e-mail (string vazia vira NULL na action). Antes gerava-se um
+      // endereço fictício `contact_${Date.now()}@placeholder.com` só para
+      // satisfazer a coluna obrigatória — e como ele nunca se repetia, o
+      // sistema NUNCA avisava que a pessoa já estava cadastrada: cada
+      // vinculação criava mais um perfil da mesma pessoa, espalhando histórico
+      // de chamados e conversas entre cadastros diferentes.
+      // A coluna passou a ser opcional (migrations/profiles_email_opcional.sql).
       const { id: newUserId, error } = await createUser(
-        `contact_${Date.now()}@placeholder.com`, 
-        newName, 
-        UserRole.EMPLOYEE, 
+        '',
+        newName,
+        UserRole.EMPLOYEE,
         finalCompanyId,
         session.customerPhone ? [session.customerPhone] : [],
         false

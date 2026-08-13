@@ -501,11 +501,25 @@ const loadMessages = async () => {
     // resposta (handleSendMessage, handleSendWhatsAppReply). Falha aqui nunca
     // deve impedir o resto do fluxo (mensagem já foi salva antes de chamar).
     const sendReplyEmailInBackground = async (replyMessage: Message, forTicket: Ticket) => {
-      const customerEmail = allUsers.find(u => u.id === customerId)?.email;
+      const contato = allUsers.find(u => u.id === customerId);
+      const customerEmail = contato?.email;
       if (!customerEmail) {
-        // Falha silenciosa antes só aparecia como "e-mail não chegou" sem
-        // nenhum rastro — agora ao menos fica visível no console pra debug.
-        console.warn(`[email] Resposta do chamado ${forTicket.id} não foi enviada por e-mail: cliente (customerId=${customerId}) sem e-mail cadastrado ou não encontrado em allUsers.`);
+        // Antes isto só ia para o console: a resposta era salva, o e-mail não
+        // saía, e quem escreveu ficava achando que o cliente tinha sido
+        // avisado. Agora o aviso aparece na tela, porque muda o que a pessoa
+        // faz em seguida (ligar, mandar WhatsApp, ou cadastrar o e-mail).
+        //
+        // Contato sem e-mail é situação NORMAL desde que a coluna virou
+        // opcional: quem é criado a partir de uma conversa tem só nome e
+        // telefone (ver migrations/profiles_email_opcional.sql).
+        const nome = contato?.name || 'O contato deste chamado';
+        toast.warning(
+          contato
+            ? `${nome} não tem e-mail cadastrado — a resposta foi salva no chamado, mas não foi enviada por e-mail.`
+            : 'Este chamado não tem contato vinculado — a resposta foi salva, mas não foi enviada por e-mail.',
+          { duration: 8000 }
+        );
+        console.warn(`[email] Resposta do chamado ${forTicket.id} não enviada: contato (customerId=${customerId}) sem e-mail cadastrado ou não encontrado.`);
         return;
       }
 

@@ -1,7 +1,7 @@
 ﻿'use client';
 
 import React, { useState } from 'react';
-import { X, Building2, Phone, Mail, Lock, UserPlus, RefreshCw, Eye, EyeOff, GraduationCap, ShieldAlert, AlertTriangle, Trash2, Headset, Briefcase } from 'lucide-react';
+import { X, Building2, Phone, Mail, Lock, UserPlus, RefreshCw, Eye, EyeOff, GraduationCap, ShieldAlert, AlertTriangle, ShieldOff, ShieldCheck, Headset, Briefcase } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import { saveCompany, getCustomerEvaluationSummary, updateCompanyTraining, saveCustomerEvaluation } from '@/app/actions';
 import { Company, User, type CustomerEvaluationScores, type CustomerEvaluationSummary, type CustomerProfileTag, MIN_RELIABLE_EVALUATION_COUNT } from '@/lib/types';
@@ -41,7 +41,7 @@ const EMPTY_EVAL_SCORES: CustomerEvaluationScores = {
   communicationScore: null
 };
 
-export function NewCompanyModal({ isOpen, onClose, onSuccess, company, showInternalSection = false, onRequestDelete }: { isOpen: boolean, onClose: () => void, onSuccess?: () => void, company?: Company | null, showInternalSection?: boolean, onRequestDelete?: () => void }) {
+export function NewCompanyModal({ isOpen, onClose, onSuccess, company, showInternalSection = false, onRequestDeactivate }: { isOpen: boolean, onClose: () => void, onSuccess?: () => void, company?: Company | null, showInternalSection?: boolean, onRequestDeactivate?: () => void }) {
   const { currentUser } = useApp();
   const [name, setName] = useState('');
   const [phone, setPhone] = useState('');
@@ -53,6 +53,7 @@ export function NewCompanyModal({ isOpen, onClose, onSuccess, company, showInter
   const [errorMsg, setErrorMsg] = useState('');
   const [isLoading, setIsLoading] = useState(false);
   const isEditing = !!company;
+  const estaDesativada = company?.isActive === false;
 
   // CS/Comercial responsável — hoje um usuário da equipe interna escolhido
   // manualmente; pensado pra vir de uma API externa no futuro.
@@ -478,15 +479,33 @@ export function NewCompanyModal({ isOpen, onClose, onSuccess, company, showInter
               )}
 
               <div className="pt-4 flex items-center gap-4">
-                {isEditing && onRequestDelete && (
+                {/* Era um botão de EXCLUIR (lixeira vermelha). Virou
+                    "Desativar": apagar a empresa deixava as pessoas dela sem
+                    vínculo e invisíveis na tela, com chamados e conversas
+                    ainda no banco. O nome do botão passou a dizer o que
+                    acontece de fato, e a cor deixou de ser de perigo porque a
+                    ação é reversível e não apaga nada.
+                    Alterna com a situação atual: como este é o ÚNICO ponto da
+                    interface que mexe nisso, sem o estado inverso uma empresa
+                    desativada não teria como voltar. */}
+                {isEditing && onRequestDeactivate && (
                   <button
                     type="button"
-                    onClick={onRequestDelete}
+                    onClick={onRequestDeactivate}
                     disabled={isLoading}
-                    title="Excluir empresa"
-                    className="p-3.5 rounded-xl text-[var(--text-danger)] border border-[var(--border-default)] hover:bg-[var(--surface-danger)] hover:border-[var(--text-danger)]/30 transition-all disabled:opacity-50"
+                    title={estaDesativada
+                      ? 'Reativar empresa — volta a aparecer nas listas'
+                      : 'Desativar empresa — sai do uso corrente, nada é apagado'}
+                    className={cn(
+                      "flex items-center gap-2 px-4 py-3.5 rounded-xl text-sm font-bold border transition-all disabled:opacity-50",
+                      estaDesativada
+                        ? "text-[var(--accent-text)] bg-[var(--accent)]/10 border-[var(--accent)]/20 hover:bg-[var(--accent)]/20"
+                        : "text-[var(--text-secondary)] bg-[var(--surface-pill)] border-[var(--border-default)] hover:bg-[var(--border-default)]"
+                    )}
                   >
-                    <Trash2 size={18} />
+                    {estaDesativada
+                      ? <><ShieldCheck size={18} /> Reativar</>
+                      : <><ShieldOff size={18} /> Desativar</>}
                   </button>
                 )}
                 <button
