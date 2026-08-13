@@ -36,6 +36,42 @@ export async function GET(request: Request) {
   const includeClosed = searchParams.get('includeClosed') === 'true';
 
   try {
+    if (action === 'lookup') {
+      // Busca enxuta para seletores (ex.: vincular chamado a um ticket
+      // interno): só id, título e número, com teto de resultados.
+      const search = (searchParams.get('search') || '').trim();
+      const limit = Math.min(Number(searchParams.get('limit')) || 20, 50);
+      const res = search
+        ? await query(
+            `SELECT id, title, public_ticket_number FROM public.tickets
+              WHERE title ILIKE $1 ORDER BY created_at DESC LIMIT ${limit}`,
+            [`%${search}%`]
+          )
+        : await query(
+            `SELECT id, title, public_ticket_number FROM public.tickets
+              ORDER BY created_at DESC LIMIT ${limit}`
+          );
+      return NextResponse.json(res.rows.map(t => ({
+        id: t.id,
+        title: t.title,
+        ticketNumber: t.public_ticket_number
+      })));
+    }
+
+    if (action === 'resolve-id') {
+      // A URL /tickets/<ref> aceita o número público (0052) ou o id interno.
+      // Resolver aqui evita a tela ter que saber por qual coluna procurar.
+      const ref = (searchParams.get('ref') || '').trim();
+      if (!ref) return NextResponse.json({ error: 'ref é obrigatório' }, { status: 400 });
+
+      const isNumeric = /^\d+$/.test(ref);
+      const res = isNumeric
+        ? await query('SELECT id FROM public.tickets WHERE public_ticket_number = $1', [Number(ref)])
+        : await query('SELECT id FROM public.tickets WHERE id = $1', [ref]);
+
+      return NextResponse.json(res.rows[0] || null);
+    }
+
     if (action === 'messages') {
       const ticketId = searchParams.get('ticketId');
       if (!ticketId) return NextResponse.json({ error: 'ticketId é obrigatório' }, { status: 400 });
@@ -158,10 +194,18 @@ export async function GET(request: Request) {
     }
 
     if (id) {
+      // customer_name/assignee_name vêm no JOIN porque o consumidor
+      // (TicketService.getById) os exibe direto — antes esse método passava
+      // pelo shim, que fazia o mesmo join em `profiles`.
       const res = await query(
         `SELECT t.*,
+                cust.name AS customer_name,
+                asg.name AS assignee_name,
                 (SELECT cs.id FROM public.chat_sessions cs WHERE cs.ticket_id = t.id ORDER BY cs.created_at DESC LIMIT 1) AS chat_session_id
-         FROM public.tickets t WHERE t.id = $1`,
+         FROM public.tickets t
+         LEFT JOIN public.profiles cust ON cust.id = t.customer_id
+         LEFT JOIN public.profiles asg ON asg.id = t.assignee_id
+         WHERE t.id = $1`,
         [id]
       );
       if (res.rowCount === 0) {
@@ -174,6 +218,8 @@ export async function GET(request: Request) {
         ticketNumber: data.public_ticket_number,
         companyId: data.company_id,
         customerId: data.customer_id,
+        customerName: data.customer_name || undefined,
+        assigneeName: data.assignee_name || undefined,
         // O spread acima só entrega snake_case (assignee_id/sub_status); a
         // interface Ticket lê camelCase. Sem estes dois apelidos o valor existe
         // no banco mas chega como `undefined` na tela — o responsável some da
@@ -425,39 +471,81 @@ export async function PUT(request: Request) {
     const oldRes = await query('SELECT * FROM public.tickets WHERE id = $1', [id]);
     const oldTicket = oldRes.rows[0];
 
+    // SET dinâmico a partir das chaves REALMENTE enviadas. É o que reproduz a
+    // semântica que o shim tinha e que a tela de detalhe depende:
+    //   chave ausente  -> coluna não é tocada
+    //   valor null/''  -> coluna é LIMPA
+    // A versão anterior usava COALESCE em tudo, o que tornava impossível
+    // desmarcar categoria, fila, produto ou sub-status — o valor antigo
+    // voltava sozinho.
+    //
+    // Quem chama é TicketService.update, sempre com o objeto INTEIRO do
+    // chamado (spread `...ticket`) — nunca só o campo editado. Ou seja: toda
+    // gravação passa por aqui com title/description/status/priority juntos,
+    // mesmo quando o usuário só trocou o responsável ou escreveu uma nota.
+    // Qualquer regra nova neste laço tem que aguentar esse cenário.
+    const FIELDS: Record<string, string> = {
+      title: 'title',
+      description: 'description',
+      status: 'status',
+      subStatus: 'sub_status',
+      priority: 'priority',
+      companyId: 'company_id',
+      customerId: 'customer_id',
+      assigneeId: 'assignee_id',
+      queueId: 'queue_id',
+      categoryId: 'category_id',
+      requestTypeId: 'request_type_id',
+      productId: 'product_id',
+      tags: 'tags',
+      employeeIds: 'employee_ids'
+    };
+    // tags e employeeIds são arrays: [] é lista vazia legítima, nunca NULL.
+    const ARRAY_FIELDS = new Set(['tags', 'employeeIds']);
+    // Colunas NOT NULL no banco (conferido em information_schema): string vazia
+    // é valor VÁLIDO e precisa ser gravada como '' — 21 dos 38 chamados em
+    // produção têm description = ''. Traduzir '' para NULL aqui derrubava o
+    // save inteiro com "null value in column violates not-null constraint",
+    // quebrando trocar responsável e responder no chamado (o campo ia junto no
+    // spread do objeto, mesmo sem ninguém ter editado a descrição).
+    const NOT_NULL_FIELDS = new Set(['title', 'description', 'status', 'priority']);
+
+    const sets: string[] = [];
+    const params: any[] = [];
+    for (const [key, column] of Object.entries(FIELDS)) {
+      if (!(key in ticket) || ticket[key] === undefined) continue;
+      const raw = ticket[key];
+
+      if (ARRAY_FIELDS.has(key)) {
+        params.push(raw ?? []);
+      } else if (NOT_NULL_FIELDS.has(key)) {
+        // null/undefined aqui só pode ser lixo do client: ignora o campo em vez
+        // de estourar a constraint — a coluna fica com o valor que já tinha.
+        if (raw === null) continue;
+        params.push(raw);
+      } else {
+        // Chaves estrangeiras e sub-status: '' vindo de um <select> vazio
+        // significa "desmarcar", e aí NULL é o valor certo.
+        params.push(raw === '' ? null : (raw ?? null));
+      }
+      sets.push(`${column} = $${params.length}`);
+    }
+
+    if (sets.length === 0) {
+      return NextResponse.json({ error: 'Nenhum campo informado.' }, { status: 400 });
+    }
+
+    sets.push('updated_at = NOW()');
+    params.push(id);
+
     const updateRes = await query(
-      `UPDATE public.tickets
-       SET title = COALESCE($1, title),
-           description = COALESCE($2, description),
-           status = COALESCE($3, status),
-           priority = COALESCE($4, priority),
-           company_id = COALESCE($5, company_id),
-           customer_id = COALESCE($6, customer_id),
-           assignee_id = $7,
-           queue_id = COALESCE($8, queue_id),
-           category_id = COALESCE($9, category_id),
-           request_type_id = COALESCE($10, request_type_id),
-           product_id = COALESCE($11, product_id),
-           tags = COALESCE($12, tags),
-           updated_at = NOW()
-       WHERE id = $13
-       RETURNING *`,
-      [
-        ticket.title || null,
-        ticket.description || null,
-        ticket.status || null,
-        ticket.priority || null,
-        ticket.companyId === '' ? null : (ticket.companyId || null),
-        ticket.customerId === '' ? null : (ticket.customerId || null),
-        ticket.assigneeId === '' ? null : (ticket.assigneeId || null),
-        ticket.queueId || null,
-        ticket.categoryId || null,
-        ticket.requestTypeId || null,
-        ticket.productId || null,
-        ticket.tags || null,
-        id
-      ]
+      `UPDATE public.tickets SET ${sets.join(', ')} WHERE id = $${params.length} RETURNING *`,
+      params
     );
+
+    if (updateRes.rowCount === 0) {
+      return NextResponse.json({ error: 'Chamado não encontrado.' }, { status: 404 });
+    }
 
     const newTicket = updateRes.rows[0];
     handleTicketUpdated(oldTicket, newTicket);

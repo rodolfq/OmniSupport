@@ -13,6 +13,7 @@ import {
   Trash2,
 } from "lucide-react";
 import { motion, AnimatePresence } from "motion/react";
+import { selectableOptions } from "@/lib/utils";
 import { useApp } from "@/app/app-context";
 import {
   TicketStatus,
@@ -132,14 +133,26 @@ export function NewTicketModal() {
     [users]
   );
 
+  // selectableOptions sem id selecionado: aqui o chamado está sendo CRIADO, e
+  // opção arquivada não deve mais ser oferecida a chamado novo — só continua
+  // visível onde já foi usada (ver ticket-detail-modal.tsx).
   const { data: categoriesData } = useConfigCategoriesQuery({ enabled: isNewTicketModalOpen });
-  const availableCategories = React.useMemo(() => (categoriesData || []) as CategoryConfig[], [categoriesData]);
+  const availableCategories = React.useMemo(
+    () => selectableOptions((categoriesData || []) as CategoryConfig[]),
+    [categoriesData]
+  );
   const { data: queuesData } = useQueuesQuery({ enabled: isNewTicketModalOpen });
   const availableQueues = React.useMemo(() => (queuesData || []) as Array<{ id: string; name: string }>, [queuesData]);
   const { data: requestTypesData } = useConfigRequestTypesQuery({ enabled: isNewTicketModalOpen });
-  const availableRequestTypes = React.useMemo(() => (requestTypesData || []) as RequestTypeConfig[], [requestTypesData]);
+  const availableRequestTypes = React.useMemo(
+    () => selectableOptions((requestTypesData || []) as RequestTypeConfig[]),
+    [requestTypesData]
+  );
   const { data: productsData } = useConfigProductsQuery({ enabled: isNewTicketModalOpen });
-  const availableProducts = React.useMemo(() => (productsData || []) as ProductConfig[], [productsData]);
+  const availableProducts = React.useMemo(
+    () => selectableOptions((productsData || []) as ProductConfig[]),
+    [productsData]
+  );
   const { data: prioritiesData } = useConfigPrioritiesQuery({ enabled: isNewTicketModalOpen });
   const availablePriorities = React.useMemo(() => (prioritiesData || []) as PriorityConfig[], [prioritiesData]);
   // Escopado a 'ticket' (não estava antes — buscava status de chamado E de

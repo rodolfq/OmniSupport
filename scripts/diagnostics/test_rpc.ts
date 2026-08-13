@@ -1,6 +1,12 @@
 import { Client } from 'pg';
 
-const connectionString = 'postgresql://postgres:gLhm2cGBAKWGvQ*@db.edrixccffpbinvfieoyg.supabase.co:5432/postgres';
+// Conexao vinha embutida aqui, com a senha do banco em texto puro num
+// arquivo versionado. Agora sai do ambiente, como no resto do projeto.
+const connectionString = process.env.DATABASE_URL;
+if (!connectionString) {
+  console.error('Defina DATABASE_URL antes de rodar este script de diagnostico.');
+  process.exit(1);
+}
 
 async function testRPC() {
   const client = new Client({ connectionString });

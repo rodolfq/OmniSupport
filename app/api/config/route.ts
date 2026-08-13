@@ -14,7 +14,52 @@ const RESERVED_STATUS_LABELS = ['Concluído', 'Fechado', 'Encerrado', 'Mesclado'
 // Configurações, não a cada minuto) — NUNCA em analyst-statuses (presença
 // ao vivo) nem nas configurações administrativas (survey/email/automation/
 // metric-thresholds), que precisam refletir edição imediatamente.
-const REFERENCE_CACHE_HEADER = 'private, max-age=30, stale-while-revalidate=300';
+// Sem stale-while-revalidate: ele deixava o navegador servir a lista velha por
+// até 5 minutos DEPOIS dos 30s, e quem acabara de cadastrar um item em
+// Configurações via a tela "não atualizar" mesmo recarregando. Quem escreve lê
+// por lib/services/config-service.ts, que manda no-store; aqui o teto de
+// defasagem para as telas de leitura fica em 30s.
+const REFERENCE_CACHE_HEADER = 'private, max-age=30';
+
+// As três listas de rótulo simples, referenciadas por id no chamado.
+const SIMPLE_LISTS: Record<string, { table: string; noun: string }> = {
+  'categories': { table: 'config_categories', noun: 'categoria' },
+  'request-types': { table: 'config_request_types', noun: 'tipo de solicitação' },
+  'products': { table: 'config_products', noun: 'produto' }
+};
+
+// Onde cada lista é referenciada. É o que decide se um item pode ser excluído
+// de verdade ou só arquivado: com uso > 0, excluir dispararia o ON DELETE SET
+// NULL e esvaziaria o campo desses registros sem possibilidade de recuperar.
+// Produto aparece em duas tabelas (chamado e hotfix) — as duas contam.
+const USAGE_REFS: Record<string, Array<{ table: string; column: string }>> = {
+  'categories': [{ table: 'tickets', column: 'category_id' }],
+  'request-types': [{ table: 'tickets', column: 'request_type_id' }],
+  'products': [
+    { table: 'tickets', column: 'product_id' },
+    { table: 'hotfixes', column: 'product_id' }
+  ],
+  'efforts': [{ table: 'internal_tickets', column: 'effort_id' }],
+  'outcomes': [{ table: 'internal_tickets', column: 'outcome_id' }]
+};
+
+// Subconsulta correlacionada com a linha `c` da lista — usada tanto na
+// listagem (usage=1) quanto na checagem antes de excluir.
+function usageCountSql(type: string, alias = 'c'): string {
+  const refs = USAGE_REFS[type] || [];
+  if (refs.length === 0) return '0';
+  return refs
+    .map(r => `(SELECT COUNT(*) FROM public.${r.table} x WHERE x.${r.column} = ${alias}.id)`)
+    .join(' + ');
+}
+
+async function countUsage(type: string, id: string): Promise<number> {
+  const refs = USAGE_REFS[type] || [];
+  if (refs.length === 0) return 0;
+  const sql = refs.map(r => `(SELECT COUNT(*) FROM public.${r.table} WHERE ${r.column} = $1)`).join(' + ');
+  const res = await query(`SELECT ${sql} AS total`, [id]);
+  return Number(res.rows[0]?.total || 0);
+}
 const cacheableJson = (data: unknown) => NextResponse.json(data, { headers: { 'Cache-Control': REFERENCE_CACHE_HEADER } });
 
 export async function GET(request: Request) {
@@ -31,36 +76,71 @@ export async function GET(request: Request) {
         ? await query('SELECT * FROM public.config_statuses WHERE scope = $1 ORDER BY sort_order, created_at', [scope])
         : await query('SELECT * FROM public.config_statuses ORDER BY sort_order, created_at');
       return cacheableJson(res.rows);
-    } else if (type === 'categories') {
-      const res = await query('SELECT * FROM public.config_categories');
-      return cacheableJson(res.rows);
-    } else if (type === 'request-types') {
-      const res = await query('SELECT * FROM public.config_request_types');
-      return cacheableJson(res.rows);
-    } else if (type === 'products') {
-      const res = await query('SELECT * FROM public.config_products');
+    } else if (type === 'categories' || type === 'request-types' || type === 'products') {
+      // Devolve ATIVOS E ARQUIVADOS, com a marca isArchived — de propósito.
+      // Se a rota escondesse os arquivados, um chamado antigo classificado com
+      // uma opção aposentada apareceria com o campo em branco na tela, que é
+      // exatamente a perda de informação que o arquivamento existe pra evitar.
+      // Quem monta seletor de chamado NOVO é que filtra os arquivados fora
+      // (ver components/new-ticket-modal.tsx); assim o erro, se houver, é
+      // visível (item a mais na lista) em vez de silencioso (rótulo sumido).
+      //
+      // usage=1 acrescenta quantos registros usam cada item — só a tela de
+      // Configurações pede, porque é ela que decide entre arquivar e excluir.
+      const withUsage = searchParams.get('usage') === '1';
+      const { table } = SIMPLE_LISTS[type];
+      const res = withUsage
+        ? await query(`SELECT c.id, c.label, c.archived_at, ${usageCountSql(type)} AS usage_count
+                       FROM public.${table} c ORDER BY c.label`)
+        : await query(`SELECT id, label, archived_at FROM public.${table} ORDER BY label`);
+      return cacheableJson(res.rows.map((r: any) => ({
+        id: r.id,
+        label: r.label,
+        isArchived: r.archived_at !== null,
+        archivedAt: r.archived_at,
+        ...(withUsage ? { usageCount: Number(r.usage_count) } : {})
+      })));
+    } else if (type === 'internal-teams') {
+      // Lista de referência das equipes internas (seletor de equipe no ticket
+      // interno). Era a única das listas usadas por lib/query-hooks.ts que
+      // ainda não tinha rota própria, e por isso seguia passando pelo shim.
+      const res = await query('SELECT * FROM public.internal_teams ORDER BY name ASC');
       return cacheableJson(res.rows);
     } else if (type === 'efforts') {
       // camelCase já daqui: os consumidores (modal do chamado, relatório de
       // carga) leem weight/sortOrder, e devolver a linha crua faria esses
       // campos chegarem undefined — mesmo tropeço já corrigido em
       // analyst-statuses logo abaixo.
-      const res = await query('SELECT * FROM public.config_effort_levels ORDER BY sort_order ASC, label ASC');
+      const withUsage = searchParams.get('usage') === '1';
+      const res = await query(
+        `SELECT c.*${withUsage ? `, ${usageCountSql('efforts')} AS usage_count` : ''}
+         FROM public.config_effort_levels c ORDER BY c.sort_order ASC, c.label ASC`
+      );
       return cacheableJson(res.rows.map((r: any) => ({
         id: r.id,
         label: r.label,
         weight: Number(r.weight),
         color: r.color,
-        sortOrder: r.sort_order
+        sortOrder: r.sort_order,
+        isArchived: r.archived_at !== null,
+        archivedAt: r.archived_at,
+        ...(withUsage ? { usageCount: Number(r.usage_count) } : {})
       })));
     } else if (type === 'outcomes') {
-      const res = await query('SELECT * FROM public.config_outcomes ORDER BY sort_order ASC, label ASC');
+      const withUsage = searchParams.get('usage') === '1';
+      const res = await query(
+        `SELECT c.*${withUsage ? `, ${usageCountSql('outcomes')} AS usage_count` : ''}
+         FROM public.config_outcomes c ORDER BY c.sort_order ASC, c.label ASC`
+      );
       return cacheableJson(res.rows.map((r: any) => ({
         id: r.id,
         label: r.label,
         countsAsDefect: r.counts_as_defect,
         color: r.color,
-        sortOrder: r.sort_order
+        sortOrder: r.sort_order,
+        isArchived: r.archived_at !== null,
+        archivedAt: r.archived_at,
+        ...(withUsage ? { usageCount: Number(r.usage_count) } : {})
       })));
     } else if (type === 'tags') {
       const res = await query('SELECT * FROM public.config_tags');
@@ -161,9 +241,30 @@ export async function POST(request: Request) {
       }
     } else if (type === 'efforts') {
       const { effort } = body;
+      if (action === 'archive' || action === 'restore') {
+        const res = await query(
+          `UPDATE public.config_effort_levels SET archived_at = ${action === 'archive' ? 'NOW()' : 'NULL'}
+           WHERE id = $1 RETURNING *`,
+          [effort.id]
+        );
+        if (res.rowCount === 0) return NextResponse.json({ error: 'Item não encontrado.' }, { status: 404 });
+        const row = res.rows[0];
+        return NextResponse.json({
+          id: row.id, label: row.label, weight: Number(row.weight), color: row.color,
+          sortOrder: row.sort_order, isArchived: row.archived_at !== null, archivedAt: row.archived_at
+        });
+      }
       if (action === 'delete') {
-        // tickets.effort_id é ON DELETE SET NULL: o chamado sobrevive e só
-        // perde a classificação. Não bloqueia a exclusão do rótulo.
+        // internal_tickets.effort_id é ON DELETE SET NULL: excluir um nível em
+        // uso apagaria a classificação desses tickets sem recuperação. Só
+        // exclui quem ninguém usa; o resto se arquiva.
+        const usage = await countUsage('efforts', effort.id);
+        if (usage > 0) {
+          return NextResponse.json({
+            error: `${usage} ticket(s) interno(s) usam este nível de esforço. Arquive em vez de excluir.`,
+            usageCount: usage
+          }, { status: 409 });
+        }
         await query('DELETE FROM public.config_effort_levels WHERE id = $1', [effort.id]);
         return NextResponse.json({ success: true });
       }
@@ -183,12 +284,37 @@ export async function POST(request: Request) {
             [effort.label, effort.weight ?? 1, effort.color || '#64748b', effort.sortOrder ?? 0]
           );
       const row = res.rows[0];
+      // isArchived vai junto em TODA resposta de gravação: a tela substitui o
+      // item no estado local pelo que volta daqui, e sem este campo um simples
+      // rename faria um item arquivado voltar a parecer ativo na tela.
       return NextResponse.json({
-        id: row.id, label: row.label, weight: Number(row.weight), color: row.color, sortOrder: row.sort_order
+        id: row.id, label: row.label, weight: Number(row.weight), color: row.color,
+        sortOrder: row.sort_order, isArchived: row.archived_at !== null, archivedAt: row.archived_at
       });
     } else if (type === 'outcomes') {
       const { outcome } = body;
+      if (action === 'archive' || action === 'restore') {
+        const res = await query(
+          `UPDATE public.config_outcomes SET archived_at = ${action === 'archive' ? 'NOW()' : 'NULL'}
+           WHERE id = $1 RETURNING *`,
+          [outcome.id]
+        );
+        if (res.rowCount === 0) return NextResponse.json({ error: 'Item não encontrado.' }, { status: 404 });
+        const row = res.rows[0];
+        return NextResponse.json({
+          id: row.id, label: row.label, countsAsDefect: row.counts_as_defect, color: row.color,
+          sortOrder: row.sort_order, isArchived: row.archived_at !== null, archivedAt: row.archived_at
+        });
+      }
       if (action === 'delete') {
+        // Mesma regra do esforço: desfecho em uso se arquiva, não se exclui.
+        const usage = await countUsage('outcomes', outcome.id);
+        if (usage > 0) {
+          return NextResponse.json({
+            error: `${usage} ticket(s) interno(s) usam este desfecho. Arquive em vez de excluir.`,
+            usageCount: usage
+          }, { status: 409 });
+        }
         await query('DELETE FROM public.config_outcomes WHERE id = $1', [outcome.id]);
         return NextResponse.json({ success: true });
       }
@@ -209,50 +335,76 @@ export async function POST(request: Request) {
           );
       const row = res.rows[0];
       return NextResponse.json({
-        id: row.id, label: row.label, countsAsDefect: row.counts_as_defect, color: row.color, sortOrder: row.sort_order
+        id: row.id, label: row.label, countsAsDefect: row.counts_as_defect, color: row.color,
+        sortOrder: row.sort_order, isArchived: row.archived_at !== null, archivedAt: row.archived_at
       });
-    } else if (type === 'categories') {
-      const { category } = body;
-      const id = category.id || undefined;
-      if (id) {
-        await query(
-          `INSERT INTO public.config_categories (id, label)
-           VALUES ($1, $2)
-           ON CONFLICT (id) DO UPDATE SET label = EXCLUDED.label`,
-          [id, category.label]
+    } else if (type === 'categories' || type === 'request-types' || type === 'products') {
+      // As três listas simples de rótulo. Criar, renomear e excluir passam por
+      // aqui — antes a tela de Configurações escrevia direto nessas tabelas
+      // pelo shim, escolhendo o nome da tabela no próprio client.
+      //
+      // Renomear é seguro nestas três porque o chamado aponta pra elas por id
+      // (tickets.category_id / request_type_id / product_id). Prioridade e
+      // Status não têm rename simples: guardam o RÓTULO em texto em
+      // tickets.priority/status — ver o branch de statuses, que migra os
+      // registros junto.
+      const { table, noun } = SIMPLE_LISTS[type];
+      // `category` aceito por compatibilidade com o formato antigo do body.
+      const item = body.item || body.category || {};
+
+      if (action === 'archive' || action === 'restore') {
+        if (!item.id) return NextResponse.json({ error: 'id é obrigatório.' }, { status: 400 });
+        const res = await query(
+          `UPDATE public.${table} SET archived_at = ${action === 'archive' ? 'NOW()' : 'NULL'}
+           WHERE id = $1 RETURNING id, label, archived_at`,
+          [item.id]
         );
-      } else {
-        await query(
-          `INSERT INTO public.config_categories (label)
-           VALUES ($1)`,
-          [category.label]
-        );
+        if (res.rowCount === 0) return NextResponse.json({ error: 'Item não encontrado.' }, { status: 404 });
+        const row = res.rows[0];
+        return NextResponse.json({
+          id: row.id, label: row.label,
+          isArchived: row.archived_at !== null, archivedAt: row.archived_at
+        });
       }
-      return NextResponse.json({ success: true });
-    } else if (type === 'request-types' || type === 'products') {
-      // Renomear é seguro nestas duas listas (e em categories acima) porque o
-      // chamado aponta pra elas por id — tickets.request_type_id /
-      // tickets.product_id. Prioridade e Status NÃO têm endpoint de rename de
-      // propósito: tickets.priority e tickets.status guardam o RÓTULO em
-      // texto, então renomear lá deixaria todo registro existente apontando
-      // pra um valor que não existe mais.
-      const table = type === 'products' ? 'config_products' : 'config_request_types';
-      const item = body.item;
-      if (!item?.id) return NextResponse.json({ error: 'id é obrigatório.' }, { status: 400 });
 
       if (action === 'delete') {
+        if (!item.id) return NextResponse.json({ error: 'id é obrigatório.' }, { status: 400 });
+
+        // Exclusão de verdade só para item que ninguém usa. Com uso > 0 o
+        // ON DELETE SET NULL esvaziaria o campo desses registros em silêncio,
+        // sem como recuperar — para esse caso existe o arquivamento.
+        const usage = await countUsage(type, item.id);
+        if (usage > 0) {
+          return NextResponse.json({
+            error: `${usage} registro(s) usam esta ${noun}. Arquive em vez de excluir — assim eles continuam mostrando a classificação.`,
+            usageCount: usage
+          }, { status: 409 });
+        }
+
         await query(`DELETE FROM public.${table} WHERE id = $1`, [item.id]);
         return NextResponse.json({ success: true });
       }
 
       const label = (item.label || '').trim();
       if (!label) return NextResponse.json({ error: 'O nome não pode ficar vazio.' }, { status: 400 });
-      const res = await query(
-        `UPDATE public.${table} SET label = $2 WHERE id = $1 RETURNING id, label`,
-        [item.id, label]
-      );
+
+      // Sem id = criação; com id = renomeação.
+      const res = item.id
+        ? await query(
+            `UPDATE public.${table} SET label = $2 WHERE id = $1 RETURNING id, label, archived_at`,
+            [item.id, label]
+          )
+        : await query(
+            `INSERT INTO public.${table} (label) VALUES ($1) RETURNING id, label, archived_at`,
+            [label]
+          );
+
       if (res.rowCount === 0) return NextResponse.json({ error: 'Item não encontrado.' }, { status: 404 });
-      return NextResponse.json(res.rows[0]);
+      const saved = res.rows[0];
+      return NextResponse.json({
+        id: saved.id, label: saved.label,
+        isArchived: saved.archived_at !== null, archivedAt: saved.archived_at
+      });
     } else if (type === 'priorities') {
       // Sem rename aqui de propósito. Além de tickets.priority guardar o
       // rótulo em texto (o que a migração resolveria), os quatro nomes estão
@@ -263,24 +415,26 @@ export async function POST(request: Request) {
       // essas regras dinâmicas.
       const { priority } = body;
       const id = priority.id || undefined;
-      if (id) {
-        await query(
-          `INSERT INTO public.config_priorities (id, label, sla_hours, color)
-           VALUES ($1, $2, $3, $4)
-           ON CONFLICT (id) DO UPDATE SET
-             label = EXCLUDED.label,
-             sla_hours = EXCLUDED.sla_hours,
-             color = EXCLUDED.color`,
-          [id, priority.label, priority.slaHours, priority.color]
-        );
-      } else {
-        await query(
-          `INSERT INTO public.config_priorities (label, sla_hours, color)
-           VALUES ($1, $2, $3)`,
-          [priority.label, priority.slaHours, priority.color]
-        );
-      }
-      return NextResponse.json({ success: true });
+      // RETURNING para o chamador poder conferir o que ficou gravado — a tela
+      // de Configurações compara o SLA persistido com o que enviou antes de
+      // dar a operação como concluída.
+      const res = id
+        ? await query(
+            `INSERT INTO public.config_priorities (id, label, sla_hours, color)
+             VALUES ($1, $2, $3, $4)
+             ON CONFLICT (id) DO UPDATE SET
+               label = EXCLUDED.label,
+               sla_hours = EXCLUDED.sla_hours,
+               color = EXCLUDED.color
+             RETURNING *`,
+            [id, priority.label, priority.slaHours, priority.color]
+          )
+        : await query(
+            `INSERT INTO public.config_priorities (label, sla_hours, color)
+             VALUES ($1, $2, $3) RETURNING *`,
+            [priority.label, priority.slaHours, priority.color]
+          );
+      return NextResponse.json(res.rows[0]);
     } else if (type === 'statuses' && action === 'rename') {
       // Renomear status/sub-status exige migrar junto TODA coluna de texto que
       // guarda o rótulo — config_statuses é referenciada por LABEL, não por id:

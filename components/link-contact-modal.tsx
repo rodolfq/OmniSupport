@@ -10,7 +10,6 @@ import {
 } from '@/lib/types';
 import { UserService, createUser } from '@/lib/services/user-service';
 import { CompanyService } from '@/lib/services/company-service';
-import { supabase } from '@/lib/supabase';
 import { useQueuesQuery } from '@/lib/query-hooks';
 import { 
   Search, 
@@ -105,15 +104,20 @@ export function LinkContactModal({
       }
 
       // Update chat session
-      const { error } = await supabase
-        .from('chat_sessions')
-        .update({
-          customer_id: user.id,
-          customer_name: user.name
+      const res = await fetch('/api/chats', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          action: 'set-session-contact',
+          sessionId: session.id,
+          customerId: user.id,
+          customerName: user.name
         })
-        .eq('id', session.id);
-
-      if (error) throw error;
+      });
+      if (!res.ok) {
+        const data = await res.json().catch(() => null);
+        throw new Error(data?.error || 'Erro ao vincular o contato à conversa.');
+      }
 
       onSuccess();
       onClose();

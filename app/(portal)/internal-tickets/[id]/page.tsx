@@ -3,12 +3,11 @@
 import React, { useState, useEffect, useCallback, useMemo } from 'react';
 import { StyledSelect } from '@/components/styled-select';
 import { useParams, useRouter } from 'next/navigation';
-import { supabase } from '@/lib/supabase';
 import { useApp } from '@/app/app-context';
 import { InternalTicket, Message, User, Hotfix, EffortConfig, OutcomeConfig } from '@/lib/types';
 import { MessageService, InternalTicketService } from '@/lib/services/ticket-service';
 import { getHotfixes } from '@/app/actions';
-import { cn } from '@/lib/utils';
+import { cn, selectableOptions } from '@/lib/utils';
 import {
   Paperclip,
   Star,
@@ -150,26 +149,14 @@ export default function InternalTicketDetailPage() {
     if (!ticketId || !currentUser) return;
     setLoading(true);
     try {
-      let query;
-      if (ticketId.startsWith('int-')) {
-        const num = parseInt(ticketId.replace('int-', ''), 10);
-        query = supabase.from('internal_tickets').select('*').eq('internal_ticket_number', num);
-      } else {
-        query = supabase.from('internal_tickets').select('*').eq('id', ticketId);
-      }
-      const { data, error } = await query.single();
-      if (error) throw error;
+      // Uma ida só: ticket + chamados vinculados + nomes de responsável e
+      // criador. Antes eram quatro consultas encadeadas saindo do navegador.
+      const detailRes = await fetch(`/api/internal-tickets?action=detail&ref=${encodeURIComponent(ticketId)}`);
+      if (!detailRes.ok) throw new Error('Ticket interno não encontrado.');
+      const detail = await detailRes.json();
+      const data = detail.ticket;
 
-      const { data: links } = await supabase.from('ticket_internal_links').select('ticket_id').eq('internal_ticket_id', data.id);
-      const linkedIds = (links || []).map((l: any) => l.ticket_id);
-      const { data: regularTickets } = linkedIds.length
-        ? await supabase.from('tickets').select('id, title, public_ticket_number').in('id', linkedIds)
-        : { data: [] };
-      setLinkedTickets((regularTickets || []).map((t: any) => ({ id: t.id, title: t.title, ticketNumber: t.public_ticket_number })));
-
-      const profileIds = [...new Set([data.assignee_id, data.creator_id].filter(Boolean))];
-      const { data: profiles } = await supabase.from('profiles').select('id, name').in('id', profileIds);
-      const profileMap = new Map((profiles || []).map((p: any) => [p.id, p.name]));
+      setLinkedTickets(detail.linkedTickets || []);
 
       setTicket({
         ...data,
@@ -190,8 +177,8 @@ export default function InternalTicketDetailPage() {
         effortId: data.effort_id,
         outcomeId: data.outcome_id,
         status: data.status || 'Novo',
-        assigneeName: data.assignee_id ? profileMap.get(data.assignee_id) || null : null,
-        creatorName: data.creator_id ? profileMap.get(data.creator_id) || null : null,
+        assigneeName: detail.assigneeName,
+        creatorName: detail.creatorName,
       });
       setFormTitle(data.title || '');
       setFormDescription(data.description || '');
@@ -244,12 +231,11 @@ export default function InternalTicketDetailPage() {
       setSearchingTickets(true);
       try {
         const linkedIds = linkedTickets.map(t => t.id);
-        let q = supabase.from('tickets').select('id, title, public_ticket_number').limit(20).order('created_at', { ascending: false });
-        if (ticketSearch.trim()) q = q.ilike('title', `%${ticketSearch.trim()}%`);
-        const { data } = await q;
-        setTicketSearchResults((data || [])
-          .filter((t: any) => !linkedIds.includes(t.id))
-          .map((t: any) => ({ id: t.id, title: t.title, ticketNumber: t.public_ticket_number })));
+        const params = new URLSearchParams({ action: 'lookup', limit: '20' });
+        if (ticketSearch.trim()) params.set('search', ticketSearch.trim());
+        const res = await fetch(`/api/tickets?${params}`);
+        const data = res.ok ? await res.json() : [];
+        setTicketSearchResults((data || []).filter((t: any) => !linkedIds.includes(t.id)));
       } finally {
         setSearchingTickets(false);
       }
@@ -301,22 +287,32 @@ export default function InternalTicketDetailPage() {
     const expectedPublishIso = formExpectedPublish ? new Date(`${formExpectedPublish}T00:00:00`).toISOString() : null;
 
     try {
-      const { error } = await supabase.from('internal_tickets').update({
-        title: formTitle,
-        description: formDescription,
-        team_id: formTeam,
-        priority: formPriority,
-        assignee_id: nextAssignee || null,
-        status: nextStatus,
-        tags,
-        sla_limit: slaIso,
-        expected_publish_date: expectedPublishIso,
-        hotfix_id: formHotfixId || null,
-        effort_id: formEffortId || null,
-        outcome_id: formOutcomeId || null,
-        updated_at: new Date().toISOString()
-      }).eq('id', ticket.uuid);
-      if (error) throw error;
+      const updateRes = await fetch('/api/internal-tickets', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          action: 'update',
+          id: ticket.uuid,
+          fields: {
+            title: formTitle,
+            description: formDescription,
+            teamId: formTeam,
+            priority: formPriority,
+            assigneeId: nextAssignee || null,
+            status: nextStatus,
+            tags,
+            slaLimit: slaIso,
+            expectedPublishDate: expectedPublishIso,
+            hotfixId: formHotfixId || null,
+            effortId: formEffortId || null,
+            outcomeId: formOutcomeId || null
+          }
+        })
+      });
+      if (!updateRes.ok) {
+        const errBody = await updateRes.json().catch(() => null);
+        throw new Error(errBody?.error || 'Erro ao salvar o ticket interno.');
+      }
 
       // Mensagem única com todos os campos alterados nessa gravação (formato
       // "de → para (Campo)"), em vez de um evento por campo — assim uma
@@ -565,7 +561,12 @@ export default function InternalTicketDetailPage() {
                   className="w-full bg-[var(--surface-card)] border border-[var(--border-default)] rounded-lg px-3 py-2 text-xs font-bold text-[var(--text-primary)]"
                 >
                   <option value="">Não classificado</option>
-                  {efforts.map(e => <option key={e.id} value={e.id}>{e.label}</option>)}
+                  {/* Nível arquivado sai da lista, exceto o que este ticket já
+                      usa — senão o <select> cairia em "Não classificado" e a
+                      próxima gravação apagaria a classificação. */}
+                  {selectableOptions(efforts, formEffortId).map(e => (
+                    <option key={e.id} value={e.id}>{e.label}{e.isArchived ? ' (arquivado)' : ''}</option>
+                  ))}
                 </StyledSelect>
               </div>
               <div>
@@ -581,7 +582,9 @@ export default function InternalTicketDetailPage() {
                   className="w-full bg-[var(--surface-card)] border border-[var(--border-default)] rounded-lg px-3 py-2 text-xs font-bold text-[var(--text-primary)]"
                 >
                   <option value="">Não classificado</option>
-                  {outcomes.map(o => <option key={o.id} value={o.id}>{o.label}</option>)}
+                  {selectableOptions(outcomes, formOutcomeId).map(o => (
+                    <option key={o.id} value={o.id}>{o.label}{o.isArchived ? ' (arquivado)' : ''}</option>
+                  ))}
                 </StyledSelect>
               </div>
               <div><p className="text-[10px] text-[var(--text-tertiary)] font-bold uppercase mb-1">Publicação Prevista</p>

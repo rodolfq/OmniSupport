@@ -1,41 +1,89 @@
 import { CategoryConfig, PriorityConfig, StatusConfig, TagConfig, QuickNote, SurveySettings, EmailSettings, ProductConfig, EffortConfig, OutcomeConfig } from '../types';
 import { registerClosedStatusLabels } from '../ticket-status';
 
+// Listas de rótulo simples, referenciadas por id no chamado — as únicas em
+// que renomear não exige migrar dado.
+export type SimpleListType = 'categories' | 'request-types' | 'products';
+
+// /api/config manda Cache-Control nas listas de referência (categorias,
+// produtos, status, tags...) — o que é bom para as telas que só LEEM, mas
+// venenoso aqui: quem chama o ConfigService é a tela de Configurações, que
+// relê a lista logo depois de gravar. Com o cache do navegador no caminho, a
+// releitura devolvia a lista ANTIGA e o item recém-criado sumia da tela mesmo
+// tendo sido gravado — sem erro nenhum, porque o POST tinha funcionado.
+// `no-store` só aqui: quem lê por lib/query-hooks.ts continua aproveitando o
+// cache HTTP.
+async function fetchConfig(type: string, extraQuery = ''): Promise<Response> {
+  return fetch(`/api/config?type=${type}${extraQuery}`, { cache: 'no-store' });
+}
+
 export class ConfigService {
   static async getCategories(): Promise<CategoryConfig[]> {
-    const res = await fetch('/api/config?type=categories');
+    const res = await fetchConfig('categories');
     return res.json();
   }
 
   static async getProducts(): Promise<ProductConfig[]> {
-    const res = await fetch('/api/config?type=products');
+    const res = await fetchConfig('products');
     return res.json();
   }
 
-  // Renomear item de lista simples. Só existe para as listas referenciadas
-  // por ID (categoria, tipo de solicitação, produto) — ver o comentário do
-  // endpoint em app/api/config/route.ts sobre por que Prioridade e Status
-  // ficam de fora.
-  static async renameSimpleItem(
-    type: 'categories' | 'request-types' | 'products',
-    id: string,
-    label: string
-  ): Promise<void> {
-    const body = type === 'categories'
-      ? { type, category: { id, label } }
-      : { type, action: 'save', item: { id, label } };
-
+  // As três listas simples de rótulo (categoria, tipo de solicitação,
+  // produto). Um único conjunto de métodos porque a rota trata as três no
+  // mesmo branch — ver o comentário lá sobre por que Prioridade e Status
+  // ficam de fora do rename simples.
+  private static async postSimpleItem(
+    type: SimpleListType,
+    body: Record<string, unknown>,
+    fallbackError: string
+  ) {
     const res = await fetch('/api/config', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(body)
+      body: JSON.stringify({ type, ...body })
     });
     if (!res.ok) {
-      // A rota devolve mensagem pronta para nome duplicado (409); repassar ela
+      // A rota devolve mensagem pronta para nome duplicado (409); repassá-la
       // é o que permite a tela mostrar "Já existe um item com esse nome."
       const data = await res.json().catch(() => null);
-      throw new Error(data?.error || 'Erro ao renomear o item.');
+      throw new Error(data?.error || fallbackError);
     }
+    return res.json().catch(() => null);
+  }
+
+  static async createSimpleItem(type: SimpleListType, label: string): Promise<{ id: string; label: string }> {
+    return ConfigService.postSimpleItem(type, { action: 'save', item: { label } }, 'Erro ao criar o item.');
+  }
+
+  static async renameSimpleItem(type: SimpleListType, id: string, label: string): Promise<void> {
+    await ConfigService.postSimpleItem(type, { action: 'save', item: { id, label } }, 'Erro ao renomear o item.');
+  }
+
+  // Excluir de verdade. A rota recusa com 409 quando algum chamado usa o item
+  // — nesse caso o caminho é arquivar, e a mensagem de erro já diz isso.
+  static async deleteSimpleItem(type: SimpleListType, id: string): Promise<void> {
+    await ConfigService.postSimpleItem(type, { action: 'delete', item: { id } }, 'Erro ao remover o item.');
+  }
+
+  // Aposenta a opção sem apagá-la: some dos seletores de chamado novo, mas o
+  // chamado antigo continua exibindo o rótulo. Ver ArchivableConfig.
+  static async archiveSimpleItem(type: SimpleListType, id: string): Promise<void> {
+    await ConfigService.postSimpleItem(type, { action: 'archive', item: { id } }, 'Erro ao arquivar o item.');
+  }
+
+  static async restoreSimpleItem(type: SimpleListType, id: string): Promise<void> {
+    await ConfigService.postSimpleItem(type, { action: 'restore', item: { id } }, 'Erro ao restaurar o item.');
+  }
+
+  // `withUsage` traz quantos registros usam cada item — só a tela de
+  // Configurações precisa, para escolher entre arquivar e excluir.
+  static async getSimpleList(
+    type: SimpleListType,
+    withUsage = false
+  ): Promise<(CategoryConfig & { usageCount?: number })[]> {
+    const res = await fetchConfig(type, withUsage ? '&usage=1' : '');
+    if (!res.ok) throw new Error('Erro ao carregar a lista.');
+    return res.json();
   }
 
   // Renomear status/sub-status. Endpoint separado do saveStatus porque a
@@ -59,8 +107,18 @@ export class ConfigService {
   // Classificação de solução do ticket interno — duas listas independentes,
   // ambas editáveis em Configurações
   // (ver migrations/internal_ticket_effort_outcome.sql).
-  static async getEfforts(): Promise<EffortConfig[]> {
-    const res = await fetch('/api/config?type=efforts');
+  static async getEfforts(withUsage = false): Promise<EffortConfig[]> {
+    const res = await fetchConfig('efforts', withUsage ? '&usage=1' : '');
+    return res.json();
+  }
+
+  static async archiveEffort(id: string, archived: boolean): Promise<EffortConfig> {
+    const res = await fetch('/api/config', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ type: 'efforts', action: archived ? 'archive' : 'restore', effort: { id } })
+    });
+    if (!res.ok) throw new Error(archived ? 'Erro ao arquivar.' : 'Erro ao restaurar.');
     return res.json();
   }
 
@@ -83,8 +141,18 @@ export class ConfigService {
     if (!res.ok) throw new Error('Erro ao remover nível de esforço.');
   }
 
-  static async getOutcomes(): Promise<OutcomeConfig[]> {
-    const res = await fetch('/api/config?type=outcomes');
+  static async getOutcomes(withUsage = false): Promise<OutcomeConfig[]> {
+    const res = await fetchConfig('outcomes', withUsage ? '&usage=1' : '');
+    return res.json();
+  }
+
+  static async archiveOutcome(id: string, archived: boolean): Promise<OutcomeConfig> {
+    const res = await fetch('/api/config', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ type: 'outcomes', action: archived ? 'archive' : 'restore', outcome: { id } })
+    });
+    if (!res.ok) throw new Error(archived ? 'Erro ao arquivar.' : 'Erro ao restaurar.');
     return res.json();
   }
 
@@ -117,22 +185,25 @@ export class ConfigService {
   }
 
   static async getPriorities(): Promise<PriorityConfig[]> {
-    const res = await fetch('/api/config?type=priorities');
+    const res = await fetchConfig('priorities');
     return res.json();
   }
 
-  static async savePriority(priority: PriorityConfig): Promise<void> {
+  // Devolve a linha gravada: a tela de Configurações confere o SLA persistido
+  // contra o que enviou antes de considerar a operação concluída.
+  static async savePriority(priority: Partial<PriorityConfig> & { label: string }): Promise<any> {
     const res = await fetch('/api/config', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ type: 'priorities', priority })
     });
-    if (!res.ok) throw new Error('Error saving priority via API');
+    if (!res.ok) throw new Error('Erro ao salvar a prioridade.');
+    return res.json();
   }
 
   static async getStatuses(scope?: 'ticket' | 'internal_ticket'): Promise<StatusConfig[]> {
     const qs = scope ? `&scope=${scope}` : '';
-    const res = await fetch(`/api/config?type=statuses${qs}`);
+    const res = await fetchConfig('statuses', qs);
     const data = await res.json();
     const normalized: StatusConfig[] = (data || []).map((s: any) => ({
       ...s,
@@ -198,7 +269,7 @@ export class ConfigService {
   }
 
   static async getTags(): Promise<TagConfig[]> {
-    const res = await fetch('/api/config?type=tags');
+    const res = await fetchConfig('tags');
     return res.json();
   }
 
@@ -254,13 +325,14 @@ export class ConfigService {
     };
   }
 
-  static async saveSurveySettings(settings: SurveySettings): Promise<void> {
+  static async saveSurveySettings(settings: SurveySettings): Promise<any> {
     const res = await fetch('/api/config', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ type: 'survey-settings', settings })
     });
-    if (!res.ok) throw new Error('Error saving survey settings via API');
+    if (!res.ok) throw new Error('Erro ao salvar a pesquisa de satisfação.');
+    return res.json();
   }
 
   static async getEmailSettings(): Promise<EmailSettings> {
@@ -358,7 +430,7 @@ export async function fetchUsers(signal?: AbortSignal): Promise<any[]> {
 
 export async function fetchQueues(signal?: AbortSignal): Promise<any[]> {
   try {
-    const res = await fetch('/api/config?type=queues');
+    const res = await fetchConfig('queues');
     return res.json();
   } catch (err) {
     console.error("Error fetching queues:", err);

@@ -14,3 +14,7 @@ coverage/
 # Anexos gravados por lib/services/attachment-storage.ts em desenvolvimento
 # (em produção isto é o volume do container, ver ATTACHMENTS_DIR).
 data/
+
+# Cache incremental do TypeScript. Estava versionado e aparecia como alterado a
+# cada `tsc --noEmit`, sujando o diff sem significar mudança nenhuma no código.
+*.tsbuildinfo

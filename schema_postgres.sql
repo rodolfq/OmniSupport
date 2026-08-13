@@ -779,6 +779,225 @@ CREATE TRIGGER trg_ai_embed_internal_chat_messages
   FOR EACH ROW EXECUTE FUNCTION public.ai_enqueue_embedding('internal_chat_message');
 
 -- =========================================================================
+-- ALINHAMENTO COM O BANCO DE PRODUÇÃO
+-- =========================================================================
+-- Este arquivo é a fonte de verdade do schema, mas tinha ficado para trás do
+-- banco real: 9 tabelas e 16 colunas existiam em produção (aplicadas à mão via
+-- migrations/) sem nunca terem voltado para cá. Na prática o arquivo NÃO
+-- conseguia provisionar um banco novo — o login quebrava logo de cara, porque
+-- profiles.is_active não existia.
+--
+-- O DDL abaixo foi gerado a partir do catálogo do próprio Postgres de
+-- produção (information_schema + pg_constraint + pg_indexes), não escrito de
+-- memória, para que tipos, defaults, nulidade, chaves e índices batam com o
+-- que roda hoje.
+--
+-- Fica nesta seção, e não junto de cada CREATE TABLE original, por dois
+-- motivos: as chaves estrangeiras exigem que profiles/companies/chat_sessions/
+-- chat_messages/internal_chat_messages já existam; e manter o bloco separado
+-- deixa explícito o que veio de migração posterior — útil na próxima
+-- conferência de drift.
+--
+-- Ao aplicar uma migration nova em produção, acrescente-a aqui também. É o que
+-- deixou de ser feito e gerou o descompasso.
+
+-- Log de auditoria (lib/audit-log.ts) --------------------------------------
+CREATE TABLE IF NOT EXISTS public.audit_log (
+  id uuid DEFAULT (md5(((random())::text || (clock_timestamp())::text)))::uuid NOT NULL,
+  actor_id uuid,
+  actor_name text NOT NULL,
+  action text NOT NULL,
+  entity_type text NOT NULL,
+  entity_id text,
+  entity_label text,
+  changes jsonb,
+  created_at timestamptz DEFAULT now() NOT NULL,
+  CONSTRAINT audit_log_pkey PRIMARY KEY (id),
+  CONSTRAINT audit_log_actor_id_fkey FOREIGN KEY (actor_id) REFERENCES profiles(id) ON DELETE SET NULL
+);
+CREATE INDEX IF NOT EXISTS idx_audit_log_entity ON public.audit_log USING btree (entity_type, entity_id);
+CREATE INDEX IF NOT EXISTS idx_audit_log_created_at ON public.audit_log USING btree (created_at DESC);
+CREATE INDEX IF NOT EXISTS idx_audit_log_actor_id ON public.audit_log USING btree (actor_id);
+
+-- Web Push / VAPID (lib/services/push-service.ts) --------------------------
+CREATE TABLE IF NOT EXISTS public.push_subscriptions (
+  id uuid DEFAULT (md5(((random())::text || (clock_timestamp())::text)))::uuid NOT NULL,
+  user_id uuid NOT NULL,
+  endpoint text NOT NULL,
+  p256dh text NOT NULL,
+  auth text NOT NULL,
+  user_agent text,
+  created_at timestamptz DEFAULT now() NOT NULL,
+  last_seen_at timestamptz DEFAULT now() NOT NULL,
+  CONSTRAINT push_subscriptions_endpoint_key UNIQUE (endpoint),
+  CONSTRAINT push_subscriptions_pkey PRIMARY KEY (id),
+  CONSTRAINT push_subscriptions_user_id_fkey FOREIGN KEY (user_id) REFERENCES profiles(id) ON DELETE CASCADE
+);
+CREATE INDEX IF NOT EXISTS idx_push_subscriptions_user_id ON public.push_subscriptions USING btree (user_id);
+
+-- Avaliação interna de empresa-cliente (não visível ao cliente) ------------
+CREATE TABLE IF NOT EXISTS public.customer_evaluations (
+  id uuid DEFAULT (md5(((random())::text || (clock_timestamp())::text)))::uuid NOT NULL,
+  company_id uuid NOT NULL,
+  analyst_id uuid,
+  chat_session_id uuid,
+  knowledge_score smallint,
+  autonomy_score smallint,
+  learning_score smallint,
+  engagement_score smallint,
+  organization_score smallint,
+  communication_score smallint,
+  profile_tag text,
+  created_at timestamptz DEFAULT now() NOT NULL,
+  origin text DEFAULT 'manual'::text NOT NULL,
+  contact_id uuid,
+  CONSTRAINT customer_evaluations_pkey PRIMARY KEY (id),
+  CONSTRAINT customer_evaluations_analyst_id_fkey FOREIGN KEY (analyst_id) REFERENCES profiles(id) ON DELETE SET NULL,
+  CONSTRAINT customer_evaluations_chat_session_id_fkey FOREIGN KEY (chat_session_id) REFERENCES chat_sessions(id) ON DELETE SET NULL,
+  CONSTRAINT customer_evaluations_company_id_fkey FOREIGN KEY (company_id) REFERENCES companies(id) ON DELETE CASCADE,
+  CONSTRAINT customer_evaluations_contact_id_fkey FOREIGN KEY (contact_id) REFERENCES profiles(id) ON DELETE SET NULL,
+  CONSTRAINT customer_evaluations_autonomy_score_check CHECK (((autonomy_score >= 1) AND (autonomy_score <= 5))),
+  CONSTRAINT customer_evaluations_communication_score_check CHECK (((communication_score >= 1) AND (communication_score <= 5))),
+  CONSTRAINT customer_evaluations_engagement_score_check CHECK (((engagement_score >= 1) AND (engagement_score <= 5))),
+  CONSTRAINT customer_evaluations_knowledge_score_check CHECK (((knowledge_score >= 1) AND (knowledge_score <= 5))),
+  CONSTRAINT customer_evaluations_learning_score_check CHECK (((learning_score >= 1) AND (learning_score <= 5))),
+  CONSTRAINT customer_evaluations_organization_score_check CHECK (((organization_score >= 1) AND (organization_score <= 5))),
+  CONSTRAINT customer_evaluations_origin_check CHECK ((origin = ANY (ARRAY['chat_close'::text, 'manual'::text]))),
+  CONSTRAINT customer_evaluations_profile_tag_check CHECK ((profile_tag = ANY (ARRAY['technical'::text, 'beginner'::text, 'challenging'::text])))
+);
+CREATE INDEX IF NOT EXISTS idx_customer_evaluations_company_id ON public.customer_evaluations USING btree (company_id);
+CREATE INDEX IF NOT EXISTS idx_customer_evaluations_created_at ON public.customer_evaluations USING btree (created_at DESC);
+CREATE INDEX IF NOT EXISTS idx_customer_evaluations_contact_id ON public.customer_evaluations USING btree (contact_id);
+
+-- API de integração externa (lib/integration-auth.ts) ----------------------
+CREATE TABLE IF NOT EXISTS public.integration_api_keys (
+  id uuid DEFAULT (md5(((random())::text || (clock_timestamp())::text)))::uuid NOT NULL,
+  name text NOT NULL,
+  key_prefix text NOT NULL,
+  key_hash text NOT NULL,
+  scopes text[] DEFAULT '{}'::text[] NOT NULL,
+  is_active boolean DEFAULT true NOT NULL,
+  created_by uuid,
+  last_used_at timestamptz,
+  created_at timestamptz DEFAULT now() NOT NULL,
+  CONSTRAINT integration_api_keys_pkey PRIMARY KEY (id),
+  CONSTRAINT integration_api_keys_created_by_fkey FOREIGN KEY (created_by) REFERENCES profiles(id) ON DELETE SET NULL
+);
+CREATE INDEX IF NOT EXISTS idx_integration_api_keys_prefix ON public.integration_api_keys USING btree (key_prefix);
+
+-- Quem está olhando uma conversa agora — persistido no banco (e não na
+-- memória do processo) porque decide se o push é enviado.
+CREATE TABLE IF NOT EXISTS public.chat_session_viewers (
+  session_id uuid NOT NULL,
+  user_id uuid NOT NULL,
+  last_seen_at timestamptz DEFAULT now() NOT NULL,
+  CONSTRAINT chat_session_viewers_pkey PRIMARY KEY (session_id, user_id),
+  CONSTRAINT chat_session_viewers_session_id_fkey FOREIGN KEY (session_id) REFERENCES chat_sessions(id) ON DELETE CASCADE,
+  CONSTRAINT chat_session_viewers_user_id_fkey FOREIGN KEY (user_id) REFERENCES profiles(id) ON DELETE CASCADE
+);
+CREATE INDEX IF NOT EXISTS idx_chat_session_viewers_last_seen ON public.chat_session_viewers USING btree (last_seen_at);
+
+-- Limiares das métricas do dashboard (linha única) -------------------------
+CREATE TABLE IF NOT EXISTS public.config_metric_thresholds (
+  id integer DEFAULT 1 NOT NULL,
+  first_response_good_seconds integer DEFAULT 120 NOT NULL,
+  first_response_warning_seconds integer DEFAULT 300 NOT NULL,
+  pct_2min_good_percentage numeric DEFAULT 80 NOT NULL,
+  pct_2min_warning_percentage numeric DEFAULT 60 NOT NULL,
+  duration_good_minutes numeric DEFAULT 10 NOT NULL,
+  duration_warning_minutes numeric DEFAULT 20 NOT NULL,
+  satisfaction_good_percentage numeric DEFAULT 85 NOT NULL,
+  satisfaction_warning_percentage numeric DEFAULT 70 NOT NULL,
+  individual_peak_good integer DEFAULT 3 NOT NULL,
+  individual_peak_warning integer DEFAULT 5 NOT NULL,
+  waiting_now_good integer DEFAULT 2 NOT NULL,
+  waiting_now_warning integer DEFAULT 5 NOT NULL,
+  volume_min_expected integer DEFAULT 1 NOT NULL,
+  updated_at timestamptz DEFAULT now() NOT NULL,
+  capacity_ratio_good numeric DEFAULT 2 NOT NULL,
+  capacity_ratio_warning numeric DEFAULT 4 NOT NULL,
+  risk_satisfaction_drop_points numeric DEFAULT 15 NOT NULL,
+  risk_recurrence_rate_warning numeric DEFAULT 20 NOT NULL,
+  CONSTRAINT config_metric_thresholds_pkey PRIMARY KEY (id),
+  CONSTRAINT config_metric_thresholds_single_row CHECK ((id = 1))
+);
+
+-- Histórico de edição e reações de mensagem --------------------------------
+CREATE TABLE IF NOT EXISTS public.chat_message_edits (
+  id uuid DEFAULT (md5(((random())::text || (clock_timestamp())::text)))::uuid NOT NULL,
+  message_id uuid NOT NULL,
+  previous_text text,
+  edited_by uuid,
+  edited_at timestamptz DEFAULT now() NOT NULL,
+  CONSTRAINT chat_message_edits_pkey PRIMARY KEY (id),
+  CONSTRAINT chat_message_edits_edited_by_fkey FOREIGN KEY (edited_by) REFERENCES profiles(id) ON DELETE SET NULL,
+  CONSTRAINT chat_message_edits_message_id_fkey FOREIGN KEY (message_id) REFERENCES chat_messages(id) ON DELETE CASCADE
+);
+CREATE INDEX IF NOT EXISTS idx_chat_message_edits_message_id ON public.chat_message_edits USING btree (message_id);
+
+CREATE TABLE IF NOT EXISTS public.chat_message_reactions (
+  id uuid DEFAULT (md5(((random())::text || (clock_timestamp())::text)))::uuid NOT NULL,
+  message_id uuid NOT NULL,
+  user_id uuid NOT NULL,
+  emoji text NOT NULL,
+  created_at timestamptz DEFAULT now() NOT NULL,
+  CONSTRAINT chat_message_reactions_message_id_user_id_key UNIQUE (message_id, user_id),
+  CONSTRAINT chat_message_reactions_pkey PRIMARY KEY (id),
+  CONSTRAINT chat_message_reactions_message_id_fkey FOREIGN KEY (message_id) REFERENCES chat_messages(id) ON DELETE CASCADE,
+  CONSTRAINT chat_message_reactions_user_id_fkey FOREIGN KEY (user_id) REFERENCES profiles(id) ON DELETE CASCADE
+);
+CREATE INDEX IF NOT EXISTS idx_chat_message_reactions_message_id ON public.chat_message_reactions USING btree (message_id);
+
+CREATE TABLE IF NOT EXISTS public.internal_chat_message_reactions (
+  id uuid DEFAULT (md5(((random())::text || (clock_timestamp())::text)))::uuid NOT NULL,
+  message_id uuid NOT NULL,
+  user_id uuid NOT NULL,
+  emoji text NOT NULL,
+  created_at timestamptz DEFAULT now() NOT NULL,
+  CONSTRAINT internal_chat_message_reactions_message_id_user_id_key UNIQUE (message_id, user_id),
+  CONSTRAINT internal_chat_message_reactions_pkey PRIMARY KEY (id),
+  CONSTRAINT internal_chat_message_reactions_message_id_fkey FOREIGN KEY (message_id) REFERENCES internal_chat_messages(id) ON DELETE CASCADE,
+  CONSTRAINT internal_chat_message_reactions_user_id_fkey FOREIGN KEY (user_id) REFERENCES profiles(id) ON DELETE CASCADE
+);
+CREATE INDEX IF NOT EXISTS idx_internal_chat_message_reactions_message_id ON public.internal_chat_message_reactions USING btree (message_id);
+
+-- Colunas acrescentadas por migração ---------------------------------------
+-- profiles.is_active é a mais crítica da lista: sem ela o login falha na
+-- primeira consulta, e era o que impedia este arquivo de subir um banco novo.
+ALTER TABLE public.chat_messages ADD COLUMN IF NOT EXISTS read_by uuid[] DEFAULT '{}'::uuid[];
+ALTER TABLE public.chat_messages ADD COLUMN IF NOT EXISTS edited_at timestamptz;
+ALTER TABLE public.chat_messages ADD COLUMN IF NOT EXISTS deleted_at timestamptz;
+ALTER TABLE public.chat_messages ADD COLUMN IF NOT EXISTS deleted_by uuid;
+ALTER TABLE public.chat_messages ADD COLUMN IF NOT EXISTS delivered_by uuid[] DEFAULT '{}'::uuid[];
+ALTER TABLE public.companies ADD COLUMN IF NOT EXISTS is_in_training boolean DEFAULT false NOT NULL;
+ALTER TABLE public.internal_chat_messages ADD COLUMN IF NOT EXISTS read_by uuid[] DEFAULT '{}'::uuid[];
+ALTER TABLE public.internal_chat_messages ADD COLUMN IF NOT EXISTS delivered_by uuid[] DEFAULT '{}'::uuid[];
+ALTER TABLE public.profiles ADD COLUMN IF NOT EXISTS is_active boolean DEFAULT true NOT NULL;
+ALTER TABLE public.profiles ADD COLUMN IF NOT EXISTS notify_ticket_new boolean DEFAULT true;
+ALTER TABLE public.profiles ADD COLUMN IF NOT EXISTS notify_ticket_assigned boolean DEFAULT true;
+ALTER TABLE public.profiles ADD COLUMN IF NOT EXISTS notify_ticket_update boolean DEFAULT true;
+ALTER TABLE public.profiles ADD COLUMN IF NOT EXISTS notify_ticket_closed boolean DEFAULT true;
+ALTER TABLE public.profiles ADD COLUMN IF NOT EXISTS notify_chat_new boolean DEFAULT true;
+ALTER TABLE public.profiles ADD COLUMN IF NOT EXISTS notify_chat_message boolean DEFAULT true;
+ALTER TABLE public.tickets ADD COLUMN IF NOT EXISTS attachments_data jsonb DEFAULT '[]'::jsonb;
+
+-- Arquivamento das listas de configuração (migrations/config_lists_archive.sql)
+ALTER TABLE public.config_categories    ADD COLUMN IF NOT EXISTS archived_at timestamptz;
+ALTER TABLE public.config_request_types ADD COLUMN IF NOT EXISTS archived_at timestamptz;
+ALTER TABLE public.config_products      ADD COLUMN IF NOT EXISTS archived_at timestamptz;
+ALTER TABLE public.config_effort_levels ADD COLUMN IF NOT EXISTS archived_at timestamptz;
+ALTER TABLE public.config_outcomes      ADD COLUMN IF NOT EXISTS archived_at timestamptz;
+CREATE INDEX IF NOT EXISTS idx_config_categories_active    ON public.config_categories (label)    WHERE archived_at IS NULL;
+CREATE INDEX IF NOT EXISTS idx_config_request_types_active ON public.config_request_types (label) WHERE archived_at IS NULL;
+CREATE INDEX IF NOT EXISTS idx_config_products_active      ON public.config_products (label)      WHERE archived_at IS NULL;
+
+-- Não incluídas de propósito:
+--   public.users             — tabela vazia, sem nenhuma referência no código;
+--                              sobra da fase Supabase, não deve ser provisionada.
+--   public.schema_migrations — criada e mantida por scripts/run-migrations.js,
+--                              que é o dono dela.
+
+-- =========================================================================
 -- SEED DATA SETUP
 -- =========================================================================
 
@@ -913,7 +1132,20 @@ DECLARE
   v_admin_id UUID := '9ca681d2-06c7-4a9c-8ef0-cfe404078356'; -- Constant UUID for Admin Supremo
   v_client_id UUID := '1a72a112-2c67-4a9c-8ef0-cfe404078311'; -- Constant UUID for José Cliente
 BEGIN
-  -- Insert Admin profile with PBKDF2 hashed password ('admin123')
+  -- Usuário administrador de seed, com senha em hash PBKDF2.
+  --
+  -- SEM SENHA UTILIZÁVEL, de propósito. Estas mesmas contas existem no banco
+  -- de produção e este arquivo é versionado: o hash que ficava aqui usava salt
+  -- fixo e correspondia a uma senha trivial, ou seja, quem lesse o repositório
+  -- entrava como Administrador. Foi substituído por um marcador que nenhuma
+  -- senha satisfaz (o prefixo pbkdf2$ é obrigatório para não cair na
+  -- comparação em texto puro de verifyPassword, em lib/auth-utils.ts).
+  --
+  -- Para liberar o acesso num ambiente novo, gere o hash com a própria função
+  -- do projeto e faça o UPDATE:
+  --   node -e "console.log(require('./lib/auth-utils').hashPassword('SUA_SENHA'))"
+  --   UPDATE public.profiles SET password = '<hash>', must_change_password = TRUE
+  --    WHERE email = 'admin@systemsat.com.br';
   INSERT INTO public.profiles (
     id, email, name, role, is_admin, lives_in_squad, company_id, 
     password, must_change_password, view_all_company_tickets
@@ -921,12 +1153,12 @@ BEGIN
   VALUES (
     v_admin_id, 'admin@systemsat.com.br', 'Admin Supremo', 'Administrador', TRUE, TRUE, 
     '11111111-1111-4111-8111-111111111111'::UUID,
-    'pbkdf2$10000$1234567890abcdef$2c2f5a9e0367495e2de1b8ef307c2eba04340e3c011717887170ac1813de6c0afb36a3ae18277380cbe597de4b34fb51203a818527df3ef5be8cdfcad173cd20',
-    FALSE, TRUE
+    'pbkdf2$SEM_SENHA_DEFINIDA$SEM_SENHA_DEFINIDA$SEM_SENHA_DEFINIDA',
+    TRUE, TRUE
   )
   ON CONFLICT (email) DO NOTHING;
 
-  -- Insert Client profile with PBKDF2 hashed password ('senha123')
+  -- Cliente de seed, mesma observação do administrador acima.
   INSERT INTO public.profiles (
     id, email, name, role, is_admin, lives_in_squad, company_id, 
     password, must_change_password, view_all_company_tickets
@@ -934,8 +1166,8 @@ BEGIN
   VALUES (
     v_client_id, 'jose@cliente.com', 'José Cliente', 'Cliente', TRUE, FALSE, 
     '11111111-1111-4111-8111-111111111111'::UUID,
-    'pbkdf2$10000$1234567890abcdef$9f8c1b0ef34a31f95ad00aadf1585d3be04a2c273e703ec00dd304c0b0beb07dd782187e54cdb46638bc9a32acbf7f48a7681571f2f52e6aa4559b8106c86e78',
-    FALSE, TRUE
+    'pbkdf2$SEM_SENHA_DEFINIDA$SEM_SENHA_DEFINIDA$SEM_SENHA_DEFINIDA',
+    TRUE, TRUE
   )
   ON CONFLICT (email) DO NOTHING;
 

@@ -32,12 +32,36 @@ function base64UrlToBytes(base64Url: string): Uint8Array<ArrayBuffer> {
   return bytes;
 }
 
-const JWT_SECRET = process.env.JWT_SECRET || 'super-secret-jwt-key-change-me-in-production-1234567';
+// Sem fallback, de propósito. Havia uma chave fixa escrita aqui para o caso de
+// JWT_SECRET não estar definida — e como este repositório é versionado, essa
+// chave é pública: com ela dá para ASSINAR um token válido para qualquer
+// usuário, inclusive Administrador, sem saber senha nenhuma. O middleware só
+// confere assinatura e validade, então um token forjado passa direto.
+//
+// O agravante era o silêncio: faltando a variável, o sistema continuava
+// funcionando normalmente e ninguém percebia que a sessão inteira estava
+// protegida por uma chave publicada. Agora falta de variável derruba o boot com
+// mensagem clara, que é o comportamento certo para uma chave de assinatura.
+// A checagem é feita aqui dentro, e não no topo do arquivo, porque `next build`
+// não recebe JWT_SECRET (ela não é build arg — só as NEXT_PUBLIC_* são): lançar
+// no carregamento do módulo quebraria a compilação da imagem. Aqui a falha
+// acontece na primeira operação de sessão, que é quando a chave importa.
+function requireSecret(): string {
+  const secret = process.env.JWT_SECRET;
+  if (!secret) {
+    throw new Error(
+      'JWT_SECRET não está definida. Ela assina o cookie de sessão — sem ela não há login seguro. ' +
+      'Gere uma chave aleatória longa (ex.: openssl rand -hex 32) e defina no .env; ' +
+      'no container, ela chega pelo env_file do docker-compose.yml.'
+    );
+  }
+  return secret;
+}
 
 async function getSigningKey(): Promise<CryptoKey> {
   return crypto.subtle.importKey(
     'raw',
-    encoder.encode(JWT_SECRET),
+    encoder.encode(requireSecret()),
     { name: 'HMAC', hash: 'SHA-256' },
     false,
     ['sign', 'verify']

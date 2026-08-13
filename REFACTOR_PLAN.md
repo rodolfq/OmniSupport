@@ -1,3 +1,8 @@
+> **OBSOLETO — não seguir.** Este documento é de 2025/2026, da era anterior à
+> migração: o objetivo dele era ir *para* o Supabase. O projeto foi no sentido
+> contrário — hoje o banco é PostgreSQL próprio e o shim de compatibilidade
+> Supabase foi removido em 12/08/2026. Mantido só como registro histórico.
+> Para o estado atual, ver CLAUDE.md.
 # Refatoração para Produção - Plano de Execução
 
 ## Objetivo

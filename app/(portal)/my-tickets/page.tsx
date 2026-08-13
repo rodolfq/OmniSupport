@@ -4,7 +4,6 @@ import React, { useState, useEffect, useMemo } from 'react';
 import { useApp } from '@/app/app-context';
 import { Ticket, Permission, UserRole, InternalTicket } from '@/lib/types';
 import { fetchAllTickets } from '@/lib/tickets';
-import { supabase } from '@/lib/supabase';
 import {
   Search,
   Filter,
@@ -136,12 +135,11 @@ export default function MyTicketsPage() {
       if (!currentUser || !canSeeInternal || ticketMode !== 'internal') return;
       setLoadingInternal(true);
       try {
-        const { data, error } = await supabase
-          .from('internal_tickets')
-          .select('*')
-          .or(`assignee_id.eq.${currentUser.id},creator_id.eq.${currentUser.id}`)
-          .order('updated_at', { ascending: false });
-        if (error) throw error;
+        // scope=mine: o servidor resolve "meus" pela sessão (responsável ou
+        // criador), em vez de o id do usuário viajar na querystring.
+        const res = await fetch('/api/internal-tickets?action=list&scope=mine');
+        if (!res.ok) throw new Error('Falha ao carregar tickets internos.');
+        const data = await res.json();
         setInternalTickets((data || []).map((it: any) => ({
           ...it,
           uuid: it.id,

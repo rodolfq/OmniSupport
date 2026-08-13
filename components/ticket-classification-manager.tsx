@@ -1,7 +1,7 @@
 'use client';
 
 import React, { useState, useEffect } from 'react';
-import { Plus, Trash2, Gauge, Target } from 'lucide-react';
+import { Plus, Trash2, Gauge, Target, Archive, ArchiveRestore } from 'lucide-react';
 import { EffortConfig, OutcomeConfig, UserRole } from '@/lib/types';
 import { ConfigService } from '@/lib/services/config-service';
 import { useApp } from '@/app/app-context';
@@ -17,6 +17,61 @@ import { toast } from 'sonner';
 // "Desfecho" responde qual foi a natureza da solução. Um ticket trivial pode
 // exigir ação e um complexo pode terminar sem alteração nenhuma — num campo só
 // as duas dimensões brigam e o dado sai inconsistente.
+
+// Arquivar x excluir. internal_tickets.effort_id/outcome_id são ON DELETE SET
+// NULL: excluir um rótulo em uso apagaria a classificação desses tickets em
+// silêncio. Por isso o botão de excluir só existe para item com uso zero — o
+// resto se arquiva, sai dos seletores e continua aparecendo onde já foi usado.
+function ArchiveActions({
+  item, onArchive, onDelete
+}: {
+  item: { isArchived?: boolean; usageCount?: number };
+  onArchive: (archived: boolean) => void;
+  onDelete: () => void;
+}) {
+  const usage = item.usageCount ?? 0;
+
+  if (item.isArchived) {
+    return (
+      <button
+        onClick={() => onArchive(false)}
+        className="p-2 rounded-lg text-[var(--text-tertiary)] hover:text-[var(--accent-text)] hover:bg-[var(--surface-pill)] transition-all"
+        title="Restaurar — volta a ser oferecido em tickets novos"
+      >
+        <ArchiveRestore size={14} />
+      </button>
+    );
+  }
+
+  return (
+    <>
+      {usage > 0 && (
+        <span
+          className="text-[11px] font-semibold text-[var(--text-tertiary)] bg-[var(--surface-pill)] px-2 py-0.5 rounded-full tabular-nums"
+          title={`${usage} ticket(s) interno(s) usam este item`}
+        >
+          {usage}
+        </span>
+      )}
+      <button
+        onClick={() => onArchive(true)}
+        className="p-2 rounded-lg text-[var(--text-tertiary)] hover:text-[var(--text-secondary)] hover:bg-[var(--surface-pill)] transition-all"
+        title="Arquivar — deixa de ser oferecido em tickets novos, mas continua aparecendo nos antigos"
+      >
+        <Archive size={14} />
+      </button>
+      {usage === 0 && (
+        <button
+          onClick={onDelete}
+          className="p-2 rounded-lg text-[var(--text-danger)] hover:bg-[var(--surface-danger)] transition-all"
+          title="Excluir definitivamente — disponível porque nenhum ticket usa este item"
+        >
+          <Trash2 size={14} />
+        </button>
+      )}
+    </>
+  );
+}
 
 export function TicketClassificationManager() {
   const { currentUser } = useApp();
@@ -36,7 +91,9 @@ export function TicketClassificationManager() {
   useEffect(() => {
     (async () => {
       try {
-        const [e, o] = await Promise.all([ConfigService.getEfforts(), ConfigService.getOutcomes()]);
+        // usage=1: só esta tela precisa da contagem — é ela que decide entre
+        // oferecer "arquivar" ou "excluir definitivamente".
+        const [e, o] = await Promise.all([ConfigService.getEfforts(true), ConfigService.getOutcomes(true)]);
         setEfforts(e);
         setOutcomes(o);
       } catch {
@@ -75,7 +132,10 @@ export function TicketClassificationManager() {
     if (!Number.isFinite(weight) || weight <= 0 || weight === effort.weight) return;
     try {
       const saved = await ConfigService.saveEffort({ ...effort, weight });
-      setEfforts(efforts.map(e => (e.id === saved.id ? saved : e)));
+      // usageCount não volta da gravação (a rota só o calcula com usage=1) —
+      // preservar o valor local evita o botão de excluir reaparecer num item
+      // que está em uso.
+      setEfforts(prev => prev.map(e => (e.id === saved.id ? { ...saved, usageCount: e.usageCount } : e)));
       toast.success('Peso atualizado.');
     } catch {
       toast.error('Erro ao atualizar o peso.');
@@ -89,7 +149,7 @@ export function TicketClassificationManager() {
   const handleRenameEffort = async (effort: EffortConfig, label: string) => {
     try {
       const saved = await ConfigService.saveEffort({ ...effort, label });
-      setEfforts(efforts.map(e => (e.id === saved.id ? saved : e)));
+      setEfforts(prev => prev.map(e => (e.id === saved.id ? { ...saved, usageCount: e.usageCount } : e)));
       toast.success('Nome atualizado.');
     } catch {
       toast.error('Erro ao renomear — talvez já exista um item com esse nome.');
@@ -97,10 +157,33 @@ export function TicketClassificationManager() {
     }
   };
 
+  // Arquivar/restaurar não pede confirmação: nada é apagado e o botão de
+  // restaurar desfaz. A contagem de uso é preservada no estado local porque a
+  // rota de arquivar não a recalcula (ela não muda ao arquivar).
+  const handleArchiveEffort = async (effort: EffortConfig, archived: boolean) => {
+    try {
+      const saved = await ConfigService.archiveEffort(effort.id, archived);
+      setEfforts(prev => prev.map(e => (e.id === effort.id ? { ...saved, usageCount: e.usageCount } : e)));
+      toast.success(archived ? 'Nível arquivado.' : 'Nível restaurado.');
+    } catch (err: any) {
+      toast.error(err?.message || 'Erro ao arquivar.');
+    }
+  };
+
+  const handleArchiveOutcome = async (outcome: OutcomeConfig, archived: boolean) => {
+    try {
+      const saved = await ConfigService.archiveOutcome(outcome.id, archived);
+      setOutcomes(prev => prev.map(o => (o.id === outcome.id ? { ...saved, usageCount: o.usageCount } : o)));
+      toast.success(archived ? 'Desfecho arquivado.' : 'Desfecho restaurado.');
+    } catch (err: any) {
+      toast.error(err?.message || 'Erro ao arquivar.');
+    }
+  };
+
   const handleRenameOutcome = async (outcome: OutcomeConfig, label: string) => {
     try {
       const saved = await ConfigService.saveOutcome({ ...outcome, label });
-      setOutcomes(outcomes.map(o => (o.id === saved.id ? saved : o)));
+      setOutcomes(prev => prev.map(o => (o.id === saved.id ? { ...saved, usageCount: o.usageCount } : o)));
       toast.success('Nome atualizado.');
     } catch {
       toast.error('Erro ao renomear — talvez já exista um item com esse nome.');
@@ -133,7 +216,7 @@ export function TicketClassificationManager() {
     if (!isAdmin) return;
     try {
       const saved = await ConfigService.saveOutcome({ ...outcome, countsAsDefect: !outcome.countsAsDefect });
-      setOutcomes(outcomes.map(o => (o.id === saved.id ? saved : o)));
+      setOutcomes(prev => prev.map(o => (o.id === saved.id ? { ...saved, usageCount: o.usageCount } : o)));
     } catch {
       toast.error('Erro ao atualizar o desfecho.');
     }
@@ -210,13 +293,11 @@ export function TicketClassificationManager() {
                   className="w-20 px-2 py-1.5 rounded-lg border border-[var(--border-default)] bg-[var(--surface-card)] text-sm font-bold text-right outline-none focus:ring-2 focus:ring-[var(--accent)]/20 disabled:opacity-50"
                 />
                 {isAdmin && (
-                  <button
-                    onClick={() => setDeleting({ kind: 'effort', id: effort.id, label: effort.label })}
-                    className="p-2 rounded-lg text-[var(--text-danger)] hover:bg-[var(--surface-danger)] transition-all"
-                    title="Remover"
-                  >
-                    <Trash2 size={14} />
-                  </button>
+                  <ArchiveActions
+                    item={effort}
+                    onArchive={(archived) => handleArchiveEffort(effort, archived)}
+                    onDelete={() => setDeleting({ kind: 'effort', id: effort.id, label: effort.label })}
+                  />
                 )}
               </div>
             ))}
@@ -286,13 +367,11 @@ export function TicketClassificationManager() {
                   {outcome.countsAsDefect ? 'Defeito' : 'Não é defeito'}
                 </button>
                 {isAdmin && (
-                  <button
-                    onClick={() => setDeleting({ kind: 'outcome', id: outcome.id, label: outcome.label })}
-                    className="p-2 rounded-lg text-[var(--text-danger)] hover:bg-[var(--surface-danger)] transition-all"
-                    title="Remover"
-                  >
-                    <Trash2 size={14} />
-                  </button>
+                  <ArchiveActions
+                    item={outcome}
+                    onArchive={(archived) => handleArchiveOutcome(outcome, archived)}
+                    onDelete={() => setDeleting({ kind: 'outcome', id: outcome.id, label: outcome.label })}
+                  />
                 )}
               </div>
             ))}

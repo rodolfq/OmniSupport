@@ -244,7 +244,7 @@ export class InternalChatService {
 export async function resolveChatSessionForPhone(
   rawNumber: string,
   displayName?: string
-): Promise<{ sessionId: string; reopened: boolean } | { error: string }> {
+): Promise<{ sessionId: string; reopened: boolean; assigneeId: string | null } | { error: string }> {
   // normalizeBrazilianPhoneDigits já resolve "0" de tronco, DDD/prefixo
   // redundante colado antes do "55" e a adição do "55" quando falta — ver
   // lib/utils.ts. Checa o tamanho DEPOIS de normalizar (não antes): boa
@@ -275,7 +275,11 @@ export async function resolveChatSessionForPhone(
     if (!res.ok) {
       return { error: body.error || 'Erro ao iniciar conversa.' };
     }
-    return { sessionId: body.id, reopened: !!body.reused };
+    // assigneeId volta do servidor porque a sessão criada por aqui nasce
+    // 'active' e, por isso, NÃO passa pela distribuição por fila (que só roda
+    // pra 'pending' — ver app/api/chats/route.ts, action=create-session). Quem
+    // chama é que decide assumir; sem esse campo a conversa ficaria sem dono.
+    return { sessionId: body.id, reopened: !!body.reused, assigneeId: body.assigneeId ?? null };
   } catch (err: any) {
     console.error('Error resolving chat session for phone:', err);
     return { error: 'Erro ao iniciar conversa.' };

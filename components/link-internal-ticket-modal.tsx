@@ -4,7 +4,6 @@ import React, { useState, useEffect } from 'react';
 import { StyledSelect } from '@/components/styled-select';
 import { motion, AnimatePresence } from 'motion/react';
 import { Search } from 'lucide-react';
-import { supabase } from '@/lib/supabase';
 import { useInternalTeamsQuery } from '@/lib/query-hooks';
 import { InternalTicket } from '@/lib/types';
 
@@ -43,28 +42,21 @@ export function LinkInternalTicketModal({ isOpen, onClose, onLink, excludeIds = 
     
     const fetchTickets = async () => {
       setLoading(true);
-      let query = supabase.from('internal_tickets').select('*');
-      
-      // Apply search filter on backend if not empty
-      if (debouncedSearch) {
-        query = query.ilike('title', `%${debouncedSearch}%`);
-      }
-      
-      // Apply team filter on backend if not empty  
+      const params = new URLSearchParams({ action: 'list', limit: '50' });
+      if (debouncedSearch) params.set('search', debouncedSearch);
+      // O filtro da tela é por NOME da equipe; a rota espera o id.
       if (teamFilter) {
-        // Find team by name and filter by UUID
         const team = teams.find(t => t.name === teamFilter);
-        if (team) {
-          query = query.eq('internal_team_id', team.id);
-        }
+        if (team) params.set('teamId', team.id);
       }
-      
-      // Limit results for performance
-      query = query.limit(50);
-      
-      const { data, error } = await query;
-      if (error) {
-        console.error('Error fetching internal tickets:', error.message);
+
+      let data: any[] = [];
+      try {
+        const res = await fetch(`/api/internal-tickets?${params}`);
+        if (!res.ok) throw new Error(`HTTP ${res.status}`);
+        data = await res.json();
+      } catch (err) {
+        console.error('Erro ao buscar tickets internos:', err);
       }
       setAllTickets((data || []).filter((it: any) => !excludeIds.includes(it.id)).map((it: any) => ({
         id: it.id,

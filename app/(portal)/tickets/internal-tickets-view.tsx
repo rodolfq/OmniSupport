@@ -2,7 +2,6 @@
 
 import React, { useState, useEffect, useCallback, useMemo } from "react";
 import { StyledSelect } from '@/components/styled-select';
-import { supabase } from "@/lib/supabase";
 import { cn } from "@/lib/utils";
 import { motion, AnimatePresence } from "motion/react";
 import { useApp } from "@/app/app-context";
@@ -215,75 +214,35 @@ export function InternalTicketsView({
     else setLoading(true);
 
     try {
-      const from = (page - 1) * ITEMS_PER_PAGE;
-      const to = from + ITEMS_PER_PAGE - 1;
+      // Uma chamada resolve página, total, responsáveis, vínculos e
+      // contagem de comentários — antes eram cinco consultas encadeadas
+      // saindo do navegador (ver action=board em app/api/internal-tickets).
+      const qs = new URLSearchParams({ page: String(page), pageSize: String(ITEMS_PER_PAGE) });
+      if (searchTerm) qs.set('search', searchTerm);
+      if (filterTeam) qs.set('teamId', filterTeam);
+      if (filterAssignee) qs.set('assigneeId', filterAssignee);
+      if (filterStatus) qs.set('status', filterStatus);
+      if (filterPriority) qs.set('priority', filterPriority);
+      if (dateFrom) qs.set('dateFrom', dateFrom);
+      if (dateTo) qs.set('dateTo', dateTo);
 
-      let query = supabase
-        .from("internal_tickets")
-        .select("*", { count: "exact" })
-        .order("created_at", { ascending: false })
-        .range(from, to);
+      // Sem permissão de ver todas as equipes: só as próprias — e quais são
+      // é o servidor que resolve, pela sessão.
+      if (!hasPermission(Permission.INTERNAL_TICKETS_VIEW_ALL)) qs.set('scope', 'my-teams');
 
-      if (searchTerm) query = query.ilike("title", `%${searchTerm}%`);
-      if (filterTeam) query = query.eq("team_id", filterTeam);
-if (filterAssignee) query = query.eq("assignee_id", filterAssignee);
-       if (filterStatus) query = query.eq("status", filterStatus);
-       if (filterPriority) query = query.eq("priority", parseInt(filterPriority));
-       if (dateFrom) query = query.gte("created_at", `${dateFrom}T00:00:00`);
-       if (dateTo) query = query.lte("created_at", `${dateTo}T23:59:59`);
+      const boardRes = await fetch(`/api/internal-tickets?action=board&${qs}`);
+      if (!boardRes.ok) throw new Error(`Falha ao carregar tickets internos (HTTP ${boardRes.status}).`);
+      const board = await boardRes.json();
 
-      // Sem permissão de ver todas as equipes (Administrador/Equipe por
-      // padrão): só enxerga tickets internos da(s) própria(s) equipe(s) —
-      // é a diferenciação dev/infra vs suporte pedida pro Perfil de Acesso.
-      const canViewAllTeams = hasPermission(Permission.INTERNAL_TICKETS_VIEW_ALL);
-      if (!canViewAllTeams) {
-        const myTeamIds = currentUser.internalTeamIds || [];
-        if (myTeamIds.length === 0) {
-          setTickets([]);
-          setTotalPages(1);
-          setLoading(false);
-          setLoadingMore(false);
-          return;
-        }
-        query = query.in("internal_team_id", myTeamIds);
-      }
+      const internalData = board.tickets || [];
+      setTotalPages(Math.max(1, Math.ceil((board.total || 0) / ITEMS_PER_PAGE)));
 
-      const { data: internalData, error, count } = await query;
-
-      if (error) {
-        console.error("Query error:", error);
-        throw error;
-      }
-
-      setTotalPages(Math.ceil((count || 0) / ITEMS_PER_PAGE));
-
-      // Get assignee names (+ foto em miniatura) separately
-      const assigneeIds = [...new Set((internalData || []).map((t: any) => t.assignee_id).filter(Boolean))];
-      const { data: assignees } = assigneeIds.length
-        ? await supabase.from("profiles").select("id, name, avatar_thumb_url").in("id", assigneeIds)
-        : { data: [] as any[] };
       const assigneeMap = new Map<string, { name: string; avatarThumbUrl: string | null }>(
-        (assignees || []).map((a: any) => [a.id, { name: a.name, avatarThumbUrl: a.avatar_thumb_url }])
+        Object.entries(board.assignees || {}) as any
       );
-
-      // Get linked tickets
-      const { data: links } = await supabase
-        .from("ticket_internal_links")
-        .select("ticket_id, internal_ticket_id");
-
-      const { data: regularTickets } = await supabase.from("tickets").select("id, title, public_ticket_number");
-      const ticketMap = new Map((regularTickets || []).map((t: any) => [t.id, `#${t.public_ticket_number || t.id.slice(0, 8)}`]));
-
-      // Quantos comentários cada ticket desta página já tem — dá pra ver de
-      // relance qual ticket teve conversa sem precisar abrir.
-      const pageIds = (internalData || []).map((it: any) => it.id);
-      const { data: messageRows } = pageIds.length
-        ? await supabase.from("internal_ticket_messages").select("internal_ticket_id").in("internal_ticket_id", pageIds)
-        : { data: [] as any[] };
-      const commentCountMap = new Map<string, number>();
-      (messageRows || []).forEach((m: any) => {
-        commentCountMap.set(m.internal_ticket_id, (commentCountMap.get(m.internal_ticket_id) || 0) + 1);
-      });
+      const links = board.links || [];
+      const ticketMap = new Map<string, string>(Object.entries(board.ticketLabels || {}) as any);
+      const commentCountMap = new Map<string, number>(Object.entries(board.commentCounts || {}) as any);
 
       setTickets((internalData || []).map((it: any) => {
         const linkedIds = (links || [])
@@ -404,11 +363,12 @@ const openEditModal = (ticket: InternalTicketItem) => {
    const handleStatusChange = async (ticketUuid: string, newStatus: string) => {
      try {
        const previousStatus = tickets.find(t => t.uuid === ticketUuid)?.status || 'Novo';
-       const { error } = await supabase
-         .from('internal_tickets')
-         .update({ status: newStatus, updated_at: new Date().toISOString() })
-         .eq('id', ticketUuid);
-       if (error) throw error;
+       const res = await fetch('/api/internal-tickets', {
+         method: 'POST',
+         headers: { 'Content-Type': 'application/json' },
+         body: JSON.stringify({ action: 'update', id: ticketUuid, fields: { status: newStatus } })
+       });
+       if (!res.ok) throw new Error('Erro ao atualizar o status.');
        if (newStatus !== previousStatus) {
          await InternalTicketService.logEvent(ticketUuid, currentUser?.id, `Status alterado de "${previousStatus}" para "${newStatus}"`);
        }

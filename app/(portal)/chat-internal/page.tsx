@@ -42,7 +42,6 @@ import { cn, normalizeString } from '@/lib/utils';
 import { useApp } from '@/app/app-context';
 import { UserAvatar } from '@/components/user-avatar';
 import { InternalGroup, ChatMessage, User, UserRole, Permission, AnalystStatus } from '@/lib/types';
-import { supabase } from '@/lib/supabase';
 import { ClientTime } from '@/components/client-time';
 import { InternalChatService } from '@/lib/services/chat-service';
 import { UserService } from '@/lib/services/user-service';
@@ -235,18 +234,13 @@ export default function ChatInternalPage() {
 
     const initializeChat = async () => {
       try {
-        const [, { data }] = await Promise.all([
+        const [, usersRes] = await Promise.all([
           loadRooms(),
-          supabase
-            .from('profiles')
-            .select('id, name, email, avatar_url, role, status, status_reason')
-            .or('role.eq.Equipe,role.eq.Administrador,role.eq.Time Interno')
+          fetch('/api/users?type=chat-team')
         ]);
-        const users = (data || []).map((user: any) => ({
-          ...user,
-          avatarUrl: user.avatar_url,
-          statusReason: user.status_reason
-        })) as User[];
+        // A rota já devolve camelCase (avatarUrl/statusReason), o que este
+        // trecho remapeava na mão a partir da linha crua.
+        const users = (usersRes.ok ? await usersRes.json() : []) as User[];
 
         await preloadAvatars(users);
         if (!isActive) return;

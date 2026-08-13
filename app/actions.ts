@@ -327,13 +327,24 @@ export async function getUsers() {
     const actor = await getCurrentActionUser();
     if (!actor) return [];
 
+    // Colunas explícitas em vez de SELECT *. Duas razões: (1) avatar_url é a
+    // foto inteira em base64 e sozinha soma ~51 MB na tabela — esta action
+    // alimenta as telas de Equipe e Empresas, que pagavam esse peso a cada
+    // carga só pra desenhar avatares pequenos; agora vai o ENDEREÇO da imagem
+    // (ver app/api/users/[id]/avatar/route.ts); (2) SELECT * também trazia o
+    // hash de senha, que nunca deveria sair daqui.
     const isCompanyUser = actor.role === 'Cliente' || actor.role === 'Funcionário';
+    const COLUMNS = `id, name, email, role, company_id, phone, view_all_company_tickets,
+                     is_admin, is_active, internal_team_ids, access_profile_id,
+                     avatar_thumb_url,
+                     (avatar_url IS NOT NULL AND avatar_url <> '') AS has_avatar`;
     const res = isCompanyUser
       ? await query(
-          "SELECT * FROM public.profiles WHERE company_id = $1 AND role IN ('Cliente', 'Funcionário') ORDER BY name ASC",
+          `SELECT ${COLUMNS} FROM public.profiles
+            WHERE company_id = $1 AND role IN ('Cliente', 'Funcionário') ORDER BY name ASC`,
           [actor.company_id]
         )
-      : await query('SELECT * FROM public.profiles ORDER BY name ASC');
+      : await query(`SELECT ${COLUMNS} FROM public.profiles ORDER BY name ASC`);
 
     return res.rows.map(u => ({
       id: u.id,
@@ -342,7 +353,8 @@ export async function getUsers() {
       role: u.role,
       companyId: u.company_id,
       phone: u.phone || undefined,
-      avatarUrl: u.avatar_url || undefined,
+      avatarUrl: u.has_avatar ? `/api/users/${u.id}/avatar` : undefined,
+      avatarThumbUrl: u.avatar_thumb_url || undefined,
       viewAllCompanyTickets: u.view_all_company_tickets,
       isAdmin: u.is_admin,
       isActive: u.is_active,
@@ -1931,5 +1943,215 @@ export async function runDissatisfactionBatchNow() {
   } catch (err: any) {
     console.error('Error running manual dissatisfaction batch in actions:', err);
     return { error: err.message || 'Erro ao sincronizar o detector de insatisfação.' };
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Equipes internas (tela Perfis de Acesso).
+//
+// Estas operações vinham do shim de compatibilidade, direto do browser:
+// `supabase.from('internal_teams').update({ admin_ids: [...] })`. Além de
+// passarem pelo tradutor genérico de SQL, elas NÃO TINHAM autorização no
+// servidor — a única barreira era a tela esconder o botão. Como
+// internal_teams.admin_ids é o que decide quem pode criar usuário e editar
+// Perfil de Acesso (ver getAdminTeamIds acima), quem chamasse o endpoint na
+// mão podia se tornar administrador de qualquer equipe.
+//
+// Regra aplicada aqui, a mesma do resto do arquivo:
+//   criar / renomear / excluir equipe .... só Administrador do sistema
+//   membros e administradores ............ Administrador OU admin da equipe
+// ---------------------------------------------------------------------------
+
+async function assertCanManageTeam(teamId?: string): Promise<
+  { ok: true; actor: any } | { ok: false; error: string }
+> {
+  const actor = await getCurrentActionUser();
+  if (!actor) return { ok: false, error: 'Sessão inválida.' };
+  if (actor.role === 'Administrador') return { ok: true, actor };
+
+  if (!teamId) return { ok: false, error: 'Apenas administradores podem gerenciar equipes.' };
+  const adminTeamIds = await getAdminTeamIds(actor.id);
+  if (!adminTeamIds.includes(teamId)) {
+    return { ok: false, error: 'Você não administra esta equipe.' };
+  }
+  return { ok: true, actor };
+}
+
+// Leitura da tela: equipes + pessoas elegíveis a membro, substituindo os dois
+// selects que a página fazia pelo shim. Traz avatar_thumb_url no lugar de
+// avatar_url — a lista mostra avatar pequeno, e a foto cheia custava MBs.
+export async function getInternalTeamsPageData() {
+  try {
+    const [teamsRes, usersRes] = await Promise.all([
+      query('SELECT id, name, description, admin_ids FROM public.internal_teams ORDER BY name ASC'),
+      query(
+        `SELECT id, name, email, role, internal_team_ids, avatar_thumb_url, access_profile_id,
+                view_all_company_tickets
+           FROM public.profiles
+          WHERE role IN ('Equipe', 'Time Interno')
+          ORDER BY name ASC`
+      )
+    ]);
+
+    const users = usersRes.rows.map(u => ({
+      id: u.id,
+      name: u.name,
+      email: u.email,
+      role: u.role,
+      internalTeamIds: u.internal_team_ids || [],
+      avatarThumbUrl: u.avatar_thumb_url,
+      accessProfileId: u.access_profile_id,
+      viewAllCompanyTickets: u.view_all_company_tickets
+    }));
+
+    const teams = teamsRes.rows.map(t => ({
+      id: t.id,
+      name: t.name,
+      description: t.description,
+      memberIds: users.filter(u => (u.internalTeamIds || []).includes(t.id)).map(u => u.id),
+      adminIds: t.admin_ids || []
+    }));
+
+    return { teams, users };
+  } catch (err) {
+    console.error('Error loading internal teams page data:', err);
+    return { teams: [], users: [] };
+  }
+}
+
+export async function createInternalTeam(name: string, description?: string | null) {
+  const check = await assertCanManageTeam();
+  if (!check.ok) return { error: check.error };
+  const label = (name || '').trim();
+  if (!label) return { error: 'O nome da equipe é obrigatório.' };
+
+  try {
+    const res = await query(
+      'INSERT INTO public.internal_teams (name, description) VALUES ($1, $2) RETURNING id',
+      [label, description?.trim() || null]
+    );
+    logAudit({
+      actorId: check.actor.id, actorName: check.actor.name, action: 'create',
+      entityType: 'internal_team', entityId: res.rows[0].id, entityLabel: label
+    });
+    return { id: res.rows[0].id };
+  } catch (err: any) {
+    if (err?.code === '23505') return { error: 'Já existe uma equipe com esse nome.' };
+    console.error('Error creating internal team:', err);
+    return { error: 'Erro ao criar equipe.' };
+  }
+}
+
+export async function updateInternalTeamMeta(id: string, name: string, description?: string | null) {
+  const check = await assertCanManageTeam();
+  if (!check.ok) return { error: check.error };
+  const label = (name || '').trim();
+  if (!label) return { error: 'O nome da equipe é obrigatório.' };
+
+  try {
+    const res = await query(
+      'UPDATE public.internal_teams SET name = $2, description = $3 WHERE id = $1 RETURNING id',
+      [id, label, description?.trim() || null]
+    );
+    if (res.rowCount === 0) return { error: 'Equipe não encontrada.' };
+    logAudit({
+      actorId: check.actor.id, actorName: check.actor.name, action: 'update',
+      entityType: 'internal_team', entityId: id, entityLabel: label
+    });
+    return { success: true };
+  } catch (err: any) {
+    if (err?.code === '23505') return { error: 'Já existe uma equipe com esse nome.' };
+    console.error('Error updating internal team:', err);
+    return { error: 'Erro ao salvar equipe.' };
+  }
+}
+
+export async function deleteInternalTeam(id: string) {
+  const check = await assertCanManageTeam();
+  if (!check.ok) return { error: check.error };
+
+  const client = await pool.connect();
+  try {
+    const existing = await client.query('SELECT name FROM public.internal_teams WHERE id = $1', [id]);
+    if (existing.rowCount === 0) return { error: 'Equipe não encontrada.' };
+
+    // Tirar a equipe das pessoas e apagar a equipe precisam acontecer juntos:
+    // a página fazia isso em duas etapas soltas, e uma falha no meio deixava
+    // usuários apontando para uma equipe que não existe mais.
+    await client.query('BEGIN');
+    await client.query(
+      'UPDATE public.profiles SET internal_team_ids = array_remove(internal_team_ids, $1) WHERE $1 = ANY(internal_team_ids)',
+      [id]
+    );
+    await client.query('DELETE FROM public.internal_teams WHERE id = $1', [id]);
+    await client.query('COMMIT');
+
+    logAudit({
+      actorId: check.actor.id, actorName: check.actor.name, action: 'delete',
+      entityType: 'internal_team', entityId: id, entityLabel: existing.rows[0].name
+    });
+    return { success: true };
+  } catch (err) {
+    await client.query('ROLLBACK').catch(() => {});
+    console.error('Error deleting internal team:', err);
+    return { error: 'Erro ao remover equipe.' };
+  } finally {
+    client.release();
+  }
+}
+
+// Aplica de uma vez a composição da equipe. `add`/`remove` são só os ajustes
+// diretos de internal_team_ids — a troca de Perfil de Acesso continua em
+// updateUser, que deriva papel e equipe e tem a própria checagem.
+export async function applyTeamMembership(
+  teamId: string,
+  changes: { add: string[]; remove: string[]; adminIds: string[] }
+) {
+  const check = await assertCanManageTeam(teamId);
+  if (!check.ok) return { error: check.error };
+
+  const client = await pool.connect();
+  try {
+    await client.query('BEGIN');
+
+    for (const userId of changes.remove || []) {
+      await client.query(
+        'UPDATE public.profiles SET internal_team_ids = array_remove(internal_team_ids, $2) WHERE id = $1',
+        [userId, teamId]
+      );
+    }
+    for (const userId of changes.add || []) {
+      // Só acrescenta se ainda não estiver lá, pra não duplicar o id no array.
+      await client.query(
+        `UPDATE public.profiles
+            SET internal_team_ids = array_append(COALESCE(internal_team_ids, '{}'), $2)
+          WHERE id = $1 AND NOT ($2 = ANY(COALESCE(internal_team_ids, '{}')))`,
+        [userId, teamId]
+      );
+    }
+
+    // Administrador de equipe precisa continuar sendo membro — a tela já
+    // filtra, mas a regra tem que valer também para quem chamar direto.
+    const finalAdmins = (changes.adminIds || []).filter(id => !(changes.remove || []).includes(id));
+    await client.query('UPDATE public.internal_teams SET admin_ids = $2 WHERE id = $1', [teamId, finalAdmins]);
+
+    await client.query('COMMIT');
+
+    logAudit({
+      actorId: check.actor.id, actorName: check.actor.name, action: 'update',
+      entityType: 'internal_team', entityId: teamId, entityLabel: null,
+      changes: {
+        adicionados: changes.add?.length || 0,
+        removidos: changes.remove?.length || 0,
+        administradores: finalAdmins.length
+      }
+    });
+    return { success: true };
+  } catch (err) {
+    await client.query('ROLLBACK').catch(() => {});
+    console.error('Error applying team membership:', err);
+    return { error: 'Erro ao salvar membros da equipe.' };
+  } finally {
+    client.release();
   }
 }

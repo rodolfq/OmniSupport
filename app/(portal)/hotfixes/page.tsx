@@ -10,7 +10,7 @@ import { getHotfixes, saveHotfix, deleteHotfix, markHotfixPublished } from '@/ap
 import { StyledSelect } from '@/components/styled-select';
 import { ConfirmDialog } from '@/components/confirm-dialog';
 import { useApp } from '@/app/app-context';
-import { cn } from '@/lib/utils';
+import { cn, selectableOptions } from '@/lib/utils';
 import { toast } from 'sonner';
 
 const todayIso = () => new Date().toISOString().slice(0, 10);
@@ -457,8 +457,13 @@ export default function HotfixesPage() {
                       className="w-full bg-[var(--surface-card)] border border-[var(--border-default)] rounded-2xl px-5 py-4 text-sm font-bold focus:ring-4 focus:ring-[var(--accent)]/10 outline-none transition-all appearance-none"
                     >
                       <option value="">Sem produto</option>
-                      {products.map(p => (
-                        <option key={p.id} value={p.id}>{p.label}</option>
+                      {/* Produto arquivado sai da lista, exceto o que este
+                          hotfix já usa (hotfixes.product_id também é ON DELETE
+                          SET NULL) — ver selectableOptions em lib/utils.ts. */}
+                      {selectableOptions(products, productId).map(p => (
+                        <option key={p.id} value={p.id}>
+                          {p.label}{p.isArchived ? ' (arquivado)' : ''}
+                        </option>
                       ))}
                     </StyledSelect>
                   </div>

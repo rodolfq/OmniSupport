@@ -8,6 +8,12 @@ export function isValidImageUrl(url: string | null | undefined): boolean {
   if (url.startsWith('blob:')) return false; // Blobs are temporary and prone to ERR_FILE_NOT_FOUND
   if (url.startsWith('data:image/')) return true; // Base64 is okay for small previews/mock persistence
   if (url.startsWith('http://') || url.startsWith('https://')) return true;
+  // Caminho relativo do próprio app — é o formato que /api/users/<id>/avatar
+  // e /api/files/... devolvem. Sem isto a foto de perfil não aparecia mais na
+  // tela de Configurações depois que a listagem passou a mandar o endereço da
+  // imagem no lugar do base64. `//` fica de fora de propósito: é URL de
+  // protocolo relativo, aponta pra outro host.
+  if (url.startsWith('/') && !url.startsWith('//')) return true;
   return false;
 }
 

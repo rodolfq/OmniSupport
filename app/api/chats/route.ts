@@ -650,6 +650,24 @@ export async function POST(request: Request) {
     const body = await request.json();
     const { action } = body;
 
+    if (action === 'set-session-contact') {
+      // Vincula a conversa a um contato cadastrado (modal "Vincular
+      // contato"). Ação focada em vez de reaproveitar save-session: aquele
+      // faz upsert da linha inteira, e chamá-lo com um objeto parcial
+      // apagaria responsável, fila e vínculo com chamado.
+      const { sessionId, customerId, customerName } = body;
+      if (!sessionId) return NextResponse.json({ error: 'sessionId é obrigatório.' }, { status: 400 });
+
+      const res = await query(
+        `UPDATE public.chat_sessions
+            SET customer_id = $2, customer_name = $3, updated_at = NOW()
+          WHERE id = $1 RETURNING id`,
+        [sessionId, customerId || null, customerName || null]
+      );
+      if (res.rowCount === 0) return NextResponse.json({ error: 'Conversa não encontrada.' }, { status: 404 });
+      return NextResponse.json({ success: true });
+    }
+
     if (action === 'save-session') {
       const { session } = body;
       await query(
@@ -787,9 +805,33 @@ export async function POST(request: Request) {
         // cliente, não impede duas conversas de clientes diferentes lendo o
         // mesmo "último atribuído" ao mesmo tempo e caindo no mesmo analista.
         const pool = initialStatus === 'pending' ? await resolveCombinedQueuePool() : null;
+
+        // Conversa que chega 'active' foi iniciada por um agente ("Novo
+        // WhatsApp", clique num telefone, tela de Empresas). O comentário acima
+        // sempre disse que nesse caso "o próprio agente é quem assume" — mas
+        // ninguém executava essa atribuição, e o rodízio não roda para 'active'.
+        // Resultado: a conversa nascia SEM responsável, sem aparecer como de
+        // ninguém. Resolver aqui, e não em cada tela, cobre os três pontos de
+        // entrada de uma vez (chat-widget.tsx, phone-contact-panel.tsx e
+        // customers/page.tsx).
+        //
+        // Só papéis de atendimento assumem: um Cliente/Funcionário abrindo
+        // conversa pelo widget não pode virar responsável por ela.
+        let starterId: string | null = null;
+        if (initialStatus !== 'pending') {
+          // POST recebe Request (não NextRequest), então o cookie vem por
+          // cookies() do next/headers — mesmo padrão das outras ações deste
+          // arquivo que precisam da sessão.
+          const token = (await cookies()).get('token')?.value;
+          const authenticated = token ? await verifyJWT(token) : null;
+          if (authenticated?.id && isTeamRole(String(authenticated.role))) {
+            starterId = authenticated.id;
+          }
+        }
+
         const insertRes = await runExclusive(`queue-assign:${pool?.id ?? 'combined'}`, async () => {
           let status = initialStatus;
-          let assigneeId: string | null = null;
+          let assigneeId: string | null = starterId;
           if (pool) {
             assigneeId = await pickNextQueueAssignee(pool);
             if (assigneeId) status = 'active';
@@ -800,11 +842,15 @@ export async function POST(request: Request) {
           // segurança pra corrida entre processos/instâncias diferentes (o
           // mutex acima só vale dentro deste processo Node).
           return query(
+            // created_at = NOW(): a sessão está nascendo agora, e session.startedAt
+            // vinha do relógio do navegador. Como o tempo de espera e o de
+            // primeira resposta são medidos a partir daqui, um relógio errado
+            // no cliente distorcia métrica de atendimento.
             `INSERT INTO public.chat_sessions (id, customer_id, customer_name, customer_phone, status, queue_id, assignee_id, created_at, updated_at)
-             VALUES ($1, $2, $3, $4, $5, NULL, $6, $7, NOW())
+             VALUES ($1, $2, $3, $4, $5, NULL, $6, NOW(), NOW())
              ON CONFLICT DO NOTHING
              RETURNING id, assignee_id`,
-            [id, resolvedCustomerId, resolvedCustomerName, session.customerPhone || null, status, assigneeId, session.startedAt]
+            [id, resolvedCustomerId, resolvedCustomerName, session.customerPhone || null, status, assigneeId]
           );
         });
 
@@ -875,9 +921,18 @@ export async function POST(request: Request) {
         message.attachments || message.metadata?.attachments || []
       );
       const metadata = { ...(message.metadata || {}), attachments: persistedAttachments };
-      await query(
+
+      // created_at = NOW() do servidor, e não message.timestamp do navegador.
+      // A conversa é ordenada por created_at: com o relógio do cliente, uma
+      // máquina adiantada ou atrasada jogava a mensagem para o lugar errado da
+      // conversa (e, no caso de atraso, para trás de mensagens que vieram
+      // depois). RETURNING devolve o valor gravado, que é o mesmo devolvido ao
+      // cliente e emitido no SSE abaixo — assim a tela nunca mostra um horário
+      // diferente do que está no banco.
+      const inserted = await query(
         `INSERT INTO public.chat_messages (id, session_id, sender_id, sender_name, text, type, metadata, created_at)
-         VALUES ($1, $2, $3, $4, $5, $6, $7::jsonb, $8)`,
+         VALUES ($1, $2, $3, $4, $5, $6, $7::jsonb, NOW())
+         RETURNING created_at`,
         [
           message.id,
           targetSessionId,
@@ -885,13 +940,14 @@ export async function POST(request: Request) {
           message.senderName || null,
           message.text,
           message.type || 'text',
-          JSON.stringify(metadata),
-          message.timestamp
+          JSON.stringify(metadata)
         ]
       );
+      const serverTimestamp = new Date(inserted.rows[0].created_at).toISOString();
+
       await query(
         `UPDATE public.chat_sessions SET last_message_at = $1, updated_at = NOW() WHERE id = $2`,
-        [message.timestamp, targetSessionId]
+        [serverTimestamp, targetSessionId]
       );
 
       // Conversa que ficou 'pending' por não haver ninguém online na hora tenta
@@ -917,7 +973,9 @@ export async function POST(request: Request) {
           senderId: message.senderId || null,
           senderName: message.senderName || null,
           text: message.text,
-          timestamp: message.timestamp,
+          // O horário do servidor, o mesmo que foi gravado — não o que o
+          // navegador enviou.
+          timestamp: serverTimestamp,
           type: message.type || 'text',
           metadata,
           readBy: [],
@@ -961,7 +1019,9 @@ export async function POST(request: Request) {
         }
       })();
 
-      return NextResponse.json({ success: true, sessionId: targetSessionId });
+      // timestamp devolvido para quem chamou poder corrigir a bolha otimista
+      // que já desenhou com o horário local.
+      return NextResponse.json({ success: true, sessionId: targetSessionId, timestamp: serverTimestamp });
     }
 
     if (action === 'chat-typing') {

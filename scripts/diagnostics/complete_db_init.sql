@@ -1,3 +1,8 @@
+-- ATENÇÃO — SENHA DE SEED
+-- Antes de rodar:  SET ssx.seed_password = 'senha-forte-escolhida-agora';
+-- As senhas literais foram removidas daqui (eram triviais e o repositório é
+-- versionado; as mesmas contas existem em produção). Sem a variável definida o
+-- script falha de propósito, em vez de criar conta com senha conhecida.
 -- =========================================================================
 -- MASTER INITIALIZATION SCRIPT FOR OMNISUPPORT DATABASE (SUPABASE SLATE)
 -- Version: 3.0 (Flawless Complete Script)
@@ -429,7 +434,7 @@ BEGIN
     )
     VALUES (
       '00000000-0000-0000-0000-000000000000', v_admin_id, 'authenticated', 'authenticated', 
-      'admin@systemsat.com.br', crypt('admin123', gen_salt('bf')), 
+      'admin@systemsat.com.br', crypt(current_setting('ssx.seed_password'), gen_salt('bf')), 
       now(), now(), now(), 
       '{"provider":"email","providers":["email"]}', '{"name":"Admin Supremo","role":"Administrador"}', 
       now(), now()
@@ -445,7 +450,7 @@ BEGIN
     )
     VALUES (
       '00000000-0000-0000-0000-000000000000', v_client_id, 'authenticated', 'authenticated', 
-      'jose@cliente.com', crypt('senha123', gen_salt('bf')), 
+      'jose@cliente.com', crypt(current_setting('ssx.seed_password'), gen_salt('bf')), 
       now(), now(), now(), 
       '{"provider":"email","providers":["email"]}', '{"name":"José Cliente","company_id":"11111111-1111-4111-8111-111111111111","role":"Cliente"}', 
       now(), now()

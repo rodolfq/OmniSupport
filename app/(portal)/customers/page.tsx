@@ -1,7 +1,7 @@
 'use client';
 
 import React, { useState, useEffect, useMemo } from 'react';
-import { getUsers, getCompanies, deleteCompany } from '@/app/actions';
+import { getUsers, getCompanies, deleteCompany, assignChatSession } from '@/app/actions';
 import { Company, User, UserRole, Permission } from '@/lib/types';
 import { Building2, User as UserIcon, Mail, Phone, Plus, MessageCircle, Ticket, ShieldCheck, ShieldOff, Search, X, Check, Pencil, UserPlus, RefreshCw, Headset, Briefcase } from 'lucide-react';
 import { cn, normalizeString, normalizePhone, maskPhone } from '@/lib/utils';
@@ -10,9 +10,9 @@ import { EditEmployeeModal } from '@/components/edit-employee-modal';
 import { NewCompanyModal } from '@/components/new-company-modal';
 import { ConfirmModal } from '@/components/confirm-modal';
 import { UserService } from '@/lib/services/user-service';
+import { resolveChatSessionForPhone } from '@/lib/services/chat-service';
 import { useApp } from '@/app/app-context';
 import { motion, AnimatePresence } from 'motion/react';
-import { supabase } from '@/lib/supabase';
 import { toast } from 'sonner';
 
 function WhatsAppNumberModal({ 
@@ -59,48 +59,32 @@ function WhatsAppNumberModal({
                 <button
                    key={idx}
                    onClick={async () => {
-                     const cleanPhone = n.replace(/\D/g, '');
-                     
-                     const { data: existingSessions } = await supabase.from('chat_sessions').select('*').eq('customer_phone', cleanPhone);
-                     const existing = existingSessions?.find((s: any) => !['closed'].includes(s.status));
-                     
-                     let sessionId: string;
-                     if (existing) {
-                       sessionId = existing.id;
-                       // Reatribui só se a conversa está sem responsável — o
-                       // shim do Supabase devolve a linha crua (assignee_id,
-                       // não assigneeId), e checar o campo em camelCase aqui
-                       // fazia essa condição ser sempre `true`, "roubando"
-                       // pro analista atual qualquer conversa já em
-                       // andamento com outra pessoa. Se já tem responsável,
-                       // o analista atual só ganha acesso pra visualizar/
-                       // enviar mensagem — a conversa continua com quem
-                       // chegou primeiro.
-                       if (!existing.assignee_id && currentUser && currentUser.role !== UserRole.CUSTOMER) {
-                         if (userStatus !== 'online') {
-                           toast.error('Você precisa estar Online para assumir atendimentos!');
-                           return;
-                         }
-                         await supabase.from('chat_sessions').update({
-                           assignee_id: currentUser.id,
-                           status: 'active'
-                         }).eq('id', sessionId);
-                       }
-                     } else {
-                       const isOnlineAnalyst = currentUser?.role !== UserRole.CUSTOMER && userStatus === 'online';
-                       const { data: newSession } = await supabase.from('chat_sessions').insert({
-                         customer_id: user.id,
-                         customer_name: user.name,
-                         customer_phone: cleanPhone,
-                         status: isOnlineAnalyst ? 'active' : 'pending',
-                         assignee_id: isOnlineAnalyst ? currentUser?.id : null,
-                         messages: [],
-                         started_at: new Date().toISOString(),
-                         last_message_at: new Date().toISOString()
-                       }).select('id').single();
-                       sessionId = newSession?.id || '';
+                     // Exigência de estar Online vem ANTES de criar a conversa:
+                     // quem inicia por aqui vira o responsável (a atribuição é
+                     // feita no servidor, em app/api/chats/route.ts), então
+                     // barrar depois deixaria uma conversa criada e atribuída a
+                     // alguém que a tela acabou de recusar.
+                     const isPortalUser = currentUser
+                       && [UserRole.CUSTOMER, UserRole.EMPLOYEE].includes(currentUser.role as UserRole);
+                     if (!isPortalUser && userStatus !== 'online') {
+                       toast.error('Você precisa estar Online para assumir atendimentos!');
+                       return;
                      }
-                    
+
+                     // resolveChatSessionForPhone (lib/services/chat-service) é o
+                     // mesmo caminho usado ao clicar num telefone dentro da
+                     // conversa: acha a sessão aberta ou cria uma nova, já com
+                     // a normalização de telefone brasileiro (DDI, nono
+                     // dígito) que este trecho não fazia — aqui só se removia
+                     // o que não era dígito. Conversa JÁ existente mantém o
+                     // responsável atual, não é "roubada".
+                     const resolved = await resolveChatSessionForPhone(n, user.name);
+                     if ('error' in resolved) {
+                       toast.error(resolved.error);
+                       return;
+                     }
+                     const sessionId = resolved.sessionId;
+
                     setActiveOmniChatId(sessionId);
                     setIsOmniChatOpen(true);
                     onClose();

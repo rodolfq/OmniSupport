@@ -2,7 +2,6 @@
 
 import React, { useState, useEffect, useMemo } from 'react';
 import { Permission, RolePermission, User } from '@/lib/types';
-import { supabase } from '@/lib/supabase';
 import { useQueryClient } from '@tanstack/react-query';
 import { useApp } from '@/app/app-context';
 import {
@@ -24,7 +23,12 @@ import {
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { motion, AnimatePresence } from 'motion/react';
-import { getRolePermissions, saveRolePermissionsById, renameAccessProfile, createAccessProfile, deleteRolePermission, updateUser } from '@/app/actions';
+import {
+  getRolePermissions, saveRolePermissionsById, renameAccessProfile, createAccessProfile,
+  deleteRolePermission, updateUser,
+  getInternalTeamsPageData, createInternalTeam, updateInternalTeamMeta, deleteInternalTeam,
+  applyTeamMembership
+} from '@/app/actions';
 import { StyledSelect } from '@/components/styled-select';
 import { toast } from 'sonner';
 
@@ -290,21 +294,15 @@ export default function PermissionsManagementPage() {
   const loadAll = async () => {
     setLoading(true);
     try {
-      const [perms, teamsRes, usersRes] = await Promise.all([
+      // Equipes e membros vêm prontos da action (já em camelCase, com a
+      // composição de cada equipe derivada no servidor).
+      const [perms, pageData] = await Promise.all([
         getRolePermissions(),
-        supabase.from('internal_teams').select('id, name, description, admin_ids').order('name'),
-        supabase.from('profiles').select('id, name, email, role, internal_team_ids, avatar_url, access_profile_id').or('role.eq.Equipe,role.eq.Time Interno')
+        getInternalTeamsPageData()
       ]);
-      const users = (usersRes.data || []) as any[];
       setRolePermissions(perms as RolePermission[]);
-      setAllUsers(users.map(u => ({ ...u, internalTeamIds: u.internal_team_ids, avatarUrl: u.avatar_url, accessProfileId: u.access_profile_id })) as User[]);
-      setTeams((teamsRes.data || []).map((t: any) => ({
-        id: t.id,
-        name: t.name,
-        description: t.description,
-        memberIds: users.filter(u => u.internal_team_ids?.includes(t.id)).map(u => u.id),
-        adminIds: t.admin_ids || []
-      })));
+      setAllUsers(pageData.users as unknown as User[]);
+      setTeams(pageData.teams);
     } finally {
       setLoading(false);
     }
@@ -500,12 +498,9 @@ export default function PermissionsManagementPage() {
   // ---- Equipe: criar / renomear / excluir (só Administrador do sistema) ----
   const handleCreateTeam = async () => {
     if (!newTeamName.trim()) return;
-    const { error } = await supabase.from('internal_teams').insert({
-      name: newTeamName.trim(),
-      description: newTeamDescription.trim() || null
-    });
-    if (error) {
-      toast.error('Erro ao criar equipe');
+    const res = await createInternalTeam(newTeamName, newTeamDescription);
+    if (res?.error) {
+      toast.error(res.error);
       return;
     }
     await loadAll();
@@ -518,11 +513,9 @@ export default function PermissionsManagementPage() {
 
   const handleSaveTeamMeta = async () => {
     if (!editingTeamMeta) return;
-    const { error } = await supabase.from('internal_teams')
-      .update({ name: editingTeamMeta.name.trim(), description: editingTeamMeta.description?.trim() || null })
-      .eq('id', editingTeamMeta.id);
-    if (error) {
-      toast.error('Erro ao salvar equipe');
+    const res = await updateInternalTeamMeta(editingTeamMeta.id, editingTeamMeta.name, editingTeamMeta.description);
+    if (res?.error) {
+      toast.error(res.error);
       return;
     }
     await loadAll();
@@ -533,18 +526,14 @@ export default function PermissionsManagementPage() {
 
   const handleDeleteTeam = async () => {
     if (!teamToDelete) return;
-    const { error } = await supabase.from('internal_teams').delete().eq('id', teamToDelete.id);
-    if (error) {
-      toast.error('Erro ao remover equipe');
+    // A action já tira a equipe de quem era membro, na mesma transação do
+    // DELETE — antes isso eram duas etapas soltas aqui no client.
+    const res = await deleteInternalTeam(teamToDelete.id);
+    if (res?.error) {
+      toast.error(res.error);
       setTeamToDelete(null);
       return;
     }
-    const affected = allUsers.filter(u => (u.internalTeamIds || []).includes(teamToDelete.id));
-    await Promise.all(affected.map(u =>
-      supabase.from('profiles')
-        .update({ internal_team_ids: (u.internalTeamIds || []).filter(id => id !== teamToDelete.id) })
-        .eq('id', u.id)
-    ));
     if (selectedMembersTeamId === teamToDelete.id) setSelectedMembersTeamId(null);
     setTeamToDelete(null);
     await loadAll();
@@ -561,14 +550,10 @@ export default function PermissionsManagementPage() {
       const currentSet = new Set(selectedMembersTeam.memberIds);
       const newSet = new Set(editSelectedMembers);
       const toRemove = [...currentSet].filter(id => !newSet.has(id));
-
-      for (const memberId of toRemove) {
-        const u = allUsers.find(u => u.id === memberId);
-        const currentTeams = u?.internalTeamIds || [];
-        await supabase.from('profiles')
-          .update({ internal_team_ids: currentTeams.filter(id => id !== teamId) })
-          .eq('id', memberId);
-      }
+      // Entradas diretas na equipe (quem ficou sem Perfil de Acesso escolhido)
+      // são acumuladas e aplicadas de uma vez no fim, junto da remoção e dos
+      // administradores — uma transação só, em vez de uma escrita por pessoa.
+      const toAddDirectly: string[] = [];
 
       // Pra quem continua (ou entrou agora): dar/trocar o perfil de acesso é
       // o que efetivamente coloca a pessoa na equipe (updateUser deriva
@@ -602,15 +587,21 @@ export default function PermissionsManagementPage() {
           // Entrou na equipe agora mas ainda sem perfil — garante que apareça
           // como membro mesmo assim (updateUser não mexe na equipe quando
           // não há perfil escolhido).
-          await supabase.from('profiles')
-            .update({ internal_team_ids: [...currentTeams, teamId] })
-            .eq('id', memberId);
+          toAddDirectly.push(memberId);
         }
       }
 
       // Só quem continua sendo membro pode continuar sendo admin da equipe.
       const finalAdminIds = editSelectedAdmins.filter(id => editSelectedMembers.includes(id));
-      await supabase.from('internal_teams').update({ admin_ids: finalAdminIds }).eq('id', teamId);
+      const membershipRes = await applyTeamMembership(teamId, {
+        add: toAddDirectly,
+        remove: toRemove,
+        adminIds: finalAdminIds
+      });
+      if (membershipRes?.error) {
+        toast.error(membershipRes.error);
+        return;
+      }
 
       await loadAll();
       queryClient.invalidateQueries({ queryKey: ['ref', 'internal_teams'] });

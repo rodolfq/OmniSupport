@@ -6,7 +6,7 @@ import { UserAvatar } from '@/components/user-avatar';
 import { X, User, MessageCircle, Clock, Link2, Paperclip, Save, Maximize2, Minimize2, Send, Lock, History, Download, File, Image as ImageIcon, Film, Loader2, Check, Copy, GitMerge } from 'lucide-react';
 import { motion } from 'motion/react';
 import { Ticket, TicketStatus, User as UserType, Message, UserRole, StatusConfig, Company, Attachment, PriorityConfig, CategoryConfig, RequestTypeConfig, ProductConfig, InternalTicket, Permission } from '@/lib/types';
-import { cn, stripNotificationHtml } from '@/lib/utils';
+import { cn, stripNotificationHtml, selectableOptions } from '@/lib/utils';
 import { useApp } from '@/app/app-context';
 import { Star } from 'lucide-react';
 import { toast } from 'sonner';
@@ -1247,8 +1247,14 @@ const loadMessages = async () => {
                             className="text-sm font-bold text-[var(--text-secondary)] bg-transparent border-none outline-none focus:ring-2 focus:ring-[var(--accent)]/10 rounded px-1 -ml-1 cursor-pointer hover:bg-[var(--surface-card)] transition-all"
                           >
                             <option value="">Sem categoria</option>
-                            {categories.map(cat => (
-                              <option key={cat.id} value={cat.id}>{cat.label}</option>
+                            {/* Arquivados ficam de fora, MENOS o que este
+                                chamado já usa — se ele sumisse da lista, o
+                                <select> cairia em "Sem categoria" e a primeira
+                                gravação apagaria a classificação do chamado. */}
+                            {selectableOptions(categories, mainCategory).map(cat => (
+                              <option key={cat.id} value={cat.id}>
+                                {cat.label}{cat.isArchived ? ' (arquivado)' : ''}
+                              </option>
                             ))}
                           </StyledSelect>
                        </div>
@@ -1264,8 +1270,10 @@ const loadMessages = async () => {
                             className="text-sm font-bold text-[var(--text-secondary)] bg-transparent border-none outline-none focus:ring-2 focus:ring-[var(--accent)]/10 rounded px-1 -ml-1 cursor-pointer hover:bg-[var(--surface-card)] transition-all"
                           >
                             <option value="">Sem tipo de solicitação</option>
-                            {requestTypes.map(rt => (
-                              <option key={rt.id} value={rt.id}>{rt.label}</option>
+                            {selectableOptions(requestTypes, mainRequestType).map(rt => (
+                              <option key={rt.id} value={rt.id}>
+                                {rt.label}{rt.isArchived ? ' (arquivado)' : ''}
+                              </option>
                             ))}
                           </StyledSelect>
                        </div>
@@ -1281,8 +1289,10 @@ const loadMessages = async () => {
                             className="text-sm font-bold text-[var(--text-secondary)] bg-transparent border-none outline-none focus:ring-2 focus:ring-[var(--accent)]/10 rounded px-1 -ml-1 cursor-pointer hover:bg-[var(--surface-card)] transition-all"
                           >
                             <option value="">Sem produto</option>
-                            {products.map(p => (
-                              <option key={p.id} value={p.id}>{p.label}</option>
+                            {selectableOptions(products, mainProduct).map(p => (
+                              <option key={p.id} value={p.id}>
+                                {p.label}{p.isArchived ? ' (arquivado)' : ''}
+                              </option>
                             ))}
                           </StyledSelect>
                        </div>

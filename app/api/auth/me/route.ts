@@ -19,7 +19,12 @@ export async function GET(request: NextRequest) {
     // Buscar perfil no Postgres próprio. Permissões vêm do Perfil de Acesso
     // escolhido (access_profile_id), não mais de um join por nome de role.
     const result = await query(
-      `SELECT p.id, p.name, p.email, p.role, p.company_id, p.phone, p.avatar_url,
+      // has_avatar em vez de avatar_url: a foto do próprio usuário chegava
+      // como base64 (até 2,7 MB) em TODA carga de sessão, só pra desenhar o
+      // avatar da barra lateral. Agora vai o endereço da imagem — ver
+      // app/api/users/[id]/avatar/route.ts.
+      `SELECT p.id, p.name, p.email, p.role, p.company_id, p.phone,
+              (p.avatar_url IS NOT NULL AND p.avatar_url <> '') AS has_avatar,
               p.view_all_company_tickets, p.must_change_password, p.is_admin, p.lives_in_squad,
               p.internal_team_ids, p.access_profile_id,
               COALESCE(rp.permissions, '{}'::text[]) AS permissions,
@@ -65,7 +70,7 @@ export async function GET(request: NextRequest) {
         permissions: effectivePermissions,
         companyId: profile.company_id,
         phone: profile.phone,
-        avatarUrl: profile.avatar_url,
+        avatarUrl: profile.has_avatar ? `/api/users/${profile.id}/avatar` : null,
         viewAllCompanyTickets: profile.view_all_company_tickets,
         mustChangePassword: profile.must_change_password,
         isAdmin: profile.is_admin,

@@ -5,6 +5,21 @@ export function cn(...inputs: ClassValue[]) {
   return twMerge(clsx(inputs))
 }
 
+// Opções oferecíveis num seletor a partir de uma lista de configuração
+// arquivável (categoria, tipo de solicitação, produto, esforço, desfecho).
+//
+// A rota devolve arquivados junto de propósito (ver app/api/config/route.ts):
+// esconder no servidor faria o chamado antigo, classificado com uma opção já
+// aposentada, aparecer com o campo em branco. Quem filtra é o seletor — e
+// sempre preservando o item JÁ SELECIONADO, senão abrir um chamado antigo e
+// salvar qualquer outro campo apagaria a classificação dele sem ninguém pedir.
+export function selectableOptions<T extends { id: string; isArchived?: boolean }>(
+  items: T[],
+  selectedId?: string | null
+): T[] {
+  return items.filter(item => !item.isArchived || item.id === selectedId);
+}
+
 export function normalizeString(str: string) {
   return str
     .toLowerCase()

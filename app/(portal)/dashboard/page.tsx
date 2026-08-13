@@ -9,7 +9,6 @@ import { useProfilesLiteQuery } from '@/lib/query-hooks';
 import { UserAvatar } from '@/components/user-avatar';
 import { findStatusColor } from '@/lib/status-colors';
 import { useApp } from '@/app/app-context';
-import { supabase } from '@/lib/supabase';
 import { Plus, Clock, AlertCircle, User, Lock, Ticket as TicketIcon, FolderKanban, Users } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import { cn } from '@/lib/utils';
@@ -85,24 +84,20 @@ export default function DashboardPage() {
           return { value: s.label, label: s.label, color: `${c.bg} ${c.text}`, dot: c.dot, accent: c.accent };
         }));
 
-        let query = supabase.from('internal_tickets').select('*').order('updated_at', { ascending: false });
-        if (!hasPermission(Permission.INTERNAL_TICKETS_VIEW_ALL)) {
-          const myTeamIds = currentUser.internalTeamIds || [];
-          if (myTeamIds.length === 0) { setInternalTickets([]); setLoadingInternal(false); return; }
-          query = query.in('internal_team_id', myTeamIds);
-        }
-        const { data, error } = await query;
-        if (error) throw error;
+        // Quem não vê todos os tickets internos enxerga só os das próprias
+        // equipes — e é o SERVIDOR que resolve quais são, a partir da sessão
+        // (scope=my-teams), em vez de o client mandar a lista de ids.
+        const scope = hasPermission(Permission.INTERNAL_TICKETS_VIEW_ALL) ? 'all' : 'my-teams';
+        const res = await fetch(`/api/internal-tickets?action=list&scope=${scope}`);
+        if (!res.ok) throw new Error('Falha ao carregar tickets internos.');
+        const data = await res.json();
 
-        const assigneeIds = [...new Set((data || []).map((it: any) => it.assignee_id).filter(Boolean))];
-        // Traz a miniatura junto do nome (~1,3kB por pessoa, ver
-        // lib/services/avatar-thumb-service.ts) pros cards mostrarem a foto do
-        // responsável em vez da inicial. A foto cheia (avatar_url) fica de
-        // fora de propósito: são até 2,7MB por pessoa.
-        const { data: assignees } = assigneeIds.length
-          ? await supabase.from('profiles').select('id, name, avatar_thumb_url').in('id', assigneeIds)
-          : { data: [] as any[] };
-        const assigneeMap = new Map<string, any>((assignees || []).map((a: any) => [a.id, a]));
+        // A miniatura do responsável sai da mesma lista de perfis que a tela
+        // já carrega (useProfilesLiteQuery, que traz avatarThumbUrl) — antes
+        // isso era uma segunda consulta só para os ids que apareciam.
+        const assigneeMap = new Map<string, any>(
+          (users as any[]).map((u: any) => [u.id, { name: u.name, avatar_thumb_url: u.avatarThumbUrl }])
+        );
 
         setInternalTickets((data || []).map((it: any) => {
           // Mesmo cálculo de "tempo restante" usado em /internal-tickets —

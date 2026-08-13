@@ -1,3 +1,8 @@
+-- ATENÇÃO — SENHA DE SEED
+-- Antes de rodar:  SET ssx.seed_password = 'senha-forte-escolhida-agora';
+-- As senhas literais foram removidas daqui (eram triviais e o repositório é
+-- versionado; as mesmas contas existem em produção). Sem a variável definida o
+-- script falha de propósito, em vez de criar conta com senha conhecida.
 -- =========================================================================
 -- INSERT SEED USERS DIRECTLY (if RPC didn't create them)
 -- =========================================================================
@@ -13,7 +18,7 @@ INSERT INTO auth.users (
     '11111111-1111-4111-8111-111111111111'::UUID, 
     'authenticated', 'authenticated',
     'admin@systemsat.com.br', 
-    crypt('admin123', gen_salt('bf')),
+    crypt(current_setting('ssx.seed_password'), gen_salt('bf')),
     now(), now(), now(),
     '{"provider":"email","providers":["email"]}', 
     '{"name":"Admin Supremo","role":"Administrador"}',
@@ -51,7 +56,7 @@ INSERT INTO auth.users (
     gen_random_uuid(), 
     'authenticated', 'authenticated',
     'jose@cliente.com', 
-    crypt('senha123', gen_salt('bf')),
+    crypt(current_setting('ssx.seed_password'), gen_salt('bf')),
     now(), now(), now(),
     '{"provider":"email","providers":["email"]}', 
     '{"name":"José Cliente","role":"Cliente"}',

@@ -209,17 +209,31 @@ export interface PriorityConfig {
   color: string;
 }
 
-export interface CategoryConfig {
+// Campos comuns às listas de configuração referenciadas por id no chamado.
+// Arquivar aposenta a opção sem apagá-la: ela some dos seletores de chamado
+// NOVO, mas o chamado antigo continua apontando pra ela e exibindo o rótulo.
+// Existe porque a FK dessas colunas é ON DELETE SET NULL — excluir um item em
+// uso esvaziava o campo do chamado em silêncio, sem recuperação
+// (ver migrations/config_lists_archive.sql).
+export interface ArchivableConfig {
+  isArchived?: boolean;
+  archivedAt?: string | null;
+  // Quantos registros usam este item. Só vem quando a tela pede (`usage=1`) —
+  // é o que decide entre oferecer "arquivar" ou "excluir".
+  usageCount?: number;
+}
+
+export interface CategoryConfig extends ArchivableConfig {
   id: string;
   label: string;
 }
 
-export interface RequestTypeConfig {
+export interface RequestTypeConfig extends ArchivableConfig {
   id: string;
   label: string;
 }
 
-export interface ProductConfig {
+export interface ProductConfig extends ArchivableConfig {
   id: string;
   label: string;
 }
@@ -228,7 +242,7 @@ export interface ProductConfig {
 // listas editáveis em Configurações — ver
 // migrations/internal_ticket_effort_outcome.sql para o porquê de serem dois
 // campos e não um.
-export interface EffortConfig {
+export interface EffortConfig extends ArchivableConfig {
   id: string;
   label: string;
   // Peso na carga ponderada dos relatórios (Imediato 1 … Crítico 8).
@@ -237,7 +251,7 @@ export interface EffortConfig {
   sortOrder: number;
 }
 
-export interface OutcomeConfig {
+export interface OutcomeConfig extends ArchivableConfig {
   id: string;
   label: string;
   // Desfecho que representa defeito de produto — base da taxa de "bug que

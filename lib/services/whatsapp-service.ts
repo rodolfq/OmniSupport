@@ -17,7 +17,12 @@ import { transcribeMessageAudio, isAudioAttachment, isTranscriptionEnabled } fro
 
 const log = pino({ level: (process.env.WHATSAPP_LOG_LEVEL as any) || 'warn' });
 
-const MAX_RECONNECT_ATTEMPTS = 5;
+// 8 tentativas com espera dobrando (3s → 5min) cobrem mais de uma hora de
+// indisponibilidade antes de desistir. O valor anterior — 5 tentativas de 3s
+// fixos — tolerava só ~15 segundos de queda.
+const MAX_RECONNECT_ATTEMPTS = 8;
+const RECONNECT_BASE_DELAY_MS = 3000;
+const RECONNECT_MAX_DELAY_MS = 5 * 60 * 1000;
 const CONNECTING_STALE_MS = 45000;
 const MAX_INCOMING_MEDIA_BYTES = 8 * 1024 * 1024; // mesmo limite usado para anexos enviados pelo agente
 const SEND_RETRY_ATTEMPTS = 3;
@@ -487,7 +492,14 @@ export class WhatsAppService {
             inst.connectingSince = undefined;
           }
           state.retryCount.set(instanceId, 0);
-          await this.clearStoredSession(instanceId);
+          // NÃO limpar a sessão armazenada aqui. Havia um clearStoredSession
+          // neste ponto, e whatsapp_sessions é justamente onde as credenciais
+          // do Baileys ficam (linha de creds + uma por chave de signal, ver
+          // lib/supabase-auth.ts): conectar com sucesso apagava a credencial
+          // que acabara de autenticar. Efeito prático — a conexão não
+          // sobrevivia a reinício do container e exigia novo QR code; a tabela
+          // foi encontrada vazia com a instância 'default' desconectada.
+          // Persistir a sessão é o motivo de ela existir.
         }
 
         if (connection === 'close') {
@@ -506,19 +518,39 @@ export class WhatsAppService {
 
             if (attempts <= MAX_RECONNECT_ATTEMPTS) {
               clearReconnectTimer(instanceId);
+              // Espera crescente em vez de 3s fixos. Com o valor fixo e 5
+              // tentativas, qualquer queda de rede acima de ~15 segundos
+              // esgotava o limite — curto demais para uma oscilação comum de
+              // link. Agora: 3s, 6, 12, 24, 48, 96, 192, até o teto de 5 min,
+              // o que cobre mais de uma hora de indisponibilidade.
+              const delay = Math.min(
+                RECONNECT_BASE_DELAY_MS * Math.pow(2, attempts - 1),
+                RECONNECT_MAX_DELAY_MS
+              );
+              console.warn(`[WhatsApp:${instanceId}] Conexão caiu; tentativa ${attempts} em ${Math.round(delay / 1000)}s.`);
               const timer = setTimeout(() => {
                 state.reconnectTimers.delete(instanceId);
                 void this.connect(instanceId);
-              }, 3000);
+              }, delay);
               state.reconnectTimers.set(instanceId, timer);
             } else {
-              console.error(`[WhatsApp:${instanceId}] Max reconnect attempts reached, giving up.`);
+              // Desiste de tentar sozinho, mas PRESERVA as credenciais: a
+              // sessão continua válida do lado do WhatsApp, e uma queda de rede
+              // prolongada não deve custar um novo QR code. Antes havia um
+              // clearStoredSession aqui, então bastava a internet cair por um
+              // tempo para alguém ter que reconectar o telefone na mão.
+              // Só logout de verdade (tratado no ramo abaixo) invalida a
+              // credencial. O botão "Conectar" da tela reaproveita o que está
+              // guardado e volta sem QR.
+              console.error(
+                `[WhatsApp:${instanceId}] ${MAX_RECONNECT_ATTEMPTS} tentativas de reconexão sem sucesso. ` +
+                'Parando por aqui; as credenciais foram mantidas, use "Conectar" na tela de WhatsApp.'
+              );
               clearReconnectTimer(instanceId);
               if (state.instances.get(instanceId)?.sock === sock) {
                 state.instances.delete(instanceId);
               }
               state.retryCount.delete(instanceId);
-              await this.clearStoredSession(instanceId);
             }
           } else {
             clearReconnectTimer(instanceId);

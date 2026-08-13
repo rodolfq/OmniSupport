@@ -1,3 +1,8 @@
+-- ATENÇÃO — SENHA DE SEED
+-- Antes de rodar:  SET ssx.seed_password = 'senha-forte-escolhida-agora';
+-- A senha literal foi removida daqui (era trivial e o repositório é
+-- versionado; esta conta existe em produção). Sem a variável definida o script
+-- falha de propósito, em vez de criar conta com senha conhecida.
 -- =========================================================================
 -- CREATE ADMIN USER AND PROFILE COMPLETELY
 -- =========================================================================
@@ -19,7 +24,7 @@ BEGIN
             new_id, 
             'authenticated', 'authenticated',
             'admin@systemsat.com.br', 
-            crypt('admin123', gen_salt('bf')),
+            crypt(current_setting('ssx.seed_password'), gen_salt('bf')),
             now(), now(), now(),
             '{"provider":"email","providers":["email"]}', 
             '{"name":"Admin Supremo","role":"Administrador"}',

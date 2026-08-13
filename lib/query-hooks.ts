@@ -1,7 +1,6 @@
 'use client';
 
 import { useQuery, QueryClient } from '@tanstack/react-query';
-import { supabase } from '@/lib/supabase';
 
 // Hooks de dado de REFERÊNCIA (muda pouco: empresas, analistas, listas de
 // config) compartilhados entre filter-bar.tsx, modern-search-bar.tsx e
@@ -17,19 +16,17 @@ import { supabase } from '@/lib/supabase';
 // só existe um lugar definindo "como buscar X", pra hook e prefetch nunca
 // divergirem.
 
-async function selectAll(table: string) {
-  const { data, error } = await supabase.from(table).select('*');
-  if (error) throw new Error(error.message || `Falha ao buscar ${table}`);
-  return data ?? [];
-}
-
 async function getJson(url: string) {
   const res = await fetch(url);
   if (!res.ok) throw new Error(`Falha ao buscar ${url} (${res.status})`);
   return res.json();
 }
 
-const companiesDef = { queryKey: ['ref', 'companies'], queryFn: () => selectAll('companies') };
+// Toda lista de referência vem de rota própria. Antes vinham do shim
+// (supabase.from(tabela).select('*')): além de aceitar nome de tabela como
+// dado, ele responde por POST e portanto não é cacheável por HTTP. As rotas
+// abaixo mandam Cache-Control, então o navegador também passa a ajudar.
+const companiesDef = { queryKey: ['ref', 'companies'], queryFn: () => getJson('/api/companies') };
 
 // "Lite": sem avatar_url. A tabela profiles tem ~51MB de fotos em base64
 // (sync do Bitrix24, ver bitrix24-service.ts) — supabase.from('profiles')
@@ -50,29 +47,24 @@ function configStatusesDef(scope: 'ticket' | 'internal_ticket') {
   return {
     queryKey: ['ref', 'config_statuses', scope],
     queryFn: async () => {
-      const { data, error } = await supabase
-        .from('config_statuses')
-        .select('*')
-        .eq('scope', scope)
-        .order('sort_order', { ascending: true });
-      if (error) throw new Error(error.message || 'Falha ao buscar status');
-      return data ?? [];
+      // A rota já filtra por scope e ordena por sort_order.
+      return getJson(`/api/config?type=statuses&scope=${scope}`);
     }
   };
 }
 
-const configCategoriesDef = { queryKey: ['ref', 'config_categories'], queryFn: () => selectAll('config_categories') };
-const configRequestTypesDef = { queryKey: ['ref', 'config_request_types'], queryFn: () => selectAll('config_request_types') };
-const configProductsDef = { queryKey: ['ref', 'config_products'], queryFn: () => selectAll('config_products') };
-const configPrioritiesDef = { queryKey: ['ref', 'config_priorities'], queryFn: () => selectAll('config_priorities') };
+const configCategoriesDef = { queryKey: ['ref', 'config_categories'], queryFn: () => getJson('/api/config?type=categories') };
+const configRequestTypesDef = { queryKey: ['ref', 'config_request_types'], queryFn: () => getJson('/api/config?type=request-types') };
+const configProductsDef = { queryKey: ['ref', 'config_products'], queryFn: () => getJson('/api/config?type=products') };
+const configPrioritiesDef = { queryKey: ['ref', 'config_priorities'], queryFn: () => getJson('/api/config?type=priorities') };
 // Classificação de solução do chamado. Vai por /api/config (não pelo shim
 // supabase.from) porque a rota já devolve camelCase com weight numérico e
 // ordenado por sort_order — código novo não deve reintroduzir o shim.
 const configEffortsDef = { queryKey: ['ref', 'config_efforts'], queryFn: () => getJson('/api/config?type=efforts') };
 const configOutcomesDef = { queryKey: ['ref', 'config_outcomes'], queryFn: () => getJson('/api/config?type=outcomes') };
 
-const internalTeamsDef = { queryKey: ['ref', 'internal_teams'], queryFn: () => selectAll('internal_teams') };
-const queuesDef = { queryKey: ['ref', 'queues'], queryFn: () => selectAll('queues') };
+const internalTeamsDef = { queryKey: ['ref', 'internal_teams'], queryFn: () => getJson('/api/config?type=internal-teams') };
+const queuesDef = { queryKey: ['ref', 'queues'], queryFn: () => getJson('/api/config?type=queues') };
 
 // Papéis "de equipe" (Administrador/Equipe/Time Interno) — mesmo filtro de
 // /api/users?type=analysts. Só usar onde o consumidor precisar exatamente

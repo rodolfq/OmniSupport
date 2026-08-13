@@ -45,7 +45,6 @@ import { useApp } from '@/app/app-context';
 import { LinkContactModal } from '@/components/link-contact-modal';
 import { AssignChatMenu } from '@/components/assign-chat-menu';
 import { ConfirmDialog } from '@/components/confirm-dialog';
-import { supabase } from '@/lib/supabase';
 import { useQueuesQuery } from '@/lib/query-hooks';
 import { fetchChatSessions, saveChatHistory } from '@/lib/services/chat-service';
 import { renderLinkedText } from '@/components/linked-chat-text';
@@ -121,25 +120,19 @@ export default function ChatManagementPage() {
       console.error('Error fetching chat sessions:', err);
     }
 
-    // Get analyst statuses
-    // Mapeado pra camelCase — o shim supabase.from().select('*') devolve a
-    // linha crua (is_online/user_id/...), mas todo o resto deste arquivo lê
-    // s.isOnline/s.userId/s.currentLoad (ver AnalystStatus em lib/types.ts).
-    // Sem esse mapeamento, o badge Disponível/Ausente e a lista de "colegas
-    // online" pra transferir chat ficavam sempre vazios/incorretos.
-    const { data: statusData, error: statusError } = await supabase.from('analyst_status').select('*');
-    if (statusError) {
-      console.error('Error fetching analyst statuses:', statusError);
+    // Presença dos analistas: a rota /api/config?type=analyst-statuses já
+    // devolve camelCase (isOnline/userId/currentLoad), que era exatamente o
+    // remapeamento feito na mão aqui depois do select cru do shim.
+    let statusData: any[] = [];
+    try {
+      const statusRes = await fetch('/api/config?type=analyst-statuses');
+      if (!statusRes.ok) throw new Error(`HTTP ${statusRes.status}`);
+      statusData = await statusRes.json();
+    } catch (err) {
+      console.error('Erro ao buscar presença dos analistas:', err);
     }
-    setStatuses((statusData || []).map((r: any) => ({
-      userId: r.user_id,
-      isOnline: r.is_online,
-      lastActive: r.last_active,
-      currentLoad: r.current_load,
-      currentReason: r.current_reason,
-      status: r.status
-    })));
-    
+    setStatuses(statusData);
+
     // Get quick notes via action
     const notesData = await getQuickNotes();
     setNotes(notesData);

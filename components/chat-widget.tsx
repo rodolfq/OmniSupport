@@ -60,7 +60,6 @@ import { cn, maskPhone, matchPhones, safeJsonStringify } from '@/lib/utils';
 import { useApp } from '@/app/app-context';
 import { isEvaluationSnoozed } from '@/lib/evaluation-snooze';
 import { deriveLiveStatus } from '@/lib/presence';
-import { supabase } from '@/lib/supabase';
 import { useSearchParams } from 'next/navigation';
 import { LinkContactModal } from '@/components/link-contact-modal';
 import { renderLinkedText } from '@/components/linked-chat-text';

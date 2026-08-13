@@ -23,8 +23,15 @@ export async function GET(request: Request) {
       }
       return NextResponse.json(res.rows[0], { headers: { 'Cache-Control': REFERENCE_CACHE_HEADER } });
     } else {
+      // Colunas completas (com apelido camelCase): esta rota substituiu o
+      // acesso via shim, que devolvia a linha inteira. Faltando qualquer uma
+      // delas, o consumidor que a lia passaria a ver `undefined` sem erro.
       const res = await query(
-        'SELECT id, name, industry, phone, is_in_training AS "isInTraining" FROM public.companies ORDER BY name ASC'
+        `SELECT id, name, industry, phone, created_at AS "createdAt",
+                is_in_training AS "isInTraining",
+                cs_responsavel_id AS "csResponsavelId",
+                comercial_responsavel_id AS "comercialResponsavelId"
+           FROM public.companies ORDER BY name ASC`
       );
       return NextResponse.json(res.rows, { headers: { 'Cache-Control': REFERENCE_CACHE_HEADER } });
     }

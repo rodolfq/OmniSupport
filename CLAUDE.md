@@ -73,9 +73,7 @@ npm run start   # produção, após build
 npm run lint    # next lint
 ```
 
-**Login de desenvolvimento** (semeado em `schema_postgres.sql`, dados de teste — não são segredo de produção):
-- Admin: `admin@systemsat.com.br` / senha `admin123`
-- Cliente: `jose@cliente.com` / senha `senha123`
+**Login de desenvolvimento**: o `schema_postgres.sql` semeia um usuário administrador (`admin@systemsat.com.br`) e um cliente de teste (`jose@cliente.com`). As senhas **não ficam documentadas** aqui nem no schema: as mesmas contas existem no banco de produção, e este repositório é versionado — publicar a senha equivale a publicar acesso de administrador. Peça a credencial a quem administra o ambiente.
 
 ⚠️ **A CONFIRMAR**: se o Postgres de `DATABASE_URL` no `.env` atual é um banco compartilhado de produção/staging ou um ambiente pessoal — o schema faz `DROP TABLE ... CASCADE` no topo, então **nunca rodar `schema_postgres.sql` contra um banco com dados reais**.
 
@@ -150,7 +148,6 @@ lib/
   services/              # Camada de acesso a dados/regra de negócio por domínio (ver seção 6)
   db.ts                  # Pool pg principal (DATABASE_URL)
   whatsapp-db.ts          # Pool pg separado, dedicado à sessão do WhatsApp
-  supabase.ts             # Cliente FALSO de Supabase (shim de compatibilidade, ver seção 15)
   supabase/server.ts       # Cliente Supabase real (ssr) — código órfão, não usado no fluxo atual
   supabase-auth.ts         # Persistência de credenciais Baileys no Postgres (nome legado)
   jwt.ts / auth-utils.ts    # Sessão (JWT via Web Crypto) e hash de senha (PBKDF2)
@@ -162,7 +159,9 @@ middleware.ts           # Gate de autenticação global (JWT em cookie) para tod
 instrumentation.ts / instrumentation-node.ts # Boot: reconecta WhatsApp, inicia schedulers
 migrations/             # SQL incremental aplicado manualmente em produção (ver seção 11)
 schema_postgres.sql     # Schema completo + seeds — fonte de verdade do banco
-supabase_schema.sql      # ⚠️ Desatualizado (faltam ~6 tabelas) — não usar como referência
+                        # (supabase_schema.sql foi REMOVIDO em 2026-08-13:
+                        #  estava desatualizado e descrevia um backend Supabase
+                        #  que não existe mais neste projeto)
 scripts/diagnostics/     # Scripts SQL/TS ad-hoc de debug — não fazem parte do fluxo oficial
 public/                 # Ícones, manifest PWA, service worker (sw.js)
 manuais/                # HTML/PDF — organizados em subpastas por tipo
@@ -176,7 +175,7 @@ manuais/                # HTML/PDF — organizados em subpastas por tipo
 
 ## 6. Modelo de dados
 
-Fonte de verdade: [`schema_postgres.sql`](schema_postgres.sql) (676 linhas). **Não usar `supabase_schema.sql`** — está desatualizado (faltam `chat_histories`, `internal_teams`, `role_permissions`, `internal_chat_messages`, `internal_ticket_messages`, `whatsapp_contact_photos`).
+Fonte de verdade: [`schema_postgres.sql`](schema_postgres.sql). Desde 2026-08-13 ele está **alinhado com produção** e provisiona um banco novo de verdade (verificado contra um Postgres descartável: 51 tabelas dos dois lados, zero diferença). `supabase_schema.sql` foi removido.
 
 Não há ORM/migration framework — todo acesso é SQL puro via `pg` (ver `lib/db.ts` e os arquivos em `lib/services/`).
 
@@ -294,9 +293,9 @@ Padrão predominante: rotas multiplexadas por query param `?action=...` dentro d
 | `/api/integrations/v1/companies` | GET/POST | Empresas-cliente, via API key | Escopo `companies:write` (leitura provavelmente sem escopo dedicado — ⚠️ A CONFIRMAR) |
 | `/api/integrations/v1/tickets` | GET | Chamados, via API key | Escopo `tickets:read` |
 | `/api/integrations/v1/conversations` | GET | Conversas, via API key | Escopo `conversations:read` |
-| `/api/compat/supabase` | POST | Tradutor de chamadas estilo Supabase JS para SQL (ver seção 15) | Sessão válida |
+| `/api/saved-views` | GET/POST/DELETE | Buscas salvas do usuário (barra de filtros). O dono vem sempre da sessão | Sessão válida |
 | `/api/create-user` | POST | ⚠️ **Código órfão** — usa Supabase Auth real, que não está configurado neste projeto. Não usar; fluxo real de criação de usuário é a Server Action `createUser` em `app/actions.ts` | — |
-| `/api/debug-internal-tickets` | GET | ⚠️ Rota de debug — **A CONFIRMAR** se deve existir em produção |
+| `/api/internal-tickets` | GET/POST/DELETE | `?action=by-parent\|messages` (GET), `action=save\|link\|message` (POST) e DELETE para desvincular. Criada ao tirar o `InternalTicketService` do shim | Sessão válida |
 
 A API de integração (`/api/integrations/v1/*`) usa **autenticação por API key** (`Authorization: Bearer ssx_...` ou header `x-api-key`), independente do cookie JWT — ver `lib/integration-auth.ts`. Rate limit: 120 req/min por chave, em memória por processo (não distribuído).
 
@@ -307,7 +306,7 @@ A API de integração (`/api/integrations/v1/*`) usa **autenticação por API ke
 - **Nomes de arquivo**: kebab-case em `components/`, `lib/`, `hooks/` (`ticket-detail-modal.tsx`, `queue-routing.ts`). Rotas de API seguem a convenção do App Router (`route.ts` dentro da pasta do endpoint).
 - **Lógica de negócio vs. UI**: regra de negócio e acesso a dados ficam em `lib/services/*.ts` (um arquivo por domínio: `ticket-service.ts`, `chat-service.ts`, `config-service.ts`, `whatsapp-service.ts`, etc.) e em Server Actions (`app/actions.ts`). Componentes em `components/` são majoritariamente client components que chamam esses services/actions ou as rotas de API.
 - **Acesso a dados**: SQL puro via `query()`/`pool` de `lib/db.ts` (ou `whatsappQuery`/`whatsappPool` de `lib/whatsapp-db.ts` para o fluxo de WhatsApp). Sem query builder, sem ORM.
-- **Camada de compatibilidade Supabase** (`lib/supabase.ts` + `/api/compat/supabase`): ainda existe e é usada por partes mais antigas do frontend que chamam `.from(table).select().eq()...`. Código novo deve preferir `lib/services/*` diretamente — ver seção 15.
+- **Não existe mais camada de compatibilidade Supabase.** O shim (`lib/supabase.ts`) e o tradutor `/api/compat/supabase` foram REMOVIDOS em 2026-08-12: todo acesso a dado passa por rota em `app/api/*` ou Server Action, com escopo fechado. Nenhum ponto do sistema aceita mais nome de tabela vindo do client.
 - **Tipos**: única fonte em `lib/types.ts` (interfaces + enums). Não redefinir tipos de domínio localmente em componentes.
 - **Tratamento de erro**: Server Actions retornam `{ error: string }` em vez de lançar (padrão usado no frontend para exibir toast). Rotas de API retornam `NextResponse.json({ error }, { status })`. Funções de log/auditoria (`lib/audit-log.ts`) nunca lançam — falha é só logada no console.
 - **Validação**: feita inline nas Server Actions/rotas (checagem de permissão, campos obrigatórios), sem biblioteca de schema (zod/yup não estão no `package.json`).
@@ -386,7 +385,6 @@ A API de integração (`/api/integrations/v1/*`) usa **autenticação por API ke
 | `app/api/create-user/route.ts` | Usa Supabase Auth real (`@supabase/supabase-js`) com variáveis de ambiente que **não existem** no `.env` atual — código órfão, não deveria estar no fluxo | Endpoint inteiro; fluxo real é a Server Action `createUser` em `app/actions.ts` |
 | `lib/supabase/server.ts` | Cliente Supabase SSR real, sem nenhuma variável de ambiente configurada — não é chamado por nenhum fluxo ativo identificado | Arquivo inteiro — ⚠️ A CONFIRMAR se há algum consumidor não encontrado na varredura |
 | `app/(portal)/activities/page.tsx` | Propósito não inspecionado a fundo nesta varredura | ⚠️ A CONFIRMAR |
-| `app/api/debug-internal-tickets/route.ts` | Rota de debug, propósito/uso em produção não confirmado | ⚠️ A CONFIRMAR |
 
 ---
 
@@ -413,23 +411,23 @@ Extraído de `ROADMAP_MELHORIAS.md` (seção "Erros/inconsistências encontrados
 2. **`lib/services/automation-service.ts:197`** — mensagens automáticas disparam sempre pela instância `'default'` do WhatsApp, ignorando a Fila do chamado. Pode sair pela instância errada com múltiplas instâncias configuradas.
 3. **Build sem rede de segurança de tipo/lint**: `next.config.ts` tem `typescript.ignoreBuildErrors: true` e `eslint.ignoreDuringBuilds: true` — erros de TypeScript e lint **não bloqueiam o build/deploy**. Rodar `npx tsc --noEmit` e `npm run lint` manualmente antes de considerar uma mudança pronta (não é automático).
 4. **Código órfão ligado a Supabase real**: `app/api/create-user/route.ts` e `lib/supabase/server.ts` dependem de `NEXT_PUBLIC_SUPABASE_URL`/`SUPABASE_SERVICE_ROLE_KEY`/`NEXT_PUBLIC_SUPABASE_ANON_KEY`, ausentes do `.env` atual. Não usar como referência de fluxo real de criação de usuário.
-5. **`supabase_schema.sql` desatualizado** — faltam pelo menos 6 tabelas presentes em `schema_postgres.sql`. Usar sempre `schema_postgres.sql` como fonte de verdade.
+5. ~~`supabase_schema.sql` desatualizado~~ — **resolvido em 2026-08-13**: o arquivo foi removido e `schema_postgres.sql` foi alinhado com produção.
 6. **Realtime de chat não é multi-instância**: `lib/chat-events.ts` usa `EventEmitter` em memória por processo — com mais de uma réplica, cada uma só notifica quem está conectado nela mesma. Hoje isso não morde porque roda um container só (ver seção 11), e é uma das razões de ser um só. Mitigado por polling de 30s no cliente e por `chat_session_viewers` (persistido) para o cálculo de push. Se escalar de fato, o próprio código já aponta a solução: `pg LISTEN/NOTIFY`.
 7. **Rate limit da API de integração é em memória, por processo** (`lib/integration-auth.ts`) — não é distribuído; múltiplas instâncias relaxam o limite real.
 8. **`README.md` é o template genérico original** ("AI Studio"/Gemini), não descreve o projeto atual — não usar como documentação, foi substituído por este arquivo.
 9. **Migrations não têm tracking automático** — nenhuma tabela de "migrations aplicadas"; depende de disciplina manual (ver seção 11).
-10. **Debug logging já removido** — havia um log de toda requisição gravado dentro da pasta observada pelo Next.js (`app/api/compat/supabase/route.ts`), causando recompilações que cortavam requisições no meio ("Unexpected end of JSON input" aleatório). **Já corrigido**, mas é o primeiro lugar a checar se sintomas parecidos voltarem.
+10. ~~Debug logging na rota compat~~ — a rota deixou de existir (shim removido em 2026-08-12). Fica a lição: log de requisição gravado como ARQUIVO dentro de `app/` faz o Next recompilar e corta requisições no meio ("Unexpected end of JSON input" aleatório). Nunca escreva log em arquivo dentro da pasta observada.
 
 ---
 
 ## 15. Decisões e armadilhas
 
-- **Por que SQL puro e não um ORM**: o projeto migrou de um protótipo Supabase (BaaS) para Postgres próprio via `pg`. Em vez de reescrever todo o frontend que já chamava `supabase.from('table').select()...`, foi criado um **shim de compatibilidade**: `lib/supabase.ts` finge ser o cliente `@supabase/supabase-js` mas serializa a cadeia de métodos em um payload JSON, enviado por `POST` a `app/api/compat/supabase/route.ts`, que traduz para SQL e executa. **Isso é intencional e ainda está em uso** por partes mais antigas do frontend — não é "coisa esquecida para remover às pressas"; ver `REFACTOR_PLAN.md` para o plano (parcialmente executado) de migrar cada componente para `lib/services/*` diretamente.
+- **Por que SQL puro e não um ORM**: o projeto migrou de um protótipo Supabase (BaaS) para Postgres próprio via `pg`. Durante essa migração existiu um **shim de compatibilidade** (`lib/supabase.ts` + `/api/compat/supabase`) que aceitava chamadas no estilo `supabase.from('table').select()` e as traduzia em SQL — assim o frontend não precisou ser reescrito de uma vez. **Ele foi removido em 2026-08-12**, junto com os 16 arquivos que dependiam dele. O motivo de não ter sobrevivido: ele recebia o NOME DA TABELA como dado, então qualquer usuário autenticado podia ler ou escrever em qualquer tabela — inclusive `profiles` e `integration_api_keys`. Além disso ignorava a lista de colunas do `.select()`, o que fazia toda consulta trazer a linha inteira (a origem dos ~50MB de avatares em base64 em telas que só queriam um nome). Hoje cada operação tem rota própria com escopo fechado.
 - **`lib/supabase-auth.ts` não usa Supabase**: o nome foi mantido por compatibilidade com os consumidores (Baileys), mas a função `useSupabaseAuthState` hoje persiste credenciais no Postgres próprio (`whatsapp_sessions`), não no Supabase Auth. Não deixe o nome do arquivo enganar.
 - **`tickets.category` continua existindo mesmo sendo legado**: mantido só para não quebrar a API pública de integrações externas que já dependia dela. Código novo não deve escrever nesse campo — usar `category_id`/`request_type_id`/`product_id`.
 - **`chat_sessions.ticket_id`/`ticket_number` não significam "único chamado desta conversa"**: desde a introdução de `tickets.chat_session_id` (N:1 invertido), esses campos passaram a significar "chamado mais recente desta conversa" — o mesmo badge visual de sempre, mas semântica diferente por baixo.
 - **Mesclar chamado não reaproveita o status "Fechado"**: existe um status dedicado `"Mesclado"` (em `CLOSED_TICKET_STATUSES`) porque fechar de verdade dispararia notificação indevida ao cliente via automação. Se for mexer em `mergeTickets`/`duplicateTicket`, lembre que eles gravam SQL direto de propósito, para **não** disparar automação/notificação.
-- **Anexo mora em disco, não no banco** (`lib/services/attachment-storage.ts`): o arquivo é gravado em `ATTACHMENTS_DIR/<ano>/<mês>/<uuid>.<ext>` e o que fica em `attachments_data`/`metadata.attachments` é só `{ url: '/api/files/...' }` + nome/tipo/tamanho. A conversão do `data:` URL que o client envia acontece **no servidor**, em todo ponto de escrita (`/api/chats` push-message e save-internal-message, `/api/tickets` create/create-message, o tradutor do shim em `/api/compat/supabase` e a mídia recebida do WhatsApp) — o front continua mandando `data:` URL, de propósito, pra não precisar de fluxo de upload separado. Ao criar um ponto de escrita novo com anexo, chame `persistAttachments`, senão ele volta a inflar o banco em base64. Quem **lê** anexo precisa aguentar as duas formas: registros antigos ainda são `data:` URL até `scripts/migrate-attachments-to-disk.js` passar por eles. Não existe tabela de índice de arquivos — o caminho está na própria URL, e `resolveAttachmentPath` é quem barra path traversal.
+- **Anexo mora em disco, não no banco** (`lib/services/attachment-storage.ts`): o arquivo é gravado em `ATTACHMENTS_DIR/<ano>/<mês>/<uuid>.<ext>` e o que fica em `attachments_data`/`metadata.attachments` é só `{ url: '/api/files/...' }` + nome/tipo/tamanho. A conversão do `data:` URL que o client envia acontece **no servidor**, em todo ponto de escrita (`/api/chats` push-message e save-internal-message, `/api/tickets` create/create-message, `/api/internal-tickets` message e a mídia recebida do WhatsApp) — o front continua mandando `data:` URL, de propósito, pra não precisar de fluxo de upload separado. Ao criar um ponto de escrita novo com anexo, chame `persistAttachments`, senão ele volta a inflar o banco em base64. Quem **lê** anexo precisa aguentar as duas formas: registros antigos ainda são `data:` URL até `scripts/migrate-attachments-to-disk.js` passar por eles. Não existe tabela de índice de arquivos — o caminho está na própria URL, e `resolveAttachmentPath` é quem barra path traversal.
 - **`chat_histories.rating` NÃO é o dígito que o cliente digita**: na pesquisa de satisfação o cliente responde `"1"` (bom) / `"0"` (ruim), mas a coluna usa a escala **-1 (negativo) / 0 (neutro) / 1 (positivo)** — lida assim por histórico de conversas, relatórios de satisfação e dashboard gerencial. Gravar o dígito cru faz a avaliação ruim virar "neutro" e desaparecer de todas as contagens (era exatamente o bug corrigido em `migrations/fix_survey_negative_rating.sql`; as avaliações boas nunca falharam porque `1` coincide nas duas escalas, o que mascarou o problema). A conversão fica em quem recebe a resposta: `lib/services/whatsapp-service.ts` (canal Baileys) e `components/chat-widget.tsx` (widget), com normalização defensiva também em `app/api/chats/route.ts` (`action=submit-survey-response`). Ao ler `rating`, nunca usar teste de veracidade (`!!rating` / `rating || null`) — `0` e `-1` quebram os dois; comparar explicitamente com `1`/`-1`/`IS NOT NULL`.
 - **`internal_team_ids` vs. `internal_teams.admin_ids`**: um usuário pode *pertencer* a várias equipes internas (`profiles.internal_team_ids`) sem *administrar* nenhuma. Só quem está em `admin_ids` de uma equipe pode criar/editar usuários e perfis de acesso escopados a ela — checado em `app/actions.ts` (`getAdminTeamIds`), não na navegação.
 - **`role` em `profiles` é estrutural, não de permissão**: dois usuários com `role = 'Equipe'` podem ter permissões completamente diferentes via `access_profile_id`. Nunca decidir acesso a uma tela olhando só `role` — sempre via `Permission`.
@@ -443,7 +441,7 @@ Extraído de `ROADMAP_MELHORIAS.md` (seção "Erros/inconsistências encontrados
 Baseado em `AGENTS.md` (já existente no repositório) + observações desta varredura:
 
 **Sempre:**
-- Ler `schema_postgres.sql` antes de qualquer mudança de banco — é a fonte de verdade (não `supabase_schema.sql`).
+- Ler `schema_postgres.sql` antes de qualquer mudança de banco — é a fonte de verdade. **Ao aplicar uma migration em produção, refletir a mudança nele também**: foi o que deixou de ser feito e gerou o drift de 9 tabelas/16 colunas corrigido em 2026-08-13.
 - Preservar componentes existentes em `components/` e `app/(portal)/` ao alterar layout — não são para ser recriados do zero.
 - Garantir que qualquer nova variável de ambiente fique documentada (não existe `.env.example` hoje — se criar uma mudança que introduza uma env var, adicione-a também na seção 4 deste arquivo).
 - Rodar `npx tsc --noEmit -p tsconfig.json` e `npm run lint` antes de considerar uma tarefa concluída — o build **não** falha sozinho com erro de tipo/lint (seção 14, item 3).
@@ -457,7 +455,7 @@ Baseado em `AGENTS.md` (já existente no repositório) + observações desta var
 - Commitar `.env` (já coberto por `.gitignore`, mas confirme antes de qualquer `git add -A`).
 - Alterar migrations já aplicadas em produção (arquivos em `migrations/`) — criar uma nova migration em vez de editar uma existente.
 - Assumir que `README.md` descreve o projeto — é o template genérico original, ignore-o como fonte de verdade.
-- Reintroduzir o padrão `.from('table').select()` do shim Supabase (`lib/supabase.ts`) em código novo — usar `lib/services/*` ou SQL direto via `lib/db.ts`.
+- Recriar qualquer forma de endpoint genérico que receba nome de tabela/coluna do client (era o que o shim removido fazia) — cada operação deve ter rota própria, com escopo fechado.
 - Usar `app/api/create-user/route.ts` ou `lib/supabase/server.ts` como referência de fluxo — são código órfão (seção 14, item 4).
 
 ---
@@ -479,9 +477,9 @@ Recomendações objetivas para dois devs trabalharem ao mesmo tempo, dado o que 
 
 1. Se `.env.example` deveria existir no repositório (hoje não existe, apesar do `.gitignore` já prever um `!.env.example`).
 2. Se o `DATABASE_URL` atual do `.env` aponta para produção/staging ou ambiente pessoal — crítico antes de rodar `schema_postgres.sql` (que dropa tabelas).
-3. Existência/nome exato da coluna `companies.is_in_training` no schema real (usada em `lib/types.ts` como `Company.isInTraining`, mas não vista explicitamente durante a leitura de `schema_postgres.sql`).
+3. ~~Existência da coluna `companies.is_in_training`~~ — **resolvida**: existe no banco de produção (verificada em 2026-08-12), mas está entre as ~16 colunas ausentes do `schema_postgres.sql`.
 4. Propósito exato de `app/(portal)/activities/page.tsx`.
-5. Propósito/uso em produção de `app/api/debug-internal-tickets/route.ts`.
+5. ~~Rota `app/api/debug-internal-tickets`~~ — **resolvida**: era debug da geração de número de ticket interno, nenhum consumidor. Removida em 2026-08-12.
 6. Se há algum consumidor de `lib/supabase/server.ts` fora do que foi encontrado nesta varredura.
 7. Escopo de leitura de `/api/integrations/v1/companies` (a rota de escrita usa `companies:write`; não ficou claro se leitura exige escopo próprio).
 8. ~~Onde os anexos são fisicamente armazenados~~ — **resolvido**: vão para o volume `attachments` (`ATTACHMENTS_DIR`), servidos por `/api/files/...`. Ignore a instrução do `AGENTS.md` de usar Supabase Storage: não é o que existe. Ver seção 15.

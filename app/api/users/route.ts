@@ -43,6 +43,29 @@ export async function GET(request: Request) {
         internalTeamIds: r.internal_team_ids,
         avatarThumbUrl: r.avatar_thumb_url
       })));
+    } else if (type === 'chat-team') {
+      // Pessoas que aparecem no chat interno: papéis de equipe, com presença.
+      // avatarUrl é o ENDEREÇO da foto (a conversa mostra o avatar em tamanho
+      // maior, onde a miniatura de 48px não serve) e a miniatura vem junto pra
+      // lista de salas desenhar sem esperar requisição — ver
+      // app/api/users/[id]/avatar/route.ts.
+      const res = await query(
+        `SELECT id, name, email, role, status, status_reason, avatar_thumb_url,
+                (avatar_url IS NOT NULL AND avatar_url <> '') AS has_avatar
+           FROM public.profiles
+          WHERE role IN ('Equipe', 'Administrador', 'Time Interno')
+          ORDER BY name ASC`
+      );
+      return NextResponse.json(res.rows.map(r => ({
+        id: r.id,
+        name: r.name,
+        email: r.email,
+        role: r.role,
+        status: r.status,
+        statusReason: r.status_reason,
+        avatarUrl: r.has_avatar ? `/api/users/${r.id}/avatar` : null,
+        avatarThumbUrl: r.avatar_thumb_url
+      })));
     } else if (type === 'employees') {
       const res = await query(
         "SELECT id, name, email, role, company_id, phone FROM public.profiles WHERE role = 'Cliente' OR role = 'Funcionário'"
@@ -67,8 +90,8 @@ export async function GET(request: Request) {
       // alimenta o avatar em card/lista. Só a foto cheia é opt-in.
       const withAvatar = searchParams.get('withAvatar') === '1';
       const res = await query(
-        `SELECT id, name, email, role, company_id, phone, internal_team_ids, avatar_thumb_url
-                ${withAvatar ? ', avatar_url' : ''}
+        `SELECT id, name, email, role, company_id, phone, internal_team_ids, avatar_thumb_url,
+                (avatar_url IS NOT NULL AND avatar_url <> '') AS has_avatar
          FROM public.profiles WHERE role IN ('Administrador', 'Equipe', 'Time Interno')`
       );
       return NextResponse.json(res.rows.map(r => ({
@@ -78,7 +101,10 @@ export async function GET(request: Request) {
         role: r.role,
         companyId: r.company_id,
         phone: r.phone,
-        avatarUrl: withAvatar ? r.avatar_url : undefined,
+        // withAvatar deixou de custar os MB de base64 — agora é só a URL.
+        // Mantido como opt-in mesmo assim: quem não pede continua sem o campo,
+        // e nenhum consumidor precisou mudar.
+        avatarUrl: withAvatar && r.has_avatar ? `/api/users/${r.id}/avatar` : undefined,
         avatarThumbUrl: r.avatar_thumb_url,
         internalTeamIds: r.internal_team_ids
       })));
@@ -92,7 +118,8 @@ export async function GET(request: Request) {
         const ids = idsParam.split(',').map(s => s.trim()).filter(Boolean);
         if (ids.length === 0) return NextResponse.json({ items: [] });
         const res = await query(
-          `SELECT id, name, email, role, company_id, phone, avatar_url, internal_team_ids
+          `SELECT id, name, email, role, company_id, phone, internal_team_ids,
+                  (avatar_url IS NOT NULL AND avatar_url <> '') AS has_avatar
            FROM public.profiles
            WHERE role IN ('Administrador', 'Equipe', 'Time Interno') AND id = ANY($1)`,
           [ids]
@@ -105,7 +132,7 @@ export async function GET(request: Request) {
             role: r.role,
             companyId: r.company_id,
             phone: r.phone,
-            avatarUrl: r.avatar_url,
+            avatarUrl: r.has_avatar ? `/api/users/${r.id}/avatar` : null,
             internalTeamIds: r.internal_team_ids
           }))
         });
@@ -118,7 +145,9 @@ export async function GET(request: Request) {
       const likeParam = `%${q}%`;
 
       const res = await query(
-        `SELECT id, name, email, role, company_id, phone, avatar_url, internal_team_ids, COUNT(*) OVER() AS total_count
+        `SELECT id, name, email, role, company_id, phone, internal_team_ids,
+                (avatar_url IS NOT NULL AND avatar_url <> '') AS has_avatar,
+                COUNT(*) OVER() AS total_count
          FROM public.profiles
          WHERE role IN ('Administrador', 'Equipe', 'Time Interno')
            AND ($1 = '' OR name ILIKE $2 OR email ILIKE $2)
@@ -134,19 +163,28 @@ export async function GET(request: Request) {
           role: r.role,
           companyId: r.company_id,
           phone: r.phone,
-          avatarUrl: r.avatar_url,
+          avatarUrl: r.has_avatar ? `/api/users/${r.id}/avatar` : null,
           internalTeamIds: r.internal_team_ids
         })),
         total: res.rows.length > 0 ? parseInt(res.rows[0].total_count, 10) : 0
       });
     } else {
-      // avatar_thumb_url viaja junto com avatar_url aqui: são ~1,3kB por
-      // pessoa (48x48 JPEG, ver lib/services/avatar-thumb-service.ts) e é o
-      // que as listas/cards devem usar. A foto cheia continua vindo porque
-      // várias telas ainda a exibem em tamanho grande — ver o comentário do
-      // branch 'analysts' sobre o peso disso.
+      // avatarUrl aqui é o ENDEREÇO da foto, não a foto. Antes esta listagem
+      // devolvia o base64 inteiro de todo mundo: 50,7 MB por carga, em 14
+      // telas, pra desenhar avatares de 32 a 56 pixels. Agora vai só a URL
+      // (ver app/api/users/[id]/avatar/route.ts) — o <img> continua
+      // funcionando igual, com a foto em qualidade cheia, e o navegador busca
+      // cada imagem uma vez e reaproveita entre as telas.
+      //
+      // A miniatura continua vindo embutida (~1,3kB): é ela que faz a lista
+      // desenhar na hora, sem esperar uma requisição por avatar.
+      // NÃO selecionar avatar_url aqui é metade do ganho — a outra metade é
+      // não trafegá-la; a coluna sozinha é ~51 MB no banco.
       const res = await query(
-        "SELECT id, name, email, role, company_id, phone, view_all_company_tickets, must_change_password, is_admin, avatar_url, avatar_thumb_url, internal_team_ids, is_active FROM public.profiles"
+        `SELECT id, name, email, role, company_id, phone, view_all_company_tickets,
+                must_change_password, is_admin, avatar_thumb_url, internal_team_ids, is_active,
+                (avatar_url IS NOT NULL AND avatar_url <> '') AS has_avatar
+           FROM public.profiles`
       );
       return NextResponse.json(res.rows.map(r => ({
         id: r.id,
@@ -158,7 +196,7 @@ export async function GET(request: Request) {
         viewAllCompanyTickets: r.view_all_company_tickets,
         mustChangePassword: r.must_change_password,
         isAdmin: r.is_admin,
-        avatarUrl: r.avatar_url,
+        avatarUrl: r.has_avatar ? `/api/users/${r.id}/avatar` : null,
         avatarThumbUrl: r.avatar_thumb_url,
         internalTeamIds: r.internal_team_ids,
         isActive: r.is_active
@@ -254,10 +292,18 @@ export async function PUT(request: Request) {
     const internalTeamIds = isSystemAdmin ? (user.internalTeamIds ?? target.internal_team_ids) : target.internal_team_ids;
     const companyId = isSystemAdmin ? (user.companyId ?? target.company_id) : target.company_id;
 
-    // Miniatura gerada aqui (não no client) pra ficar consistente com o
-    // sync do Bitrix24, que também escreve avatar_url direto no banco sem
-    // passar por esta rota — ver lib/services/avatar-thumb-service.ts.
-    const avatarThumbUrl = await generateAvatarThumb(user.avatarUrl || null);
+    // A LISTAGEM devolve avatarUrl como o endereço de /api/users/<id>/avatar,
+    // não mais o base64 (ver o comentário dessa rota). Telas que gravam
+    // mandando o objeto de usuário inteiro de volta — link-contact-modal.tsx é
+    // a que faz isso hoje — reenviariam essa URL no campo da foto, e gravá-la
+    // apagaria a imagem, restando um endereço apontando pra si mesmo.
+    //
+    // Por isso avatar_url (e a miniatura) só são reescritos quando chega uma
+    // IMAGEM de verdade, ou seja, uma `data:` URL. Qualquer outra coisa deixa
+    // as duas colunas como estão.
+    const incomingAvatar: string | null = typeof user.avatarUrl === 'string' ? user.avatarUrl : null;
+    const isNewImage = !!incomingAvatar && incomingAvatar.startsWith('data:');
+    const avatarThumbUrl = isNewImage ? await generateAvatarThumb(incomingAvatar) : null;
 
     await query(
       `UPDATE public.profiles
@@ -265,29 +311,34 @@ export async function PUT(request: Request) {
            email = COALESCE($2, email),
            role = $3,
            company_id = $4,
-           phone = $5,
+           -- COALESCE como em name/email: esta rota também é chamada com um
+           -- objeto PARCIAL (settings/page.tsx manda só {id, avatarUrl} ao
+           -- trocar a foto). Sem isto, trocar o avatar zerava o telefone do
+           -- perfil. Para limpar o campo de propósito, mandar string vazia.
+           phone = COALESCE($5, phone),
            must_change_password = COALESCE($6, must_change_password),
            view_all_company_tickets = COALESCE($7, view_all_company_tickets),
            is_admin = $8,
-           avatar_url = $9,
+           avatar_url = CASE WHEN $14::boolean THEN $9 ELSE avatar_url END,
            internal_team_ids = $10,
            is_active = COALESCE($11, is_active),
-           avatar_thumb_url = $13
+           avatar_thumb_url = CASE WHEN $14::boolean THEN $13 ELSE avatar_thumb_url END
        WHERE id = $12`,
       [
         user.name,
         user.email,
         role,
         companyId || null,
-        user.phone || null,
+        user.phone ?? null,
         user.mustChangePassword,
         user.viewAllCompanyTickets,
         isAdmin,
-        user.avatarUrl || null,
+        isNewImage ? incomingAvatar : null,
         internalTeamIds || '{}',
         user.isActive,
         user.id,
-        avatarThumbUrl
+        avatarThumbUrl,
+        isNewImage
       ]
     );
 

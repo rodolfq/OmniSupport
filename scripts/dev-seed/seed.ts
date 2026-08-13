@@ -12,6 +12,7 @@
 
 import fs from 'fs';
 import path from 'path';
+import { randomBytes } from 'crypto';
 import { query, pool } from '../../lib/db';
 import { hashPassword } from '../../lib/auth-utils';
 
@@ -96,11 +97,17 @@ async function seed() {
     throw new Error('Perfis de acesso "Administrador"/"Equipe" não encontrados — rode schema_postgres.sql antes do seed.');
   }
 
-  console.log('🌱 Criando usuário admin de teste (admin@seedtest.local / admin123)...');
+  // A senha não é mais literal no código. Mesmo sendo conta de teste
+  // (@seedtest.local), credencial fixa em repositório versionado vira hábito —
+  // e este seed também roda contra bancos que não são descartáveis. Vem de
+  // SEED_ADMIN_PASSWORD; sem ela, uma aleatória é gerada e impressa no fim da
+  // execução.
+  const seedAdminPassword = process.env.SEED_ADMIN_PASSWORD || randomBytes(9).toString('base64url');
+  console.log('🌱 Criando usuário admin de teste (admin@seedtest.local)...');
   const adminRes = await query(
     `INSERT INTO public.profiles (name, email, role, is_admin, password, must_change_password, access_profile_id)
      VALUES ($1, $2, 'Administrador', true, $3, false, $4) RETURNING id`,
-    ['Admin (seed)', 'admin@seedtest.local', hashPassword('admin123'), adminProfileId]
+    ['Admin (seed)', 'admin@seedtest.local', hashPassword(seedAdminPassword), adminProfileId]
   );
   manifest.profileIds.push(adminRes.rows[0].id);
 
@@ -295,7 +302,8 @@ async function seed() {
   fs.writeFileSync(MANIFEST_PATH, JSON.stringify(manifest, null, 2));
   console.log(`✅ Seed concluído: ${created} conversas, ${companyIds.length} empresas, ${analystIds.length} analistas, ${customerIds.length} clientes.`);
   console.log(`📄 Manifesto salvo em ${MANIFEST_PATH} — usado por unseed.ts pra limpar depois.`);
-  console.log(`🔑 Login de teste: admin@seedtest.local / admin123`);
+  console.log(`🔑 Login de teste: admin@seedtest.local / ${seedAdminPassword}`);
+  console.log('   (defina SEED_ADMIN_PASSWORD para escolher a senha em vez de sortear)');
 }
 
 seed()

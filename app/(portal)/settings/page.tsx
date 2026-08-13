@@ -6,9 +6,9 @@ import {
   Shield, User, Lock, Save, Plus, Key, Globe, Bell, Database, Loader2, Clock, MessageCircleMore, Plug, Mail, Bot
 } from 'lucide-react';
 import { cn, maskPhone } from '@/lib/utils';
-import { supabase } from '@/lib/supabase';
 import { Permission } from '@/lib/types';
 import { UserService } from '@/lib/services/user-service';
+import { ConfigService } from '@/lib/services/config-service';
 import { useApp } from '@/app/app-context';
 import { NotificationSettingsContent } from '@/components/notification-settings';
 import { SystemConfigContent } from '@/components/system-config-content';
@@ -61,16 +61,22 @@ export default function SettingsPage() {
 
   useEffect(() => {
     const fetchSystemConfig = async () => {
-      const { data: cat } = await supabase.from('config_categories').select('*');
-      const { data: reqType } = await supabase.from('config_request_types').select('*');
-      const { data: prod } = await supabase.from('config_products').select('*');
-      const { data: prio } = await supabase.from('config_priorities').select('*');
-      const { data: survey } = await supabase.from('config_survey_settings').select('*');
+      // Uma busca por lista, em paralelo, pelas rotas de configuração.
+      const [cat, reqType, prod, prio, survey] = await Promise.all([
+        // usage=1: esta é a única tela que precisa saber quantos registros
+        // usam cada item — é o que decide se o botão oferecido é "arquivar"
+        // ou "excluir definitivamente".
+        ConfigService.getSimpleList('categories', true),
+        ConfigService.getSimpleList('request-types', true),
+        ConfigService.getSimpleList('products', true),
+        ConfigService.getPriorities(),
+        ConfigService.getSurveySettings()
+      ]);
       setCategories(cat || []);
       setRequestTypes(reqType || []);
       setProducts(prod || []);
       setPriorities(prio || []);
-      setSurveySettings((survey && survey[0]) || null);
+      setSurveySettings(survey || null);
     }
     fetchSystemConfig();
   }, []);
@@ -90,15 +96,13 @@ export default function SettingsPage() {
         const base64 = await fileToCompressedAvatarBase64(file);
         
         // 3. Persist only after processing
-        const { data, error } = await supabase
-          .from('profiles')
-          .update({ avatar_url: base64 })
-          .eq('id', currentUser.id)
-          .single();
+        // Via UserService: a rota gera a MINIATURA do avatar junto
+        // (avatar_thumb_url) e aplica as travas de autorização. O caminho
+        // anterior escrevia só avatar_url, então a foto trocada por aqui
+        // ficava sem miniatura e aparecia como inicial nas listas.
+        await UserService.save({ id: currentUser.id, avatarUrl: base64 });
 
-        if (error) throw new Error(error.message);
-
-        const persistedAvatar = data?.avatar_url || base64;
+        const persistedAvatar = base64;
         const updatedUser = { ...currentUser, avatarUrl: persistedAvatar };
         setCurrentUser(updatedUser);
         setPreviewUrl(null);

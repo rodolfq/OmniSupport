@@ -6,7 +6,13 @@ import { fileURLToPath } from 'url';
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 
-const connectionString = 'postgresql://postgres:gLhm2cGBAKWGvQ*@db.edrixccffpbinvfieoyg.supabase.co:5432/postgres';
+// Conexao vinha embutida aqui, com a senha do banco em texto puro num
+// arquivo versionado. Agora sai do ambiente, como no resto do projeto.
+const connectionString = process.env.DATABASE_URL;
+if (!connectionString) {
+  console.error('Defina DATABASE_URL antes de rodar este script de diagnostico.');
+  process.exit(1);
+}
 
 async function runMigration() {
   const client = new Client({ connectionString });

@@ -3,7 +3,6 @@
 import React, { useEffect, useState } from 'react';
 import { useParams, useRouter } from 'next/navigation';
 import { useApp } from '@/app/app-context';
-import { supabase } from '@/lib/supabase';
 import { UserRole } from '@/lib/types';
 import { Loader2, SearchX } from 'lucide-react';
 
@@ -27,12 +26,10 @@ export default function TicketLinkResolverPage() {
     if (!raw) { setNotFound(true); return; }
 
     async function resolve() {
-      const isNumeric = /^\d+$/.test(raw);
-      const { data } = await supabase
-        .from('tickets')
-        .select('id')
-        .eq(isNumeric ? 'public_ticket_number' : 'id', isNumeric ? Number(raw) : raw)
-        .maybeSingle();
+      // A rota aceita tanto o id interno quanto o número público do chamado —
+      // é ela que decide por qual coluna procurar.
+      const res = await fetch(`/api/tickets?action=resolve-id&ref=${encodeURIComponent(raw)}`);
+      const data = res.ok ? await res.json() : null;
 
       if (!data?.id) {
         setNotFound(true);

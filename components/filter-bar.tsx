@@ -7,7 +7,6 @@ import { TicketStatus, User, SavedFilter, UserRole } from '@/lib/types';
 import { cn, normalizeString } from '@/lib/utils';
 import { motion, AnimatePresence } from 'motion/react';
 import { useApp } from '@/app/app-context';
-import { supabase } from '@/lib/supabase';
 import { useCompaniesQuery, useProfilesLiteQuery } from '@/lib/query-hooks';
 import { toast } from 'sonner';
 
@@ -49,10 +48,10 @@ export function FilterBar({ onFilterChange, originalTickets }: FilterBarProps) {
   useEffect(() => {
     async function fetchSavedFilters() {
       if (!currentUser?.id) return;
-      const { data: savedViews } = await supabase
-        .from('saved_views')
-        .select('id, name, filters')
-        .eq('user_id', currentUser.id);
+      // A rota devolve só as buscas do usuário da sessão — o filtro por
+      // dono deixou de depender do client mandar o próprio id.
+      const res = await fetch('/api/saved-views');
+      const savedViews = res.ok ? await res.json() : null;
       
       if (savedViews) {
         setSavedFilters(savedViews.map((sv: any) => ({
@@ -135,19 +134,18 @@ export function FilterBar({ onFilterChange, originalTickets }: FilterBarProps) {
     
     const filterData = { search, status, priority, companyId, assigneeId, startDate, endDate, contentSearch, ticketId };
     
-    const { data, error } = await supabase
-      .from('saved_views')
-      .insert({
-        user_id: currentUser.id,
-        name: newFilterName,
-        filters: filterData
-      })
-      .select('id, name, filters')
-      .single();
-
-    if (error) {
-      console.error("Error saving view:", error);
-      toast.error("Erro ao salvar busca.");
+    let data: any = null;
+    try {
+      const res = await fetch('/api/saved-views', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ name: newFilterName, filters: filterData })
+      });
+      if (!res.ok) throw new Error(`HTTP ${res.status}`);
+      data = await res.json();
+    } catch (err) {
+      console.error('Erro ao salvar busca:', err);
+      toast.error('Erro ao salvar busca.');
       return;
     }
 

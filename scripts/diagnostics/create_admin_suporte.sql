@@ -1,4 +1,10 @@
 -- Criar usuário admin@suporte.com
+--
+-- ATENÇÃO — SENHA DE SEED
+-- Antes de rodar:  SET ssx.seed_password = 'senha-forte-escolhida-agora';
+-- A senha literal foi removida daqui (era trivial e o repositório é
+-- versionado). Sem a variável definida o script falha de propósito, em vez de
+-- criar conta com senha conhecida.
 DO $$
 DECLARE
     new_id UUID := gen_random_uuid();
@@ -15,7 +21,7 @@ BEGIN
             new_id, 
             'authenticated', 'authenticated',
             'admin@suporte.com', 
-            crypt('admin123', gen_salt('bf')),
+            crypt(current_setting('ssx.seed_password'), gen_salt('bf')),
             now(), now(), now(),
             '{"provider":"email","providers":["email"]}', 
             '{"name":"Admin Suporte","role":"Administrador"}',

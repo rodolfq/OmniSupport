@@ -1,114 +1,42 @@
-import { supabase } from '../supabase';
-import { Ticket, Message, InternalTicket, TicketStatus } from '../types';
+// Este arquivo não usa mais o shim de compatibilidade Supabase: tudo passa
+// por /api/tickets e /api/internal-tickets. Não reintroduza `lib/supabase`
+// aqui — o tradutor genérico de SQL está sendo desativado (ver CLAUDE.md).
+import { Ticket, Message, InternalTicket } from '../types';
 import { Permission } from '../types';
-import { CLOSED_TICKET_STATUSES } from '../ticket-status';
-import { computeInternalTicketSla } from '../sla';
 
 export class TicketService {
-  static async getAll(signal?: AbortSignal): Promise<Ticket[]> {
-    const { data, error } = await supabase
-      .from('tickets')
-      .select(`
-        *,
-        customer:profiles!tickets_customer_id_fkey(name),
-        assignee:profiles!tickets_assignee_id_fkey(name)
-      `)
-      .not('status', 'in', `(${CLOSED_TICKET_STATUSES.map(s => `"${s}"`).join(',')})`)
-      .abortSignal(signal as any);
-
-    if (error) throw error;
-
-    return (data || []).map((t: any) => ({
-      ...t,
-      ticketNumber: t.public_ticket_number,
-      companyId: t.company_id,
-      customerId: t.customer_id,
-      customerName: t.customer?.name,
-      assigneeId: t.assignee_id,
-      assigneeName: t.assignee?.name,
-      employeeIds: t.employee_ids || [],
-      subStatus: t.sub_status,
-      queueId: t.queue_id,
-      categoryId: t.category_id,
-      requestTypeId: t.request_type_id,
-      productId: t.product_id,
-      tags: t.tags || [],
-      createdAt: t.created_at,
-      updatedAt: t.updated_at
-    })) as Ticket[];
-  }
-
   static async getById(id: string, signal?: AbortSignal): Promise<Ticket | null> {
-    const { data, error } = await supabase
-      .from('tickets')
-      .select(`
-        *,
-        customer:profiles!tickets_customer_id_fkey(name),
-        assignee:profiles!tickets_assignee_id_fkey(name)
-      `)
-      .eq('id', id)
-      .abortSignal(signal as any)
-      .single();
-
-    if (error) {
-      if (error.message === 'FetchIsAborted' || error.code === '20' || error.message?.includes('aborted')) return null;
-      throw error;
+    try {
+      const res = await fetch(`/api/tickets?id=${encodeURIComponent(id)}`, { signal });
+      if (res.status === 404) return null;
+      if (!res.ok) throw new Error(`Falha ao buscar chamado (HTTP ${res.status}).`);
+      // A rota já devolve camelCase (inclusive customerName/assigneeName), o
+      // que o caminho antigo montava aqui a partir da linha crua.
+      return (await res.json()) as Ticket;
+    } catch (err: any) {
+      // Aborto é fluxo normal (o modal cancela a busca ao trocar de chamado),
+      // não erro — mesmo tratamento que existia antes.
+      if (err?.name === 'AbortError') return null;
+      throw err;
     }
-
-    if (!data) return null;
-
-    return {
-      ...data,
-      ticketNumber: data.public_ticket_number,
-      companyId: data.company_id,
-      customerId: data.customer_id,
-      customerName: data.customer?.name,
-      assigneeId: data.assignee_id,
-      assigneeName: data.assignee?.name,
-      employeeIds: data.employee_ids || [],
-      subStatus: data.sub_status,
-      queueId: data.queue_id,
-      categoryId: data.category_id,
-      requestTypeId: data.request_type_id,
-      productId: data.product_id,
-      tags: data.tags || [],
-      createdAt: data.created_at,
-      updatedAt: data.updated_at
-    } as Ticket;
   }
 
+  // Envia SÓ as chaves presentes: a rota trata ausente como "não mexe" e
+  // null/'' como "limpa" (ver o PUT em app/api/tickets/route.ts). Enviar o
+  // objeto inteiro com undefined funcionaria igual, porque JSON.stringify
+  // descarta undefined — mas deixar explícito evita que uma mudança futura
+  // no formato quebre a limpeza de campo em silêncio.
   static async update(ticket: Partial<Ticket> & { id: string }): Promise<void> {
-    const { error } = await supabase
-      .from('tickets')
-      .update({
-        title: ticket.title,
-        description: ticket.description,
-        status: ticket.status,
-        sub_status: ticket.subStatus,
-        priority: ticket.priority,
-        queue_id: ticket.queueId,
-        category_id: ticket.categoryId,
-        request_type_id: ticket.requestTypeId,
-        product_id: ticket.productId,
-        tags: ticket.tags,
-        company_id: ticket.companyId,
-        customer_id: ticket.customerId,
-        assignee_id: ticket.assigneeId,
-        employee_ids: ticket.employeeIds,
-        updated_at: new Date().toISOString()
-      })
-      .eq('id', ticket.id);
-
-    if (error) throw error;
-  }
-
-  static async updateStatus(ticketId: string, status: TicketStatus): Promise<void> {
-    const { error } = await supabase
-      .from('tickets')
-      .update({ status })
-      .eq('id', ticketId);
-
-    if (error) throw error;
+    const { id, ...fields } = ticket;
+    const res = await fetch(`/api/tickets?id=${encodeURIComponent(id)}`, {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(fields)
+    });
+    if (!res.ok) {
+      const body = await res.json().catch(() => null);
+      throw new Error(body?.error || 'Erro ao salvar o chamado.');
+    }
   }
 
   // Lista curta e só informativa dos outros chamados recentes da mesma
@@ -152,336 +80,143 @@ export class TicketService {
 
 export class MessageService {
   static async getByTicket(ticketId: string, signal?: AbortSignal): Promise<Message[]> {
-    const { data, error } = await supabase
-      .from('ticket_messages')
-      .select('*')
-      .eq('ticket_id', ticketId)
-      .abortSignal(signal as any)
-      .order('created_at', { ascending: false });
-
-    if (error) {
-      if (error.message === 'FetchIsAborted' || error.code === '20' || error.message?.includes('aborted')) return [];
-      throw error;
+    try {
+      const res = await fetch(`/api/tickets?action=messages&ticketId=${encodeURIComponent(ticketId)}`, { signal });
+      if (!res.ok) throw new Error(`Falha ao buscar mensagens (HTTP ${res.status}).`);
+      // Mesma ordenação (created_at DESC) e mesmo formato que este método
+      // montava antes — a rota já devolve camelCase.
+      return (await res.json()) as Message[];
+    } catch (err: any) {
+      if (err?.name === 'AbortError') return [];
+      throw err;
     }
-
-    return (data || []).map((m: any) => ({
-      id: m.id,
-      ticketId: m.ticket_id,
-      senderId: m.author_id,
-      text: m.content,
-      timestamp: m.created_at,
-      isVisibleToCustomer: m.is_visible_to_customer,
-      type: m.type,
-      attachments: m.attachments_data || []
-    })) as Message[];
   }
 
   static async create(message: Message): Promise<void> {
-    console.log("📝 MessageService.create:", { 
-        ticketId: message.ticketId?.substring(0, 8), 
-        senderId: message.senderId?.substring(0, 8),
-        author_id: message.senderId
-    });
-    
-    const { error } = await supabase.from('ticket_messages').insert({
-      ticket_id: message.ticketId,
-      author_id: message.senderId,
-      content: message.text,
-      type: message.type,
-      is_visible_to_customer: message.isVisibleToCustomer,
-      attachments_data: message.attachments || []
-    });
+    // O `id` é omitido de propósito. Quem chama (ticket-detail-modal) gera um
+    // id curto de random() para a mensagem de sistema, que NÃO é UUID válido —
+    // o caminho antigo simplesmente não enviava a coluna e deixava o default
+    // do banco agir. A rota usa `message.id` quando ele vem, então mandá-lo
+    // faria o insert falhar no tipo uuid.
+    const { id, ...rest } = message;
+    void id;
 
-    if (error) {
-      console.error("🚫 MessageService.create error:", {
-        code: error.code,
-        message: error.message,
-        details: error.details,
-        hint: error.hint
-      });
-      throw error;
+    const res = await fetch('/api/tickets', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ action: 'create-message', message: rest })
+    });
+    if (!res.ok) {
+      const body = await res.json().catch(() => null);
+      throw new Error(body?.error || 'Erro ao gravar a mensagem.');
     }
   }
 
   static async getByInternalTicket(internalTicketId: string, signal?: AbortSignal): Promise<Message[]> {
-    const { data, error } = await supabase
-      .from('internal_ticket_messages')
-      .select('*')
-      .eq('internal_ticket_id', internalTicketId)
-      .abortSignal(signal as any)
-      .order('created_at', { ascending: false });
-
-    if (error) {
-      if (error.message === 'FetchIsAborted' || error.code === '20' || error.message?.includes('aborted')) return [];
-      throw error;
+    try {
+      const res = await fetch(
+        `/api/internal-tickets?action=messages&internalTicketId=${encodeURIComponent(internalTicketId)}`,
+        { signal }
+      );
+      if (!res.ok) throw new Error(`Falha ao buscar mensagens (HTTP ${res.status}).`);
+      return (await res.json()) as Message[];
+    } catch (err: any) {
+      if (err?.name === 'AbortError') return [];
+      throw err;
     }
-
-    return (data || []).map((m: any) => ({
-      id: m.id,
-      ticketId: m.internal_ticket_id,
-      senderId: m.author_id,
-      text: m.content,
-      timestamp: m.created_at,
-      isVisibleToCustomer: false,
-      type: m.type as 'text' | 'system' | 'internal',
-      attachments: m.attachments_data || []
-    })) as Message[];
   }
 
   static async createInternal(message: Message, internalTicketId: string): Promise<void> {
-    const { error } = await supabase.from('internal_ticket_messages').insert({
-      internal_ticket_id: internalTicketId,
-      author_id: message.senderId,
-      content: message.text,
-      type: message.type,
-      attachments_data: message.attachments || []
+    const res = await fetch('/api/internal-tickets', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ action: 'message', internalTicketId, message })
     });
-
-    if (error) throw error;
+    if (!res.ok) {
+      const body = await res.json().catch(() => null);
+      throw new Error(body?.error || 'Erro ao gravar a mensagem.');
+    }
   }
 }
 
 export class InternalTicketService {
+  // Erro aqui devolve lista vazia / null em vez de propagar: o consumidor é
+  // uma aba secundária do chamado, e derrubar a tela inteira por causa dela
+  // seria pior. Mesmo comportamento de antes.
+  private static async fetchByParent(parentTicketId: string): Promise<InternalTicket[]> {
+    try {
+      const res = await fetch(`/api/internal-tickets?action=by-parent&ticketId=${encodeURIComponent(parentTicketId)}`);
+      if (!res.ok) {
+        console.error('Erro ao buscar tickets internos do chamado:', res.status);
+        return [];
+      }
+      return (await res.json()) as InternalTicket[];
+    } catch (err) {
+      console.error('Erro ao buscar tickets internos do chamado:', err);
+      return [];
+    }
+  }
+
   static async getByParent(parentTicketId: string): Promise<InternalTicket | null> {
-    // Query N:N relationship
-    const { data: linkData, error: linkError } = await supabase
-      .from('ticket_internal_links')
-      .select('internal_ticket_id')
-      .eq('ticket_id', parentTicketId)
-      .maybeSingle();
-
-    if (linkError) {
-      console.error('Error fetching link:', linkError?.message || linkError);
-      return null;
-    }
-
-    if (!linkData?.internal_ticket_id) return null;
-
-    const { data, error } = await supabase
-      .from('internal_tickets')
-      .select('*')
-      .eq('id', linkData.internal_ticket_id)
-      .maybeSingle();
-
-    if (error) {
-      console.error('Error fetching internal ticket:', error?.message || error);
-      return null;
-    }
-
-    if (!data) return null;
-
-    return {
-      uuid: data.id,
-      id: `int-${data.internal_ticket_number?.toString().padStart(4, '0') || data.id}`,
-      internalTicketNumber: data.internal_ticket_number,
-      parentTicketIds: [parentTicketId],
-      title: data.title,
-      teamId: data.team_id,
-      assigneeId: data.assignee_id,
-      priority: data.priority,
-      tags: data.tags || [],
-      creatorId: data.creator_id,
-      description: data.description,
-      createdAt: data.created_at,
-      updatedAt: data.updated_at,
-      slaLimit: data.sla_limit
-    };
+    const all = await InternalTicketService.fetchByParent(parentTicketId);
+    return all[0] || null;
   }
 
   static async getByParentAll(parentTicketId: string): Promise<InternalTicket[]> {
-    // Get ALL linked internal tickets for a ticket (N:N support)
-    const { data: links, error: linksError } = await supabase
-      .from('ticket_internal_links')
-      .select('internal_ticket_id')
-      .eq('ticket_id', parentTicketId);
-
-    if (linksError) {
-      console.error('Error fetching links:', linksError?.message || linksError);
-      return [];
-    }
-
-    const internalIds = (links || []).map((l: any) => l.internal_ticket_id);
-    if (internalIds.length === 0) return [];
-
-    const { data, error } = await supabase
-      .from('internal_tickets')
-      .select('*')
-      .in('id', internalIds);
-
-    if (error) {
-      console.error('Error fetching internal tickets:', error?.message || error);
-      return [];
-    }
-
-    return (data || []).map((it: any) => ({
-      uuid: it.id,
-      id: `int-${it.internal_ticket_number?.toString().padStart(4, '0') || it.id}`,
-      internalTicketNumber: it.internal_ticket_number,
-      title: it.title,
-      teamId: it.team_id,
-      assigneeId: it.assignee_id,
-      priority: it.priority,
-      tags: it.tags || [],
-      creatorId: it.creator_id,
-      description: it.description,
-      createdAt: it.created_at,
-      updatedAt: it.updated_at,
-      slaLimit: it.sla_limit
-    }));
+    return InternalTicketService.fetchByParent(parentTicketId);
   }
 
-  static async save(ticket: InternalTicket, parentTicketId?: string, parentTicketNumber?: number): Promise<string> {
-    // Internal method - delegates to saveWithDetails
-    const result = await InternalTicketService.saveWithDetails(ticket, parentTicketId, parentTicketNumber);
+  // Açúcar sobre saveWithDetails, devolvendo só o id formatado (int-0001).
+  // O antigo terceiro parâmetro (parentTicketNumber) saiu: nenhum chamador o
+  // passava e ele só aparecia num console.log — o número do ticket interno
+  // nunca veio do chamado pai (ver a rota).
+  static async save(ticket: InternalTicket, parentTicketId?: string): Promise<string> {
+    const result = await InternalTicketService.saveWithDetails(ticket, parentTicketId);
     return result.id;
   }
   
-  static async saveWithDetails(ticket: InternalTicket, parentTicketId?: string, parentTicketNumber?: number): Promise<{ uuid: string; id: string }> {
-    console.log('InternalTicketService.saveWithDetails called with:', {
-      uuid: ticket.uuid,
-      parentTicketId: parentTicketId || ticket.parentTicketId,
-      parentTicketNumber,
-      title: ticket.title,
-      creatorId: ticket.creatorId
+  static async saveWithDetails(ticket: InternalTicket, parentTicketId?: string): Promise<{ uuid: string; id: string }> {
+    if (!ticket.title) throw new Error('O título é obrigatório.');
+    if (!ticket.creatorId) throw new Error('creatorId é obrigatório.');
+
+    // Criação e edição usam a mesma action: quem decide é a presença do uuid,
+    // igual ao que este método já fazia. O cálculo do prazo (SLA) e a geração
+    // do número mudaram de lugar para o servidor — ver os comentários em
+    // app/api/internal-tickets/route.ts sobre a corrida no número.
+    const res = await fetch('/api/internal-tickets', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ action: 'save', ticket, parentTicketId })
     });
-    
-    if (!supabase) {
-      throw new Error('Supabase client not available');
+    if (!res.ok) {
+      const body = await res.json().catch(() => null);
+      throw new Error(body?.error || 'Erro ao salvar o ticket interno.');
     }
-    
-    // Validate required fields
-    if (!ticket.title) {
-      throw new Error('title is required');
-    }
-    if (!ticket.creatorId) {
-      throw new Error('creatorId is required');
-    }
-    
-    const payload: any = {
-      title: ticket.title,
-      team_id: ticket.teamId || null,
-      internal_team_id: ticket.internalTeamId || null,
-      assignee_id: ticket.assigneeId || null,
-      priority: ticket.priority || 1,
-      tags: ticket.tags || [],
-      creator_id: ticket.creatorId,
-      description: ticket.description || '',
-    };
-
-    console.log('InternalTicketService.saveWithDetails payload:', payload);
-    
-    try {
-      let savedUuid: string;
-      let savedNumber: number;
-      
-      if (ticket.uuid) {
-        // Update existing record
-        console.log('Updating existing internal ticket with UUID:', ticket.uuid);
-
-        // Mesma lógica do branch de criação abaixo e de handleUpdateTicket
-        // (app/(portal)/internal-tickets/[id]/page.tsx) — sem recalcular
-        // aqui, um update de prioridade por este caminho deixaria o prazo
-        // congelado no valor calculado na criação. Ancorado em createdAt
-        // (não em "agora"), igual ao caminho ativo de edição.
-        const { data: priorityConfigs } = await supabase.from('config_priorities').select('label, sla_hours');
-        payload.sla_limit = computeInternalTicketSla(payload.priority, ticket.createdAt || new Date().toISOString(), priorityConfigs || []);
-
-        const { data, error } = await supabase.from('internal_tickets')
-          .update(payload)
-          .eq('id', ticket.uuid)
-          .select('id, internal_ticket_number')
-          .single();
-        
-        if (error) {
-          console.error('InternalTicketService.saveWithDetails update error:', error);
-          throw new Error(JSON.stringify(error, Object.getOwnPropertyNames(error)));
-        }
-        savedUuid = data?.id;
-        savedNumber = data?.internal_ticket_number;
-      } else {
-        // Ticket interno sempre tira o número da própria sequência — nunca
-        // reaproveita o número público do chamado pai. Reaproveitar quebrava
-        // assim que um ticket interno passava a valer para mais de um
-        // chamado (N:N), que é o modelo suportado por ticket_internal_links.
-        console.log('Getting next internal ticket number');
-        const { data: existing } = await supabase
-          .from('internal_tickets')
-          .select('internal_ticket_number')
-          .not('internal_ticket_number', 'is', null)
-          .order('internal_ticket_number', { ascending: false })
-          .limit(1);
-
-        const maxUsed = existing?.[0]?.internal_ticket_number || 0;
-        payload.internal_ticket_number = maxUsed + 1;
-        console.log('Calculated next internal ticket number:', payload.internal_ticket_number);
-
-        // Prazo já nasce calculado a partir da prioridade escolhida + SLA
-        // configurado em Configurações — mesma lógica usada ao reprocessar
-        // o prazo quando a prioridade muda depois (ver handleUpdateTicket).
-        const { data: priorityConfigs } = await supabase.from('config_priorities').select('label, sla_hours');
-        const nowIso = new Date().toISOString();
-        payload.sla_limit = computeInternalTicketSla(payload.priority, nowIso, priorityConfigs || []);
-
-        // Insert new record
-        console.log('Inserting new internal ticket');
-        const { data, error } = await supabase.from('internal_tickets')
-          .insert(payload)
-          .select('id, internal_ticket_number')
-          .single();
-        
-        if (error) {
-          console.error('InternalTicketService.saveWithDetails insert error:', error);
-          throw new Error(JSON.stringify(error, Object.getOwnPropertyNames(error)));
-        }
-        savedUuid = data?.id;
-        savedNumber = data?.internal_ticket_number;
-        
-        // Create N:N link for new records
-        if (parentTicketId && savedUuid) {
-          const { error: linkError } = await supabase.from('ticket_internal_links').insert({
-            ticket_id: parentTicketId,
-            internal_ticket_id: savedUuid
-          }).select();
-          
-          if (linkError) {
-            // If duplicate key error, ignore (already linked)
-            if (!linkError.message?.includes('duplicate')) {
-              console.error('Error creating link:', JSON.stringify(linkError, Object.getOwnPropertyNames(linkError)));
-            }
-          } else {
-            console.log('Link created successfully');
-          }
-        }
-      }
-      
-      console.log('InternalTicketService.saveWithDetails created:', { savedUuid, savedNumber });
-
-      const formattedId = `int-${savedNumber?.toString().padStart(4, '0') || savedUuid}`;
-      return { uuid: savedUuid, id: formattedId };
-    } catch (e: any) {
-      console.error('InternalTicketService.saveWithDetails exception:', e?.message || e);
-      throw e;
-    }
+    return res.json();
   }
 
   // Vincula um ticket interno já existente (criado solto ou por outro
   // chamado) a mais um chamado — é o que sustenta o N:N: um ticket interno
   // pode cobrir vários chamados, e este é o segundo (ou terceiro...) vínculo.
   static async linkExisting(ticketId: string, internalTicketId: string): Promise<void> {
-    const { error } = await supabase.from('ticket_internal_links').insert({
-      ticket_id: ticketId,
-      internal_ticket_id: internalTicketId
+    const res = await fetch('/api/internal-tickets', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ action: 'link', ticketId, internalTicketId })
     });
-    if (error && !error.message?.includes('duplicate')) throw error;
+    if (!res.ok) {
+      const body = await res.json().catch(() => null);
+      throw new Error(body?.error || 'Erro ao vincular o ticket interno.');
+    }
   }
 
   static async unlink(ticketId: string, internalTicketId: string): Promise<void> {
-    const { error } = await supabase
-      .from('ticket_internal_links')
-      .delete()
-      .eq('ticket_id', ticketId)
-      .eq('internal_ticket_id', internalTicketId);
-    if (error) throw error;
+    const qs = new URLSearchParams({ ticketId, internalTicketId });
+    const res = await fetch(`/api/internal-tickets?${qs}`, { method: 'DELETE' });
+    if (!res.ok) {
+      const body = await res.json().catch(() => null);
+      throw new Error(body?.error || 'Erro ao desvincular o ticket interno.');
+    }
   }
 
   // Registra uma entrada de sistema (status mudou, responsável mudou...) na
@@ -491,12 +226,22 @@ export class InternalTicketService {
   // evento no mesmo feed) e alimenta a notificação de status sem precisar
   // de nenhuma tabela nova.
   static async logEvent(internalTicketId: string, authorId: string | undefined, text: string, type: 'system' | 'system_log' = 'system'): Promise<void> {
-    const { error } = await supabase.from('internal_ticket_messages').insert({
-      internal_ticket_id: internalTicketId,
-      author_id: authorId || null,
-      content: text,
-      type
-    });
-    if (error) console.error('InternalTicketService.logEvent error:', error);
+    try {
+      const res = await fetch('/api/internal-tickets', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          action: 'message',
+          internalTicketId,
+          message: { senderId: authorId || null, text, type }
+        })
+      });
+      // Falha aqui nunca interrompe quem chamou: o registro é histórico, e
+      // perder a linha do histórico é melhor do que abortar a gravação do
+      // ticket que acabou de acontecer. Mesmo comportamento de antes.
+      if (!res.ok) console.error('InternalTicketService.logEvent falhou:', res.status);
+    } catch (err) {
+      console.error('InternalTicketService.logEvent falhou:', err);
+    }
   }
 }
