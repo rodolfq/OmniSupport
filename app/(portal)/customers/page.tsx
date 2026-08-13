@@ -439,15 +439,9 @@ if (isCompanyPortalUser) {
                   <p className="text-sm font-bold text-[var(--text-primary)] truncate">{selectedCompany.phone || 'Sem telefone'}</p>
                 </div>
               </div>
-              <div className="flex items-center gap-3">
-                <div className="w-9 h-9 rounded-lg bg-[var(--surface-card)] border border-[var(--border-default)] flex items-center justify-center text-[var(--text-tertiary)] shrink-0">
-                  <UserIcon size={15} />
-                </div>
-                <div className="min-w-0">
-                  <p className="text-[9px] font-black uppercase tracking-widest text-[var(--text-tertiary)]">Funcionários</p>
-                  <p className="text-sm font-bold text-[var(--text-primary)] truncate">{companyEmployees.length}</p>
-                </div>
-              </div>
+              {/* Contador de funcionários removido a pedido: a própria lista
+                  de funcionários vem logo abaixo, então o número era só uma
+                  repetição do que já está visível. */}
               {!isCompanyPortalUser && (
                 <>
                   <div className="flex items-center gap-3">

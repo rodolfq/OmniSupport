@@ -83,7 +83,11 @@ export const AI_ASSISTANT_AVATAR_OPTIONS: AiAssistantAvatarOption[] = [
     previewImage: '/rive/expressive-faces-preview.png',
     stateMachine: 'STATE MACHINE ALL',
     clickTrigger: 'red head trigger',
-    defaultCrop: { focusX: 0.32, focusY: 0.60, zoom: 2.2 },
+    // Enquadramento vindo do ajuste fino que estava salvo no banco quando o
+    // editor de ícone foi removido: virou o padrão definitivo, para o widget
+    // continuar aparecendo exatamente como está hoje mesmo num ambiente novo,
+    // sem depender de override em ai_assistant_settings.
+    defaultCrop: { focusX: 0.2964781732424868, focusY: 0.6673406067895545, zoom: 2.15 },
     globalCursorTracking: false
   },
   {
@@ -124,7 +128,16 @@ export const AI_ASSISTANT_AVATAR_OPTIONS: AiAssistantAvatarOption[] = [
   }
 ];
 
-export const DEFAULT_AI_ASSISTANT_AVATAR: AiAssistantAvatarSource = 'default';
+/**
+ * Ícone do agente — decisão fechada, não é mais configurável pela interface.
+ *
+ * O seletor e o editor de enquadramento saíram da tela de Configurações a
+ * pedido: a escolha estava feita e mantê-la editável só abria espaço para o
+ * widget mudar de cara sem intenção. As demais opções do catálogo acima
+ * continuam no código de propósito — o componente ainda sabe renderizá-las, e
+ * trocar o padrão é mexer nesta linha, não reescrever a tela.
+ */
+export const DEFAULT_AI_ASSISTANT_AVATAR: AiAssistantAvatarSource = 'expressive-faces';
 
 export function getAvatarOption(id: string | null | undefined): AiAssistantAvatarOption {
   return AI_ASSISTANT_AVATAR_OPTIONS.find((o) => o.id === id) || AI_ASSISTANT_AVATAR_OPTIONS[0];

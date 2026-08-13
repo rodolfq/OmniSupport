@@ -175,9 +175,13 @@ export default function HotfixesPage() {
               className="bg-[var(--surface-card)] border border-[var(--border-default)] rounded-2xl pl-11 pr-4 py-3 text-sm font-medium focus:ring-4 focus:ring-[var(--accent)]/10 outline-none transition-all w-56"
             />
           </div>
+          {/* shadow neutra em vez de shadow-indigo-200: aquele halo era
+              calibrado para fundo branco e, no tema escuro, virava um brilho
+              roxo em volta do botão — além de não combinar com o accent do
+              produto desde o rebrand. */}
           <button
             onClick={() => handleOpenModal()}
-            className="bg-[var(--accent)] hover:bg-[var(--accent-hover)] text-white px-6 py-3 rounded-2xl text-sm font-black uppercase tracking-widest shadow-lg shadow-indigo-200 transition-all flex items-center gap-2 shrink-0"
+            className="bg-[var(--accent)] hover:bg-[var(--accent-hover)] text-white px-6 py-3 rounded-2xl text-sm font-black uppercase tracking-widest shadow-lg shadow-black/10 transition-all flex items-center gap-2 shrink-0"
           >
             <Plus size={18} />
             Novo Hotfix
@@ -192,7 +196,9 @@ export default function HotfixesPage() {
         </h3>
         {weekHighlight.length === 0 ? (
           <div className="rounded-[2rem] border-2 border-dashed border-[var(--border-default)] p-8 text-center">
-            <Rocket className="mx-auto text-slate-200 mb-2" size={32} />
+            {/* text-slate-200 era quase invisível no claro e brilhante demais
+                no escuro — o token acompanha o tema. */}
+            <Rocket className="mx-auto text-[var(--text-tertiary)] mb-2" size={32} />
             <p className="text-sm font-bold text-[var(--text-tertiary)] uppercase tracking-widest">Nenhum hotfix agendado para esta semana</p>
           </div>
         ) : (
@@ -206,9 +212,16 @@ export default function HotfixesPage() {
                   key={hotfix.id}
                   className={cn(
                     "relative overflow-hidden rounded-[2rem] p-7 text-white shadow-xl",
+                    // A cor sólida (bg-[#...]) vem ANTES do gradiente e não é
+                    // redundância: app/globals.css remove `background-image`
+                    // de tudo no modo escuro ("superfícies planas, sem
+                    // gradientes"). Sem a cor sólida por baixo, estes cards
+                    // ficavam com texto branco sobre o fundo da página no
+                    // tema escuro — sem fundo nenhum. Com ela, o claro mostra
+                    // o gradiente e o escuro mostra a mesma cor, chapada.
                     overdue
-                      ? "bg-gradient-to-br from-[#7A1F1F] to-[#B92C2C] shadow-red-200"
-                      : "bg-gradient-to-br from-[#0D3A69] to-[#15558A] shadow-indigo-100"
+                      ? "bg-[#8F2424] bg-gradient-to-br from-[#7A1F1F] to-[#B92C2C] shadow-black/20"
+                      : "bg-[#11477A] bg-gradient-to-br from-[#0D3A69] to-[#15558A] shadow-black/20"
                   )}
                 >
                   <Rocket className="absolute -right-6 -bottom-6 w-32 h-32 text-white/10" />
@@ -500,7 +513,7 @@ export default function HotfixesPage() {
                 <button
                   onClick={handleSave}
                   disabled={!name || !expectedDate}
-                  className="flex-1 px-8 py-4 bg-[var(--accent)] text-white rounded-2xl text-[10px] font-semibold uppercase tracking-widest hover:bg-[var(--accent-hover)] transition-all shadow-xl shadow-indigo-100 disabled:opacity-50"
+                  className="flex-1 px-8 py-4 bg-[var(--accent)] text-white rounded-2xl text-[10px] font-semibold uppercase tracking-widest hover:bg-[var(--accent-hover)] transition-all shadow-xl shadow-black/10 disabled:opacity-50"
                 >
                   Salvar Hotfix
                 </button>

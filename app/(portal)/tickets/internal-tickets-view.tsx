@@ -11,6 +11,8 @@ import { NewInternalTicketModal } from "@/components/new-internal-ticket-modal";
 import { ConfigService } from "@/lib/services/config-service";
 import { useInternalTeamsQuery, useProfilesLiteQuery } from "@/lib/query-hooks";
 import { findStatusColor } from "@/lib/status-colors";
+import { InlineAssigneePicker } from "@/components/inline-assignee-picker";
+import { toast } from "sonner";
 import {
   Plus, Search, Filter, Clock, Edit3, Loader2,
   MessageCircle, Link2, User as UserIcon, Inbox, AlertTriangle, Flame
@@ -161,6 +163,16 @@ export function InternalTicketsView({
     () => ((profilesLiteData || []) as User[]).filter((u) => u.role === "Equipe" || u.role === "Administrador"),
     [profilesLiteData]
   );
+
+  // Opções do seletor inline de responsável. Inclui "Time Interno", que atende
+  // ticket interno mas não entra no filtro `analysts` acima (usado para outra
+  // coisa) — quem trabalha nesses tickets precisa poder ser atribuído a eles.
+  const assignableUsers = useMemo(
+    () => ((profilesLiteData || []) as any[])
+      .filter((u) => ["Administrador", "Equipe", "Time Interno"].includes(u.role))
+      .map((u) => ({ id: u.id, name: u.name, avatarThumbUrl: u.avatarThumbUrl })),
+    [profilesLiteData]
+  );
   const [loading, setLoading] = useState(true);
   const [loadingMore, setLoadingMore] = useState(false);
   const [currentPage, setCurrentPage] = useState(1);
@@ -174,6 +186,9 @@ export function InternalTicketsView({
   const [filterPriority, setFilterPriority] = useState("");
   const [dateFrom, setDateFrom] = useState("");
   const [dateTo, setDateTo] = useState("");
+  // Encerrados fora por padrão: abrir a tela carregando todo o histórico
+  // concluído é justamente o que ninguém está procurando.
+  const [showClosed, setShowClosed] = useState(false);
   const [showFilters, setShowFilters] = useState(false);
   // Chips de atalho — a mesma ideia do "Minhas tarefas"/"Sem responsável"
   // que Jira/Linear/ClickUp sempre têm de cara, sem precisar abrir filtro
@@ -225,6 +240,7 @@ export function InternalTicketsView({
       if (filterPriority) qs.set('priority', filterPriority);
       if (dateFrom) qs.set('dateFrom', dateFrom);
       if (dateTo) qs.set('dateTo', dateTo);
+      if (showClosed) qs.set('includeClosed', '1');
 
       // Sem permissão de ver todas as equipes: só as próprias — e quais são
       // é o servidor que resolve, pela sessão.
@@ -299,11 +315,58 @@ export function InternalTicketsView({
       setLoading(false);
       setLoadingMore(false);
     }
-  }, [currentUser, searchTerm, filterTeam, filterAssignee, filterPriority, dateFrom, dateTo]);
+    // showClosed e filterStatus entram aqui: sem eles nas dependências, o
+    // controle muda de estado mas a lista não recarrega, e o filtro parece
+    // simplesmente não funcionar. filterStatus já estava faltando antes —
+    // trocar o status no filtro avançado também não surtia efeito.
+  }, [currentUser, searchTerm, filterTeam, filterAssignee, filterStatus, filterPriority, dateFrom, dateTo, showClosed]);
 
   useEffect(() => {
     fetchTickets(1);
   }, [fetchTickets, triggerRefresh]);
+
+  // Troca de responsável direto no card, sem abrir o ticket. Otimista, com
+  // desfazer em caso de recusa — mesma escolha da lista de chamados.
+  // ATENÇÃO ao id: `ticket.id` neste componente é o número FORMATADO
+  // ("int-0001"), usado só para exibir. O id real do banco é `ticket.uuid`
+  // (ver o mapeamento em fetchTickets e handleStatusChange, que já fazia
+  // assim). Mandar o formatado faz o UPDATE não encontrar nada e a rota
+  // responder 404 — foi exatamente o que quebrou a primeira versão disto.
+  const reassignInternalTicket = async (ticketUuid: string, assigneeId: string | null) => {
+    const alvo = tickets.find(t => t.uuid === ticketUuid);
+    const anterior = alvo?.assigneeId;
+    const anteriorNome = alvo?.assigneeName;
+    const anteriorAvatar = alvo?.assigneeAvatarThumbUrl;
+    const novo = assignableUsers.find(u => u.id === assigneeId);
+
+    setTickets(prev => prev.map(t => t.uuid === ticketUuid ? {
+      ...t,
+      assigneeId: assigneeId || undefined,
+      assigneeName: novo?.name,
+      assigneeAvatarThumbUrl: novo?.avatarThumbUrl
+    } : t));
+
+    try {
+      const res = await fetch('/api/internal-tickets', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ action: 'update', id: ticketUuid, fields: { assigneeId } })
+      });
+      if (!res.ok) {
+        const data = await res.json().catch(() => null);
+        throw new Error(data?.error || 'Erro ao trocar o responsável.');
+      }
+      toast.success(novo ? `Ticket atribuído a ${novo.name}.` : 'Responsável removido do ticket.');
+    } catch (err: any) {
+      setTickets(prev => prev.map(t => t.uuid === ticketUuid ? {
+        ...t,
+        assigneeId: anterior,
+        assigneeName: anteriorNome,
+        assigneeAvatarThumbUrl: anteriorAvatar
+      } : t));
+      toast.error(err?.message || 'Não foi possível trocar o responsável.');
+    }
+  };
 
   useEffect(() => {
     async function loadStatuses() {
@@ -531,6 +594,22 @@ const openEditModal = (ticket: InternalTicketItem) => {
                   className="px-3 py-2 rounded-lg border border-[var(--border-default)] text-sm font-medium"
                   placeholder="Data fim"
                 />
+
+                {/* Encerrados ficam fora por padrão (o servidor já os exclui,
+                    ver app/api/internal-tickets/route.ts). Este é o caminho
+                    para trazê-los de volta quando alguém realmente procura
+                    histórico. */}
+                <label className="flex items-center gap-2 px-3 py-2 rounded-lg border border-[var(--border-default)] cursor-pointer select-none hover:bg-[var(--surface-pill)] transition-colors">
+                  <input
+                    type="checkbox"
+                    checked={showClosed}
+                    onChange={(e) => setShowClosed(e.target.checked)}
+                    className="w-4 h-4 rounded border-[var(--border-default)] accent-[var(--accent)] cursor-pointer"
+                  />
+                  <span className="text-xs font-medium text-[var(--text-secondary)]">
+                    Mostrar encerrados
+                  </span>
+                </label>
               </div>
             </motion.div>
           )}
@@ -552,13 +631,28 @@ const openEditModal = (ticket: InternalTicketItem) => {
       ) : viewMode === "cards" ? (
         <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-3">
           {displayTickets.map((it) => (
-            <TicketCard key={it.id} ticket={it} onEdit={() => openEditModal(it)} teams={teams} statuses={statuses} />
+            <TicketCard
+              key={it.id}
+              ticket={it}
+              onEdit={() => openEditModal(it)}
+              teams={teams}
+              statuses={statuses}
+              assignableUsers={assignableUsers}
+              onReassign={reassignInternalTicket}
+            />
           ))}
         </div>
       ) : viewMode === "table" ? (
-        <TicketTable tickets={displayTickets} onEdit={openEditModal} teams={teams} statuses={statuses} />
+        <TicketTable
+          tickets={displayTickets}
+          onEdit={openEditModal}
+          teams={teams}
+          statuses={statuses}
+          assignableUsers={assignableUsers}
+          onReassign={reassignInternalTicket}
+        />
       ) : (
-        <KanbanBoard tickets={displayTickets} onEdit={openEditModal} onStatusChange={handleStatusChange} statuses={statuses} />
+        <KanbanBoard tickets={displayTickets} onEdit={openEditModal} onStatusChange={handleStatusChange} statuses={statuses} assignableUsers={assignableUsers} onReassign={reassignInternalTicket} />
       )}
 
       {/* Modal - Only for creating new tickets */}
@@ -572,7 +666,17 @@ const openEditModal = (ticket: InternalTicketItem) => {
     }
 
 // Ticket Card Component
-function TicketCard({ ticket, onEdit, teams = DEFAULT_TEAM_OPTIONS, statuses = DEFAULT_KANBAN_STATUSES }: { ticket: InternalTicketItem; onEdit: () => void; teams?: typeof DEFAULT_TEAM_OPTIONS; statuses?: KanbanStatusMeta[] }) {
+function TicketCard({
+  ticket, onEdit, teams = DEFAULT_TEAM_OPTIONS, statuses = DEFAULT_KANBAN_STATUSES,
+  assignableUsers = [], onReassign
+}: {
+  ticket: InternalTicketItem;
+  onEdit: () => void;
+  teams?: typeof DEFAULT_TEAM_OPTIONS;
+  statuses?: KanbanStatusMeta[];
+  assignableUsers?: { id: string; name: string; avatarThumbUrl?: string | null }[];
+  onReassign?: (ticketId: string, assigneeId: string | null) => Promise<void>;
+}) {
   const teamOption = teams.find((t) => t.value === ticket.teamId) || teams[0];
   const statusMeta = statuses.find(s => s.value === (ticket.status || "Novo")) || statuses[0];
 
@@ -627,7 +731,20 @@ function TicketCard({ ticket, onEdit, teams = DEFAULT_TEAM_OPTIONS, statuses = D
             {statusMeta.label}
           </span>
         </div>
-        <Avatar name={ticket.assigneeName} avatarThumbUrl={ticket.assigneeAvatarThumbUrl} size={24} />
+        {/* Clicável quando a tela passa onReassign: troca o responsável sem
+            abrir o ticket. Sem o callback (kanban, telas somente leitura)
+            volta a ser só o avatar. */}
+        {onReassign ? (
+          <InlineAssigneePicker
+            currentAssigneeId={ticket.assigneeId}
+            options={assignableUsers}
+            emptyLabel="Sem responsável"
+            size={24}
+            onChange={(id) => onReassign(ticket.uuid!, id)}
+          />
+        ) : (
+          <Avatar name={ticket.assigneeName} avatarThumbUrl={ticket.assigneeAvatarThumbUrl} size={24} />
+        )}
       </div>
 
       <div className="flex items-center gap-3 mt-3 text-[var(--text-tertiary)]">
@@ -655,7 +772,17 @@ function TicketCard({ ticket, onEdit, teams = DEFAULT_TEAM_OPTIONS, statuses = D
 }
 
 // Ticket Table Component
-function TicketTable({ tickets, onEdit, teams = DEFAULT_TEAM_OPTIONS, statuses = DEFAULT_KANBAN_STATUSES }: { tickets: InternalTicketItem[]; onEdit: (t: InternalTicketItem) => void; teams?: typeof DEFAULT_TEAM_OPTIONS; statuses?: KanbanStatusMeta[] }) {
+function TicketTable({
+  tickets, onEdit, teams = DEFAULT_TEAM_OPTIONS, statuses = DEFAULT_KANBAN_STATUSES,
+  assignableUsers = [], onReassign
+}: {
+  tickets: InternalTicketItem[];
+  onEdit: (t: InternalTicketItem) => void;
+  teams?: typeof DEFAULT_TEAM_OPTIONS;
+  statuses?: KanbanStatusMeta[];
+  assignableUsers?: { id: string; name: string; avatarThumbUrl?: string | null }[];
+  onReassign?: (ticketUuid: string, assigneeId: string | null) => Promise<void>;
+}) {
   return (
     <div className="bg-[var(--surface-card)] rounded-2xl border border-[var(--border-default)] overflow-hidden">
       <table className="w-full">
@@ -697,10 +824,23 @@ function TicketTable({ tickets, onEdit, teams = DEFAULT_TEAM_OPTIONS, statuses =
                 </td>
                 <td className="px-4 py-3"><PriorityBars priority={it.priority || 1} /></td>
                 <td className="px-4 py-3">
-                  <div className="flex items-center gap-2">
-                    <Avatar name={it.assigneeName} avatarThumbUrl={it.assigneeAvatarThumbUrl} size={20} />
-                    <span className="text-sm text-[var(--text-secondary)] truncate max-w-[120px]">{it.assigneeName || "Não atribuído"}</span>
-                  </div>
+                  {/* Mesma troca inline da visão em cards — a tabela é a visão
+                      padrão da tela, então era justamente onde mais faltava. */}
+                  {onReassign ? (
+                    <InlineAssigneePicker
+                      currentAssigneeId={it.assigneeId}
+                      options={assignableUsers}
+                      emptyLabel="Não atribuído"
+                      size={20}
+                      className="max-w-[160px]"
+                      onChange={(id) => onReassign(it.uuid!, id)}
+                    />
+                  ) : (
+                    <div className="flex items-center gap-2">
+                      <Avatar name={it.assigneeName} avatarThumbUrl={it.assigneeAvatarThumbUrl} size={20} />
+                      <span className="text-sm text-[var(--text-secondary)] truncate max-w-[120px]">{it.assigneeName || "Não atribuído"}</span>
+                    </div>
+                  )}
                 </td>
                 <td className={cn("px-4 py-3 text-[10px] font-bold whitespace-nowrap",
                   it.slaRemaining === "Expirado" ? "text-[var(--text-danger)]" : "text-[var(--text-secondary)]")}>
@@ -725,12 +865,16 @@ function KanbanBoard({
   tickets,
   onEdit,
   onStatusChange,
-  statuses = DEFAULT_KANBAN_STATUSES
+  statuses = DEFAULT_KANBAN_STATUSES,
+  assignableUsers = [],
+  onReassign
 }: {
   tickets: InternalTicketItem[];
   onEdit: (t: InternalTicketItem) => void;
   onStatusChange?: (ticketId: string, newStatus: string) => void;
   statuses?: KanbanStatusMeta[];
+  assignableUsers?: { id: string; name: string; avatarThumbUrl?: string | null }[];
+  onReassign?: (ticketUuid: string, assigneeId: string | null) => Promise<void>;
 }) {
   const [activeTicket, setActiveTicket] = useState<InternalTicketItem | null>(null);
   const sensors = useSensors(
@@ -762,7 +906,7 @@ function KanbanBoard({
     <DndContext sensors={sensors} onDragStart={handleDragStart} onDragEnd={handleDragEnd}>
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4 items-start">
         {columns.map((col) => (
-          <KanbanColumn key={col.value} col={col} onEdit={onEdit} />
+          <KanbanColumn key={col.value} col={col} onEdit={onEdit} assignableUsers={assignableUsers} onReassign={onReassign} />
         ))}
       </div>
       <DragOverlay dropAnimation={{ duration: 180, easing: 'cubic-bezier(0.18, 0.67, 0.6, 1.22)' }}>
@@ -774,7 +918,7 @@ function KanbanBoard({
 
 // Coluna do Kanban — área de soltar (droppable), com destaque visual
 // enquanto um card é arrastado sobre ela.
-function KanbanColumn({ col, onEdit }: { col: KanbanStatusMeta & { tickets: InternalTicketItem[] }; onEdit: (t: InternalTicketItem) => void }) {
+function KanbanColumn({ col, onEdit, assignableUsers = [], onReassign }: { col: KanbanStatusMeta & { tickets: InternalTicketItem[] }; onEdit: (t: InternalTicketItem) => void; assignableUsers?: { id: string; name: string; avatarThumbUrl?: string | null }[]; onReassign?: (ticketUuid: string, assigneeId: string | null) => Promise<void> }) {
   const { setNodeRef, isOver } = useDroppable({ id: col.value });
 
   return (
@@ -801,7 +945,7 @@ function KanbanColumn({ col, onEdit }: { col: KanbanStatusMeta & { tickets: Inte
           </div>
         ) : (
           col.tickets.map((ticket) => (
-            <DraggableKanbanCard key={ticket.uuid} ticket={ticket} onEdit={onEdit} />
+            <DraggableKanbanCard key={ticket.uuid} ticket={ticket} onEdit={onEdit} assignableUsers={assignableUsers} onReassign={onReassign} />
           ))
         )}
       </div>
@@ -809,7 +953,7 @@ function KanbanColumn({ col, onEdit }: { col: KanbanStatusMeta & { tickets: Inte
   );
 }
 
-function DraggableKanbanCard({ ticket, onEdit }: { ticket: InternalTicketItem; onEdit: (t: InternalTicketItem) => void }) {
+function DraggableKanbanCard({ ticket, onEdit, assignableUsers = [], onReassign }: { ticket: InternalTicketItem; onEdit: (t: InternalTicketItem) => void; assignableUsers?: { id: string; name: string; avatarThumbUrl?: string | null }[]; onReassign?: (ticketUuid: string, assigneeId: string | null) => Promise<void> }) {
   const { attributes, listeners, setNodeRef, transform, isDragging } = useDraggable({ id: ticket.uuid || ticket.id || "" });
   return (
     <div
@@ -819,13 +963,13 @@ function DraggableKanbanCard({ ticket, onEdit }: { ticket: InternalTicketItem; o
       style={{ transform: transform ? `translate3d(${transform.x}px, ${transform.y}px, 0)` : undefined, opacity: isDragging ? 0.4 : 1 }}
       className="touch-none"
     >
-      <KanbanCard ticket={ticket} onEdit={onEdit} />
+      <KanbanCard ticket={ticket} onEdit={onEdit} assignableUsers={assignableUsers} onReassign={onReassign} />
     </div>
   );
 }
 
 // KanbanCard Component
-function KanbanCard({ ticket, onEdit, dragging = false }: { ticket: InternalTicketItem; onEdit: (t: InternalTicketItem) => void; dragging?: boolean }) {
+function KanbanCard({ ticket, onEdit, dragging = false, assignableUsers = [], onReassign }: { ticket: InternalTicketItem; onEdit: (t: InternalTicketItem) => void; dragging?: boolean; assignableUsers?: { id: string; name: string; avatarThumbUrl?: string | null }[]; onReassign?: (ticketUuid: string, assigneeId: string | null) => Promise<void> }) {
   return (
     <div
       onClick={() => !dragging && onEdit(ticket)}
@@ -872,7 +1016,22 @@ function KanbanCard({ ticket, onEdit, dragging = false }: { ticket: InternalTick
             </span>
           )}
         </div>
-        <Avatar name={ticket.assigneeName} avatarThumbUrl={ticket.assigneeAvatarThumbUrl} size={22} />
+        {/* Trocar responsável sem sair do board. `dragging` é o card fantasma
+            do DragOverlay: ali o seletor não pode ser interativo, senão o
+            clique cairia num elemento que está sendo arrastado.
+            O seletor barra o pointerdown (ver inline-assignee-picker.tsx), o
+            que impede o dnd-kit de iniciar arraste ao pressioná-lo. */}
+        {onReassign && !dragging ? (
+          <InlineAssigneePicker
+            currentAssigneeId={ticket.assigneeId}
+            options={assignableUsers}
+            emptyLabel=""
+            size={22}
+            onChange={(id) => onReassign(ticket.uuid!, id)}
+          />
+        ) : (
+          <Avatar name={ticket.assigneeName} avatarThumbUrl={ticket.assigneeAvatarThumbUrl} size={22} />
+        )}
       </div>
     </div>
   );

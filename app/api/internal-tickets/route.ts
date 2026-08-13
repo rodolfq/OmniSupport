@@ -169,6 +169,30 @@ export async function GET(request: NextRequest) {
         addCondition('internal_team_id = ANY($?)', teams);
       }
 
+      // Concluídos ficam FORA por padrão — mesmo comportamento da lista de
+      // chamados. Sem isso a tela abre carregando todo o histórico encerrado,
+      // que é justamente o que ninguém procura ao abrir "Todos".
+      //
+      // Duas exceções, ambas intencionais:
+      //   - filtro de status explícito (o usuário escolheu "Concluído"): esse
+      //     manda, senão escolher o status não traria nada;
+      //   - includeClosed=1, para relatórios e para um "mostrar encerrados".
+      //
+      // A lista de status fechados sai de config_statuses (is_closed), não de
+      // um rótulo fixo: status é configurável, e amarrar em 'Concluído'
+      // quebraria assim que alguém criasse outro status final.
+      const includeClosed = searchParams.get('includeClosed') === '1';
+      if (!includeClosed && !status) {
+        const fechadosRes = await query(
+          `SELECT label FROM public.config_statuses WHERE scope = 'internal_ticket' AND is_closed = true`
+        );
+        const fechados = fechadosRes.rows.map((r: any) => r.label);
+        if (fechados.length > 0) {
+          params.push(fechados);
+          conditions.push(`status <> ALL($${params.length})`);
+        }
+      }
+
       const where = conditions.length ? `WHERE ${conditions.join(' AND ')}` : '';
       const [rowsRes, countRes] = await Promise.all([
         query(

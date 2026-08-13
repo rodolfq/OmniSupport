@@ -5,9 +5,10 @@ import Link from 'next/link';
 import { Bot, Save, CheckCircle2, XCircle, RotateCcw, Search, MessageSquareText, Ticket, MessageCircle, Frown, Clock, ListChecks, ArrowUpRight, RefreshCw, History, KeyRound, Trash2 } from 'lucide-react';
 // Migrado para rota HTTP (/api/ai-assistant/config) na separação front/back.
 import { getAssistantConfig, saveAssistantConfig, getDissatisfactionStats, runDissatisfactionBatchNow } from '@/lib/services/assistant-config-client';
-import { AiAssistantIcon } from '@/components/ai-assistant-icon';
-import { AiAssistantAvatarCropEditor } from '@/components/ai-assistant-avatar-crop-editor';
-import { AI_ASSISTANT_AVATAR_OPTIONS, AiAssistantAvatarSource, AvatarCropOverrides, getAvatarOption } from '@/lib/ai-assistant-avatar-options';
+// Só os TIPOS: o seletor de ícone saiu desta tela. Os componentes de preview e
+// de recorte continuam existindo no projeto (o widget usa o primeiro), mas não
+// são mais montados aqui.
+import type { AiAssistantAvatarSource, AvatarCropOverrides } from '@/lib/ai-assistant-avatar-options';
 import { cn } from '@/lib/utils';
 import { toast } from 'sonner';
 
@@ -58,7 +59,10 @@ export function AiAssistantSettingsContent() {
   const [semanticSearchDraft, setSemanticSearchDraft] = useState(true);
   const [dissatisfactionEnabledDraft, setDissatisfactionEnabledDraft] = useState(false);
   const [dissatisfactionInstructionsDraft, setDissatisfactionInstructionsDraft] = useState('');
-  const [avatarSourceDraft, setAvatarSourceDraft] = useState<AiAssistantAvatarSource>('default');
+  // Sem editor na tela, estes dois só carregam o que está salvo e devolvem o
+  // mesmo valor ao gravar. Existem para que salvar QUALQUER outra configuração
+  // do agente não zere o ícone que está em uso — a rota grava o objeto inteiro.
+  const [avatarSourceDraft, setAvatarSourceDraft] = useState<AiAssistantAvatarSource>('expressive-faces');
   const [avatarCropDraft, setAvatarCropDraft] = useState<AvatarCropOverrides>({});
   // Nunca pré-preenchido com a chave atual (ela não volta do servidor, ver
   // getRawAssistantSettings) — em branco = "não mexe" no save; "Remover"
@@ -414,65 +418,12 @@ export function AiAssistantSettingsContent() {
         </div>
       </div>
 
-      {/* Ícone do agente */}
-      <div className="bg-[var(--surface-card)] border border-[var(--border-default)] rounded-[2rem] p-8 shadow-sm space-y-5">
-        <div>
-          <h4 className="text-sm font-black text-[var(--text-primary)] uppercase tracking-tight">Ícone do agente</h4>
-          <p className="text-[10px] text-[var(--text-tertiary)] font-bold uppercase tracking-widest mt-1">
-            Mostrado no botão flutuante e no cabeçalho do painel — cada opção já reage do jeito que o arquivo foi feito (algumas seguem o cursor, outras reagem só ao clique). A miniatura abaixo é estática; salve e veja animando de verdade no botão flutuante.
-          </p>
-        </div>
-        <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
-          {AI_ASSISTANT_AVATAR_OPTIONS.map(option => {
-            const selected = avatarSourceDraft === option.id;
-            return (
-              <button
-                key={option.id}
-                type="button"
-                onClick={() => setAvatarSourceDraft(option.id)}
-                className={cn(
-                  'flex flex-col items-center gap-2.5 p-4 rounded-2xl border-2 text-center transition-all',
-                  selected
-                    ? 'border-[var(--accent)] bg-[var(--accent)]/5'
-                    : 'border-transparent bg-[var(--surface-pill)] hover:border-[var(--border-default)]'
-                )}
-              >
-                <div className="w-12 h-12 rounded-full overflow-hidden shrink-0 ring-2 ring-[var(--border-default)]">
-                  {option.previewImage ? (
-                    // eslint-disable-next-line @next/next/no-img-element
-                    <img src={option.previewImage} alt={option.label} className="w-full h-full object-cover" />
-                  ) : (
-                    <AiAssistantIcon avatarSource={option.id} size={48} />
-                  )}
-                </div>
-                <div>
-                  <p className={cn('text-[11px] font-black uppercase tracking-wide', selected ? 'text-[var(--accent-text)]' : 'text-[var(--text-primary)]')}>
-                    {option.label}
-                  </p>
-                  <p className="text-[9px] text-[var(--text-tertiary)] font-medium leading-snug mt-1">{option.description}</p>
-                </div>
-              </button>
-            );
-          })}
-        </div>
-
-        {/* Editor de posição/zoom — só faz sentido pra personagens Rive ou
-            Lottie (o padrão em SVG não usa recorte). Salva junto com o
-            botão "Salvar" no final da página, no mesmo lugar global de
-            sempre — vale pra todo mundo, não é preferência por usuário. */}
-        {(getAvatarOption(avatarSourceDraft).riveSrc || getAvatarOption(avatarSourceDraft).lottieSrc) && (
-          <div className="pt-5 border-t border-[var(--border-default)] space-y-3">
-            <p className="text-[10px] font-black uppercase tracking-widest text-[var(--text-tertiary)]">
-              Ajustar posição — {getAvatarOption(avatarSourceDraft).label}
-            </p>
-            <AiAssistantAvatarCropEditor
-              option={getAvatarOption(avatarSourceDraft)}
-              crop={avatarCropDraft[avatarSourceDraft] || getAvatarOption(avatarSourceDraft).defaultCrop}
-              onChange={(crop) => setAvatarCropDraft(prev => ({ ...prev, [avatarSourceDraft]: crop }))}
-            />
-          </div>
-        )}
-      </div>
+      {/* O bloco "Ícone do agente" (seletor + editor de enquadramento) foi
+          removido a pedido: a escolha está fechada e vive agora em
+          DEFAULT_AI_ASSISTANT_AVATAR, em lib/ai-assistant-avatar-options.ts,
+          junto do enquadramento que estava salvo. Manter editável só abria
+          espaço para o widget mudar de cara sem intenção. Trocar o ícone
+          passou a ser uma linha de código, não uma opção de tela. */}
 
       {/* Prompt */}
       <div className="bg-[var(--surface-card)] border border-[var(--border-default)] rounded-[2rem] p-8 shadow-sm space-y-4">

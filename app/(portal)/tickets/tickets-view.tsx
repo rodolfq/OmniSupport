@@ -49,6 +49,7 @@ import { AnimatePresence, motion } from "motion/react";
 import { ModernSearchBar } from "@/components/modern-search-bar";
 import { TicketDetailModal } from "@/components/ticket-detail-modal";
 import { UserAvatar } from "@/components/user-avatar";
+import { InlineAssigneePicker } from "@/components/inline-assignee-picker";
 import { ConfirmDialog } from "@/components/confirm-dialog";
 import { useApp } from "@/app/app-context";
 import {
@@ -263,6 +264,22 @@ export function TicketsView({
   const referenceDataUserIdRef = useRef('');
   const canDeleteTickets = hasPermission(Permission.TICKETS_DELETE) || currentUser?.role === UserRole.ADMIN;
 
+  // Trocar responsável direto na lista usa a mesma permissão da edição de
+  // chamado — é a mesma escrita, só que sem abrir o registro.
+  const canReassign = hasPermission(Permission.TICKETS_WRITE) || currentUser?.role === UserRole.ADMIN;
+
+  // Só quem atende entra na lista de responsáveis (mesmo recorte do modal de
+  // transferência em lote): Cliente/Funcionário nunca são responsáveis.
+  const assignableUsers = useMemo(
+    () => users
+      .filter((u: any) => ['Administrador', 'Equipe', 'Time Interno'].includes(u.role))
+      .map((u: any) => ({ id: u.id, name: u.name, avatarThumbUrl: u.avatarThumbUrl })),
+    [users]
+  );
+
+  // A troca otimista fica definida mais abaixo, junto de filteredTickets e
+  // bulkUpdateTickets (ver reassignTicket).
+
   const sensors = useSensors(
     useSensor(PointerSensor, {
       activationConstraint: {
@@ -319,6 +336,27 @@ export function TicketsView({
     if (!res.ok) {
       const err = await res.json();
       throw new Error(err.error || 'Erro na atualização em lote');
+    }
+  };
+
+  // Troca de responsável direto na lista, OTIMISTA: a linha mostra o novo
+  // responsável na hora e volta ao anterior se o servidor recusar. Numa fila de
+  // redistribuição, esperar o ida-e-volta a cada clique inviabiliza a tarefa —
+  // e a recusa é rara o bastante para valer o desfazer.
+  const reassignTicket = async (ticketId: string, assigneeId: string | null) => {
+    const anterior = filteredTickets.find(t => t.id === ticketId)?.assigneeId ?? null;
+    setFilteredTickets(prev =>
+      prev.map(t => (t.id === ticketId ? { ...t, assigneeId: assigneeId || undefined } : t))
+    );
+    try {
+      await bulkUpdateTickets([ticketId], { assigneeId });
+      const nome = assigneeId ? (users.find((u: any) => u.id === assigneeId)?.name || 'responsável') : null;
+      toast.success(nome ? `Chamado atribuído a ${nome}.` : 'Responsável removido do chamado.');
+    } catch (err: any) {
+      setFilteredTickets(prev =>
+        prev.map(t => (t.id === ticketId ? { ...t, assigneeId: anterior || undefined } : t))
+      );
+      toast.error(err?.message || 'Não foi possível trocar o responsável.');
     }
   };
 
@@ -864,23 +902,19 @@ export function TicketsView({
           </td>
         );
       case "assignee":
-        const assignee = users.find((u) => u.id === ticket.assigneeId);
         return (
           <td key="assignee" className="px-6 py-5">
-            <div className="flex items-center gap-2">
-              {assignee ? (
-                <>
-                  <UserAvatar name={assignee.name} thumbUrl={assignee.avatarThumbUrl} />
-                  <span className="text-sm font-medium text-[var(--text-secondary)]">
-                    {assignee.name}
-                  </span>
-                </>
-              ) : (
-                <span className="text-xs text-slate-300 italic">
-                  Dísponivel
-                </span>
-              )}
-            </div>
+            {/* Clicável: troca o responsável sem abrir o chamado.
+                "Dísponivel" (com o acento no lugar errado) virou
+                "Sem responsável", que é o que o campo vazio significa —
+                "disponível" descrevia o analista, não o chamado. */}
+            <InlineAssigneePicker
+              currentAssigneeId={ticket.assigneeId}
+              options={assignableUsers}
+              editable={canReassign}
+              emptyLabel="Sem responsável"
+              onChange={(id) => reassignTicket(ticket.id, id)}
+            />
           </td>
         );
       case "status":
