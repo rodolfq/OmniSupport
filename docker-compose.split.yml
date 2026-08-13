@@ -1,0 +1,116 @@
+# SSX Desk — deploy SEPARADO em duas imagens (front e back).
+#
+# O docker-compose.yml continua sendo o deploy de um container só e não foi
+# alterado: enquanto a separação não estiver concluída e testada, ele é o que
+# roda em produção. Este arquivo é o destino, usado assim:
+#
+#   docker compose -f docker-compose.split.yml up -d --build
+#
+# ---------------------------------------------------------------------------
+# COMO AS DUAS PARTES SE FALAM
+# ---------------------------------------------------------------------------
+# O navegador chama o back DIRETO (decisão do time de infra), então:
+#
+#   navegador ──> https://desk.empresa.com   (front, só páginas)
+#             └─> https://api.empresa.com    (back, API + jobs + WhatsApp)
+#
+# Isso exige três coisas casadas, e é onde a separação costuma falhar:
+#
+#   1. NEXT_PUBLIC_API_URL  — para onde o navegador manda as chamadas.
+#      Embutida no BUILD do front (ver ARG no Dockerfile). Trocar depois por
+#      variável de ambiente NÃO funciona: exige rebuild da imagem do front.
+#
+#   2. CORS_ALLOWED_ORIGINS — quem o back aceita. Precisa conter exatamente a
+#      origem do front (com esquema, sem barra final). Curinga não serve:
+#      requisição com cookie é recusada pelo navegador se a resposta vier `*`.
+#
+#   3. COOKIE_DOMAIN        — para o cookie de sessão valer nos dois hosts.
+#      Em SUBDOMÍNIOS do mesmo domínio, `.empresa.com` resolve e SameSite=lax
+#      continua válido. Em domínios DIFERENTES não há cookie compartilhado:
+#      é obrigatório COOKIE_SAMESITE=none, que por sua vez exige HTTPS.
+#
+# Se qualquer uma das três divergir, o sintoma é sempre o mesmo e enganoso:
+# tudo responde 401 e a tela devolve ao login, como se a senha estivesse errada.
+#
+# ---------------------------------------------------------------------------
+# POR QUE O BACK É UMA RÉPLICA SÓ
+# ---------------------------------------------------------------------------
+# Continua valendo o que já valia (ver docker-compose.yml): o fan-out do SSE é
+# em memória do processo e os schedulers rodam em quem sobe. O front pode
+# escalar à vontade — não abre conexão com o banco nem sobe job nenhum, graças
+# a SERVICE_ROLE=frontend (ver lib/runtime-config.ts).
+
+services:
+  # =========================================================================
+  # BACKEND — API, jobs, WhatsApp, banco, anexos
+  # =========================================================================
+  backend:
+    build:
+      context: .
+      dockerfile: Dockerfile
+      args:
+        # NEXT_PUBLIC_API_URL NÃO vai aqui de propósito: o back é a própria
+        # API, não precisa saber de endereço externo.
+        NEXT_PUBLIC_VAPID_PUBLIC_KEY: ${NEXT_PUBLIC_VAPID_PUBLIC_KEY:-}
+        NEXT_PUBLIC_ENABLE_AUDIO_TRANSCRIPTION: ${NEXT_PUBLIC_ENABLE_AUDIO_TRANSCRIPTION:-false}
+        NEXT_PUBLIC_APP_URL: ${NEXT_PUBLIC_APP_URL:-}
+    image: ssx-desk-backend:latest
+    restart: unless-stopped
+    env_file:
+      - .env
+    environment:
+      SERVICE_ROLE: backend
+      HF_HOME: /data/models
+      ATTACHMENTS_DIR: /data/attachments
+      NODE_ENV: production
+      # Origens do front autorizadas a chamar com cookie.
+      CORS_ALLOWED_ORIGINS: ${CORS_ALLOWED_ORIGINS:-}
+      # Domínio do cookie de sessão (ex.: .empresa.com). Vazio = host da
+      # resposta, que só serve se front e back estiverem no mesmo host.
+      COOKIE_DOMAIN: ${COOKIE_DOMAIN:-}
+      # 'lax' entre subdomínios do mesmo domínio; 'none' entre domínios
+      # diferentes (exige HTTPS nos dois lados).
+      COOKIE_SAMESITE: ${COOKIE_SAMESITE:-lax}
+    ports:
+      # Loopback: quem expõe para a internet é o reverse proxy, com TLS.
+      - "127.0.0.1:3001:3000"
+    volumes:
+      # Anexos ficam com o BACK: é quem grava e serve /api/files.
+      - attachments:/data/attachments
+      - models:/data/models
+    deploy:
+      replicas: 1
+
+  # =========================================================================
+  # FRONTEND — só as páginas
+  # =========================================================================
+  frontend:
+    build:
+      context: .
+      dockerfile: Dockerfile
+      args:
+        # A diferença entre as duas imagens está AQUI.
+        # Aspas obrigatórias: o texto tem "://" e sem elas o YAML interpreta os
+        # dois-pontos como separador de campo e o arquivo nem carrega.
+        NEXT_PUBLIC_API_URL: "${NEXT_PUBLIC_API_URL:?defina NEXT_PUBLIC_API_URL no .env — ex. https://api.empresa.com}"
+        NEXT_PUBLIC_VAPID_PUBLIC_KEY: ${NEXT_PUBLIC_VAPID_PUBLIC_KEY:-}
+        NEXT_PUBLIC_ENABLE_AUDIO_TRANSCRIPTION: ${NEXT_PUBLIC_ENABLE_AUDIO_TRANSCRIPTION:-false}
+        NEXT_PUBLIC_APP_URL: ${NEXT_PUBLIC_APP_URL:-}
+    image: ssx-desk-frontend:latest
+    restart: unless-stopped
+    environment:
+      SERVICE_ROLE: frontend
+      NODE_ENV: production
+      # SEM env_file: o front não deve receber DATABASE_URL, JWT_SECRET, chave
+      # do Groq nem token do Bitrix. Isso não é zelo excessivo — é o objetivo
+      # da separação. Segredo que chega ao container do front é segredo a mais
+      # de um passo do navegador.
+    ports:
+      - "127.0.0.1:3000:3000"
+    depends_on:
+      backend:
+        condition: service_healthy
+
+volumes:
+  attachments:
+  models:

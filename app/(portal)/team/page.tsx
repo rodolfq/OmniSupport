@@ -10,7 +10,11 @@ import { cn } from '@/lib/utils';
 import { motion, AnimatePresence } from 'motion/react';
 import { useApp } from '@/app/app-context';
 import { NotificationSettingsContent } from '@/components/notification-settings';
-import { getUsers, createUser, updateUser, deleteUser, getCompanies, getRolePermissions } from '@/app/actions';
+import { getCompanies } from '@/lib/services/company-service';
+// Migrados para rota HTTP (/api/users) na separação front/back.
+import { getUsers, createUser, updateUser, deleteUser } from '@/lib/services/user-actions-service';
+// Já migrado para rota HTTP (/api/permissions) — ver lib/services/permission-service.ts.
+import { getRolePermissions } from '@/lib/services/permission-service';
 import { Permission, UserRole, type User, type RolePermission } from '@/lib/types';
 import { useInternalTeamsQuery } from '@/lib/query-hooks';
 import { toast } from 'sonner';

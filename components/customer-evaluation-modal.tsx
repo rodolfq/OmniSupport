@@ -4,7 +4,7 @@ import React, { useEffect, useState } from 'react';
 import { motion, AnimatePresence } from 'motion/react';
 import { X, ShieldCheck, BellOff } from 'lucide-react';
 import { useApp } from '@/app/app-context';
-import { saveCustomerEvaluation } from '@/app/actions';
+import { saveCustomerEvaluation } from '@/lib/services/company-service';
 import { CustomerEvaluationScores, CustomerProfileTag } from '@/lib/types';
 import { cn } from '@/lib/utils';
 import { toast } from 'sonner';

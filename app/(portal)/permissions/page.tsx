@@ -23,12 +23,19 @@ import {
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { motion, AnimatePresence } from 'motion/react';
+// Perfis de Acesso passaram de Server Action para rota HTTP (/api/permissions)
+// na separação front/back — ver lib/services/permission-service.ts. As demais
+// ainda são actions e migram nos lotes seguintes.
 import {
   getRolePermissions, saveRolePermissionsById, renameAccessProfile, createAccessProfile,
-  deleteRolePermission, updateUser,
+  deleteRolePermission
+} from '@/lib/services/permission-service';
+import { updateUser } from '@/lib/services/user-actions-service';
+// Equipes internas migradas para rota HTTP (/api/internal-teams).
+import {
   getInternalTeamsPageData, createInternalTeam, updateInternalTeamMeta, deleteInternalTeam,
   applyTeamMembership
-} from '@/app/actions';
+} from '@/lib/services/internal-team-service';
 import { StyledSelect } from '@/components/styled-select';
 import { toast } from 'sonner';
 

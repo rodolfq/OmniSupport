@@ -49,8 +49,10 @@ import { useQueuesQuery } from '@/lib/query-hooks';
 import { fetchChatSessions, saveChatHistory } from '@/lib/services/chat-service';
 import { renderLinkedText } from '@/components/linked-chat-text';
 import { PhoneContactPanel } from '@/components/phone-contact-panel';
-import { fetchUsers } from '@/lib/services/config-service';
-import { getQuickNotes, saveQuickNote as saveQuickNoteAction, deleteQuickNote, getAnalysts, getCompanies, updateUserStatus, saveTicketFromChatSession, closeChatSessionAfterTicket, assignChatSession, returnChatSessionToQueue } from '@/app/actions';
+import { fetchUsers, ConfigService } from '@/lib/services/config-service';
+import { saveTicketFromChatSession, closeChatSessionAfterTicket, assignChatSession, returnChatSessionToQueue } from '@/lib/services/chat-session-actions';
+import { getCompanies } from '@/lib/services/company-service';
+import { getAnalysts, updateUserStatus } from '@/lib/services/user-actions-service';
 
 export default function ChatManagementPage() {
   const { currentUser, setActiveOmniChatId, setIsOmniChatOpen, refreshTrigger, userStatus, getContactPhoto, ensureContactPhoto, hasPermission, setIsNewTicketModalOpen } = useApp();
@@ -134,7 +136,7 @@ export default function ChatManagementPage() {
     setStatuses(statusData);
 
     // Get quick notes via action
-    const notesData = await getQuickNotes();
+    const notesData = await ConfigService.getQuickNotes();
     setNotes(notesData);
     
     // Get analysts and customers
@@ -239,16 +241,25 @@ const handleDisconnect = async (userId: string) => {
     refreshData();
   };
 
+// Notas rápidas passaram das Server Actions para o ConfigService, que já
+// falava com /api/config?type=quick-notes por HTTP — as actions eram uma
+// segunda implementação do mesmo CRUD, e sobrar só uma elimina a chance de as
+// duas divergirem.
 const handleDeleteNote = async () => {
     if (!deletingNote) return;
-    await deleteQuickNote(deletingNote.id);
+    await ConfigService.deleteQuickNote(deletingNote.id);
     setDeletingNote(null);
     refreshData();
   };
 
   const handleSaveNote = async () => {
     if (!noteShortcut || !noteContent) return;
-    await saveQuickNoteAction(selectedNote?.id || null, noteShortcut.replace('/', ''), noteContent, noteCategory || 'Geral');
+    await ConfigService.saveQuickNote({
+      id: selectedNote?.id,
+      shortcut: noteShortcut.replace('/', ''),
+      content: noteContent,
+      category: noteCategory || 'Geral'
+    } as QuickNote);
     setIsNoteModalOpen(false);
     refreshData();
   };

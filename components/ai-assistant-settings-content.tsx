@@ -3,7 +3,8 @@
 import React, { useEffect, useState } from 'react';
 import Link from 'next/link';
 import { Bot, Save, CheckCircle2, XCircle, RotateCcw, Search, MessageSquareText, Ticket, MessageCircle, Frown, Clock, ListChecks, ArrowUpRight, RefreshCw, History, KeyRound, Trash2 } from 'lucide-react';
-import { getAssistantConfig, saveAssistantConfig, getDissatisfactionStats, runDissatisfactionBatchNow } from '@/app/actions';
+// Migrado para rota HTTP (/api/ai-assistant/config) na separação front/back.
+import { getAssistantConfig, saveAssistantConfig, getDissatisfactionStats, runDissatisfactionBatchNow } from '@/lib/services/assistant-config-client';
 import { AiAssistantIcon } from '@/components/ai-assistant-icon';
 import { AiAssistantAvatarCropEditor } from '@/components/ai-assistant-avatar-crop-editor';
 import { AI_ASSISTANT_AVATAR_OPTIONS, AiAssistantAvatarSource, AvatarCropOverrides, getAvatarOption } from '@/lib/ai-assistant-avatar-options';

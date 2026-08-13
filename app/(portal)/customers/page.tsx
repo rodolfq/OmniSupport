@@ -1,7 +1,9 @@
 'use client';
 
 import React, { useState, useEffect, useMemo } from 'react';
-import { getUsers, getCompanies, setCompanyActive, assignChatSession } from '@/app/actions';
+import { assignChatSession } from '@/lib/services/chat-session-actions';
+import { getUsers } from '@/lib/services/user-actions-service';
+import { getCompanies, setCompanyActive } from '@/lib/services/company-service';
 import { Company, User, UserRole, Permission } from '@/lib/types';
 import { Building2, User as UserIcon, Mail, Phone, Plus, MessageCircle, Ticket, ShieldCheck, ShieldOff, Search, X, Check, Pencil, UserPlus, RefreshCw, Headset, Briefcase } from 'lucide-react';
 import { cn, normalizeString, normalizePhone, maskPhone } from '@/lib/utils';

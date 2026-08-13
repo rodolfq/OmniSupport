@@ -16,7 +16,7 @@ import { LinkInternalTicketModal } from './link-internal-ticket-modal';
 import { ChatAttachmentList } from './chat-attachment-list';
 import { ClientTime } from './client-time';
 import { TicketService, MessageService, InternalTicketService } from '@/lib/services/ticket-service';
-import { duplicateTicket } from '@/app/actions';
+import { duplicateTicket } from '@/lib/services/chat-session-actions';
 import { fetchSessionMessages, SessionMessagesResult } from '@/lib/services/chat-service';
 import { useAutoTranscribeMissingAudio } from '@/hooks/use-auto-transcribe-missing-audio';
 import { UserService } from '@/lib/services/user-service';

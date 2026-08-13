@@ -2,7 +2,7 @@
 
 import React, { useState } from 'react';
 import { Copy, Check, Eye, EyeOff, RefreshCw, Trash2, PlugZap, Loader2, CheckCircle2 } from 'lucide-react';
-import { saveWhatsappInstance, deleteWhatsappInstance } from '@/app/actions';
+import { saveWhatsappInstance, deleteWhatsappInstance } from '@/lib/services/whatsapp-instance-service';
 import { WhatsappInstance } from '@/lib/types';
 import { cn } from '@/lib/utils';
 import { ConfirmDialog } from '@/components/confirm-dialog';

@@ -36,6 +36,16 @@ ENV NEXT_PUBLIC_VAPID_PUBLIC_KEY=$NEXT_PUBLIC_VAPID_PUBLIC_KEY
 ENV NEXT_PUBLIC_ENABLE_AUDIO_TRANSCRIPTION=$NEXT_PUBLIC_ENABLE_AUDIO_TRANSCRIPTION
 ENV NEXT_PUBLIC_APP_URL=$NEXT_PUBLIC_APP_URL
 
+# Endereço da API que o NAVEGADOR vai chamar (separação front/back).
+# É a razão de existirem DUAS imagens a partir deste mesmo Dockerfile: como o
+# valor é embutido no bundle durante o build, ele não pode ser trocado depois
+# por variável de ambiente. Então:
+#   imagem do FRONT — construída COM este arg (ex.: https://api.empresa.com)
+#   imagem do BACK  — construída SEM ele (a API é ela mesma)
+# Vazio (padrão) = chamadas relativas = deploy de um container só, como hoje.
+ARG NEXT_PUBLIC_API_URL
+ENV NEXT_PUBLIC_API_URL=$NEXT_PUBLIC_API_URL
+
 # `npm run build` dispara o prebuild (check:encoding) — mantido de propósito,
 # é a única checagem que roda sozinha no build (tipo/lint estão ignorados em
 # next.config.ts, ver seção 14 do CLAUDE.md).

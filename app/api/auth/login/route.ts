@@ -8,6 +8,7 @@ import {
   registerLoginFailure,
   clearLoginFailures
 } from '@/lib/login-rate-limit';
+import { sessionCookieOptions } from '@/lib/runtime-config';
 
 export async function POST(request: Request) {
   try {
@@ -124,14 +125,12 @@ export async function POST(request: Request) {
       }
     });
 
-    // Configurar o cookie seguro HTTP-only na resposta
-    response.cookies.set('token', token, {
-      httpOnly: true,
-      secure: process.env.NODE_ENV === 'production',
-      sameSite: 'lax',
-      maxAge: 86400, // 1 dia
-      path: '/'
-    });
+    // Cookie httpOnly com as opções centralizadas em lib/runtime-config.ts —
+    // domínio e SameSite passaram a ser configuráveis por causa da separação
+    // front/back (subdomínios exigem Domain; domínios distintos exigem
+    // SameSite=none). Logout usa exatamente as mesmas opções: se divergirem, o
+    // cookie não é apagado.
+    response.cookies.set('token', token, sessionCookieOptions(86400)); // 1 dia
 
     return response;
   } catch (error: any) {

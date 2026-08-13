@@ -1,8 +1,14 @@
 import { NextResponse } from 'next/server';
+import crypto from 'crypto';
 import { query } from '@/lib/db';
 import { hashPassword } from '@/lib/auth-utils';
-import { getCurrentActionUser, assertUserManageable } from '@/app/actions';
+// Importado de lib/server-auth.ts e não de app/actions.ts: naquele arquivo
+// vale 'use server', onde toda função exportada vira endpoint público — e
+// ajudante de autorização não deve ser chamável de fora.
+import { getCurrentActionUser, assertUserManageable, getAdminTeamIds } from '@/lib/server-auth';
 import { generateAvatarThumb } from '@/lib/services/avatar-thumb-service';
+import { canForceOthersOffline } from '@/lib/services/presence-authorization';
+import { logAudit } from '@/lib/audit-log';
 
 // Papéis "de equipe" — os únicos que hoje consomem GET/POST desta rota
 // (Canais de Atendimento, Filas, Hotfixes, vínculo de contato). Cliente/
@@ -12,12 +18,21 @@ const STAFF_ROLES = ['Administrador', 'Equipe', 'Time Interno'];
 
 export async function GET(request: Request) {
   const actor = await getCurrentActionUser();
-  if (!actor || !STAFF_ROLES.includes(actor.role)) {
-    return NextResponse.json({ error: 'Não autorizado.' }, { status: 403 });
+  if (!actor) {
+    return NextResponse.json({ error: 'Não autorizado.' }, { status: 401 });
   }
 
   const { searchParams } = new URL(request.url);
   const type = searchParams.get('type') || 'all';
+
+  // `scoped` é a ÚNICA leitura liberada a Cliente/Funcionário, e mesmo assim
+  // filtrada pela empresa deles dentro do próprio branch. Todas as demais
+  // devolvem a lista completa de usuários do sistema e continuam restritas a
+  // papéis de equipe — foi por isso que o guarda saiu do topo do handler:
+  // liberar `scoped` sem separar os casos abriria as outras junto.
+  if (type !== 'scoped' && !STAFF_ROLES.includes(actor.role)) {
+    return NextResponse.json({ error: 'Não autorizado.' }, { status: 403 });
+  }
 
   try {
     if (type === 'lite') {
@@ -42,6 +57,65 @@ export async function GET(request: Request) {
         isAdmin: r.is_admin,
         internalTeamIds: r.internal_team_ids,
         avatarThumbUrl: r.avatar_thumb_url
+      })));
+    } else if (type === 'scoped') {
+      // Lista com ESCOPO PELO ATOR — substitui a Server Action getUsers.
+      // Cliente/Funcionário só enxergam gente da própria empresa; o resto vê
+      // todo mundo. É o único GET desta rota com esse recorte, e por isso
+      // precisa existir separado de `type=all`.
+      const isCompanyUser = actor.role === 'Cliente' || actor.role === 'Funcionário';
+      const COLUMNS = `id, name, email, role, company_id, phone, view_all_company_tickets,
+                       is_admin, is_active, internal_team_ids, access_profile_id,
+                       avatar_thumb_url,
+                       (avatar_url IS NOT NULL AND avatar_url <> '') AS has_avatar`;
+      const res = isCompanyUser
+        ? await query(
+            `SELECT ${COLUMNS} FROM public.profiles
+              WHERE company_id = $1 AND role IN ('Cliente', 'Funcionário') ORDER BY name ASC`,
+            [actor.company_id]
+          )
+        : await query(`SELECT ${COLUMNS} FROM public.profiles ORDER BY name ASC`);
+
+      return NextResponse.json(res.rows.map(u => ({
+        id: u.id,
+        name: u.name,
+        email: u.email,
+        role: u.role,
+        companyId: u.company_id,
+        phone: u.phone || undefined,
+        avatarUrl: u.has_avatar ? `/api/users/${u.id}/avatar` : undefined,
+        avatarThumbUrl: u.avatar_thumb_url || undefined,
+        viewAllCompanyTickets: u.view_all_company_tickets,
+        isAdmin: u.is_admin,
+        isActive: u.is_active,
+        internalTeamIds: u.internal_team_ids || [],
+        accessProfileId: u.access_profile_id || undefined
+      })));
+    } else if (type === 'analysts-basic') {
+      // Substitui getAnalysts. Colunas explícitas: com `*` o banco ainda
+      // mandaria avatar_url (base64) ao servidor só para montar uma lista de
+      // nomes — ~50 MB desperdiçados.
+      const res = await query(
+        `SELECT id, name, email, role, company_id, phone
+           FROM public.profiles
+          WHERE role IN ('Administrador', 'Equipe', 'Time Interno')
+          ORDER BY name ASC`
+      );
+      return NextResponse.json(res.rows.map(u => ({
+        id: u.id, name: u.name, email: u.email, role: u.role,
+        companyId: u.company_id, phone: u.phone || undefined
+      })));
+    } else if (type === 'customers') {
+      // Substitui getCustomers.
+      const res = await query(
+        `SELECT id, name, email, role, company_id, phone
+           FROM public.profiles
+          WHERE role IN ('Cliente', 'Funcionário')
+          ORDER BY name ASC`
+      );
+      return NextResponse.json(res.rows.map(u => ({
+        id: u.id, name: u.name, email: u.email, role: u.role,
+        companyId: u.company_id, phone: u.phone || undefined
       })));
     } else if (type === 'chat-team') {
       // Pessoas que aparecem no chat interno: papéis de equipe, com presença.
@@ -208,15 +282,252 @@ export async function GET(request: Request) {
   }
 }
 
+// Ações em que Cliente (dono da empresa-cliente) também entra: ele gerencia os
+// Funcionários da PRÓPRIA empresa, e cada uma delas confere isso por dentro
+// (create-full recusa papel ou empresa diferente; update-profile passa por
+// assertUserManageable). As demais continuam só para papéis de equipe.
+const ACOES_ABERTAS_A_CLIENTE = ['create-full', 'update-profile', 'presence'];
+
 export async function POST(request: Request) {
   const actor = await getCurrentActionUser();
-  if (!actor || !STAFF_ROLES.includes(actor.role)) {
-    return NextResponse.json({ error: 'Não autorizado.' }, { status: 403 });
+  if (!actor) {
+    return NextResponse.json({ error: 'Não autorizado.' }, { status: 401 });
   }
 
   try {
     const body = await request.json();
     const { action } = body;
+
+    if (!ACOES_ABERTAS_A_CLIENTE.includes(action) && !STAFF_ROLES.includes(actor.role)) {
+      return NextResponse.json({ error: 'Não autorizado.' }, { status: 403 });
+    }
+
+    // ------------------------------------------------ presença (online/ausente)
+    if (action === 'presence') {
+      const { userId, isOnline, reason } = body;
+      if (!userId) return NextResponse.json({ error: 'userId é obrigatório.' }, { status: 400 });
+
+      // Ninguém coloca OUTRA pessoa como Online — só o próprio usuário decide
+      // isso de si mesmo. Forçar um colega para Offline ("derrubar login" de
+      // quem ficou preso como disponível) é permitido, mas exige permissão de
+      // supervisão. Ver lib/services/presence-authorization.ts: sem esta trava
+      // dá para fraudar o rodízio de atendimento.
+      if (actor.id !== userId) {
+        if (isOnline) {
+          return NextResponse.json({ error: 'Só o próprio usuário pode se colocar Online.' }, { status: 403 });
+        }
+        if (!(await canForceOthersOffline(actor))) {
+          return NextResponse.json(
+            { error: 'Você não tem permissão para alterar o status de outro usuário.' },
+            { status: 403 }
+          );
+        }
+      }
+
+      const status = isOnline ? 'online' : 'offline';
+      // queue_anchor_at só é gravada na PRIMEIRA vez que fica online no dia
+      // (ver migrations/queue_daily_anchor.sql). Ficar ausente/offline não mexe
+      // nela, então a posição no rodízio não se perde.
+      await query(
+        `INSERT INTO public.analyst_status (user_id, is_online, last_active, current_reason, status, queue_anchor_at, queue_anchor_date)
+         VALUES ($1, $2, NOW(), $3, $4, CASE WHEN $2 THEN NOW() END, CASE WHEN $2 THEN CURRENT_DATE END)
+         ON CONFLICT (user_id) DO UPDATE SET
+           is_online = EXCLUDED.is_online,
+           last_active = NOW(),
+           current_reason = EXCLUDED.current_reason,
+           status = EXCLUDED.status,
+           queue_anchor_at = CASE
+             WHEN EXCLUDED.is_online AND (analyst_status.queue_anchor_date IS NULL OR analyst_status.queue_anchor_date < CURRENT_DATE)
+             THEN NOW() ELSE analyst_status.queue_anchor_at END,
+           queue_anchor_date = CASE
+             WHEN EXCLUDED.is_online AND (analyst_status.queue_anchor_date IS NULL OR analyst_status.queue_anchor_date < CURRENT_DATE)
+             THEN CURRENT_DATE ELSE analyst_status.queue_anchor_date END`,
+        [userId, isOnline, reason || null, status]
+      );
+      await query(
+        'INSERT INTO public.user_status_history (user_id, status, reason) VALUES ($1, $2, $3)',
+        [userId, status, reason || null]
+      );
+      return NextResponse.json({ success: true });
+    }
+
+    // ------------------------------------- criação COMPLETA (tela de Equipe)
+    // Substitui a Server Action createUser. Diferente de `action=create`
+    // abaixo, que só cria contato de empresa-cliente: aqui entra a
+    // autorização que decide papel, Perfil de Acesso e equipe.
+    if (action === 'create-full') {
+      const {
+        email, name, role, companyId: rawCompanyId, phones = [],
+        viewAllCompanyTickets: rawViewAll, accessProfileId, internalTeamIds
+      } = body;
+
+      let companyId: string | null = rawCompanyId ?? null;
+      let viewAllCompanyTickets: boolean = !!rawViewAll;
+      let finalRole = role;
+      let finalProfileId: string | null = accessProfileId || null;
+      let finalTeamIds: string[] = internalTeamIds || [];
+
+      if (actor.role === 'Cliente') {
+        if (role !== 'Funcionário' || companyId !== actor.company_id) {
+          return NextResponse.json(
+            { error: 'Você só pode criar funcionários da sua própria empresa.' },
+            { status: 403 }
+          );
+        }
+        viewAllCompanyTickets = false;
+        finalTeamIds = [];
+      } else if (actor.role === 'Administrador') {
+        // Livre: respeita o que veio do formulário. Se o perfil escolhido é de
+        // uma equipe e nenhuma equipe foi informada, herda a do perfil.
+        if (finalProfileId && finalTeamIds.length === 0) {
+          const p = await query('SELECT internal_team_id FROM public.role_permissions WHERE id = $1', [finalProfileId]);
+          if (p.rows[0]?.internal_team_id) finalTeamIds = [p.rows[0].internal_team_id];
+        }
+      } else {
+        // Nem Administrador nem Cliente: só passa se administrar a equipe do
+        // perfil escolhido. Papel e equipe vêm SEMPRE do perfil, nunca do que
+        // o formulário mandou — é o que impede alguém de se promover a
+        // Administrador ou atribuir usuário a outra equipe.
+        if (!finalProfileId) {
+          return NextResponse.json({ error: 'Você não tem permissão para criar usuários.' }, { status: 403 });
+        }
+        const p = await query('SELECT internal_team_id, is_system FROM public.role_permissions WHERE id = $1', [finalProfileId]);
+        const profile = p.rows[0];
+        if (!profile || profile.is_system || !profile.internal_team_id) {
+          return NextResponse.json({ error: 'Você só pode atribuir perfis de acesso da sua equipe.' }, { status: 403 });
+        }
+        const adminTeamIds = await getAdminTeamIds(actor.id);
+        if (!adminTeamIds.includes(profile.internal_team_id)) {
+          return NextResponse.json({ error: 'Você não administra essa equipe.' }, { status: 403 });
+        }
+        finalRole = 'Time Interno';
+        companyId = null;
+        viewAllCompanyTickets = false;
+        finalTeamIds = [profile.internal_team_id];
+      }
+
+      // Fluxos que só mandam `role` (inclui Cliente criando Funcionário):
+      // assume o perfil de sistema correspondente. Sem isso o novo usuário
+      // ficaria sem NENHUMA permissão para sempre.
+      if (!finalProfileId) {
+        const p = await query('SELECT id FROM public.role_permissions WHERE role = $1 AND is_system = true', [finalRole]);
+        finalProfileId = p.rows[0]?.id || null;
+      }
+
+      // E-mail é OPCIONAL. Vazio vira NULL, nunca string vazia: '' = '' é
+      // verdadeiro no índice único, então dois contatos sem e-mail colidiriam.
+      const emailNormalizado = typeof email === 'string' && email.trim() ? email.trim() : null;
+
+      if (emailNormalizado) {
+        const checkRes = await query(
+          `SELECT p.name, p.role, c.name AS company_name
+             FROM public.profiles p
+             LEFT JOIN public.companies c ON c.id = p.company_id
+            WHERE lower(btrim(p.email)) = lower(btrim($1)) LIMIT 1`,
+          [emailNormalizado]
+        );
+        if ((checkRes.rowCount ?? 0) > 0) {
+          const dono = checkRes.rows[0];
+          const detalhe = [dono.role, dono.company_name].filter(Boolean).join(' — ');
+          return NextResponse.json({
+            error: `Este e-mail já está em uso por ${dono.name || 'outro cadastro'}`
+              + (detalhe ? ` (${detalhe}).` : '.')
+          }, { status: 409 });
+        }
+      }
+
+      const newId = crypto.randomUUID();
+      const defaultPass = hashPassword('Mudar@123');
+      const isAdmin = finalRole === 'Administrador';
+      const livesInSquad = finalRole === 'Administrador' || finalRole === 'Equipe';
+
+      await query(
+        `INSERT INTO public.profiles (id, email, name, role, company_id, phone, view_all_company_tickets,
+                                      password, is_admin, lives_in_squad, access_profile_id, internal_team_ids)
+         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)`,
+        [newId, emailNormalizado, name, finalRole, companyId || null, phones[0] || null,
+         viewAllCompanyTickets, defaultPass, isAdmin, livesInSquad, finalProfileId, finalTeamIds]
+      );
+      logAudit({
+        actorId: actor.id, actorName: actor.name, action: 'create',
+        entityType: 'user', entityId: newId, entityLabel: name,
+        changes: { email, role: finalRole, companyId }
+      });
+      return NextResponse.json({ id: newId });
+    }
+
+    // ------------------------------------ edição de papel / perfil / equipe
+    // Substitui a Server Action updateUser. Distinta do PUT desta rota, que é
+    // o "salvar cadastro" da tela de funcionário (nome, foto, telefone).
+    if (action === 'update-profile') {
+      const { id, name, email, role, companyId: rawCompanyId, viewAllCompanyTickets: rawViewAll,
+              accessProfileId, internalTeamIds } = body;
+      if (!id) return NextResponse.json({ error: 'id é obrigatório.' }, { status: 400 });
+
+      const check = await assertUserManageable(actor, id);
+      if (!check.ok) return NextResponse.json({ error: check.error }, { status: 403 });
+      const target = check.target;
+
+      let companyId = rawCompanyId;
+      let viewAllCompanyTickets = rawViewAll;
+      let finalRole = role;
+      let finalProfileId = accessProfileId;
+      let finalTeamIds = internalTeamIds;
+
+      if (actor.role === 'Cliente') {
+        finalRole = target.role;               // cliente não muda papel de funcionário
+        finalProfileId = target.access_profile_id;
+        finalTeamIds = [];
+      } else if (actor.role !== 'Administrador') {
+        // Admin de equipe: só troca para perfil da própria equipe, não promove
+        // a Administrador nem tira alguém da própria equipe. Sem perfil novo
+        // (ex.: só corrigindo o nome), PRESERVA o papel atual — forçar
+        // 'Time Interno' aqui rebaixaria silenciosamente um 'Equipe' a cada
+        // edição.
+        if (finalProfileId) {
+          const p = await query('SELECT internal_team_id, is_system FROM public.role_permissions WHERE id = $1', [finalProfileId]);
+          const profile = p.rows[0];
+          const adminTeamIds = await getAdminTeamIds(actor.id);
+          if (!profile || profile.is_system || !profile.internal_team_id || !adminTeamIds.includes(profile.internal_team_id)) {
+            return NextResponse.json({ error: 'Você só pode atribuir perfis de acesso da sua equipe.' }, { status: 403 });
+          }
+          finalTeamIds = [profile.internal_team_id];
+          finalRole = 'Time Interno';
+        } else {
+          finalTeamIds = target.internal_team_ids || [];
+          finalRole = target.role;
+        }
+        companyId = target.company_id;
+        viewAllCompanyTickets = false;
+      } else if (finalProfileId && finalTeamIds === undefined) {
+        // Administrador trocando o perfil sem informar equipe: se o perfil é de
+        // uma equipe, o usuário passa a fazer parte dela. Sem isso a pessoa
+        // ficava com o perfil certo e FORA da equipe para todo o resto do
+        // sistema (filtro de tickets internos, listagem de membros).
+        const p = await query('SELECT internal_team_id FROM public.role_permissions WHERE id = $1', [finalProfileId]);
+        const teamId = p.rows[0]?.internal_team_id;
+        if (teamId) {
+          const existing: string[] = target.internal_team_ids || [];
+          finalTeamIds = existing.includes(teamId) ? existing : [...existing, teamId];
+        }
+      }
+
+      // `profiles` NÃO tem coluna updated_at (diferente de whatsapp_instances,
+      // chat_sessions etc.) — incluí-la aqui derruba o UPDATE inteiro.
+      const setClauses = ['name = $1', 'email = $2', 'role = $3', 'company_id = $4', 'view_all_company_tickets = $5'];
+      const params: any[] = [name, email, finalRole, companyId || null, !!viewAllCompanyTickets];
+      if (finalProfileId !== undefined) { params.push(finalProfileId); setClauses.push(`access_profile_id = $${params.length}`); }
+      if (finalTeamIds !== undefined) { params.push(finalTeamIds); setClauses.push(`internal_team_ids = $${params.length}`); }
+      params.push(id);
+
+      await query(`UPDATE public.profiles SET ${setClauses.join(', ')} WHERE id = $${params.length}`, params);
+      logAudit({
+        actorId: actor.id, actorName: actor.name, action: 'update',
+        entityType: 'user', entityId: id, entityLabel: name,
+        changes: { name, email, role: finalRole, companyId }
+      });
+      return NextResponse.json({ success: true });
+    }
 
     if (action === 'create') {
       const { email, name, companyId, phones } = body;

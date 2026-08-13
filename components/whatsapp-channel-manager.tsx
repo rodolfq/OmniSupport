@@ -2,7 +2,7 @@
 
 import React, { useEffect, useState } from 'react';
 import { Plus, QrCode, Sparkles } from 'lucide-react';
-import { getWhatsappInstances } from '@/app/actions';
+import { getWhatsappInstances } from '@/lib/services/whatsapp-instance-service';
 import { WhatsappInstance } from '@/lib/types';
 import { WhatsAppConnect } from '@/components/whatsapp-connect';
 import { MetaWhatsAppChannelForm } from '@/components/meta-whatsapp-channel-form';

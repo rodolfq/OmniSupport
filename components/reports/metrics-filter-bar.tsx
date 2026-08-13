@@ -4,7 +4,7 @@ import React, { useEffect, useState } from 'react';
 import { StyledSelect } from '@/components/styled-select';
 import { fetchQueues } from '@/lib/services/config-service';
 import { fetchCompanies } from '@/lib/services/config-service';
-import { getWhatsappInstances } from '@/app/actions';
+import { getWhatsappInstances } from '@/lib/services/whatsapp-instance-service';
 
 // Filtro compartilhado por todo relatório de métricas de chat e pelo
 // Dashboard Gerencial (roadmap "Time x Gerencial" — padrão estabelecido no

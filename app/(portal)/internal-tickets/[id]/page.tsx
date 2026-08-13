@@ -6,7 +6,7 @@ import { useParams, useRouter } from 'next/navigation';
 import { useApp } from '@/app/app-context';
 import { InternalTicket, Message, User, Hotfix, EffortConfig, OutcomeConfig } from '@/lib/types';
 import { MessageService, InternalTicketService } from '@/lib/services/ticket-service';
-import { getHotfixes } from '@/app/actions';
+import { getHotfixes } from '@/lib/services/queue-service';
 import { cn, selectableOptions } from '@/lib/utils';
 import {
   Paperclip,

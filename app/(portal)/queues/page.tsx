@@ -6,7 +6,10 @@ import { User, Queue, WhatsappInstance, Permission, AnalystStatus } from '@/lib/
 import { UserService } from '@/lib/services/user-service';
 import { fetchAnalystStatuses } from '@/lib/services/config-service';
 import { deriveLiveStatus } from '@/lib/presence';
-import { getQueues, saveQueue, deleteQueue, getWhatsappInstances, updateUserStatus } from '@/app/actions';
+import { updateUserStatus } from '@/lib/services/user-actions-service';
+import { getWhatsappInstances } from '@/lib/services/whatsapp-instance-service';
+// Migrado para rota HTTP (/api/queues) na separação front/back.
+import { getQueues, saveQueue, deleteQueue } from '@/lib/services/queue-service';
 import {
   Library,
   Plus,

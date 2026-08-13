@@ -1,5 +1,6 @@
 import { NextResponse, type NextRequest } from 'next/server'
 import { verifyJWT } from '@/lib/jwt'
+import { isOriginAllowed, CORS_ALLOWED_ORIGINS } from '@/lib/runtime-config'
 
 // Camada global de autenticação — roda antes de qualquer página ou rota de
 // API. Sem isso, cada rota é seu próprio ponto único de falha: uma que
@@ -39,10 +40,55 @@ function isPublicPath(pathname: string): boolean {
   return PUBLIC_PREFIXES.some(prefix => pathname.startsWith(prefix));
 }
 
+// CORS — necessário porque, com front e back separados, o navegador chama a API
+// a partir de OUTRA origem. Três pontos que costumam custar caro se ficarem de
+// fora:
+//
+//  1. `Access-Control-Allow-Credentials: true` sem isso o cookie de sessão não
+//     é enviado nem aceito, e tudo responde 401 sem explicação;
+//  2. a origem é ecoada individualmente (nunca `*`) — o navegador RECUSA `*`
+//     junto de credenciais, e aceitar qualquer origem numa API autenticada por
+//     cookie permitiria a outro site fazer requisições em nome do usuário;
+//  3. `Vary: Origin` sem isso, um cache intermediário pode devolver a uma
+//     origem o cabeçalho liberado para outra.
+//
+// Com CORS_ALLOWED_ORIGINS vazio (deploy de um container só) nada disso entra
+// em ação: origem e destino são o mesmo host e o navegador nem faz preflight.
+function applyCors(request: NextRequest, response: NextResponse): NextResponse {
+  if (CORS_ALLOWED_ORIGINS.length === 0) return response;
+
+  const origin = request.headers.get('origin');
+  if (!isOriginAllowed(origin)) return response;
+
+  response.headers.set('Access-Control-Allow-Origin', origin as string);
+  response.headers.set('Access-Control-Allow-Credentials', 'true');
+  response.headers.append('Vary', 'Origin');
+  return response;
+}
+
 export async function middleware(request: NextRequest) {
   const { pathname } = request.nextUrl;
+
+  // Preflight (OPTIONS) precisa responder ANTES da checagem de sessão: o
+  // navegador manda o preflight sem cookie nenhum, então exigir sessão aqui
+  // reprovaria toda requisição que precisasse dele — e o erro apareceria como
+  // "falha de rede", sem pista do motivo.
+  if (request.method === 'OPTIONS' && request.headers.get('access-control-request-method')) {
+    const preflight = new NextResponse(null, { status: 204 });
+    preflight.headers.set(
+      'Access-Control-Allow-Methods',
+      request.headers.get('access-control-request-method') || 'GET,POST,PUT,PATCH,DELETE'
+    );
+    preflight.headers.set(
+      'Access-Control-Allow-Headers',
+      request.headers.get('access-control-request-headers') || 'Content-Type'
+    );
+    preflight.headers.set('Access-Control-Max-Age', '86400');
+    return applyCors(request, preflight);
+  }
+
   if (isPublicPath(pathname)) {
-    return NextResponse.next();
+    return applyCors(request, NextResponse.next());
   }
 
   const token = request.cookies.get('token')?.value;
@@ -50,12 +96,12 @@ export async function middleware(request: NextRequest) {
 
   if (!session?.id) {
     if (pathname.startsWith('/api/')) {
-      return NextResponse.json({ error: 'Não autenticado.' }, { status: 401 });
+      return applyCors(request, NextResponse.json({ error: 'Não autenticado.' }, { status: 401 }));
     }
     return NextResponse.redirect(new URL('/login', request.url));
   }
 
-  return NextResponse.next();
+  return applyCors(request, NextResponse.next());
 }
 
 export const config = {

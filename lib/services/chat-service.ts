@@ -1,5 +1,5 @@
 import { ChatSession, ChatMessage, AnalystStatus, UserStatusHistory, AbsenceReason, User, InternalGroup } from '../types';
-import { closeChatSessionAfterTicket } from '@/app/actions';
+import { closeChatSessionAfterTicket } from './chat-session-actions';
 import { normalizeBrazilianPhoneDigits } from '../utils';
 
 export class ChatService {

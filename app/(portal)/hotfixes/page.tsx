@@ -6,7 +6,8 @@ import { motion, AnimatePresence } from 'motion/react';
 import { Hotfix, Permission, User, ProductConfig } from '@/lib/types';
 import { UserService } from '@/lib/services/user-service';
 import { ConfigService } from '@/lib/services/config-service';
-import { getHotfixes, saveHotfix, deleteHotfix, markHotfixPublished } from '@/app/actions';
+// Migrado para rota HTTP (/api/hotfixes) na separação front/back.
+import { getHotfixes, saveHotfix, deleteHotfix, markHotfixPublished } from '@/lib/services/queue-service';
 import { StyledSelect } from '@/components/styled-select';
 import { ConfirmDialog } from '@/components/confirm-dialog';
 import { useApp } from '@/app/app-context';

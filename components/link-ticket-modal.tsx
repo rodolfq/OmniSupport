@@ -6,7 +6,7 @@ import { motion, AnimatePresence } from 'motion/react';
 import { cn } from '@/lib/utils';
 import { isClosedTicketStatus } from '@/lib/ticket-status';
 import { TicketService } from '@/lib/services/ticket-service';
-import { linkChatSessionToTicket } from '@/app/actions';
+import { linkChatSessionToTicket } from '@/lib/services/chat-session-actions';
 import { toast } from 'sonner';
 
 // Modal "Vincular Chamado" — busca chamados já existentes da mesma empresa

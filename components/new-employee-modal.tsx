@@ -3,7 +3,7 @@
 import React, { useEffect, useState } from 'react';
 import { X, UserPlus, Mail, Phone, Plus } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
-import { createUser } from '@/app/actions';
+import { createUser } from '@/lib/services/user-actions-service';
 import { UserRole, Company } from '@/lib/types';
 import { maskPhone } from '@/lib/utils';
 import { useCompaniesQuery } from '@/lib/query-hooks';

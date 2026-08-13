@@ -104,6 +104,24 @@ Não há `.env.example`. Nomes abaixo extraídos de `.env` (valores reais omitid
 | `HF_HOME` | Diretório de cache dos modelos do `@huggingface/transformers` (Whisper e embeddings) | Não (default do runtime, `~/.cache/huggingface`) | No container é fixada em `/data/models`, apontando pro volume `models` (ver `docker-compose.yml`) — sem isso cada restart rebaixa ~150MB por modelo |
 | `ATTACHMENTS_DIR` | Diretório onde os anexos de chamado/chat são gravados (`lib/services/attachment-storage.ts`) | Não (default `./data/attachments`, para desenvolvimento) | No container é `/data/attachments`, apontando pro volume `attachments` — **é o único estado da aplicação fora do Postgres, entra no backup** |
 
+### Separação front/back (todas opcionais — vazias = deploy de um container só)
+
+Definidas em `lib/runtime-config.ts`. Enquanto não forem preenchidas, o sistema
+se comporta exatamente como o monolito de hoje: as chamadas do navegador ficam
+relativas, CORS não entra em ação e os jobs sobem normalmente.
+
+| Variável | Para que serve | Obrigatória | Onde obter |
+|---|---|---|---|
+| `NEXT_PUBLIC_API_URL` | Endereço da API que o **navegador** chama (ex.: `https://api.empresa.com`). Vazia = mesma origem da página | Só no deploy separado, **na imagem do front** | **É build arg**, não runtime — precisa estar no `build.args` do `docker-compose.split.yml`; definir só em `env_file` não tem efeito e a falha é muda |
+| `SERVICE_ROLE` | `monolith` (padrão) / `backend` / `frontend`. Decide quem sobe schedulers e WhatsApp | Não | Definida no compose, por serviço — o container do front **não** pode subir jobs, senão mensagem automática sai duplicada |
+| `CORS_ALLOWED_ORIGINS` | Origens que o back aceita com cookie, separadas por vírgula | Só no deploy separado, no back | Origem exata do front, com esquema e sem barra final. Curinga `*` não funciona com credenciais |
+| `COOKIE_DOMAIN` | Domínio do cookie de sessão (ex.: `.empresa.com`) | Só quando front e back estão em hosts diferentes | Domínio pai comum aos dois subdomínios |
+| `COOKIE_SAMESITE` | `lax` (padrão) ou `none` | Só entre domínios **diferentes** | `none` exige HTTPS nos dois lados |
+
+Se `NEXT_PUBLIC_API_URL`, `CORS_ALLOWED_ORIGINS` e `COOKIE_DOMAIN` divergirem
+entre si, o sintoma é sempre o mesmo e engana: tudo responde **401** e a tela
+volta ao login, como se a senha estivesse errada.
+
 Variáveis referenciadas no código mas **ausentes do `.env` atual** (endpoints órfãos, ver seção 14):
 
 | Variável | Onde é usada | Situação |
