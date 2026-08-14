@@ -16,7 +16,8 @@ import {
   History,
   Star,
   Rocket,
-  BarChart3
+  BarChart3,
+  RefreshCw
 } from 'lucide-react';
 import { Permission, UserRole, User } from './types';
 
@@ -103,6 +104,9 @@ export function getNavItems(currentUser: User | null, onChangePassword: () => vo
         { name: 'Equipe', icon: UserCog, href: '/team', permission: Permission.TEAM_READ },
         { name: 'Equipes & Permissões', icon: Shield, href: '/permissions', permission: Permission.SETTINGS_WRITE },
         { name: 'Filas', icon: Library, href: '/queues', permission: Permission.QUEUES_MANAGE },
+        // Array = quem só tem giro:manage (sem giro:view) também vê o item —
+        // mesma regra usada acima em Chamados para as duas permissões dele.
+        { name: 'Giro de Atendimento', icon: RefreshCw, href: '/giro', permission: [Permission.GIRO_VIEW, Permission.GIRO_MANAGE] },
         { name: 'Hotfixes', icon: Rocket, href: '/hotfixes', permission: Permission.HOTFIXES_MANAGE },
         { name: 'Alterar Senha', icon: Key, action: onChangePassword },
       ]

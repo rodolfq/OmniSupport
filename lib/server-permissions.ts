@@ -39,6 +39,28 @@ export function assertCanManageWhatsapp(): Promise<PermissionCheck> {
   return assertPermission('whatsapp:manage', 'Você não tem permissão para gerenciar WhatsApp.');
 }
 
+/**
+ * Giro de Atendimento. `giro:manage` implica `giro:view` — quem gerencia o
+ * rodízio obviamente pode olhá-lo, e exigir as duas marcadas juntas no Perfil
+ * de Acesso seria uma pegadinha silenciosa (a tela abriria vazia para quem
+ * marcou só "Gerenciar").
+ */
+export async function assertCanViewGiro(): Promise<PermissionCheck> {
+  const actor = await getCurrentActionUser();
+  if (!actor) return { ok: false, error: 'Sessão inválida.' };
+  if (actor.role === 'Administrador') return { ok: true, actor };
+
+  const permissions = await getActorEffectivePermissions(actor.id);
+  if (!permissions.includes('giro:view') && !permissions.includes('giro:manage')) {
+    return { ok: false, error: 'Você não tem permissão para ver o Giro de Atendimento.' };
+  }
+  return { ok: true, actor };
+}
+
+export function assertCanManageGiro(): Promise<PermissionCheck> {
+  return assertPermission('giro:manage', 'Você não tem permissão para gerenciar o Giro de Atendimento.');
+}
+
 /** Converte a checagem no status HTTP correto: 401 sem sessão, 403 sem direito. */
 export function permissionErrorStatus(error: string): number {
   return error === 'Sessão inválida.' ? 401 : 403;

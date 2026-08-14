@@ -148,7 +148,8 @@ app/
     chat-internal/        # Chat interno da equipe (grupos/DM)
     internal-tickets/[id]/ # Tickets internos do time de dev/infra/QA/produto
     team/, permissions/    # Gestão de equipe e Perfis de Acesso (RBAC)
-    queues/               # CRUD de Filas + estratégia de distribuição
+    queues/               # CRUD de Filas + estratégia de distribuição (roteamento de conversas — NÃO confundir com giro/)
+    giro/                 # Giro de Atendimento: rodízio diário da equipe (quem pega o próximo atendimento), 2 abas (dia + configuração)
     hotfixes/             # Cadastro de hotfix / janela de release
     reports/, customer-evaluations/ # Relatórios e avaliações de cliente
     settings/             # Configurações gerais (status, categorias, produtos, WhatsApp, etc.)
@@ -223,6 +224,7 @@ Não há ORM/migration framework — todo acesso é SQL puro via `pg` (ver `lib/
 - **`analyst_status`**, **`user_status_history`**, **`absence_reasons`** — presença/status do analista (online/ausente) e histórico.
 - **`quick_notes`**, **`saved_views`**, **`user_search_history`** — produtividade do analista.
 - **`integration_api_keys`** — chaves da API de integração externa (ver seção 8).
+- **`giro_participants`**, **`giro_days`**, **`giro_day_rows`**, **`giro_history`**, **`giro_checklist_items`** — Giro de Atendimento (`migrations/giro_atendimento.sql`, `lib/services/giro-service.ts`): rodízio diário de quem pega o próximo atendimento. NÃO confundir com `queues` — Fila distribui a conversa que chega, Giro é a ordem em que a equipe se reveza para atender. `giro_participants` é o cadastro (posição fixa/livre, fora do rodízio, ausência com prazo); `giro_days`/`giro_day_rows` são a ordem gerada por data (no máximo uma por dia, `UNIQUE(giro_date)`); `giro_history` é o que já foi concluído no dia.
 
 ### Enums/valores fixos (em `lib/types.ts`, não em `enum` do Postgres — Postgres usa `TEXT`)
 
@@ -264,6 +266,13 @@ Não há ORM/migration framework — todo acesso é SQL puro via `pg` (ver `lib/
 - **Push** (Web Push/VAPID): `lib/services/push-service.ts` + `notifyUser`, disparado a partir de eventos (nova mensagem, atribuição, hotfix vencido). Assinatura via `hooks/use-push-subscription.ts` → `POST /api/push/subscribe`.
 - **Polling**: `GET /api/notifications/check` — sino de notificação no header do portal.
 - **Realtime de chat**: Server-Sent Events (`GET /api/chats/stream`, `GET /api/chats/internal-stream`), fan-out em memória via `EventEmitter` (`lib/chat-events.ts`) — **não é Redis/pub-sub multi-instância**; cliente tem poller de 30s como rede de segurança.
+
+### Giro de Atendimento (rodízio diário)
+- `lib/services/giro-service.ts` concentra toda a regra: geração da ordem do dia a partir da ordem do dia anterior (item mais recente com giro, não `data - 1` — fim de semana/feriado não zera o rodízio), rodízio dos livres ("último vira primeiro"), posição fixa, passagem de turno (`auto`/`pinned`/`none`), conclusão de atendimento (grava histórico + limpa linha + move para o fim, em transação) e reprocessamento.
+- Data passada é **sempre** somente leitura — nunca gerada nem regerada, mesmo por quem administra. A guarda vale tanto na geração (`getGiroDay`) quanto em toda mutação (`assertRowEditable`/`assertDayWritable`/`assertHistoryEditable`), porque a tela pode ficar aberta de um dia para o outro.
+- "Hora agora"/"dia de hoje" vêm sempre do Postgres com `AT TIME ZONE 'America/Sao_Paulo'` (mesma regra de `lib/report-period.ts`), nunca de `new Date()` do processo Node — o container roda em UTC.
+- Botão de status: `components/giro-status-popover.tsx`, montado uma vez em `app/(portal)/layout.tsx` e mostrado só em `/dashboard` e `/tickets*` — mesmo padrão do painel de mensagens fixadas do chat interno (ref no botão+painel, fecha no Esc/clique fora, sem recarregar a tela de trás).
+- Permissões: `giro:view` (uso do dia a dia — ver, registrar, concluir o próprio atendimento) e `giro:manage` (estrutura do dia — ordem, incluir/remover, passagem, reprocessar, cadastro de participantes/checklist). `manage` implica `view` nas checagens do servidor.
 
 ### Permissões por papel
 - `lib/nav-items.ts` (`getNavItems`, `filterVisibleNavItems`) — mesma árvore usada por sidebar desktop e menu mobile, filtrada por `Permission[]` do usuário.
@@ -312,6 +321,9 @@ Padrão predominante: rotas multiplexadas por query param `?action=...` dentro d
 | `/api/integrations/v1/tickets` | GET | Chamados, via API key | Escopo `tickets:read` |
 | `/api/integrations/v1/conversations` | GET | Conversas, via API key | Escopo `conversations:read` |
 | `/api/saved-views` | GET/POST/DELETE | Buscas salvas do usuário (barra de filtros). O dono vem sempre da sessão | Sessão válida |
+| `/api/giro` | GET/POST | Giro de Atendimento. `?action=summary` (botão de status), `?date=` (dia da tela); POST `action=update-row\|complete` (giro:view basta) e `action=reorder\|add-member\|remove-member\|set-handoff\|reprocess\|delete-history` (giro:manage) | `giro:view` / `giro:manage` |
+| `/api/giro/config` | GET/POST | Cadastro do Giro: participantes (posição fixa, ausência) e itens do checklist | `giro:view` (leitura) / `giro:manage` (escrita) |
+| `/api/giro/export` | GET | Exporta um período do Giro em CSV (uma linha por analista por dia) | `giro:view` |
 | `/api/create-user` | POST | ⚠️ **Código órfão** — usa Supabase Auth real, que não está configurado neste projeto. Não usar; fluxo real de criação de usuário é a Server Action `createUser` em `app/actions.ts` | — |
 | `/api/internal-tickets` | GET/POST/DELETE | `?action=by-parent\|messages` (GET), `action=save\|link\|message` (POST) e DELETE para desvincular. Criada ao tirar o `InternalTicketService` do shim | Sessão válida |
 

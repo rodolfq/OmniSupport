@@ -14,6 +14,7 @@ import { ForcePasswordChange } from '@/components/force-password-change';
 import { MobileHeader } from '@/components/mobile-header';
 import { MobileBottomNav } from '@/components/mobile-bottom-nav';
 import { NotificationPanel } from '@/components/notification-panel';
+import { GiroStatusPopover } from '@/components/giro-status-popover';
 import { cn } from '@/lib/utils';
 import { UserRole, Permission } from '@/lib/types';
 
@@ -92,6 +93,15 @@ export default function PortalLayout({ children }: { children: React.ReactNode }
   // não deve ver conversa de cliente nenhuma. Cliente/Funcionário sempre
   // veem — é o canal deles pra falar com o suporte.
   const canUseChatWidget = !isTeam || hasPermission(Permission.OUTSIDE_QUEUE_VIEW);
+
+  // Botão do Giro de Atendimento: fica no header (ponto de montagem único,
+  // dentro deste layout) — aparece em toda tela do portal, não só em
+  // Chamados/Dashboard, porque é consultado o tempo todo durante o
+  // expediente. Montar dentro de cada tela em vez de uma vez aqui duplicaria
+  // o bloco em cada arquivo e faria o painel abrir com âncoras diferentes.
+  const canSeeGiro = hasPermission(Permission.GIRO_VIEW) || hasPermission(Permission.GIRO_MANAGE);
+  const showGiroButton = isTeam && canSeeGiro;
+
   return (
     <div className="flex bg-[var(--surface-page)] min-h-screen">
       <Sidebar />
@@ -105,6 +115,7 @@ export default function PortalLayout({ children }: { children: React.ReactNode }
           </div>
           <div className="flex items-center gap-6">
             <div className="flex items-center gap-4 text-[var(--text-tertiary)] border-l border-[var(--border-default)] pl-6 ml-2">
+              {showGiroButton && <GiroStatusPopover />}
               {isTeam && (
                 <div className="relative">
                   <button

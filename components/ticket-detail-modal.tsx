@@ -16,6 +16,7 @@ import { LinkInternalTicketModal } from './link-internal-ticket-modal';
 import { ChatAttachmentList } from './chat-attachment-list';
 import { ClientTime } from './client-time';
 import { TicketService, MessageService, InternalTicketService } from '@/lib/services/ticket-service';
+import { claimGiroTurnForTicket } from '@/lib/services/giro-client';
 import { duplicateTicket } from '@/lib/services/chat-session-actions';
 import { fetchSessionMessages, SessionMessagesResult } from '@/lib/services/chat-service';
 import { useAutoTranscribeMissingAudio } from '@/hooks/use-auto-transcribe-missing-audio';
@@ -967,6 +968,12 @@ const loadMessages = async () => {
       status: nextStatus,
       subStatus: nextStatus !== ticket.status ? null : undefined
     });
+    // Assumir um chamado Sem Analista consome a vez do analista no Giro de
+    // Atendimento (se ele participar hoje) — pro Giro é o mesmo evento que
+    // concluir um atendimento: vai pro fim da ordem, com o número do chamado
+    // e o horário registrados. Fire-and-forget: nunca pode atrapalhar o
+    // "Assumir" em si, nem exige que o analista participe do Giro.
+    claimGiroTurnForTicket(ticket.ticketNumber ?? null, ticket.id);
   };
 
   // Se houver uma edição agendada pelo debounce ainda não gravada, garante

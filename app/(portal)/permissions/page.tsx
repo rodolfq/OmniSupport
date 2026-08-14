@@ -98,6 +98,14 @@ const permissionGroups = [
     ]
   },
   {
+    id: 'giro',
+    title: 'Giro de Atendimento',
+    permissions: [
+      { id: Permission.GIRO_VIEW, label: 'Ver o Giro', desc: 'Permite abrir o Giro de Atendimento (/giro), o botão de status em Chamados e no Dashboard, e registrar/concluir o próprio atendimento do dia' },
+      { id: Permission.GIRO_MANAGE, label: 'Gerenciar o Giro', desc: 'Permite definir quem participa, posição fixa, ausência e checklist, além de reordenar, incluir/remover pessoas do dia e reprocessar — inclui tudo de "Ver o Giro"' },
+    ]
+  },
+  {
     id: 'team',
     title: 'Equipe & Acessos',
     permissions: [

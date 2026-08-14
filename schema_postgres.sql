@@ -998,6 +998,89 @@ CREATE INDEX IF NOT EXISTS idx_config_products_active      ON public.config_prod
 --                              que é o dono dela.
 
 -- =========================================================================
+-- GIRO DE ATENDIMENTO (migrations/giro_atendimento.sql)
+-- =========================================================================
+-- Rodízio diário da equipe de suporte. Não confundir com public.queues
+-- ("Fila"): a Fila distribui a conversa que CHEGA; o Giro é a ordem em que a
+-- equipe se reveza para PEGAR o próximo atendimento, reordenada a cada dia.
+-- O detalhamento de cada decisão está na migration; aqui fica só o DDL, para
+-- este arquivo continuar provisionando um banco novo por completo.
+
+CREATE TABLE IF NOT EXISTS public.giro_checklist_items (
+  id UUID PRIMARY KEY DEFAULT (md5(random()::text || clock_timestamp()::text)::uuid),
+  label TEXT NOT NULL UNIQUE,
+  sort_order INTEGER NOT NULL DEFAULT 0,
+  is_active BOOLEAN NOT NULL DEFAULT true,
+  created_at TIMESTAMP WITH TIME ZONE DEFAULT now() NOT NULL
+);
+
+CREATE TABLE IF NOT EXISTS public.giro_participants (
+  user_id UUID PRIMARY KEY REFERENCES public.profiles(id) ON DELETE CASCADE,
+  work_schedule TEXT,
+  position_type TEXT NOT NULL DEFAULT 'free',
+  fixed_position INTEGER,
+  out_of_rotation BOOLEAN NOT NULL DEFAULT false,
+  absent_until TIMESTAMP WITH TIME ZONE,
+  absence_note TEXT,
+  -- Ordem "programada" dos livres, definida arrastando a lista em
+  -- Configuração (migrations/giro_base_order.sql) — base da rotação quando
+  -- não há giro anterior pra herdar.
+  base_order INTEGER NOT NULL DEFAULT 0,
+  created_at TIMESTAMP WITH TIME ZONE DEFAULT now() NOT NULL,
+  updated_at TIMESTAMP WITH TIME ZONE DEFAULT now() NOT NULL,
+  CONSTRAINT giro_participants_position_type_check CHECK (position_type IN ('free', 'fixed'))
+);
+CREATE INDEX IF NOT EXISTS idx_giro_participants_absent ON public.giro_participants(absent_until);
+CREATE INDEX IF NOT EXISTS idx_giro_participants_base_order ON public.giro_participants(base_order);
+
+CREATE TABLE IF NOT EXISTS public.giro_days (
+  id UUID PRIMARY KEY DEFAULT (md5(random()::text || clock_timestamp()::text)::uuid),
+  giro_date DATE NOT NULL UNIQUE,
+  handoff_mode TEXT NOT NULL DEFAULT 'auto',
+  handoff_user_id UUID REFERENCES public.profiles(id) ON DELETE SET NULL,
+  created_at TIMESTAMP WITH TIME ZONE DEFAULT now() NOT NULL,
+  CONSTRAINT giro_days_handoff_mode_check CHECK (handoff_mode IN ('auto', 'pinned', 'none'))
+);
+
+CREATE TABLE IF NOT EXISTS public.giro_day_rows (
+  id UUID PRIMARY KEY DEFAULT (md5(random()::text || clock_timestamp()::text)::uuid),
+  day_id UUID NOT NULL REFERENCES public.giro_days(id) ON DELETE CASCADE,
+  user_id UUID NOT NULL REFERENCES public.profiles(id) ON DELETE CASCADE,
+  position INTEGER NOT NULL,
+  service_type TEXT NOT NULL DEFAULT 'Chamado',
+  service_time TEXT,
+  note TEXT,
+  lunch_time TEXT,
+  checklist JSONB NOT NULL DEFAULT '{}'::jsonb,
+  work_schedule TEXT,
+  is_fixed BOOLEAN NOT NULL DEFAULT false,
+  created_at TIMESTAMP WITH TIME ZONE DEFAULT now() NOT NULL,
+  CONSTRAINT giro_day_rows_unique_user UNIQUE (day_id, user_id)
+);
+CREATE INDEX IF NOT EXISTS idx_giro_day_rows_day ON public.giro_day_rows(day_id, position);
+CREATE INDEX IF NOT EXISTS idx_giro_day_rows_user ON public.giro_day_rows(user_id);
+
+CREATE TABLE IF NOT EXISTS public.giro_history (
+  id UUID PRIMARY KEY DEFAULT (md5(random()::text || clock_timestamp()::text)::uuid),
+  day_id UUID NOT NULL REFERENCES public.giro_days(id) ON DELETE CASCADE,
+  user_id UUID REFERENCES public.profiles(id) ON DELETE SET NULL,
+  user_name TEXT NOT NULL,
+  service_type TEXT NOT NULL,
+  service_time TEXT,
+  note TEXT,
+  created_at TIMESTAMP WITH TIME ZONE DEFAULT now() NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_giro_history_day ON public.giro_history(day_id, created_at);
+
+INSERT INTO public.giro_checklist_items (label, sort_order) VALUES
+  ('VPN',      1),
+  ('Bitrix',   2),
+  ('Odoo',     3),
+  ('Telefone', 4),
+  ('Almoço',   5)
+ON CONFLICT (label) DO NOTHING;
+
+-- =========================================================================
 -- SEED DATA SETUP
 -- =========================================================================
 

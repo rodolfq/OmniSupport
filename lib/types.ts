@@ -62,7 +62,14 @@ export enum Permission {
   // grupo interno, chamados e tickets internos) — concedida por padrão aos
   // perfis de Equipe/Time Interno na migration que introduziu o agente (ver
   // migrations/ai_assistant.sql), não só a quem administra o sistema.
-  AI_ASSISTANT_USE = 'ai:assistant'
+  AI_ASSISTANT_USE = 'ai:assistant',
+  // Giro de Atendimento (rodízio diário da equipe). Duas permissões porque as
+  // duas coisas são bem diferentes: VIEW é o uso do dia a dia — abrir a tela,
+  // o botão de status, registrar e concluir o próprio atendimento; MANAGE é
+  // quem entra no rodízio, posição fixa, ausência, ordem manual e reprocessar.
+  // Quem não tem nenhuma das duas não vê nem o item de menu nem o botão.
+  GIRO_VIEW = 'giro:view',
+  GIRO_MANAGE = 'giro:manage'
 }
 
 export interface StatusConfig {
@@ -848,4 +855,94 @@ export interface AccountMonthlyBucket {
   minutosConsumidos: number;
   positiveRate: number | null;
   recorrenciaRate: number | null;
+}
+
+// ==========================================================================
+// GIRO DE ATENDIMENTO
+// ==========================================================================
+// Rodízio diário da equipe de suporte — não confundir com Fila (Queue), que
+// distribui a conversa que chega. Aqui a pergunta respondida é "de quem é a
+// vez de pegar o próximo atendimento hoje".
+
+/** Tipos de atendimento de uma linha do Giro. Chamado é o padrão. */
+export const GIRO_SERVICE_TYPES = ['Chamado', 'Telefone', 'Almoço', 'Ausente'] as const;
+export type GiroServiceType = typeof GIRO_SERVICE_TYPES[number];
+
+/**
+ * Horários de almoço possíveis: lista fechada de 11:00 a 14:00, de meia em
+ * meia hora. Gerada e não escrita à mão para não existir a chance de faltar um
+ * degrau no meio.
+ */
+export const GIRO_LUNCH_SLOTS: string[] = Array.from({ length: 7 }, (_, i) => {
+  const minutes = 11 * 60 + i * 30;
+  return `${String(Math.floor(minutes / 60)).padStart(2, '0')}:${String(minutes % 60).padStart(2, '0')}`;
+});
+
+export interface GiroChecklistItem {
+  id: string;
+  label: string;
+  sortOrder: number;
+  isActive: boolean;
+}
+
+export interface GiroParticipant {
+  userId: string;
+  name: string;
+  avatarUrl?: string | null;
+  avatarThumbUrl?: string | null;
+  workSchedule: string | null;
+  positionType: 'free' | 'fixed';
+  fixedPosition: number | null;
+  /**
+   * Ordem "programada" entre os livres — o que o admin define arrastando a
+   * lista em Configuração. Base da rotação quando não há giro anterior pra
+   * herdar (participante novo, ou giro sendo montado pela primeira vez).
+   */
+  baseOrder: number;
+  outOfRotation: boolean;
+  absentUntil: string | null;
+  absenceNote: string | null;
+  /** Derivado no servidor: absentUntil ainda no futuro. */
+  isAbsent: boolean;
+}
+
+export interface GiroRow {
+  id: string;
+  userId: string;
+  userName: string;
+  avatarUrl?: string | null;
+  avatarThumbUrl?: string | null;
+  position: number;
+  serviceType: GiroServiceType;
+  serviceTime: string | null;
+  note: string | null;
+  lunchTime: string | null;
+  /** Mapa itemId -> marcado. Item removido do cadastro simplesmente some da tela. */
+  checklist: Record<string, boolean>;
+  workSchedule: string | null;
+  isFixed: boolean;
+  isHandoff: boolean;
+}
+
+export interface GiroHistoryEntry {
+  id: string;
+  userId: string | null;
+  userName: string;
+  serviceType: GiroServiceType;
+  serviceTime: string | null;
+  note: string | null;
+  createdAt: string;
+}
+
+export interface GiroDay {
+  id: string;
+  date: string; // AAAA-MM-DD — chave de ordenação/consulta, exibida como DD/MM/AAAA
+  handoffMode: 'auto' | 'pinned' | 'none';
+  handoffUserId: string | null;
+  rows: GiroRow[];
+  history: GiroHistoryEntry[];
+  /** Data passada: abre somente leitura, nunca gera nem regera. */
+  isReadOnly: boolean;
+  /** `false` quando a data é passada e nunca teve giro — a tela mostra vazio. */
+  exists: boolean;
 }
