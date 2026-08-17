@@ -2,7 +2,7 @@
 
 import React, { useCallback, useEffect, useRef, useState } from 'react';
 import Link from 'next/link';
-import { RefreshCw, Mail, CheckCircle2, ArrowRight, Loader2, X } from 'lucide-react';
+import { RefreshCw, Mail, CheckCircle2, ArrowRight, Loader2, X, Video } from 'lucide-react';
 import { toast } from 'sonner';
 import { motion, AnimatePresence } from 'motion/react';
 import { cn } from '@/lib/utils';
@@ -146,6 +146,20 @@ export function GiroStatusPopover() {
                 </span>
               )}
             </div>
+
+            {/* Atalho fixo pra sala de reunião do time — independe de ter
+                Giro gerado hoje ou não, então fica fora dos ramos condicionais
+                abaixo. Só aparece se alguém cadastrou o link em Configuração. */}
+            {summary?.meetUrl && (
+              <a
+                href={summary.meetUrl}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="flex items-center justify-center gap-2 px-5 py-2.5 border-b border-[var(--border-default)] bg-[var(--accent)]/5 text-[10px] font-black uppercase tracking-widest text-[var(--accent-text)] hover:bg-[var(--accent)]/10 transition-colors"
+              >
+                <Video size={13} /> Meet Suporte
+              </a>
+            )}
 
             {loading && !summary ? (
               <div className="flex items-center justify-center py-12 text-[var(--text-tertiary)]">

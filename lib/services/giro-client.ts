@@ -53,6 +53,7 @@ export interface GiroSummary {
   rows: GiroRow[];
   history: GiroHistoryEntry[];
   myRowId: string | null;
+  meetUrl: string | null;
 }
 
 export async function getGiroSummary(): Promise<GiroSummary | { error: string }> {
@@ -139,6 +140,7 @@ export interface GiroConfig {
   participants: GiroParticipant[];
   checklistItems: GiroChecklistItem[];
   candidates: GiroCandidate[];
+  meetUrl: string | null;
 }
 
 export async function getGiroConfig(): Promise<GiroConfig | { error: string }> {
@@ -185,6 +187,11 @@ export function saveGiroChecklistItem(input: {
 
 export function deleteGiroChecklistItem(id: string): Promise<MutationResult> {
   return mutate('/api/giro/config', { action: 'delete-checklist-item', id }, 'Erro ao excluir o item.');
+}
+
+/** Link fixo da sala de reunião (Meet) — passe null/vazio pra apagar. */
+export function saveGiroMeetUrl(meetUrl: string | null): Promise<MutationResult> {
+  return mutate('/api/giro/config', { action: 'save-meet-url', meetUrl }, 'Erro ao salvar o link da reunião.');
 }
 
 /**

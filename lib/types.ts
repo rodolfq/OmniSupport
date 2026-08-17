@@ -922,6 +922,8 @@ export interface GiroRow {
   workSchedule: string | null;
   isFixed: boolean;
   isHandoff: boolean;
+  /** Quantos atendimentos esta pessoa já concluiu hoje — quem tem menos vai na frente. */
+  completedCount: number;
 }
 
 export interface GiroHistoryEntry {

@@ -263,7 +263,8 @@ async function loadRows(dayId: string, handoffUserId: string | null): Promise<Gi
     checklist: r.checklist || {},
     workSchedule: r.work_schedule,
     isFixed: r.is_fixed,
-    isHandoff: r.user_id === handoffUserId
+    isHandoff: r.user_id === handoffUserId,
+    completedCount: r.completed_count
   }));
 }
 
@@ -426,7 +427,9 @@ export async function reprocessDay(dateStr: string): Promise<{ error?: string }>
   // ordem. Checklist e almoço porque valem o dia todo (e refazê-los é
   // trabalho perdido); o atendimento em andamento porque nenhuma regra pede
   // para descartá-lo, e apagar a observação que alguém está escrevendo seria
-  // perda de dado silenciosa.
+  // perda de dado silenciosa; completed_count porque reflete trabalho já
+  // feito de verdade hoje — zerar puniria quem já atendeu antes do
+  // reprocessamento.
   const currentRows = await query('SELECT * FROM public.giro_day_rows WHERE day_id = $1', [day.id]);
   const preserved = new Map(currentRows.rows.map(r => [r.user_id, r]));
 
@@ -442,8 +445,8 @@ export async function reprocessDay(dateStr: string): Promise<{ error?: string }>
       const old = preserved.get(entry.userId);
       await client.query(
         `INSERT INTO public.giro_day_rows
-           (day_id, user_id, position, service_type, service_time, note, lunch_time, checklist, work_schedule, is_fixed)
-         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)`,
+           (day_id, user_id, position, service_type, service_time, note, lunch_time, checklist, work_schedule, is_fixed, completed_count)
+         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)`,
         [
           day.id, entry.userId, i + 1,
           old?.service_type ?? 'Chamado',
@@ -452,7 +455,8 @@ export async function reprocessDay(dateStr: string): Promise<{ error?: string }>
           old?.lunch_time ?? null,
           old?.checklist ?? {},
           byId.get(entry.userId)?.workSchedule ?? null,
-          entry.isFixed
+          entry.isFixed,
+          old?.completed_count ?? 0
         ]
       );
     }
@@ -577,9 +581,19 @@ export async function updateRow(
 }
 
 /**
- * Concluir atendimento — as três coisas acontecem juntas ou nenhuma acontece
- * (daí a transação): grava no histórico, limpa a linha e manda a pessoa para o
- * fim da ordem.
+ * Concluir atendimento — as coisas acontecem juntas ou nenhuma acontece (daí a
+ * transação): grava no histórico (com a posição de origem, pra dar pra
+ * desfazer depois), soma 1 na contagem de atendimentos do dia, limpa a linha
+ * e reposiciona pela REGRA DE JUSTIÇA: quem tem MENOS atendimentos concluídos
+ * hoje vai na frente.
+ *
+ * Isso não é "sempre pro fim físico da lista" — é "pro fim do grupo de quem
+ * tem contagem igual ou menor". Na prática, pra uma pessoa que só concluiu
+ * uma vez, dá exatamente no mesmo lugar de sempre (o fim). A diferença
+ * aparece quando alguém conclui 2 vezes seguidas sem que mais ninguém tenha
+ * atendido no meio: aí essa pessoa entra na "fila dos que já concluíram 2",
+ * atrás de todo mundo que ainda está em 0 ou 1 — e só volta a ser a vez dela
+ * quando o resto do time alcançar a mesma contagem. Ver repositionByFairness.
  *
  * O que NÃO é limpo: checklist e almoço, que valem o dia inteiro.
  *
@@ -606,19 +620,20 @@ export async function completeService(rowId: string): Promise<void> {
     );
 
     await client.query(
-      `INSERT INTO public.giro_history (day_id, user_id, user_name, service_type, service_time, note)
-       VALUES ($1, $2, $3, $4, $5, $6)`,
-      [row.day_id, row.user_id, row.name, row.service_type, row.service_time || horaAtual.rows[0].hora, row.note]
+      `INSERT INTO public.giro_history (day_id, user_id, user_name, service_type, service_time, note, position_before)
+       VALUES ($1, $2, $3, $4, $5, $6, $7)`,
+      [row.day_id, row.user_id, row.name, row.service_type, row.service_time || horaAtual.rows[0].hora, row.note, row.position]
     );
 
+    const newCount = row.completed_count + 1;
     await client.query(
       `UPDATE public.giro_day_rows
-          SET service_type = 'Chamado', service_time = NULL, note = NULL
-        WHERE id = $1`,
-      [rowId]
+          SET service_type = 'Chamado', service_time = NULL, note = NULL, completed_count = $1
+        WHERE id = $2`,
+      [newCount, rowId]
     );
 
-    await moveToEnd(client, row.day_id, row.id);
+    await repositionByFairness(client, row.day_id, row.id, newCount);
     await client.query('COMMIT');
   } catch (err) {
     await client.query('ROLLBACK');
@@ -686,13 +701,51 @@ async function writePositions(client: any, dayId: string, orderedRowIds: string[
   );
 }
 
-async function moveToEnd(client: any, dayId: string, rowId: string): Promise<void> {
+/**
+ * Reposiciona pela regra de justiça: insere a linha logo depois da ÚLTIMA
+ * outra linha (na ordem atual) cuja completed_count seja <= newCount, e antes
+ * de qualquer uma com contagem maior. Efeito prático:
+ *
+ * - Todo mundo com contagem igual ou menor (inclusive quem está zerado) fica
+ *   na frente — eles "devem" menos atendimentos que esta pessoa agora.
+ * - Quem já tem contagem MAIOR (concluiu mais vezes ainda) continua atrás —
+ *   não faz sentido esta pessoa, que acabou de igualar ou superar, pular na
+ *   frente de alguém que deve ainda mais.
+ *
+ * Com todo mundo em 0 (caso comum, uma conclusão isolada), isto dá exatamente
+ * no fim físico da lista — mesmo resultado de sempre. A diferença só aparece
+ * quando alguém acumula mais de uma conclusão antes dos outros.
+ */
+async function repositionByFairness(client: any, dayId: string, rowId: string, newCount: number): Promise<void> {
+  const all = await client.query(
+    'SELECT id, completed_count FROM public.giro_day_rows WHERE day_id = $1 ORDER BY position ASC',
+    [dayId]
+  );
+  const others = all.rows.filter((r: any) => r.id !== rowId);
+
+  let insertAt = 0;
+  for (let i = 0; i < others.length; i++) {
+    if (others[i].completed_count <= newCount) insertAt = i + 1;
+  }
+
+  const ids = others.map((r: any) => r.id);
+  ids.splice(insertAt, 0, rowId);
+  await writePositions(client, dayId, ids);
+}
+
+/**
+ * Move a linha pra uma posição (1-based) específica, deslocando o resto —
+ * usado só por deleteHistoryEntry, pra devolver a pessoa exatamente pra onde
+ * estava antes de uma conclusão que foi desfeita.
+ */
+async function moveToPosition(client: any, dayId: string, rowId: string, targetPosition: number): Promise<void> {
   const all = await client.query(
     'SELECT id FROM public.giro_day_rows WHERE day_id = $1 ORDER BY position ASC',
     [dayId]
   );
   const ids = all.rows.map((r: any) => r.id).filter((id: string) => id !== rowId);
-  ids.push(rowId);
+  const insertAt = Math.max(0, Math.min(targetPosition - 1, ids.length));
+  ids.splice(insertAt, 0, rowId);
   await writePositions(client, dayId, ids);
 }
 
@@ -721,10 +774,15 @@ export async function reorderDay(dayId: string, orderedRowIds: string[]): Promis
 }
 
 /**
- * Excluir um registro do histórico devolve a vez a quem está no FIM da ordem —
- * e só nesse caso. Quem já desceu do último lugar (porque atendeu de novo, ou
- * porque a ordem foi mexida) fica onde está: desfazer o registro não deve
- * desfazer o que aconteceu depois dele.
+ * Excluir um registro do histórico DESFAZ a conclusão de verdade: tira 1 da
+ * contagem de atendimentos do dia e devolve a linha pra posição exata que ela
+ * tinha antes daquela conclusão específica (position_before, gravado no
+ * momento em que ela aconteceu) — não é mais o heurístico "se está no fim,
+ * manda pra 1º"; agora é o mesmo lugar de onde saiu, ponto.
+ *
+ * Registro de antes desta migration não tem position_before (fica NULL) —
+ * pra esses, cai na regra antiga como fallback, já que não há como saber a
+ * posição de origem real.
  */
 export async function deleteHistoryEntry(historyId: string): Promise<void> {
   const client = await pool.connect();
@@ -737,15 +795,31 @@ export async function deleteHistoryEntry(historyId: string): Promise<void> {
     await client.query('DELETE FROM public.giro_history WHERE id = $1', [historyId]);
 
     if (entry.user_id) {
-      const rows = await client.query(
-        'SELECT id, user_id FROM public.giro_day_rows WHERE day_id = $1 ORDER BY position ASC',
-        [entry.day_id]
+      const row = await client.query(
+        'SELECT id, position, completed_count FROM public.giro_day_rows WHERE day_id = $1 AND user_id = $2',
+        [entry.day_id, entry.user_id]
       );
-      const last = rows.rows[rows.rows.length - 1];
-      if (last && last.user_id === entry.user_id && rows.rows.length > 1) {
-        const ids = rows.rows.map((r: any) => r.id);
-        ids.unshift(ids.pop());
-        await writePositions(client, entry.day_id, ids);
+      if (row.rows[0]) {
+        const rowId = row.rows[0].id;
+        const nextCount = Math.max(0, row.rows[0].completed_count - 1);
+        await client.query('UPDATE public.giro_day_rows SET completed_count = $1 WHERE id = $2', [nextCount, rowId]);
+
+        if (entry.position_before != null) {
+          await moveToPosition(client, entry.day_id, rowId, entry.position_before);
+        } else {
+          // Fallback pra registro antigo, sem position_before: regra
+          // original (só devolve pra 1º se estiver no fim agora).
+          const all = await client.query(
+            'SELECT id, user_id FROM public.giro_day_rows WHERE day_id = $1 ORDER BY position ASC',
+            [entry.day_id]
+          );
+          const last = all.rows[all.rows.length - 1];
+          if (last && last.user_id === entry.user_id && all.rows.length > 1) {
+            const ids = all.rows.map((r: any) => r.id);
+            ids.unshift(ids.pop());
+            await writePositions(client, entry.day_id, ids);
+          }
+        }
       }
     }
     await client.query('COMMIT');
@@ -1106,6 +1180,8 @@ export interface GiroSummary {
   history: GiroHistoryEntry[];
   /** Linha do usuário logado, se ele estiver no giro de hoje. */
   myRowId: string | null;
+  /** Link da sala de reunião cadastrado em Configuração — null se ninguém cadastrou ainda. */
+  meetUrl: string | null;
 }
 
 /**
@@ -1114,7 +1190,7 @@ export interface GiroSummary {
  */
 export async function getTodaySummary(currentUserId: string): Promise<GiroSummary> {
   const today = toDateOnly(await getTodaySP());
-  const day = await getGiroDay(today);
+  const [day, meetUrl] = await Promise.all([getGiroDay(today), getMeetUrl()]);
   return {
     date: today,
     exists: day.exists,
@@ -1122,8 +1198,29 @@ export async function getTodaySummary(currentUserId: string): Promise<GiroSummar
     handoffName: day.rows.find(r => r.userId === day.handoffUserId)?.userName ?? null,
     rows: day.rows,
     history: day.history,
-    myRowId: day.rows.find(r => r.userId === currentUserId)?.id ?? null
+    myRowId: day.rows.find(r => r.userId === currentUserId)?.id ?? null,
+    meetUrl
   };
+}
+
+// -------------------------------------------------------------- Meet (sala)
+
+export async function getMeetUrl(): Promise<string | null> {
+  const res = await query('SELECT meet_url FROM public.giro_settings WHERE id = $1', ['default']);
+  return res.rows[0]?.meet_url || null;
+}
+
+export async function saveMeetUrl(meetUrl: string | null): Promise<{ error?: string }> {
+  const trimmed = meetUrl?.trim() || null;
+  if (trimmed && !/^https?:\/\//i.test(trimmed)) {
+    return { error: 'O link precisa começar com http:// ou https://.' };
+  }
+  await query(
+    `INSERT INTO public.giro_settings (id, meet_url, updated_at) VALUES ('default', $1, now())
+     ON CONFLICT (id) DO UPDATE SET meet_url = EXCLUDED.meet_url, updated_at = now()`,
+    [trimmed]
+  );
+  return {};
 }
 
 // --------------------------------------------------------------- exportação

@@ -17,9 +17,10 @@ export async function GET() {
     const check = await assertCanViewGiro();
     if (!check.ok) return NextResponse.json({ error: check.error }, { status: permissionErrorStatus(check.error) });
 
-    const [participants, checklistItems, candidates] = await Promise.all([
+    const [participants, checklistItems, meetUrl, candidates] = await Promise.all([
       giro.listParticipants(),
       giro.listChecklistItems(true),
+      giro.getMeetUrl(),
       // Candidatos a entrar no Giro: gente do time, ativa. Cliente e
       // Funcionário nunca entram — o rodízio é de quem atende, não de quem é
       // atendido. `avatar_url` NUNCA cru numa lista (foto inteira em base64,
@@ -39,6 +40,7 @@ export async function GET() {
     return NextResponse.json({
       participants,
       checklistItems,
+      meetUrl,
       candidates: candidates.rows.map(r => ({
         id: r.id,
         name: r.name,
@@ -91,6 +93,13 @@ export async function POST(request: Request) {
     if (action === 'delete-checklist-item') {
       if (!body.id) return NextResponse.json({ error: 'id é obrigatório.' }, { status: 400 });
       await giro.deleteChecklistItem(body.id);
+      return NextResponse.json({ success: true });
+    }
+
+    if (action === 'save-meet-url') {
+      const result = await giro.saveMeetUrl(body.meetUrl);
+      if (result.error) return NextResponse.json({ error: result.error }, { status: 400 });
+      logAudit({ actorId: actor.id, actorName: actor.name, action: 'update', entityType: 'giro_settings', entityId: 'default', entityLabel: 'Link da reunião do Giro' });
       return NextResponse.json({ success: true });
     }
 

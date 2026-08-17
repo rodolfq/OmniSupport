@@ -1054,6 +1054,10 @@ CREATE TABLE IF NOT EXISTS public.giro_day_rows (
   checklist JSONB NOT NULL DEFAULT '{}'::jsonb,
   work_schedule TEXT,
   is_fixed BOOLEAN NOT NULL DEFAULT false,
+  -- Quantas vezes esta linha já foi concluída hoje — quem tem menos vai na
+  -- frente (migrations/giro_completed_count.sql). Reseta a cada dia porque a
+  -- tabela é recriada do zero.
+  completed_count INTEGER NOT NULL DEFAULT 0,
   created_at TIMESTAMP WITH TIME ZONE DEFAULT now() NOT NULL,
   CONSTRAINT giro_day_rows_unique_user UNIQUE (day_id, user_id)
 );
@@ -1068,6 +1072,9 @@ CREATE TABLE IF NOT EXISTS public.giro_history (
   service_type TEXT NOT NULL,
   service_time TEXT,
   note TEXT,
+  -- Posição que a linha tinha ANTES desta conclusão — permite reverter de
+  -- verdade ao excluir o registro (ver deleteHistoryEntry).
+  position_before INTEGER,
   created_at TIMESTAMP WITH TIME ZONE DEFAULT now() NOT NULL
 );
 CREATE INDEX IF NOT EXISTS idx_giro_history_day ON public.giro_history(day_id, created_at);
@@ -1079,6 +1086,15 @@ INSERT INTO public.giro_checklist_items (label, sort_order) VALUES
   ('Telefone', 4),
   ('Almoço',   5)
 ON CONFLICT (label) DO NOTHING;
+
+-- Link da sala de reunião (Meet) do Giro — singleton, cadastrado em
+-- Configuração (migrations/giro_meet_settings.sql).
+CREATE TABLE IF NOT EXISTS public.giro_settings (
+  id TEXT PRIMARY KEY DEFAULT 'default',
+  meet_url TEXT,
+  updated_at TIMESTAMP WITH TIME ZONE DEFAULT now() NOT NULL,
+  CONSTRAINT giro_settings_singleton CHECK (id = 'default')
+);
 
 -- =========================================================================
 -- SEED DATA SETUP

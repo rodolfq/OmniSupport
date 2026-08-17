@@ -3,7 +3,7 @@
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import {
   UserPlus, Trash2, Loader2, Search, CalendarClock, ListChecks, Plus, X,
-  CircleSlash, Clock, GripVertical, Info
+  CircleSlash, Clock, GripVertical, Info, Video
 } from 'lucide-react';
 import { DndContext, closestCenter, PointerSensor, useSensor, useSensors, DragEndEvent } from '@dnd-kit/core';
 import { arrayMove, SortableContext, verticalListSortingStrategy, useSortable } from '@dnd-kit/sortable';
@@ -17,7 +17,7 @@ import { StyledSelect } from '@/components/styled-select';
 import { GiroChecklistItem, GiroParticipant } from '@/lib/types';
 import {
   getGiroConfig, saveGiroParticipant, deleteGiroParticipant, reorderGiroParticipants,
-  saveGiroChecklistItem, deleteGiroChecklistItem, GiroCandidate
+  saveGiroChecklistItem, deleteGiroChecklistItem, saveGiroMeetUrl, GiroCandidate
 } from '@/lib/services/giro-client';
 
 /**
@@ -89,6 +89,9 @@ export function GiroConfigView() {
   const [newItemLabel, setNewItemLabel] = useState('');
   const [confirmDeleteItem, setConfirmDeleteItem] = useState<GiroChecklistItem | null>(null);
 
+  const [meetUrl, setMeetUrl] = useState('');
+  const [meetSaving, setMeetSaving] = useState(false);
+
   const sensors = useSensors(useSensor(PointerSensor, { activationConstraint: { distance: 5 } }));
 
   // Única leitura completa da tela — só na primeira montagem. Nenhuma
@@ -106,6 +109,7 @@ export function GiroConfigView() {
       setParticipants(cfg.participants);
       setChecklistItems(cfg.checklistItems);
       setCandidates(cfg.candidates);
+      setMeetUrl(cfg.meetUrl ?? '');
       setLoading(false);
     })();
     return () => { cancelled = true; };
@@ -301,6 +305,19 @@ export function GiroConfigView() {
     toast.success('Item excluído.');
   };
 
+  // ------------------------------------------------------------------ Meet
+
+  const handleSaveMeetUrl = async () => {
+    setMeetSaving(true);
+    const result = await saveGiroMeetUrl(meetUrl.trim() || null);
+    setMeetSaving(false);
+    if (result.error) {
+      toast.error(result.error);
+      return;
+    }
+    toast.success('Link da reunião salvo.');
+  };
+
   if (loading) {
     return (
       <div className="flex items-center justify-center py-24 text-[var(--text-tertiary)]">
@@ -465,6 +482,41 @@ export function GiroConfigView() {
             for maior que a quantidade de gente do dia, essa posição vale como livre naquele dia.
           </p>
         </div>
+      </div>
+
+      {/* --------------------------------------------------------------- meet */}
+      <div className="bg-[var(--surface-card)] border border-[var(--border-default)] rounded-[2rem] p-8 shadow-sm space-y-5">
+        <div>
+          <h3 className="text-xl font-black text-[var(--text-primary)] uppercase tracking-tight flex items-center gap-2">
+            <Video className="text-[var(--accent-text)]" size={22} /> Sala de reunião
+          </h3>
+          <p className="text-[10px] text-[var(--text-tertiary)] font-bold uppercase tracking-widest mt-1">
+            Link fixo usado pelo botão &quot;Meet Suporte&quot; no atalho do Giro
+          </p>
+        </div>
+
+        <div className="flex flex-col sm:flex-row gap-2">
+          <input
+            value={meetUrl}
+            onChange={e => setMeetUrl(e.target.value)}
+            onKeyDown={e => { if (e.key === 'Enter') handleSaveMeetUrl(); }}
+            placeholder="https://meet.google.com/xxx-xxxx-xxx"
+            disabled={meetSaving}
+            className="flex-1 px-4 py-3 rounded-2xl border border-[var(--border-default)] bg-[var(--surface-page)] text-sm font-medium text-[var(--text-primary)] outline-none focus:border-[var(--accent)] disabled:opacity-60"
+          />
+          <button
+            onClick={handleSaveMeetUrl}
+            disabled={meetSaving}
+            className="px-5 py-3 rounded-2xl bg-[var(--accent)] text-white text-[10px] font-black uppercase tracking-widest hover:bg-[var(--accent-hover)] transition-all flex items-center justify-center gap-2 disabled:opacity-50 shrink-0"
+          >
+            {meetSaving ? <Loader2 size={14} className="animate-spin" /> : null} Salvar
+          </button>
+        </div>
+
+        <p className="text-[11px] font-medium text-[var(--text-tertiary)] leading-relaxed">
+          É só um atalho — abre esse link em outra guia. Trocar aqui atualiza o botão pra toda a equipe na hora.
+          Deixe em branco e salve para remover o botão.
+        </p>
       </div>
 
       {/* ---------------------------------------------------------- checklist */}
