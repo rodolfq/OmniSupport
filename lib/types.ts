@@ -124,6 +124,10 @@ export interface User {
   // id dele) — pode criar/editar usuários e perfis de acesso escopados a
   // elas. Vazio/undefined para quem não administra nenhuma equipe.
   adminOfTeamIds?: string[];
+  // Logo da empresa do usuário (Cliente/Funcionário) — só pra exibir na
+  // sidebar/header do portal sem precisar buscar a empresa inteira à parte.
+  // Ver Company.logoThumbUrl e migrations/companies_logo.sql.
+  companyLogoThumbUrl?: string | null;
   status?: 'online' | 'away' | 'offline';
   statusReason?: string;
   isAdmin?: boolean;
@@ -216,6 +220,14 @@ export interface Company {
   // com todos os chamados e conversas ainda no banco.
   // Ver migrations/companies_desativar.sql.
   isActive?: boolean;
+  // Endereço de /api/companies/[id]/logo (não o base64) — mesmo padrão de
+  // User.avatarUrl, pra não trafegar a imagem inteira em toda listagem de
+  // empresas. Ver migrations/companies_logo.sql.
+  logoUrl?: string;
+  // Miniatura pequena o bastante pra ir embutida (data: URL) direto na
+  // listagem/sidebar, sem outra requisição — mesmo padrão de
+  // User.avatarThumbUrl.
+  logoThumbUrl?: string;
 }
 
 export interface PriorityConfig {

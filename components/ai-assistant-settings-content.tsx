@@ -457,10 +457,13 @@ export function AiAssistantSettingsContent() {
             type="text"
             value={modelDraft}
             onChange={(e) => setModelDraft(e.target.value)}
-            placeholder="Ex: llama-3.3-70b-versatile"
+            placeholder="Ex: openai/gpt-oss-120b"
             className="w-full max-w-md bg-[var(--surface-card)] border border-[var(--border-default)] rounded-xl px-4 py-3 text-sm font-mono focus:ring-2 focus:ring-[var(--accent)]/20 focus:border-[var(--accent)] outline-none transition-all"
           />
-          <p className="text-[10px] text-[var(--text-tertiary)] font-medium">Nome exato do modelo na Groq — lista muda com frequência, por isso é texto livre.</p>
+          <p className="text-[10px] text-[var(--text-tertiary)] font-medium">
+            Nome exato do modelo na Groq — lista muda com frequência, por isso é texto livre. Modelos atuais em{' '}
+            <a href="https://console.groq.com/docs/models" target="_blank" rel="noopener noreferrer" className="text-[var(--accent-text)] underline">console.groq.com/docs/models</a>.
+          </p>
         </div>
 
         <div className="flex items-center justify-between pt-4 border-t border-[var(--border-default)]">

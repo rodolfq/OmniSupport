@@ -42,9 +42,11 @@ export function getNavItems(currentUser: User | null): NavItem[] {
           { name: 'Meus Chamados', icon: UserCircle, href: '/my-tickets' },
         ]
       },
-      ...(currentUser?.role === UserRole.CUSTOMER ? [
-        { name: 'Empresa', icon: Users, href: '/customers' },
-      ] : []),
+      // Cliente e Funcionário — os dois precisam chegar na ficha da própria
+      // empresa (é onde a logo é trocada); dentro da tela, quem pode criar/
+      // editar FUNCIONÁRIO continua só o Cliente (ver isCustomerAdmin em
+      // app/(portal)/customers/page.tsx).
+      { name: 'Empresa', icon: Users, href: '/customers' },
       // Configurações virou uma tela única com menus internos (Perfil,
       // Segurança/Alterar Senha etc. já estão lá dentro) — o item do menu é
       // um link direto, sem submenu duplicando o que já está em /settings.

@@ -7,7 +7,10 @@ import Groq from 'groq-sdk';
 
 export class AssistantNotConfiguredError extends Error {}
 
-export const GROQ_MODEL_NAME = process.env.GROQ_MODEL || 'llama-3.3-70b-versatile';
+// 'llama-3.3-70b-versatile' foi descontinuado pela Groq em 06/2026 (404
+// model_not_found) — trocado pelo substituto recomendado pelo provedor.
+// Lista atual sempre em console.groq.com/docs/models.
+export const GROQ_MODEL_NAME = process.env.GROQ_MODEL || 'openai/gpt-oss-120b';
 
 // `apiKeyOverride` vem de ai_assistant_settings.groq_api_key (ver
 // lib/services/ai-assistant-config-service.ts) — chave trocável em

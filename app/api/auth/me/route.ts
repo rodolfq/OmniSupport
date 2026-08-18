@@ -22,7 +22,9 @@ export async function GET(request: NextRequest) {
       // has_avatar em vez de avatar_url: a foto do próprio usuário chegava
       // como base64 (até 2,7 MB) em TODA carga de sessão, só pra desenhar o
       // avatar da barra lateral. Agora vai o endereço da imagem — ver
-      // app/api/users/[id]/avatar/route.ts.
+      // app/api/users/[id]/avatar/route.ts. company_logo_thumb_url já nasce
+      // pequena (ver lib/services/logo-thumb-service.ts), por isso pode ir
+      // direto sem o mesmo tratamento.
       `SELECT p.id, p.name, p.email, p.role, p.company_id, p.phone,
               (p.avatar_url IS NOT NULL AND p.avatar_url <> '') AS has_avatar,
               p.view_all_company_tickets, p.must_change_password, p.is_admin, p.lives_in_squad,
@@ -31,9 +33,11 @@ export async function GET(request: NextRequest) {
               COALESCE(
                 (SELECT array_agg(it.id) FROM public.internal_teams it WHERE p.id = ANY(it.admin_ids)),
                 '{}'::uuid[]
-              ) AS admin_of_team_ids
+              ) AS admin_of_team_ids,
+              c.logo_thumb_url AS company_logo_thumb_url
        FROM public.profiles p
        LEFT JOIN public.role_permissions rp ON rp.id = p.access_profile_id
+       LEFT JOIN public.companies c ON c.id = p.company_id
        WHERE p.id = $1`,
       [decoded.id]
     );
@@ -69,6 +73,7 @@ export async function GET(request: NextRequest) {
         role: profile.role,
         permissions: effectivePermissions,
         companyId: profile.company_id,
+        companyLogoThumbUrl: profile.company_logo_thumb_url || null,
         phone: profile.phone,
         avatarUrl: profile.has_avatar ? `/api/users/${profile.id}/avatar` : null,
         viewAllCompanyTickets: profile.view_all_company_tickets,

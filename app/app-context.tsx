@@ -569,6 +569,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
               role: data.user.role,
               permissions: data.user.permissions,
               companyId: data.user.companyId,
+              companyLogoThumbUrl: data.user.companyLogoThumbUrl,
               phone: data.user.phone,
               avatarUrl: data.user.avatarUrl,
               viewAllCompanyTickets: data.user.viewAllCompanyTickets,

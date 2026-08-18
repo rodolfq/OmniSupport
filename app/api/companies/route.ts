@@ -4,6 +4,7 @@ import { pool, query } from '@/lib/db';
 import { hashPassword } from '@/lib/auth-utils';
 import { logAudit } from '@/lib/audit-log';
 import { getCurrentActionUser } from '@/lib/server-auth';
+import { processCompanyLogo } from '@/lib/services/logo-thumb-service';
 import type { CustomerEvaluationScores } from '@/lib/types';
 
 /**
@@ -128,7 +129,9 @@ export async function GET(request: Request) {
       const res = await query(
         `SELECT id, name, industry, phone,
                 is_in_training AS "isInTraining",
-                is_active AS "isActive"
+                is_active AS "isActive",
+                logo_thumb_url AS "logoThumbUrl",
+                (logo_url IS NOT NULL AND logo_url <> '') AS has_logo
            FROM public.companies WHERE id = $1`,
         [id]
       );
@@ -137,13 +140,22 @@ export async function GET(request: Request) {
       // isInTraining é perfil interno: não deve nem trafegar para o navegador
       // de quem é da própria empresa.
       if (isCompanyUser) delete row.isInTraining;
+      row.logoUrl = row.has_logo ? `/api/companies/${row.id}/logo` : null;
+      delete row.has_logo;
       return NextResponse.json(row, { headers: { 'Cache-Control': REFERENCE_CACHE_HEADER } });
     }
 
     // ------------------------------------------------------------- listagem
+    // logo_url de propósito FORA do select: é a imagem inteira em `data:`
+    // URL, e listar empresas não pode pagar esse peso em toda carga (mesmo
+    // problema que avatar_url já causou — ver comentário em /api/users
+    // type=lite). logo_thumb_url já nasce pequena, essa pode ir direto.
+    const LIST_COLUMNS = `id, name, industry, phone, created_at, is_in_training, cs_responsavel_id,
+                          comercial_responsavel_id, is_active, logo_thumb_url,
+                          (logo_url IS NOT NULL AND logo_url <> '') AS has_logo`;
     const res = isCompanyUser
-      ? await query('SELECT * FROM public.companies WHERE id = $1 ORDER BY name ASC', [actor.company_id])
-      : await query('SELECT * FROM public.companies ORDER BY name ASC');
+      ? await query(`SELECT ${LIST_COLUMNS} FROM public.companies WHERE id = $1 ORDER BY name ASC`, [actor.company_id])
+      : await query(`SELECT ${LIST_COLUMNS} FROM public.companies ORDER BY name ASC`);
 
     return NextResponse.json(
       res.rows.map(c => ({
@@ -158,7 +170,12 @@ export async function GET(request: Request) {
         // Desativadas continuam na lista de propósito: a tela as esconde do uso
         // corrente mas precisa mostrá-las a quem procura. Esconder aqui
         // repetiria o problema que a desativação veio resolver.
-        isActive: c.is_active !== false
+        isActive: c.is_active !== false,
+        // logoUrl é o ENDEREÇO (não o base64) — mesmo raciocínio de
+        // avatarUrl em /api/users. logoThumbUrl já vem pequeno o bastante
+        // pra ir embutido direto (mesmo padrão de avatarThumbUrl).
+        logoUrl: c.has_logo ? `/api/companies/${c.id}/logo` : undefined,
+        logoThumbUrl: c.logo_thumb_url || undefined
       })),
       { headers: { 'Cache-Control': REFERENCE_CACHE_HEADER } }
     );
@@ -195,6 +212,67 @@ export async function POST(request: Request) {
         ]
       );
       return NextResponse.json({ success: true });
+    }
+
+    // ------------------------------------------------------------- logo
+    // Diferente das outras mutações desta rota: liberada também para
+    // Cliente/Funcionário DA PRÓPRIA empresa (é quem pediu a mudança), além
+    // da equipe interna (Administrador/Equipe/Time Interno) editando
+    // qualquer empresa pelo cadastro — não exige Administrador do sistema
+    // como "training"/rename exigem, porque trocar uma imagem não altera
+    // dado de negócio sensível.
+    if (action === 'logo') {
+      const { companyId, logoUrl } = body;
+      if (!companyId) return NextResponse.json({ error: 'companyId é obrigatório.' }, { status: 400 });
+
+      const isOwnCompanyUser = (actor.role === 'Cliente' || actor.role === 'Funcionário') && actor.company_id === companyId;
+      const isStaff = ['Administrador', 'Equipe', 'Time Interno'].includes(actor.role);
+      if (!isOwnCompanyUser && !isStaff) {
+        return NextResponse.json({ error: 'Você não tem permissão para alterar a logo desta empresa.' }, { status: 403 });
+      }
+
+      const company = await query('SELECT name FROM public.companies WHERE id = $1', [companyId]);
+      if (company.rowCount === 0) return NextResponse.json({ error: 'Empresa não encontrada.' }, { status: 404 });
+
+      // Igual ao avatar de usuário: só regrava quando chega uma IMAGEM de
+      // verdade (`data:` URL) ou null explícito (remover). Qualquer outra
+      // coisa não mexe nas colunas.
+      if (logoUrl === null) {
+        await query('UPDATE public.companies SET logo_url = NULL, logo_thumb_url = NULL WHERE id = $1', [companyId]);
+        logAudit({
+          actorId: actor.id, actorName: actor.name, action: 'update',
+          entityType: 'company', entityId: companyId, entityLabel: company.rows[0].name,
+          changes: { logo: 'removed' }
+        });
+        return NextResponse.json({ success: true, logoThumbUrl: null });
+      }
+
+      if (typeof logoUrl !== 'string' || !logoUrl.startsWith('data:image/')) {
+        return NextResponse.json({ error: 'Envie uma imagem válida.' }, { status: 400 });
+      }
+      // ~4MB decodificado (base64 tem overhead de ~33%) — logo é imagem
+      // pequena por natureza; um upload muito maior que isso é quase sempre
+      // engano (foto de câmera em vez de logo exportada).
+      const MAX_LOGO_BASE64_LENGTH = 5_600_000;
+      if (logoUrl.length > MAX_LOGO_BASE64_LENGTH) {
+        return NextResponse.json({ error: 'Imagem muito grande — use um arquivo de até 4MB.' }, { status: 400 });
+      }
+
+      // Salva SEMPRE a versão comprimida (processCompanyLogo), nunca o
+      // `data:` URL cru recebido do navegador — mesmo um upload de poucos MB
+      // (foto em vez de logo exportada) vira uma imagem pequena em disco de
+      // banco. Ver lib/services/logo-thumb-service.ts.
+      const processed = await processCompanyLogo(logoUrl);
+      if (!processed) {
+        return NextResponse.json({ error: 'Não foi possível processar essa imagem — tente outro arquivo.' }, { status: 400 });
+      }
+      await query('UPDATE public.companies SET logo_url = $1, logo_thumb_url = $2 WHERE id = $3', [processed.full, processed.thumb, companyId]);
+      logAudit({
+        actorId: actor.id, actorName: actor.name, action: 'update',
+        entityType: 'company', entityId: companyId, entityLabel: company.rows[0].name,
+        changes: { logo: 'updated' }
+      });
+      return NextResponse.json({ success: true, logoThumbUrl: processed.thumb });
     }
 
     // -------------------------------------------------- empresa em treinamento

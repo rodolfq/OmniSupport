@@ -123,12 +123,17 @@ export async function GET(request: Request) {
       // maior, onde a miniatura de 48px não serve) e a miniatura vem junto pra
       // lista de salas desenhar sem esperar requisição — ver
       // app/api/users/[id]/avatar/route.ts.
+      // status/current_reason moram em analyst_status (chave user_id), não em
+      // profiles — quem nunca ficou online não tem linha lá, daí o LEFT JOIN
+      // com fallback 'offline'.
       const res = await query(
-        `SELECT id, name, email, role, status, status_reason, avatar_thumb_url,
-                (avatar_url IS NOT NULL AND avatar_url <> '') AS has_avatar
-           FROM public.profiles
-          WHERE role IN ('Equipe', 'Administrador', 'Time Interno')
-          ORDER BY name ASC`
+        `SELECT p.id, p.name, p.email, p.role, p.avatar_thumb_url,
+                COALESCE(a.status, 'offline') AS status, a.current_reason AS status_reason,
+                (p.avatar_url IS NOT NULL AND p.avatar_url <> '') AS has_avatar
+           FROM public.profiles p
+           LEFT JOIN public.analyst_status a ON a.user_id = p.id
+          WHERE p.role IN ('Equipe', 'Administrador', 'Time Interno')
+          ORDER BY p.name ASC`
       );
       return NextResponse.json(res.rows.map(r => ({
         id: r.id,

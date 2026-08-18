@@ -99,6 +99,11 @@ export async function updateCompanyTraining(companyId: string, isInTraining: boo
   return post({ action: 'training', companyId, isInTraining }, 'Erro ao atualizar status de treinamento.');
 }
 
+/** logoUrl: `data:` URL da imagem nova, ou null para remover a logo atual. */
+export async function updateCompanyLogo(companyId: string, logoUrl: string | null): Promise<MutationResult & { logoThumbUrl?: string | null }> {
+  return post({ action: 'logo', companyId, logoUrl }, 'Erro ao salvar a logo da empresa.');
+}
+
 export async function saveCustomerEvaluation(
   companyId: string,
   analystId: string,

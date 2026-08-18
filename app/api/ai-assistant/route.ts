@@ -116,6 +116,34 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    return NextResponse.json({ error: 'Não foi possível falar com o assistente agora. Tente de novo em instantes.' }, { status: 502 });
+    // Groq descontinua modelo de tempos em tempos — "tentar de novo" nunca
+    // resolve, precisa trocar o nome do modelo (GROQ_MODEL no .env ou em
+    // Configurações > Agente de IA) por um da lista atual do provedor.
+    if (code === 'model_decommissioned' || code === 'model_not_found') {
+      return NextResponse.json(
+        { error: 'O modelo de IA configurado não existe mais no provedor. Peça pra um administrador trocar o modelo em Configurações > Agente de IA (ou na variável GROQ_MODEL) por um da lista em console.groq.com/docs/models.' },
+        { status: 503 }
+      );
+    }
+
+    // Sem `status`/`code` do provedor = a chamada não chegou a sair (DNS,
+    // timeout, rede do container sem saída pra internet) — diferente de uma
+    // recusa da API do Groq, então a mensagem aponta pra infraestrutura, não
+    // pra "tenta de novo".
+    const looksLikeNetworkFailure = status === undefined && (
+      error?.code === 'ENOTFOUND' || error?.code === 'ECONNREFUSED' || error?.code === 'ETIMEDOUT' ||
+      (typeof error?.message === 'string' && /fetch failed|network|ENOTFOUND|ECONNREFUSED|ETIMEDOUT/i.test(error.message))
+    );
+    if (looksLikeNetworkFailure) {
+      return NextResponse.json(
+        { error: 'O servidor não conseguiu se conectar ao provedor de IA agora. Se persistir, avise o time técnico — pode ser queda de rede/DNS do servidor, não da sua conexão.' },
+        { status: 502 }
+      );
+    }
+
+    return NextResponse.json(
+      { error: 'Não foi possível falar com o assistente agora. Tente de novo em instantes; se continuar acontecendo, avise o time técnico.' },
+      { status: 502 }
+    );
   }
 }

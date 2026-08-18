@@ -1,11 +1,11 @@
 'use client';
 
-import React, { useState, useEffect, useMemo } from 'react';
+import React, { useState, useEffect, useMemo, useRef } from 'react';
 import { assignChatSession } from '@/lib/services/chat-session-actions';
 import { getUsers } from '@/lib/services/user-actions-service';
-import { getCompanies, setCompanyActive } from '@/lib/services/company-service';
+import { getCompanies, setCompanyActive, updateCompanyLogo } from '@/lib/services/company-service';
 import { Company, User, UserRole, Permission } from '@/lib/types';
-import { Building2, User as UserIcon, Mail, Phone, Plus, MessageCircle, Ticket, ShieldCheck, ShieldOff, Search, X, Check, Pencil, UserPlus, RefreshCw, Headset, Briefcase } from 'lucide-react';
+import { Building2, User as UserIcon, Mail, Phone, Plus, MessageCircle, Ticket, ShieldCheck, ShieldOff, Search, X, Check, Pencil, UserPlus, RefreshCw, Headset, Briefcase, Camera, Trash2 } from 'lucide-react';
 import { cn, normalizeString, normalizePhone, maskPhone } from '@/lib/utils';
 import { NewEmployeeModal } from '@/components/new-employee-modal';
 import { EditEmployeeModal } from '@/components/edit-employee-modal';
@@ -16,6 +16,17 @@ import { resolveChatSessionForPhone } from '@/lib/services/chat-service';
 import { useApp } from '@/app/app-context';
 import { motion, AnimatePresence } from 'motion/react';
 import { toast } from 'sonner';
+
+const MAX_LOGO_FILE_BYTES = 4 * 1024 * 1024; // mesmo limite (folgado) do servidor, ver app/api/companies/route.ts
+
+function fileToDataUrl(file: Blob): Promise<string> {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = () => resolve(String(reader.result || ''));
+    reader.onerror = () => reject(reader.error || new Error('Erro ao ler arquivo'));
+    reader.readAsDataURL(file);
+  });
+}
 
 function WhatsAppNumberModal({ 
   isOpen, 
@@ -133,11 +144,18 @@ export default function CustomersPage() {
   const [deleteError, setDeleteError] = useState<string>('');
   const [searchQuery, setSearchQuery] = useState('');
   const [isSyncingBitrix24, setIsSyncingBitrix24] = useState(false);
+  const [isUploadingLogo, setIsUploadingLogo] = useState(false);
+  const logoInputRef = useRef<HTMLInputElement>(null);
   const isCompanyPortalUser = [UserRole.CUSTOMER, UserRole.EMPLOYEE].includes(currentUser?.role as UserRole);
   const isCustomerAdmin = currentUser?.role === UserRole.CUSTOMER;
   const canManageCompanies = hasPermission(Permission.CUSTOMERS_WRITE);
   const canCreateEmployees = canManageCompanies || isCustomerAdmin;
   const canEditEmployees = canManageCompanies || isCustomerAdmin;
+  // Cliente/Funcionário editam a logo da PRÓPRIA empresa (a lista já vem
+  // filtrada só pra ela — ver loadData), equipe interna edita a de qualquer
+  // uma. Ação de imagem, não de dado de negócio: não exige Administrador do
+  // sistema como "Editar Empresa" (nome/setor/CS) exige.
+  const canEditCompanyLogo = isCompanyPortalUser || canManageCompanies;
 
   const handleOpenTicket = (user: User) => {
     setPreselectedUserId(user.id);
@@ -213,6 +231,55 @@ if (isCompanyPortalUser) {
       toast.error(err?.message || 'Falha ao sincronizar com o Bitrix24.');
     } finally {
       setIsSyncingBitrix24(false);
+    }
+  };
+
+  const handleLogoFileChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    e.target.value = ''; // permite escolher o mesmo arquivo de novo depois de trocar
+    if (!file || !selectedCompanyId) return;
+
+    if (!file.type.startsWith('image/')) {
+      toast.error('Escolha um arquivo de imagem.');
+      return;
+    }
+    if (file.size > MAX_LOGO_FILE_BYTES) {
+      toast.error('Imagem muito grande — use um arquivo de até 4MB.');
+      return;
+    }
+
+    setIsUploadingLogo(true);
+    try {
+      const dataUrl = await fileToDataUrl(file);
+      const result = await updateCompanyLogo(selectedCompanyId, dataUrl);
+      if (result.error) {
+        toast.error(result.error);
+        return;
+      }
+      setCompanies(prev => prev.map(c => c.id === selectedCompanyId ? { ...c, logoThumbUrl: result.logoThumbUrl || undefined } : c));
+      toast.success('Logo atualizada.');
+    } catch (err: any) {
+      toast.error(err?.message || 'Erro ao salvar a logo.');
+    } finally {
+      setIsUploadingLogo(false);
+    }
+  };
+
+  const handleRemoveLogo = async () => {
+    if (!selectedCompanyId) return;
+    setIsUploadingLogo(true);
+    try {
+      const result = await updateCompanyLogo(selectedCompanyId, null);
+      if (result.error) {
+        toast.error(result.error);
+        return;
+      }
+      setCompanies(prev => prev.map(c => c.id === selectedCompanyId ? { ...c, logoThumbUrl: undefined, logoUrl: undefined } : c));
+      toast.success('Logo removida.');
+    } catch (err: any) {
+      toast.error(err?.message || 'Erro ao remover a logo.');
+    } finally {
+      setIsUploadingLogo(false);
     }
   };
 
@@ -316,14 +383,18 @@ if (isCompanyPortalUser) {
                 )}
               >
                 <div className={cn(
-                  "w-10 h-10 rounded-lg flex items-center justify-center transition-all",
+                  "w-10 h-10 rounded-lg flex items-center justify-center transition-all overflow-hidden shrink-0",
                   inativa
                     ? "bg-[var(--surface-pill)] text-[var(--text-tertiary)] grayscale"
                     : selectedCompanyId === c.id
                       ? "bg-[var(--accent)] text-white scale-110"
                       : "bg-[var(--surface-pill)] text-[var(--text-tertiary)] group-hover:bg-[var(--border-default)]"
                 )}>
-                  <Building2 size={20} />
+                  {c.logoThumbUrl ? (
+                    <img src={c.logoThumbUrl} alt="" className="w-full h-full object-cover" />
+                  ) : (
+                    <Building2 size={20} />
+                  )}
                 </div>
                 <div className="flex-1 min-w-0">
                   <p className={cn(
@@ -378,14 +449,56 @@ if (isCompanyPortalUser) {
             )}
             <div className={cn("p-8 flex justify-between items-start", selectedCompany.isActive === false && "opacity-70")}>
               <div className="flex items-center gap-6">
-                <div className={cn(
-                  "w-20 h-20 rounded-2xl flex items-center justify-center",
-                  selectedCompany.isActive === false
-                    ? "bg-[var(--surface-pill)] text-[var(--text-tertiary)]"
-                    : "bg-[var(--accent)]/10 text-[var(--accent-text)]"
-                )}>
-                  <Building2 size={40} />
+                <div
+                  className={cn(
+                    "w-20 h-20 rounded-2xl flex items-center justify-center relative group/logo overflow-hidden shrink-0",
+                    selectedCompany.isActive === false
+                      ? "bg-[var(--surface-pill)] text-[var(--text-tertiary)]"
+                      : "bg-[var(--accent)]/10 text-[var(--accent-text)]",
+                    canEditCompanyLogo && !isUploadingLogo && "cursor-pointer"
+                  )}
+                  onClick={() => canEditCompanyLogo && !isUploadingLogo && logoInputRef.current?.click()}
+                  title={canEditCompanyLogo ? 'Clique para trocar a logo' : undefined}
+                >
+                  {selectedCompany.logoThumbUrl ? (
+                    <img src={selectedCompany.logoThumbUrl} alt={`Logo de ${selectedCompany.name}`} className="w-full h-full object-cover" />
+                  ) : (
+                    <Building2 size={40} />
+                  )}
+                  {canEditCompanyLogo && (
+                    <div className={cn(
+                      "absolute inset-0 bg-black/50 flex items-center justify-center gap-2 transition-opacity",
+                      isUploadingLogo ? "opacity-100" : "opacity-0 group-hover/logo:opacity-100"
+                    )}>
+                      {isUploadingLogo ? (
+                        <RefreshCw size={18} className="text-white animate-spin" />
+                      ) : (
+                        <>
+                          <Camera size={18} className="text-white" />
+                          {selectedCompany.logoThumbUrl && (
+                            <button
+                              type="button"
+                              onClick={(e) => { e.stopPropagation(); handleRemoveLogo(); }}
+                              title="Remover logo"
+                              className="text-white/80 hover:text-white"
+                            >
+                              <Trash2 size={16} />
+                            </button>
+                          )}
+                        </>
+                      )}
+                    </div>
+                  )}
                 </div>
+                {canEditCompanyLogo && (
+                  <input
+                    ref={logoInputRef}
+                    type="file"
+                    accept="image/*"
+                    onChange={handleLogoFileChange}
+                    className="hidden"
+                  />
+                )}
                 <div>
                   <h1 className={cn(
                     "text-3xl font-black tracking-tight",

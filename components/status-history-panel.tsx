@@ -9,6 +9,7 @@ import { AbsenceReasonService, UserStatusHistoryService } from '@/lib/services/c
 import { useProfilesLiteQuery } from '@/lib/query-hooks';
 import { useApp } from '@/app/app-context';
 import { UserRole } from '@/lib/types';
+import { isStalePresence } from '@/lib/presence';
 import { cn } from '@/lib/utils';
 import { format, isSameDay } from 'date-fns';
 import { ptBR } from 'date-fns/locale';
@@ -92,8 +93,16 @@ function buildTurns(history: UserStatusHistory[], periodEndBoundary: Date, now: 
       open = { id: `${uid}:${row.timestamp}`, userId: uid, status: row.status as StatusValue, reason: row.reason, start: row.timestamp, end: null, isCurrent: false };
     }
     if (open) {
-      if (boundaryIsNow) {
+      // Fechar a aba não grava um "offline" explícito (ver app-context.tsx) —
+      // o último heartbeat registrado pode ter dias, então só é "em
+      // andamento" de verdade se esse heartbeat ainda está fresco. Mesmo
+      // limiar de lib/presence.ts, pra não inventar um segundo critério de
+      // "quando considerar offline" no sistema.
+      const lastRowTimestamp = sorted[sorted.length - 1].timestamp;
+      if (boundaryIsNow && !isStalePresence(lastRowTimestamp)) {
         open.isCurrent = true;
+      } else if (boundaryIsNow) {
+        open.end = lastRowTimestamp;
       } else {
         open.end = periodEndBoundary.toISOString();
       }

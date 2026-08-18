@@ -109,6 +109,20 @@ export default function PortalLayout({ children }: { children: React.ReactNode }
         <MobileHeader />
         <header className="hidden md:flex h-16 bg-[var(--surface-card)] border-b border-[var(--border-default)] items-center justify-between px-8 shadow-sm sticky top-0 z-[100]">
 <div className="flex items-center gap-4">
+            {/* Logo da empresa-cliente (ver customers/page.tsx pra troca) —
+                só faz sentido pra quem é da empresa (Cliente/Funcionário);
+                pra equipe interna o header continua só com o título, já que
+                não há "uma" empresa associada à sessão. */}
+            {[UserRole.CUSTOMER, UserRole.EMPLOYEE].includes(currentUser?.role as UserRole) && currentUser?.companyLogoThumbUrl && (
+              <>
+                <img
+                  src={currentUser.companyLogoThumbUrl}
+                  alt="Logo da empresa"
+                  className="h-9 max-w-[7rem] object-contain"
+                />
+                <div className="h-4 w-px bg-[var(--border-default)]"></div>
+              </>
+            )}
             <h1 className="text-lg font-semibold text-[var(--text-primary)] tracking-tight">Portal SSX Desk</h1>
             <div className="h-4 w-px bg-[var(--border-default)]"></div>
             <span className="text-sm text-[var(--text-tertiary)] font-medium">Logado como: {currentUser?.name}</span>

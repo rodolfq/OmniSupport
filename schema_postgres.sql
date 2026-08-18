@@ -982,6 +982,10 @@ ALTER TABLE public.chat_messages ADD COLUMN IF NOT EXISTS deleted_at timestamptz
 ALTER TABLE public.chat_messages ADD COLUMN IF NOT EXISTS deleted_by uuid;
 ALTER TABLE public.chat_messages ADD COLUMN IF NOT EXISTS delivered_by uuid[] DEFAULT '{}'::uuid[];
 ALTER TABLE public.companies ADD COLUMN IF NOT EXISTS is_in_training boolean DEFAULT false NOT NULL;
+-- Logo da empresa-cliente (ver migrations/companies_logo.sql) — mesmo padrão
+-- de profiles.avatar_url/avatar_thumb_url.
+ALTER TABLE public.companies ADD COLUMN IF NOT EXISTS logo_url TEXT;
+ALTER TABLE public.companies ADD COLUMN IF NOT EXISTS logo_thumb_url TEXT;
 ALTER TABLE public.internal_chat_messages ADD COLUMN IF NOT EXISTS read_by uuid[] DEFAULT '{}'::uuid[];
 ALTER TABLE public.internal_chat_messages ADD COLUMN IF NOT EXISTS delivered_by uuid[] DEFAULT '{}'::uuid[];
 ALTER TABLE public.profiles ADD COLUMN IF NOT EXISTS is_active boolean DEFAULT true NOT NULL;

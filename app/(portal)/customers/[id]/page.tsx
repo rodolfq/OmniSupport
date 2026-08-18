@@ -89,8 +89,12 @@ export default function CompanyDetailPage() {
         <button onClick={() => router.back()} className="p-2 hover:bg-[var(--surface-pill)] rounded-xl transition-all text-[var(--text-tertiary)] hover:text-[var(--text-primary)]">
           <ChevronLeft size={24} />
         </button>
-        <div className="w-12 h-12 rounded-2xl bg-[var(--accent)]/10 flex items-center justify-center text-[var(--accent-text)] shrink-0">
-          <Building2 size={22} />
+        <div className="w-12 h-12 rounded-2xl bg-[var(--accent)]/10 flex items-center justify-center text-[var(--accent-text)] shrink-0 overflow-hidden">
+          {company?.logoThumbUrl ? (
+            <img src={company.logoThumbUrl} alt="" className="w-full h-full object-cover" />
+          ) : (
+            <Building2 size={22} />
+          )}
         </div>
         <div className="min-w-0">
           {loadingCompany ? (
