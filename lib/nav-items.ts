@@ -5,19 +5,12 @@ import {
   Users,
   PieChart,
   Settings,
-  UserCog,
-  Shield,
   MessageSquare,
   UserCircle,
-  Key,
   MessageCircle,
-  Library,
-  FileText,
   History,
   Star,
-  Rocket,
-  BarChart3,
-  RefreshCw
+  BarChart3
 } from 'lucide-react';
 import { Permission, UserRole, User } from './types';
 
@@ -35,7 +28,9 @@ export interface NavItem {
 
 // Mesma árvore de navegação usada pela sidebar desktop e pelo menu "Mais" do
 // shell mobile — uma única fonte de verdade para as regras de role/permissão.
-export function getNavItems(currentUser: User | null, onChangePassword: () => void): NavItem[] {
+// "Alterar Senha" não é mais item de menu à parte: fica dentro de
+// Configurações > Segurança (ver app/(portal)/settings/page.tsx).
+export function getNavItems(currentUser: User | null): NavItem[] {
   const isCustomer = [UserRole.CUSTOMER, UserRole.EMPLOYEE].includes(currentUser?.role as UserRole);
 
   if (isCustomer) {
@@ -50,15 +45,10 @@ export function getNavItems(currentUser: User | null, onChangePassword: () => vo
       ...(currentUser?.role === UserRole.CUSTOMER ? [
         { name: 'Empresa', icon: Users, href: '/customers' },
       ] : []),
-      {
-        name: 'Configurações',
-        icon: Settings,
-        href: '/settings',
-        subItems: [
-          { name: 'Perfil', icon: Settings, href: '/settings' },
-          { name: 'Alterar Senha', icon: Key, action: onChangePassword },
-        ]
-      },
+      // Configurações virou uma tela única com menus internos (Perfil,
+      // Segurança/Alterar Senha etc. já estão lá dentro) — o item do menu é
+      // um link direto, sem submenu duplicando o que já está em /settings.
+      { name: 'Configurações', icon: Settings, href: '/settings' },
     ];
   }
 
@@ -94,23 +84,11 @@ export function getNavItems(currentUser: User | null, onChangePassword: () => vo
     },
     { name: 'Chat Interno', icon: MessageCircle, href: '/chat-internal', permission: Permission.CHAT_INTERNAL_VIEW },
     { name: 'Clientes', icon: Users, href: '/customers', permission: Permission.CUSTOMERS_READ },
-    {
-      name: 'Configurações',
-      icon: Settings,
-      href: '/settings',
-      subItems: [
-        { name: 'Configurações', icon: Settings, href: '/settings' },
-        { name: 'WhatsApp', icon: MessageSquare, href: '/settings?tab=whatsapp', permission: Permission.WHATSAPP_MANAGE },
-        { name: 'Equipe', icon: UserCog, href: '/team', permission: Permission.TEAM_READ },
-        { name: 'Equipes & Permissões', icon: Shield, href: '/permissions', permission: Permission.SETTINGS_WRITE },
-        { name: 'Filas', icon: Library, href: '/queues', permission: Permission.QUEUES_MANAGE },
-        // Array = quem só tem giro:manage (sem giro:view) também vê o item —
-        // mesma regra usada acima em Chamados para as duas permissões dele.
-        { name: 'Giro de Atendimento', icon: RefreshCw, href: '/giro', permission: [Permission.GIRO_VIEW, Permission.GIRO_MANAGE] },
-        { name: 'Hotfixes', icon: Rocket, href: '/hotfixes', permission: Permission.HOTFIXES_MANAGE },
-        { name: 'Alterar Senha', icon: Key, action: onChangePassword },
-      ]
-    },
+    // Configurações virou uma tela única com menus internos (Equipe, Filas,
+    // Giro, Hotfixes, WhatsApp, Alterar Senha etc. já estão lá dentro, ver
+    // app/(portal)/settings/page.tsx) — o item do menu é um link direto, sem
+    // submenu duplicando o que já está em /settings.
+    { name: 'Configurações', icon: Settings, href: '/settings' },
   ];
 }
 

@@ -11,7 +11,6 @@ import { UserRole, Permission } from '@/lib/types';
 import { getNavItems, getUserPermissions, filterVisibleNavItems } from '@/lib/nav-items';
 import { usePwaInstall } from '@/lib/pwa-install';
 import { cn } from '@/lib/utils';
-import { ChangePasswordModal } from './change-password-modal';
 
 interface MobileMoreSheetProps {
   isOpen: boolean;
@@ -41,7 +40,6 @@ export function MobileMoreSheet({ isOpen, onClose }: MobileMoreSheetProps) {
   } = useApp();
   const { theme, toggleTheme } = useTheme();
 
-  const [isPasswordModalOpen, setIsPasswordModalOpen] = useState(false);
   const [isStatusOpen, setIsStatusOpen] = useState(false);
   const [openSection, setOpenSection] = useState<string | null>(null);
   const [showIosInstallHint, setShowIosInstallHint] = useState(false);
@@ -50,8 +48,8 @@ export function MobileMoreSheet({ isOpen, onClose }: MobileMoreSheetProps) {
   const isTeam = [UserRole.ADMIN, UserRole.SUPPORT, UserRole.INTERNAL].includes(currentUser?.role as UserRole);
 
   const navItems = useMemo(
-    () => getNavItems(currentUser, () => { setIsPasswordModalOpen(true); onClose(); }),
-    [currentUser, onClose]
+    () => getNavItems(currentUser),
+    [currentUser]
   );
   const userPermissions = useMemo(() => getUserPermissions(currentUser), [currentUser]);
   const visibleItems = useMemo(
@@ -293,8 +291,6 @@ export function MobileMoreSheet({ isOpen, onClose }: MobileMoreSheetProps) {
           </motion.div>
         </div>
       )}
-
-      {isPasswordModalOpen && <ChangePasswordModal isOpen={isPasswordModalOpen} onClose={() => setIsPasswordModalOpen(false)} />}
     </AnimatePresence>
   );
 }

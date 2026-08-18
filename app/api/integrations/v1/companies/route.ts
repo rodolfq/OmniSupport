@@ -4,6 +4,7 @@ import {
   isAuthError,
   authErrorResponse,
   requireScope,
+  requireAnyScope,
   integrationJson,
   integrationError,
 } from '@/lib/integration-auth';
@@ -91,7 +92,14 @@ function serializeCompany(row: any) {
 export async function GET(request: Request) {
   const auth = await authenticateApiKey(request);
   if (isAuthError(auth)) return authErrorResponse(auth);
-  const scopeError = requireScope(auth, 'employees:read');
+  // `companies:read` é o escopo certo desde sempre, mas a rota nasceu
+  // aceitando `employees:read` (histórico: era preciso resolver companyId
+  // antes de cadastrar um funcionário, e não existia escopo próprio — ver
+  // CLAUDE.md, item pendente #7). `companies:write` também libera leitura —
+  // não faz sentido escrever sem poder ler o que está sendo alterado.
+  // `employees:read` continua valendo por compatibilidade com chaves já
+  // emitidas; não usar como referência para chaves novas.
+  const scopeError = requireAnyScope(auth, ['companies:read', 'companies:write', 'employees:read']);
   if (scopeError) return scopeError;
 
   const { searchParams } = new URL(request.url);

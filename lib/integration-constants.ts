@@ -9,7 +9,9 @@ export const INTEGRATION_SCOPES = [
   'employees:read',
   'employees:write',
   'tickets:read',
+  'tickets:write',
   'conversations:read',
+  'companies:read',
   'companies:write',
 ] as const;
 

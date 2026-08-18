@@ -11,6 +11,15 @@ import {
 // Leitura de conversas (sessões de chat, incluindo WhatsApp) para a
 // plataforma externa. Filtro por companyId faz join com profiles pois
 // chat_sessions só guarda customer_id diretamente.
+//
+// Boa prática de consulta: colunas explícitas, não `SELECT *` — evita que uma
+// coluna nova/interna (ex.: awaiting_survey_until, um detalhe de timing da
+// pesquisa de satisfação) vaze pra fora sem decisão deliberada.
+const SESSION_COLUMNS = `
+  id, type, customer_id, customer_name, customer_phone, assignee_id, queue_id,
+  status, ticket_id, ticket_number, created_at, updated_at, last_message_at
+`;
+
 function serializeSession(row: any) {
   return {
     id: row.id,
@@ -19,6 +28,7 @@ function serializeSession(row: any) {
     customerName: row.customer_name,
     customerPhone: row.customer_phone,
     assigneeId: row.assignee_id,
+    queueId: row.queue_id,
     status: row.status,
     ticketId: row.ticket_id,
     ticketNumber: row.ticket_number,
@@ -29,6 +39,7 @@ function serializeSession(row: any) {
 }
 
 function serializeMessage(row: any) {
+  const metadata = row.metadata || {};
   return {
     id: row.id,
     sessionId: row.session_id,
@@ -36,6 +47,7 @@ function serializeMessage(row: any) {
     senderName: row.sender_name,
     text: row.text,
     type: row.type,
+    attachments: metadata.attachments || [],
     createdAt: row.created_at,
   };
 }
@@ -51,12 +63,19 @@ export async function GET(request: Request) {
 
   try {
     if (id) {
-      const sessionRes = await query('SELECT * FROM public.chat_sessions WHERE id = $1', [id]);
+      const sessionRes = await query(`SELECT ${SESSION_COLUMNS} FROM public.chat_sessions WHERE id = $1`, [id]);
       if (sessionRes.rowCount === 0) {
         return integrationError(auth, 'NOT_FOUND', 'Conversa não encontrada.', 404);
       }
+      // FALTAVA este filtro: chat_messages.type inclui 'internal' (nota
+      // trocada entre atendentes dentro da própria conversa, não visível ao
+      // cliente) — sem excluir, essa API vazava nota interna pra fora, a
+      // mesma categoria de problema que o endpoint de chamados já evitava.
       const messagesRes = await query(
-        'SELECT * FROM public.chat_messages WHERE session_id = $1 ORDER BY created_at ASC',
+        `SELECT id, session_id, sender_id, sender_name, text, type, metadata, created_at
+           FROM public.chat_messages
+          WHERE session_id = $1 AND type != 'internal'
+          ORDER BY created_at ASC`,
         [id]
       );
       return integrationJson(auth, {
@@ -70,6 +89,8 @@ export async function GET(request: Request) {
     const companyId = searchParams.get('companyId');
     const customerId = searchParams.get('customerId');
     const status = searchParams.get('status');
+    // Mesmo padrão de sincronização incremental do endpoint de chamados.
+    const updatedSince = searchParams.get('updatedSince');
     const limit = Math.min(Math.max(parseInt(searchParams.get('limit') || '100', 10) || 100, 1), 500);
     const offset = Math.max(parseInt(searchParams.get('offset') || '0', 10) || 0, 0);
 
@@ -89,6 +110,14 @@ export async function GET(request: Request) {
       params.push(status);
       conditions.push(`cs.status = $${params.length}`);
     }
+    if (updatedSince) {
+      const parsed = new Date(updatedSince);
+      if (Number.isNaN(parsed.getTime())) {
+        return integrationError(auth, 'VALIDATION_ERROR', 'updatedSince precisa ser uma data ISO 8601 válida.', 400);
+      }
+      params.push(parsed.toISOString());
+      conditions.push(`cs.updated_at >= $${params.length}`);
+    }
     const whereClause = conditions.length ? `WHERE ${conditions.join(' AND ')}` : '';
 
     const countRes = await query(
@@ -98,8 +127,9 @@ export async function GET(request: Request) {
     const total = countRes.rows[0]?.total ?? 0;
 
     const listParams = [...params, limit, offset];
+    const sessionCols = SESSION_COLUMNS.split(',').map(c => `cs.${c.trim()}`).join(', ');
     const res = await query(
-      `SELECT cs.* FROM public.chat_sessions cs
+      `SELECT ${sessionCols} FROM public.chat_sessions cs
        ${joinCompany}
        ${whereClause}
        ORDER BY cs.created_at DESC

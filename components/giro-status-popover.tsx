@@ -334,7 +334,7 @@ export function GiroStatusPopover() {
             )}
 
             <Link
-              href="/giro"
+              href="/settings?tab=giro"
               onClick={() => setOpen(false)}
               className="flex items-center justify-center gap-1.5 px-5 py-3 border-t border-[var(--border-default)] text-[10px] font-black uppercase tracking-widest text-[var(--accent-text)] hover:bg-[var(--accent)]/5 transition-colors"
             >

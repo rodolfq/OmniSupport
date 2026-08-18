@@ -154,3 +154,15 @@ export function requireScope(auth: AuthenticatedIntegration, scope: IntegrationS
   }
   return null;
 }
+
+/**
+ * Libera se a chave tiver QUALQUER UM dos escopos informados — usado onde um
+ * escopo de escrita já implica o de leitura (ex.: `companies:write` também
+ * permite ler empresas, não faz sentido escrever sem poder ler o que se está
+ * prestes a mudar) ou onde um escopo antigo precisa continuar valendo por
+ * compatibilidade enquanto o novo, mais específico, é o recomendado.
+ */
+export function requireAnyScope(auth: AuthenticatedIntegration, scopes: IntegrationScope[]): NextResponse | null {
+  if (scopes.some(s => auth.scopes.includes(s))) return null;
+  return integrationError(auth, 'FORBIDDEN_SCOPE', `Esta chave de API não tem nenhum dos escopos necessários: ${scopes.join(' ou ')}`, 403);
+}

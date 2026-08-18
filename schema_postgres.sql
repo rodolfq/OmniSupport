@@ -106,6 +106,11 @@ CREATE TABLE public.internal_teams (
 );
 
 CREATE INDEX IF NOT EXISTS idx_profiles_internal_teams ON public.profiles USING gin (internal_team_ids);
+-- GET /api/integrations/v1/employees filtra sempre por role IN (...) e
+-- ordena por created_at DESC, e opcionalmente por company_id — ver
+-- migrations/integration_v1_indexes.sql.
+CREATE INDEX IF NOT EXISTS idx_profiles_role_created_at ON public.profiles(role, created_at DESC);
+CREATE INDEX IF NOT EXISTS idx_profiles_company_id ON public.profiles(company_id);
 
 -- Role Permissions Table ("Perfil de Acesso" na UI) — fonte única de quais
 -- telas/ações um usuário tem. profiles.access_profile_id aponta pra cá; o
@@ -392,6 +397,9 @@ CREATE INDEX IF NOT EXISTS idx_tickets_company_id ON public.tickets(company_id);
 CREATE INDEX IF NOT EXISTS idx_tickets_search_vector ON public.tickets USING GIN (search_vector);
 CREATE INDEX IF NOT EXISTS idx_tickets_customer_id ON public.tickets(customer_id);
 CREATE INDEX IF NOT EXISTS idx_tickets_created_at ON public.tickets(created_at DESC);
+-- Sincronização incremental da API de integração (?updatedSince=) —
+-- migrations/integration_v1_indexes.sql.
+CREATE INDEX IF NOT EXISTS idx_tickets_updated_at ON public.tickets(updated_at DESC);
 
 -- Fila de envio atrasado (status='pending') e histórico/auditoria
 -- (status='sent'|'failed'|'skipped') na mesma tabela. Movida pra depois de
@@ -460,6 +468,10 @@ CREATE INDEX IF NOT EXISTS idx_chat_sessions_queue_id ON public.chat_sessions(qu
 CREATE INDEX IF NOT EXISTS idx_chat_sessions_assignee_id ON public.chat_sessions(assignee_id);
 CREATE INDEX IF NOT EXISTS idx_chat_sessions_customer_id ON public.chat_sessions(customer_id);
 CREATE INDEX IF NOT EXISTS idx_chat_sessions_ticket_id ON public.chat_sessions(ticket_id);
+-- Listagem da API de integração ordena por created_at e filtra por
+-- updated_at (?updatedSince=) — migrations/integration_v1_indexes.sql.
+CREATE INDEX IF NOT EXISTS idx_chat_sessions_created_at ON public.chat_sessions(created_at DESC);
+CREATE INDEX IF NOT EXISTS idx_chat_sessions_updated_at ON public.chat_sessions(updated_at DESC);
 
 -- Chamado -> conversa de origem (N:1, permite mais de um chamado pra mesma
 -- conversa). Fica como ALTER porque chat_sessions é criada depois de tickets

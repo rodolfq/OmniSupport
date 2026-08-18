@@ -242,6 +242,45 @@ export async function GET(request: Request) {
         })),
         total: res.rows.length > 0 ? parseInt(res.rows[0].total_count, 10) : 0
       });
+    } else if (type === 'team-search') {
+      // Busca paginada da Gestão da Equipe (Configurações > Equipe). Antes a
+      // tela baixava TODO usuário do sistema — inclusive cada cliente/
+      // funcionário de cada empresa — só para filtrar 3 papéis no client;
+      // aqui o filtro de papel, a busca por nome/e-mail e o recorte por
+      // equipe administrada já saem prontos do banco, uma página por vez.
+      const isSystemAdmin = actor.role === 'Administrador';
+      const adminTeamIds = isSystemAdmin ? [] : await getAdminTeamIds(actor.id);
+
+      const q = (searchParams.get('q') || '').trim();
+      const page = Math.max(1, parseInt(searchParams.get('page') || '1', 10) || 1);
+      const pageSize = Math.min(50, Math.max(1, parseInt(searchParams.get('pageSize') || '20', 10) || 20));
+      const offset = (page - 1) * pageSize;
+      const likeParam = `%${q}%`;
+
+      const res = await query(
+        `SELECT id, name, email, role, access_profile_id, avatar_thumb_url,
+                (avatar_url IS NOT NULL AND avatar_url <> '') AS has_avatar,
+                COUNT(*) OVER() AS total_count
+           FROM public.profiles
+          WHERE role IN ('Administrador', 'Equipe', 'Time Interno')
+            AND ($1::boolean OR internal_team_ids && $2::uuid[])
+            AND ($3 = '' OR name ILIKE $4 OR email ILIKE $4)
+          ORDER BY name ASC
+          LIMIT $5 OFFSET $6`,
+        [isSystemAdmin, adminTeamIds, q, likeParam, pageSize, offset]
+      );
+      return NextResponse.json({
+        items: res.rows.map(r => ({
+          id: r.id,
+          name: r.name,
+          email: r.email,
+          role: r.role,
+          accessProfileId: r.access_profile_id || undefined,
+          avatarUrl: r.has_avatar ? `/api/users/${r.id}/avatar` : undefined,
+          avatarThumbUrl: r.avatar_thumb_url || undefined
+        })),
+        total: res.rows.length > 0 ? parseInt(res.rows[0].total_count, 10) : 0
+      });
     } else {
       // avatarUrl aqui é o ENDEREÇO da foto, não a foto. Antes esta listagem
       // devolvia o base64 inteiro de todo mundo: 50,7 MB por carga, em 14

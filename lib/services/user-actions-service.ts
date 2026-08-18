@@ -34,6 +34,19 @@ export async function getUsers(): Promise<User[]> {
   }
 }
 
+// Busca paginada da Gestão da Equipe — troca "baixa todo mundo e filtra no
+// client" por página + busca já resolvidas no servidor (mesmo padrão de
+// UserService.searchAnalysts, usado pelo seletor de membros de Fila).
+export async function searchTeamMembers(q: string, page: number, pageSize: number): Promise<{ items: User[]; total: number }> {
+  try {
+    const params = new URLSearchParams({ type: 'team-search', q, page: String(page), pageSize: String(pageSize) });
+    return await apiJson<{ items: User[]; total: number }>(`/api/users?${params.toString()}`);
+  } catch (err) {
+    console.error('Erro ao buscar equipe:', err);
+    return { items: [], total: 0 };
+  }
+}
+
 export async function getAnalysts(): Promise<User[]> {
   try {
     return await apiJson<User[]>('/api/users?type=analysts-basic');

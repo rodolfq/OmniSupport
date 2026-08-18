@@ -22,7 +22,7 @@ export interface EndpointErrorDoc {
 
 export interface EndpointDoc {
   id: string;
-  method: 'GET' | 'POST' | 'PUT';
+  method: 'GET' | 'POST' | 'PUT' | 'PATCH' | 'DELETE';
   path: string;
   summary: string;
   description: string;
@@ -62,19 +62,20 @@ export const INTEGRATION_ENDPOINTS: EndpointDoc[] = [
     method: 'GET',
     path: '/api/integrations/v1/employees',
     summary: 'Listar ou consultar funcionários',
-    description: 'Sem parâmetros, retorna uma página de funcionários (papéis Funcionário/Cliente). Informando "id", ignora os demais filtros e retorna um único registro.',
+    description: 'Sem parâmetros, retorna uma página de funcionários ATIVOS (papéis Funcionário/Cliente). Informando "id", ignora os demais filtros e retorna um único registro (ativo ou não). Quem foi desativado (ver DELETE) só aparece pedindo includeInactive=1.',
     scope: 'employees:read',
     params: [
       { name: 'id', in: 'query', type: 'uuid', description: 'Retorna só esse funcionário.' },
       { name: 'companyId', in: 'query', type: 'uuid', description: 'Filtra por empresa (ver GET /companies).' },
       { name: 'email', in: 'query', type: 'string', description: 'Filtra por e-mail exato.' },
+      { name: 'includeInactive', in: 'query', type: '"1"', description: 'Inclui quem foi desativado na listagem. Padrão: só ativos.' },
       { name: 'limit', in: 'query', type: 'number', description: 'Itens por página. Padrão 100, máximo 500.', placeholder: '100' },
       { name: 'offset', in: 'query', type: 'number', description: 'Deslocamento para paginação. Padrão 0.', placeholder: '0' },
     ],
     exampleResponse: JSON.stringify(
       {
         data: [
-          { id: 'b7e1...', name: 'Jean Silva', email: 'jean@empresa.com', role: 'Funcionário', companyId: '56f9...', phone: '11999990000', createdAt: '2026-07-20T12:00:00.000Z' },
+          { id: 'b7e1...', name: 'Jean Silva', email: 'jean@empresa.com', role: 'Funcionário', companyId: '56f9...', phone: '11999990000', isActive: true, createdAt: '2026-07-20T12:00:00.000Z' },
         ],
         meta: { limit: 100, offset: 0, total: 1, hasMore: false },
       },
@@ -114,7 +115,7 @@ export const INTEGRATION_ENDPOINTS: EndpointDoc[] = [
     method: 'PUT',
     path: '/api/integrations/v1/employees',
     summary: 'Atualizar funcionário',
-    description: 'Atualização parcial: envie só os campos que deseja alterar. O "id" vai na query string; os demais campos vão no corpo.',
+    description: 'Atualização parcial: envie só os campos que deseja alterar. O "id" vai na query string; os demais campos vão no corpo. Também serve para REATIVAR alguém desativado — envie isActive: true.',
     scope: 'employees:write',
     params: [
       { name: 'id', in: 'query', type: 'uuid', required: true, description: 'Id do funcionário a atualizar.' },
@@ -122,16 +123,35 @@ export const INTEGRATION_ENDPOINTS: EndpointDoc[] = [
       { name: 'phone', in: 'body', type: 'string', description: 'Novo telefone.' },
       { name: 'companyId', in: 'body', type: 'uuid', description: 'Nova empresa vinculada.' },
       { name: 'role', in: 'body', type: '"Funcionário" | "Cliente"', description: 'Novo papel (nunca Administrador/Equipe/Time Interno).' },
+      { name: 'isActive', in: 'body', type: 'boolean', description: 'true reativa um funcionário desativado (ver DELETE).' },
     ],
     exampleResponse: JSON.stringify(
-      { data: { id: 'b7e1...', name: 'Jean Silva', email: 'jean@empresa.com', role: 'Funcionário', companyId: '56f9...', phone: '11888887777', createdAt: '2026-07-20T12:00:00.000Z' } },
+      { data: { id: 'b7e1...', name: 'Jean Silva', email: 'jean@empresa.com', role: 'Funcionário', companyId: '56f9...', phone: '11888887777', isActive: true, createdAt: '2026-07-20T12:00:00.000Z' } },
       null,
       2
     ),
     errors: [
       ...AUTH_ERRORS,
       scopeError('employees:write'),
-      { status: 400, code: 'VALIDATION_ERROR', description: 'id ausente, role fora da whitelist ou companyId inexistente.' },
+      { status: 400, code: 'VALIDATION_ERROR', description: 'id ausente, role fora da whitelist, isActive não-boolean ou companyId inexistente.' },
+      { status: 404, code: 'NOT_FOUND', description: 'Funcionário não encontrado.' },
+    ],
+  },
+  {
+    id: 'employees-delete',
+    method: 'DELETE',
+    path: '/api/integrations/v1/employees',
+    summary: 'Desativar funcionário',
+    description: 'Desativação SUAVE (is_active = false) — nunca apaga o registro de verdade, porque chamados e conversas antigas continuam apontando pra ele. Some das listagens padrão a partir de agora. Para reverter, use PUT com isActive: true.',
+    scope: 'employees:write',
+    params: [
+      { name: 'id', in: 'query', type: 'uuid', required: true, description: 'Id do funcionário a desativar.' },
+    ],
+    exampleResponse: JSON.stringify({ data: { id: 'b7e1...', isActive: false } }, null, 2),
+    errors: [
+      ...AUTH_ERRORS,
+      scopeError('employees:write'),
+      { status: 400, code: 'VALIDATION_ERROR', description: 'Parâmetro id ausente.' },
       { status: 404, code: 'NOT_FOUND', description: 'Funcionário não encontrado.' },
     ],
   },
@@ -140,8 +160,8 @@ export const INTEGRATION_ENDPOINTS: EndpointDoc[] = [
     method: 'GET',
     path: '/api/integrations/v1/companies',
     summary: 'Listar ou consultar empresas',
-    description: 'Use para resolver o companyId antes de cadastrar/atualizar um funcionário, ou para consultar o perfil de relacionamento (isInTraining + resumo das avaliações do analista). Sem "id" retorna todas; com "id" retorna uma só.',
-    scope: 'employees:read',
+    description: 'Use para resolver o companyId antes de cadastrar/atualizar um funcionário, ou para consultar o perfil de relacionamento (isInTraining + resumo das avaliações do analista). Sem "id" retorna todas; com "id" retorna uma só. Aceita companies:read, companies:write (que já inclui leitura) ou, por compatibilidade com chaves antigas, employees:read.',
+    scope: 'companies:read',
     params: [{ name: 'id', in: 'query', type: 'uuid', description: 'Retorna só essa empresa.' }],
     exampleResponse: JSON.stringify(
       {
@@ -166,7 +186,7 @@ export const INTEGRATION_ENDPOINTS: EndpointDoc[] = [
       null,
       2
     ),
-    errors: [...AUTH_ERRORS, scopeError('employees:read'), { status: 404, code: 'NOT_FOUND', description: 'Empresa não encontrada.' }],
+    errors: [...AUTH_ERRORS, scopeError('companies:read'), { status: 404, code: 'NOT_FOUND', description: 'Empresa não encontrada.' }],
   },
   {
     id: 'companies-update',
@@ -214,52 +234,112 @@ export const INTEGRATION_ENDPOINTS: EndpointDoc[] = [
     method: 'GET',
     path: '/api/integrations/v1/tickets',
     summary: 'Listar ou consultar chamados',
-    description: 'Sem "id" retorna uma página de chamados de todos os clientes (use companyId para filtrar por empresa). Com "id" retorna o chamado com as mensagens visíveis ao cliente — mensagens internas entre atendentes não são expostas por esta API.',
+    description: 'Sem "id" retorna uma página de chamados de todos os clientes (use companyId para filtrar por empresa, ou updatedSince para sincronização incremental). Com "id" retorna o chamado com as mensagens visíveis ao cliente — mensagens internas entre atendentes não são expostas por esta API.',
     scope: 'tickets:read',
     params: [
       { name: 'id', in: 'query', type: 'string', description: 'Retorna esse chamado + mensagens.' },
       { name: 'companyId', in: 'query', type: 'uuid', description: 'Opcional. Filtra por empresa — sem esse parâmetro, retorna chamados de todos os clientes.' },
       { name: 'status', in: 'query', type: 'string', description: 'Ex.: "Novo", "Em Atendimento", "Aguardando Cliente", "Fechado".', placeholder: 'Novo' },
+      { name: 'updatedSince', in: 'query', type: 'ISO 8601', description: 'Só chamados alterados a partir desta data/hora — para sincronizar incrementalmente sem reler tudo a cada chamada.', placeholder: '2026-08-01T00:00:00Z' },
       { name: 'limit', in: 'query', type: 'number', description: 'Itens por página. Padrão 100, máximo 500.', placeholder: '100' },
       { name: 'offset', in: 'query', type: 'number', description: 'Deslocamento para paginação. Padrão 0.', placeholder: '0' },
     ],
     exampleResponse: JSON.stringify(
       {
         data: [
-          { id: '294803172edd...', ticketNumber: 23, title: 'Impressora não liga', status: 'Novo', priority: 'Média', category: 'Hardware', companyId: '56f9...', customerId: null, assigneeId: null, employeeIds: [], createdAt: '2026-07-20T12:00:00.000Z', updatedAt: '2026-07-20T12:00:00.000Z' },
+          { id: '294803172edd...', ticketNumber: 23, title: 'Impressora não liga', description: 'Não liga mesmo trocando a tomada.', status: 'Novo', subStatus: null, priority: 'Média', category: 'Hardware', categoryId: 'a1b2...', requestTypeId: null, productId: null, tags: ['hardware'], companyId: '56f9...', customerId: null, assigneeId: null, employeeIds: [], createdAt: '2026-07-20T12:00:00.000Z', updatedAt: '2026-07-20T12:00:00.000Z' },
         ],
         meta: { limit: 100, offset: 0, total: 1, hasMore: false },
       },
       null,
       2
     ),
-    errors: [...AUTH_ERRORS, scopeError('tickets:read'), { status: 404, code: 'NOT_FOUND', description: 'Chamado não encontrado.' }],
+    errors: [...AUTH_ERRORS, scopeError('tickets:read'), { status: 400, code: 'VALIDATION_ERROR', description: 'updatedSince não é uma data ISO 8601 válida.' }, { status: 404, code: 'NOT_FOUND', description: 'Chamado não encontrado.' }],
+  },
+  {
+    id: 'tickets-create',
+    method: 'POST',
+    path: '/api/integrations/v1/tickets',
+    summary: 'Abrir chamado',
+    description: 'Cria um chamado novo, com status "Novo", em nome de uma empresa (e opcionalmente de um contato específico). Dispara a mesma automação de "novo chamado" configurada em Configurações — a equipe é notificada igual a um chamado aberto pelo portal.',
+    scope: 'tickets:write',
+    params: [
+      { name: 'title', in: 'body', type: 'string', required: true, description: 'Título do chamado.', placeholder: 'Impressora não liga' },
+      { name: 'description', in: 'body', type: 'string', required: true, description: 'Descrição do problema.', placeholder: 'Não liga mesmo trocando a tomada.' },
+      { name: 'companyId', in: 'body', type: 'uuid', required: true, description: 'Empresa dona do chamado (ver GET /companies).' },
+      { name: 'customerId', in: 'body', type: 'uuid', description: 'Contato específico que abriu o chamado (ver GET /employees).' },
+      { name: 'priority', in: 'body', type: '"Baixa" | "Média" | "Alta" | "Urgente"', description: 'Padrão: Baixa.' },
+      { name: 'categoryId', in: 'body', type: 'uuid', description: 'Categoria (lista configurável em Configurações).' },
+      { name: 'requestTypeId', in: 'body', type: 'uuid', description: 'Tipo de solicitação (lista configurável).' },
+      { name: 'productId', in: 'body', type: 'uuid', description: 'Produto (lista configurável).' },
+      { name: 'tags', in: 'body', type: 'string[]', description: 'Marcadores livres.' },
+    ],
+    exampleResponse: JSON.stringify(
+      { data: { id: '294803172edd...', ticketNumber: 24, title: 'Impressora não liga', description: 'Não liga mesmo trocando a tomada.', status: 'Novo', subStatus: null, priority: 'Baixa', category: 'Geral', categoryId: null, requestTypeId: null, productId: null, tags: [], companyId: '56f9...', customerId: null, assigneeId: null, employeeIds: [], createdAt: '2026-08-17T12:00:00.000Z', updatedAt: '2026-08-17T12:00:00.000Z' } },
+      null,
+      2
+    ),
+    errors: [
+      ...AUTH_ERRORS,
+      scopeError('tickets:write'),
+      { status: 400, code: 'VALIDATION_ERROR', description: 'Campo obrigatório ausente, priority fora da lista, ou companyId/customerId/categoryId/requestTypeId/productId inexistente.' },
+    ],
+  },
+  {
+    id: 'tickets-update',
+    method: 'PATCH',
+    path: '/api/integrations/v1/tickets',
+    summary: 'Atualizar chamado',
+    description: 'Atualização parcial: envie só os campos que deseja alterar. O "id" vai na query string. Dispara a mesma automação do portal (troca de status, prioridade, responsável) — inclusive e-mail/WhatsApp configurados para o status novo.',
+    scope: 'tickets:write',
+    params: [
+      { name: 'id', in: 'query', type: 'string', required: true, description: 'Id do chamado a atualizar.' },
+      { name: 'status', in: 'body', type: 'string', description: 'Precisa ser um status cadastrado em Configurações.', placeholder: 'Em Atendimento' },
+      { name: 'priority', in: 'body', type: '"Baixa" | "Média" | "Alta" | "Urgente"', description: 'Nova prioridade.' },
+      { name: 'categoryId', in: 'body', type: 'uuid', description: 'Nova categoria.' },
+      { name: 'requestTypeId', in: 'body', type: 'uuid', description: 'Novo tipo de solicitação.' },
+      { name: 'productId', in: 'body', type: 'uuid', description: 'Novo produto.' },
+      { name: 'tags', in: 'body', type: 'string[]', description: 'Substitui os marcadores.' },
+      { name: 'assigneeId', in: 'body', type: 'uuid', description: 'Novo responsável (precisa ser alguém da equipe).' },
+    ],
+    exampleResponse: JSON.stringify(
+      { data: { id: '294803172edd...', ticketNumber: 23, title: 'Impressora não liga', description: 'Não liga mesmo trocando a tomada.', status: 'Em Atendimento', subStatus: null, priority: 'Média', category: 'Hardware', categoryId: 'a1b2...', requestTypeId: null, productId: null, tags: ['hardware'], companyId: '56f9...', customerId: null, assigneeId: 'c3d4...', employeeIds: [], createdAt: '2026-07-20T12:00:00.000Z', updatedAt: '2026-08-17T12:05:00.000Z' } },
+      null,
+      2
+    ),
+    errors: [
+      ...AUTH_ERRORS,
+      scopeError('tickets:write'),
+      { status: 400, code: 'VALIDATION_ERROR', description: 'id ausente, nenhum campo informado, status não cadastrado, priority fora da lista, ou categoryId/requestTypeId/productId/assigneeId inexistente.' },
+      { status: 404, code: 'NOT_FOUND', description: 'Chamado não encontrado.' },
+    ],
   },
   {
     id: 'conversations-list',
     method: 'GET',
     path: '/api/integrations/v1/conversations',
     summary: 'Listar ou consultar conversas',
-    description: 'Sem "id" retorna uma página de conversas (chat/WhatsApp) de todos os clientes (use companyId ou customerId para filtrar). Com "id" retorna a conversa com todas as mensagens.',
+    description: 'Sem "id" retorna uma página de conversas (chat/WhatsApp) de todos os clientes (use companyId, customerId ou updatedSince para filtrar). Com "id" retorna a conversa com todas as mensagens visíveis ao cliente — anotações internas entre atendentes não são expostas por esta API.',
     scope: 'conversations:read',
     params: [
       { name: 'id', in: 'query', type: 'uuid', description: 'Retorna essa conversa + mensagens.' },
       { name: 'companyId', in: 'query', type: 'uuid', description: 'Opcional. Filtra pela empresa do cliente — sem esse parâmetro, retorna conversas de todos os clientes.' },
       { name: 'customerId', in: 'query', type: 'uuid', description: 'Filtra por cliente.' },
       { name: 'status', in: 'query', type: 'string', description: 'Ex.: "waiting", "active", "closed".', placeholder: 'active' },
+      { name: 'updatedSince', in: 'query', type: 'ISO 8601', description: 'Só conversas alteradas a partir desta data/hora — para sincronização incremental.', placeholder: '2026-08-01T00:00:00Z' },
       { name: 'limit', in: 'query', type: 'number', description: 'Itens por página. Padrão 100, máximo 500.', placeholder: '100' },
       { name: 'offset', in: 'query', type: 'number', description: 'Deslocamento para paginação. Padrão 0.', placeholder: '0' },
     ],
     exampleResponse: JSON.stringify(
       {
         data: [
-          { id: '7188...', type: 'support', customerId: '48bf...', customerName: 'Jean', customerPhone: '11999990000', assigneeId: 'a881...', status: 'active', ticketId: null, ticketNumber: null, createdAt: '2026-07-20T12:00:00.000Z', updatedAt: '2026-07-20T12:00:00.000Z', lastMessageAt: null },
+          { id: '7188...', type: 'support', customerId: '48bf...', customerName: 'Jean', customerPhone: '11999990000', assigneeId: 'a881...', queueId: 'suporte-n1', status: 'active', ticketId: null, ticketNumber: null, createdAt: '2026-07-20T12:00:00.000Z', updatedAt: '2026-07-20T12:00:00.000Z', lastMessageAt: null },
         ],
         meta: { limit: 100, offset: 0, total: 1, hasMore: false },
       },
       null,
       2
     ),
-    errors: [...AUTH_ERRORS, scopeError('conversations:read'), { status: 404, code: 'NOT_FOUND', description: 'Conversa não encontrada.' }],
+    errors: [...AUTH_ERRORS, scopeError('conversations:read'), { status: 400, code: 'VALIDATION_ERROR', description: 'updatedSince não é uma data ISO 8601 válida.' }, { status: 404, code: 'NOT_FOUND', description: 'Conversa não encontrada.' }],
   },
 ];

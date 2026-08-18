@@ -140,7 +140,7 @@ function getNotificationTargetHref(notif: Pick<AppNotification, 'type' | 'target
   if (!notif.targetId) return null;
   if (notif.type.startsWith('chat_')) return `${isCompanyUser ? '/my-tickets' : '/dashboard'}?chat=${notif.targetId}`;
   if (notif.type.startsWith('internal_ticket_')) return `/internal-tickets/${notif.targetId}`;
-  if (notif.type === 'hotfix_overdue') return '/hotfixes';
+  if (notif.type === 'hotfix_overdue') return '/settings?tab=hotfixes';
   // Não tem link de página — a ação é abrir o modal de avaliação, só possível
   // pelo clique no sino (ver NotificationPanel), não pela notificação nativa
   // do SO.

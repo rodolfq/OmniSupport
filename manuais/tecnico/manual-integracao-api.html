@@ -1,0 +1,457 @@
+<!doctype html>
+<html lang="pt-BR">
+<head>
+<meta charset="utf-8">
+<title>Manual de Integração — API Externa v1 — SSX Desk</title>
+<link rel="stylesheet" href="../assets/manual.css">
+<style>
+  /* Estilos extras só deste manual — endpoints, escopos e blocos de código,
+     que os manuais de usuário não precisam. Não mexe no manual.css
+     compartilhado. */
+  .code-block {
+    background: #0B1220; color: #D6E4F0; font-family: 'Consolas', 'SF Mono', 'Menlo', monospace;
+    font-size: 10.5px; line-height: 1.6; padding: 12px 15px; border-radius: 10px;
+    margin: 4px 0 14px 0; white-space: pre-wrap; word-break: break-word;
+  }
+  .code-block .c { color: #64748B; }
+  .code-block .k { color: #7EEFDD; }
+  .code-block .s { color: #FBBF87; }
+  .code-label {
+    font-size: 9.5px; font-weight: 800; text-transform: uppercase; letter-spacing: 0.08em;
+    color: var(--text-3); margin: 10px 0 5px 0;
+  }
+
+  /* Cartão de endpoint */
+  .endpoint {
+    border: 1px solid var(--border-strong); border-radius: 16px; margin: 0 0 16px 0; overflow: hidden;
+    break-inside: avoid;
+  }
+  .endpoint-head { display: flex; align-items: center; gap: 10px; padding: 12px 16px; background: var(--page-bg); border-bottom: 1px solid var(--border); }
+  .method { font-size: 10px; font-weight: 800; letter-spacing: 0.04em; padding: 4px 10px; border-radius: 7px; flex-shrink: 0; }
+  .method.get { background: var(--ok-bg); color: var(--teal-strong); }
+  .method.post { background: var(--info-bg); color: var(--navy-2); }
+  .method.put, .method.patch { background: var(--warn-bg); color: var(--warn); }
+  .method.delete { background: var(--danger-bg); color: var(--danger); }
+  .endpoint-path { font-family: 'Consolas', monospace; font-size: 11.5px; font-weight: 700; color: var(--navy); word-break: break-all; }
+  .endpoint-scope { margin-left: auto; flex-shrink: 0; }
+  .endpoint-body { padding: 12px 16px 14px 16px; }
+  .endpoint-body > p { font-size: 12px; margin-bottom: 8px; }
+  .endpoint-body p.new-tag { display: inline-block; background: var(--teal); color: white; font-size: 8.5px; font-weight: 800; text-transform: uppercase; letter-spacing: 0.06em; padding: 2px 8px; border-radius: 999px; margin: 0 0 8px 0; }
+
+  table.ptable { width: 100%; border-collapse: collapse; margin: 4px 0 10px 0; font-size: 10.5px; }
+  table.ptable th {
+    text-align: left; font-size: 9px; text-transform: uppercase; letter-spacing: 0.06em;
+    color: var(--text-3); font-weight: 800; padding: 5px 7px; border-bottom: 2px solid var(--border);
+  }
+  table.ptable td { padding: 6px 7px; border-bottom: 1px solid var(--border); color: var(--text-2); vertical-align: top; }
+  table.ptable td.name { font-family: 'Consolas', monospace; font-weight: 700; color: var(--navy); white-space: nowrap; }
+  table.ptable td.req { color: var(--danger); font-weight: 800; }
+  table.ptable td.type { color: var(--text-3); white-space: nowrap; font-family: 'Consolas', monospace; font-size: 9.5px; }
+
+  table.errtable { width: 100%; border-collapse: collapse; margin: 6px 0 4px 0; font-size: 11px; }
+  table.errtable th { text-align: left; font-size: 9.5px; text-transform: uppercase; letter-spacing: 0.06em; color: var(--text-3); font-weight: 800; padding: 6px 8px; border-bottom: 2px solid var(--border); }
+  table.errtable td { padding: 6px 8px; border-bottom: 1px solid var(--border); color: var(--text-2); vertical-align: top; }
+  table.errtable td.status { font-family: 'Consolas', monospace; font-weight: 800; }
+  table.errtable td.status.err4 { color: var(--warn); }
+  table.errtable td.status.err5 { color: var(--danger); }
+  table.errtable td.code { font-family: 'Consolas', monospace; font-size: 10px; color: var(--navy-2); font-weight: 700; }
+
+  table.scopetable { width: 100%; border-collapse: collapse; margin: 8px 0 4px 0; font-size: 11px; }
+  table.scopetable th { text-align: left; font-size: 9.5px; text-transform: uppercase; letter-spacing: 0.06em; color: var(--text-3); font-weight: 800; padding: 7px 8px; border-bottom: 2px solid var(--border); }
+  table.scopetable td { padding: 8px 8px; border-bottom: 1px solid var(--border); color: var(--text-2); vertical-align: top; }
+  table.scopetable td.scope { font-family: 'Consolas', monospace; font-weight: 800; color: var(--navy); white-space: nowrap; }
+
+  .resource-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; margin: 14px 0 6px 0; }
+  .resource-card { border: 1px solid var(--border); border-radius: 16px; padding: 14px; background: var(--page-bg); }
+  .resource-card .name { font-size: 13px; font-weight: 800; color: var(--navy); margin-bottom: 4px; display: flex; align-items: center; gap: 8px; }
+  .resource-card .name .ic { width: 26px; height: 26px; border-radius: 8px; background: var(--teal); color: white; display: flex; align-items: center; justify-content: center; font-size: 12px; flex-shrink: 0; }
+  .resource-card p { font-size: 11px; margin: 0; }
+</style>
+</head>
+<body>
+
+<!-- ============ CAPA ============ -->
+<div class="page cover">
+  <div class="glow"></div>
+  <div class="brand-mark"><div class="dot"></div><span>SSX Desk</span></div>
+  <div>
+    <div class="kicker">Guia Técnico · API de Integração v1</div>
+    <h1>Manual de Integração<br>API Externa</h1>
+    <div class="role-pill">⚙ Uso: plataformas e sistemas parceiros</div>
+    <p class="lede">Como autenticar, ler e escrever dados no SSX Desk a partir de outro sistema — chamados, conversas, empresas e funcionários, com chave de API própria, escopos por permissão e sincronização incremental.</p>
+  </div>
+  <div class="cover-footer">
+    <div class="meta"><b>SSX Desk</b>Plataforma de Atendimento ao Cliente</div>
+    <div class="meta"><b>Versão 1.0</b>API de Integração /api/integrations/v1</div>
+  </div>
+</div>
+
+<!-- ============ SUMÁRIO ============ -->
+<div class="page">
+  <div class="page-head"><span class="tag">Sumário</span><span class="brand">SSX Desk · Manual de Integração</span></div>
+  <h2 class="section-title">O que tem neste manual</h2>
+  <p class="section-lede">8 capítulos — da primeira chamada até o checklist de produção.</p>
+  <ul class="toc-list">
+    <li><span class="toc-num">01</span><span class="toc-label">Visão geral</span><span class="toc-desc">O que é, pra quem, arquitetura</span></li>
+    <li><span class="toc-num">02</span><span class="toc-label">Autenticação & escopos</span><span class="toc-desc">Chave de API e permissões por escopo</span></li>
+    <li><span class="toc-num">03</span><span class="toc-label">Convenções da API</span><span class="toc-desc">Respostas, paginação, erros, limite de uso</span></li>
+    <li><span class="toc-num">04</span><span class="toc-label">Empresas</span><span class="toc-desc">Consultar e atualizar clientes</span></li>
+    <li><span class="toc-num">05</span><span class="toc-label">Funcionários</span><span class="toc-desc">Cadastrar, atualizar, desativar</span></li>
+    <li><span class="toc-num">06</span><span class="toc-label">Chamados</span><span class="toc-desc">Consultar, abrir e atualizar</span></li>
+    <li><span class="toc-num">07</span><span class="toc-label">Conversas</span><span class="toc-desc">Histórico de chat/WhatsApp</span></li>
+    <li><span class="toc-num">08</span><span class="toc-label">Checklist & boas práticas</span><span class="toc-desc">Antes de ligar em produção</span></li>
+  </ul>
+</div>
+
+<!-- ============ 01 VISÃO GERAL ============ -->
+<div class="page">
+  <div class="page-head"><span class="tag">Capítulo 01 · Introdução</span><span class="brand">SSX Desk · Manual de Integração</span></div>
+  <div class="section-icon-row"><div class="section-icon">●</div><h2 class="section-title mt-0">Visão geral</h2></div>
+  <p class="section-lede">Uma API própria, independente do login do portal.</p>
+
+  <p>A API de integração é uma camada <b>separada do portal</b> — não usa o cookie de sessão que um analista usa ao logar. Ela existe pra que <b>outro sistema</b> (um CRM, um ERP, um portal do cliente) converse diretamente com os dados do SSX Desk: ler chamados e conversas, cadastrar funcionários, atualizar o status de um atendimento — tudo via requisição HTTP simples, autenticada por uma <b>chave de API</b> própria.</p>
+
+  <div class="callout danger"><span class="ico">⚠</span><p><b>Chamadas sempre partem do backend</b> da plataforma parceira — nunca do navegador do usuário final. A chave de API dá acesso amplo aos dados; colocá-la em código que roda no navegador expõe essa chave pra qualquer pessoa que abrir o Developer Tools.</p></div>
+
+  <h3 class="sub-title"><span class="num">i</span>Os quatro recursos disponíveis</h3>
+  <div class="resource-grid">
+    <div class="resource-card">
+      <div class="name"><span class="ic">🏢</span>Empresas</div>
+      <p>Consultar o cadastro de clientes e atualizar dados (nome, indústria, telefone, "em treinamento").</p>
+    </div>
+    <div class="resource-card">
+      <div class="name"><span class="ic">👤</span>Funcionários</div>
+      <p>Listar, cadastrar, atualizar e desativar contatos de uma empresa-cliente.</p>
+    </div>
+    <div class="resource-card">
+      <div class="name"><span class="ic">🎫</span>Chamados</div>
+      <p>Consultar, abrir novos chamados e atualizar status/prioridade/responsável.</p>
+    </div>
+    <div class="resource-card">
+      <div class="name"><span class="ic">💬</span>Conversas</div>
+      <p>Consultar o histórico de conversas de chat e WhatsApp, com mensagens e anexos.</p>
+    </div>
+  </div>
+
+  <h3 class="sub-title"><span class="num">ii</span>Endereço base</h3>
+  <p>Toda rota começa com <code>/api/integrations/v1/</code>, no mesmo domínio onde o portal está publicado — não existe um subdomínio separado pra API.</p>
+  <div class="code-block"><span class="c"># exemplo — troque pelo domínio real do seu SSX Desk</span>
+https://suporte.suaempresa.com.br/api/integrations/v1/ping</div>
+
+  <div class="page-foot"><span>SSX Desk</span><span>01 — Visão geral</span></div>
+</div>
+
+<!-- ============ 02 AUTENTICAÇÃO ============ -->
+<div class="page">
+  <div class="page-head"><span class="tag">Capítulo 02 · Acesso</span><span class="brand">SSX Desk · Manual de Integração</span></div>
+  <div class="section-icon-row"><div class="section-icon">🔑</div><h2 class="section-title mt-0">Autenticação & escopos</h2></div>
+  <p class="section-lede">Uma chave por integração, com só as permissões que ela precisa.</p>
+
+  <h3 class="sub-title"><span class="num">1</span>Gerar a chave</h3>
+  <ol class="steps">
+    <li>No portal: <b>Configurações → Integrações</b> (exige a permissão "Integrações" ou ser Administrador).</li>
+    <li>Clique em <b>Nova Chave</b>, dê um nome que identifique a integração (ex.: "CRM Comercial") e marque só os escopos que ela vai usar de verdade.</li>
+    <li>A chave completa (formato <code>ssx_...</code>) aparece <b>uma única vez</b>, na hora da criação — copie e guarde num cofre de segredos da plataforma parceira. Se for perdida, a única saída é gerar outra e revogar a antiga.</li>
+  </ol>
+
+  <div class="callout warn"><span class="ico">!</span><p>Não existe recuperação de chave perdida. O banco guarda só o <b>hash</b> dela (mesmo padrão de senha do sistema) — nem o time de suporte consegue ver a chave de novo depois de fechar a tela de criação.</p></div>
+
+  <h3 class="sub-title"><span class="num">2</span>Enviar a chave nas requisições</h3>
+  <p>Em qualquer um dos dois formatos abaixo — os dois funcionam de forma idêntica:</p>
+  <div class="code-block"><span class="c">Authorization: Bearer ssx_a1b2c3d4e5f6...</span>
+<span class="c"># — ou —</span>
+x-api-key: ssx_a1b2c3d4e5f6...</div>
+
+  <h3 class="sub-title"><span class="num">3</span>Escopos disponíveis</h3>
+  <p>Cada chave só faz o que os escopos marcados nela permitem — uma chave sem <code>tickets:write</code>, por exemplo, nunca consegue abrir ou alterar um chamado, mesmo que o endpoint exista.</p>
+  <table class="scopetable">
+    <tr><th>Escopo</th><th>Libera</th></tr>
+    <tr><td class="scope">companies:read</td><td>Listar e consultar empresas.</td></tr>
+    <tr><td class="scope">companies:write</td><td>Atualizar dados de empresa — já inclui a leitura.</td></tr>
+    <tr><td class="scope">employees:read</td><td>Listar e consultar funcionários.</td></tr>
+    <tr><td class="scope">employees:write</td><td>Cadastrar, atualizar e desativar funcionários.</td></tr>
+    <tr><td class="scope">tickets:read</td><td>Listar e consultar chamados (com mensagens visíveis ao cliente).</td></tr>
+    <tr><td class="scope">tickets:write</td><td>Abrir chamados novos e atualizar status/prioridade/classificação/responsável.</td></tr>
+    <tr><td class="scope">conversations:read</td><td>Listar e consultar conversas de chat/WhatsApp.</td></tr>
+  </table>
+  <div class="callout info"><span class="ico">i</span><p>Chave criada antes desta versão com o escopo <code>employees:read</code> continua conseguindo ler empresas por compatibilidade — mas para chaves novas, use <code>companies:read</code>, que é o nome certo pra essa permissão.</p></div>
+
+  <h3 class="sub-title"><span class="num">4</span>Testar antes de integrar de verdade</h3>
+  <p>Use o endpoint de teste — não lê nenhum dado de negócio, só confirma que a chave está válida e devolve os escopos dela:</p>
+  <div class="endpoint">
+    <div class="endpoint-head"><span class="method get">GET</span><span class="endpoint-path">/api/integrations/v1/ping</span><span class="endpoint-scope chip off">sem escopo</span></div>
+    <div class="endpoint-body">
+      <div class="code-label">Resposta 200</div>
+      <div class="code-block">{
+  <span class="k">"data"</span>: { <span class="k">"ok"</span>: true, <span class="k">"keyName"</span>: <span class="s">"CRM Comercial"</span>, <span class="k">"scopes"</span>: [<span class="s">"tickets:read"</span>, <span class="s">"tickets:write"</span>] }
+}</div>
+    </div>
+  </div>
+
+  <div class="page-foot"><span>SSX Desk</span><span>02 — Autenticação & escopos</span></div>
+</div>
+
+<!-- ============ 03 CONVENÇÕES ============ -->
+<div class="page">
+  <div class="page-head"><span class="tag">Capítulo 03 · Padrões</span><span class="brand">SSX Desk · Manual de Integração</span></div>
+  <div class="section-icon-row"><div class="section-icon">⎘</div><h2 class="section-title mt-0">Convenções da API</h2></div>
+  <p class="section-lede">Toda rota segue o mesmo formato — aprenda uma vez, use em todas.</p>
+
+  <h3 class="sub-title"><span class="num">1</span>Formato da resposta</h3>
+  <p>Sucesso sempre vem dentro de <code>data</code>. Listagem paginada também traz <code>meta</code>:</p>
+  <div class="code-block">{
+  <span class="k">"data"</span>: [ <span class="c">/* ... */</span> ],
+  <span class="k">"meta"</span>: { <span class="k">"limit"</span>: 100, <span class="k">"offset"</span>: 0, <span class="k">"total"</span>: 342, <span class="k">"hasMore"</span>: true }
+}</div>
+  <p>Pra avançar, repita a chamada aumentando <code>offset</code> em <code>limit</code> — pare quando <code>hasMore</code> vier <code>false</code>. O máximo de <code>limit</code> é <b>500</b> por página; pedir mais que isso é silenciosamente limitado a 500.</p>
+
+  <h3 class="sub-title"><span class="num">2</span>Sincronização incremental</h3>
+  <p>Chamados e conversas aceitam <code>?updatedSince=</code> (data/hora ISO 8601) pra trazer só o que mudou depois de uma sincronização anterior — evita reler a base inteira a cada rodada de sincronismo.</p>
+  <div class="code-block"><span class="c">GET /api/integrations/v1/tickets?updatedSince=2026-08-01T00:00:00Z</span></div>
+  <div class="callout tip"><span class="ico">✓</span><p>Guarde o horário em que a sincronização terminou (não em que começou) e use esse valor como <code>updatedSince</code> na próxima rodada — assim nenhuma mudança fica de fora, mesmo que a sincronização demore alguns minutos.</p></div>
+
+  <h3 class="sub-title"><span class="num">3</span>Formato de erro</h3>
+  <div class="code-block">{ <span class="k">"error"</span>: <span class="s">"Esta chave de API não tem o escopo necessário: tickets:write"</span>, <span class="k">"code"</span>: <span class="s">"FORBIDDEN_SCOPE"</span> }</div>
+  <table class="errtable">
+    <tr><th>Status</th><th>Código</th><th>Quando acontece</th></tr>
+    <tr><td class="status err4">401</td><td class="code">UNAUTHORIZED</td><td>Chave ausente, inválida ou revogada.</td></tr>
+    <tr><td class="status err4">403</td><td class="code">FORBIDDEN_SCOPE</td><td>Chave válida, mas sem o escopo exigido por esse endpoint.</td></tr>
+    <tr><td class="status err4">400</td><td class="code">VALIDATION_ERROR</td><td>Campo obrigatório ausente, formato inválido, ou referência (categoryId, companyId...) inexistente.</td></tr>
+    <tr><td class="status err4">404</td><td class="code">NOT_FOUND</td><td>O <code>id</code> informado não existe.</td></tr>
+    <tr><td class="status err4">409</td><td class="code">CONFLICT</td><td>Violação de unicidade — ex.: e-mail de funcionário já cadastrado.</td></tr>
+    <tr><td class="status err4">429</td><td class="code">RATE_LIMITED</td><td>Mais de 120 requisições/minuto para essa chave.</td></tr>
+    <tr><td class="status err5">500</td><td class="code">INTERNAL_ERROR</td><td>Falha inesperada do lado do servidor — não é um erro de uso da API.</td></tr>
+  </table>
+
+  <h3 class="sub-title"><span class="num">4</span>Limite de requisições</h3>
+  <p>Toda resposta autenticada traz os headers abaixo, pra sua integração acompanhar a própria cota sem precisar levar um 429 primeiro:</p>
+  <div class="code-block">X-RateLimit-Limit: 120
+X-RateLimit-Remaining: 117
+X-RateLimit-Reset: 1786994325 <span class="c">// epoch em segundos</span></div>
+  <p>O limite é <b>120 requisições por minuto, por chave</b>. Passou disso, a resposta vem com status <b>429</b> até a janela seguinte começar.</p>
+
+  <div class="callout info"><span class="ico">i</span><p>Nenhuma anotação interna aparece por esta API: mensagem marcada como "nota interna" num chamado, ou "aviso de bastidores" numa conversa (ex.: transferência entre atendentes) nunca é devolvida — só o que o próprio cliente também veria.</p></div>
+
+  <div class="page-foot"><span>SSX Desk</span><span>03 — Convenções da API</span></div>
+</div>
+
+<!-- ============ 04 EMPRESAS ============ -->
+<div class="page">
+  <div class="page-head"><span class="tag">Capítulo 04 · Recurso</span><span class="brand">SSX Desk · Manual de Integração</span></div>
+  <div class="section-icon-row"><div class="section-icon">🏢</div><h2 class="section-title mt-0">Empresas</h2></div>
+  <p class="section-lede">Cadastro de clientes — resolva o <code>companyId</code> aqui antes de usar nos outros recursos.</p>
+
+  <div class="endpoint">
+    <div class="endpoint-head"><span class="method get">GET</span><span class="endpoint-path">/api/integrations/v1/companies</span><span class="endpoint-scope chip">companies:read</span></div>
+    <div class="endpoint-body">
+      <p>Sem <code>id</code>, devolve todas as empresas. Com <code>id</code>, devolve só uma — incluindo o resumo de avaliação interna (nota do relacionamento, nunca visível ao próprio cliente).</p>
+      <table class="ptable">
+        <tr><th>Parâmetro</th><th>Onde</th><th>Descrição</th></tr>
+        <tr><td class="name">id</td><td class="type">query</td><td>uuid — retorna só essa empresa.</td></tr>
+      </table>
+      <div class="code-label">Resposta 200 (resumida)</div>
+      <div class="code-block">{ <span class="k">"data"</span>: [{ <span class="k">"id"</span>: <span class="s">"56f9..."</span>, <span class="k">"name"</span>: <span class="s">"Empresa Matriz Ltda"</span>, <span class="k">"industry"</span>: <span class="s">"Tecnologia"</span>,
+  <span class="k">"isInTraining"</span>: false, <span class="k">"evaluation"</span>: { <span class="k">"count"</span>: 3, <span class="k">"overallAverage"</span>: 4.2, <span class="k">"latestTag"</span>: <span class="s">"technical"</span> } }] }</div>
+    </div>
+  </div>
+
+  <div class="endpoint">
+    <div class="endpoint-head"><span class="method put">PUT</span><span class="endpoint-path">/api/integrations/v1/companies?id=</span><span class="endpoint-scope chip">companies:write</span></div>
+    <div class="endpoint-body">
+      <p>Atualização parcial — envie só os campos que quer mudar. Inclui o indicador <b>"cliente em treinamento"</b>, que mostra um aviso pra equipe interna no chat. As notas de avaliação em si não são editáveis por esta API, só pelo portal.</p>
+      <table class="ptable">
+        <tr><th>Campo</th><th>Onde</th><th>Descrição</th></tr>
+        <tr><td class="name">id</td><td class="type">query</td><td class="req">obrigatório</td></tr>
+        <tr><td class="name">name</td><td class="type">body</td><td>Novo nome.</td></tr>
+        <tr><td class="name">industry</td><td class="type">body</td><td>Novo ramo/indústria.</td></tr>
+        <tr><td class="name">phone</td><td class="type">body</td><td>Novo telefone.</td></tr>
+        <tr><td class="name">isInTraining</td><td class="type">body</td><td>boolean.</td></tr>
+      </table>
+    </div>
+  </div>
+
+  <div class="callout tip"><span class="ico">✓</span><p>Fluxo recomendado pra cadastrar um funcionário: primeiro <code>GET /companies</code> pra achar (ou confirmar) o <code>id</code> certo, depois use esse id como <code>companyId</code> em <code>POST /employees</code>.</p></div>
+
+  <div class="page-foot"><span>SSX Desk</span><span>04 — Empresas</span></div>
+</div>
+
+<!-- ============ 05 FUNCIONÁRIOS ============ -->
+<div class="page">
+  <div class="page-head"><span class="tag">Capítulo 05 · Recurso</span><span class="brand">SSX Desk · Manual de Integração</span></div>
+  <div class="section-icon-row"><div class="section-icon">👤</div><h2 class="section-title mt-0">Funcionários</h2></div>
+  <p class="section-lede">Contatos de uma empresa-cliente — nunca ganham acesso de login pelo cadastro via API.</p>
+
+  <div class="endpoint">
+    <div class="endpoint-head"><span class="method get">GET</span><span class="endpoint-path">/api/integrations/v1/employees</span><span class="endpoint-scope chip">employees:read</span></div>
+    <div class="endpoint-body">
+      <table class="ptable">
+        <tr><th>Parâmetro</th><th>Onde</th><th>Descrição</th></tr>
+        <tr><td class="name">id</td><td class="type">query</td><td>Retorna só esse funcionário (ativo ou não).</td></tr>
+        <tr><td class="name">companyId</td><td class="type">query</td><td>Filtra por empresa.</td></tr>
+        <tr><td class="name">email</td><td class="type">query</td><td>Filtra por e-mail exato.</td></tr>
+        <tr><td class="name">includeInactive</td><td class="type">query</td><td>"1" pra incluir quem foi desativado. Padrão: só ativos.</td></tr>
+        <tr><td class="name">limit / offset</td><td class="type">query</td><td>Paginação — padrão 100, máximo 500.</td></tr>
+      </table>
+    </div>
+  </div>
+
+  <div class="endpoint">
+    <div class="endpoint-head"><span class="method post">POST</span><span class="endpoint-path">/api/integrations/v1/employees</span><span class="endpoint-scope chip">employees:write</span></div>
+    <div class="endpoint-body">
+      <table class="ptable">
+        <tr><th>Campo</th><th>Onde</th><th>Descrição</th></tr>
+        <tr><td class="name">name</td><td class="type">body</td><td class="req">obrigatório</td></tr>
+        <tr><td class="name">email</td><td class="type">body</td><td class="req">obrigatório — único no sistema</td></tr>
+        <tr><td class="name">phone</td><td class="type">body</td><td>Opcional.</td></tr>
+        <tr><td class="name">companyId</td><td class="type">body</td><td>Empresa vinculada.</td></tr>
+        <tr><td class="name">role</td><td class="type">body</td><td>"Funcionário" (padrão) ou "Cliente".</td></tr>
+      </table>
+      <div class="callout warn"><span class="ico">!</span><p>O registro nasce <b>sem senha</b> — é só sincronismo de dado, não cria acesso de login ao portal. Nunca é possível criar via esta API alguém com papel Administrador/Equipe/Time Interno.</p></div>
+    </div>
+  </div>
+
+  <div class="endpoint">
+    <div class="endpoint-head"><span class="method put">PUT</span><span class="endpoint-path">/api/integrations/v1/employees?id=</span><span class="endpoint-scope chip">employees:write</span></div>
+    <div class="endpoint-body">
+      <p>Atualização parcial. Envie <code>isActive: true</code> pra <b>reativar</b> um funcionário desativado.</p>
+    </div>
+  </div>
+
+  <div class="endpoint">
+    <div class="endpoint-head"><span class="method delete">DELETE</span><span class="endpoint-path">/api/integrations/v1/employees?id=</span><span class="endpoint-scope chip">employees:write</span></div>
+    <div class="endpoint-body">
+      <p class="new-tag">novo</p>
+      <p>Desativação <b>suave</b> — o registro nunca é apagado de verdade, porque chamados e conversas antigas continuam apontando pra ele. A partir daí, some das listagens padrão (a menos que peça <code>includeInactive=1</code>). Reverter é um PUT com <code>isActive: true</code>.</p>
+    </div>
+  </div>
+
+  <div class="page-foot"><span>SSX Desk</span><span>05 — Funcionários</span></div>
+</div>
+
+<!-- ============ 06 CHAMADOS ============ -->
+<div class="page">
+  <div class="page-head"><span class="tag">Capítulo 06 · Recurso</span><span class="brand">SSX Desk · Manual de Integração</span></div>
+  <div class="section-icon-row"><div class="section-icon">🎫</div><h2 class="section-title mt-0">Chamados</h2></div>
+  <p class="section-lede">Consultar, abrir e movimentar chamados de suporte — com as mesmas automações do portal.</p>
+
+  <div class="endpoint">
+    <div class="endpoint-head"><span class="method get">GET</span><span class="endpoint-path">/api/integrations/v1/tickets</span><span class="endpoint-scope chip">tickets:read</span></div>
+    <div class="endpoint-body">
+      <p>Com <code>id</code>, inclui as mensagens visíveis ao cliente. Sem <code>id</code>, aceita <code>companyId</code>, <code>status</code> e <code>updatedSince</code> como filtro.</p>
+      <div class="code-label">Resposta 200 (item da lista)</div>
+      <div class="code-block">{ <span class="k">"id"</span>: <span class="s">"2948..."</span>, <span class="k">"ticketNumber"</span>: 23, <span class="k">"title"</span>: <span class="s">"Impressora não liga"</span>, <span class="k">"status"</span>: <span class="s">"Novo"</span>,
+  <span class="k">"subStatus"</span>: null, <span class="k">"priority"</span>: <span class="s">"Média"</span>, <span class="k">"categoryId"</span>: <span class="s">"a1b2..."</span>, <span class="k">"tags"</span>: [<span class="s">"hardware"</span>],
+  <span class="k">"companyId"</span>: <span class="s">"56f9..."</span>, <span class="k">"assigneeId"</span>: null, <span class="k">"createdAt"</span>: <span class="s">"..."</span>, <span class="k">"updatedAt"</span>: <span class="s">"..."</span> }</div>
+    </div>
+  </div>
+
+  <div class="endpoint">
+    <div class="endpoint-head"><span class="method post">POST</span><span class="endpoint-path">/api/integrations/v1/tickets</span><span class="endpoint-scope chip">tickets:write</span></div>
+    <div class="endpoint-body">
+      <p class="new-tag">novo</p>
+      <p>Abre um chamado com status inicial <b>"Novo"</b>. Dispara a mesma automação de "novo chamado" configurada em Configurações — a equipe é avisada igual a um chamado aberto pelo próprio portal.</p>
+      <table class="ptable">
+        <tr><th>Campo</th><th>Onde</th><th>Descrição</th></tr>
+        <tr><td class="name">title</td><td class="type">body</td><td class="req">obrigatório</td></tr>
+        <tr><td class="name">description</td><td class="type">body</td><td class="req">obrigatório</td></tr>
+        <tr><td class="name">companyId</td><td class="type">body</td><td class="req">obrigatório</td></tr>
+        <tr><td class="name">customerId</td><td class="type">body</td><td>Contato específico que abriu.</td></tr>
+        <tr><td class="name">priority</td><td class="type">body</td><td>Baixa (padrão) / Média / Alta / Urgente.</td></tr>
+        <tr><td class="name">categoryId / requestTypeId / productId</td><td class="type">body</td><td>Classificação (listas configuráveis).</td></tr>
+        <tr><td class="name">tags</td><td class="type">body</td><td>Array de marcadores livres.</td></tr>
+      </table>
+    </div>
+  </div>
+
+  <div class="endpoint">
+    <div class="endpoint-head"><span class="method patch">PATCH</span><span class="endpoint-path">/api/integrations/v1/tickets?id=</span><span class="endpoint-scope chip">tickets:write</span></div>
+    <div class="endpoint-body">
+      <p class="new-tag">novo</p>
+      <p>Atualização parcial de status, prioridade, classificação ou responsável. Dispara a mesma automação do portal — troca de status pode enviar e-mail/WhatsApp configurado pra esse status, atribuir responsável notifica por e-mail.</p>
+      <table class="ptable">
+        <tr><th>Campo</th><th>Onde</th><th>Descrição</th></tr>
+        <tr><td class="name">status</td><td class="type">body</td><td>Precisa ser um rótulo já cadastrado em Configurações.</td></tr>
+        <tr><td class="name">priority</td><td class="type">body</td><td>Baixa / Média / Alta / Urgente.</td></tr>
+        <tr><td class="name">categoryId / requestTypeId / productId</td><td class="type">body</td><td>Nova classificação.</td></tr>
+        <tr><td class="name">tags</td><td class="type">body</td><td>Substitui os marcadores.</td></tr>
+        <tr><td class="name">assigneeId</td><td class="type">body</td><td>Novo responsável.</td></tr>
+      </table>
+      <div class="callout danger"><span class="ico">⚠</span><p>Status é livre em Configurações — a API valida contra a lista real antes de gravar. Mandar um status que não existe (erro de digitação, ou uma automação da plataforma parceira desatualizada) devolve <b>400 VALIDATION_ERROR</b>, sem gravar nada.</p></div>
+    </div>
+  </div>
+
+  <div class="page-foot"><span>SSX Desk</span><span>06 — Chamados</span></div>
+</div>
+
+<!-- ============ 07 CONVERSAS ============ -->
+<div class="page">
+  <div class="page-head"><span class="tag">Capítulo 07 · Recurso</span><span class="brand">SSX Desk · Manual de Integração</span></div>
+  <div class="section-icon-row"><div class="section-icon">💬</div><h2 class="section-title mt-0">Conversas</h2></div>
+  <p class="section-lede">Histórico de chat ao vivo e WhatsApp — só leitura.</p>
+
+  <div class="endpoint">
+    <div class="endpoint-head"><span class="method get">GET</span><span class="endpoint-path">/api/integrations/v1/conversations</span><span class="endpoint-scope chip">conversations:read</span></div>
+    <div class="endpoint-body">
+      <p>Com <code>id</code>, devolve a conversa inteira com as mensagens do cliente e da equipe (nunca as anotações internas — ver capítulo 03). Sem <code>id</code>, aceita <code>companyId</code>, <code>customerId</code>, <code>status</code> e <code>updatedSince</code>.</p>
+      <table class="ptable">
+        <tr><th>Parâmetro</th><th>Onde</th><th>Descrição</th></tr>
+        <tr><td class="name">id</td><td class="type">query</td><td>Retorna essa conversa + mensagens.</td></tr>
+        <tr><td class="name">companyId</td><td class="type">query</td><td>Filtra pela empresa do cliente.</td></tr>
+        <tr><td class="name">customerId</td><td class="type">query</td><td>Filtra por cliente.</td></tr>
+        <tr><td class="name">status</td><td class="type">query</td><td>waiting / active / closed.</td></tr>
+        <tr><td class="name">updatedSince</td><td class="type">query</td><td>ISO 8601 — sincronização incremental.</td></tr>
+      </table>
+      <div class="code-label">Mensagem, dentro de uma conversa específica</div>
+      <div class="code-block">{ <span class="k">"id"</span>: <span class="s">"..."</span>, <span class="k">"senderName"</span>: <span class="s">"Jean"</span>, <span class="k">"text"</span>: <span class="s">"Bom dia!"</span>, <span class="k">"type"</span>: <span class="s">"text"</span>,
+  <span class="k">"attachments"</span>: [], <span class="k">"createdAt"</span>: <span class="s">"2026-08-17T12:00:00.000Z"</span> }</div>
+    </div>
+  </div>
+
+  <div class="callout info"><span class="ico">i</span><p><code>queueId</code> na conversa identifica a fila/canal de onde ela veio — útil pra separar atendimentos por instância de WhatsApp quando a operação usa mais de um número.</p></div>
+
+  <div class="page-foot"><span>SSX Desk</span><span>07 — Conversas</span></div>
+</div>
+
+<!-- ============ 08 CHECKLIST ============ -->
+<div class="page">
+  <div class="page-head"><span class="tag">Capítulo 08 · Fechamento</span><span class="brand">SSX Desk · Manual de Integração</span></div>
+  <div class="section-icon-row"><div class="section-icon">✓</div><h2 class="section-title mt-0">Checklist & boas práticas</h2></div>
+  <p class="section-lede">Confira antes de ligar a integração em produção.</p>
+
+  <ul class="checklist">
+    <li>Chave criada com <b>só os escopos necessários</b> — nunca marque tudo "por garantia".</li>
+    <li><code>GET /ping</code> respondeu 200 com os escopos esperados.</li>
+    <li>A plataforma parceira trata <b>429</b> (limite de requisições) com espera e nova tentativa, em vez de descartar a chamada.</li>
+    <li>Toda listagem <b>pagina de verdade</b> (usa <code>hasMore</code>/<code>offset</code>) — nenhuma integração assume que a primeira página é tudo.</li>
+    <li>Sincronização recorrente usa <code>updatedSince</code>, não reprocessa a base inteira a cada rodada.</li>
+    <li>Erros <b>400/404/409</b> são tratados como respostas normais da API (o corpo explica o motivo em <code>error</code>), não como falha de conexão.</li>
+    <li>A chave fica guardada num cofre de segredos do lado da plataforma parceira — nunca em código versionado.</li>
+    <li>Chamada feita sempre do <b>backend</b> da plataforma parceira, nunca do navegador do usuário final.</li>
+  </ul>
+
+  <h3 class="sub-title"><span class="num">i</span>Se algo parar de funcionar</h3>
+  <div class="grid-2">
+    <div class="info-card">
+      <div class="k">401 Unauthorized</div>
+      <div class="v">A chave foi revogada ou excluída em Configurações → Integrações. Confirme lá se ela ainda está "Ativa".</div>
+    </div>
+    <div class="info-card">
+      <div class="k">403 Forbidden_Scope</div>
+      <div class="v">Falta um escopo na chave. Peça pra quem administra o sistema adicionar o escopo — não dá pra editar escopo de uma chave existente, é preciso gerar outra.</div>
+    </div>
+  </div>
+
+  <div class="callout tip"><span class="ico">✓</span><p>Revogar uma chave (em vez de excluir) corta o acesso na hora, mas mantém o histórico de uso — dá pra reativar depois se for engano. Excluir é definitivo.</p></div>
+
+  <div class="page-foot"><span>SSX Desk</span><span>08 — Checklist & boas práticas</span></div>
+</div>
+
+<!-- ============ CONTRACAPA ============ -->
+<div class="page backcover">
+  <div class="dot"></div>
+  <h3>SSX Desk</h3>
+  <p>Manual de Integração — API Externa v1<br>Chaves de API são gerenciadas em Configurações → Integrações, por quem administra o sistema.</p>
+</div>
+
+</body>
+</html>

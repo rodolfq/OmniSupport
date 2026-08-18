@@ -35,7 +35,7 @@ async function processOverdueHotfixes(): Promise<void> {
         await notifyUser(row.responsible_id, {
           title: 'Hotfix atrasado',
           body: `"${row.name}" era esperado para ${new Date(`${row.expected_date}T00:00:00`).toLocaleDateString('pt-BR')} e ainda não foi publicado.`,
-          url: '/hotfixes'
+          url: '/settings?tab=hotfixes'
         }).catch(err => console.error('[hotfix-scheduler] Falha ao enviar push:', err));
       }
     } catch (err) {

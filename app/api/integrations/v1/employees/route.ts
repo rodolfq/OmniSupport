@@ -17,6 +17,8 @@ import { logAudit } from '@/lib/audit-log';
 const ALLOWED_ROLES = ['Funcionário', 'Cliente'];
 const EMAIL_REGEX = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 
+const EMPLOYEE_COLUMNS = 'id, name, email, role, company_id, phone, is_active, created_at';
+
 function serializeEmployee(row: any) {
   return {
     id: row.id,
@@ -25,6 +27,7 @@ function serializeEmployee(row: any) {
     role: row.role,
     companyId: row.company_id,
     phone: row.phone,
+    isActive: row.is_active !== false,
     createdAt: row.created_at,
   };
 }
@@ -41,7 +44,7 @@ export async function GET(request: Request) {
   try {
     if (id) {
       const res = await query(
-        `SELECT id, name, email, role, company_id, phone, created_at FROM public.profiles
+        `SELECT ${EMPLOYEE_COLUMNS} FROM public.profiles
          WHERE id = $1 AND role IN ('Funcionário', 'Cliente')`,
         [id]
       );
@@ -53,11 +56,18 @@ export async function GET(request: Request) {
 
     const companyId = searchParams.get('companyId');
     const email = searchParams.get('email');
+    // Desativado (soft-delete, ver DELETE abaixo) some da listagem por
+    // padrão — mesma regra do resto do sistema (ver app/api/users/route.ts).
+    // Quem sincroniza precisa pedir explicitamente pra ver quem foi removido.
+    const includeInactive = searchParams.get('includeInactive') === '1';
     const limit = Math.min(Math.max(parseInt(searchParams.get('limit') || '100', 10) || 100, 1), 500);
     const offset = Math.max(parseInt(searchParams.get('offset') || '0', 10) || 0, 0);
 
     const conditions: string[] = [`role IN ('Funcionário', 'Cliente')`];
     const params: any[] = [];
+    if (!includeInactive) {
+      conditions.push(`is_active IS NOT FALSE`);
+    }
     if (companyId) {
       params.push(companyId);
       conditions.push(`company_id = $${params.length}`);
@@ -76,7 +86,7 @@ export async function GET(request: Request) {
 
     const listParams = [...params, limit, offset];
     const res = await query(
-      `SELECT id, name, email, role, company_id, phone, created_at FROM public.profiles
+      `SELECT ${EMPLOYEE_COLUMNS} FROM public.profiles
        WHERE ${whereClause}
        ORDER BY created_at DESC
        LIMIT $${listParams.length - 1} OFFSET $${listParams.length}`,
@@ -132,7 +142,7 @@ export async function POST(request: Request) {
     const res = await query(
       `INSERT INTO public.profiles (name, email, role, company_id, phone, password, must_change_password, is_admin)
        VALUES ($1, $2, $3, $4, $5, NULL, false, false)
-       RETURNING id, name, email, role, company_id, phone, created_at`,
+       RETURNING id, name, email, role, company_id, phone, is_active, created_at`,
       [name, email, role, companyId || null, phone || null]
     );
     logAudit({
@@ -176,6 +186,9 @@ export async function PUT(request: Request) {
   if (body.role && !ALLOWED_ROLES.includes(body.role)) {
     return integrationError(auth, 'VALIDATION_ERROR', `role deve ser um de: ${ALLOWED_ROLES.join(', ')}.`, 400);
   }
+  if (body.isActive !== undefined && typeof body.isActive !== 'boolean') {
+    return integrationError(auth, 'VALIDATION_ERROR', 'isActive deve ser um boolean.', 400);
+  }
   if (body.companyId) {
     const companyCheck = await query('SELECT id FROM public.companies WHERE id = $1', [body.companyId]);
     if (companyCheck.rowCount === 0) {
@@ -192,15 +205,19 @@ export async function PUT(request: Request) {
       return integrationError(auth, 'NOT_FOUND', 'Funcionário não encontrado.', 404);
     }
 
+    // isActive é boolean: precisa distinguir "não veio no corpo" (mantém o
+    // valor atual) de "veio como false" (desativa) — por isso COALESCE não
+    // serve aqui, mesmo caso de app/api/integrations/v1/companies/route.ts.
     const res = await query(
       `UPDATE public.profiles
        SET name = COALESCE($1, name),
            phone = COALESCE($2, phone),
            company_id = COALESCE($3, company_id),
-           role = COALESCE($4, role)
-       WHERE id = $5
-       RETURNING id, name, email, role, company_id, phone, created_at`,
-      [body.name || null, body.phone || null, body.companyId || null, body.role || null, id]
+           role = COALESCE($4, role),
+           is_active = COALESCE($5, is_active)
+       WHERE id = $6
+       RETURNING id, name, email, role, company_id, phone, is_active, created_at`,
+      [body.name || null, body.phone || null, body.companyId || null, body.role || null, body.isActive === undefined ? null : body.isActive, id]
     );
     logAudit({
       actorId: null,
@@ -215,5 +232,50 @@ export async function PUT(request: Request) {
   } catch (error: any) {
     console.error('[integrations/v1/employees] Erro no PUT:', error);
     return integrationError(auth, 'INTERNAL_ERROR', 'Erro ao atualizar funcionário.', 500);
+  }
+}
+
+/**
+ * Desativação suave (is_active = false) — nunca exclui a linha de verdade.
+ * Mesma regra do resto do sistema (ver app/api/users/route.ts): o registro
+ * continua existindo pra manter o histórico de chamados/conversas coerente
+ * (customer_id, assignee_id etc. apontam pra ele), só some das listagens
+ * padrão e perde a capacidade de logar (que, aliás, já não tinha — este
+ * cadastro nasce sem senha). Reative com PUT ?id= { "isActive": true }.
+ */
+export async function DELETE(request: Request) {
+  const auth = await authenticateApiKey(request);
+  if (isAuthError(auth)) return authErrorResponse(auth);
+  const scopeError = requireScope(auth, 'employees:write');
+  if (scopeError) return scopeError;
+
+  const { searchParams } = new URL(request.url);
+  const id = searchParams.get('id');
+  if (!id) {
+    return integrationError(auth, 'VALIDATION_ERROR', 'Parâmetro id é obrigatório (?id=).', 400);
+  }
+
+  try {
+    const res = await query(
+      `UPDATE public.profiles SET is_active = false
+        WHERE id = $1 AND role IN ('Funcionário', 'Cliente')
+        RETURNING id, name`,
+      [id]
+    );
+    if (res.rowCount === 0) {
+      return integrationError(auth, 'NOT_FOUND', 'Funcionário não encontrado.', 404);
+    }
+    logAudit({
+      actorId: null,
+      actorName: `Integração: ${auth.name}`,
+      action: 'delete',
+      entityType: 'employee',
+      entityId: id,
+      entityLabel: res.rows[0].name,
+    });
+    return integrationJson(auth, { data: { id, isActive: false } });
+  } catch (error: any) {
+    console.error('[integrations/v1/employees] Erro no DELETE:', error);
+    return integrationError(auth, 'INTERNAL_ERROR', 'Erro ao desativar funcionário.', 500);
   }
 }

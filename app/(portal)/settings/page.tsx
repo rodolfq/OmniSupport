@@ -3,10 +3,11 @@
 import React, { useState, useEffect } from 'react';
 import { useSearchParams } from 'next/navigation';
 import {
-  Shield, User, Lock, Save, Plus, Key, Globe, Bell, Database, Loader2, Clock, MessageCircleMore, Plug, Mail, Bot
+  User, Lock, Save, Plus, Key, Globe, Bell, Database, Loader2, Clock, MessageCircleMore, Plug, Mail, Bot,
+  UserCog, ShieldCheck, Library, RefreshCw as RefreshCwIcon, Rocket
 } from 'lucide-react';
 import { cn, maskPhone } from '@/lib/utils';
-import { Permission } from '@/lib/types';
+import { Permission, UserRole } from '@/lib/types';
 import { UserService } from '@/lib/services/user-service';
 import { ConfigService } from '@/lib/services/config-service';
 import { useApp } from '@/app/app-context';
@@ -24,9 +25,24 @@ import { toast } from 'sonner';
 import { IntegrationsContent } from '@/components/integrations-content';
 import { EmailSettingsContent } from '@/components/email-settings-content';
 import { AiAssistantSettingsContent } from '@/components/ai-assistant-settings-content';
+import { TeamContent } from '@/components/team-content';
+import { PermissionsContent } from '@/components/permissions-content';
+import { QueuesContent } from '@/components/queues-content';
+import { GiroContent } from '@/components/giro-content';
+import { HotfixesContent } from '@/components/hotfixes-content';
 
-type Tab = 'profile' | 'security' | 'whatsapp' | 'notifications' | 'system' | 'history' | 'automated-messages' | 'integrations' | 'email' | 'ai-assistant';
+type Tab =
+  | 'profile' | 'security' | 'notifications'
+  | 'team' | 'permissions' | 'history'
+  | 'queues' | 'giro' | 'whatsapp' | 'hotfixes'
+  | 'system' | 'ai-assistant' | 'automated-messages' | 'integrations' | 'email';
 
+const VALID_TABS: Tab[] = [
+  'profile', 'security', 'notifications',
+  'team', 'permissions', 'history',
+  'queues', 'giro', 'whatsapp', 'hotfixes',
+  'system', 'ai-assistant', 'automated-messages', 'integrations', 'email'
+];
 
 export default function SettingsPage() {
   const {
@@ -43,13 +59,16 @@ export default function SettingsPage() {
   // cadastrar um canal manualmente antes de mostrar qualquer QR Code, sem
   // nenhuma indicação disso na tela) e foi removida — não confundir com a
   // multi-instância Meta atual, que não tem esse problema (não depende de
-  // QR Code/sessão pareada). /whatsapp agora só redireciona pra cá — ?tab=
-  // permite abrir direto nesta aba.
+  // QR Code/sessão pareada). Todas as rotas antigas (/whatsapp, /team,
+  // /queues, /permissions, /hotfixes, /giro) agora só redirecionam pra cá —
+  // ?tab= permite abrir direto em qualquer aba.
   const searchParams = useSearchParams();
   const initialTab = searchParams.get('tab');
-  const [activeTab, setActiveTab] = useState<Tab>(initialTab === 'whatsapp' ? 'whatsapp' : 'profile');
+  const [activeTab, setActiveTab] = useState<Tab>(
+    VALID_TABS.includes(initialTab as Tab) ? (initialTab as Tab) : 'profile'
+  );
   const [isPasswordModalOpen, setIsPasswordModalOpen] = useState(false);
-  
+
   const [previewUrl, setPreviewUrl] = useState<string | null>(null);
   const [isUploading, setIsUploading] = useState(false);
 
@@ -58,6 +77,12 @@ export default function SettingsPage() {
   const [products, setProducts] = useState<any[]>([]);
   const [priorities, setPriorities] = useState<any[]>([]);
   const [surveySettings, setSurveySettings] = useState<any>(null);
+
+  const isSystemAdmin = currentUser?.role === UserRole.ADMIN;
+  const isTeamAdmin = (currentUser?.adminOfTeamIds || []).length > 0;
+  const canViewTeam = isSystemAdmin || hasPermission(Permission.TEAM_READ);
+  const canViewPermissions = isSystemAdmin || isTeamAdmin || hasPermission(Permission.SETTINGS_WRITE);
+  const canViewGiro = hasPermission(Permission.GIRO_VIEW) || hasPermission(Permission.GIRO_MANAGE);
 
   useEffect(() => {
     const fetchSystemConfig = async () => {
@@ -94,7 +119,7 @@ export default function SettingsPage() {
         // celular sem tratamento vira MBs direto na coluna avatar_url, e
         // toda tela que lista usuários paga esse peso.
         const base64 = await fileToCompressedAvatarBase64(file);
-        
+
         // 3. Persist only after processing
         // Via UserService: a rota gera a MINIATURA do avatar junto
         // (avatar_thumb_url) e aplica as travas de autorização. O caminho
@@ -107,7 +132,7 @@ export default function SettingsPage() {
         setCurrentUser(updatedUser);
         setPreviewUrl(null);
         toast.success('Avatar atualizado com sucesso!');
-        
+
         // Clean up blob to avoid memory leaks
         URL.revokeObjectURL(tempBlob);
       } catch (err) {
@@ -128,37 +153,77 @@ export default function SettingsPage() {
       </div>
 
       <div className="grid grid-cols-1 md:grid-cols-12 gap-8">
-        <aside className="md:col-span-3 lg:col-span-2 space-y-1">
-          <SettingsNavLink icon={<User size={18} />} label="Perfil" active={activeTab === 'profile'} onClick={() => setActiveTab('profile')} />
-          <SettingsNavLink icon={<Bell size={18} />} label="Notificações" active={activeTab === 'notifications'} onClick={() => setActiveTab('notifications')} />
-          <SettingsNavLink icon={<Shield size={18} />} label="Segurança" active={activeTab === 'security'} onClick={() => setActiveTab('security')} />
-          {hasPermission(Permission.TEAM_STATUS_MANAGE) && (
-            <SettingsNavLink icon={<Clock size={18} />} label="Ausência / Histórico" active={activeTab === 'history'} onClick={() => setActiveTab('history')} />
-          )}
-          {hasPermission(Permission.WHATSAPP_MANAGE) && (
-            <SettingsNavLink icon={<Globe size={18} />} label="WhatsApp" active={activeTab === 'whatsapp'} onClick={() => setActiveTab('whatsapp')} />
-          )}
-           {hasPermission(Permission.SETTINGS_SYSTEM) && (
-             <SettingsNavLink icon={<Database size={18} />} label="Geral do Sistema" active={activeTab === 'system'} onClick={() => setActiveTab('system')} />
-           )}
-           {hasPermission(Permission.SETTINGS_SYSTEM) && (
-             <SettingsNavLink icon={<Bot size={18} />} label="Agente de IA" active={activeTab === 'ai-assistant'} onClick={() => setActiveTab('ai-assistant')} />
-           )}
-           {hasPermission(Permission.SETTINGS_AUTOMATION) && (
-             <SettingsNavLink icon={<MessageCircleMore size={18} />} label="Mensagens Automáticas" active={activeTab === 'automated-messages'} onClick={() => setActiveTab('automated-messages')} />
-           )}
-           {hasPermission(Permission.SETTINGS_INTEGRATIONS) && (
-             <SettingsNavLink icon={<Plug size={18} />} label="Integrações" active={activeTab === 'integrations'} onClick={() => setActiveTab('integrations')} />
-           )}
-           {hasPermission(Permission.SETTINGS_EMAIL) && (
-             <SettingsNavLink icon={<Mail size={18} />} label="E-mail" active={activeTab === 'email'} onClick={() => setActiveTab('email')} />
-           )}
+        <aside className="md:col-span-4 lg:col-span-3 xl:col-span-2">
+          <nav className="md:sticky md:top-8 bg-[var(--surface-card)] border border-[var(--border-default)] rounded-[1.75rem] p-3 shadow-sm space-y-4">
+            <SettingsNavGroup title="Minha Conta">
+              <SettingsNavLink icon={<User size={16} />} label="Perfil" active={activeTab === 'profile'} onClick={() => setActiveTab('profile')} />
+              <SettingsNavLink icon={<Bell size={16} />} label="Notificações" active={activeTab === 'notifications'} onClick={() => setActiveTab('notifications')} />
+              <SettingsNavLink icon={<Lock size={16} />} label="Segurança" active={activeTab === 'security'} onClick={() => setActiveTab('security')} />
+            </SettingsNavGroup>
+
+            {(canViewTeam || canViewPermissions || hasPermission(Permission.TEAM_STATUS_MANAGE)) && (
+              <SettingsNavGroup title="Equipe">
+                {canViewTeam && (
+                  <SettingsNavLink icon={<UserCog size={16} />} label="Equipe" active={activeTab === 'team'} onClick={() => setActiveTab('team')} />
+                )}
+                {canViewPermissions && (
+                  <SettingsNavLink icon={<ShieldCheck size={16} />} label="Equipes & Permissões" active={activeTab === 'permissions'} onClick={() => setActiveTab('permissions')} />
+                )}
+                {hasPermission(Permission.TEAM_STATUS_MANAGE) && (
+                  <SettingsNavLink icon={<Clock size={16} />} label="Ausência / Histórico" active={activeTab === 'history'} onClick={() => setActiveTab('history')} />
+                )}
+              </SettingsNavGroup>
+            )}
+
+            {(hasPermission(Permission.QUEUES_MANAGE) || canViewGiro || hasPermission(Permission.WHATSAPP_MANAGE) || hasPermission(Permission.HOTFIXES_MANAGE)) && (
+              <SettingsNavGroup title="Atendimento">
+                {hasPermission(Permission.QUEUES_MANAGE) && (
+                  <SettingsNavLink icon={<Library size={16} />} label="Filas" active={activeTab === 'queues'} onClick={() => setActiveTab('queues')} />
+                )}
+                {canViewGiro && (
+                  <SettingsNavLink icon={<RefreshCwIcon size={16} />} label="Giro de Atendimento" active={activeTab === 'giro'} onClick={() => setActiveTab('giro')} />
+                )}
+                {hasPermission(Permission.WHATSAPP_MANAGE) && (
+                  <SettingsNavLink icon={<Globe size={16} />} label="WhatsApp" active={activeTab === 'whatsapp'} onClick={() => setActiveTab('whatsapp')} />
+                )}
+                {hasPermission(Permission.HOTFIXES_MANAGE) && (
+                  <SettingsNavLink icon={<Rocket size={16} />} label="Hotfixes" active={activeTab === 'hotfixes'} onClick={() => setActiveTab('hotfixes')} />
+                )}
+              </SettingsNavGroup>
+            )}
+
+            {(hasPermission(Permission.SETTINGS_SYSTEM) || hasPermission(Permission.SETTINGS_AUTOMATION) || hasPermission(Permission.SETTINGS_INTEGRATIONS) || hasPermission(Permission.SETTINGS_EMAIL)) && (
+              <SettingsNavGroup title="Sistema">
+                {hasPermission(Permission.SETTINGS_SYSTEM) && (
+                  <SettingsNavLink icon={<Database size={16} />} label="Geral do Sistema" active={activeTab === 'system'} onClick={() => setActiveTab('system')} />
+                )}
+                {hasPermission(Permission.SETTINGS_SYSTEM) && (
+                  <SettingsNavLink icon={<Bot size={16} />} label="Agente de IA" active={activeTab === 'ai-assistant'} onClick={() => setActiveTab('ai-assistant')} />
+                )}
+                {hasPermission(Permission.SETTINGS_AUTOMATION) && (
+                  <SettingsNavLink icon={<MessageCircleMore size={16} />} label="Mensagens Automáticas" active={activeTab === 'automated-messages'} onClick={() => setActiveTab('automated-messages')} />
+                )}
+                {hasPermission(Permission.SETTINGS_INTEGRATIONS) && (
+                  <SettingsNavLink icon={<Plug size={16} />} label="Integrações" active={activeTab === 'integrations'} onClick={() => setActiveTab('integrations')} />
+                )}
+                {hasPermission(Permission.SETTINGS_EMAIL) && (
+                  <SettingsNavLink icon={<Mail size={16} />} label="E-mail" active={activeTab === 'email'} onClick={() => setActiveTab('email')} />
+                )}
+              </SettingsNavGroup>
+            )}
+          </nav>
         </aside>
 
-        <div className="md:col-span-9 lg:col-span-10 space-y-6">
+        <div className="md:col-span-8 lg:col-span-9 xl:col-span-10 space-y-6">
           {activeTab === 'history' && currentUser && hasPermission(Permission.TEAM_STATUS_MANAGE) && (
             <StatusHistoryPanel userId={currentUser.id} />
           )}
+
+          {activeTab === 'team' && canViewTeam && <TeamContent />}
+          {activeTab === 'permissions' && canViewPermissions && <PermissionsContent />}
+          {activeTab === 'queues' && hasPermission(Permission.QUEUES_MANAGE) && <QueuesContent />}
+          {activeTab === 'giro' && canViewGiro && <GiroContent />}
+          {activeTab === 'hotfixes' && hasPermission(Permission.HOTFIXES_MANAGE) && <HotfixesContent />}
 
 {activeTab === 'system' && hasPermission(Permission.SETTINGS_SYSTEM) && (
              <div className="space-y-6 animate-in fade-in slide-in-from-bottom-4 duration-300">
@@ -221,13 +286,13 @@ export default function SettingsPage() {
                     <p className="text-xs text-[var(--text-tertiary)] font-medium leading-relaxed">Clique para testar os sons e desbloquear o áudio no seu navegador.</p>
                   </div>
                   <div className="flex gap-2">
-                    <button 
+                    <button
                       onClick={() => playSound('system')}
                       className="px-4 py-2 bg-[var(--surface-card)] border border-[var(--border-default)] text-[var(--text-secondary)] rounded-xl text-[10px] font-black uppercase tracking-widest hover:bg-[var(--surface-card)] transition-all shadow-sm"
                     >
                       Sons Sistema
                     </button>
-                    <button 
+                    <button
                       onClick={() => playSound('chat')}
                       className="px-4 py-2 bg-[var(--accent)] text-white rounded-xl text-[10px] font-black uppercase tracking-widest hover:bg-[var(--accent-hover)] transition-all shadow-md"
                     >
@@ -242,7 +307,7 @@ export default function SettingsPage() {
           {activeTab === 'profile' && currentUser && (
             <div className="bg-[var(--surface-card)] border border-[var(--border-default)] rounded-2xl p-8 shadow-sm">
               <h3 className="font-bold text-[var(--text-primary)] mb-6 flex items-center gap-2"><User size={20} className="text-[var(--accent-text)]" /> Informações do Perfil</h3>
-              
+
               <div className="flex flex-col md:flex-row gap-8 mb-8 items-start">
                 <div className="relative group">
                   <div className="w-32 h-32 rounded-[2.5rem] bg-[var(--surface-pill)] border-2 border-[var(--border-default)] overflow-hidden flex items-center justify-center relative">
@@ -253,14 +318,14 @@ export default function SettingsPage() {
                     ) : (
                       <span className="text-4xl font-black text-[var(--text-tertiary)]">{currentUser.name.charAt(0)}</span>
                     )}
-                    
+
                     {isUploading && (
                       <div className="absolute inset-0 bg-[var(--surface-card)] backdrop-blur-sm flex items-center justify-center">
                         <Loader2 className="w-8 h-8 text-[var(--accent-text)] animate-spin" />
                       </div>
                     )}
 
-                    <button 
+                    <button
                       onClick={() => document.getElementById('avatar-upload')?.click()}
                       disabled={isUploading}
                       className={cn(
@@ -272,10 +337,10 @@ export default function SettingsPage() {
                       Alterar
                     </button>
                   </div>
-                  <input 
+                  <input
                     id="avatar-upload"
-                    type="file" 
-                    className="hidden" 
+                    type="file"
+                    className="hidden"
                     accept="image/*"
                     onChange={handleAvatarUpload}
                   />
@@ -285,13 +350,13 @@ export default function SettingsPage() {
                   <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                     <div className="space-y-2">
                       <label className="text-[10px] font-black uppercase text-[var(--text-tertiary)] tracking-widest">Nome Completo</label>
-                      <input 
-                        type="text" 
+                      <input
+                        type="text"
                         defaultValue={currentUser.name}
                         onChange={(e) => {
                           setCurrentUser(prev => prev ? { ...prev, name: e.target.value } : null);
                         }}
-                        className="w-full bg-[var(--surface-card)] border border-[var(--border-default)] rounded-xl px-4 py-2.5 text-sm font-medium" 
+                        className="w-full bg-[var(--surface-card)] border border-[var(--border-default)] rounded-xl px-4 py-2.5 text-sm font-medium"
                       />
                     </div>
                     <div className="space-y-2">
@@ -306,30 +371,30 @@ export default function SettingsPage() {
                     </div>
                     <div className="space-y-2">
                       <label className="text-[10px] font-black uppercase text-[var(--text-tertiary)] tracking-widest">Telefone</label>
-                      <input 
-                        type="text" 
-                        value={maskPhone(currentUser.phone || "")} 
+                      <input
+                        type="text"
+                        value={maskPhone(currentUser.phone || "")}
                         onChange={(e) => {
                           setCurrentUser(prev => prev ? { ...prev, phone: e.target.value } : null);
                         }}
                         placeholder="(xx) xxxxx-xxxx"
                         maxLength={15}
-                        className="w-full bg-[var(--surface-card)] border border-[var(--border-default)] rounded-xl px-4 py-2.5 text-sm font-medium" 
+                        className="w-full bg-[var(--surface-card)] border border-[var(--border-default)] rounded-xl px-4 py-2.5 text-sm font-medium"
                       />
                     </div>
                   </div>
                   <div className="space-y-2">
                     <label className="text-[10px] font-black uppercase text-[var(--text-tertiary)] tracking-widest">Bio</label>
-                    <textarea 
-                      className="w-full bg-[var(--surface-card)] border border-[var(--border-default)] rounded-xl px-4 py-2.5 text-sm min-h-[100px]" 
+                    <textarea
+                      className="w-full bg-[var(--surface-card)] border border-[var(--border-default)] rounded-xl px-4 py-2.5 text-sm min-h-[100px]"
                       defaultValue={currentUser.role === 'Administrador' ? "Lead Product Designer focado em experiências escaláveis." : "Colaborador da equipe SSX Desk."}
                     />
                   </div>
                 </div>
               </div>
- 
+
               <div className="mt-8 flex justify-end">
-                <button 
+                <button
                   onClick={async () => {
                     try {
                       await UserService.save(currentUser);
@@ -352,7 +417,7 @@ export default function SettingsPage() {
               <div className="bg-[var(--surface-card)] border border-[var(--border-default)] rounded-2xl p-8 shadow-sm">
                 <h3 className="font-bold text-[var(--text-primary)] mb-6 flex items-center gap-2"><Lock size={20} className="text-[var(--accent-text)]" /> Alterar Senha</h3>
                 <p className="text-sm text-[var(--text-tertiary)] mb-6">Para sua segurança, recomendamos alterar sua senha periodicamente.</p>
-                <button 
+                <button
                   onClick={() => setIsPasswordModalOpen(true)}
                   className="bg-slate-900 text-white px-6 py-2.5 rounded-xl text-sm font-bold shadow-md hover:bg-slate-800 transition-all flex items-center gap-2"
                 >
@@ -368,18 +433,28 @@ export default function SettingsPage() {
   );
 }
 
-function SettingsNavLink({ icon, label, active, onClick }: { icon: React.ReactNode, label: string, active?: boolean, onClick?: () => void }) {
+function SettingsNavGroup({ title, children }: { title: string; children: React.ReactNode }) {
   return (
-    <button 
-      onClick={onClick}
-      className={cn(
-        "w-full flex items-center gap-3 px-4 py-2.5 rounded-xl text-sm font-bold transition-all",
-        active ? "bg-[var(--accent)]/10 text-[var(--accent-text)]" : "text-[var(--text-tertiary)] hover:bg-[var(--surface-card)] hover:text-[var(--text-secondary)]"
-      )}
-    >
-      {icon}
-      {label}
-    </button>
+    <div className="space-y-1 pt-2 first:pt-0">
+      <p className="px-4 pb-1.5 text-[9px] font-black uppercase text-[var(--text-tertiary)]/70 tracking-[0.14em]">{title}</p>
+      <div className="space-y-0.5">{children}</div>
+    </div>
   );
 }
 
+function SettingsNavLink({ icon, label, active, onClick }: { icon: React.ReactNode, label: string, active?: boolean, onClick?: () => void }) {
+  return (
+    <button
+      onClick={onClick}
+      className={cn(
+        "w-full flex items-center gap-3 px-3.5 py-2.5 rounded-xl text-[13px] font-bold transition-all",
+        active
+          ? "bg-[var(--accent)] text-white shadow-md shadow-indigo-200"
+          : "text-[var(--text-tertiary)] hover:bg-[var(--surface-pill)] hover:text-[var(--text-secondary)]"
+      )}
+    >
+      <span className={cn("shrink-0 transition-colors", active ? "text-white" : "text-[var(--text-tertiary)]")}>{icon}</span>
+      <span className="truncate">{label}</span>
+    </button>
+  );
+}

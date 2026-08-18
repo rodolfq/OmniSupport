@@ -11,7 +11,6 @@ import {
  } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { useApp } from '@/app/app-context';
-import { ChangePasswordModal } from './change-password-modal';
 import { AnalystService } from '@/lib/services/chat-service';
 
 export function Sidebar() {
@@ -37,7 +36,6 @@ export function Sidebar() {
     router.push('/login');
   };
 
-  const [isPasswordModalOpen, setIsPasswordModalOpen] = useState(false);
   const [openSubmenu, setOpenSubmenu] = useState<string | null>(null);
   const navRef = useRef<HTMLDivElement>(null);
 
@@ -62,7 +60,7 @@ export function Sidebar() {
   }, [pathname]);
 
   const menuItems = useMemo(
-    () => getNavItems(currentUser, () => setIsPasswordModalOpen(true)),
+    () => getNavItems(currentUser),
     [currentUser]
   );
 
@@ -227,8 +225,6 @@ export function Sidebar() {
           <LogOut size={22} />
         </button>
       </div>
-
-      {isPasswordModalOpen && <ChangePasswordModal isOpen={isPasswordModalOpen} onClose={() => setIsPasswordModalOpen(false)} />}
     </div>
   );
 }

@@ -31,17 +31,21 @@ interface TesterResult {
 }
 
 const SCOPE_OPTIONS: { value: string; label: string; description: string }[] = [
-  { value: 'employees:read', label: 'Funcionários — Leitura', description: 'Listar/consultar funcionários e empresas (inclui isInTraining e avaliações)' },
-  { value: 'employees:write', label: 'Funcionários — Escrita', description: 'Cadastrar e atualizar funcionários' },
+  { value: 'employees:read', label: 'Funcionários — Leitura', description: 'Listar/consultar funcionários (inclui isActive)' },
+  { value: 'employees:write', label: 'Funcionários — Escrita', description: 'Cadastrar, atualizar e desativar funcionários' },
   { value: 'tickets:read', label: 'Chamados — Leitura', description: 'Consultar chamados e mensagens visíveis ao cliente' },
+  { value: 'tickets:write', label: 'Chamados — Escrita', description: 'Abrir novos chamados e atualizar status, prioridade, classificação e responsável' },
   { value: 'conversations:read', label: 'Conversas — Leitura', description: 'Consultar conversas (WhatsApp) e mensagens' },
-  { value: 'companies:write', label: 'Empresas — Escrita', description: 'Atualizar dados da empresa (nome, indústria, telefone, cliente em treinamento)' },
+  { value: 'companies:read', label: 'Empresas — Leitura', description: 'Listar/consultar empresas (inclui isInTraining e avaliações)' },
+  { value: 'companies:write', label: 'Empresas — Escrita', description: 'Atualizar dados da empresa (nome, indústria, telefone, cliente em treinamento) — já inclui leitura' },
 ];
 
 const METHOD_COLORS: Record<string, string> = {
   GET: 'bg-[var(--surface-success)] text-[var(--text-success)]',
   POST: 'bg-[var(--accent)]/10 text-[var(--accent-text)]',
   PUT: 'bg-[var(--surface-warning)] text-[var(--text-warning)]',
+  PATCH: 'bg-[var(--surface-warning)] text-[var(--text-warning)]',
+  DELETE: 'bg-[var(--surface-danger)] text-[var(--text-danger)]',
 };
 
 function buildQueryString(endpoint: EndpointDoc, values: Record<string, string>) {
@@ -352,7 +356,8 @@ export function IntegrationsContent() {
           {[
             { id: 'conversations-list' as const, label: 'Listar conversas', desc: 'Ver o histórico de conversas (chat/WhatsApp) de um cliente ou de todos.', scope: 'conversations:read' },
             { id: 'tickets-list' as const, label: 'Listar chamados', desc: 'Ver os chamados abertos por um cliente ou de todos, com filtro por status.', scope: 'tickets:read' },
-            { id: 'companies-list' as const, label: 'Listar clientes', desc: 'Ver as empresas cadastradas — use antes de cadastrar/atualizar um funcionário.', scope: 'employees:read' },
+            { id: 'tickets-create' as const, label: 'Abrir chamado', desc: 'Criar um chamado novo em nome de uma empresa/cliente diretamente pela API.', scope: 'tickets:write' },
+            { id: 'companies-list' as const, label: 'Listar clientes', desc: 'Ver as empresas cadastradas — use antes de cadastrar/atualizar um funcionário.', scope: 'companies:read' },
             { id: 'companies-update' as const, label: 'Atualizar cadastro de cliente', desc: 'Editar nome, indústria, telefone ou o indicador "em treinamento" de uma empresa já existente. Pra atualizar uma pessoa (funcionário), use "Atualizar funcionário" na lista abaixo.', scope: 'companies:write' },
           ].map(task => (
             <button
