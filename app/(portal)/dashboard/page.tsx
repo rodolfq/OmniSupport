@@ -311,7 +311,7 @@ export default function DashboardPage() {
 
           {(dashboardMode === 'tickets' ? canSeeTickets : canSeeInternal) && (
             <button
-              onClick={() => dashboardMode === 'tickets' ? setIsNewTicketModalOpen(true) : router.push('/tickets?mode=internal')}
+              onClick={() => dashboardMode === 'tickets' ? setIsNewTicketModalOpen(true) : router.push('/tickets?mode=internal&new=1')}
               className={cn(
                 "text-white px-6 py-2.5 rounded-lg text-sm font-semibold shadow-md transition-all flex items-center gap-2 whitespace-nowrap focus:outline-none focus:ring-2",
                 dashboardMode === 'tickets' ? "bg-[var(--accent)] hover:bg-[var(--accent-hover)] focus:ring-[var(--accent)]/40" : "bg-[var(--text-warning-strong)] hover:bg-[var(--accent-warning-hover)] focus:ring-[var(--text-warning-strong)]/40"

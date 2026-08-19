@@ -480,40 +480,24 @@ export default function InternalTicketDetailPage() {
       <div className="flex-1 flex overflow-hidden">
         {/* Conteúdo principal */}
         <div className="flex-1 min-w-0 bg-[var(--surface-card)] p-6 overflow-auto">
-          <div className="grid grid-cols-2 gap-6 mb-4">
-            <div className="space-y-3">
-              <div><p className="text-[10px] text-[var(--text-tertiary)] font-bold uppercase mb-1">Equipe</p>
-                <StyledSelect value={formTeam} onChange={(e) => { setFormTeam(e.target.value); setTimeout(() => handleUpdateTicket(), 0); }} className="w-full bg-[var(--surface-card)] border border-[var(--border-default)] rounded-lg px-3 py-2 text-xs font-bold text-[var(--text-primary)]">
+          {/* Grid único (não mais dois <div> de 2 colunas fixas com 4/7 itens
+              cada) — o desbalanço entre "poucos campos, muito espaço" à
+              esquerda e "muitos campos, apertado" à direita vinha exatamente
+              de forçar esse corte fixo. Deixando os 11 campos fluírem juntos
+              num grid responsivo, o navegador preenche as colunas de forma
+              equilibrada sozinho. */}
+          <div className="grid grid-cols-2 md:grid-cols-3 gap-x-4 gap-y-2.5 mb-4 max-w-2xl">
+              <div><p className="text-[10px] text-[var(--text-tertiary)] font-bold uppercase mb-0.5">Equipe</p>
+                <StyledSelect value={formTeam} onChange={(e) => { setFormTeam(e.target.value); setTimeout(() => handleUpdateTicket(), 0); }} className="w-full bg-[var(--surface-card)] border border-[var(--border-default)] rounded-lg px-3 py-1.5 text-xs font-bold text-[var(--text-primary)]">
                   {TEAM_OPTIONS.map(t => <option key={t.value} value={t.value}>{t.label}</option>)}
                 </StyledSelect></div>
-              <div><p className="text-[10px] text-[var(--text-tertiary)] font-bold uppercase mb-1">Responsável</p>
-                <StyledSelect value={formAssignee} onChange={(e) => handleUpdateTicket({ assigneeId: e.target.value })} className="w-full bg-[var(--surface-card)] border border-[var(--border-default)] rounded-lg px-3 py-2 text-xs font-bold text-[var(--text-primary)]">
+              <div><p className="text-[10px] text-[var(--text-tertiary)] font-bold uppercase mb-0.5">Responsável</p>
+                <StyledSelect value={formAssignee} onChange={(e) => handleUpdateTicket({ assigneeId: e.target.value })} className="w-full bg-[var(--surface-card)] border border-[var(--border-default)] rounded-lg px-3 py-1.5 text-xs font-bold text-[var(--text-primary)]">
                   <option value="">Não atribuído</option>
                   {analysts.map(a => <option key={a.id} value={a.id}>{a.name}</option>)}
                 </StyledSelect></div>
-              <div><p className="text-[10px] text-[var(--text-tertiary)] font-bold uppercase mb-1">Vencimento</p>
-                {(() => {
-                  const computedSla = computeInternalTicketSla(formPriority, ticket.createdAt || new Date().toISOString(), priorities);
-                  const overdue = computedSla && new Date(computedSla) < new Date();
-                  return (
-                    <p className={cn("text-xs font-bold px-1 py-2", overdue ? "text-[var(--text-danger)]" : "text-[var(--text-primary)]")} title="Calculado a partir da prioridade e do SLA configurado em Configurações">
-                      {computedSla ? new Date(computedSla).toLocaleString('pt-BR', { day: '2-digit', month: '2-digit', year: 'numeric', hour: '2-digit', minute: '2-digit' }) : 'Sem SLA configurado'}
-                    </p>
-                  );
-                })()}
-              </div>
-              <div><p className="text-[10px] text-[var(--text-tertiary)] font-bold uppercase mb-1">Prioridade</p>
-                <div className="flex items-center gap-1">{[1, 2, 3, 4].map(star => (
-                  <button key={star} onClick={() => { setFormPriority(star); setTimeout(() => handleUpdateTicket(), 0); }}>
-                    <Star size={16} className={cn(star <= formPriority ? "fill-amber-400 text-[var(--text-warning)]" : "text-slate-300")} />
-                  </button>
-                ))}</div></div>
-            </div>
-            <div className="space-y-3">
-              <div><p className="text-[10px] text-[var(--text-tertiary)] font-bold uppercase mb-1">Criado por</p>
-                <p className="text-xs font-bold text-[var(--text-primary)]">{ticket.creatorName || '—'}</p></div>
               <div>
-                <p className="text-[10px] text-[var(--text-danger)] font-black uppercase mb-1 flex items-center gap-1">
+                <p className="text-[10px] text-[var(--text-danger)] font-black uppercase mb-0.5 flex items-center gap-1">
                   <Rocket size={11} /> Hotfix
                 </p>
                 <StyledSelect
@@ -525,7 +509,7 @@ export default function InternalTicketDetailPage() {
                     if (selected) setFormExpectedPublish(selected.expectedDate);
                     setTimeout(() => handleUpdateTicket(), 0);
                   }}
-                  className="w-full bg-[var(--surface-card)] border border-[var(--border-default)] rounded-lg px-3 py-2 text-xs font-bold text-[var(--text-primary)]"
+                  className="w-full bg-[var(--surface-card)] border border-[var(--border-default)] rounded-lg px-3 py-1.5 text-xs font-bold text-[var(--text-primary)]"
                 >
                   <option value="">Nenhum</option>
                   {/* Hotfix já publicado não aparece mais aqui, nem o que este
@@ -549,7 +533,7 @@ export default function InternalTicketDetailPage() {
                   desde a abertura viraria ruído e o campo acabaria preenchido
                   no automático, que é pior do que vazio. */}
               <div>
-                <p className="text-[10px] text-[var(--text-tertiary)] font-bold uppercase mb-1 flex items-center gap-1">
+                <p className="text-[10px] text-[var(--text-tertiary)] font-bold uppercase mb-0.5 flex items-center gap-1">
                   Esforço
                   {needsClassification && !formEffortId && (
                     <span className="text-[8px] font-black px-1.5 py-0.5 rounded-full bg-[var(--surface-warning)] text-[var(--text-warning-strong)]">falta</span>
@@ -558,7 +542,7 @@ export default function InternalTicketDetailPage() {
                 <StyledSelect
                   value={formEffortId}
                   onChange={(e) => { setFormEffortId(e.target.value); setTimeout(() => handleUpdateTicket(), 0); }}
-                  className="w-full bg-[var(--surface-card)] border border-[var(--border-default)] rounded-lg px-3 py-2 text-xs font-bold text-[var(--text-primary)]"
+                  className="w-full bg-[var(--surface-card)] border border-[var(--border-default)] rounded-lg px-3 py-1.5 text-xs font-bold text-[var(--text-primary)]"
                 >
                   <option value="">Não classificado</option>
                   {/* Nível arquivado sai da lista, exceto o que este ticket já
@@ -570,7 +554,7 @@ export default function InternalTicketDetailPage() {
                 </StyledSelect>
               </div>
               <div>
-                <p className="text-[10px] text-[var(--text-tertiary)] font-bold uppercase mb-1 flex items-center gap-1">
+                <p className="text-[10px] text-[var(--text-tertiary)] font-bold uppercase mb-0.5 flex items-center gap-1">
                   Desfecho
                   {needsClassification && !formOutcomeId && (
                     <span className="text-[8px] font-black px-1.5 py-0.5 rounded-full bg-[var(--surface-warning)] text-[var(--text-warning-strong)]">falta</span>
@@ -579,7 +563,7 @@ export default function InternalTicketDetailPage() {
                 <StyledSelect
                   value={formOutcomeId}
                   onChange={(e) => { setFormOutcomeId(e.target.value); setTimeout(() => handleUpdateTicket(), 0); }}
-                  className="w-full bg-[var(--surface-card)] border border-[var(--border-default)] rounded-lg px-3 py-2 text-xs font-bold text-[var(--text-primary)]"
+                  className="w-full bg-[var(--surface-card)] border border-[var(--border-default)] rounded-lg px-3 py-1.5 text-xs font-bold text-[var(--text-primary)]"
                 >
                   <option value="">Não classificado</option>
                   {selectableOptions(outcomes, formOutcomeId).map(o => (
@@ -587,30 +571,38 @@ export default function InternalTicketDetailPage() {
                   ))}
                 </StyledSelect>
               </div>
-              <div><p className="text-[10px] text-[var(--text-tertiary)] font-bold uppercase mb-1">Publicação Prevista</p>
-                <input
-                  type="date"
-                  value={formExpectedPublish}
-                  onChange={(e) => setFormExpectedPublish(e.target.value)}
-                  onBlur={() => handleUpdateTicket()}
-                  className="w-full bg-[var(--surface-card)] border border-[var(--border-default)] rounded-lg px-3 py-2 text-xs font-bold text-[var(--text-primary)]"
-                />
-              </div>
-              <div><p className="text-[10px] text-[var(--text-tertiary)] font-bold uppercase mb-1">Marcadores</p>
+              <div><p className="text-[10px] text-[var(--text-tertiary)] font-bold uppercase mb-0.5">Marcadores</p>
                 <input
                   value={formTags}
                   onChange={(e) => setFormTags(e.target.value)}
                   onBlur={() => handleUpdateTicket()}
                   placeholder="separadas por vírgula..."
-                  className="w-full bg-[var(--surface-card)] border border-[var(--border-default)] rounded-lg px-3 py-2 text-xs font-bold text-[var(--text-primary)]"
+                  className="w-full bg-[var(--surface-card)] border border-[var(--border-default)] rounded-lg px-3 py-1.5 text-xs font-bold text-[var(--text-primary)]"
                 />
               </div>
-              <div><p className="text-[10px] text-[var(--text-tertiary)] font-bold uppercase mb-1">Chamados vinculados</p>
-                <button onClick={() => setActiveTab('linked')} className="text-xs font-bold text-[var(--text-warning)] hover:underline flex items-center gap-1">
-                  <Link2 size={12} /> {linkedTickets.length > 0 ? `${linkedTickets.length} vinculado(s)` : 'Nenhum — vincular'}
-                </button>
+              {/* Criado por / Prioridade / Vencimento agrupados de propósito:
+                  os três são só CONSULTA — não têm um <select>/<input> de
+                  edição direta como o resto da grade (Prioridade muda por
+                  estrela, não por campo; Vencimento é calculado). */}
+              <div><p className="text-[10px] text-[var(--text-tertiary)] font-bold uppercase mb-0.5">Criado por</p>
+                <p className="text-xs font-bold text-[var(--text-primary)] py-1.5">{ticket.creatorName || '—'}</p></div>
+              <div><p className="text-[10px] text-[var(--text-tertiary)] font-bold uppercase mb-0.5">Prioridade</p>
+                <div className="flex items-center gap-1 py-1.5">{[1, 2, 3, 4].map(star => (
+                  <button key={star} onClick={() => { setFormPriority(star); setTimeout(() => handleUpdateTicket(), 0); }}>
+                    <Star size={16} className={cn(star <= formPriority ? "fill-amber-400 text-[var(--text-warning)]" : "text-slate-300")} />
+                  </button>
+                ))}</div></div>
+              <div><p className="text-[10px] text-[var(--text-tertiary)] font-bold uppercase mb-0.5">Vencimento</p>
+                {(() => {
+                  const computedSla = computeInternalTicketSla(formPriority, ticket.createdAt || new Date().toISOString(), priorities);
+                  const overdue = computedSla && new Date(computedSla) < new Date();
+                  return (
+                    <p className={cn("text-xs font-bold py-1.5", overdue ? "text-[var(--text-danger)]" : "text-[var(--text-primary)]")} title="Calculado a partir da prioridade e do SLA configurado em Configurações">
+                      {computedSla ? new Date(computedSla).toLocaleString('pt-BR', { day: '2-digit', month: '2-digit', year: 'numeric', hour: '2-digit', minute: '2-digit' }) : 'Sem SLA configurado'}
+                    </p>
+                  );
+                })()}
               </div>
-            </div>
           </div>
 
           <div className="border-t border-[var(--border-default)]"></div>

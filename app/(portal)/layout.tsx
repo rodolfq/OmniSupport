@@ -15,6 +15,7 @@ import { MobileHeader } from '@/components/mobile-header';
 import { MobileBottomNav } from '@/components/mobile-bottom-nav';
 import { NotificationPanel } from '@/components/notification-panel';
 import { GiroStatusPopover } from '@/components/giro-status-popover';
+import { VersionUpdateBanner } from '@/components/version-update-banner';
 import { cn } from '@/lib/utils';
 import { UserRole, Permission } from '@/lib/types';
 
@@ -38,7 +39,8 @@ export default function PortalLayout({ children }: { children: React.ReactNode }
     lunchSecondsRemaining,
     absenceReasons,
     setUserStatus,
-    hasPermission
+    hasPermission,
+    newVersionAvailable
   } = useApp();
   const { theme, toggleTheme } = useTheme();
   const [isNotificationsOpen, setIsNotificationsOpen] = useState(false);
@@ -279,6 +281,7 @@ export default function PortalLayout({ children }: { children: React.ReactNode }
         <MobileBottomNav />
       </div>
       <ForcePasswordChange />
+      <VersionUpdateBanner visible={newVersionAvailable} onUpdate={() => window.location.reload()} />
     </div>
   );
 }

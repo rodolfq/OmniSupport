@@ -213,10 +213,14 @@ export function InternalTicketsView({
   viewToggle,
   viewModeSwitcher,
   viewMode,
+  openNewModal,
 }: {
   viewToggle?: React.ReactNode;
   viewModeSwitcher?: React.ReactNode;
   viewMode: "cards" | "table" | "kanban";
+  // Atalho do Dashboard (?new=1) — abre a criação direto, sem exigir um
+  // segundo clique em "Novo Ticket" depois de chegar na lista.
+  openNewModal?: boolean;
 }) {
   const router = useRouter();
   const { currentUser, hasPermission, triggerRefresh } = useApp();
@@ -333,6 +337,16 @@ export function InternalTicketsView({
 
 // Modal states
   const [showNewModal, setShowNewModal] = useState(false);
+
+  // Mesma checagem de permissão do botão "Novo Ticket" abaixo — sem ela, o
+  // link do Dashboard abriria o modal pra quem só tem permissão de VER
+  // ticket interno, não de criar.
+  useEffect(() => {
+    if (openNewModal && hasPermission(Permission.INTERNAL_TICKETS_EDIT)) {
+      setShowNewModal(true);
+      router.replace('/tickets?mode=internal');
+    }
+  }, [openNewModal]);
 
   // View mode state
   const fetchTickets = useCallback(async (page = 1, isLoadMore = false) => {

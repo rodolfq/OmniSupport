@@ -92,6 +92,10 @@ interface AppContextType {
   whatsappStatus: 'connected' | 'disconnected' | 'connecting' | 'error';
   setWhatsappStatus: (status: 'connected' | 'disconnected' | 'connecting' | 'error') => void;
   dbStatus: 'connected' | 'disconnected' | 'error';
+  // Detectado por polling contra /api/version (BUILD_ID do Next) — ver efeito
+  // mais abaixo. O banner (components/version-update-banner.tsx) é montado
+  // no layout do portal.
+  newVersionAvailable: boolean;
   userStatus: 'online' | 'away' | 'offline';
   userStatusReason: string | null;
   lunchSecondsRemaining: number | null;
@@ -206,6 +210,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
 
   const [whatsappStatus, setWhatsappStatus] = useState<'connected' | 'disconnected' | 'connecting' | 'error'>('disconnected');
   const [dbStatus, setDbStatus] = useState<'connected' | 'disconnected' | 'error'>('disconnected');
+  const [newVersionAvailable, setNewVersionAvailable] = useState(false);
   const [userStatus, setUserStatusState] = useState<'online' | 'away' | 'offline'>('online');
   const [userStatusReason, setUserStatusReason] = useState<string | null>(null);
   const [userStatusSince, setUserStatusSince] = useState<string | null>(null);
@@ -604,6 +609,45 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     };
   }, []);
 
+  // Aviso de nova versão (components/version-update-banner.tsx): compara o
+  // BUILD_ID que o Next gerou no deploy atual do servidor contra o que foi
+  // capturado na primeira checagem desta aba. 15 min de intervalo (deploy não
+  // é evento frequente, diferente do polling de notificação) + checagem ao
+  // voltar o foco na aba, pra não esperar até 15 min depois de reabrir o
+  // notebook. Some de tela só quando newVersionAvailable vira true — depois
+  // disso o polling não tem mais nada a fazer.
+  useEffect(() => {
+    let isMounted = true;
+    let knownBuildId: string | null = null;
+
+    const checkVersion = async () => {
+      try {
+        const res = await fetch('/api/version', { cache: 'no-store' });
+        if (!res.ok || !isMounted) return;
+        const data = await res.json();
+        if (knownBuildId === null) {
+          knownBuildId = data.buildId;
+          return;
+        }
+        if (data.buildId !== knownBuildId) {
+          setNewVersionAvailable(true);
+        }
+      } catch {
+        // Rede instável não deve virar um aviso de versão falso.
+      }
+    };
+
+    checkVersion();
+    const interval = setInterval(checkVersion, 15 * 60 * 1000);
+    const onVisible = () => { if (document.visibilityState === 'visible') checkVersion(); };
+    document.addEventListener('visibilitychange', onVisible);
+    return () => {
+      isMounted = false;
+      clearInterval(interval);
+      document.removeEventListener('visibilitychange', onVisible);
+    };
+  }, []);
+
   useEffect(() => {
     if (!authInitialized || !currentUser?.id) return;
 
@@ -873,6 +917,7 @@ return (
       whatsappStatus,
       setWhatsappStatus,
       dbStatus,
+      newVersionAvailable,
       userStatus,
       userStatusReason,
       lunchSecondsRemaining,

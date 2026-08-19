@@ -17,6 +17,7 @@ const PUBLIC_PATHS = new Set([
   '/api/auth/logout',
   '/api/whatsapp/webhook', // chamado pela Meta, sem sessão de usuário
   '/api/health', // healthcheck do container (Dockerfile), sem sessão de usuário
+  '/api/version', // polling do aviso de nova versão (app-context.tsx) — não deve cair em 401 se a sessão expirar no meio do dia
   '/manifest.webmanifest',
   '/sw.js',
 ]);

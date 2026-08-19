@@ -26,6 +26,10 @@ export default function TicketsPage() {
 
   const requestedMode = searchParams?.get("mode") === "internal" ? "internal" : null;
   const openTicketId = searchParams?.get("open") || null;
+  // Atalho do Dashboard ("Novo Ticket Interno" quando o usuário só enxerga o
+  // lado interno): sem isso, o botão só navegava pra cá e deixava a pessoa
+  // parada na lista, tendo que achar e clicar em "Novo Ticket" de novo.
+  const openNewInternal = searchParams?.get("new") === "1";
 
   // Inicializa já no lado certo pra quem só tem uma das duas permissões (ou
   // veio de um link tipo /tickets?mode=internal) — mesma lógica do Dashboard,
@@ -121,7 +125,7 @@ export default function TicketsPage() {
     return <TicketsView viewToggle={viewToggle} viewModeSwitcher={viewModeSwitcher} viewMode={viewMode} openTicketId={openTicketId} />;
   }
   if (canSeeInternal) {
-    return <InternalTicketsView viewToggle={viewToggle} viewModeSwitcher={viewModeSwitcher} viewMode={viewMode} />;
+    return <InternalTicketsView viewToggle={viewToggle} viewModeSwitcher={viewModeSwitcher} viewMode={viewMode} openNewModal={openNewInternal} />;
   }
   return null;
 }
