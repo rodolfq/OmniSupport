@@ -64,6 +64,11 @@ export async function getGiroSummary(): Promise<GiroSummary | { error: string }>
   }
 }
 
+// Escala de fim de semana: ver useWeekendScheduleQuery/refreshWeekendSchedule
+// em lib/query-hooks.ts — passou a usar o cache do TanStack Query (mesma
+// chave compartilhada entre a tela cheia e o popover do Giro), em vez de um
+// fetch avulso por componente como as outras leituras deste arquivo.
+
 // ---------------------------------------------------------------- operação
 
 export interface UpdateRowPatch {

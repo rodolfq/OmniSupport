@@ -1,8 +1,8 @@
 'use client';
 
-import React, { useCallback, useEffect, useRef, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import Link from 'next/link';
-import { RefreshCw, Mail, CheckCircle2, ArrowRight, Loader2, X, Video } from 'lucide-react';
+import { RefreshCw, Mail, CheckCircle2, ArrowRight, Loader2, X, Video, CalendarRange } from 'lucide-react';
 import { toast } from 'sonner';
 import { motion, AnimatePresence } from 'motion/react';
 import { cn } from '@/lib/utils';
@@ -10,6 +10,15 @@ import { UserAvatar } from '@/components/user-avatar';
 import { StyledSelect } from '@/components/styled-select';
 import { GIRO_SERVICE_TYPES, GiroRow, GiroServiceType } from '@/lib/types';
 import { getGiroSummary, updateGiroRow, completeGiroService, GiroSummary } from '@/lib/services/giro-client';
+import { classifyWeekendRows } from '@/lib/weekend-schedule-utils';
+import { useWeekendScheduleQuery } from '@/lib/query-hooks';
+
+const WEEKDAY_ABBR: Record<string, string> = {
+  'Domingo': 'Dom', 'Segunda-feira': 'Seg', 'Terça-feira': 'Ter', 'Quarta-feira': 'Qua',
+  'Quinta-feira': 'Qui', 'Sexta-feira': 'Sex', 'Sábado': 'Sáb'
+};
+
+type PanelTab = 'giro' | 'weekend';
 
 /**
  * Status do Giro em um painel flutuante, no mesmo formato das mensagens
@@ -28,6 +37,16 @@ export function GiroStatusPopover() {
   const [loading, setLoading] = useState(false);
   const [busy, setBusy] = useState(false);
   const containerRef = useRef<HTMLDivElement>(null);
+
+  const [panelTab, setPanelTab] = useState<PanelTab>('giro');
+  // enabled só quando a aba está de fato aberta: mesma "carga sob demanda"
+  // do resto do popover. Compartilha a MESMA chave de cache que a tela cheia
+  // de Configurações (ver lib/query-hooks.ts) — quem já abriu uma vê a outra
+  // carregar na hora.
+  const { data: weekend, isLoading: weekendLoading, error: weekendQueryError } = useWeekendScheduleQuery({
+    enabled: open && panelTab === 'weekend'
+  });
+  const weekendError = weekendQueryError ? (weekendQueryError as any)?.message || 'Não foi possível carregar a escala.' : null;
 
   // Concluir não é mais um clique só: o botão de check abre este painel pra
   // definir tipo + observação ANTES de gravar no histórico e pular a vez —
@@ -69,8 +88,10 @@ export function GiroStatusPopover() {
 
   // Fechar o popover encerra qualquer conclusão em andamento — reabrir depois
   // não deve ressuscitar um rascunho de observação de uma sessão anterior.
+  // Também volta pra aba "Giro": reabrir sempre começa pela info do dia a
+  // dia, não de onde a pessoa deixou da última vez.
   useEffect(() => {
-    if (!open) setCompletingRow(null);
+    if (!open) { setCompletingRow(null); setPanelTab('giro'); }
   }, [open]);
 
   const openCompleteFor = (row: GiroRow) => {
@@ -106,6 +127,11 @@ export function GiroStatusPopover() {
 
   const current = summary?.current ?? null;
 
+  const classifiedWeekendRows = useMemo(
+    () => weekend ? classifyWeekendRows(weekend.rows, weekend.todayIso) : [],
+    [weekend]
+  );
+
   return (
     <div className="relative" ref={containerRef}>
       <button
@@ -139,7 +165,7 @@ export function GiroStatusPopover() {
             <div className="px-5 py-4 border-b border-[var(--border-default)] flex items-center gap-2">
               <RefreshCw size={15} className="text-[var(--accent-text)]" />
               <h3 className="text-sm font-black text-[var(--text-primary)] tracking-tight">Giro de Atendimento</h3>
-              {summary?.handoffName && (
+              {panelTab === 'giro' && summary?.handoffName && (
                 <span className="ml-auto flex items-center gap-1 text-[9px] font-black uppercase tracking-widest text-[var(--accent-text)]" title="Responsável pela passagem de turno por e-mail">
                   <Mail size={10} />
                   {summary.handoffName}
@@ -147,6 +173,89 @@ export function GiroStatusPopover() {
               )}
             </div>
 
+            {/* Alternador Giro / Fim de semana — a escala de fim de semana
+                (planilha do Google, ver lib/services/weekend-schedule-service.ts)
+                é informação bem menor que o quadro do dia, então cabe como
+                segunda aba deste mesmo painel em vez de um popover à parte. */}
+            <div className="px-5 pt-3 pb-1 border-b border-[var(--border-default)]">
+              <div className="inline-flex items-center gap-1 p-1 bg-[var(--surface-pill)] rounded-xl border border-[var(--border-default)]">
+                <button
+                  onClick={() => setPanelTab('giro')}
+                  className={cn(
+                    'px-3 py-1.5 rounded-lg text-[9px] font-black uppercase tracking-widest transition-all flex items-center gap-1.5',
+                    panelTab === 'giro' ? 'bg-[var(--surface-card)] text-[var(--accent-text)] shadow-sm' : 'text-[var(--text-tertiary)] hover:text-[var(--text-secondary)]'
+                  )}
+                >
+                  <RefreshCw size={11} /> Giro
+                </button>
+                <button
+                  onClick={() => setPanelTab('weekend')}
+                  className={cn(
+                    'px-3 py-1.5 rounded-lg text-[9px] font-black uppercase tracking-widest transition-all flex items-center gap-1.5',
+                    panelTab === 'weekend' ? 'bg-[var(--surface-card)] text-[var(--accent-text)] shadow-sm' : 'text-[var(--text-tertiary)] hover:text-[var(--text-secondary)]'
+                  )}
+                >
+                  <CalendarRange size={11} /> Fim de semana
+                </button>
+              </div>
+            </div>
+
+            {panelTab === 'weekend' ? (
+              <>
+                {weekendLoading && !weekend ? (
+                  <div className="flex items-center justify-center py-12 text-[var(--text-tertiary)]">
+                    <Loader2 className="animate-spin mr-2" size={16} /> Carregando...
+                  </div>
+                ) : weekendError ? (
+                  <div className="px-6 py-10 text-center space-y-1">
+                    <p className="text-xs font-black uppercase tracking-tight text-[var(--text-secondary)]">Não foi possível carregar</p>
+                    <p className="text-[11px] font-medium text-[var(--text-tertiary)]">{weekendError}</p>
+                  </div>
+                ) : !weekend || weekend.rows.length === 0 ? (
+                  <div className="px-6 py-10 text-center space-y-1">
+                    <p className="text-xs font-black uppercase tracking-tight text-[var(--text-secondary)]">Nada encontrado</p>
+                    <p className="text-[11px] font-medium text-[var(--text-tertiary)]">Sem linhas de escala para o mês atual.</p>
+                  </div>
+                ) : (
+                  <div className="max-h-[300px] overflow-y-auto p-2.5 space-y-1">
+                    {classifiedWeekendRows.map((row, i) => (
+                      <div
+                        key={`${row.date}-${i}`}
+                        className={cn(
+                          'flex items-center gap-3 px-2.5 py-1.5 rounded-xl transition-colors',
+                          row.status === 'past' && 'opacity-40 hover:opacity-70',
+                          row.status === 'next' && 'bg-[var(--accent)]/10 ring-1 ring-[var(--accent)]/30',
+                          row.status === 'upcoming' && 'hover:bg-[var(--surface-pill)]/60'
+                        )}
+                      >
+                        <span
+                          className={cn(
+                            'shrink-0 w-14 text-center px-1.5 py-1 rounded-lg text-[9px] font-black tabular-nums leading-tight',
+                            row.status === 'next'
+                              ? 'bg-[var(--accent)] text-white'
+                              : 'bg-[var(--surface-pill)] text-[var(--text-tertiary)]'
+                          )}
+                        >
+                          {row.date.slice(0, 5)}<br />{WEEKDAY_ABBR[row.weekday] || row.weekday}
+                        </span>
+                        <span className={cn(
+                          'text-sm font-bold truncate',
+                          row.status === 'next' ? 'text-[var(--accent-text)]' : 'text-[var(--text-primary)]'
+                        )}>
+                          {row.responsavelEfetivo || '—'}
+                        </span>
+                        {row.status === 'next' && (
+                          <span className="ml-auto shrink-0 text-[8px] font-black uppercase tracking-widest text-[var(--accent-text)]">
+                            Próximo
+                          </span>
+                        )}
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </>
+            ) : (
+            <>
             {/* Atalho fixo pra sala de reunião do time — independe de ter
                 Giro gerado hoje ou não, então fica fora dos ramos condicionais
                 abaixo. Só aparece se alguém cadastrou o link em Configuração. */}
@@ -332,13 +441,15 @@ export function GiroStatusPopover() {
                 )}
               </>
             )}
+            </>
+            )}
 
             <Link
-              href="/settings?tab=giro"
+              href={panelTab === 'weekend' ? '/settings?tab=weekend-schedule' : '/settings?tab=giro'}
               onClick={() => setOpen(false)}
               className="flex items-center justify-center gap-1.5 px-5 py-3 border-t border-[var(--border-default)] text-[10px] font-black uppercase tracking-widest text-[var(--accent-text)] hover:bg-[var(--accent)]/5 transition-colors"
             >
-              Abrir o Giro completo <ArrowRight size={12} />
+              {panelTab === 'weekend' ? 'Abrir a escala completa' : 'Abrir o Giro completo'} <ArrowRight size={12} />
             </Link>
           </motion.div>
         )}

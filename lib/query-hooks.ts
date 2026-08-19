@@ -1,6 +1,7 @@
 'use client';
 
 import { useQuery, QueryClient } from '@tanstack/react-query';
+import type { WeekendScheduleResult } from '@/lib/services/weekend-schedule-service';
 
 // Hooks de dado de REFERÊNCIA (muda pouco: empresas, analistas, listas de
 // config) compartilhados entre filter-bar.tsx, modern-search-bar.tsx e
@@ -72,6 +73,22 @@ const queuesDef = { queryKey: ['ref', 'queues'], queryFn: () => getJson('/api/co
 // presença) — esses continuam com fetch próprio, sem cache de 60s.
 const analystsDef = { queryKey: ['ref', 'analysts'], queryFn: () => getJson('/api/users?type=analysts') };
 
+// Escala de fim de semana (planilha do Google, ver
+// lib/services/weekend-schedule-service.ts) — queryFn própria (não getJson)
+// porque o erro 404 de "aba do mês não encontrada" carrega availableTabs no
+// corpo, que a tela quer mostrar; getJson descarta o corpo no erro.
+async function getWeekendScheduleJson(): Promise<WeekendScheduleResult> {
+  const res = await fetch('/api/giro/weekend-schedule');
+  const body = await res.json();
+  if (!res.ok) {
+    const err = new Error(body?.error || `Falha ao buscar a escala de fim de semana (${res.status})`);
+    (err as any).availableTabs = body?.availableTabs;
+    throw err;
+  }
+  return body;
+}
+const weekendScheduleDef = { queryKey: ['ref', 'weekend-schedule'], queryFn: getWeekendScheduleJson };
+
 // `enabled` (opcional, default true) existe pra componentes que ficam
 // sempre montados mas só devem buscar quando realmente visíveis/abertos
 // (ex: modais renderizados incondicionalmente no layout, só o JSX interno
@@ -129,6 +146,32 @@ export function useQueuesQuery(options?: QueryOptions) {
 
 export function useAnalystsQuery(options?: QueryOptions) {
   return useQuery({ ...analystsDef, enabled: options?.enabled });
+}
+
+// staleTime próprio (mais generoso que o padrão de 60s): a planilha muda no
+// máximo algumas vezes por dia, e o servidor já cacheia por 5 min (ver
+// weekend-schedule-service.ts) — não faz sentido o cliente revalidar mais
+// rápido que a própria fonte.
+export function useWeekendScheduleQuery(options?: QueryOptions) {
+  return useQuery({ ...weekendScheduleDef, staleTime: 5 * 60_000, enabled: options?.enabled });
+}
+
+/**
+ * Botão "Atualizar" (ver weekend-schedule-content.tsx) — ignora o cache do
+ * servidor (?refresh=1) e escreve o resultado direto no cache do
+ * TanStack Query, então popover e tela cheia atualizam juntos na hora, sem
+ * cada um refazer sua própria requisição.
+ */
+export async function refreshWeekendSchedule(queryClient: QueryClient): Promise<WeekendScheduleResult> {
+  const res = await fetch('/api/giro/weekend-schedule?refresh=1');
+  const body = await res.json();
+  if (!res.ok) {
+    const err = new Error(body?.error || `Falha ao atualizar a escala de fim de semana (${res.status})`);
+    (err as any).availableTabs = body?.availableTabs;
+    throw err;
+  }
+  queryClient.setQueryData(weekendScheduleDef.queryKey, body);
+  return body;
 }
 
 // Prefetch on hover — dispara ANTES do clique (ver tickets-view.tsx, linha

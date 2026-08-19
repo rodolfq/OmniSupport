@@ -4,7 +4,7 @@ import React, { useState, useEffect } from 'react';
 import { useSearchParams } from 'next/navigation';
 import {
   User, Lock, Save, Plus, Key, Globe, Bell, Database, Loader2, Clock, MessageCircleMore, Plug, Mail, Bot,
-  UserCog, ShieldCheck, Library, RefreshCw as RefreshCwIcon, Rocket
+  UserCog, ShieldCheck, Library, RefreshCw as RefreshCwIcon, Rocket, CalendarRange
 } from 'lucide-react';
 import { cn, maskPhone } from '@/lib/utils';
 import { Permission, UserRole } from '@/lib/types';
@@ -29,18 +29,19 @@ import { TeamContent } from '@/components/team-content';
 import { PermissionsContent } from '@/components/permissions-content';
 import { QueuesContent } from '@/components/queues-content';
 import { GiroContent } from '@/components/giro-content';
+import { WeekendScheduleContent } from '@/components/weekend-schedule-content';
 import { HotfixesContent } from '@/components/hotfixes-content';
 
 type Tab =
   | 'profile' | 'security' | 'notifications'
   | 'team' | 'permissions' | 'history'
-  | 'queues' | 'giro' | 'whatsapp' | 'hotfixes'
+  | 'queues' | 'giro' | 'weekend-schedule' | 'whatsapp' | 'hotfixes'
   | 'system' | 'ai-assistant' | 'automated-messages' | 'integrations' | 'email';
 
 const VALID_TABS: Tab[] = [
   'profile', 'security', 'notifications',
   'team', 'permissions', 'history',
-  'queues', 'giro', 'whatsapp', 'hotfixes',
+  'queues', 'giro', 'weekend-schedule', 'whatsapp', 'hotfixes',
   'system', 'ai-assistant', 'automated-messages', 'integrations', 'email'
 ];
 
@@ -183,6 +184,9 @@ export default function SettingsPage() {
                 {canViewGiro && (
                   <SettingsNavLink icon={<RefreshCwIcon size={16} />} label="Giro de Atendimento" active={activeTab === 'giro'} onClick={() => setActiveTab('giro')} />
                 )}
+                {canViewGiro && (
+                  <SettingsNavLink icon={<CalendarRange size={16} />} label="Escala Fim de Semana" active={activeTab === 'weekend-schedule'} onClick={() => setActiveTab('weekend-schedule')} />
+                )}
                 {hasPermission(Permission.WHATSAPP_MANAGE) && (
                   <SettingsNavLink icon={<Globe size={16} />} label="WhatsApp" active={activeTab === 'whatsapp'} onClick={() => setActiveTab('whatsapp')} />
                 )}
@@ -223,6 +227,7 @@ export default function SettingsPage() {
           {activeTab === 'permissions' && canViewPermissions && <PermissionsContent />}
           {activeTab === 'queues' && hasPermission(Permission.QUEUES_MANAGE) && <QueuesContent />}
           {activeTab === 'giro' && canViewGiro && <GiroContent />}
+          {activeTab === 'weekend-schedule' && canViewGiro && <WeekendScheduleContent />}
           {activeTab === 'hotfixes' && hasPermission(Permission.HOTFIXES_MANAGE) && <HotfixesContent />}
 
 {activeTab === 'system' && hasPermission(Permission.SETTINGS_SYSTEM) && (
