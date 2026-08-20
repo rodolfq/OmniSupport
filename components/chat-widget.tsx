@@ -53,7 +53,7 @@ import {
   Attachment
 } from '@/lib/types';
 import { ChatService, fetchChatSessions, pushChatMessage, createChatSession, saveChatHistory, resolveChatSessionForPhone, submitSurveyResponse, transcribeChatAudio, getPreviousChatHistories, fetchSessionMessages, PreviousChatHistoriesResult, SessionMessagesResult } from '@/lib/services/chat-service';
-import { fetchQuickNotes, fetchAnalystStatuses, fetchCompanies, fetchQueues, fetchSurveySettings } from '@/lib/services/config-service';
+import { fetchQuickNotes, fetchAnalystStatuses, fetchCompanies, fetchQueues, fetchSurveySettings, ConfigService } from '@/lib/services/config-service';
 import { useProfilesWithAvatarQuery } from '@/lib/query-hooks';
 import { TicketService } from '@/lib/services/ticket-service';
 import { saveTicketFromChatSession, closeChatSessionAfterTicket, assignChatSession, returnChatSessionToQueue } from '@/lib/services/chat-session-actions';
@@ -373,6 +373,14 @@ export function ChatWidget() {
   const [message, setMessage] = useState('');
   const [quickNotes, setQuickNotes] = useState<QuickNote[]>([]);
   const [showQuickNoteSearch, setShowQuickNoteSearch] = useState(false);
+  // Criar Comando Rápido direto do painel de busca (com '/') — sem isso, só
+  // dava pra cadastrar indo em Chat > Central de Atendimento > Notas
+  // Rápidas, o que quebrava o fluxo de quem já estava no meio de um
+  // atendimento e percebeu que faltava um atalho.
+  const [isCreatingQuickNote, setIsCreatingQuickNote] = useState(false);
+  const [newQuickNoteShortcut, setNewQuickNoteShortcut] = useState('');
+  const [newQuickNoteContent, setNewQuickNoteContent] = useState('');
+  const [savingQuickNote, setSavingQuickNote] = useState(false);
   const [analystStatuses, setAnalystStatuses] = useState<AnalystStatus[]>([]);
   const [companies, setCompanies] = useState<Company[]>([]);
   // Usado pra resolver nome/foto de contato (avatar de verdade é renderizado
@@ -1646,6 +1654,7 @@ useEffect(() => {
       setShowQuickNoteSearch(true);
     } else {
       setShowQuickNoteSearch(false);
+      setIsCreatingQuickNote(false);
     }
 
     if (selectedChatId && currentUser && val.trim()) {
@@ -1951,6 +1960,37 @@ useEffect(() => {
   const selectQuickNote = (note: QuickNote) => {
     setMessage(note.content);
     setShowQuickNoteSearch(false);
+  };
+
+  const openCreateQuickNote = () => {
+    // O que já foi digitado depois da '/' vira o ponto de partida do atalho
+    // — quem chegou até aqui normalmente buscou algo que não existia ainda.
+    setNewQuickNoteShortcut(message.slice(1));
+    setNewQuickNoteContent('');
+    setIsCreatingQuickNote(true);
+  };
+
+  const cancelCreateQuickNote = () => {
+    setIsCreatingQuickNote(false);
+    setNewQuickNoteShortcut('');
+    setNewQuickNoteContent('');
+  };
+
+  const handleCreateQuickNote = async () => {
+    const shortcut = newQuickNoteShortcut.trim();
+    const content = newQuickNoteContent.trim();
+    if (!shortcut || !content || savingQuickNote) return;
+    setSavingQuickNote(true);
+    try {
+      await ConfigService.saveQuickNote({ shortcut, content } as QuickNote);
+      setQuickNotes(await fetchQuickNotes());
+      toast.success('Comando rápido criado.');
+      cancelCreateQuickNote();
+    } catch {
+      toast.error(`Não foi possível criar "/${shortcut}" — talvez esse atalho já exista.`);
+    } finally {
+      setSavingQuickNote(false);
+    }
   };
 
   if (!mounted || !currentUser) return null;
@@ -2814,26 +2854,102 @@ useEffect(() => {
                       )}
 
                       {showQuickNoteSearch && message.startsWith('/') && (
-                        <motion.div 
+                        <motion.div
                           initial={{ opacity: 0, y: 10 }}
                           animate={{ opacity: 1, y: 0 }}
                           exit={{ opacity: 0, y: 10 }}
                           className="absolute bottom-full left-6 right-6 mb-4 bg-[var(--surface-card)] border border-[var(--border-default)] rounded-[2rem] shadow-2xl p-3 max-h-64 overflow-y-auto z-10"
                         >
-                          <p className="p-3 text-[10px] font-semibold uppercase text-[var(--text-tertiary)] tracking-widest border-b border-[var(--border-default)] mb-2">Comandos Rápidos</p>
-                          {quickNotes.filter(n => n.shortcut.includes(message.slice(1))).map(note => (
-                            <button 
-                              key={note.id}
-                              onClick={() => selectQuickNote(note)}
-                              className="w-full text-left p-4 hover:bg-[var(--accent)]/10 rounded-2xl transition-all flex items-center justify-between group"
-                            >
-                              <div className="flex flex-col">
-                                <span className="text-[11px] font-semibold text-[var(--accent-text)] uppercase mb-0.5">/{note.shortcut}</span>
-                                <span className="text-[10px] text-[var(--text-tertiary)] font-medium truncate w-64">{note.content}</span>
+                          {isCreatingQuickNote ? (
+                            <div className="p-2 space-y-3">
+                              <div className="flex items-center justify-between border-b border-[var(--border-default)] pb-2 mb-1">
+                                <p className="text-[10px] font-semibold uppercase text-[var(--text-tertiary)] tracking-widest">Novo Comando Rápido</p>
+                                <button
+                                  type="button"
+                                  onClick={cancelCreateQuickNote}
+                                  className="p-1 rounded-lg text-[var(--text-tertiary)] hover:bg-[var(--surface-pill)] transition-all"
+                                  title="Cancelar"
+                                >
+                                  <X size={14} />
+                                </button>
                               </div>
-                              <Zap size={14} className="text-[var(--text-warning)] opacity-0 group-hover:opacity-100" />
-                            </button>
-                          ))}
+                              <div>
+                                <label className="text-[9px] font-semibold uppercase text-[var(--text-tertiary)] tracking-widest">Atalho</label>
+                                <div className="flex items-center gap-1 mt-1">
+                                  <span className="text-sm font-semibold text-[var(--text-tertiary)]">/</span>
+                                  <input
+                                    autoFocus
+                                    value={newQuickNoteShortcut}
+                                    onChange={(e) => setNewQuickNoteShortcut(e.target.value.replace(/^\/+/, ''))}
+                                    placeholder="ex: rastreadores"
+                                    className="flex-1 bg-[var(--surface-pill)] rounded-lg px-3 py-2 text-xs font-semibold text-[var(--text-primary)] outline-none focus:ring-2 focus:ring-[var(--accent)]/30"
+                                  />
+                                </div>
+                              </div>
+                              <div>
+                                <label className="text-[9px] font-semibold uppercase text-[var(--text-tertiary)] tracking-widest">Mensagem</label>
+                                <textarea
+                                  value={newQuickNoteContent}
+                                  onChange={(e) => setNewQuickNoteContent(e.target.value)}
+                                  placeholder="Texto que será inserido ao usar o comando..."
+                                  rows={3}
+                                  className="w-full mt-1 bg-[var(--surface-pill)] rounded-lg px-3 py-2 text-xs font-medium text-[var(--text-primary)] outline-none focus:ring-2 focus:ring-[var(--accent)]/30 resize-none"
+                                />
+                              </div>
+                              <button
+                                type="button"
+                                onClick={handleCreateQuickNote}
+                                disabled={!newQuickNoteShortcut.trim() || !newQuickNoteContent.trim() || savingQuickNote}
+                                className="w-full flex items-center justify-center gap-2 bg-[var(--accent)] text-white rounded-xl py-2.5 text-[10px] font-semibold uppercase tracking-widest disabled:opacity-50 hover:bg-[var(--accent-hover)] transition-all"
+                              >
+                                {savingQuickNote ? <Loader2 size={14} className="animate-spin" /> : <Check size={14} />}
+                                Salvar Comando
+                              </button>
+                            </div>
+                          ) : (
+                            <>
+                              <div className="flex items-center justify-between border-b border-[var(--border-default)] pb-2 mb-2 px-3 pt-3">
+                                <p className="text-[10px] font-semibold uppercase text-[var(--text-tertiary)] tracking-widest">Comandos Rápidos</p>
+                                <button
+                                  type="button"
+                                  onClick={openCreateQuickNote}
+                                  title="Criar novo Comando Rápido"
+                                  className="p-1.5 rounded-lg text-[var(--accent-text)] hover:bg-[var(--accent)]/10 transition-all"
+                                >
+                                  <Plus size={14} />
+                                </button>
+                              </div>
+                              {message.slice(1).trim() === '' ? (
+                                <p className="px-4 py-6 text-center text-[10px] text-[var(--text-tertiary)] font-medium leading-relaxed">
+                                  Digite algo depois da barra pra buscar um comando,
+                                  <br />ou toque no + acima pra criar um novo.
+                                </p>
+                              ) : (() => {
+                                const results = quickNotes.filter(n => n.shortcut.toLowerCase().includes(message.slice(1).toLowerCase()));
+                                if (results.length === 0) {
+                                  return (
+                                    <p className="px-4 py-6 text-center text-[10px] text-[var(--text-tertiary)] font-medium leading-relaxed">
+                                      Nenhum comando com "/{message.slice(1)}".
+                                      <br />Toque no + acima pra criar um novo com esse nome.
+                                    </p>
+                                  );
+                                }
+                                return results.map(note => (
+                                  <button
+                                    key={note.id}
+                                    onClick={() => selectQuickNote(note)}
+                                    className="w-full text-left p-4 hover:bg-[var(--accent)]/10 rounded-2xl transition-all flex items-center justify-between group"
+                                  >
+                                    <div className="flex flex-col">
+                                      <span className="text-[11px] font-semibold text-[var(--accent-text)] uppercase mb-0.5">/{note.shortcut}</span>
+                                      <span className="text-[10px] text-[var(--text-tertiary)] font-medium truncate w-64">{note.content}</span>
+                                    </div>
+                                    <Zap size={14} className="text-[var(--text-warning)] opacity-0 group-hover:opacity-100" />
+                                  </button>
+                                ));
+                              })()}
+                            </>
+                          )}
                         </motion.div>
                       )}
                     </AnimatePresence>

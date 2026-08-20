@@ -157,15 +157,28 @@ export async function GET(request: Request) {
       const limit = Math.min(Math.max(parseInt(searchParams.get('limit') || '15', 10) || 15, 1), 50);
       const offset = Math.max(parseInt(searchParams.get('offset') || '0', 10) || 0, 0);
 
+      // Fechados sempre por último: mesma lista de status fechado que
+      // 'open-count-by-company' usa (config_statuses.is_closed + os rótulos
+      // fixos de lib/ticket-status.ts, "Mesclado" incluso) — sem isso, um
+      // chamado fechado antigo intercala com abertos recentes na paginação e
+      // não dá pra saber, só de bater o olho, com quantos em aberto a
+      // empresa está de fato.
+      const fechadosRes = await query(
+        `SELECT label FROM public.config_statuses WHERE scope = 'ticket' AND is_closed = true`
+      );
+      const fechados = [
+        ...new Set([...CLOSED_TICKET_STATUSES, ...fechadosRes.rows.map((r: any) => r.label)])
+      ];
+
       const [countRes, res] = await Promise.all([
         query(`SELECT COUNT(*)::int AS count FROM public.tickets WHERE company_id = $1`, [companyId]),
         query(
           `SELECT id, public_ticket_number, title, status, priority, created_at
            FROM public.tickets
            WHERE company_id = $1
-           ORDER BY created_at DESC
-           LIMIT $2 OFFSET $3`,
-          [companyId, limit, offset]
+           ORDER BY (status = ANY($2)) ASC, created_at DESC
+           LIMIT $3 OFFSET $4`,
+          [companyId, fechados, limit, offset]
         )
       ]);
 
