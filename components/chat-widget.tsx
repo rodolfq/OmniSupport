@@ -2951,7 +2951,12 @@ useEffect(() => {
                     )}
                   </div>
                 </div>
-              ) : (
+              ) : !isMobileFullScreen ? (
+                // Em tela cheia no celular a lista já ocupa 100% da largura
+                // quando não há conversa selecionada (ver condição da
+                // Sidebar acima) — este placeholder só faz sentido no
+                // layout de duas colunas do desktop; renderizá-lo também no
+                // mobile espremia a lista e o placeholder lado a lado.
                 <div className="flex-1 flex flex-col items-center justify-center p-12 text-center bg-[var(--surface-card)]/50">
                    <div className="w-20 h-20 bg-[var(--accent)]/10 rounded-[2rem] flex items-center justify-center text-[var(--accent-text)] mb-6">
                       <MessageCircle size={40} />
@@ -2959,7 +2964,7 @@ useEffect(() => {
                    <h4 className="text-lg font-black text-[var(--text-primary)] uppercase tracking-tight mb-2">Selecione um Chat</h4>
                    <p className="text-sm text-[var(--text-tertiary)] font-medium max-w-xs">Escolha uma conversa lateral ou inicie um novo atendimento via WhatsApp.</p>
                 </div>
-              )}
+              ) : null}
             </div>
           </motion.div>
         )}

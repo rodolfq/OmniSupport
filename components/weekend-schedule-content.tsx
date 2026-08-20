@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useEffect, useMemo, useState } from 'react';
+import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { useQueryClient } from '@tanstack/react-query';
 import { CalendarRange, RefreshCw, AlertTriangle, ExternalLink, Link2, X, Loader2 } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
@@ -47,6 +47,22 @@ export function WeekendScheduleContent() {
     () => data ? classifyWeekendRows(data.rows, data.todayIso) : [],
     [data]
   );
+
+  // Assim que a escala carrega, a data em verde (próximo plantão) já entra
+  // centralizada na tela — só na primeira vez que os dados chegam, não a
+  // cada refetch em segundo plano. scrollIntoView com block:'center' já
+  // resolve sozinho o caso "não dá pra centralizar de verdade" (linha perto
+  // do topo/fim da lista): ele rola só o necessário pra deixar visível.
+  const nextRowRef = useRef<HTMLTableRowElement>(null);
+  const hasCenteredRef = useRef(false);
+  useEffect(() => {
+    if (hasCenteredRef.current) return;
+    if (!classifiedRows.some(row => row.status === 'next')) return;
+    hasCenteredRef.current = true;
+    requestAnimationFrame(() => {
+      nextRowRef.current?.scrollIntoView({ block: 'center', behavior: 'smooth' });
+    });
+  }, [classifiedRows]);
 
   return (
     <div className="space-y-8 animate-in fade-in slide-in-from-bottom-4 duration-300">
@@ -114,6 +130,7 @@ export function WeekendScheduleContent() {
                 {classifiedRows.map((row, i) => (
                   <tr
                     key={`${row.date}-${i}`}
+                    ref={row.status === 'next' ? nextRowRef : undefined}
                     className={cn(
                       'border-b border-[var(--border-default)] last:border-0 transition-colors',
                       row.status === 'past' && 'opacity-40 hover:opacity-70',

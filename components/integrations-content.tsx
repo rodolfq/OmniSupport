@@ -444,7 +444,7 @@ export function IntegrationsContent() {
                       <p className="text-[10px] font-black uppercase text-[var(--text-tertiary)] tracking-widest mb-1.5">
                         {location === 'query' ? 'Parâmetros de query' : 'Campos do corpo (JSON)'}
                       </p>
-                      <div className="border border-[var(--border-default)] rounded-2xl overflow-hidden">
+                      <div className="border border-[var(--border-default)] rounded-2xl overflow-x-auto">
                         <table className="w-full text-xs">
                           <tbody>
                             {list.map((p, i) => (
@@ -472,7 +472,7 @@ export function IntegrationsContent() {
 
             <div>
               <p className="text-[10px] font-black uppercase text-[var(--text-tertiary)] tracking-widest mb-1.5">Possíveis erros</p>
-              <div className="border border-[var(--border-default)] rounded-2xl overflow-hidden">
+              <div className="border border-[var(--border-default)] rounded-2xl overflow-x-auto">
                 <table className="w-full text-xs">
                   <tbody>
                     {selected.errors.map((err, i) => (

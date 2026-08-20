@@ -15,6 +15,7 @@ import { cn } from '@/lib/utils';
 import { TicketDetailModal } from '@/components/ticket-detail-modal';
 import { FilterBar } from '@/components/filter-bar';
 import { useSearchParams, useRouter } from 'next/navigation';
+import { useIsMobile } from '@/hooks/use-mobile';
 
 interface InternalTicketItem extends InternalTicket {
   uuid: string;
@@ -41,6 +42,7 @@ export default function DashboardPage() {
   const [loading, setLoading] = useState(true);
   const { currentUser, setIsNewTicketModalOpen, refreshTrigger, hasPermission } = useApp();
   const searchParams = useSearchParams();
+  const isMobileViewport = useIsMobile();
 
   const [priorities, setPriorities] = useState<any[]>([]);
   const [statuses, setStatuses] = useState<any[]>([]);
@@ -437,16 +439,17 @@ export default function DashboardPage() {
       )}
 
       <div className={cn(
-        "grid gap-6 flex-1 min-h-[600px] overflow-x-auto pb-4 scrollbar-thin",
+        "grid gap-6 flex-1 min-h-[600px] pb-4",
+        !isMobileViewport && "overflow-x-auto scrollbar-thin",
         columns.length <= 4 ? "md:grid-cols-4" : "md:grid-cols-5"
-      )} style={{ minWidth: columns.length * 280 }}>
+      )} style={isMobileViewport ? undefined : { minWidth: columns.length * 280 }}>
         {columns.map(col => {
           const colTickets = groupedTickets[col.status] || [];
           const displayTickets = colTickets.slice(0, 20); // Only render first 20 for performance
           const hasMore = colTickets.length > 20;
 
           return (
-            <div key={col.status} className="flex flex-col gap-4 min-w-[280px]">
+            <div key={col.status} className="flex flex-col gap-4 md:min-w-[280px]">
               <div className="flex items-center justify-between px-2">
                 <h3 className="text-[10px] font-semibold uppercase tracking-[0.2em] text-[var(--text-tertiary)]">{col.title}</h3>
                 <span className="bg-[var(--border-default)] text-[var(--text-secondary)] text-[10px] font-bold px-2 py-0.5 rounded-full">

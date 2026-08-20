@@ -1097,7 +1097,7 @@ export function TicketsView({
           da busca) do cabeçalho de Tickets Internos (internal-tickets-view.tsx),
           só que como cartão fechado em vez de faixa de borda única, pra
           combinar com os outros blocos soltos desta tela (tabela etc). */}
-      <div className="bg-[var(--surface-card)] border border-[var(--border-default)] rounded-3xl p-6">
+      <div className="bg-[var(--surface-card)] border border-[var(--border-default)] rounded-3xl p-4 sm:p-6">
       <div className="flex items-center justify-between mb-4 gap-4 flex-wrap">
         <div>
           <h2 className="text-2xl font-black text-[var(--text-primary)]">
@@ -1107,11 +1107,11 @@ export function TicketsView({
             Gerenciamento completo de solicitações
           </p>
         </div>
-        <div className="flex items-center gap-3">
+        <div className="flex items-center gap-3 flex-wrap">
           {viewToggle}
           <button
             onClick={() => setIsNewTicketModalOpen(true)}
-            className="px-4 py-2 bg-[var(--accent)] hover:bg-[var(--accent-hover)] text-white rounded-xl text-xs font-semibold uppercase tracking-widest transition-all flex items-center gap-2"
+            className="px-4 py-2 bg-[var(--accent)] hover:bg-[var(--accent-hover)] text-white rounded-xl text-xs font-semibold uppercase tracking-widest transition-all flex items-center gap-2 whitespace-nowrap"
           >
             <Plus size={16} />
             Novo Chamado

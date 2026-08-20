@@ -169,15 +169,15 @@ export function HotfixesContent() {
           </h2>
           <p className="text-[var(--text-tertiary)] font-medium">Janela de release do time — o que já foi publicado, o que vem por aí e o que é desta semana</p>
         </div>
-        <div className="flex items-center gap-3">
-          <div className="relative">
+        <div className="flex flex-col sm:flex-row items-stretch sm:items-center gap-3">
+          <div className="relative flex-1 sm:flex-none">
             <Search className="absolute left-4 top-1/2 -translate-y-1/2 text-[var(--text-tertiary)]" size={16} />
             <input
               type="text"
               placeholder="Buscar hotfix..."
               value={search}
               onChange={(e) => setSearch(e.target.value)}
-              className="bg-[var(--surface-card)] border border-[var(--border-default)] rounded-2xl pl-11 pr-4 py-3 text-sm font-medium focus:ring-4 focus:ring-[var(--accent)]/10 outline-none transition-all w-56"
+              className="w-full sm:w-56 bg-[var(--surface-card)] border border-[var(--border-default)] rounded-2xl pl-11 pr-4 py-3 text-sm font-medium focus:ring-4 focus:ring-[var(--accent)]/10 outline-none transition-all"
             />
           </div>
           {/* shadow neutra em vez de shadow-indigo-200: aquele halo era
@@ -186,7 +186,7 @@ export function HotfixesContent() {
               produto desde o rebrand. */}
           <button
             onClick={() => handleOpenModal()}
-            className="bg-[var(--accent)] hover:bg-[var(--accent-hover)] text-white px-6 py-3 rounded-2xl text-sm font-black uppercase tracking-widest shadow-lg shadow-black/10 transition-all flex items-center gap-2 shrink-0"
+            className="bg-[var(--accent)] hover:bg-[var(--accent-hover)] text-white px-6 py-3 rounded-2xl text-sm font-black uppercase tracking-widest shadow-lg shadow-black/10 transition-all flex items-center justify-center gap-2 shrink-0"
           >
             <Plus size={18} />
             Novo Hotfix

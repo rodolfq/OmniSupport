@@ -5,12 +5,13 @@ import { assignChatSession } from '@/lib/services/chat-session-actions';
 import { getUsers } from '@/lib/services/user-actions-service';
 import { getCompanies, setCompanyActive, updateCompanyLogo } from '@/lib/services/company-service';
 import { Company, User, UserRole, Permission } from '@/lib/types';
-import { Building2, User as UserIcon, Mail, Phone, Plus, MessageCircle, Ticket, ShieldCheck, ShieldOff, Search, X, Check, Pencil, UserPlus, RefreshCw, Headset, Briefcase, Camera, Trash2 } from 'lucide-react';
+import { Building2, User as UserIcon, Mail, Phone, Plus, MessageCircle, Ticket, ShieldCheck, ShieldOff, Search, X, Check, Pencil, UserPlus, RefreshCw, Headset, Briefcase, Camera, Trash2, ArrowLeft } from 'lucide-react';
 import { cn, normalizeString, normalizePhone, maskPhone } from '@/lib/utils';
 import { NewEmployeeModal } from '@/components/new-employee-modal';
 import { EditEmployeeModal } from '@/components/edit-employee-modal';
 import { NewCompanyModal } from '@/components/new-company-modal';
 import { ConfirmModal } from '@/components/confirm-modal';
+import { useIsMobile } from '@/hooks/use-mobile';
 import { UserService } from '@/lib/services/user-service';
 import { resolveChatSessionForPhone } from '@/lib/services/chat-service';
 import { useApp } from '@/app/app-context';
@@ -125,6 +126,7 @@ function WhatsAppNumberModal({
 
 export default function CustomersPage() {
   const { currentUser, setIsNewTicketModalOpen, setPreselectedUserId, setPreselectedCompanyId, hasPermission } = useApp();
+  const isMobileViewport = useIsMobile();
   const [isLoading, setIsLoading] = useState(true);
   const [companies, setCompanies] = useState<Company[]>([]);
   const [users, setUsers] = useState<User[]>([]);
@@ -325,9 +327,16 @@ if (isCompanyPortalUser) {
       .sort((a, b) => Number(b.isAdmin || b.role === UserRole.CUSTOMER) - Number(a.isAdmin || a.role === UserRole.CUSTOMER)),
   [users, selectedCompanyId]);
 
+  // No mobile a tela vira lista OU detalhe (nunca as duas ao mesmo tempo,
+  // que era o que espremia as duas colunas de 320px+ numa tela de ~390px e
+  // vazava texto pra fora da viewport) — mesmo padrão de navegação usado no
+  // Chat Interno e no WhatsApp Omni.
+  const showListMobile = !isMobileViewport || !selectedCompanyId;
+  const showDetailMobile = !isMobileViewport || !!selectedCompanyId;
+
   return (
-    <div className="flex gap-8 h-full max-h-[calc(100vh-120px)] overflow-hidden">
-      <div className="w-80 flex flex-col gap-4">
+    <div className="flex flex-col md:flex-row gap-4 md:gap-8 h-full md:max-h-[calc(100vh-120px)] overflow-hidden">
+      <div className={cn("w-full md:w-80 flex-col gap-4", showListMobile ? "flex" : "hidden md:flex")}>
         <div className="space-y-4">
           <h2 className="font-black text-xs uppercase tracking-[0.2em] text-[var(--text-tertiary)] mb-2 flex justify-between items-center">
             Empresas
@@ -422,7 +431,18 @@ if (isCompanyPortalUser) {
         </div>
       </div>
 
-      <div className="flex-1 overflow-y-auto space-y-8 pr-4 scrollbar-thin scrollbar-thumb-slate-200">
+      <div className={cn(
+        "flex-1 overflow-y-auto space-y-8 pr-0 md:pr-4 scrollbar-thin scrollbar-thumb-slate-200",
+        showDetailMobile ? "block" : "hidden md:block"
+      )}>
+        {isMobileViewport && selectedCompany && (
+          <button
+            onClick={() => setSelectedCompanyId(null)}
+            className="flex items-center gap-2 text-xs font-bold uppercase tracking-widest text-[var(--text-tertiary)] hover:text-[var(--accent-text)] transition-colors"
+          >
+            <ArrowLeft size={16} /> Empresas
+          </button>
+        )}
         {isLoading ? (
           <div className="flex items-center justify-center h-64 text-sm text-[var(--text-tertiary)] font-medium">Carregando quadro de funcionários...</div>
         ) : selectedCompany ? (
@@ -447,8 +467,8 @@ if (isCompanyPortalUser) {
                 </p>
               </div>
             )}
-            <div className={cn("p-8 flex justify-between items-start", selectedCompany.isActive === false && "opacity-70")}>
-              <div className="flex items-center gap-6">
+            <div className={cn("p-5 sm:p-8 flex flex-col sm:flex-row sm:justify-between sm:items-start gap-5", selectedCompany.isActive === false && "opacity-70")}>
+              <div className="flex items-center gap-4 sm:gap-6 min-w-0">
                 <div
                   className={cn(
                     "w-20 h-20 rounded-2xl flex items-center justify-center relative group/logo overflow-hidden shrink-0",
@@ -499,16 +519,16 @@ if (isCompanyPortalUser) {
                     className="hidden"
                   />
                 )}
-                <div>
+                <div className="min-w-0">
                   <h1 className={cn(
-                    "text-3xl font-black tracking-tight",
+                    "text-2xl sm:text-3xl font-black tracking-tight truncate",
                     selectedCompany.isActive === false ? "text-[var(--text-tertiary)]" : "text-[var(--text-primary)]"
                   )}>{selectedCompany.name}</h1>
                   {/* Setor removido do cabeçalho a pedido: continua no cadastro
                       (Editar Empresa) e no card da lista lateral. */}
                 </div>
               </div>
-              <div className="flex items-center gap-2">
+              <div className="flex flex-wrap items-center gap-2">
                 <a
                   href={`/customers/${selectedCompany.id}`}
                   target="_blank"
@@ -542,7 +562,7 @@ if (isCompanyPortalUser) {
               </div>
             </div>
 
-            <div className="px-8 py-5 border-t border-[var(--border-default)] bg-[var(--surface-pill)]/40 grid grid-cols-2 md:grid-cols-4 gap-6">
+            <div className="px-5 sm:px-8 py-5 border-t border-[var(--border-default)] bg-[var(--surface-pill)]/40 grid grid-cols-2 md:grid-cols-4 gap-4 sm:gap-6">
               <div className="flex items-center gap-3">
                 <div className="w-9 h-9 rounded-lg bg-[var(--surface-card)] border border-[var(--border-default)] flex items-center justify-center text-[var(--text-tertiary)] shrink-0">
                   <Phone size={15} />

@@ -77,19 +77,19 @@ export default function ActivitiesPage() {
       </div>
 
       <div className="bg-[var(--surface-card)] rounded-[2.5rem] shadow-xl border border-[var(--border-default)] overflow-hidden">
-        <div className="p-6 border-b border-[var(--border-default)] bg-[var(--surface-card)]/50 flex items-center justify-between">
-          <div className="flex items-center gap-6">
-            <button className="text-[10px] font-semibold uppercase text-[var(--accent-text)] border-b-2 border-[var(--accent)] pb-1 tracking-widest">Todas</button>
-            <button className="text-[10px] font-semibold uppercase text-[var(--text-tertiary)] hover:text-[var(--text-secondary)] pb-1 tracking-widest transition-all">Não lidas</button>
-            <button className="text-[10px] font-semibold uppercase text-[var(--text-tertiary)] hover:text-[var(--text-secondary)] pb-1 tracking-widest transition-all">Tickets</button>
-            <button className="text-[10px] font-semibold uppercase text-[var(--text-tertiary)] hover:text-[var(--text-secondary)] pb-1 tracking-widest transition-all">Chats</button>
+        <div className="p-4 sm:p-6 border-b border-[var(--border-default)] bg-[var(--surface-card)]/50 flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+          <div className="flex items-center gap-4 sm:gap-6 overflow-x-auto scrollbar-thin -mx-4 px-4 sm:mx-0 sm:px-0">
+            <button className="shrink-0 whitespace-nowrap text-[10px] font-semibold uppercase text-[var(--accent-text)] border-b-2 border-[var(--accent)] pb-1 tracking-widest">Todas</button>
+            <button className="shrink-0 whitespace-nowrap text-[10px] font-semibold uppercase text-[var(--text-tertiary)] hover:text-[var(--text-secondary)] pb-1 tracking-widest transition-all">Não lidas</button>
+            <button className="shrink-0 whitespace-nowrap text-[10px] font-semibold uppercase text-[var(--text-tertiary)] hover:text-[var(--text-secondary)] pb-1 tracking-widest transition-all">Tickets</button>
+            <button className="shrink-0 whitespace-nowrap text-[10px] font-semibold uppercase text-[var(--text-tertiary)] hover:text-[var(--text-secondary)] pb-1 tracking-widest transition-all">Chats</button>
           </div>
-          <div className="relative">
+          <div className="relative w-full sm:w-64">
             <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-[var(--text-tertiary)]" size={14} />
             <input
               type="text"
               placeholder="Filtrar atividade..."
-              className="bg-[var(--surface-card)] border border-[var(--border-default)] rounded-xl py-1.5 pl-9 pr-4 text-xs font-medium focus:ring-4 focus:ring-[var(--accent)]/10 outline-none w-64"
+              className="w-full bg-[var(--surface-card)] border border-[var(--border-default)] rounded-xl py-1.5 pl-9 pr-4 text-xs font-medium focus:ring-4 focus:ring-[var(--accent)]/10 outline-none"
             />
           </div>
         </div>

@@ -39,6 +39,20 @@ export function GiroStatusPopover() {
   const containerRef = useRef<HTMLDivElement>(null);
 
   const [panelTab, setPanelTab] = useState<PanelTab>('giro');
+  // Ao ENTRAR na aba "Fim de semana" — seja abrindo o painel já nela, seja
+  // voltando pra ela depois de ter ido pra "Giro" —, a data em verde (próximo
+  // plantão) chega centralizada na lista em vez de exigir rolar pra achar.
+  // "Entrar" é o gatilho, não "estar nela": enquanto o usuário continuar na
+  // aba, um refetch em segundo plano ou o próprio scroll manual dele não
+  // deve puxar a lista de volta pro centro — por isso `wantsCenterRef` é
+  // consumido (vira false) assim que centraliza uma vez, e só volta a true
+  // numa entrada nova (efeito abaixo, com [open, panelTab] como gatilho).
+  const nextWeekendRowRef = useRef<HTMLDivElement>(null);
+  const wantsCenterWeekendRef = useRef(false);
+
+  useEffect(() => {
+    wantsCenterWeekendRef.current = open && panelTab === 'weekend';
+  }, [open, panelTab]);
   // enabled só quando a aba está de fato aberta: mesma "carga sob demanda"
   // do resto do popover. Compartilha a MESMA chave de cache que a tela cheia
   // de Configurações (ver lib/query-hooks.ts) — quem já abriu uma vê a outra
@@ -132,6 +146,20 @@ export function GiroStatusPopover() {
     [weekend]
   );
 
+  useEffect(() => {
+    if (!wantsCenterWeekendRef.current) return;
+    if (!classifiedWeekendRows.some(row => row.status === 'next')) return;
+    wantsCenterWeekendRef.current = false; // consome — só recarrega numa entrada nova
+    // Espera o próximo frame pra garantir que a linha já foi pintada antes
+    // de medir a posição pra centralizar — scrollIntoView com block:'center'
+    // já faz "o melhor possível": se não der pra centralizar de verdade
+    // (linha perto do topo/fim da lista), ele rola só o necessário pra
+    // deixar visível, que é exatamente o comportamento pedido.
+    requestAnimationFrame(() => {
+      nextWeekendRowRef.current?.scrollIntoView({ block: 'center', behavior: 'auto' });
+    });
+  }, [open, panelTab, classifiedWeekendRows]);
+
   return (
     <div className="relative" ref={containerRef}>
       <button
@@ -221,6 +249,7 @@ export function GiroStatusPopover() {
                     {classifiedWeekendRows.map((row, i) => (
                       <div
                         key={`${row.date}-${i}`}
+                        ref={row.status === 'next' ? nextWeekendRowRef : undefined}
                         className={cn(
                           'flex items-center gap-3 px-2.5 py-1.5 rounded-xl transition-colors',
                           row.status === 'past' && 'opacity-40 hover:opacity-70',

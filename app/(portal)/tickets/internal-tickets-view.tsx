@@ -586,18 +586,18 @@ const openEditModal = (ticket: InternalTicketItem) => {
     <div className="space-y-8">
       {/* Header — mesmo cartão (borda nos 4 lados + cantos arredondados,
           sem margem extra) do cabeçalho de Chamados. */}
-      <div className="bg-[var(--surface-card)] border border-[var(--border-default)] rounded-3xl p-6">
+      <div className="bg-[var(--surface-card)] border border-[var(--border-default)] rounded-3xl p-4 sm:p-6">
         <div className="flex items-center justify-between mb-4 gap-4 flex-wrap">
           <div>
             <h1 className="text-2xl font-black text-[var(--text-primary)]">Tickets Internos</h1>
             <p className="text-sm text-[var(--text-tertiary)] mt-1">Gerencie tickets internos de desenvolvimento e manutenção</p>
           </div>
-          <div className="flex items-center gap-3">
+          <div className="flex items-center gap-3 flex-wrap">
             {viewToggle}
             {hasPermission(Permission.INTERNAL_TICKETS_EDIT) && (
               <button
                 onClick={() => setShowNewModal(true)}
-                className="px-4 py-2 bg-[var(--text-warning-strong)] text-white rounded-xl text-xs font-semibold uppercase tracking-widest hover:bg-[var(--accent-warning-hover)] transition-all flex items-center gap-2"
+                className="px-4 py-2 bg-[var(--text-warning-strong)] text-white rounded-xl text-xs font-semibold uppercase tracking-widest hover:bg-[var(--accent-warning-hover)] transition-all flex items-center gap-2 whitespace-nowrap"
               >
                 <Plus size={16} />
                 Novo Ticket

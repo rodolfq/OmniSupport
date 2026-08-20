@@ -607,46 +607,48 @@ const handleDeleteNote = async () => {
         </button>
       </div>
 
-      <div className="flex bg-[var(--border-default)]/50 p-1.5 rounded-3xl w-fit gap-1.5">
-        <button 
-          onClick={() => setActiveTab('queue')}
-          className={cn(
-            "px-8 py-3 rounded-2xl text-[10px] font-semibold uppercase tracking-widest transition-all gap-2 flex items-center relative",
-            activeTab === 'queue' ? "bg-[var(--surface-card)] text-[var(--accent-text)] shadow-lg" : "text-[var(--text-tertiary)] hover:text-[var(--text-secondary)]"
-          )}
-        >
-          <MessageSquare size={14} /> Fila de Espera
-          {sessions.some(s => s.status === 'pending' && !s.assigneeId) && (
-            <span className="absolute -top-1 -right-1 w-4 h-4 bg-[var(--text-danger)] rounded-full border-2 border-[var(--border-default)] animate-pulse" />
-          )}
-        </button>
-        <button 
-          onClick={() => setActiveTab('analysts')}
-          className={cn(
-            "px-8 py-3 rounded-2xl text-[10px] font-semibold uppercase tracking-widest transition-all gap-2 flex items-center",
-            activeTab === 'analysts' ? "bg-[var(--surface-card)] text-[var(--accent-text)] shadow-lg" : "text-[var(--text-tertiary)] hover:text-[var(--text-secondary)]"
-          )}
-        >
-          <Users size={14} /> Analistas
-        </button>
-        <button 
-          onClick={() => setActiveTab('notes')}
-          className={cn(
-            "px-8 py-3 rounded-2xl text-[10px] font-semibold uppercase tracking-widest transition-all gap-2 flex items-center",
-            activeTab === 'notes' ? "bg-[var(--surface-card)] text-[var(--accent-text)] shadow-lg" : "text-[var(--text-tertiary)] hover:text-[var(--text-secondary)]"
-          )}
-        >
-          <Zap size={14} /> Notas Rápidas
-        </button>
-        <button 
-          onClick={() => setActiveTab('history')}
-          className={cn(
-            "px-8 py-3 rounded-2xl text-[10px] font-semibold uppercase tracking-widest transition-all gap-2 flex items-center",
-            activeTab === 'history' ? "bg-[var(--surface-card)] text-[var(--accent-text)] shadow-lg" : "text-[var(--text-tertiary)] hover:text-[var(--text-secondary)]"
-          )}
-        >
-          <History size={14} /> Histórico
-        </button>
+      <div className="flex overflow-x-auto scrollbar-thin -mx-4 px-4 md:mx-0 md:px-0">
+        <div className="flex bg-[var(--border-default)]/50 p-1.5 rounded-3xl w-fit gap-1.5 shrink-0">
+          <button
+            onClick={() => setActiveTab('queue')}
+            className={cn(
+              "px-4 md:px-8 py-3 rounded-2xl text-[10px] font-semibold uppercase tracking-widest transition-all gap-2 flex items-center relative whitespace-nowrap shrink-0",
+              activeTab === 'queue' ? "bg-[var(--surface-card)] text-[var(--accent-text)] shadow-lg" : "text-[var(--text-tertiary)] hover:text-[var(--text-secondary)]"
+            )}
+          >
+            <MessageSquare size={14} /> Fila de Espera
+            {sessions.some(s => s.status === 'pending' && !s.assigneeId) && (
+              <span className="absolute -top-1 -right-1 w-4 h-4 bg-[var(--text-danger)] rounded-full border-2 border-[var(--border-default)] animate-pulse" />
+            )}
+          </button>
+          <button
+            onClick={() => setActiveTab('analysts')}
+            className={cn(
+              "px-4 md:px-8 py-3 rounded-2xl text-[10px] font-semibold uppercase tracking-widest transition-all gap-2 flex items-center whitespace-nowrap shrink-0",
+              activeTab === 'analysts' ? "bg-[var(--surface-card)] text-[var(--accent-text)] shadow-lg" : "text-[var(--text-tertiary)] hover:text-[var(--text-secondary)]"
+            )}
+          >
+            <Users size={14} /> Analistas
+          </button>
+          <button
+            onClick={() => setActiveTab('notes')}
+            className={cn(
+              "px-4 md:px-8 py-3 rounded-2xl text-[10px] font-semibold uppercase tracking-widest transition-all gap-2 flex items-center whitespace-nowrap shrink-0",
+              activeTab === 'notes' ? "bg-[var(--surface-card)] text-[var(--accent-text)] shadow-lg" : "text-[var(--text-tertiary)] hover:text-[var(--text-secondary)]"
+            )}
+          >
+            <Zap size={14} /> Notas Rápidas
+          </button>
+          <button
+            onClick={() => setActiveTab('history')}
+            className={cn(
+              "px-4 md:px-8 py-3 rounded-2xl text-[10px] font-semibold uppercase tracking-widest transition-all gap-2 flex items-center whitespace-nowrap shrink-0",
+              activeTab === 'history' ? "bg-[var(--surface-card)] text-[var(--accent-text)] shadow-lg" : "text-[var(--text-tertiary)] hover:text-[var(--text-secondary)]"
+            )}
+          >
+            <History size={14} /> Histórico
+          </button>
+        </div>
       </div>
 
       {activeTab === 'queue' && (
@@ -736,7 +738,7 @@ const handleDeleteNote = async () => {
                            const displayName = s.customerName || contact?.name || (s.customerPhone && maskPhone(s.customerPhone)) || 'Contato sem nome';
                            const photo = contact?.avatarUrl || getContactPhoto(s.customerPhone, getSessionInstanceId(s));
                            return (
-                         <div key={s.id} className="p-6 flex items-center justify-between hover:bg-[var(--surface-card)] transition-all">
+                         <div key={s.id} className="p-4 sm:p-6 flex flex-col sm:flex-row sm:items-center justify-between gap-4 hover:bg-[var(--surface-card)] transition-all">
                             <div className="flex items-center gap-4">
                                <input
                                  type="checkbox"
@@ -785,7 +787,7 @@ const handleDeleteNote = async () => {
                                   <p className="text-xs text-[var(--text-tertiary)] mt-1">Iniciado em {s.startedAt ? new Date(s.startedAt).toLocaleTimeString() : '-'}</p>
                                </div>
                             </div>
-                             <div className="flex items-center gap-2">
+                             <div className="flex items-center gap-2 flex-wrap w-full sm:w-auto">
                                 {s.assigneeId && (
                                    <div className="flex flex-col items-end mr-4">
                                       <p className="text-[9px] font-semibold uppercase text-[var(--text-tertiary)] tracking-widest leading-none mb-1">Analista</p>

@@ -58,6 +58,8 @@ import Cropper, { Area } from 'react-easy-crop';
 import { Scissors } from 'lucide-react';
 import { fileToBase64 } from '@/lib/image-utils';
 import { toast } from 'sonner';
+import { useIsMobile } from '@/hooks/use-mobile';
+import { ArrowLeft } from 'lucide-react';
 
 // Classes literais (não interpoladas) pra cor da bolha escolhida pelo
 // usuário — o scanner do Tailwind só detecta nomes de classe/variável que
@@ -158,6 +160,7 @@ const getCroppedImg = (imageSrc: string, pixelCrop: Area): Promise<string> => {
 export default function ChatInternalPage() {
    const { currentUser, setCurrentUser, authInitialized, hasPermission, setIsNewTicketModalOpen, setPrefilledTicketTitle, setPrefilledTicketDescription, setActiveOmniChatId, setIsOmniChatOpen } = useApp();
    const router = useRouter();
+  const isMobileViewport = useIsMobile();
   const [rooms, setRooms] = useState<InternalGroup[]>([]);
   const [selectedRoomId, setSelectedRoomId] = useState<string | null>(null);
   const [searchTerm, setSearchTerm] = useState('');
@@ -1109,10 +1112,20 @@ export default function ChatInternalPage() {
     );
   }
 
+  // No mobile a tela vira lista OU conversa (nunca as duas ao mesmo tempo —
+  // a sidebar de 350px espremida ao lado da janela de mensagens era o que
+  // vazava texto pra fora da viewport). Mesmo padrão usado em Empresas
+  // (app/(portal)/customers/page.tsx) e no WhatsApp Omni (chat-widget.tsx).
+  const showListMobile = !isMobileViewport || !selectedRoomId;
+  const showDetailMobile = !isMobileViewport || !!selectedRoomId;
+
   return (
-    <div className="h-[calc(100vh-120px)] flex bg-[var(--surface-card)] rounded-3xl border border-[var(--border-default)] overflow-hidden shadow-2xl">
+    <div className="h-[calc(100vh-180px)] md:h-[calc(100vh-120px)] flex bg-[var(--surface-card)] rounded-3xl border border-[var(--border-default)] overflow-hidden shadow-2xl">
       {/* Sidebar */}
-      <div className="w-[350px] border-r border-[var(--border-default)] flex flex-col bg-[var(--surface-card)]/30">
+      <div className={cn(
+        "w-full md:w-[350px] border-r border-[var(--border-default)] flex-col bg-[var(--surface-card)]/30",
+        showListMobile ? "flex" : "hidden md:flex"
+      )}>
         <div className="p-6 space-y-6">
           <div className="flex items-center justify-between">
             <h1 className="text-2xl font-black text-[var(--text-primary)] tracking-tight">Chat Interno</h1>
@@ -1281,12 +1294,23 @@ export default function ChatInternalPage() {
       </div>
 
       {/* Main Window */}
-      <div className="flex-1 flex flex-col bg-[var(--surface-card)]">
+      <div className={cn(
+        "flex-1 flex-col bg-[var(--surface-card)]",
+        showDetailMobile ? "flex" : "hidden md:flex"
+      )}>
         {selectedRoom ? (
           <>
             {/* Header */}
-            <div className="px-8 py-5 border-b border-[var(--border-default)] flex items-center justify-between bg-[var(--surface-card)]/80 backdrop-blur-xl sticky top-0 z-10">
-              <div className="flex items-center gap-4">
+            <div className="px-4 md:px-8 py-5 border-b border-[var(--border-default)] flex items-center justify-between gap-2 bg-[var(--surface-card)]/80 backdrop-blur-xl sticky top-0 z-10">
+              <div className="flex items-center gap-3 md:gap-4 min-w-0">
+                {isMobileViewport && (
+                  <button
+                    onClick={() => setSelectedRoomId(null)}
+                    className="shrink-0 p-1.5 -ml-1 text-[var(--text-tertiary)] hover:text-[var(--accent-text)] rounded-xl transition-all"
+                  >
+                    <ArrowLeft size={20} />
+                  </button>
+                )}
                 <div className="relative shrink-0">
                   <div className={cn(
                     "w-12 h-12 rounded-2xl flex items-center justify-center text-white font-black shadow-lg overflow-hidden bg-[var(--border-default)]",
@@ -1307,9 +1331,9 @@ export default function ChatInternalPage() {
                     />
                   )}
                 </div>
-                <div>
-                  <h2 className="text-lg font-black text-[var(--text-primary)] tracking-tight">{selectedRoom.name}</h2>
-                  <p className="text-xs font-bold text-[var(--text-tertiary)] uppercase tracking-widest">
+                <div className="min-w-0">
+                  <h2 className="text-lg font-black text-[var(--text-primary)] tracking-tight truncate">{selectedRoom.name}</h2>
+                  <p className="text-xs font-bold text-[var(--text-tertiary)] uppercase tracking-widest truncate">
                     {Object.keys(typingUsers).length > 0 ? (
                       <span className="text-[var(--accent-text)] normal-case flex items-center gap-1.5">
                         <span className="flex gap-0.5">
@@ -1828,7 +1852,7 @@ export default function ChatInternalPage() {
             </div>
 
             {/* Input */}
-            <div className="p-6 bg-[var(--surface-card)] border-t border-[var(--border-default)]">
+            <div className="p-3 sm:p-6 bg-[var(--surface-card)] border-t border-[var(--border-default)]">
               <div className="max-w-4xl mx-auto relative">
                 {replyingToId && (
                    <div className="mb-4 bg-[var(--surface-card)] border border-[var(--border-default)] rounded-2xl p-4 flex items-center justify-between animate-in slide-in-from-bottom-2">
@@ -1977,53 +2001,56 @@ export default function ChatInternalPage() {
                   )}
                 </AnimatePresence>
 
-                <div className="flex items-center gap-4 bg-[var(--surface-card)] border border-[var(--border-default)] rounded-[2rem] p-3 pl-6 pr-3 shadow-inner">
-                  <div className="flex items-center gap-2">
-                    <button 
+                <div className="flex items-center gap-1 sm:gap-4 bg-[var(--surface-card)] border border-[var(--border-default)] rounded-[2rem] p-2 sm:p-3 pl-3 sm:pl-6 pr-2 sm:pr-3 shadow-inner">
+                  <div className="flex items-center gap-0.5 sm:gap-2 shrink-0">
+                    <button
                       onClick={() => {
                         setShowEmojiPicker(!showEmojiPicker);
                         setShowStickerPicker(false);
                         setShowGifSearch(false);
                       }}
-                      className={cn("p-2 rounded-full transition-all", showEmojiPicker ? "bg-[var(--accent)]/20 text-[var(--accent-text)]" : "text-[var(--text-tertiary)] hover:text-[var(--accent-text)]")}
+                      className={cn("p-1.5 sm:p-2 rounded-full transition-all", showEmojiPicker ? "bg-[var(--accent)]/20 text-[var(--accent-text)]" : "text-[var(--text-tertiary)] hover:text-[var(--accent-text)]")}
                     >
-                      <Smile size={24} />
+                      <Smile size={20} className="sm:hidden" />
+                      <Smile size={24} className="hidden sm:block" />
                     </button>
-                    <button 
+                    <button
                       onClick={() => {
                         setShowStickerPicker(!showStickerPicker);
                         setShowEmojiPicker(false);
                         setShowGifSearch(false);
                       }}
-                      className={cn("p-2 rounded-full transition-all", showStickerPicker ? "bg-[var(--accent)]/20 text-[var(--accent-text)]" : "text-[var(--text-tertiary)] hover:text-[var(--accent-text)]")}
+                      className={cn("hidden sm:flex p-1.5 sm:p-2 rounded-full transition-all", showStickerPicker ? "bg-[var(--accent)]/20 text-[var(--accent-text)]" : "text-[var(--text-tertiary)] hover:text-[var(--accent-text)]")}
                     >
-                      <ImageIcon size={24} />
+                      <ImageIcon size={20} className="sm:hidden" />
+                      <ImageIcon size={24} className="hidden sm:block" />
                     </button>
-                    <button 
+                    <button
                       onClick={() => {
                         setShowGifSearch(!showGifSearch);
                         setShowEmojiPicker(false);
                         setShowStickerPicker(false);
                       }}
-                      className={cn("px-2 py-1 rounded-lg transition-all font-black text-xs", showGifSearch ? "bg-[var(--accent)]/20 text-[var(--accent-text)]" : "text-[var(--text-tertiary)] hover:text-[var(--accent-text)]")}
+                      className={cn("px-1.5 sm:px-2 py-1 rounded-lg transition-all font-black text-[10px] sm:text-xs", showGifSearch ? "bg-[var(--accent)]/20 text-[var(--accent-text)]" : "text-[var(--text-tertiary)] hover:text-[var(--accent-text)]")}
                     >
                       GIF
                     </button>
-                    <button 
+                    <button
                       onClick={() => fileInputRef.current?.click()}
-                      className="p-2 text-[var(--text-tertiary)] hover:text-[var(--accent-text)] transition-all"
+                      className="p-1.5 sm:p-2 text-[var(--text-tertiary)] hover:text-[var(--accent-text)] transition-all"
                     >
-                      <Paperclip size={24} />
+                      <Paperclip size={20} className="sm:hidden" />
+                      <Paperclip size={24} className="hidden sm:block" />
                     </button>
-                    <input 
-                      type="file" 
-                      className="hidden" 
-                      ref={fileInputRef} 
+                    <input
+                      type="file"
+                      className="hidden"
+                      ref={fileInputRef}
                       onChange={handleFileUpload}
                     />
 </div>
-                   
-                   <div className="flex-1 relative mx-4">
+
+                   <div className="flex-1 min-w-0 relative mx-1 sm:mx-4">
                      <AnimatePresence>
                        {mentionQuery !== null && mentionCandidates.length > 0 && (
                          <motion.div
@@ -2096,12 +2123,13 @@ export default function ChatInternalPage() {
                      />
                    </div>
 
-                   <button 
+                   <button
                      onClick={() => handleSendMessage()}
                      disabled={!message.trim()}
-                     className="w-12 h-12 bg-[var(--accent)] text-white rounded-full flex items-center justify-center hover:bg-[var(--accent-hover)] transition-all shadow-lg shadow-indigo-200 disabled:opacity-50"
+                     className="w-10 h-10 sm:w-12 sm:h-12 shrink-0 bg-[var(--accent)] text-white rounded-full flex items-center justify-center hover:bg-[var(--accent-hover)] transition-all shadow-lg shadow-indigo-200 disabled:opacity-50"
                    >
-                     <Send size={20} />
+                     <Send size={18} className="sm:hidden" />
+                     <Send size={20} className="hidden sm:block" />
                    </button>
                  </div>
               </div>
