@@ -17,8 +17,11 @@ import { query } from '@/lib/db';
 // aconteceu (nunca falha silenciosa mostrando o mês errado).
 //
 // Se a planilha for republicada num link novo (Arquivo > Compartilhar >
-// Publicar na web), troque só esta constante.
-const PUBLISHED_SHEET_ID = '2PACX-1vROzKHP1pCAm8nNSnYlEcb7ZSAax1Mnvlon5CPWlXv0uFRPIuDjKGbkmEwcpJ-XMmygyJnAzqRAFZpH';
+// Publicar na web), quem tem giro:manage troca o link direto na tela
+// "Escala Fim de Semana" (ver saveWeekendScheduleSheetId abaixo,
+// weekend_schedule_settings.published_sheet_id) — sem precisar de deploy.
+// Esta constante é só o valor de partida/fallback.
+const DEFAULT_PUBLISHED_SHEET_ID = '2PACX-1vROzKHP1pCAm8nNSnYlEcb7ZSAax1Mnvlon5CPWlXv0uFRPIuDjKGbkmEwcpJ-XMmygyJnAzqRAFZpH';
 
 const PT_MONTHS = [
   'janeiro', 'fevereiro', 'março', 'abril', 'maio', 'junho',
@@ -37,6 +40,10 @@ export interface WeekendScheduleRow {
 export interface WeekendScheduleResult {
   tabName: string;
   rows: WeekendScheduleRow[];
+  // ID efetivamente usado nesta busca (configurado ou o padrão) — pra tela
+  // montar o link "abrir no Google Sheets" sem precisar saber se alguém
+  // trocou o link em Configurações.
+  sheetId: string;
   // AAAA-MM-DD, sempre do Postgres (ver currentMonthAndToday acima) — pra
   // quem exibe destacar passado/próximo fim de semana/restante sem depender
   // do relógio do navegador.
@@ -70,6 +77,57 @@ async function currentMonthAndToday(): Promise<{ monthName: string; todayIso: st
   return { monthName: PT_MONTHS[res.rows[0].mes - 1], todayIso: res.rows[0].hoje };
 }
 
+// --- Link configurável -------------------------------------------------
+
+/** Valor cru salvo (NULL = usando o padrão) — pra tela mostrar o que está configurado hoje. */
+export async function getConfiguredPublishedSheetId(): Promise<string | null> {
+  const res = await query('SELECT published_sheet_id FROM public.weekend_schedule_settings WHERE id = 1');
+  return res.rows[0]?.published_sheet_id || null;
+}
+
+async function resolvePublishedSheetId(): Promise<string> {
+  const configured = await getConfiguredPublishedSheetId();
+  return configured || DEFAULT_PUBLISHED_SHEET_ID;
+}
+
+// Aceita tanto a URL inteira que aparece na barra de endereço depois de
+// "Publicar na web" (.../spreadsheets/d/e/<ID>/pubhtml, com ou sem
+// parâmetros depois) quanto só o <ID> colado direto — o formato do link não
+// muda (é sempre esse "/d/e/<ID>/"), só o ID em si.
+export function extractPublishedSheetId(input: string): string | null {
+  const trimmed = input.trim();
+  if (!trimmed) return null;
+  const urlMatch = /\/d\/e\/([^/?#]+)/.exec(trimmed);
+  if (urlMatch) return urlMatch[1];
+  // Sem barra nem espaço — já deve ser o ID sozinho.
+  if (!/[\s/]/.test(trimmed)) return trimmed;
+  return null;
+}
+
+export class InvalidSheetLinkError extends Error {
+  constructor() {
+    super('Link inválido — cole a URL de "Publicar na web" (termina em /pubhtml) ou só o ID da planilha.');
+  }
+}
+
+/** rawInput vazio/null volta a usar o link padrão embutido no código. */
+export async function saveWeekendScheduleSheetId(rawInput: string | null, actorId: string): Promise<void> {
+  let sheetId: string | null = null;
+  if (rawInput && rawInput.trim()) {
+    sheetId = extractPublishedSheetId(rawInput);
+    if (!sheetId) throw new InvalidSheetLinkError();
+  }
+  await query(
+    `INSERT INTO public.weekend_schedule_settings (id, published_sheet_id, updated_by, updated_at)
+     VALUES (1, $1, $2, now())
+     ON CONFLICT (id) DO UPDATE SET published_sheet_id = $1, updated_by = $2, updated_at = now()`,
+    [sheetId, actorId]
+  );
+  // Sem isso, a tela continuaria mostrando dado da planilha ANTIGA até o
+  // cache de 5 min expirar sozinho, mesmo com o link já trocado.
+  cache = null;
+}
+
 // --- Descoberta da aba (nome -> gid) ----------------------------------------
 
 interface SheetTab {
@@ -77,8 +135,8 @@ interface SheetTab {
   gid: string;
 }
 
-async function fetchTabList(): Promise<SheetTab[]> {
-  const res = await fetch(`https://docs.google.com/spreadsheets/d/e/${PUBLISHED_SHEET_ID}/pubhtml`, {
+async function fetchTabList(sheetId: string): Promise<SheetTab[]> {
+  const res = await fetch(`https://docs.google.com/spreadsheets/d/e/${sheetId}/pubhtml`, {
     cache: 'no-store'
   });
   if (!res.ok) throw new Error('Não foi possível acessar a planilha publicada no Google Sheets.');
@@ -184,17 +242,18 @@ export async function getWeekendSchedule(forceRefresh = false): Promise<WeekendS
     return cache.data;
   }
 
-  const [{ monthName, todayIso }, tabs] = await Promise.all([currentMonthAndToday(), fetchTabList()]);
+  const sheetId = await resolvePublishedSheetId();
+  const [{ monthName, todayIso }, tabs] = await Promise.all([currentMonthAndToday(), fetchTabList(sheetId)]);
   const tab = pickCurrentMonthTab(tabs, monthName);
   const csvRes = await fetch(
-    `https://docs.google.com/spreadsheets/d/e/${PUBLISHED_SHEET_ID}/pub?output=csv&gid=${tab.gid}`,
+    `https://docs.google.com/spreadsheets/d/e/${sheetId}/pub?output=csv&gid=${tab.gid}`,
     { cache: 'no-store' }
   );
   if (!csvRes.ok) throw new Error('Não foi possível baixar os dados da planilha publicada.');
   const csvText = await csvRes.text();
   const rows = extractWeekendSection(parseCsv(csvText));
 
-  const result: WeekendScheduleResult = { tabName: tab.name, rows, todayIso, fetchedAt: new Date().toISOString() };
+  const result: WeekendScheduleResult = { tabName: tab.name, rows, sheetId, todayIso, fetchedAt: new Date().toISOString() };
   cache = { data: result, expiresAt: Date.now() + CACHE_TTL_MS };
   return result;
 }

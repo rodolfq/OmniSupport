@@ -69,6 +69,24 @@ export async function getGiroSummary(): Promise<GiroSummary | { error: string }>
 // chave compartilhada entre a tela cheia e o popover do Giro), em vez de um
 // fetch avulso por componente como as outras leituras deste arquivo.
 
+/** sheetId null = usando o link padrão embutido no código (ninguém trocou ainda). */
+export interface WeekendScheduleConfig {
+  sheetId: string | null;
+}
+
+export async function getWeekendScheduleConfig(): Promise<WeekendScheduleConfig | { error: string }> {
+  try {
+    return await apiJson<WeekendScheduleConfig>('/api/giro/weekend-schedule/config');
+  } catch (err: any) {
+    return { error: err?.message || 'Erro ao carregar a configuração da escala.' };
+  }
+}
+
+/** sheetLink vazio/null volta a usar o link padrão. Aceita a URL inteira ou só o ID. */
+export async function saveWeekendScheduleConfig(sheetLink: string | null): Promise<MutationResult> {
+  return mutate('/api/giro/weekend-schedule/config', { sheetLink }, 'Erro ao salvar o link da planilha.');
+}
+
 // ---------------------------------------------------------------- operação
 
 export interface UpdateRowPatch {

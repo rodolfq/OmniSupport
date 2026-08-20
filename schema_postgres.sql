@@ -340,6 +340,18 @@ CREATE TABLE public.ai_assistant_settings (
 );
 INSERT INTO public.ai_assistant_settings (id) VALUES (1) ON CONFLICT (id) DO NOTHING;
 
+-- Link da planilha do Google publicada como "Escala Fim de Semana" (ver
+-- migrations/weekend_schedule_settings.sql), trocável em Configurações sem
+-- deploy. NULL = usa o link padrão embutido em weekend-schedule-service.ts.
+CREATE TABLE public.weekend_schedule_settings (
+  id INTEGER PRIMARY KEY DEFAULT 1,
+  published_sheet_id TEXT,
+  updated_at TIMESTAMP WITH TIME ZONE DEFAULT now() NOT NULL,
+  updated_by UUID REFERENCES public.profiles(id) ON DELETE SET NULL,
+  CONSTRAINT weekend_schedule_settings_singleton CHECK (id = 1)
+);
+INSERT INTO public.weekend_schedule_settings (id) VALUES (1) ON CONFLICT (id) DO NOTHING;
+
 -- Mensagens Automáticas: notificações por WhatsApp para ações do analista no chamado.
 -- Seed dos 11 eventos (textos padrão) vive em migrations/add_automated_messages.sql;
 -- novos eventos futuros só precisam de uma entrada no catálogo TS
