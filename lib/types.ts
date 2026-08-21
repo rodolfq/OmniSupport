@@ -512,6 +512,8 @@ export interface ChatSession {
   startedAt: string;
   lastMessageAt: string;
   awaitingSurveyUntil?: string;
+  // Ids de config_tags (domain='chat') vinculados pelo atendente em tempo real.
+  tags?: string[];
 }
 
 export interface SurveySettings {

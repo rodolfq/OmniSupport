@@ -13,7 +13,7 @@ const emitter = new EventEmitter();
 emitter.setMaxListeners(0);
 
 export interface ChatEventPayload {
-  type: 'message' | 'survey-response' | 'transcription' | 'transcription-error' | 'typing' | 'receipt' | 'reaction' | 'edited' | 'deleted';
+  type: 'message' | 'survey-response' | 'transcription' | 'transcription-error' | 'typing' | 'receipt' | 'reaction' | 'edited' | 'deleted' | 'tags-updated';
   sessionId: string;
   [key: string]: unknown;
 }
@@ -30,6 +30,32 @@ export function subscribeToChatEvents(sessionId: string, listener: (payload: Cha
   const event = channelName(sessionId);
   emitter.on(event, listener);
   return () => emitter.off(event, listener);
+}
+
+// Canal único e global (não por sessão) pra a LISTA lateral do widget
+// (chat-widget.tsx) — chat:<sessionId> só tem ouvinte enquanto aquela
+// conversa está aberta, então uma conversa nova (ou uma que muda de dono/
+// status/tag sem estar aberta em lugar nenhum) não tinha como avisar
+// ninguém: a lista só descobria no próximo poll de 30s. Payload de
+// propósito enxuto (só o motivo + o id) — quem recebe já teria que
+// reconsultar `sessions` de qualquer forma pra saber que seção da lista
+// (Fila/Meus, Em andamento/Respondido) a conversa cai agora, mesmo padrão
+// já usado aqui pra 'receipt'/'reaction' em vez de tentar reconstruir o
+// estado a partir de um evento parcial.
+export interface SessionsChangedPayload {
+  reason: 'message' | 'new-session' | 'assigned' | 'queue' | 'tags' | 'status';
+  sessionId: string;
+}
+
+const SESSIONS_CHANGED_EVENT = 'chat-sessions:changed';
+
+export function emitSessionsChanged(payload: SessionsChangedPayload) {
+  emitter.emit(SESSIONS_CHANGED_EVENT, payload);
+}
+
+export function subscribeToSessionsChanges(listener: (payload: SessionsChangedPayload) => void) {
+  emitter.on(SESSIONS_CHANGED_EVENT, listener);
+  return () => emitter.off(SESSIONS_CHANGED_EVENT, listener);
 }
 
 // Mesmo emitter em memória acima, canal separado (prefixo diferente) para o

@@ -1,7 +1,7 @@
 import axios from 'axios';
 import { query } from '../db';
 import { runExclusive } from '../key-mutex';
-import { emitChatEvent, excludeActiveViewers } from '../chat-events';
+import { emitChatEvent, emitSessionsChanged, excludeActiveViewers } from '../chat-events';
 import { notifyUser } from './push-service';
 import { getChatRecipientIds } from './notification-recipients';
 import { resolveQueueForInstance, pickNextQueueAssignee, dispatchPendingChatSessions } from './queue-routing';
@@ -247,6 +247,7 @@ export class MetaWhatsAppService {
     // widget e do canal Baileys) — no-op barato quando ela já tem responsável.
     try {
       const dispatched = await dispatchPendingChatSessions({ sessionId: session.id });
+      dispatched.forEach(d => emitSessionsChanged({ reason: 'assigned', sessionId: d.sessionId }));
       await Promise.all(dispatched.map(d => notifyUser(d.assigneeId, {
         title: 'Novo atendimento atribuído a você',
         body: `${d.customerName || 'Cliente'} está aguardando atendimento.`,
@@ -259,6 +260,7 @@ export class MetaWhatsAppService {
 
     const savedMessage = messageRes.rows[0];
     if (savedMessage) {
+      emitSessionsChanged({ reason: 'message', sessionId: session.id });
       emitChatEvent(session.id, {
         type: 'message',
         sessionId: session.id,

@@ -41,7 +41,7 @@ import {
   Link2
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
-import { 
+import {
   ChatMessage,
   ChatSession,
   QuickNote,
@@ -50,13 +50,15 @@ import {
   UserRole,
   Ticket,
   Company,
-  Attachment
+  Attachment,
+  TagConfig
 } from '@/lib/types';
 import { ChatService, fetchChatSessions, pushChatMessage, createChatSession, saveChatHistory, resolveChatSessionForPhone, submitSurveyResponse, transcribeChatAudio, getPreviousChatHistories, fetchSessionMessages, PreviousChatHistoriesResult, SessionMessagesResult } from '@/lib/services/chat-service';
 import { fetchQuickNotes, fetchAnalystStatuses, fetchCompanies, fetchQueues, fetchSurveySettings, ConfigService } from '@/lib/services/config-service';
 import { useProfilesWithAvatarQuery } from '@/lib/query-hooks';
 import { TicketService } from '@/lib/services/ticket-service';
-import { saveTicketFromChatSession, closeChatSessionAfterTicket, assignChatSession, returnChatSessionToQueue } from '@/lib/services/chat-session-actions';
+import { saveTicketFromChatSession, closeChatSessionAfterTicket, assignChatSession, returnChatSessionToQueue, setChatSessionTags } from '@/lib/services/chat-session-actions';
+import { ChatTagPicker, tagAccentBgClass } from '@/components/chat-tag-picker';
 import { cn, maskPhone, matchPhones, safeJsonStringify } from '@/lib/utils';
 import { useApp } from '@/app/app-context';
 import { isEvaluationSnoozed } from '@/lib/evaluation-snooze';
@@ -499,6 +501,21 @@ export function ChatWidget() {
     }
   };
 
+  // Otimista: aplica local antes da resposta do servidor (popover fecha e o
+  // chip reage na hora); o evento SSE 'tags-updated' mantém quem mais estiver
+  // vendo a mesma conversa sincronizado. Em erro, desfaz reaplicando o estado
+  // anterior.
+  const handleChatTagsChange = async (sessionId: string, tagIds: string[]) => {
+    const previous = customerSessions.find(s => s.id === sessionId)?.tags || [];
+    setCustomerSessions(prev => prev.map(s => s.id === sessionId ? { ...s, tags: tagIds } : s));
+
+    const result = await setChatSessionTags(sessionId, tagIds, currentUser?.id);
+    if ('error' in result) {
+      toast.error('Erro ao atualizar os marcadores da conversa.');
+      setCustomerSessions(prev => prev.map(s => s.id === sessionId ? { ...s, tags: previous } : s));
+    }
+  };
+
   const [transcribingIds, setTranscribingIds] = useState<Set<string>>(new Set());
   // A transcrição em si roda sozinha em segundo plano assim que o áudio é
   // salvo (ver lib/services/transcription-service.ts) — mas no chat ao vivo
@@ -630,6 +647,8 @@ export function ChatWidget() {
   const [isConfirmNewTicketOpen, setIsConfirmNewTicketOpen] = useState(false);
   const [isLinkTicketModalOpen, setIsLinkTicketModalOpen] = useState(false);
   const [isMoreActionsOpen, setIsMoreActionsOpen] = useState(false);
+  // Só domain==='chat' — cadastradas em Configurações > Gestão de Tags.
+  const [chatTags, setChatTags] = useState<TagConfig[]>([]);
   const [chatAttachments, setChatAttachments] = useState<Attachment[]>([]);
   const [previewAttachment, setPreviewAttachment] = useState<Attachment | null>(null);
 
@@ -707,6 +726,7 @@ export function ChatWidget() {
         const notes = await fetchQuickNotes(controller.signal).catch(e => { console.error('notes fetch error:', e); return [] as any; });
         const statuses = await fetchAnalystStatuses(controller.signal).catch(e => { console.error('statuses fetch error:', e); return [] as any; });
         const comp = await fetchCompanies(controller.signal).catch(e => { console.error('companies fetch error:', e); return [] as any; });
+        const allTags = await ConfigService.getTags().catch(e => { console.error('tags fetch error:', e); return [] as TagConfig[]; });
 
         // Check if controller was aborted
         if (controller.signal.aborted) return;
@@ -720,6 +740,7 @@ export function ChatWidget() {
         setQuickNotes(notes);
         setAnalystStatuses(statuses);
         setCompanies(comp);
+        setChatTags((allTags || []).filter(t => t.domain === 'chat'));
 
         const queues = await fetchQueues(controller.signal).catch(e => { console.error('queues fetch error:', e); return [] as any; });
         setAllQueues(queues || []);
@@ -849,6 +870,36 @@ export function ChatWidget() {
     };
   }, [currentUser?.id]);
 
+  // Tempo real da LISTA (sidebar) — sem isso, uma conversa nova só aparecia
+  // no próximo tick do poll de 30s acima, mesmo com o som de notificação
+  // (app-context.tsx, poll de 10s) já tendo tocado: o analista ouvia o aviso
+  // e ficava até ~30s olhando pra uma lista que ainda não mostrava nada.
+  // Canal global (não por sessão, ver /api/chats/sessions-stream) — dispara
+  // sempre que qualquer sessão relevante muda em QUALQUER lugar do backend
+  // (mensagem nova, atribuição, fila, tag, encerramento), mesmo numa
+  // conversa que ainda não foi aberta por ninguém. Debounce curto porque uma
+  // mesma mensagem pode disparar mais de um evento em sequência (ex.:
+  // redistribuição de fila + a própria mensagem).
+  useEffect(() => {
+    if (isCustomer || !currentUser?.id) return;
+
+    let debounceTimer: ReturnType<typeof setTimeout> | null = null;
+    const refresh = () => {
+      if (debounceTimer) clearTimeout(debounceTimer);
+      debounceTimer = setTimeout(() => {
+        fetchChatSessions(undefined, currentUser.id).then(setCustomerSessions).catch(() => {});
+      }, 150);
+    };
+
+    const eventSource = new EventSource('/api/chats/sessions-stream');
+    eventSource.addEventListener('sessions-changed', refresh);
+
+    return () => {
+      eventSource.close();
+      if (debounceTimer) clearTimeout(debounceTimer);
+    };
+  }, [isCustomer, currentUser?.id]);
+
   // Tempo real de verdade via SSE para a conversa aberta (substitui o antigo
   // supabase.channel(...).on('postgres_changes', ...), que nunca funcionou de
   // fato — o shim em lib/supabase.ts não implementa pub/sub, só REST). O
@@ -926,6 +977,11 @@ export function ChatWidget() {
             if (!updated) return;
             setCustomerSessions(prev => prev.map(s => s.id === payload.sessionId ? { ...s, messages: updated.messages } : s));
           }).catch(() => {});
+          return;
+        }
+
+        if (payload?.type === 'tags-updated') {
+          setCustomerSessions(prev => prev.map(s => s.id === payload.sessionId ? { ...s, tags: (payload.tags as string[]) || [] } : s));
           return;
         }
 
@@ -2122,71 +2178,133 @@ useEffect(() => {
                     </div>
                   </div>
                   <div className="flex-1 overflow-y-auto p-3 space-y-1.5">
-                    {customerSessions
-                      .filter(s => s.status !== 'closed')
-                      .filter(s => {
-                        if (chatFilter === 'all') return true;
-                        if (chatFilter === 'me') return s.assigneeId === currentUser?.id;
-                        // "Fila": todo chat (pendente ou já em atendimento, de
-                        // qualquer analista) que pertence a QUALQUER fila — não
-                        // só as que o usuário logado é formalmente membro
-                        // (ex: um admin que acompanha tudo mas não está
-                        // cadastrado em nenhuma fila específica não pode ver a
-                        // aba inteira vazia). Inclui também os próprios
-                        // chamados do usuário mesmo sem queueId (ex: pool
-                        // combinado).
-                        if (chatFilter === 'queue') return !!s.queueId || s.assigneeId === currentUser?.id;
-                        return true;
-                      })
-                        .map(s => {
-                          const contact = allUsers.find(u => 
-                            u.id === s.customerId || 
-                            matchPhones(u.phone, s.customerPhone) || (u.phones && u.phones.some(p => matchPhones(p, s.customerPhone)))
-                          );
-                          const company = contact ? companies.find(c => c.id === contact.companyId) : null;
-                          const sessionUnread = getSessionUnreadCount(s.id);
-                          
-                          return (
-                            <button 
-                              key={s.id} 
-                              onClick={() => setSelectedChatId(s.id)}
-                              className={cn(
-                                "w-full text-left p-3 rounded-2xl transition-all group flex items-center justify-between border",
-                                selectedChatId === s.id
-                                  ? "bg-[var(--accent)]/10 border-[var(--accent)]/20 shadow-sm"
-                                  : "bg-[var(--surface-card)] border-[var(--border-default)] hover:border-[var(--accent)]/20 shadow-none"
-                              )}
-                            >
-                              <div className="flex items-center gap-2.5">
-                                <div className="w-9 h-9 rounded-xl flex items-center justify-center text-[var(--text-success)] relative shrink-0 overflow-hidden bg-[var(--surface-success)]">
-                                  {(() => {
-                                    const photo = contact?.avatarUrl || getContactPhoto(s.customerPhone, getSessionInstanceId(s));
-                                    return photo ? (
-                                      <img src={photo} alt={s.customerName} className="w-full h-full object-cover" />
-                                    ) : (
-                                      <User size={16} />
-                                    );
-                                  })()}
-                                  {sessionUnread > 0 && (
-                                    <span className="absolute -top-1 -right-1 w-5 h-5 bg-[var(--text-danger)] text-white text-[8px] font-black flex items-center justify-center rounded-full border-2 border-white">
-                                      {sessionUnread > 9 ? '9+' : sessionUnread}
-                                    </span>
-                                  )}
-                                </div>
-                                <div>
-                                  <p className="text-xs font-black text-[var(--text-primary)] uppercase tracking-tight">{s.customerName}</p>
-                                  {s.ticketNumber && (
-                                    <p className="text-[9px] text-[var(--text-tertiary)] font-semibold uppercase tracking-widest">Conversa #{String(s.ticketNumber).padStart(4, '0')}</p>
-                                  )}
-                                  {company && (
-                                    <p className="text-[9px] text-[var(--accent-text)] font-bold uppercase tracking-widest">{company.name}</p>
-                                  )}
-                                  <p className="text-[10px] text-[var(--text-tertiary)] font-medium">{s.status === 'pending' ? '🟡 Aguardando' : '🟢 Em curso'}</p>
-                                </div>
+                    {(() => {
+                      const filteredSessions = customerSessions
+                        .filter(s => s.status !== 'closed')
+                        .filter(s => {
+                          if (chatFilter === 'all') return true;
+                          if (chatFilter === 'me') return s.assigneeId === currentUser?.id;
+                          // "Fila": todo chat (pendente ou já em atendimento, de
+                          // qualquer analista) que pertence a QUALQUER fila — não
+                          // só as que o usuário logado é formalmente membro
+                          // (ex: um admin que acompanha tudo mas não está
+                          // cadastrado em nenhuma fila específica não pode ver a
+                          // aba inteira vazia). Inclui também os próprios
+                          // chamados do usuário mesmo sem queueId (ex: pool
+                          // combinado).
+                          if (chatFilter === 'queue') return !!s.queueId || s.assigneeId === currentUser?.id;
+                          return true;
+                        });
+
+                      // Quem mandou a mensagem mais recente decide a seção —
+                      // mesma separação do Bitrix: cliente esperando resposta
+                      // ("Em andamento") vs. equipe já respondeu ("Respondido").
+                      // 'internal'/'system' não contam pra nenhum dos dois lados
+                      // (são bastidor, não uma resposta de verdade).
+                      const needsReply = (s: ChatSession) => {
+                        const relevant = (s.messages || []).filter(m => m.type !== 'internal' && m.type !== 'system');
+                        if (relevant.length === 0) return true;
+                        return relevant[relevant.length - 1].senderId === s.customerId;
+                      };
+
+                      const awaitingReply = filteredSessions.filter(needsReply);
+                      const answered = filteredSessions.filter(s => !needsReply(s));
+
+                      const renderRow = (s: ChatSession) => {
+                        const contact = allUsers.find(u =>
+                          u.id === s.customerId ||
+                          matchPhones(u.phone, s.customerPhone) || (u.phones && u.phones.some(p => matchPhones(p, s.customerPhone)))
+                        );
+                        const company = contact ? companies.find(c => c.id === contact.companyId) : null;
+                        const sessionUnread = getSessionUnreadCount(s.id);
+                        const rowTags = chatTags.filter(t => (s.tags || []).includes(t.id));
+                        const lastMessage = s.messages?.[s.messages.length - 1];
+                        const lastMessagePreview = lastMessage
+                          ? (lastMessage.isDeleted ? 'Mensagem apagada' : (lastMessage.text?.trim() || 'Anexo enviado'))
+                          : null;
+
+                        return (
+                          <button
+                            key={s.id}
+                            onClick={() => setSelectedChatId(s.id)}
+                            className={cn(
+                              "w-full text-left p-3 rounded-2xl transition-all group flex items-center justify-between border relative overflow-hidden",
+                              selectedChatId === s.id
+                                ? "bg-[var(--accent)]/10 border-[var(--accent)]/20 shadow-sm"
+                                : "bg-[var(--surface-card)] border-[var(--border-default)] hover:border-[var(--accent)]/20 shadow-none"
+                            )}
+                          >
+                            {/* Uma faixa fina por tag, empilhadas — evita ter que
+                                escolher uma cor "vencedora" quando há mais de uma. */}
+                            {rowTags.length > 0 && (
+                              <div className="absolute left-0 top-0 bottom-0 w-1 flex flex-col">
+                                {rowTags.map(tag => (
+                                  <span key={tag.id} className={cn('flex-1', tagAccentBgClass(tag))} />
+                                ))}
                               </div>
-                            </button>
-                          );
-                        })}
+                            )}
+                            <div className={cn("flex items-center gap-2.5", rowTags.length > 0 && "pl-1.5")}>
+                              <div className="w-9 h-9 rounded-xl flex items-center justify-center text-[var(--text-success)] relative shrink-0 overflow-hidden bg-[var(--surface-success)]">
+                                {(() => {
+                                  const photo = contact?.avatarUrl || getContactPhoto(s.customerPhone, getSessionInstanceId(s));
+                                  return photo ? (
+                                    <img src={photo} alt={s.customerName} className="w-full h-full object-cover" />
+                                  ) : (
+                                    <User size={16} />
+                                  );
+                                })()}
+                                {sessionUnread > 0 && (
+                                  <span className="absolute -top-1 -right-1 w-5 h-5 bg-[var(--text-danger)] text-white text-[8px] font-black flex items-center justify-center rounded-full border-2 border-white">
+                                    {sessionUnread > 9 ? '9+' : sessionUnread}
+                                  </span>
+                                )}
+                              </div>
+                              <div className="min-w-0 flex-1">
+                                <p className="text-xs font-black text-[var(--text-primary)] uppercase tracking-tight">{s.customerName}</p>
+                                {s.ticketNumber && (
+                                  <p className="text-[9px] text-[var(--text-tertiary)] font-semibold uppercase tracking-widest">Conversa #{String(s.ticketNumber).padStart(4, '0')}</p>
+                                )}
+                                {company && (
+                                  <p className="text-[9px] text-[var(--accent-text)] font-bold uppercase tracking-widest">{company.name}</p>
+                                )}
+                                {lastMessagePreview && (
+                                  <p className="text-[10px] text-[var(--text-tertiary)] font-medium truncate">{lastMessagePreview}</p>
+                                )}
+                              </div>
+                            </div>
+                          </button>
+                        );
+                      };
+
+                      if (filteredSessions.length === 0) {
+                        return (
+                          <p className="text-center text-[10px] text-[var(--text-tertiary)] font-semibold uppercase tracking-widest py-6">
+                            Nenhuma conversa encontrada.
+                          </p>
+                        );
+                      }
+
+                      return (
+                        <>
+                          {awaitingReply.length > 0 && (
+                            <div className="space-y-1.5">
+                              <p className="text-[9px] font-black uppercase tracking-widest text-[var(--accent-text)] px-1 pt-1 pb-1.5 border-b border-[var(--accent)]/20">
+                                Em andamento
+                              </p>
+                              {awaitingReply.map(renderRow)}
+                            </div>
+                          )}
+                          {answered.length > 0 && (
+                            <div className={cn("space-y-1.5", awaitingReply.length > 0 && "mt-3")}>
+                              <p className="text-[9px] font-black uppercase tracking-widest text-[var(--text-tertiary)] px-1 pt-1 pb-1.5 border-b border-[var(--border-default)]">
+                                Respondido
+                              </p>
+                              {answered.map(renderRow)}
+                            </div>
+                          )}
+                        </>
+                      );
+                    })()}
                   </div>
                 </div>
               )}
@@ -2253,6 +2371,18 @@ useEffect(() => {
                           <p className="text-[9px] text-[var(--text-tertiary)] font-semibold uppercase tracking-widest">
                             Conversa #{String(selectedChat.ticketNumber).padStart(4, '0')}
                           </p>
+                        )}
+                        {/* Marcadores vinculados em tempo real pelo atendente — só
+                            equipe vê/edita, cliente nunca (mesmo padrão do bloco
+                            Responsável logo abaixo). */}
+                        {!isCustomer && selectedChat && (
+                          <div className="mt-1">
+                            <ChatTagPicker
+                              availableTags={chatTags}
+                              selectedTagIds={selectedChat.tags || []}
+                              onChange={(tagIds) => handleChatTagsChange(selectedChat.id, tagIds)}
+                            />
+                          </div>
                         )}
                         {/* Visível só pra equipe — pra qualquer analista que abrir essa
                             conversa saber de cara quem é o responsável, sem precisar
@@ -3054,7 +3184,7 @@ useEffect(() => {
                           }
                         }}
                         placeholder="Digite uma mensagem..."
-                        className="flex-1 min-w-0 bg-[var(--surface-card)] border border-[var(--border-default)] rounded-2xl px-4 py-3.5 text-base font-bold focus:ring-4 focus:ring-[var(--accent)]/10 outline-none transition-all resize-none leading-relaxed placeholder:text-sm placeholder:font-medium placeholder:whitespace-nowrap"
+                        className="flex-1 min-w-0 bg-[var(--surface-card)] border border-[var(--border-default)] rounded-2xl px-4 py-3.5 text-sm font-medium focus:ring-4 focus:ring-[var(--accent)]/10 outline-none transition-all resize-none leading-relaxed placeholder:font-normal placeholder:text-[var(--text-tertiary)] placeholder:whitespace-nowrap"
                       />
                       <button
                         type="submit"

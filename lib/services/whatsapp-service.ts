@@ -7,7 +7,7 @@ import { normalizePhone } from '../utils';
 import { useSupabaseAuthState, sessionDataCache } from '../supabase-auth';
 import { whatsappQuery as query } from '../whatsapp-db';
 import { Attachment } from '../types';
-import { emitChatEvent, excludeActiveViewers } from '../chat-events';
+import { emitChatEvent, emitSessionsChanged, excludeActiveViewers } from '../chat-events';
 import { notifyUser } from './push-service';
 import { getChatRecipientIds } from './notification-recipients';
 import { runExclusive } from '../key-mutex';
@@ -934,6 +934,7 @@ export class WhatsAppService {
       // ela já tem responsável.
       try {
         const dispatched = await dispatchPendingChatSessions({ sessionId: session.id });
+        dispatched.forEach(d => emitSessionsChanged({ reason: 'assigned', sessionId: d.sessionId }));
         await Promise.all(dispatched.map(d => notifyUser(d.assigneeId, {
           title: 'Novo atendimento atribuído a você',
           body: `${d.customerName || 'Cliente'} está aguardando atendimento.`,
@@ -947,8 +948,11 @@ export class WhatsAppService {
       // Mesma notificação em tempo real (SSE) e push que uma mensagem enviada
       // pelo widget web já dispara (app/api/chats/route.ts) — sem isso, uma
       // mensagem de WhatsApp só aparecia no próximo poll de 30s (ou nunca, com
-      // o app em segundo plano no celular).
+      // o app em segundo plano no celular). emitSessionsChanged avisa a LISTA
+      // (sidebar do widget), separado do emitChatEvent abaixo que só chega a
+      // quem já tem esta conversa aberta.
       if (savedMessage) {
+        emitSessionsChanged({ reason: 'message', sessionId: session.id });
         emitChatEvent(session.id, {
           type: 'message',
           sessionId: session.id,

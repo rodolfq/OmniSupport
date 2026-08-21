@@ -77,3 +77,11 @@ export async function mergeTickets(sourceTicketIds: string[], targetTicketId: st
 export async function duplicateTicket(ticketId: string): Promise<ChamadoResultado | Falha> {
   return post({ action: 'duplicate-ticket', ticketId }, 'Erro ao duplicar chamado.');
 }
+
+export async function setChatSessionTags(
+  sessionId: string,
+  tagIds: string[],
+  actingUserId?: string
+): Promise<{ success: true; tags: string[] } | Falha> {
+  return post({ action: 'set-tags', sessionId, tagIds, actingUserId }, 'Erro ao atualizar os marcadores da conversa.');
+}

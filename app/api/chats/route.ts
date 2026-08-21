@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { cookies } from 'next/headers';
 import { query } from '@/lib/db';
 import { verifyJWT } from '@/lib/jwt';
-import { emitChatEvent, excludeActiveViewers, emitInternalChatEvent } from '@/lib/chat-events';
+import { emitChatEvent, emitSessionsChanged, excludeActiveViewers, emitInternalChatEvent } from '@/lib/chat-events';
 import { notifyUser } from '@/lib/services/push-service';
 import { getChatRecipientIds, isTeamRole } from '@/lib/services/notification-recipients';
 import { resolveCombinedQueuePool, pickNextQueueAssignee, dispatchPendingChatSessions, RoutingQueue } from '@/lib/services/queue-routing';
@@ -121,6 +121,7 @@ export async function GET(request: NextRequest) {
         startedAt: s.created_at,
         lastMessageAt: s.last_message_at || s.created_at,
         awaitingSurveyUntil: s.awaiting_survey_until,
+        tags: s.tags || [],
         messages: messagesBySession.get(s.id) || []
       }));
 
@@ -161,6 +162,7 @@ export async function GET(request: NextRequest) {
           startedAt: s.created_at,
           lastMessageAt: s.last_message_at || s.created_at,
           awaitingSurveyUntil: s.awaiting_survey_until,
+          tags: s.tags || [],
           lastMessage: lastMessage ? {
             id: lastMessage.id,
             senderId: lastMessage.sender_id,
@@ -865,6 +867,13 @@ export async function POST(request: Request) {
           : { id, assigneeId: null };
       });
 
+      // 'reused' é uma conversa que já existia (e por tanto já apareceu na
+      // lista antes) — só uma sessão de verdade nova precisa avisar a lista
+      // agora; a próxima mensagem dela (ação abaixo) já cobre o resto.
+      if (!result.reused) {
+        emitSessionsChanged({ reason: 'new-session', sessionId: result.id });
+      }
+
       return NextResponse.json(result);
     }
 
@@ -955,6 +964,7 @@ export async function POST(request: Request) {
       // por id + status) quando ela já tem responsável.
       try {
         const dispatched = await dispatchPendingChatSessions({ sessionId: targetSessionId });
+        dispatched.forEach(d => emitSessionsChanged({ reason: 'assigned', sessionId: d.sessionId }));
         await Promise.all(dispatched.map(d => notifyUser(d.assigneeId, {
           title: 'Novo atendimento atribuído a você',
           body: `${d.customerName || 'Cliente'} está aguardando atendimento.`,
@@ -965,6 +975,7 @@ export async function POST(request: Request) {
         console.error('[queue] Falha ao redistribuir atendimento pendente:', err);
       }
 
+      emitSessionsChanged({ reason: 'message', sessionId: targetSessionId });
       emitChatEvent(targetSessionId, {
         type: 'message',
         sessionId: targetSessionId,

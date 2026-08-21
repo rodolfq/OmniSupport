@@ -1,7 +1,7 @@
 'use client';
 
 import React, { useState, useEffect } from 'react';
-import { Plus, Trash2, Tag, Hash } from 'lucide-react';
+import { Plus, Trash2, Tag, Hash, Pencil, X, Check } from 'lucide-react';
 import { TagConfig, UserRole } from '@/lib/types';
 import { ConfigService } from '@/lib/services/config-service';
 import { useApp } from '@/app/app-context';
@@ -27,6 +27,7 @@ export function TagManager() {
   const [newTagLabel, setNewTagLabel] = useState('');
   const [selectedColor, setSelectedColor] = useState(TAG_COLORS[0]);
   const [domainFilter, setDomainFilter] = useState<'all' | 'chat' | 'ticket'>('all');
+  const [editingTagId, setEditingTagId] = useState<string | null>(null);
 
   useEffect(() => {
     async function loadTags() {
@@ -42,7 +43,7 @@ export function TagManager() {
     loadTags();
   }, []);
 
-  const handleAddTag = async (e: React.FormEvent) => {
+  const handleSubmitTag = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!isAdmin) {
       toast.error('Apenas administradores podem cadastrar tags.');
@@ -51,18 +52,49 @@ export function TagManager() {
     if (!newTagLabel.trim()) return;
 
     try {
-      const domain = domainFilter === 'all' ? 'ticket' : domainFilter;
-      const newTag = await ConfigService.saveTag({
-        label: newTagLabel.trim(),
-        color: `${selectedColor.bg} ${selectedColor.text}`,
-        domain
-      } as TagConfig);
-      setTags([...tags, newTag]);
-      setNewTagLabel('');
-      toast.success('Tag personalizada criada!');
+      if (editingTagId) {
+        // Domínio não é editável aqui de propósito: o formulário só oferece
+        // nome/cor (o que foi pedido); manter o domínio original evita que
+        // trocar o filtro da tela sem querer mude pra qual lista (Chats ou
+        // Chamados) a tag pertence.
+        const original = tags.find(t => t.id === editingTagId);
+        const updated = await ConfigService.saveTag({
+          id: editingTagId,
+          label: newTagLabel.trim(),
+          color: `${selectedColor.bg} ${selectedColor.text}`,
+          domain: original?.domain || (domainFilter === 'all' ? 'ticket' : domainFilter)
+        } as TagConfig);
+        setTags(tags.map(t => t.id === editingTagId ? updated : t));
+        toast.success('Tag atualizada!');
+        handleCancelEdit();
+      } else {
+        const domain = domainFilter === 'all' ? 'ticket' : domainFilter;
+        const newTag = await ConfigService.saveTag({
+          label: newTagLabel.trim(),
+          color: `${selectedColor.bg} ${selectedColor.text}`,
+          domain
+        } as TagConfig);
+        setTags([...tags, newTag]);
+        setNewTagLabel('');
+        toast.success('Tag personalizada criada!');
+      }
     } catch {
-      toast.error('Erro ao criar tag.');
+      toast.error(editingTagId ? 'Erro ao atualizar tag.' : 'Erro ao criar tag.');
     }
+  };
+
+  const handleStartEdit = (tag: TagConfig) => {
+    if (!isAdmin) return;
+    const matchedColor = TAG_COLORS.find(c => `${c.bg} ${c.text}` === tag.color) || TAG_COLORS[0];
+    setEditingTagId(tag.id);
+    setNewTagLabel(tag.label);
+    setSelectedColor(matchedColor);
+  };
+
+  const handleCancelEdit = () => {
+    setEditingTagId(null);
+    setNewTagLabel('');
+    setSelectedColor(TAG_COLORS[0]);
   };
 
   const handleDeleteTag = async (id: string) => {
@@ -70,6 +102,7 @@ export function TagManager() {
     try {
       await ConfigService.deleteTag(id);
       setTags(tags.filter(t => t.id !== id));
+      if (editingTagId === id) handleCancelEdit();
       toast.success('Tag removida.');
     } catch {
       toast.error('Erro ao remover tag.');
@@ -108,7 +141,10 @@ export function TagManager() {
         </div>
 
         {isAdmin && (
-          <form onSubmit={handleAddTag} className="bg-[var(--surface-card)] border border-[var(--border-default)] rounded-3xl p-6 mb-8 space-y-6">
+          <form onSubmit={handleSubmitTag} className="bg-[var(--surface-card)] border border-[var(--border-default)] rounded-3xl p-6 mb-8 space-y-6">
+            <p className="text-[10px] font-black uppercase text-[var(--text-tertiary)] tracking-widest">
+              {editingTagId ? 'Editando tag' : 'Nova tag'}
+            </p>
             <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
               <div className="space-y-2">
                 <label className="text-[10px] font-black uppercase text-[var(--text-tertiary)] tracking-widest ml-1">Nome da Tag</label>
@@ -141,19 +177,30 @@ export function TagManager() {
                       )}
                       title={color.label}
                     >
-                      {selectedColor.label === color.label && <div className={cn("w-1.5 h-1.5 rounded-full", color.text.replace('text', 'bg'))} />}
+                      {selectedColor.label === color.label && <Check size={14} className={color.text} />}
                     </button>
                   ))}
                 </div>
               </div>
             </div>
 
-            <button
-              type="submit"
-              className="w-full py-4 bg-slate-900 text-white rounded-2xl text-[10px] font-black uppercase tracking-widest flex items-center justify-center gap-2 hover:bg-slate-800 transition-all shadow-xl shadow-slate-200"
-            >
-              <Plus size={16} /> Criar Nova Tag Personalizada
-            </button>
+            <div className="flex gap-3">
+              <button
+                type="submit"
+                className="flex-1 py-4 bg-slate-900 text-white rounded-2xl text-[10px] font-black uppercase tracking-widest flex items-center justify-center gap-2 hover:bg-slate-800 transition-all shadow-xl shadow-slate-200"
+              >
+                {editingTagId ? <><Check size={16} /> Salvar Alterações</> : <><Plus size={16} /> Criar Nova Tag Personalizada</>}
+              </button>
+              {editingTagId && (
+                <button
+                  type="button"
+                  onClick={handleCancelEdit}
+                  className="px-6 py-4 border border-[var(--border-default)] text-[var(--text-secondary)] rounded-2xl text-[10px] font-black uppercase tracking-widest flex items-center justify-center gap-2 hover:bg-[var(--surface-pill)] transition-all"
+                >
+                  <X size={16} /> Cancelar
+                </button>
+              )}
+            </div>
           </form>
         )}
 
@@ -170,7 +217,9 @@ export function TagManager() {
                   "p-4 rounded-3xl border flex flex-col gap-3 group transition-all hover:shadow-md h-32",
                   tag.color.split(' ')[0],
                   tag.color.split(' ')[1],
-                  "border-transparent hover:border-[var(--border-default)]"
+                  editingTagId === tag.id
+                    ? "border-[var(--accent)] ring-2 ring-[var(--accent)]/30"
+                    : "border-transparent hover:border-[var(--border-default)]"
                 )}
               >
                 <div className="flex justify-between items-start">
@@ -178,12 +227,22 @@ export function TagManager() {
                     <Hash size={14} />
                   </div>
                   {isAdmin && (
-                    <button
-                      onClick={() => handleDeleteTag(tag.id)}
-                      className="p-1.5 hover:bg-white/50 dark:hover:bg-[var(--surface-card)] rounded-lg text-[var(--text-tertiary)] hover:text-[var(--text-danger)] transition-all opacity-0 group-hover:opacity-100"
-                    >
-                      <Trash2 size={14} />
-                    </button>
+                    <div className="flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-all">
+                      <button
+                        onClick={() => handleStartEdit(tag)}
+                        title="Editar tag"
+                        className="p-1.5 hover:bg-white/50 dark:hover:bg-[var(--surface-card)] rounded-lg text-[var(--text-tertiary)] hover:text-[var(--accent-text)] transition-all"
+                      >
+                        <Pencil size={14} />
+                      </button>
+                      <button
+                        onClick={() => handleDeleteTag(tag.id)}
+                        title="Excluir tag"
+                        className="p-1.5 hover:bg-white/50 dark:hover:bg-[var(--surface-card)] rounded-lg text-[var(--text-tertiary)] hover:text-[var(--text-danger)] transition-all"
+                      >
+                        <Trash2 size={14} />
+                      </button>
+                    </div>
                   )}
                 </div>
                 <div className="mt-auto">

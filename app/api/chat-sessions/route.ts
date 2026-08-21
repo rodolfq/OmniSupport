@@ -1,7 +1,7 @@
 import { NextResponse } from 'next/server';
 import crypto from 'crypto';
 import { pool, query } from '@/lib/db';
-import { emitChatEvent, excludeActiveViewers } from '@/lib/chat-events';
+import { emitChatEvent, emitSessionsChanged, excludeActiveViewers } from '@/lib/chat-events';
 import { notifyUser } from '@/lib/services/push-service';
 import { getChatRecipientIds, getTeamUserIds } from '@/lib/services/notification-recipients';
 import { pickNextQueueAssignee } from '@/lib/services/queue-routing';
@@ -56,6 +56,7 @@ export async function POST(request: Request) {
         `UPDATE public.chat_sessions SET assignee_id = $1, status = 'active', updated_at = NOW() WHERE id = $2`,
         [assigneeId, sessionId]
       );
+      emitSessionsChanged({ reason: 'assigned', sessionId });
 
       if (assigneeChanged) {
         const agentRes = await query('SELECT name FROM public.profiles WHERE id = $1', [assigneeId]);
@@ -181,6 +182,7 @@ export async function POST(request: Request) {
           text, timestamp, type: 'internal', metadata: {}, attachments: []
         }
       });
+      emitSessionsChanged({ reason: 'queue', sessionId });
 
       try {
         const teamIds = ((queue.member_ids || []) as string[]).length
@@ -201,6 +203,70 @@ export async function POST(request: Request) {
     }
 
     // =====================================================================
+    // Marcadores (tags) da conversa — vínculo em tempo real pelo atendente
+    // =====================================================================
+    if (action === 'set-tags') {
+      const { sessionId, tagIds, actingUserId } = body;
+      if (!sessionId || !Array.isArray(tagIds)) {
+        return NextResponse.json({ error: 'Dados inválidos.' }, { status: 400 });
+      }
+
+      const sessionRes = await query('SELECT tags FROM public.chat_sessions WHERE id = $1', [sessionId]);
+      const session = sessionRes.rows[0];
+      if (!session) return NextResponse.json({ error: 'Atendimento não encontrado.' }, { status: 404 });
+
+      const previousTags: string[] = session.tags || [];
+      const nextTags = [...new Set(tagIds as string[])];
+
+      await query(`UPDATE public.chat_sessions SET tags = $1, updated_at = NOW() WHERE id = $2`, [nextTags, sessionId]);
+
+      emitChatEvent(sessionId, { type: 'tags-updated', sessionId, tags: nextTags });
+      emitSessionsChanged({ reason: 'tags', sessionId });
+
+      // Log de bastidor só quando o conjunto realmente muda — evita spam de
+      // "atualizou os marcadores" a cada clique que já estava no estado final
+      // (ex.: dois analistas com o mesmo popover aberto).
+      const added = nextTags.filter(id => !previousTags.includes(id));
+      const removed = previousTags.filter(id => !nextTags.includes(id));
+      if ((added.length || removed.length) && actingUserId) {
+        try {
+          const labelIds = [...new Set([...added, ...removed])];
+          const labelsRes = await query('SELECT id, label FROM public.config_tags WHERE id = ANY($1::uuid[])', [labelIds]);
+          const labelById = new Map(labelsRes.rows.map((r: any) => [r.id, r.label]));
+          const actingUserRes = await query('SELECT name FROM public.profiles WHERE id = $1', [actingUserId]);
+          const actingUserName = actingUserRes.rows[0]?.name || 'Alguém';
+
+          // Símbolos (+ / −) em vez de "adicionou X ao marcador" evita ter que
+          // acertar singular/plural pros dois casos possíveis ao mesmo tempo.
+          const parts: string[] = [];
+          if (added.length) parts.push(`+ ${added.map(id => labelById.get(id) || '?').join(', ')}`);
+          if (removed.length) parts.push(`− ${removed.map(id => labelById.get(id) || '?').join(', ')}`);
+          const text = `${actingUserName} atualizou os marcadores da conversa: ${parts.join(' ')}`;
+
+          const logMessageId = crypto.randomUUID();
+          const logTimestamp = new Date().toISOString();
+          await query(
+            `INSERT INTO public.chat_messages (id, session_id, sender_id, sender_name, text, type, metadata, created_at)
+             VALUES ($1, $2, NULL, 'SSX Desk', $3, 'internal', '{}'::jsonb, $4)`,
+            [logMessageId, sessionId, text, logTimestamp]
+          );
+          emitChatEvent(sessionId, {
+            type: 'message',
+            sessionId,
+            message: {
+              id: logMessageId, senderId: null, senderName: 'SSX Desk',
+              text, timestamp: logTimestamp, type: 'internal', metadata: {}, attachments: []
+            }
+          });
+        } catch (err) {
+          console.error('Error registering internal chat tags log:', err);
+        }
+      }
+
+      return NextResponse.json({ success: true, tags: nextTags });
+    }
+
+    // =====================================================================
     // Encerrar atendimento (após gerar chamado)
     // =====================================================================
     if (action === 'close') {
@@ -209,6 +275,7 @@ export async function POST(request: Request) {
         `UPDATE public.chat_sessions SET status = 'closed', awaiting_survey_until = $1, updated_at = NOW() WHERE id = $2`,
         [awaitingSurveyUntil ?? null, sessionId]
       );
+      emitSessionsChanged({ reason: 'status', sessionId });
       return NextResponse.json({ success: true });
     }
 

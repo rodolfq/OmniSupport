@@ -470,7 +470,10 @@ CREATE TABLE public.chat_sessions (
   created_at TIMESTAMP WITH TIME ZONE DEFAULT now() NOT NULL,
   updated_at TIMESTAMP WITH TIME ZONE DEFAULT now() NOT NULL,
   last_message_at TIMESTAMP WITH TIME ZONE,
-  awaiting_survey_until TIMESTAMP WITH TIME ZONE
+  awaiting_survey_until TIMESTAMP WITH TIME ZONE,
+  -- Tags vinculadas em tempo real pelo atendente (ids de config_tags, domain='chat').
+  -- Array de texto solto, sem FK — mesmo padrão já usado em tickets.tags.
+  tags TEXT[] DEFAULT '{}'
 );
 
 -- Poll de 30s (GET /api/chats?action=sessions) e a subquery correlacionada
