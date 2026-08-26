@@ -2,7 +2,7 @@
 
 import React from 'react';
 import Link from 'next/link';
-import { Bell, Check, Clock, Link2, MessageCircle, Rocket, Star, Ticket } from 'lucide-react';
+import { Bell, CalendarClock, Check, Clock, Link2, MessageCircle, Rocket, Star, Ticket } from 'lucide-react';
 import type { AppNotification } from '@/app/app-context';
 import { useApp } from '@/app/app-context';
 import { cn, stripNotificationHtml } from '@/lib/utils';
@@ -10,6 +10,7 @@ import { cn, stripNotificationHtml } from '@/lib/utils';
 function getNotificationIcon(type: string) {
   if (type === 'customer_evaluation_prompt') return <Star size={14} />;
   if (type === 'hotfix_overdue') return <Rocket size={14} />;
+  if (type === 'calendar_event') return <CalendarClock size={14} />;
   if (type.startsWith('chat_')) return <MessageCircle size={14} />;
   if (type === 'ticket_closed') return <Check size={14} />;
   if (type.startsWith('internal_ticket_')) return <Link2 size={14} />;
@@ -19,6 +20,7 @@ function getNotificationIcon(type: string) {
 function getNotificationColor(type: string) {
   if (type === 'customer_evaluation_prompt') return 'bg-amber-100 text-amber-600';
   if (type === 'hotfix_overdue') return 'bg-[var(--surface-danger)] text-[var(--text-danger)]';
+  if (type === 'calendar_event') return 'bg-[var(--accent)]/15 text-[var(--accent-text)]';
   if (type.startsWith('chat_')) return 'bg-[var(--surface-success)] text-[var(--text-success)]';
   if (type === 'ticket_closed') return 'bg-[var(--surface-success)] text-[var(--text-success)]';
   if (type.startsWith('internal_ticket_')) return 'bg-[var(--surface-warning)] text-[var(--text-warning)]';
@@ -47,6 +49,11 @@ export function NotificationPanel({ notifications, onMarkRead, onItemClick }: No
         contactId: notif.meta?.contactId,
         contactName: notif.meta?.contactName
       });
+    }
+    // Sem página própria no SSX Desk — o destino é o link do evento/reunião
+    // do Google, externo, então abre numa aba nova em vez de navegar.
+    if (notif.type === 'calendar_event' && notif.meta?.eventUrl) {
+      window.open(notif.meta.eventUrl, '_blank', 'noopener,noreferrer');
     }
     onItemClick?.();
   };

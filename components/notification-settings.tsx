@@ -8,6 +8,7 @@ import { useApp } from '@/app/app-context';
 import { UserRole } from '@/lib/types';
 import { usePwaInstall } from '@/lib/pwa-install';
 import { subscribeToPush, useHasPushSubscription } from '@/hooks/use-push-subscription';
+import { GoogleCalendarSettings } from '@/components/google-calendar-settings';
 
 const ALL_NOTIFICATION_TOGGLES = [
   { key: 'ticket_new', label: 'Novos Chamados', audience: 'team' },
@@ -18,6 +19,9 @@ const ALL_NOTIFICATION_TOGGLES = [
   { key: 'chat_message', label: 'Novas Mensagens no Chat', audience: 'all' },
   { key: 'internal_ticket_message', label: 'Mensagem em Ticket Interno', audience: 'team' },
   { key: 'internal_ticket_status', label: 'Status de Ticket Interno', audience: 'team' },
+  { key: 'customer_evaluation_prompt', label: 'Pedido de Avaliação de Cliente', audience: 'team' },
+  { key: 'hotfix_overdue', label: 'Hotfix Atrasado', audience: 'team' },
+  { key: 'calendar_event', label: 'Lembrete de Evento (Google Agenda)', audience: 'team' },
 ] as const;
 const COMPANY_NOTIFICATION_ORDER = ['chat_message', 'ticket_closed', 'ticket_update'];
 
@@ -50,6 +54,8 @@ export function NotificationSettingsContent() {
 
   return (
     <div className="space-y-8 animate-in fade-in slide-in-from-bottom-4 duration-300">
+       {!isCompanyUser && <GoogleCalendarSettings />}
+
        <div className="p-6 bg-[var(--surface-card)] rounded-2xl border border-[var(--border-default)] flex flex-col gap-4">
           <h4 className="text-[10px] font-black uppercase text-[var(--text-primary)] tracking-widest flex items-center gap-2">
             <Bell size={14} className="text-[var(--accent-text)]" /> Notificações Push

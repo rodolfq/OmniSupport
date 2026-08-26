@@ -13,15 +13,16 @@ export interface AppNotification {
   sourceId?: string;
   title: string;
   message: string;
-  type: 'ticket_new' | 'ticket_update' | 'ticket_assigned' | 'ticket_closed' | 'chat_new' | 'chat_message' | 'internal_ticket_message' | 'internal_ticket_status' | 'customer_evaluation_prompt' | 'hotfix_overdue';
+  type: 'ticket_new' | 'ticket_update' | 'ticket_assigned' | 'ticket_closed' | 'chat_new' | 'chat_message' | 'internal_ticket_message' | 'internal_ticket_status' | 'customer_evaluation_prompt' | 'hotfix_overdue' | 'calendar_event';
   targetId?: string;
   recipientId: string;
   timestamp: string;
   read: boolean;
-  // Dados extras que não cabem em title/message — hoje só usado por
-  // 'customer_evaluation_prompt' pra levar o nome da empresa e a sessão de
-  // chat de origem até o modal de avaliação, sem precisar buscar de novo.
-  meta?: { companyName?: string; chatSessionId?: string; contactId?: string; contactName?: string };
+  // Dados extras que não cabem em title/message — 'customer_evaluation_prompt'
+  // leva o nome da empresa e a sessão de chat de origem até o modal de
+  // avaliação; 'calendar_event' leva o link do evento/reunião do Google, que
+  // não tem página própria dentro do SSX Desk pra virar targetId.
+  meta?: { companyName?: string; chatSessionId?: string; contactId?: string; contactName?: string; eventUrl?: string };
 }
 
 export interface NotificationSettings {
@@ -37,6 +38,7 @@ export interface NotificationSettings {
   internal_ticket_status: boolean;
   customer_evaluation_prompt: boolean;
   hotfix_overdue: boolean;
+  calendar_event: boolean;
   osNotificationsEnabled: boolean;
 }
 
@@ -137,6 +139,7 @@ const DEFAULT_SETTINGS: NotificationSettings = {
   internal_ticket_status: true,
   customer_evaluation_prompt: true,
   hotfix_overdue: true,
+  calendar_event: true,
   osNotificationsEnabled: true,
 };
 
@@ -149,6 +152,11 @@ function getNotificationTargetHref(notif: Pick<AppNotification, 'type' | 'target
   // pelo clique no sino (ver NotificationPanel), não pela notificação nativa
   // do SO.
   if (notif.type === 'customer_evaluation_prompt') return null;
+  // Idem: o destino é o link do evento/reunião do Google (em meta.eventUrl),
+  // externo ao SSX Desk — não faz sentido navegar a aba inteira pra lá só por
+  // causa da notificação nativa do SO clicada em segundo plano. Quem quer
+  // abrir o evento usa o botão dedicado (CalendarEventReminder/NotificationPanel).
+  if (notif.type === 'calendar_event') return null;
   return `${isCompanyUser ? '/my-tickets' : '/dashboard'}?ticket=${notif.targetId}`;
 }
 

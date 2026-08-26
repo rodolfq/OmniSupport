@@ -119,14 +119,19 @@ export async function POST(request: Request) {
               }
             });
 
-            const teamIds = (await getTeamUserIds()).filter(id => id !== actingUserId);
-            const toNotify = await excludeActiveViewers(sessionId, teamIds);
-            await Promise.all(toNotify.map(id => notifyUser(id, {
-              title: 'Atendimento transferido',
-              body: logText as string,
-              url: `/chat?chat=${sessionId}`,
-              tag: `chat_message:${logMessageId}`
-            })));
+            // Só quem RECEBEU a conversa precisa de um push sobre isso — o
+            // resto do time já vê a mudança pela lista (emitSessionsChanged)
+            // e por este mesmo log, se abrir a conversa. Um "assumir" não
+            // notifica ninguém: quem clicou já sabe o que fez.
+            if (actingUserId !== assigneeId) {
+              const toNotify = await excludeActiveViewers(sessionId, [assigneeId]);
+              await Promise.all(toNotify.map(id => notifyUser(id, {
+                title: 'Conversa transferida para você',
+                body: logText as string,
+                url: `/chat?chat=${sessionId}`,
+                tag: `chat_message:${logMessageId}`
+              })));
+            }
           } catch (err) {
             console.error('Error registering internal chat transfer message:', err);
           }

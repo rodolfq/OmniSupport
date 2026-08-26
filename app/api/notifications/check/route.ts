@@ -125,12 +125,20 @@ export async function GET(request: NextRequest) {
     changedTickets.rows.forEach((ticket) => {
       const closed = isClosedTicketStatus(ticket.status);
       const assignedToUser = ticket.assignee_id === user.id;
-      const type = closed ? 'ticket_closed' : assignedToUser && !isCompanyUser(user.role) ? 'ticket_assigned' : 'ticket_update';
+      const becameMine = assignedToUser && !isCompanyUser(user.role);
+
+      // Uma edição de campo "silenciosa" (sem mensagem) só vira notificação
+      // quando muda o que a pessoa precisa fazer: o chamado fechou, ou
+      // passou a ser dela agora. Troca de prioridade/categoria/tag etc. não
+      // gera aviso — quem editou já viu a confirmação visual na hora (ver
+      // ticket-detail-modal.tsx), e o resto do time não precisa ser avisado
+      // de cada campo alterado nos outros chamados.
+      if (!closed && !becameMine) return;
+
+      const type = closed ? 'ticket_closed' : 'ticket_assigned';
       const title = closed
         ? `Chamado encerrado ${ticketNumberLabel(ticket.public_ticket_number, ticket.id)}`
-        : type === 'ticket_assigned'
-          ? `Chamado atribuído ${ticketNumberLabel(ticket.public_ticket_number, ticket.id)}`
-          : `Chamado atualizado ${ticketNumberLabel(ticket.public_ticket_number, ticket.id)}`;
+        : `Chamado atribuído ${ticketNumberLabel(ticket.public_ticket_number, ticket.id)}`;
 
       events.push({
         sourceId: `${type}:${ticket.id}:${new Date(ticket.updated_at).getTime()}`,
@@ -231,6 +239,33 @@ export async function GET(request: NextRequest) {
           type: 'hotfix_overdue',
           targetId: hotfix.id,
           createdAt: hotfix.alerted_at
+        });
+      });
+
+      // Lembretes de evento da Google Agenda que o scheduler de fundo
+      // (lib/services/google-calendar-scheduler.ts) já registrou — mesmo
+      // mecanismo de "comparar contra since" acima, pra alimentar o
+      // pop-up (components/calendar-event-reminder.tsx) enquanto a aba
+      // está aberta.
+      const calendarReminders = await query(
+        `SELECT id, event_id, event_title, event_start, event_url, notified_at
+         FROM public.google_calendar_reminder_log
+         WHERE notified_at > $1 AND user_id = $2
+         ORDER BY notified_at ASC
+         LIMIT 50`,
+        [since, user.id]
+      );
+
+      calendarReminders.rows.forEach((reminder) => {
+        const minutesUntil = Math.max(1, Math.round((new Date(reminder.event_start).getTime() - Date.now()) / 60000));
+        events.push({
+          sourceId: `calendar_event:${reminder.id}`,
+          title: 'Evento em breve',
+          message: `"${reminder.event_title || 'Sem título'}" começa em ${minutesUntil} min.`,
+          type: 'calendar_event',
+          targetId: reminder.event_id,
+          createdAt: reminder.notified_at,
+          meta: reminder.event_url ? { eventUrl: reminder.event_url } : undefined
         });
       });
     }

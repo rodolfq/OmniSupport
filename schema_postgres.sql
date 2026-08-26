@@ -912,6 +912,42 @@ CREATE TABLE IF NOT EXISTS public.integration_api_keys (
 );
 CREATE INDEX IF NOT EXISTS idx_integration_api_keys_prefix ON public.integration_api_keys USING btree (key_prefix);
 
+-- Google Agenda (lib/services/google-calendar-service.ts) -------------------
+-- Vínculo pessoal por usuário: cada um conecta a própria conta Google, só
+-- leitura (calendar.readonly). refresh_token não expira sozinho — só quando a
+-- pessoa revoga o acesso pela própria conta Google ou desvincula por aqui.
+CREATE TABLE IF NOT EXISTS public.google_calendar_connections (
+  user_id uuid NOT NULL,
+  google_email text,
+  refresh_token text NOT NULL,
+  access_token text,
+  access_token_expires_at timestamptz,
+  created_at timestamptz DEFAULT now() NOT NULL,
+  updated_at timestamptz DEFAULT now() NOT NULL,
+  CONSTRAINT google_calendar_connections_pkey PRIMARY KEY (user_id),
+  CONSTRAINT google_calendar_connections_user_id_fkey FOREIGN KEY (user_id) REFERENCES profiles(id) ON DELETE CASCADE
+);
+
+-- Registro de lembretes já disparados (lib/services/google-calendar-scheduler.ts)
+-- — o UNIQUE em (user_id, event_id, event_start) é o que evita avisar duas
+-- vezes o mesmo evento: o scheduler faz INSERT ... ON CONFLICT DO NOTHING
+-- antes de notificar, e só notifica se a linha for realmente inserida.
+-- event_start entra na chave porque um evento reagendado (novo horário) deve
+-- gerar um lembrete novo.
+CREATE TABLE IF NOT EXISTS public.google_calendar_reminder_log (
+  id uuid DEFAULT (md5(((random())::text || (clock_timestamp())::text)))::uuid NOT NULL,
+  user_id uuid NOT NULL,
+  event_id text NOT NULL,
+  event_title text,
+  event_start timestamptz NOT NULL,
+  event_url text,
+  notified_at timestamptz DEFAULT now() NOT NULL,
+  CONSTRAINT google_calendar_reminder_log_pkey PRIMARY KEY (id),
+  CONSTRAINT google_calendar_reminder_log_user_id_fkey FOREIGN KEY (user_id) REFERENCES profiles(id) ON DELETE CASCADE,
+  CONSTRAINT google_calendar_reminder_log_unique UNIQUE (user_id, event_id, event_start)
+);
+CREATE INDEX IF NOT EXISTS idx_google_calendar_reminder_log_user_time ON public.google_calendar_reminder_log USING btree (user_id, notified_at);
+
 -- Quem está olhando uma conversa agora — persistido no banco (e não na
 -- memória do processo) porque decide se o push é enviado.
 CREATE TABLE IF NOT EXISTS public.chat_session_viewers (

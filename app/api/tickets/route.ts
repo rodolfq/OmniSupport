@@ -616,18 +616,12 @@ export async function PUT(request: NextRequest) {
     const newTicket = updateRes.rows[0];
     handleTicketUpdated(oldTicket, newTicket);
 
-    const recipients = getTicketRecipients({
-      assigneeId: newTicket.assignee_id,
-      createdBy: newTicket.created_by,
-      customerId: newTicket.customer_id,
-      employeeIds: newTicket.employee_ids
-    });
-    pushToTicketRecipients(recipients, {
-      title: `Chamado atualizado ${ticketLabel(newTicket.public_ticket_number, newTicket.id)}`,
-      body: newTicket.title,
-      ticketId: newTicket.id,
-      tag: `ticket_update:${newTicket.id}:${new Date(newTicket.updated_at).getTime()}`
-    });
+    // Edição de campo (status, prioridade, responsável etc.) não gera push:
+    // quem editou já vê a confirmação visual na própria tela (flashSaved em
+    // ticket-detail-modal.tsx), e um aviso genérico "Chamado atualizado" pros
+    // demais é ruído — quem precisa saber de verdade (nova mensagem, chamado
+    // encerrado, chamado atribuído a você) continua avisado por outros
+    // caminhos (create-message acima, e o polling de notificações).
 
     return NextResponse.json({ success: true });
   } catch (error: any) {
@@ -718,21 +712,11 @@ export async function PATCH(request: NextRequest) {
     `;
 
     const updateRes = await query(sql, params);
+    // Mesmo raciocínio do PUT único acima: edição em massa já mostra
+    // confirmação visual pra quem fez (toasts em tickets-view.tsx) — sem
+    // push genérico de "Chamado atualizado" pra cada um dos chamados afetados.
     for (const newTicket of updateRes.rows) {
       handleTicketUpdated(oldById.get(newTicket.id), newTicket);
-
-      const recipients = getTicketRecipients({
-        assigneeId: newTicket.assignee_id,
-        createdBy: newTicket.created_by,
-        customerId: newTicket.customer_id,
-        employeeIds: newTicket.employee_ids
-      });
-      pushToTicketRecipients(recipients, {
-        title: `Chamado atualizado ${ticketLabel(newTicket.public_ticket_number, newTicket.id)}`,
-        body: newTicket.title,
-        ticketId: newTicket.id,
-        tag: `ticket_update:${newTicket.id}:${new Date(newTicket.updated_at).getTime()}`
-      });
     }
 
     return NextResponse.json({ success: true });
