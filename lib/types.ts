@@ -883,14 +883,47 @@ export const GIRO_SERVICE_TYPES = ['Chamado', 'Telefone', 'Almoço', 'Ausente'] 
 export type GiroServiceType = typeof GIRO_SERVICE_TYPES[number];
 
 /**
- * Horários de almoço possíveis: lista fechada de 11:00 a 14:00, de meia em
- * meia hora. Gerada e não escrita à mão para não existir a chance de faltar um
- * degrau no meio.
+ * Vagas de almoço do dia: cada horário tem um número fixo de vagas — 1 vaga
+ * às 11:00 e 14:00, 4 vagas às 12:00 e 13:00 (10 vagas no total, pedido do
+ * time). Zera sozinho todo dia porque é contado em cima de
+ * `giro_day_rows.lunch_time`, que nasce vazio a cada novo dia de Giro — não
+ * precisa de reset explícito em lugar nenhum.
  */
-export const GIRO_LUNCH_SLOTS: string[] = Array.from({ length: 7 }, (_, i) => {
-  const minutes = 11 * 60 + i * 30;
-  return `${String(Math.floor(minutes / 60)).padStart(2, '0')}:${String(minutes % 60).padStart(2, '0')}`;
-});
+export const GIRO_LUNCH_CAPACITY: readonly { time: string; capacity: number }[] = [
+  { time: '11:00', capacity: 1 },
+  { time: '12:00', capacity: 4 },
+  { time: '13:00', capacity: 4 },
+  { time: '14:00', capacity: 1 }
+];
+
+export const GIRO_LUNCH_SLOTS: string[] = GIRO_LUNCH_CAPACITY.map(s => s.time);
+
+/** Quantas pessoas já ocupam cada horário — conta só linhas com almoço
+ * marcado; o resto (checklist, tipo de atendimento etc.) não entra aqui. */
+export function countLunchOccupancy(rows: { lunchTime: string | null }[]): Record<string, number> {
+  const counts: Record<string, number> = {};
+  for (const r of rows) {
+    if (!r.lunchTime) continue;
+    counts[r.lunchTime] = (counts[r.lunchTime] ?? 0) + 1;
+  }
+  return counts;
+}
+
+/**
+ * Vagas restantes num horário PARA QUEM ESTÁ EDITANDO — desconta a própria
+ * linha da contagem, senão a pessoa ficaria travada no horário que ela mesma
+ * já ocupa (a vaga dela não é "de outro", é dela).
+ */
+export function lunchSlotsRemaining(
+  time: string,
+  occupancy: Record<string, number>,
+  ownCurrentLunchTime: string | null
+): number {
+  const slot = GIRO_LUNCH_CAPACITY.find(s => s.time === time);
+  if (!slot) return 0;
+  const occupied = (occupancy[time] ?? 0) - (ownCurrentLunchTime === time ? 1 : 0);
+  return Math.max(0, slot.capacity - occupied);
+}
 
 export interface GiroChecklistItem {
   id: string;

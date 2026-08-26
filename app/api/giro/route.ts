@@ -57,13 +57,14 @@ export async function POST(request: Request) {
       const editable = await giro.assertRowEditable(body.rowId);
       if (!editable.ok) return NextResponse.json({ error: editable.error }, { status: 409 });
 
-      await giro.updateRow(body.rowId, {
+      const updated = await giro.updateRow(body.rowId, {
         serviceType: body.serviceType,
         serviceTime: body.serviceTime,
         note: body.note,
         lunchTime: body.lunchTime,
         checklist: body.checklist
       });
+      if (updated.error) return NextResponse.json({ error: updated.error }, { status: 409 });
       return NextResponse.json({ success: true });
     }
 

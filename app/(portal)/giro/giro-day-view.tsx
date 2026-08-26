@@ -14,7 +14,10 @@ import { cn } from '@/lib/utils';
 import { UserAvatar } from '@/components/user-avatar';
 import { ConfirmDialog } from '@/components/confirm-dialog';
 import { StyledSelect } from '@/components/styled-select';
-import { GIRO_SERVICE_TYPES, GIRO_LUNCH_SLOTS, GiroChecklistItem, GiroDay, GiroRow, GiroServiceType } from '@/lib/types';
+import {
+  GIRO_SERVICE_TYPES, GIRO_LUNCH_SLOTS, GiroChecklistItem, GiroDay, GiroRow, GiroServiceType,
+  countLunchOccupancy, lunchSlotsRemaining
+} from '@/lib/types';
 import {
   getGiroDay, getGiroConfig, updateGiroRow, completeGiroService, reorderGiro,
   addGiroMember, removeGiroMember, setGiroHandoff, reprocessGiro, deleteGiroHistory,
@@ -81,6 +84,11 @@ export function GiroDayView({ canManage }: GiroDayViewProps) {
   const [confirmHistory, setConfirmHistory] = useState<string | null>(null);
 
   const readOnly = !!day?.isReadOnly;
+
+  // Ocupação das vagas de almoço do dia — recalculada a cada `load()` (toda
+  // mutação recarrega o dia inteiro, ver `run` abaixo), então nunca fica
+  // defasada por mais que o tempo de uma requisição.
+  const lunchOccupancy = useMemo(() => countLunchOccupancy(day?.rows ?? []), [day?.rows]);
 
   // Sensor do dnd-kit no topo do componente: a lista arrastável está dentro de
   // um ramo condicional do JSX, e criar o sensor lá dentro chamaria um hook em
@@ -355,6 +363,7 @@ export function GiroDayView({ canManage }: GiroDayViewProps) {
                   row={row}
                   dayId={day.id}
                   checklistItems={checklistItems}
+                  lunchOccupancy={lunchOccupancy}
                   canManage={canManage}
                   readOnly={readOnly}
                   busy={busy}
@@ -608,6 +617,7 @@ interface GiroRowCardProps {
   row: GiroRow;
   dayId: string;
   checklistItems: GiroChecklistItem[];
+  lunchOccupancy: Record<string, number>;
   canManage: boolean;
   readOnly: boolean;
   busy: boolean;
@@ -618,7 +628,7 @@ interface GiroRowCardProps {
 }
 
 function GiroRowCard({
-  row, checklistItems, canManage, readOnly, busy, onComplete, onRemove, onPinHandoff, onSaved
+  row, checklistItems, lunchOccupancy, canManage, readOnly, busy, onComplete, onRemove, onPinHandoff, onSaved
 }: GiroRowCardProps) {
   const { attributes, listeners, setNodeRef, transform, transition, isDragging } = useSortable({
     id: row.id,
@@ -642,6 +652,11 @@ function GiroRowCard({
     const result = await updateGiroRow(row.id, patch);
     if (result.error) {
       toast.error(result.error);
+      // Recarrega mesmo em erro (mesma lógica do `run` lá em cima): um erro
+      // de vaga de almoço lotada quase sempre significa que a ocupação que a
+      // tela tinha ficou desatualizada — sem isso, a pessoa tentaria de novo
+      // o mesmo horário que acabou de ser recusado.
+      onSaved();
       return;
     }
     onSaved();
@@ -739,9 +754,14 @@ function GiroRowCard({
             className="text-[9px] font-black uppercase tracking-widest text-[var(--text-tertiary)]"
           >
             <option value="">--:--</option>
-            {GIRO_LUNCH_SLOTS.map(slot => (
-              <option key={slot} value={slot}>{slot}</option>
-            ))}
+            {GIRO_LUNCH_SLOTS.map(slot => {
+              const full = lunchSlotsRemaining(slot, lunchOccupancy, row.lunchTime) <= 0;
+              return (
+                <option key={slot} value={slot} disabled={full}>
+                  {slot}{full ? ' · Lotado' : ''}
+                </option>
+              );
+            })}
           </StyledSelect>
         </div>
 

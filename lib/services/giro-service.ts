@@ -1,5 +1,6 @@
 import { pool, query } from '../db';
 import { getTodaySP, toDateOnly } from '../report-period';
+import { GIRO_LUNCH_CAPACITY } from '../types';
 import type {
   GiroDay,
   GiroRow,
@@ -537,6 +538,11 @@ export async function setHandoff(dayId: string, mode: 'auto' | 'pinned' | 'none'
  * vazia preenche a hora com o horário atual. Fica aqui, e não na tela, porque
  * os dois pontos de entrada (a tela do Giro e o popover de status) precisam se
  * comportar igual.
+ *
+ * Vaga de almoço: cada horário de GIRO_LUNCH_CAPACITY tem um número fixo de
+ * vagas (1 às 11h/14h, 4 às 12h/13h) — ver lib/types.ts. Só entra em jogo
+ * quando o horário está de fato MUDANDO pra um valor preenchido; limpar
+ * (null) ou reconfirmar o mesmo horário nunca disputa vaga.
  */
 export async function updateRow(
   rowId: string,
@@ -547,10 +553,10 @@ export async function updateRow(
     lunchTime?: string | null;
     checklist?: Record<string, boolean>;
   }
-): Promise<void> {
+): Promise<{ error?: string }> {
   const current = await query('SELECT * FROM public.giro_day_rows WHERE id = $1', [rowId]);
   const row = current.rows[0];
-  if (!row) throw new Error('Linha não encontrada.');
+  if (!row) return { error: 'Linha não encontrada.' };
 
   const nextType = patch.serviceType ?? row.service_type;
   const nextNote = patch.note !== undefined ? patch.note : row.note;
@@ -565,19 +571,54 @@ export async function updateRow(
     nextTime = await getCurrentTimeSP();
   }
 
+  const nextLunchTime = patch.lunchTime !== undefined ? patch.lunchTime : row.lunch_time;
+  const nextChecklist = patch.checklist !== undefined ? JSON.stringify(patch.checklist) : row.checklist;
+
+  const claimsNewSlot = !!nextLunchTime && nextLunchTime !== row.lunch_time;
+  if (claimsNewSlot) {
+    const slot = GIRO_LUNCH_CAPACITY.find(s => s.time === nextLunchTime);
+    if (!slot) return { error: 'Horário de almoço inválido.' };
+
+    const client = await pool.connect();
+    try {
+      await client.query('BEGIN');
+      // Trava as linhas do dia enquanto conta e grava — sem isso, duas
+      // pessoas escolhendo ao mesmo tempo a última vaga de um horário
+      // poderiam ler a mesma contagem e as duas passarem (mesma lógica de
+      // lock otimista das demais transações deste arquivo, ex. completeService).
+      await client.query('SELECT id FROM public.giro_day_rows WHERE day_id = $1 FOR UPDATE', [row.day_id]);
+      const occupied = await client.query(
+        `SELECT COUNT(*)::int AS total FROM public.giro_day_rows
+          WHERE day_id = $1 AND lunch_time = $2 AND id != $3`,
+        [row.day_id, nextLunchTime, rowId]
+      );
+      if (occupied.rows[0].total >= slot.capacity) {
+        await client.query('ROLLBACK');
+        return { error: `Não há mais vagas para o almoço às ${nextLunchTime}. Escolha outro horário.` };
+      }
+      await client.query(
+        `UPDATE public.giro_day_rows
+            SET service_type = $1, service_time = $2, note = $3, lunch_time = $4, checklist = $5
+          WHERE id = $6`,
+        [nextType, nextTime || null, nextNote || null, nextLunchTime, nextChecklist, rowId]
+      );
+      await client.query('COMMIT');
+    } catch (err) {
+      await client.query('ROLLBACK');
+      throw err;
+    } finally {
+      client.release();
+    }
+    return {};
+  }
+
   await query(
     `UPDATE public.giro_day_rows
         SET service_type = $1, service_time = $2, note = $3, lunch_time = $4, checklist = $5
       WHERE id = $6`,
-    [
-      nextType,
-      nextTime || null,
-      nextNote || null,
-      patch.lunchTime !== undefined ? patch.lunchTime : row.lunch_time,
-      patch.checklist !== undefined ? JSON.stringify(patch.checklist) : row.checklist,
-      rowId
-    ]
+    [nextType, nextTime || null, nextNote || null, nextLunchTime, nextChecklist, rowId]
   );
+  return {};
 }
 
 /**
