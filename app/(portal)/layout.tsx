@@ -11,6 +11,7 @@ import { CustomerEvaluationModal } from '@/components/customer-evaluation-modal'
 import { ChatWidget } from '@/components/chat-widget';
 import { AiAssistantWidget } from '@/components/ai-assistant-widget';
 import { ForcePasswordChange } from '@/components/force-password-change';
+import { GiroLunchOnboarding } from '@/components/giro-lunch-onboarding';
 import { MobileHeader } from '@/components/mobile-header';
 import { MobileBottomNav } from '@/components/mobile-bottom-nav';
 import { NotificationPanel } from '@/components/notification-panel';
@@ -281,6 +282,7 @@ export default function PortalLayout({ children }: { children: React.ReactNode }
         <MobileBottomNav />
       </div>
       <ForcePasswordChange />
+      <GiroLunchOnboarding />
       <VersionUpdateBanner visible={newVersionAvailable} onUpdate={() => window.location.reload()} />
     </div>
   );
