@@ -39,18 +39,34 @@ function getClientSecret(): string {
 }
 
 /**
- * URL de callback registrada no Google Cloud Console. Sem `GOOGLE_REDIRECT_URI`
- * explícita, deriva da própria requisição (cobre o caso comum, um domínio só,
- * sem exigir configuração) — mesma filosofia de `API_BASE_URL` em
- * lib/runtime-config.ts: vazio preserva o comportamento automático, definido
- * assume o controle explícito (necessário se front/back estiverem em domínios
- * diferentes, onde o valor "adivinhado" pela requisição pode não ser o
- * publicamente correto).
+ * Origem pública (protocolo+host) da própria requisição — lida dos HEADERS
+ * (`Host`/`X-Forwarded-Host`), nunca de `request.url`/`NextRequest.url`.
+ * Descoberto em 2026-08-26: rodando standalone dentro do Docker
+ * (`ENV HOSTNAME=0.0.0.0` no Dockerfile), a URL que o Next monta para a
+ * requisição resolve o host como "0.0.0.0:PORT" — o endereço de BIND do
+ * servidor, não o host que o navegador realmente mandou — mesmo acessando
+ * por localhost ou pelo domínio público. O header Host continua correto; só
+ * a URL que o Next calcula é que não presta para montar link nenhum.
  */
-export function resolveRedirectUri(requestUrl: string): string {
+export function resolvePublicOrigin(headers: Headers): string {
+  const host = headers.get('x-forwarded-host') || headers.get('host') || 'localhost:3000';
+  const proto = headers.get('x-forwarded-proto') || (process.env.NODE_ENV === 'production' ? 'https' : 'http');
+  return `${proto}://${host}`;
+}
+
+/**
+ * URL de callback registrada no Google Cloud Console. Sem `GOOGLE_REDIRECT_URI`
+ * explícita, deriva da própria requisição via `resolvePublicOrigin` (cobre o
+ * caso comum, um domínio só, sem exigir configuração) — mesma filosofia de
+ * `API_BASE_URL` em lib/runtime-config.ts: vazio preserva o comportamento
+ * automático, definido assume o controle explícito (necessário se front/back
+ * estiverem em domínios diferentes, ou quando o ambiente tem o problema de
+ * "0.0.0.0" descrito acima e precisa do valor fixo).
+ */
+export function resolveRedirectUri(headers: Headers): string {
   const explicit = process.env.GOOGLE_REDIRECT_URI;
   if (explicit) return explicit;
-  return new URL('/api/integrations/google-calendar/callback', requestUrl).toString();
+  return `${resolvePublicOrigin(headers)}/api/integrations/google-calendar/callback`;
 }
 
 export function buildAuthUrl(state: string, redirectUri: string): string {

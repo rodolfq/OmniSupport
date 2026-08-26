@@ -17,10 +17,11 @@ export async function GET() {
     const check = await assertCanViewGiro();
     if (!check.ok) return NextResponse.json({ error: check.error }, { status: permissionErrorStatus(check.error) });
 
-    const [participants, checklistItems, meetUrl, candidates] = await Promise.all([
+    const [participants, checklistItems, meetUrl, lunchCapacity, candidates] = await Promise.all([
       giro.listParticipants(),
       giro.listChecklistItems(true),
       giro.getMeetUrl(),
+      giro.listLunchCapacity(),
       // Candidatos a entrar no Giro: gente do time, ativa. Cliente e
       // Funcionário nunca entram — o rodízio é de quem atende, não de quem é
       // atendido. `avatar_url` NUNCA cru numa lista (foto inteira em base64,
@@ -41,6 +42,7 @@ export async function GET() {
       participants,
       checklistItems,
       meetUrl,
+      lunchCapacity,
       candidates: candidates.rows.map(r => ({
         id: r.id,
         name: r.name,
@@ -93,6 +95,22 @@ export async function POST(request: Request) {
     if (action === 'delete-checklist-item') {
       if (!body.id) return NextResponse.json({ error: 'id é obrigatório.' }, { status: 400 });
       await giro.deleteChecklistItem(body.id);
+      return NextResponse.json({ success: true });
+    }
+
+    if (action === 'add-lunch-slot') {
+      if (!body.time) return NextResponse.json({ error: 'time é obrigatório.' }, { status: 400 });
+      const result = await giro.addLunchSlot(body.time);
+      if (result.error) return NextResponse.json({ error: result.error }, { status: 400 });
+      logAudit({ actorId: actor.id, actorName: actor.name, action: 'create', entityType: 'giro_lunch_slot', entityId: body.time, entityLabel: `Vaga de almoço ${body.time}` });
+      return NextResponse.json({ success: true });
+    }
+
+    if (action === 'remove-lunch-slot') {
+      if (!body.time) return NextResponse.json({ error: 'time é obrigatório.' }, { status: 400 });
+      const result = await giro.removeLunchSlot(body.time);
+      if (result.error) return NextResponse.json({ error: result.error }, { status: 400 });
+      logAudit({ actorId: actor.id, actorName: actor.name, action: 'delete', entityType: 'giro_lunch_slot', entityId: body.time, entityLabel: `Vaga de almoço ${body.time}` });
       return NextResponse.json({ success: true });
     }
 

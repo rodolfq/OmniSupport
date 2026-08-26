@@ -889,14 +889,16 @@ export type GiroServiceType = typeof GIRO_SERVICE_TYPES[number];
  * `giro_day_rows.lunch_time`, que nasce vazio a cada novo dia de Giro — não
  * precisa de reset explícito em lugar nenhum.
  */
-export const GIRO_LUNCH_CAPACITY: readonly { time: string; capacity: number }[] = [
-  { time: '11:00', capacity: 1 },
-  { time: '12:00', capacity: 4 },
-  { time: '13:00', capacity: 4 },
-  { time: '14:00', capacity: 1 }
-];
-
-export const GIRO_LUNCH_SLOTS: string[] = GIRO_LUNCH_CAPACITY.map(s => s.time);
+/**
+ * Horário de almoço configurável em Configuração > Horários de almoço
+ * (lib/services/giro-service.ts:listLunchCapacity, tabela
+ * giro_lunch_slots — uma linha por vaga, `capacity` é quantas linhas
+ * existem com aquele horário). Não é mais uma lista fixa em código.
+ */
+export interface GiroLunchCapacity {
+  time: string;
+  capacity: number;
+}
 
 /** Quantas pessoas já ocupam cada horário — conta só linhas com almoço
  * marcado; o resto (checklist, tipo de atendimento etc.) não entra aqui. */
@@ -917,9 +919,10 @@ export function countLunchOccupancy(rows: { lunchTime: string | null }[]): Recor
 export function lunchSlotsRemaining(
   time: string,
   occupancy: Record<string, number>,
-  ownCurrentLunchTime: string | null
+  ownCurrentLunchTime: string | null,
+  capacity: GiroLunchCapacity[]
 ): number {
-  const slot = GIRO_LUNCH_CAPACITY.find(s => s.time === time);
+  const slot = capacity.find(s => s.time === time);
   if (!slot) return 0;
   const occupied = (occupancy[time] ?? 0) - (ownCurrentLunchTime === time ? 1 : 0);
   return Math.max(0, slot.capacity - occupied);

@@ -8,7 +8,7 @@ import { toast } from 'sonner';
 import { cn } from '@/lib/utils';
 import { useApp } from '@/app/app-context';
 import { StyledSelect } from '@/components/styled-select';
-import { GIRO_LUNCH_SLOTS, GiroChecklistItem, Permission, UserRole, countLunchOccupancy, lunchSlotsRemaining } from '@/lib/types';
+import { GiroChecklistItem, GiroLunchCapacity, Permission, UserRole, countLunchOccupancy, lunchSlotsRemaining } from '@/lib/types';
 import { getGiroSummary, getGiroConfig, updateGiroRow } from '@/lib/services/giro-client';
 
 /** 30 e 5 minutos antes do horário escolhido — ordem importa: o primeiro da
@@ -41,10 +41,11 @@ function todayTimeToEpoch(date: string, hhmm: string): number {
  * preenchido — daí reconsultar a cada mudança de `pathname`, não só uma vez
  * por sessão. Depois de salvo, pára de aparecer (mesmo se preenchido pela
  * tela cheia do Giro em vez deste pop-up, já que a consulta é sempre ao
- * servidor). Cada horário tem um número fixo de vagas (GIRO_LUNCH_CAPACITY,
- * em lib/types.ts) — horário lotado aparece desabilitado aqui, e o servidor
- * é quem tem a palavra final (updateRow, em giro-service.ts) contra corrida
- * entre duas pessoas escolhendo a última vaga ao mesmo tempo.
+ * servidor). Cada horário tem um número de vagas configurável em
+ * Configuração > Horários de almoço (giro_lunch_slots, via
+ * getGiroConfig().lunchCapacity) — horário lotado aparece desabilitado aqui,
+ * e o servidor é quem tem a palavra final (updateRow, em giro-service.ts)
+ * contra corrida entre duas pessoas escolhendo a última vaga ao mesmo tempo.
  */
 export function GiroLunchOnboarding() {
   const { currentUser, hasPermission } = useApp();
@@ -64,6 +65,7 @@ export function GiroLunchOnboarding() {
   const [checklist, setChecklist] = useState<Record<string, boolean>>({});
   const [checklistItems, setChecklistItems] = useState<GiroChecklistItem[]>([]);
   const [lunchOccupancy, setLunchOccupancy] = useState<Record<string, number>>({});
+  const [lunchCapacity, setLunchCapacity] = useState<GiroLunchCapacity[]>([]);
   const [showSetup, setShowSetup] = useState(false);
   const [saving, setSaving] = useState(false);
   const [reminderMinutes, setReminderMinutes] = useState<number | null>(null);
@@ -83,7 +85,10 @@ export function GiroLunchOnboarding() {
       setDraftLunchTime(myRow.lunchTime ?? '');
       setChecklist(myRow.checklist ?? {});
       setLunchOccupancy(countLunchOccupancy(summary.rows));
-      if (!('error' in config)) setChecklistItems(config.checklistItems.filter(i => i.isActive));
+      if (!('error' in config)) {
+        setChecklistItems(config.checklistItems.filter(i => i.isActive));
+        setLunchCapacity(config.lunchCapacity);
+      }
 
       // Verdade sempre vinda do servidor: some assim que o horário estiver
       // preenchido, volta assim que não estiver — inclusive numa tela nova.
@@ -197,11 +202,11 @@ export function GiroLunchOnboarding() {
                     className="w-full text-sm font-bold"
                   >
                     <option value="">Selecione...</option>
-                    {GIRO_LUNCH_SLOTS.map(slot => {
-                      const full = lunchSlotsRemaining(slot, lunchOccupancy, savedLunchTime) <= 0;
+                    {lunchCapacity.map(({ time }) => {
+                      const full = lunchSlotsRemaining(time, lunchOccupancy, savedLunchTime, lunchCapacity) <= 0;
                       return (
-                        <option key={slot} value={slot} disabled={full}>
-                          {slot}{full ? ' · Lotado' : ''}
+                        <option key={time} value={time} disabled={full}>
+                          {time}{full ? ' · Lotado' : ''}
                         </option>
                       );
                     })}

@@ -1163,6 +1163,16 @@ CREATE TABLE IF NOT EXISTS public.giro_settings (
   CONSTRAINT giro_settings_singleton CHECK (id = 'default')
 );
 
+-- Horários de almoço configuráveis (migrations/giro_lunch_slots.sql). Cada
+-- LINHA é uma vaga — a capacidade de um horário é quantas linhas existem com
+-- o mesmo slot_time, não uma coluna de contagem à parte.
+CREATE TABLE IF NOT EXISTS public.giro_lunch_slots (
+  id UUID PRIMARY KEY DEFAULT (md5(random()::text || clock_timestamp()::text)::uuid),
+  slot_time TEXT NOT NULL,
+  created_at TIMESTAMP WITH TIME ZONE DEFAULT now() NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_giro_lunch_slots_time ON public.giro_lunch_slots(slot_time);
+
 -- =========================================================================
 -- SEED DATA SETUP
 -- =========================================================================
@@ -1221,12 +1231,22 @@ ON CONFLICT (label) DO NOTHING;
 INSERT INTO public.config_email_settings (id) VALUES (1) ON CONFLICT (id) DO NOTHING;
 
 -- Seed Default Absence Reasons
-INSERT INTO public.absence_reasons (label) VALUES 
-('Almoço'), 
-('Reunião'), 
-('Pessoal'), 
+INSERT INTO public.absence_reasons (label) VALUES
+('Almoço'),
+('Reunião'),
+('Pessoal'),
 ('Pausa')
 ON CONFLICT (label) DO NOTHING;
+
+-- Seed Horários de almoço do Giro (1 vaga às 11h/14h, 4 vagas às 12h/13h)
+INSERT INTO public.giro_lunch_slots (slot_time)
+SELECT slot_time FROM (VALUES
+  ('11:00'),
+  ('12:00'), ('12:00'), ('12:00'), ('12:00'),
+  ('13:00'), ('13:00'), ('13:00'), ('13:00'),
+  ('14:00')
+) AS seed(slot_time)
+WHERE NOT EXISTS (SELECT 1 FROM public.giro_lunch_slots);
 
 -- Seed Default WhatsApp Channel — a tela de Configurações > WhatsApp sempre
 -- usou o id fixo 'default' pro canal Baileys (ver components/whatsapp-

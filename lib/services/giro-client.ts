@@ -5,7 +5,8 @@ import type {
   GiroParticipant,
   GiroRow,
   GiroHistoryEntry,
-  GiroServiceType
+  GiroServiceType,
+  GiroLunchCapacity
 } from '../types';
 
 /**
@@ -164,6 +165,7 @@ export interface GiroConfig {
   checklistItems: GiroChecklistItem[];
   candidates: GiroCandidate[];
   meetUrl: string | null;
+  lunchCapacity: GiroLunchCapacity[];
 }
 
 export async function getGiroConfig(): Promise<GiroConfig | { error: string }> {
@@ -215,6 +217,16 @@ export function deleteGiroChecklistItem(id: string): Promise<MutationResult> {
 /** Link fixo da sala de reunião (Meet) — passe null/vazio pra apagar. */
 export function saveGiroMeetUrl(meetUrl: string | null): Promise<MutationResult> {
   return mutate('/api/giro/config', { action: 'save-meet-url', meetUrl }, 'Erro ao salvar o link da reunião.');
+}
+
+/** Adiciona UMA vaga no horário (HH:MM) — cria o horário se for a primeira. */
+export function addGiroLunchSlot(time: string): Promise<MutationResult> {
+  return mutate('/api/giro/config', { action: 'add-lunch-slot', time }, 'Erro ao adicionar o horário.');
+}
+
+/** Remove UMA vaga do horário — some da lista sozinho quando chega a zero. */
+export function removeGiroLunchSlot(time: string): Promise<MutationResult> {
+  return mutate('/api/giro/config', { action: 'remove-lunch-slot', time }, 'Erro ao remover a vaga.');
 }
 
 /**

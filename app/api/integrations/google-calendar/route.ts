@@ -26,7 +26,7 @@ export async function GET(request: NextRequest) {
 
   if (action === 'connect') {
     try {
-      const redirectUri = resolveRedirectUri(request.url);
+      const redirectUri = resolveRedirectUri(request.headers);
       // O state liga a volta do Google a ESTE pedido (dono + nonce contra
       // CSRF) — mas quem de fato decide a quem a conexão pertence é sempre o
       // cookie de sessão normal, lido de novo no callback. O state sozinho

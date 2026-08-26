@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { getCurrentActionUser } from '@/lib/server-auth';
-import { connectGoogleCalendar, resolveRedirectUri } from '@/lib/services/google-calendar-service';
+import { connectGoogleCalendar, resolvePublicOrigin, resolveRedirectUri } from '@/lib/services/google-calendar-service';
 
 /**
  * Endpoint fixo, registrado como "URI de redirecionamento" no Google Cloud
@@ -12,7 +12,10 @@ const STATE_COOKIE = 'google_calendar_oauth_state';
 const SETTINGS_PATH = '/settings';
 
 function redirectToSettings(request: NextRequest, status: 'connected' | 'error', message?: string) {
-  const url = new URL(SETTINGS_PATH, request.url);
+  // `resolvePublicOrigin`, não `request.url` — ver o porquê em
+  // google-calendar-service.ts (o host que o Next calcula é "0.0.0.0" nesse
+  // ambiente Docker, um endereço que o navegador não consegue nem abrir).
+  const url = new URL(SETTINGS_PATH, resolvePublicOrigin(request.headers));
   url.searchParams.set('tab', 'notifications');
   url.searchParams.set('google_calendar', status);
   if (message) url.searchParams.set('google_calendar_error', message);
@@ -38,7 +41,7 @@ export async function GET(request: NextRequest) {
   }
 
   try {
-    const redirectUri = resolveRedirectUri(request.url);
+    const redirectUri = resolveRedirectUri(request.headers);
     await connectGoogleCalendar(actor.id, code, redirectUri);
     return redirectToSettings(request, 'connected');
   } catch (err: any) {

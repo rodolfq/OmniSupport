@@ -2,8 +2,8 @@
 
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import {
-  UserPlus, Trash2, Loader2, Search, CalendarClock, ListChecks, Plus, X,
-  CircleSlash, Clock, GripVertical, Info, Video
+  UserPlus, Trash2, Loader2, Search, CalendarClock, ListChecks, Plus, Minus, X,
+  CircleSlash, Clock, GripVertical, Info, Video, UtensilsCrossed
 } from 'lucide-react';
 import { DndContext, closestCenter, PointerSensor, useSensor, useSensors, DragEndEvent } from '@dnd-kit/core';
 import { arrayMove, SortableContext, verticalListSortingStrategy, useSortable } from '@dnd-kit/sortable';
@@ -14,10 +14,11 @@ import { cn } from '@/lib/utils';
 import { UserAvatar } from '@/components/user-avatar';
 import { ConfirmDialog } from '@/components/confirm-dialog';
 import { StyledSelect } from '@/components/styled-select';
-import { GiroChecklistItem, GiroParticipant } from '@/lib/types';
+import { GiroChecklistItem, GiroLunchCapacity, GiroParticipant } from '@/lib/types';
 import {
   getGiroConfig, saveGiroParticipant, deleteGiroParticipant, reorderGiroParticipants,
-  saveGiroChecklistItem, deleteGiroChecklistItem, saveGiroMeetUrl, GiroCandidate
+  saveGiroChecklistItem, deleteGiroChecklistItem, saveGiroMeetUrl,
+  addGiroLunchSlot, removeGiroLunchSlot, GiroCandidate
 } from '@/lib/services/giro-client';
 
 /**
@@ -92,6 +93,9 @@ export function GiroConfigView() {
   const [meetUrl, setMeetUrl] = useState('');
   const [meetSaving, setMeetSaving] = useState(false);
 
+  const [lunchCapacity, setLunchCapacity] = useState<GiroLunchCapacity[]>([]);
+  const [newLunchTime, setNewLunchTime] = useState('');
+
   const sensors = useSensors(useSensor(PointerSensor, { activationConstraint: { distance: 5 } }));
 
   // Única leitura completa da tela — só na primeira montagem. Nenhuma
@@ -110,6 +114,7 @@ export function GiroConfigView() {
       setChecklistItems(cfg.checklistItems);
       setCandidates(cfg.candidates);
       setMeetUrl(cfg.meetUrl ?? '');
+      setLunchCapacity(cfg.lunchCapacity);
       setLoading(false);
     })();
     return () => { cancelled = true; };
@@ -303,6 +308,59 @@ export function GiroConfigView() {
       return;
     }
     toast.success('Item excluído.');
+  };
+
+  // --------------------------------------------------- horários de almoço
+
+  /**
+   * Uma vaga é uma linha em giro_lunch_slots — "adicionar horário" e
+   * "adicionar mais uma vaga num horário que já existe" são a MESMA ação
+   * (soma 1 no `capacity` daquele horário na tela, insere mais uma linha no
+   * servidor). Otimista como o resto da tela: some/aparece na hora, desfaz
+   * só se o servidor recusar.
+   */
+  const handleAddLunchSlot = async (time: string) => {
+    const trimmed = time.trim();
+    if (!trimmed) return;
+    const pendingKey = `lunch:${trimmed}`;
+    const previous = lunchCapacity;
+    setLunchCapacity(prev => {
+      const exists = prev.some(c => c.time === trimmed);
+      if (!exists) return [...prev, { time: trimmed, capacity: 1 }].sort((a, b) => a.time.localeCompare(b.time));
+      return prev.map(c => (c.time === trimmed ? { ...c, capacity: c.capacity + 1 } : c));
+    });
+    markPending(pendingKey, true);
+
+    const result = await addGiroLunchSlot(trimmed);
+    markPending(pendingKey, false);
+
+    if (result.error) {
+      setLunchCapacity(previous);
+      toast.error(result.error);
+      return;
+    }
+    setNewLunchTime('');
+  };
+
+  /**
+   * Tira UMA vaga do horário. Ao chegar a zero, o horário some da lista
+   * sozinho — não existe um botão separado de "excluir horário".
+   */
+  const handleRemoveLunchSlot = async (time: string) => {
+    const pendingKey = `lunch:${time}`;
+    const previous = lunchCapacity;
+    setLunchCapacity(prev =>
+      prev.map(c => (c.time === time ? { ...c, capacity: c.capacity - 1 } : c)).filter(c => c.capacity > 0)
+    );
+    markPending(pendingKey, true);
+
+    const result = await removeGiroLunchSlot(time);
+    markPending(pendingKey, false);
+
+    if (result.error) {
+      setLunchCapacity(previous);
+      toast.error(result.error);
+    }
   };
 
   // ------------------------------------------------------------------ Meet
@@ -590,6 +648,81 @@ export function GiroConfigView() {
         <p className="text-[11px] font-medium text-[var(--text-tertiary)] leading-relaxed">
           Desativar mantém o histórico e só tira o item das telas do dia a dia. Excluir remove o item de vez —
           as marcações já feitas em dias passados continuam gravadas, mas deixam de ser exibidas.
+        </p>
+      </div>
+
+      {/* ---------------------------------------------------- horários de almoço */}
+      <div className="bg-[var(--surface-card)] border border-[var(--border-default)] rounded-[2rem] p-8 shadow-sm space-y-6">
+        <div>
+          <h3 className="text-xl font-black text-[var(--text-primary)] uppercase tracking-tight flex items-center gap-2">
+            <UtensilsCrossed className="text-[var(--accent-text)]" size={22} /> Horários de almoço
+          </h3>
+          <p className="text-[10px] text-[var(--text-tertiary)] font-bold uppercase tracking-widest mt-1">
+            Quantas vagas cada horário tem
+          </p>
+        </div>
+
+        <div className="flex gap-2">
+          <input
+            type="time"
+            value={newLunchTime}
+            onChange={e => setNewLunchTime(e.target.value)}
+            onKeyDown={e => { if (e.key === 'Enter') handleAddLunchSlot(newLunchTime); }}
+            className="px-4 py-3 rounded-2xl border border-[var(--border-default)] bg-[var(--surface-page)] text-sm font-bold text-[var(--text-primary)] outline-none focus:border-[var(--accent)]"
+          />
+          <button
+            onClick={() => handleAddLunchSlot(newLunchTime)}
+            disabled={!newLunchTime}
+            className="px-5 py-3 rounded-2xl bg-[var(--accent)] text-white text-[10px] font-black uppercase tracking-widest hover:bg-[var(--accent-hover)] transition-all flex items-center gap-2 disabled:opacity-50"
+          >
+            <Plus size={14} /> Adicionar vaga
+          </button>
+        </div>
+
+        <div className="flex flex-wrap gap-2">
+          {lunchCapacity.length === 0 ? (
+            <p className="text-[11px] font-medium text-[var(--text-tertiary)] italic">
+              Nenhum horário cadastrado — ninguém vai conseguir marcar almoço até adicionar um.
+            </p>
+          ) : lunchCapacity.map(slot => {
+            const saving = pendingIds.has(`lunch:${slot.time}`);
+            return (
+              <div
+                key={slot.time}
+                className="flex items-center gap-2 pl-4 pr-2 py-2 rounded-2xl border border-[var(--border-default)] bg-[var(--surface-page)]"
+              >
+                <span className="text-sm font-black text-[var(--text-primary)] tabular-nums">{slot.time}</span>
+                <span className="text-[9px] font-black uppercase tracking-widest text-[var(--text-tertiary)]">
+                  {slot.capacity} {slot.capacity === 1 ? 'vaga' : 'vagas'}
+                </span>
+                <div className="flex items-center gap-0.5 ml-1">
+                  <button
+                    onClick={() => handleRemoveLunchSlot(slot.time)}
+                    disabled={saving}
+                    title="Remover uma vaga deste horário"
+                    className="p-1.5 rounded-lg text-[var(--text-tertiary)] hover:text-[var(--text-danger)] hover:bg-[var(--surface-danger)] transition-all disabled:opacity-50"
+                  >
+                    <Minus size={13} />
+                  </button>
+                  <button
+                    onClick={() => handleAddLunchSlot(slot.time)}
+                    disabled={saving}
+                    title="Adicionar mais uma vaga neste horário"
+                    className="p-1.5 rounded-lg text-[var(--text-tertiary)] hover:text-[var(--accent-text)] hover:bg-[var(--accent)]/10 transition-all disabled:opacity-50"
+                  >
+                    <Plus size={13} />
+                  </button>
+                </div>
+              </div>
+            );
+          })}
+        </div>
+
+        <p className="text-[11px] font-medium text-[var(--text-tertiary)] leading-relaxed">
+          Cada horário tem seu próprio número de vagas — some &quot;+&quot; pra abrir mais uma vaga no mesmo horário
+          (ex: 3 vagas às 12:00 e 1 vaga às 13:00) ou &quot;−&quot; pra tirar uma. Zerar as vagas de um horário o
+          remove da lista sozinho, sem precisar de um botão de excluir à parte. Quem já tinha marcado um horário
+          que perdeu vagas continua com a própria escolha — só passa a não caber mais gente nova ali.
         </p>
       </div>
 

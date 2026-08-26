@@ -15,7 +15,7 @@ import { UserAvatar } from '@/components/user-avatar';
 import { ConfirmDialog } from '@/components/confirm-dialog';
 import { StyledSelect } from '@/components/styled-select';
 import {
-  GIRO_SERVICE_TYPES, GIRO_LUNCH_SLOTS, GiroChecklistItem, GiroDay, GiroRow, GiroServiceType,
+  GIRO_SERVICE_TYPES, GiroChecklistItem, GiroDay, GiroLunchCapacity, GiroRow, GiroServiceType,
   countLunchOccupancy, lunchSlotsRemaining
 } from '@/lib/types';
 import {
@@ -66,6 +66,7 @@ export function GiroDayView({ canManage }: GiroDayViewProps) {
   const [date, setDate] = useState<string | null>(null);
   const [day, setDay] = useState<GiroDay | null>(null);
   const [checklistItems, setChecklistItems] = useState<GiroChecklistItem[]>([]);
+  const [lunchCapacity, setLunchCapacity] = useState<GiroLunchCapacity[]>([]);
   const [candidates, setCandidates] = useState<GiroCandidate[]>([]);
   const [loading, setLoading] = useState(true);
   const [busy, setBusy] = useState(false);
@@ -115,6 +116,7 @@ export function GiroDayView({ canManage }: GiroDayViewProps) {
     getGiroConfig().then(cfg => {
       if ('error' in cfg) return;
       setChecklistItems(cfg.checklistItems.filter(i => i.isActive));
+      setLunchCapacity(cfg.lunchCapacity);
       setCandidates(cfg.candidates);
     });
   }, [load]);
@@ -364,6 +366,7 @@ export function GiroDayView({ canManage }: GiroDayViewProps) {
                   dayId={day.id}
                   checklistItems={checklistItems}
                   lunchOccupancy={lunchOccupancy}
+                  lunchCapacity={lunchCapacity}
                   canManage={canManage}
                   readOnly={readOnly}
                   busy={busy}
@@ -618,6 +621,7 @@ interface GiroRowCardProps {
   dayId: string;
   checklistItems: GiroChecklistItem[];
   lunchOccupancy: Record<string, number>;
+  lunchCapacity: GiroLunchCapacity[];
   canManage: boolean;
   readOnly: boolean;
   busy: boolean;
@@ -628,7 +632,7 @@ interface GiroRowCardProps {
 }
 
 function GiroRowCard({
-  row, checklistItems, lunchOccupancy, canManage, readOnly, busy, onComplete, onRemove, onPinHandoff, onSaved
+  row, checklistItems, lunchOccupancy, lunchCapacity, canManage, readOnly, busy, onComplete, onRemove, onPinHandoff, onSaved
 }: GiroRowCardProps) {
   const { attributes, listeners, setNodeRef, transform, transition, isDragging } = useSortable({
     id: row.id,
@@ -754,11 +758,11 @@ function GiroRowCard({
             className="text-[9px] font-black uppercase tracking-widest text-[var(--text-tertiary)]"
           >
             <option value="">--:--</option>
-            {GIRO_LUNCH_SLOTS.map(slot => {
-              const full = lunchSlotsRemaining(slot, lunchOccupancy, row.lunchTime) <= 0;
+            {lunchCapacity.map(({ time }) => {
+              const full = lunchSlotsRemaining(time, lunchOccupancy, row.lunchTime, lunchCapacity) <= 0;
               return (
-                <option key={slot} value={slot} disabled={full}>
-                  {slot}{full ? ' · Lotado' : ''}
+                <option key={time} value={time} disabled={full}>
+                  {time}{full ? ' · Lotado' : ''}
                 </option>
               );
             })}

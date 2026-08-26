@@ -1,13 +1,13 @@
 import { pool, query } from '../db';
 import { getTodaySP, toDateOnly } from '../report-period';
-import { GIRO_LUNCH_CAPACITY } from '../types';
 import type {
   GiroDay,
   GiroRow,
   GiroHistoryEntry,
   GiroParticipant,
   GiroChecklistItem,
-  GiroServiceType
+  GiroServiceType,
+  GiroLunchCapacity
 } from '../types';
 
 /**
@@ -539,10 +539,11 @@ export async function setHandoff(dayId: string, mode: 'auto' | 'pinned' | 'none'
  * os dois pontos de entrada (a tela do Giro e o popover de status) precisam se
  * comportar igual.
  *
- * Vaga de almoço: cada horário de GIRO_LUNCH_CAPACITY tem um número fixo de
- * vagas (1 às 11h/14h, 4 às 12h/13h) — ver lib/types.ts. Só entra em jogo
- * quando o horário está de fato MUDANDO pra um valor preenchido; limpar
- * (null) ou reconfirmar o mesmo horário nunca disputa vaga.
+ * Vaga de almoço: a capacidade de cada horário vem de public.giro_lunch_slots
+ * (uma linha por vaga — ver listLunchCapacity/addLunchSlot/removeLunchSlot,
+ * mais abaixo, e a tela de Configuração). Só entra em jogo quando o horário
+ * está de fato MUDANDO pra um valor preenchido; limpar (null) ou reconfirmar
+ * o mesmo horário nunca disputa vaga.
  */
 export async function updateRow(
   rowId: string,
@@ -576,9 +577,6 @@ export async function updateRow(
 
   const claimsNewSlot = !!nextLunchTime && nextLunchTime !== row.lunch_time;
   if (claimsNewSlot) {
-    const slot = GIRO_LUNCH_CAPACITY.find(s => s.time === nextLunchTime);
-    if (!slot) return { error: 'Horário de almoço inválido.' };
-
     const client = await pool.connect();
     try {
       await client.query('BEGIN');
@@ -587,12 +585,21 @@ export async function updateRow(
       // poderiam ler a mesma contagem e as duas passarem (mesma lógica de
       // lock otimista das demais transações deste arquivo, ex. completeService).
       await client.query('SELECT id FROM public.giro_day_rows WHERE day_id = $1 FOR UPDATE', [row.day_id]);
+      const capacityRes = await client.query(
+        `SELECT COUNT(*)::int AS total FROM public.giro_lunch_slots WHERE slot_time = $1`,
+        [nextLunchTime]
+      );
+      const capacity = capacityRes.rows[0].total;
+      if (capacity === 0) {
+        await client.query('ROLLBACK');
+        return { error: 'Horário de almoço inválido.' };
+      }
       const occupied = await client.query(
         `SELECT COUNT(*)::int AS total FROM public.giro_day_rows
           WHERE day_id = $1 AND lunch_time = $2 AND id != $3`,
         [row.day_id, nextLunchTime, rowId]
       );
-      if (occupied.rows[0].total >= slot.capacity) {
+      if (occupied.rows[0].total >= capacity) {
         await client.query('ROLLBACK');
         return { error: `Não há mais vagas para o almoço às ${nextLunchTime}. Escolha outro horário.` };
       }
@@ -1207,6 +1214,54 @@ export async function saveChecklistItem(input: {
  */
 export async function deleteChecklistItem(id: string): Promise<void> {
   await query('DELETE FROM public.giro_checklist_items WHERE id = $1', [id]);
+}
+
+// --------------------------------------------------------- horários de almoço
+
+const LUNCH_TIME_RE = /^([01]\d|2[0-3]):[0-5]\d$/;
+
+/**
+ * Capacidade por horário, derivada de public.giro_lunch_slots — uma linha por
+ * vaga, agrupada aqui. Não existe coluna de "capacidade": adicionar uma vaga
+ * a um horário é inserir mais uma linha com o mesmo slot_time; tirar uma vaga
+ * é apagar uma linha. Isso é o que permite à tela de Configuração ter
+ * "adicionar/remover horário" como a mesma operação simples de sempre.
+ */
+export async function listLunchCapacity(): Promise<GiroLunchCapacity[]> {
+  const res = await query(
+    `SELECT slot_time, COUNT(*)::int AS capacity FROM public.giro_lunch_slots
+      GROUP BY slot_time ORDER BY slot_time ASC`
+  );
+  return res.rows.map(r => ({ time: r.slot_time, capacity: r.capacity }));
+}
+
+/** Adiciona UMA vaga no horário informado (cria o horário se for o primeiro). */
+export async function addLunchSlot(time: string): Promise<{ error?: string }> {
+  const trimmed = time?.trim();
+  if (!trimmed || !LUNCH_TIME_RE.test(trimmed)) {
+    return { error: 'Informe um horário válido (HH:MM).' };
+  }
+  await query('INSERT INTO public.giro_lunch_slots (slot_time) VALUES ($1)', [trimmed]);
+  return {};
+}
+
+/**
+ * Remove UMA vaga do horário informado (uma linha qualquer daquele horário —
+ * são todas equivalentes). Quando a última vaga de um horário é removida, o
+ * horário some da lista de configuração sozinho, sem precisar de uma ação
+ * separada de "excluir horário". Não bloqueia se já houver gente com almoço
+ * marcado ali: quem já escolheu continua com o horário salvo, só deixa de
+ * caber gente nova (mesma regra de desativar um item de checklist).
+ */
+export async function removeLunchSlot(time: string): Promise<{ error?: string }> {
+  const res = await query(
+    `DELETE FROM public.giro_lunch_slots WHERE id = (
+       SELECT id FROM public.giro_lunch_slots WHERE slot_time = $1 LIMIT 1
+     )`,
+    [time]
+  );
+  if (res.rowCount === 0) return { error: 'Não há vaga cadastrada nesse horário.' };
+  return {};
 }
 
 // ------------------------------------------------------------------- resumo
