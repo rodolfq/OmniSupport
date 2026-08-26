@@ -3,7 +3,7 @@
 import React, { useCallback, useEffect, useState } from 'react';
 import { useSearchParams, useRouter, usePathname } from 'next/navigation';
 import { toast } from 'sonner';
-import { CalendarDays, Link2, Unlink, Loader2 } from 'lucide-react';
+import { CalendarDays, Link2, Unlink, Loader2, AlertTriangle, RefreshCw } from 'lucide-react';
 import {
   getGoogleCalendarStatus,
   googleCalendarConnectUrl,
@@ -19,6 +19,7 @@ import {
 export function GoogleCalendarSettings() {
   const [status, setStatus] = useState<GoogleCalendarStatus | null>(null);
   const [loading, setLoading] = useState(true);
+  const [loadError, setLoadError] = useState<string | null>(null);
   const [disconnecting, setDisconnecting] = useState(false);
   const searchParams = useSearchParams();
   const router = useRouter();
@@ -27,7 +28,16 @@ export function GoogleCalendarSettings() {
   const load = useCallback(async () => {
     setLoading(true);
     const result = await getGoogleCalendarStatus();
-    if (!('error' in result)) setStatus(result);
+    if ('error' in result) {
+      // Erro de rede/servidor ao CONSULTAR o status não significa que o
+      // vínculo sumiu — sem isto, a tela caía silenciosamente na aparência de
+      // "desconectado" (status fica null) e dava a falsa impressão de que o
+      // vínculo, que continua salvo no banco, tinha se perdido.
+      setLoadError(result.error);
+    } else {
+      setLoadError(null);
+      setStatus(result);
+    }
     setLoading(false);
   }, []);
 
@@ -80,6 +90,19 @@ export function GoogleCalendarSettings() {
       {loading ? (
         <div className="flex items-center gap-2 text-xs font-bold text-[var(--text-tertiary)]">
           <Loader2 size={14} className="animate-spin" /> Verificando...
+        </div>
+      ) : loadError ? (
+        <div className="flex items-center justify-between gap-3 px-4 py-3 bg-[var(--surface-warning)] border border-[var(--text-warning-strong)]/30 rounded-xl">
+          <span className="text-xs font-bold text-[var(--text-warning)] flex items-center gap-2 min-w-0">
+            <AlertTriangle size={14} className="shrink-0" />
+            <span className="truncate">Não foi possível verificar o vínculo agora — se já vinculou antes, ele continua salvo.</span>
+          </span>
+          <button
+            onClick={load}
+            className="shrink-0 flex items-center gap-1.5 text-[10px] font-black uppercase tracking-widest text-[var(--text-warning)] hover:opacity-80 transition-opacity"
+          >
+            <RefreshCw size={12} /> Tentar de novo
+          </button>
         </div>
       ) : status?.connected ? (
         <div className="flex items-center justify-between gap-3 px-4 py-3 bg-[var(--surface-success)] border border-[var(--text-success)]/20 rounded-xl">
