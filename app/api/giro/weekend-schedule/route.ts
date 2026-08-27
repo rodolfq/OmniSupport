@@ -22,6 +22,9 @@ export async function GET(request: NextRequest) {
       );
     }
     console.error('[weekend-schedule] Falha ao buscar escala:', error);
-    return NextResponse.json({ error: 'Não foi possível carregar a escala agora. Tente novamente em instantes.' }, { status: 502 });
+    // error.message já vem traduzido pelo service (timeout, sem rede, aba
+    // não encontrada) — repassar em vez do texto genérico, senão o motivo
+    // real (ex: "Google Sheets não respondeu a tempo") nunca chega na tela.
+    return NextResponse.json({ error: error?.message || 'Não foi possível carregar a escala agora. Tente novamente em instantes.' }, { status: 502 });
   }
 }

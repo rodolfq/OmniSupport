@@ -135,10 +135,30 @@ interface SheetTab {
   gid: string;
 }
 
+// Sem timeout, uma falha de rede do container (DNS/firewall bloqueando saída
+// para docs.google.com) deixa o fetch pendurado indefinidamente — nem
+// resolve nem rejeita — e a tela fica presa em "Carregando escala..." pra
+// sempre, sem nunca cair no catch do route.ts. 10s é folga suficiente pro
+// Google responder em condição normal sem deixar quem clicou esperando.
+const FETCH_TIMEOUT_MS = 10_000;
+
+// Traduz timeout/erro de rede cru (ex: "fetch failed", "AbortError") numa
+// mensagem que a tela consegue mostrar — o objetivo é nunca deixar o erro
+// genérico do Node vazar pro usuário nem, pior, deixar a requisição pendurada
+// sem nunca rejeitar (ver FETCH_TIMEOUT_MS acima).
+async function fetchGoogleSheets(url: string): Promise<Response> {
+  try {
+    return await fetch(url, { cache: 'no-store', signal: AbortSignal.timeout(FETCH_TIMEOUT_MS) });
+  } catch (error: any) {
+    if (error?.name === 'TimeoutError' || error?.name === 'AbortError') {
+      throw new Error('O Google Sheets não respondeu a tempo. Tente novamente em instantes.');
+    }
+    throw new Error('Não foi possível conectar ao Google Sheets — verifique o acesso à internet do servidor.');
+  }
+}
+
 async function fetchTabList(sheetId: string): Promise<SheetTab[]> {
-  const res = await fetch(`https://docs.google.com/spreadsheets/d/e/${sheetId}/pubhtml`, {
-    cache: 'no-store'
-  });
+  const res = await fetchGoogleSheets(`https://docs.google.com/spreadsheets/d/e/${sheetId}/pubhtml`);
   if (!res.ok) throw new Error('Não foi possível acessar a planilha publicada no Google Sheets.');
   const html = await res.text();
 
@@ -245,9 +265,8 @@ export async function getWeekendSchedule(forceRefresh = false): Promise<WeekendS
   const sheetId = await resolvePublishedSheetId();
   const [{ monthName, todayIso }, tabs] = await Promise.all([currentMonthAndToday(), fetchTabList(sheetId)]);
   const tab = pickCurrentMonthTab(tabs, monthName);
-  const csvRes = await fetch(
-    `https://docs.google.com/spreadsheets/d/e/${sheetId}/pub?output=csv&gid=${tab.gid}`,
-    { cache: 'no-store' }
+  const csvRes = await fetchGoogleSheets(
+    `https://docs.google.com/spreadsheets/d/e/${sheetId}/pub?output=csv&gid=${tab.gid}`
   );
   if (!csvRes.ok) throw new Error('Não foi possível baixar os dados da planilha publicada.');
   const csvText = await csvRes.text();
