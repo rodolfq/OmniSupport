@@ -53,7 +53,15 @@ export interface WeekendScheduleResult {
 
 export class WeekendScheduleNotFoundError extends Error {
   constructor(public availableTabs: string[]) {
-    super('Não encontramos a aba do mês atual na planilha publicada.');
+    // Lista vazia é um caso bem diferente de "achei abas, mas nenhuma bate
+    // com o mês": geralmente indica link errado/planilha despublicada, ou o
+    // Google mudou o formato da página (ver fetchTabList) — nesses casos
+    // "não encontramos a aba do mês" confundiria mais do que ajudaria.
+    super(
+      availableTabs.length === 0
+        ? 'Não conseguimos identificar nenhuma aba nessa planilha publicada. Verifique se o link está correto (Configurações > Escala Fim de Semana > Trocar link) e se a planilha continua publicada na web.'
+        : 'Não encontramos a aba do mês atual na planilha publicada.'
+    );
   }
 }
 
@@ -105,17 +113,36 @@ export function extractPublishedSheetId(input: string): string | null {
 }
 
 export class InvalidSheetLinkError extends Error {
-  constructor() {
-    super('Link inválido — cole a URL de "Publicar na web" (termina em /pubhtml) ou só o ID da planilha.');
+  constructor(message?: string) {
+    super(message || 'Link inválido — cole a URL de "Publicar na web" (termina em /pubhtml) ou só o ID da planilha.');
   }
 }
 
-/** rawInput vazio/null volta a usar o link padrão embutido no código. */
+/**
+ * rawInput vazio/null volta a usar o link padrão embutido no código.
+ *
+ * Valida o link JÁ aqui, tentando de fato acessá-lo — sem isso, um ID colado
+ * errado (ou de uma planilha despublicada) só quebraria depois, na tela de
+ * quem for ver a escala, sem nenhuma relação com quem cadastrou o link e sem
+ * pista de qual dos dois lados está errado.
+ */
 export async function saveWeekendScheduleSheetId(rawInput: string | null, actorId: string): Promise<void> {
   let sheetId: string | null = null;
   if (rawInput && rawInput.trim()) {
     sheetId = extractPublishedSheetId(rawInput);
     if (!sheetId) throw new InvalidSheetLinkError();
+
+    let tabs: SheetTab[];
+    try {
+      tabs = await fetchTabList(sheetId);
+    } catch (error: any) {
+      throw new InvalidSheetLinkError(error?.message);
+    }
+    if (tabs.length === 0) {
+      throw new InvalidSheetLinkError(
+        'Não encontramos nenhuma aba nessa planilha publicada — confira se o link está correto e se a planilha continua publicada na web (Arquivo > Compartilhar > Publicar na web).'
+      );
+    }
   }
   await query(
     `INSERT INTO public.weekend_schedule_settings (id, published_sheet_id, updated_by, updated_at)
@@ -159,7 +186,15 @@ async function fetchGoogleSheets(url: string): Promise<Response> {
 
 async function fetchTabList(sheetId: string): Promise<SheetTab[]> {
   const res = await fetchGoogleSheets(`https://docs.google.com/spreadsheets/d/e/${sheetId}/pubhtml`);
-  if (!res.ok) throw new Error('Não foi possível acessar a planilha publicada no Google Sheets.');
+  if (!res.ok) {
+    // 404 é o caso mais comum na prática (ID errado, planilha despublicada
+    // ou excluída) — vale a pena diferenciar de um erro passageiro do lado
+    // do Google, que costuma se resolver sozinho numa nova tentativa.
+    if (res.status === 404) {
+      throw new Error('Planilha não encontrada no Google Sheets — o link pode estar incorreto ou a planilha pode não estar mais publicada na web.');
+    }
+    throw new Error(`O Google Sheets recusou a requisição ao tentar acessar a planilha publicada (código ${res.status}). Tente novamente em instantes.`);
+  }
   const html = await res.text();
 
   // A página de publicação embute a lista de abas como
@@ -268,9 +303,23 @@ export async function getWeekendSchedule(forceRefresh = false): Promise<WeekendS
   const csvRes = await fetchGoogleSheets(
     `https://docs.google.com/spreadsheets/d/e/${sheetId}/pub?output=csv&gid=${tab.gid}`
   );
-  if (!csvRes.ok) throw new Error('Não foi possível baixar os dados da planilha publicada.');
+  if (!csvRes.ok) {
+    if (csvRes.status === 404) {
+      throw new Error(`Não foi possível baixar os dados da aba "${tab.name}" — ela pode ter sido removida ou renomeada na planilha depois que a lista de abas foi lida.`);
+    }
+    throw new Error(`O Google Sheets recusou o download dos dados da planilha (código ${csvRes.status}). Tente novamente em instantes.`);
+  }
   const csvText = await csvRes.text();
   const rows = extractWeekendSection(parseCsv(csvText));
+
+  // Aba existe e o download deu certo, mas a seção "ESCALA DE FINS DE
+  // SEMANA" não foi encontrada — sem esse aviso, a tela mostraria "nenhuma
+  // linha encontrada" como se a escala estivesse vazia de propósito, quando
+  // na prática o layout da planilha mudou (título da seção renomeado/
+  // movido) e ninguém vai perceber a causa real.
+  if (rows.length === 0) {
+    console.warn(`[weekend-schedule] Aba "${tab.name}" não tem a seção "ESCALA DE FINS DE SEMANA" (ou ela veio vazia) — conferir o layout da planilha.`);
+  }
 
   const result: WeekendScheduleResult = { tabName: tab.name, rows, sheetId, todayIso, fetchedAt: new Date().toISOString() };
   cache = { data: result, expiresAt: Date.now() + CACHE_TTL_MS };

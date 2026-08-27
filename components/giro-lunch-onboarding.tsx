@@ -8,7 +8,7 @@ import { toast } from 'sonner';
 import { cn } from '@/lib/utils';
 import { useApp } from '@/app/app-context';
 import { StyledSelect } from '@/components/styled-select';
-import { GiroChecklistItem, GiroLunchCapacity, Permission, UserRole, countLunchOccupancy, lunchSlotsRemaining } from '@/lib/types';
+import { GiroChecklistItem, GiroLunchCapacity, UserRole, countLunchOccupancy, lunchSlotsRemaining } from '@/lib/types';
 import { getGiroSummary, getGiroConfig, updateGiroRow } from '@/lib/services/giro-client';
 
 /** 30 e 5 minutos antes do horário escolhido — ordem importa: o primeiro da
@@ -48,11 +48,15 @@ function todayTimeToEpoch(date: string, hhmm: string): number {
  * contra corrida entre duas pessoas escolhendo a última vaga ao mesmo tempo.
  */
 export function GiroLunchOnboarding() {
-  const { currentUser, hasPermission } = useApp();
+  const { currentUser } = useApp();
   const pathname = usePathname();
 
-  const isTeam = !!currentUser && [UserRole.ADMIN, UserRole.SUPPORT, UserRole.INTERNAL].includes(currentUser.role as UserRole);
-  const eligible = isTeam && (hasPermission(Permission.GIRO_VIEW) || hasPermission(Permission.GIRO_MANAGE));
+  // Não filtra por giro:view/giro:manage de propósito: estar ESCALADO no
+  // giro de hoje já basta (o servidor confirma via myRowId — ver
+  // assertCanViewGiro em lib/server-permissions.ts). Exigir a permissão aqui
+  // deixava sem pop-up quem foi incluído no rodízio sem alguém revisar o
+  // Perfil de Acesso da pessoa, mesmo estando na escala.
+  const eligible = !!currentUser && [UserRole.ADMIN, UserRole.SUPPORT, UserRole.INTERNAL].includes(currentUser.role as UserRole);
 
   const [rowId, setRowId] = useState<string | null>(null);
   const [date, setDate] = useState<string | null>(null);

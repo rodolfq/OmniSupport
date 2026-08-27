@@ -37,6 +37,7 @@ import {
   applyTeamMembership
 } from '@/lib/services/internal-team-service';
 import { StyledSelect } from '@/components/styled-select';
+import { UserAvatar } from '@/components/user-avatar';
 import { toast } from 'sonner';
 
 // Mesma regra usada no servidor (app/actions.ts createUser/updateUser): o
@@ -915,9 +916,14 @@ export function PermissionsContent() {
                           editSelectedMembers.includes(u.id) ? "bg-[var(--surface-warning)] border-[var(--border-alert)]" : "hover:bg-[var(--surface-pill)] border-transparent"
                         )}
                       >
-                        <div className={cn("w-8 h-8 rounded-lg flex items-center justify-center font-black text-xs overflow-hidden shrink-0", editSelectedMembers.includes(u.id) ? "bg-[var(--text-warning-strong)] text-white" : "bg-[var(--surface-pill)] text-[var(--text-secondary)]")}>
-                          {u.avatarUrl ? <img src={u.avatarUrl} alt={u.name} className="w-full h-full object-cover" /> : (u.name?.charAt(0) || '?')}
-                        </div>
+                        <UserAvatar
+                          name={u.name}
+                          thumbUrl={u.avatarThumbUrl}
+                          size={32}
+                          rounded="rounded-lg"
+                          className="font-black text-xs"
+                          fallbackClassName={editSelectedMembers.includes(u.id) ? "bg-[var(--text-warning-strong)] text-white" : "bg-[var(--surface-pill)] text-[var(--text-secondary)]"}
+                        />
                         <div className="flex-1 text-left min-w-0">
                           <p className="font-bold text-[var(--text-primary)] truncate">{u.name || 'Sem nome'}</p>
                           <p className="text-[10px] text-[var(--text-tertiary)] font-medium truncate">{u.email}</p>
@@ -949,9 +955,14 @@ export function PermissionsContent() {
                           : null;
                         return (
                           <div key={memberId} className="flex items-center gap-2 p-2.5 rounded-2xl border border-[var(--border-default)] bg-[var(--surface-card)]/50">
-                            <div className={cn("w-8 h-8 rounded-lg flex items-center justify-center font-black text-xs overflow-hidden shrink-0", chosenProfileId ? "bg-[var(--surface-pill)] text-[var(--text-secondary)]" : "bg-[var(--surface-warning)] text-[var(--text-warning)]")}>
-                              {member?.avatarUrl ? <img src={member.avatarUrl} alt={member.name} className="w-full h-full object-cover" /> : (member?.name?.charAt(0) || '?')}
-                            </div>
+                            <UserAvatar
+                              name={member?.name}
+                              thumbUrl={member?.avatarThumbUrl}
+                              size={32}
+                              rounded="rounded-lg"
+                              className="font-black text-xs"
+                              fallbackClassName={chosenProfileId ? "bg-[var(--surface-pill)] text-[var(--text-secondary)]" : "bg-[var(--surface-warning)] text-[var(--text-warning)]"}
+                            />
                             <div className="min-w-0 shrink-0 w-28">
                               <p className="font-bold text-[var(--text-primary)] text-xs truncate">{member?.name || 'Membro'}</p>
                               {!chosenProfileId && <p className="text-[9px] text-[var(--text-warning)] font-bold uppercase tracking-wide">Sem perfil</p>}

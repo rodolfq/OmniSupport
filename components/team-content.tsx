@@ -7,6 +7,7 @@ import {
   ChevronLeft, ChevronRight
 } from 'lucide-react';
 import { ConfirmDialog } from '@/components/confirm-dialog';
+import { UserAvatar } from '@/components/user-avatar';
 import { cn } from '@/lib/utils';
 import { motion, AnimatePresence } from 'motion/react';
 import { useApp } from '@/app/app-context';
@@ -452,13 +453,14 @@ export function TeamContent() {
                   </td>
                   <td className="px-8 py-5">
                     <div className="flex items-center gap-4">
-                      <div className="w-12 h-12 rounded-2xl bg-[var(--accent)]/10 border border-[var(--accent)]/20 flex items-center justify-center text-[var(--accent-text)] font-black text-lg overflow-hidden">
-                        {user.avatarUrl ? (
-                          <img src={user.avatarUrl} alt={user.name} className="w-full h-full object-cover" />
-                        ) : (
-                          user.name.charAt(0)
-                        )}
-                      </div>
+                      <UserAvatar
+                        name={user.name}
+                        thumbUrl={user.avatarThumbUrl}
+                        size={48}
+                        rounded="rounded-2xl"
+                        className="font-black text-lg border border-[var(--accent)]/20"
+                        fallbackClassName="bg-[var(--accent)]/10 text-[var(--accent-text)] border border-[var(--accent)]/20"
+                      />
                       <div className="flex flex-col">
                         <span className="font-bold text-[var(--text-primary)]">{user.name}</span>
                         <span className="text-xs text-[var(--text-tertiary)] flex items-center gap-1">

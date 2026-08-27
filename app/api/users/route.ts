@@ -192,12 +192,15 @@ export async function GET(request: Request) {
       // Ao contrário de `type=analysts` (que traz todo mundo de uma vez),
       // aqui só a página pedida carrega avatar_url, evitando puxar todas as
       // fotos (base64) da equipe inteira quando o admin só quer achar 1 pessoa.
+      // avatar_thumb_url sempre vem junto (é só ~1,3kB) — quem consome deve
+      // preferir a miniatura e só cair para avatarUrl (que baixa a foto cheia
+      // via /api/users/:id/avatar) quando a pessoa ainda não tiver miniatura.
       const idsParam = searchParams.get('ids');
       if (idsParam) {
         const ids = idsParam.split(',').map(s => s.trim()).filter(Boolean);
         if (ids.length === 0) return NextResponse.json({ items: [] });
         const res = await query(
-          `SELECT id, name, email, role, company_id, phone, internal_team_ids,
+          `SELECT id, name, email, role, company_id, phone, internal_team_ids, avatar_thumb_url,
                   (avatar_url IS NOT NULL AND avatar_url <> '') AS has_avatar
            FROM public.profiles
            WHERE role IN ('Administrador', 'Equipe', 'Time Interno') AND id = ANY($1)`,
@@ -212,6 +215,7 @@ export async function GET(request: Request) {
             companyId: r.company_id,
             phone: r.phone,
             avatarUrl: r.has_avatar ? `/api/users/${r.id}/avatar` : null,
+            avatarThumbUrl: r.avatar_thumb_url,
             internalTeamIds: r.internal_team_ids
           }))
         });
@@ -224,7 +228,7 @@ export async function GET(request: Request) {
       const likeParam = `%${q}%`;
 
       const res = await query(
-        `SELECT id, name, email, role, company_id, phone, internal_team_ids,
+        `SELECT id, name, email, role, company_id, phone, internal_team_ids, avatar_thumb_url,
                 (avatar_url IS NOT NULL AND avatar_url <> '') AS has_avatar,
                 COUNT(*) OVER() AS total_count
          FROM public.profiles
@@ -243,6 +247,7 @@ export async function GET(request: Request) {
           companyId: r.company_id,
           phone: r.phone,
           avatarUrl: r.has_avatar ? `/api/users/${r.id}/avatar` : null,
+          avatarThumbUrl: r.avatar_thumb_url,
           internalTeamIds: r.internal_team_ids
         })),
         total: res.rows.length > 0 ? parseInt(res.rows[0].total_count, 10) : 0

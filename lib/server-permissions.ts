@@ -1,4 +1,5 @@
 import { getCurrentActionUser, getActorEffectivePermissions } from './server-auth';
+import { isScheduledInTodayGiro } from './services/giro-service';
 
 /**
  * Checagens de permissão por domínio, compartilhadas por rotas de API e pelas
@@ -44,6 +45,12 @@ export function assertCanManageWhatsapp(): Promise<PermissionCheck> {
  * rodízio obviamente pode olhá-lo, e exigir as duas marcadas juntas no Perfil
  * de Acesso seria uma pegadinha silenciosa (a tela abriria vazia para quem
  * marcou só "Gerenciar").
+ *
+ * Sem nenhuma das duas, ainda passa quem está ESCALADO no giro de hoje
+ * (isScheduledInTodayGiro) — participação no rodízio já pressupõe que a
+ * pessoa precisa ver/mexer na própria linha (pop-up de almoço, checklist,
+ * concluir atendimento), e cobrar giro:view em cima disso só travaria quem
+ * foi incluído no giro sem alguém revisar o Perfil de Acesso.
  */
 export async function assertCanViewGiro(): Promise<PermissionCheck> {
   const actor = await getCurrentActionUser();
@@ -51,10 +58,10 @@ export async function assertCanViewGiro(): Promise<PermissionCheck> {
   if (actor.role === 'Administrador') return { ok: true, actor };
 
   const permissions = await getActorEffectivePermissions(actor.id);
-  if (!permissions.includes('giro:view') && !permissions.includes('giro:manage')) {
-    return { ok: false, error: 'Você não tem permissão para ver o Giro de Atendimento.' };
-  }
-  return { ok: true, actor };
+  if (permissions.includes('giro:view') || permissions.includes('giro:manage')) return { ok: true, actor };
+  if (await isScheduledInTodayGiro(actor.id)) return { ok: true, actor };
+
+  return { ok: false, error: 'Você não tem permissão para ver o Giro de Atendimento.' };
 }
 
 export function assertCanManageGiro(): Promise<PermissionCheck> {

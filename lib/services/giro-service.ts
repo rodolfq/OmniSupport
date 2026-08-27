@@ -1281,6 +1281,27 @@ export interface GiroSummary {
 }
 
 /**
+ * Alguém pode estar escalado no giro de hoje (giro_day_rows) sem ter a
+ * permissão `giro:view` no Perfil de Acesso — ex.: quem administra o rodízio
+ * inclui a pessoa em Configuração > Giro sem revisar o perfil dela. Quem está
+ * na lista do dia precisa conseguir ver e mexer na própria linha (almoço,
+ * checklist, concluir atendimento) mesmo assim — ver assertCanViewGiro em
+ * lib/server-permissions.ts, que usa isto como alternativa à permissão
+ * explícita.
+ */
+export async function isScheduledInTodayGiro(userId: string): Promise<boolean> {
+  const today = toDateOnly(await getTodaySP());
+  const res = await query(
+    `SELECT 1 FROM public.giro_day_rows r
+       JOIN public.giro_days d ON d.id = r.day_id
+      WHERE d.giro_date = $1::date AND r.user_id = $2
+      LIMIT 1`,
+    [today, userId]
+  );
+  return (res.rowCount ?? 0) > 0;
+}
+
+/**
  * Resumo de hoje para o botão de status — a mesma leitura da tela, sem gerar
  * nada de novo além do que `getGiroDay` já geraria ao abrir a data de hoje.
  */

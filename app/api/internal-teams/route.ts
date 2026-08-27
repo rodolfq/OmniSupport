@@ -54,7 +54,7 @@ export async function GET() {
         `SELECT id, name, email, role, internal_team_ids, avatar_thumb_url, access_profile_id,
                 view_all_company_tickets
            FROM public.profiles
-          WHERE role IN ('Equipe', 'Time Interno')
+          WHERE role IN ('Administrador', 'Equipe', 'Time Interno')
           ORDER BY name ASC`
       )
     ]);

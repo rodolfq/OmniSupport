@@ -110,23 +110,6 @@ const getAuthorColor = (userId: string) => {
   return PINNED_AUTHOR_COLORS[hash];
 };
 
-const preloadAvatars = (users: User[]) => Promise.all(
-  users
-    .map(user => user.avatarUrl)
-    .filter((url): url is string => Boolean(url))
-    .map(url => new Promise<void>(resolve => {
-      const image = new Image();
-      const timeout = window.setTimeout(resolve, 8000);
-      const finish = () => {
-        window.clearTimeout(timeout);
-        resolve();
-      };
-      image.onload = finish;
-      image.onerror = finish;
-      image.src = url;
-    }))
-);
-
 const getCroppedImg = (imageSrc: string, pixelCrop: Area): Promise<string> => {
   return new Promise((resolve, reject) => {
     const image = new Image();
@@ -245,7 +228,6 @@ export default function ChatInternalPage() {
         // trecho remapeava na mão a partir da linha crua.
         const users = (usersRes.ok ? await usersRes.json() : []) as User[];
 
-        await preloadAvatars(users);
         if (!isActive) return;
         setAllUsers(users);
       } catch (error) {
@@ -1191,7 +1173,7 @@ export default function ChatInternalPage() {
                 
                 // For direct chats, find the other user's info
                 const otherUser = getDirectChatUser(room);
-                const avatar = room.type === 'group' ? room.imageUrl : (otherUser?.avatarUrl || null);
+                const avatar = room.type === 'group' ? room.imageUrl : (otherUser?.avatarThumbUrl || otherUser?.avatarUrl || null);
                 const isPinned = room.pinnedBy?.includes(currentUser?.id || '');
                 const presenceIndicator = room.type === 'direct' ? getPresenceIndicator(otherUser?.id) : null;
 
@@ -1267,10 +1249,10 @@ export default function ChatInternalPage() {
                   <div className="relative shrink-0">
                     <div className={cn(
                       "w-12 h-12 rounded-2xl flex items-center justify-center text-white font-black overflow-hidden bg-[var(--border-default)]",
-                      !user.avatarUrl && "bg-[var(--text-success)]"
+                      !(user.avatarThumbUrl || user.avatarUrl) && "bg-[var(--text-success)]"
                     )}>
-                      {user.avatarUrl ? (
-                        <img src={user.avatarUrl} alt={user.name} className="w-full h-full object-cover" />
+                      {(user.avatarThumbUrl || user.avatarUrl) ? (
+                        <img src={user.avatarThumbUrl || user.avatarUrl} alt={user.name} className="w-full h-full object-cover" />
                       ) : (
                         user.name.charAt(0)
                       )}
@@ -1319,8 +1301,8 @@ export default function ChatInternalPage() {
                     {selectedRoom.type === 'group' ? (
                       selectedRoom.imageUrl ? <img src={selectedRoom.imageUrl} className="w-full h-full object-cover" /> : <Users size={20} />
                     ) : (
-                      getDirectChatUser(selectedRoom)?.avatarUrl ? (
-                        <img src={getDirectChatUser(selectedRoom)?.avatarUrl} alt={getDirectChatUser(selectedRoom)?.name || selectedRoom.name} className="w-full h-full object-cover" />
+                      (getDirectChatUser(selectedRoom)?.avatarThumbUrl || getDirectChatUser(selectedRoom)?.avatarUrl) ? (
+                        <img src={getDirectChatUser(selectedRoom)?.avatarThumbUrl || getDirectChatUser(selectedRoom)?.avatarUrl} alt={getDirectChatUser(selectedRoom)?.name || selectedRoom.name} className="w-full h-full object-cover" />
                       ) : selectedRoom.name.charAt(0)
                     )}
                   </div>
@@ -1445,8 +1427,8 @@ export default function ChatInternalPage() {
                                 >
                                   <div className="flex gap-3">
                                     <div className="w-10 h-10 rounded-full bg-[var(--border-default)] shrink-0 overflow-hidden">
-                                      {sender?.avatarUrl ? (
-                                        <img src={sender.avatarUrl} alt={msg.senderName} className="w-full h-full object-cover" />
+                                      {(sender?.avatarThumbUrl || sender?.avatarUrl) ? (
+                                        <img src={sender.avatarThumbUrl || sender.avatarUrl} alt={msg.senderName} className="w-full h-full object-cover" />
                                       ) : (
                                         <div className="w-full h-full flex items-center justify-center text-xs font-black text-[var(--text-tertiary)]">
                                           {msg.senderName.charAt(0)}
@@ -1596,8 +1578,8 @@ export default function ChatInternalPage() {
                   >
                     {!isMine && avatarSize !== 'none' && (
                       <div className={cn("rounded-2xl bg-[var(--border-default)] shrink-0 overflow-hidden mt-6 shadow-sm", avatarSizeClass)}>
-                         {allUsers.find(u => u.id === msg.senderId)?.avatarUrl ? (
-                           <img src={allUsers.find(u => u.id === msg.senderId)?.avatarUrl} className="w-full h-full object-cover" />
+                         {(allUsers.find(u => u.id === msg.senderId)?.avatarThumbUrl || allUsers.find(u => u.id === msg.senderId)?.avatarUrl) ? (
+                           <img src={allUsers.find(u => u.id === msg.senderId)?.avatarThumbUrl || allUsers.find(u => u.id === msg.senderId)?.avatarUrl} className="w-full h-full object-cover" />
                          ) : (
                            <div className="w-full h-full flex items-center justify-center text-[10px] font-black text-[var(--text-tertiary)]">
                              {msg.senderName.charAt(0)}
@@ -2432,7 +2414,7 @@ export default function ChatInternalPage() {
                       return (
                         <div key={`member-${userId || idx}`} className="flex items-center gap-4 p-3 rounded-3xl hover:bg-[var(--surface-card)] transition-all group/member">
                            <div className="w-10 h-10 rounded-xl bg-[var(--surface-pill)] flex items-center justify-center overflow-hidden">
-                              {user.avatarUrl ? <img src={user.avatarUrl} className="w-full h-full object-cover" /> : <span className="font-black text-[var(--text-tertiary)]">{user.name.charAt(0)}</span>}
+                              {(user.avatarThumbUrl || user.avatarUrl) ? <img src={user.avatarThumbUrl || user.avatarUrl} className="w-full h-full object-cover" /> : <span className="font-black text-[var(--text-tertiary)]">{user.name.charAt(0)}</span>}
                            </div>
                            <div className="flex-1">
                               <p className="text-sm font-black text-[var(--text-primary)]">{user.name}{userId === currentUser?.id && ' (Sua conta)'}</p>

@@ -2,6 +2,7 @@
 
 import React, { useState, useEffect } from 'react';
 import { StyledSelect } from '@/components/styled-select';
+import { UserAvatar } from '@/components/user-avatar';
 import { User, Queue, WhatsappInstance, Permission, AnalystStatus } from '@/lib/types';
 import { UserService } from '@/lib/services/user-service';
 import { fetchAnalystStatuses } from '@/lib/services/config-service';
@@ -296,13 +297,14 @@ export function QueuesContent() {
     return [...online, ...rest];
   };
 
-  // Foto do contato quando existe (avatar_url, ex.: sync do Bitrix24); cai
-  // pra inicial colorida quando não tem — mesmo padrão visual de antes.
-  const MemberAvatar = ({ user, selected, className }: { user?: Pick<User, 'name' | 'avatarUrl'>; selected?: boolean; className?: string }) => (
-    user?.avatarUrl ? (
+  // Sempre prefere a miniatura (avatar_thumb_url, ~1,3kB) à foto cheia — só
+  // cai pra ela quando a pessoa ainda não tem miniatura gerada. Sem foto
+  // nenhuma, cai pra inicial colorida.
+  const MemberAvatar = ({ user, selected, className }: { user?: Pick<User, 'name' | 'avatarUrl' | 'avatarThumbUrl'>; selected?: boolean; className?: string }) => (
+    (user?.avatarThumbUrl || user?.avatarUrl) ? (
       <img
-        src={user.avatarUrl}
-        alt={user.name}
+        src={user!.avatarThumbUrl || user!.avatarUrl}
+        alt={user?.name}
         className={cn("rounded-xl object-cover shrink-0", className)}
       />
     ) : (
@@ -521,13 +523,14 @@ export function QueuesContent() {
                              <div key={mid} title={statusLabel(status)} className="flex items-center gap-2 p-2 bg-[var(--surface-card)] rounded-xl border border-[var(--border-default)] shadow-sm">
                                 <span className="text-[9px] font-black text-[var(--text-tertiary)] w-3 shrink-0 text-center">{status === 'online' ? idx + 1 : '–'}</span>
                                 <div className="relative shrink-0">
-                                   {user.avatarUrl ? (
-                                     <img src={user.avatarUrl} alt={user.name} className="w-6 h-6 rounded-lg object-cover" />
-                                   ) : (
-                                     <div className="w-6 h-6 rounded-lg bg-[var(--accent)]/10 flex items-center justify-center text-[10px] font-black text-[var(--accent-text)]">
-                                        {user.name.charAt(0)}
-                                     </div>
-                                   )}
+                                   <UserAvatar
+                                     name={user.name}
+                                     thumbUrl={user.avatarThumbUrl}
+                                     size={24}
+                                     rounded="rounded-lg"
+                                     className="text-[10px] font-black"
+                                     fallbackClassName="bg-[var(--accent)]/10 text-[var(--accent-text)]"
+                                   />
                                    <span className={cn("absolute -bottom-0.5 -right-0.5 w-2 h-2 rounded-full border border-[var(--surface-card)]", statusDotClass(status))} />
                                 </div>
                                 <span className="text-[10px] font-bold text-[var(--text-secondary)] truncate flex-1">{user.name}</span>
