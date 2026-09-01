@@ -2,6 +2,7 @@
 
 import React, { useEffect, useState } from 'react';
 import { useParams, useRouter } from 'next/navigation';
+import Link from 'next/link';
 import { ChevronLeft, Building2, Phone, Ticket as TicketIcon, MessageCircle, Loader2, ThumbsUp, ThumbsDown, Circle } from 'lucide-react';
 import { Company, Ticket } from '@/lib/types';
 import { CompanyService } from '@/lib/services/company-service';
@@ -189,7 +190,16 @@ export default function CompanyDetailPage() {
                 <p className="text-[11px] text-[var(--text-tertiary)] font-medium px-1 py-2">Nenhum atendimento em andamento agora.</p>
               ) : (
                 activeSessions.map(s => (
-                  <div key={s.id} className="p-3 rounded-xl border border-[var(--border-default)] bg-[var(--surface-card)] flex items-center gap-2.5">
+                  <button
+                    key={s.id}
+                    type="button"
+                    // Abre a conversa ao vivo no widget flutuante — mesmo
+                    // mecanismo de ?chat= já usado por notificações/links de
+                    // chat (ver components/chat-widget.tsx), que existe desde
+                    // que este comentário de "sem link pronto" foi escrito.
+                    onClick={() => router.push(`/customers/${companyId}?chat=${s.id}`)}
+                    className="w-full p-3 rounded-xl border border-[var(--border-default)] bg-[var(--surface-card)] flex items-center gap-2.5 text-left hover:border-[var(--accent)]/40 hover:bg-[var(--accent)]/5 transition-all"
+                  >
                     <Circle size={8} className="text-[var(--text-success)] fill-current shrink-0" />
                     <div className="min-w-0 flex-1">
                       <p className="text-xs font-bold text-[var(--text-secondary)] truncate">{s.customerName || 'Sem nome'}</p>
@@ -197,7 +207,7 @@ export default function CompanyDetailPage() {
                         {s.status} {s.assigneeName ? `· ${s.assigneeName}` : '· Sem atendente'}
                       </p>
                     </div>
-                  </div>
+                  </button>
                 ))
               )}
             </div>
@@ -215,7 +225,14 @@ export default function CompanyDetailPage() {
                     ? `${Math.floor(h.durationSeconds / 60)}m ${h.durationSeconds % 60}s`
                     : null;
                   return (
-                    <div key={h.id} className="p-3 rounded-xl border border-[var(--border-default)] bg-[var(--surface-card)]">
+                    // Mesmo destino de "Ver conversa" em reports/satisfaction —
+                    // abre a conversa fechada na íntegra (transcript completo,
+                    // com download TXT/PDF) em vez de só o resumo desta lista.
+                    <Link
+                      key={h.id}
+                      href={`/chat-history?historyId=${h.id}`}
+                      className="block p-3 rounded-xl border border-[var(--border-default)] bg-[var(--surface-card)] hover:border-[var(--accent)]/40 hover:bg-[var(--accent)]/5 transition-all"
+                    >
                       <div className="flex items-center justify-between gap-2">
                         <p className="text-xs font-bold text-[var(--text-secondary)] truncate">{h.customerName || 'Sem nome'}</p>
                         {h.rating === 1 && (
@@ -230,7 +247,7 @@ export default function CompanyDetailPage() {
                         {h.assigneeName ? ` · ${h.assigneeName}` : ''}
                         {durationLabel ? ` · ${durationLabel}` : ''}
                       </p>
-                    </div>
+                    </Link>
                   );
                 })
               )}

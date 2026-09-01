@@ -499,8 +499,8 @@ export interface CompanyActiveSession {
 }
 
 // Atendimentos EM ANDAMENTO de uma empresa — tela dedicada /customers/[id]
-// (item 13 do roadmap). Lista informativa, sem link pra abrir a sessão (não
-// existe deep-link pronto pra isso no /chat ainda).
+// (item 13 do roadmap). A tela abre a sessão pelo deep-link ?chat=<id>, o
+// mesmo que notificações de chat já usam (ver components/chat-widget.tsx).
 export async function getActiveSessionsByCompany(companyId: string): Promise<CompanyActiveSession[]> {
   try {
     const res = await fetch(`/api/chats?action=sessions-by-company&companyId=${companyId}`);

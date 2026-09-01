@@ -1,6 +1,7 @@
 'use client';
 
 import React, { useState, useEffect, useMemo, useRef } from 'react';
+import Link from 'next/link';
 import { assignChatSession } from '@/lib/services/chat-session-actions';
 import { getUsers } from '@/lib/services/user-actions-service';
 import { getCompanies, setCompanyActive, updateCompanyLogo, deleteCompany } from '@/lib/services/company-service';
@@ -537,15 +538,13 @@ if (isCompanyPortalUser) {
                 </div>
               </div>
               <div className="flex flex-wrap items-center gap-2">
-                <a
+                <Link
                   href={`/customers/${selectedCompany.id}`}
-                  target="_blank"
-                  rel="noopener noreferrer"
                   title="Ver chamados e atendimentos desta empresa"
                   className="flex items-center gap-2 bg-[var(--surface-pill)] text-[var(--text-secondary)] px-4 py-2.5 rounded-lg text-sm font-bold border border-[var(--border-default)] hover:bg-[var(--border-default)] transition-all"
                 >
                   <Ticket size={16} /> Chamados e Atendimentos
-                </a>
+                </Link>
                 {canManageCompanies && (
                   <button
                     onClick={() => { setCompanyToEdit(selectedCompany); setIsCompanyModalOpen(true); }}
