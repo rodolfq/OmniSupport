@@ -861,7 +861,7 @@ export class WhatsAppService {
             [surveySession.id, surveySession.customer_id || null, senderName, text, JSON.stringify(surveyMetadata)]
           );
           await query(
-            `UPDATE public.chat_histories SET rating = $1
+            `UPDATE public.chat_histories SET rating = $1, rating_at = NOW()
              WHERE id = (SELECT id FROM public.chat_histories WHERE session_id = $2 ORDER BY created_at DESC LIMIT 1)`,
             // O cliente responde "1" (positivo) / "0" (negativo), mas
             // chat_histories.rating é -1/0/1 (negativo/neutro/positivo) em todo

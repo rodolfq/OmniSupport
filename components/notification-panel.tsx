@@ -2,9 +2,11 @@
 
 import React from 'react';
 import Link from 'next/link';
+import { useRouter } from 'next/navigation';
 import { Bell, CalendarClock, Check, Clock, Link2, MessageCircle, Rocket, Star, Ticket } from 'lucide-react';
 import type { AppNotification } from '@/app/app-context';
-import { useApp } from '@/app/app-context';
+import { useApp, getNotificationTargetHref } from '@/app/app-context';
+import { UserRole } from '@/lib/types';
 import { cn, stripNotificationHtml } from '@/lib/utils';
 
 function getNotificationIcon(type: string) {
@@ -37,7 +39,9 @@ interface NotificationPanelProps {
 // (app/(portal)/layout.tsx) e o bottom-sheet mobile (mobile-header.tsx) —
 // cada um só fornece o container/posicionamento ao redor.
 export function NotificationPanel({ notifications, onMarkRead, onItemClick }: NotificationPanelProps) {
-  const { openEvaluationModal } = useApp();
+  const { openEvaluationModal, currentUser } = useApp();
+  const router = useRouter();
+  const isCompanyUser = [UserRole.CUSTOMER, UserRole.EMPLOYEE].includes(currentUser?.role as UserRole);
 
   const handleItemClick = (notif: AppNotification) => {
     onMarkRead(notif.id);
@@ -49,11 +53,13 @@ export function NotificationPanel({ notifications, onMarkRead, onItemClick }: No
         contactId: notif.meta?.contactId,
         contactName: notif.meta?.contactName
       });
-    }
-    // Sem página própria no SSX Desk — o destino é o link do evento/reunião
-    // do Google, externo, então abre numa aba nova em vez de navegar.
-    if (notif.type === 'calendar_event' && notif.meta?.eventUrl) {
+    } else if (notif.type === 'calendar_event' && notif.meta?.eventUrl) {
+      // Sem página própria no SSX Desk — o destino é o link do evento/reunião
+      // do Google, externo, então abre numa aba nova em vez de navegar.
       window.open(notif.meta.eventUrl, '_blank', 'noopener,noreferrer');
+    } else {
+      const href = getNotificationTargetHref(notif, isCompanyUser);
+      if (href) router.push(href);
     }
     onItemClick?.();
   };

@@ -1295,7 +1295,7 @@ export async function POST(request: Request) {
       // todas as contagens de avaliação. Normaliza aqui também.
       const normalizedRating = rating === 1 ? 1 : -1;
       await query(
-        `UPDATE public.chat_histories SET rating = $1
+        `UPDATE public.chat_histories SET rating = $1, rating_at = NOW()
          WHERE id = (SELECT id FROM public.chat_histories WHERE session_id = $2 ORDER BY created_at DESC LIMIT 1)`,
         [normalizedRating, sessionId]
       );

@@ -84,32 +84,44 @@ export default function MyTicketsPage() {
     else if (canSeeTickets && !canSeeInternal) setTicketMode('tickets');
   }, [canSeeTickets, canSeeInternal]);
 
+  // Extraído do efeito de carga pra poder ser chamado de novo no onClose do
+  // TicketDetailModal — mudar o responsável (ou qualquer outro campo que
+  // afete o filtro abaixo) precisa sumir da lista na hora, sem esperar F5,
+  // já que "Meus Chamados" é literalmente definido por esse filtro.
+  const loadTickets = React.useCallback(async (): Promise<Ticket[]> => {
+    if (!currentUser) return [];
+    // Time interno sem "Visualizar chamados": nem busca — evita chamado
+    // nenhum chegando na memória do cliente pra quem só tem Tickets
+    // Internos.
+    if (!canSeeTickets) { setAllTickets([]); return []; }
+    const all = await fetchAllTickets(undefined, { includeClosed: true });
+
+    const canViewEverything = hasPermission(Permission.OUTSIDE_QUEUE_VIEW) || currentUser.role === UserRole.ADMIN;
+
+    const filtered = all.filter(t => {
+      if (canViewEverything) return true;
+      if (currentUser.role === UserRole.CUSTOMER) {
+        if (currentUser.viewAllCompanyTickets) {
+          return t.companyId === currentUser.companyId;
+        }
+        return t.customerId === currentUser.id;
+      }
+      if (currentUser.role === UserRole.EMPLOYEE) {
+        return t.customerId === currentUser.id || t.employeeIds?.includes(currentUser.id);
+      }
+      // Administrador/Equipe/Time Interno usando "Meus Chamados": só o
+      // que é responsabilidade dele, mais o que ainda não tem responsável
+      // (pra poder assumir) — customerId/employeeIds não fazem sentido
+      // pra esses papéis (são conceito do lado empresa-cliente).
+      return t.assigneeId === currentUser.id || !t.assigneeId;
+    });
+    setAllTickets(filtered);
+    return filtered;
+  }, [currentUser, canSeeTickets, hasPermission]);
+
   useEffect(() => {
     async function loadData() {
-        if (!currentUser) return;
-        // Time interno sem "Visualizar chamados": nem busca — evita chamado
-        // nenhum chegando na memória do cliente pra quem só tem Tickets
-        // Internos.
-        if (!canSeeTickets) { setAllTickets([]); return; }
-        const all = await fetchAllTickets(undefined, { includeClosed: true });
-        
-        const canViewEverything = hasPermission(Permission.OUTSIDE_QUEUE_VIEW) || currentUser.role === UserRole.ADMIN;
-    
-        const filtered = all.filter(t => {
-          if (canViewEverything) return true;
-          if (currentUser.role === UserRole.CUSTOMER) {
-            if (currentUser.viewAllCompanyTickets) {
-              return t.companyId === currentUser.companyId;
-            }
-            return t.customerId === currentUser.id;
-          }
-          return (
-            t.customerId === currentUser.id || 
-            t.employeeIds?.includes(currentUser.id) ||
-            t.assigneeId === currentUser.id
-          );
-        });
-        setAllTickets(filtered);
+        const filtered = await loadTickets();
 
         const ticketId = searchParams?.get('ticket');
         if (ticketId) {
@@ -120,7 +132,7 @@ export default function MyTicketsPage() {
         }
     }
     loadData();
-  }, [currentUser?.id, currentUser?.companyId, currentUser?.viewAllCompanyTickets, currentUser?.role, refreshTrigger, hasPermission, searchParams, canSeeTickets]);
+  }, [loadTickets, refreshTrigger, searchParams]);
 
   useEffect(() => {
     async function loadInternal() {
@@ -498,7 +510,10 @@ export default function MyTicketsPage() {
       {selectedTicket && (
         <TicketDetailModal
           ticket={selectedTicket}
-          onClose={() => setSelectedTicket(null)}
+          onClose={async () => {
+            setSelectedTicket(null);
+            await loadTickets();
+          }}
         />
       )}
     </div>

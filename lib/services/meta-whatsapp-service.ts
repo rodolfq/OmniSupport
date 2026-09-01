@@ -161,6 +161,69 @@ export class MetaWhatsAppService {
     });
 
     const finalVariants = [...newVariants];
+    const placeHoldersOuter = finalVariants.map((_, i) => `$${i + 1}`).join(',');
+
+    // Resposta "1"/"0" à pesquisa de satisfação chegando pelo canal Meta:
+    // registrada na PRÓPRIA sessão fechada (sem reabri-la nem criar
+    // atendimento novo) — mesmo tratamento que o canal Baileys já faz em
+    // whatsapp-service.ts (findSurveyableClosedSession). Faltava aqui: sem
+    // isso, a sessão fechada dentro da janela de resposta caía no lookup
+    // geral abaixo, ganhava uma mensagem nova e virava notificação de "nova
+    // mensagem" — do ponto de vista do analista, parecia um chat novo, e o
+    // "1"/"0" nunca virava avaliação em chat_histories.rating.
+    const trimmedText = (message.text?.body || '').trim();
+    if (trimmedText === '0' || trimmedText === '1') {
+      const surveyRes = await query(
+        `SELECT id, customer_id FROM public.chat_sessions
+         WHERE customer_phone IN (${placeHoldersOuter})
+           AND status = 'closed'
+           AND awaiting_survey_until IS NOT NULL
+           AND awaiting_survey_until > NOW()
+         ORDER BY updated_at DESC LIMIT 1`,
+        finalVariants
+      );
+      const surveySession = surveyRes.rows[0];
+      if (surveySession) {
+        try {
+          const surveyMetadata = { whatsapp_jid: phone, source: 'whatsapp' };
+          const surveyMsgRes = await query(
+            `INSERT INTO public.chat_messages (session_id, sender_id, sender_name, text, type, metadata, created_at)
+             VALUES ($1, $2, $3, $4, 'text', $5, NOW())
+             RETURNING id, created_at`,
+            [surveySession.id, surveySession.customer_id || null, name, trimmedText, JSON.stringify(surveyMetadata)]
+          );
+          await query(
+            // "1" positivo / "0" negativo do cliente -> escala -1/0/1 de
+            // chat_histories.rating (ver mesma conversão em whatsapp-service.ts).
+            `UPDATE public.chat_histories SET rating = $1, rating_at = NOW()
+             WHERE id = (SELECT id FROM public.chat_histories WHERE session_id = $2 ORDER BY created_at DESC LIMIT 1)`,
+            [trimmedText === '1' ? 1 : -1, surveySession.id]
+          );
+          await query('UPDATE public.chat_sessions SET awaiting_survey_until = NULL WHERE id = $1', [surveySession.id]);
+
+          const savedSurveyMessage = surveyMsgRes.rows[0];
+          if (savedSurveyMessage) {
+            emitChatEvent(surveySession.id, {
+              type: 'survey-response',
+              sessionId: surveySession.id,
+              message: {
+                id: savedSurveyMessage.id,
+                senderId: surveySession.customer_id || null,
+                senderName: name,
+                text: trimmedText,
+                timestamp: savedSurveyMessage.created_at,
+                type: 'text',
+                metadata: surveyMetadata,
+                attachments: []
+              }
+            });
+          }
+        } catch (e) {
+          console.error('[MetaWhatsApp] Falha ao registrar resposta de pesquisa:', e);
+        }
+        return;
+      }
+    }
 
     // Tudo dentro do lock (mesma chave usada pela integração Baileys em
     // whatsapp-service.ts) para não criar duas sessões quando duas mensagens
@@ -170,7 +233,7 @@ export class MetaWhatsAppService {
       const sessionRes = await query(
         `SELECT id, customer_phone, customer_id, assignee_id, queue_id FROM public.chat_sessions
          WHERE customer_phone IN (${placeHolders})
-           AND (status != 'closed' OR (awaiting_survey_until IS NOT NULL AND awaiting_survey_until > NOW()))
+           AND status != 'closed'
          ORDER BY updated_at DESC LIMIT 1`,
         finalVariants
       );

@@ -540,6 +540,11 @@ CREATE TABLE public.chat_histories (
     duration_seconds INTEGER,
     first_response_seconds INTEGER,
     rating INTEGER CHECK (rating IN (-1, 0, 1)),
+    -- Quando a avaliação foi de fato registrada (cliente respondeu "1"/"0")
+    -- — NULL até lá. Serve de cursor pro polling de notificação no sino (ver
+    -- app/api/notifications/check/route.ts), já que created_at é fixado no
+    -- fechamento do chamado e não muda quando a nota chega depois.
+    rating_at TIMESTAMP WITH TIME ZONE,
     transcript TEXT,
     summary TEXT,
     summary_generated_at TIMESTAMP WITH TIME ZONE,
@@ -562,6 +567,7 @@ CREATE INDEX IF NOT EXISTS idx_chat_histories_dissatisfaction_pending
   ON public.chat_histories (finished_at ASC) WHERE dissatisfaction_processed_at IS NULL;
 CREATE INDEX IF NOT EXISTS idx_chat_histories_session_id ON public.chat_histories(session_id);
 CREATE INDEX IF NOT EXISTS idx_chat_histories_assignee_id ON public.chat_histories(assignee_id);
+CREATE INDEX IF NOT EXISTS idx_chat_histories_rating_at ON public.chat_histories(rating_at) WHERE rating_at IS NOT NULL;
 
 -- Quick Notes Table
 CREATE TABLE public.quick_notes (

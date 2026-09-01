@@ -13,7 +13,7 @@ export interface AppNotification {
   sourceId?: string;
   title: string;
   message: string;
-  type: 'ticket_new' | 'ticket_update' | 'ticket_assigned' | 'ticket_closed' | 'chat_new' | 'chat_message' | 'internal_chat_message' | 'internal_ticket_message' | 'internal_ticket_status' | 'customer_evaluation_prompt' | 'hotfix_overdue' | 'calendar_event';
+  type: 'ticket_new' | 'ticket_update' | 'ticket_assigned' | 'ticket_closed' | 'chat_new' | 'chat_message' | 'chat_survey_response' | 'internal_chat_message' | 'internal_ticket_message' | 'internal_ticket_status' | 'customer_evaluation_prompt' | 'hotfix_overdue' | 'calendar_event';
   targetId?: string;
   recipientId: string;
   timestamp: string;
@@ -34,6 +34,7 @@ export interface NotificationSettings {
   ticket_closed: boolean;
   chat_new: boolean;
   chat_message: boolean;
+  chat_survey_response: boolean;
   internal_chat_message: boolean;
   internal_ticket_message: boolean;
   internal_ticket_status: boolean;
@@ -136,6 +137,7 @@ const DEFAULT_SETTINGS: NotificationSettings = {
   ticket_closed: true,
   chat_new: true,
   chat_message: true,
+  chat_survey_response: true,
   internal_chat_message: true,
   internal_ticket_message: true,
   internal_ticket_status: true,
@@ -145,8 +147,12 @@ const DEFAULT_SETTINGS: NotificationSettings = {
   osNotificationsEnabled: true,
 };
 
-function getNotificationTargetHref(notif: Pick<AppNotification, 'type' | 'targetId'>, isCompanyUser: boolean): string | null {
+export function getNotificationTargetHref(notif: Pick<AppNotification, 'type' | 'targetId'>, isCompanyUser: boolean): string | null {
   if (!notif.targetId) return null;
+  // targetId aqui é chat_histories.id, não chat_sessions.id — precisa vir
+  // antes do startsWith('chat_') genérico abaixo, senão cai no ?chat=
+  // errado (a conversa já está fechada, o destino é o histórico).
+  if (notif.type === 'chat_survey_response') return `/chat-history?historyId=${notif.targetId}`;
   if (notif.type.startsWith('chat_')) return `${isCompanyUser ? '/my-tickets' : '/dashboard'}?chat=${notif.targetId}`;
   if (notif.type === 'internal_chat_message') return '/chat-internal';
   if (notif.type.startsWith('internal_ticket_')) return `/internal-tickets/${notif.targetId}`;

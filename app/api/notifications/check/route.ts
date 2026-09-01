@@ -59,6 +59,12 @@ export async function GET(request: NextRequest) {
        FROM public.chat_messages m
        JOIN public.chat_sessions s ON s.id = m.session_id
        WHERE m.created_at > $1
+         -- Sessão fechada só recebe mensagem nova no caso da resposta da
+         -- pesquisa de satisfação ("1"/"0" atrasado, ver whatsapp-service.ts/
+         -- meta-whatsapp-service.ts) — essa já tem notificação própria
+         -- (chat_survey_response, abaixo). Sem este filtro, a mesma mensagem
+         -- virava também um "Nova mensagem" duplicado e confuso.
+         AND s.status != 'closed'
          AND ${chatWhere}
        ORDER BY m.created_at ASC
        LIMIT 50`,
@@ -242,6 +248,29 @@ export async function GET(request: NextRequest) {
           type: 'internal_chat_message',
           targetId: message.chat_id,
           createdAt: message.created_at
+        });
+      });
+
+      // Resposta "1"/"0" da pesquisa de satisfação, só pra quem atendeu
+      // (chat_histories.assignee_id) — rating_at é o cursor porque created_at
+      // é fixado no fechamento do chamado, antes de o cliente responder.
+      const surveyResponses = await query(
+        `SELECT id, session_id, customer_name, rating, rating_at
+         FROM public.chat_histories
+         WHERE rating_at > $1 AND assignee_id = $2
+         ORDER BY rating_at ASC
+         LIMIT 50`,
+        [since, user.id]
+      );
+
+      surveyResponses.rows.forEach((history) => {
+        events.push({
+          sourceId: `chat_survey_response:${history.id}`,
+          title: history.rating === 1 ? 'Avaliação positiva' : 'Avaliação negativa',
+          message: `${history.customer_name || 'Cliente'} avaliou o atendimento`,
+          type: 'chat_survey_response',
+          targetId: history.id,
+          createdAt: history.rating_at
         });
       });
 

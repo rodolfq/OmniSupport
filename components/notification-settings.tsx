@@ -17,6 +17,7 @@ const ALL_NOTIFICATION_TOGGLES = [
   { key: 'ticket_closed', label: 'Chamado Encerrado', audience: 'all' },
   { key: 'chat_new', label: 'Nova Conversa WhatsApp', audience: 'team' },
   { key: 'chat_message', label: 'Novas Mensagens no Chat', audience: 'all' },
+  { key: 'chat_survey_response', label: 'Avaliação do Cliente (Chat)', audience: 'team' },
   { key: 'internal_chat_message', label: 'Mensagem no Chat Interno', audience: 'team' },
   { key: 'internal_ticket_message', label: 'Mensagem em Ticket Interno', audience: 'team' },
   { key: 'internal_ticket_status', label: 'Status de Ticket Interno', audience: 'team' },
