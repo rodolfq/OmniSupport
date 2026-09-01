@@ -385,7 +385,7 @@ function StatusRow({
         isDragging && "opacity-60 shadow-lg"
       )}
     >
-      <div className="flex items-center gap-3 p-3">
+      <div className="flex flex-wrap items-center gap-3 p-3">
         {isAdmin && (
           <button type="button" {...attributes} {...listeners} className="p-1 text-[var(--text-tertiary)] hover:text-[var(--text-secondary)] cursor-grab active:cursor-grabbing shrink-0">
             <GripVertical size={16} />
@@ -418,7 +418,7 @@ function StatusRow({
           </span>
         )}
 
-        <div className="ml-auto flex items-center gap-4">
+        <div className="ml-auto flex flex-wrap items-center gap-4">
           <label className={cn("flex items-center gap-2 text-[10px] font-black uppercase tracking-widest", isProtected ? "text-[var(--text-tertiary)]" : "text-[var(--text-secondary)] cursor-pointer")}>
             <input
               type="checkbox"

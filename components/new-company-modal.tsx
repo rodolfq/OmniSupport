@@ -1,7 +1,7 @@
 ﻿'use client';
 
 import React, { useState } from 'react';
-import { X, Building2, Phone, Mail, Lock, UserPlus, RefreshCw, Eye, EyeOff, GraduationCap, ShieldAlert, AlertTriangle, ShieldOff, ShieldCheck, Headset, Briefcase } from 'lucide-react';
+import { X, Building2, Phone, Mail, Lock, UserPlus, RefreshCw, Eye, EyeOff, GraduationCap, ShieldAlert, AlertTriangle, ShieldOff, ShieldCheck, Headset, Briefcase, Trash2 } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import { saveCompany, getCustomerEvaluationSummary, updateCompanyTraining, saveCustomerEvaluation } from '@/lib/services/company-service';
 import { Company, User, type CustomerEvaluationScores, type CustomerEvaluationSummary, type CustomerProfileTag, MIN_RELIABLE_EVALUATION_COUNT } from '@/lib/types';
@@ -41,7 +41,7 @@ const EMPTY_EVAL_SCORES: CustomerEvaluationScores = {
   communicationScore: null
 };
 
-export function NewCompanyModal({ isOpen, onClose, onSuccess, company, showInternalSection = false, onRequestDeactivate }: { isOpen: boolean, onClose: () => void, onSuccess?: () => void, company?: Company | null, showInternalSection?: boolean, onRequestDeactivate?: () => void }) {
+export function NewCompanyModal({ isOpen, onClose, onSuccess, company, showInternalSection = false, onRequestDeactivate, onRequestDelete }: { isOpen: boolean, onClose: () => void, onSuccess?: () => void, company?: Company | null, showInternalSection?: boolean, onRequestDeactivate?: () => void, onRequestDelete?: () => void }) {
   const { currentUser } = useApp();
   const [name, setName] = useState('');
   const [phone, setPhone] = useState('');
@@ -506,6 +506,22 @@ export function NewCompanyModal({ isOpen, onClose, onSuccess, company, showInter
                     {estaDesativada
                       ? <><ShieldCheck size={18} /> Reativar</>
                       : <><ShieldOff size={18} /> Desativar</>}
+                  </button>
+                )}
+                {/* Ação separada e destrutiva de verdade — diferente de
+                    Desativar, esta apaga a empresa (e, se houver, chamados/
+                    avaliações vinculados) sem volta. Confirmação própria em
+                    customers/page.tsx, que mostra o que será apagado antes de
+                    seguir. */}
+                {isEditing && onRequestDelete && (
+                  <button
+                    type="button"
+                    onClick={onRequestDelete}
+                    disabled={isLoading}
+                    title="Excluir empresa definitivamente — não pode ser desfeito"
+                    className="flex items-center gap-2 px-4 py-3.5 rounded-xl text-sm font-bold border border-[var(--text-danger)]/30 text-[var(--text-danger)] bg-[var(--surface-card)] hover:bg-[var(--surface-danger)] transition-all disabled:opacity-50"
+                  >
+                    <Trash2 size={18} /> Excluir
                   </button>
                 )}
                 <button

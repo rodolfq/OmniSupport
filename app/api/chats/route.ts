@@ -542,20 +542,49 @@ export async function GET(request: NextRequest) {
          ORDER BY last_message_at DESC`,
         [authenticatedUser.id]
       );
-      return NextResponse.json(res.rows.map(c => ({
-        id: c.id,
-        name: c.name,
-        imageUrl: c.image_url,
-        type: c.type,
-        memberIds: c.member_ids || [],
-        messages: [],
-        lastMessageAt: c.last_message_at || c.created_at,
-        pinnedBy: c.pinned_by || [],
-        pinnedMessageIds: c.pinned_message_ids || [],
-        mutedBy: c.muted_by || [],
-        readLaterBy: c.read_later_by || [],
-        hiddenBy: c.hidden_by || []
-      })));
+
+      // Mesmo padrão de `sessions-summary` (chat com cliente): busca só a
+      // última mensagem de cada sala, sem trazer o histórico inteiro —
+      // messages: [] acima nunca foi populado, e a lista não tinha como
+      // mostrar preview nenhum.
+      const chatIds = res.rows.map(c => c.id);
+      const lastMessageByChat = new Map<string, any>();
+      if (chatIds.length > 0) {
+        const lastMessagesRes = await query(
+          `SELECT DISTINCT ON (chat_id) chat_id, id, sender_id, sender_name, text, type, created_at
+           FROM public.internal_chat_messages
+           WHERE chat_id = ANY($1::text[])
+           ORDER BY chat_id, created_at DESC`,
+          [chatIds]
+        );
+        lastMessagesRes.rows.forEach(m => lastMessageByChat.set(m.chat_id, m));
+      }
+
+      return NextResponse.json(res.rows.map(c => {
+        const lastMessage = lastMessageByChat.get(c.id);
+        return {
+          id: c.id,
+          name: c.name,
+          imageUrl: c.image_url,
+          type: c.type,
+          memberIds: c.member_ids || [],
+          messages: [],
+          lastMessage: lastMessage ? {
+            id: lastMessage.id,
+            senderId: lastMessage.sender_id,
+            senderName: lastMessage.sender_name,
+            text: lastMessage.text,
+            timestamp: lastMessage.created_at,
+            type: lastMessage.type
+          } : null,
+          lastMessageAt: c.last_message_at || c.created_at,
+          pinnedBy: c.pinned_by || [],
+          pinnedMessageIds: c.pinned_message_ids || [],
+          mutedBy: c.muted_by || [],
+          readLaterBy: c.read_later_by || [],
+          hiddenBy: c.hidden_by || []
+        };
+      }));
     }
 
     if (action === 'internal-messages') {
@@ -616,8 +645,30 @@ export async function GET(request: NextRequest) {
       // Histórico de versões de uma mensagem editada (auditoria) — mostrado
       // ao clicar em "editado" na bolha da mensagem, ver
       // migrations/chat_messages_realtime_features.sql.
+      // Restrito a quem é da equipe ou dono da sessão (achado de segurança:
+      // antes, qualquer usuário autenticado alcançava o texto original de
+      // qualquer conversa só sabendo o messageId).
       const messageId = searchParams.get('messageId');
       if (!messageId) return NextResponse.json({ error: 'messageId é obrigatório' }, { status: 400 });
+
+      const token = request.cookies.get('token')?.value;
+      const authenticatedUser = token ? await verifyJWT(token) : null;
+      if (!authenticatedUser?.id) return NextResponse.json({ error: 'Não autenticado.' }, { status: 401 });
+
+      const ownerRes = await query(
+        `SELECT cs.customer_id, p.role
+         FROM public.chat_messages cm
+         JOIN public.chat_sessions cs ON cs.id = cm.session_id
+         JOIN public.profiles p ON p.id = $2
+         WHERE cm.id = $1`,
+        [messageId, authenticatedUser.id]
+      );
+      const owner = ownerRes.rows[0];
+      if (!owner) return NextResponse.json({ error: 'Mensagem não encontrada.' }, { status: 404 });
+      const isOwner = owner.customer_id === authenticatedUser.id;
+      if (!isTeamRole(String(owner.role)) && !isOwner) {
+        return NextResponse.json({ error: 'Sem permissão para ver este histórico.' }, { status: 403 });
+      }
 
       const res = await query(
         `SELECT e.previous_text, e.edited_at, p.name AS edited_by_name
@@ -881,7 +932,7 @@ export async function POST(request: Request) {
       const { sessionId, message } = body;
 
       const sessionRes = await query(
-        `SELECT id, customer_id, customer_name, customer_phone, status, queue_id
+        `SELECT id, customer_id, customer_name, customer_phone, status, queue_id, assignee_id
          FROM public.chat_sessions WHERE id = $1`,
         [sessionId]
       );
@@ -891,6 +942,11 @@ export async function POST(request: Request) {
       }
 
       let targetSessionId = sessionId;
+      // Sessão reaberta (abaixo) cria um atendimento novo com seu próprio
+      // responsável/fila — session.assignee_id/queue_id (do atendimento
+      // ANTERIOR, fechado) não valem mais pra decidir quem é notificado.
+      let effectiveAssigneeId: string | null = session.assignee_id;
+      let effectiveQueueId: string | null = session.queue_id;
 
       if (session.status === 'closed') {
         // Atendimento anterior está de fato encerrado: mensagem nova é outro
@@ -920,6 +976,8 @@ export async function POST(request: Request) {
              VALUES ($1, $2, $3, $4, $5, $6, $7, NOW(), NOW())`,
             [newId, session.customer_id, session.customer_name, session.customer_phone, assigneeId ? 'active' : 'pending', queue?.id || null, assigneeId]
           );
+          effectiveAssigneeId = assigneeId;
+          effectiveQueueId = queue?.id || null;
         });
         targetSessionId = newId;
       }
@@ -1014,7 +1072,7 @@ export async function POST(request: Request) {
             ? await query('SELECT role FROM public.profiles WHERE id = $1', [message.senderId])
             : { rows: [] as any[] };
           const senderIsTeam = isTeamRole(senderRoleRes.rows[0]?.role);
-          const recipients = await getChatRecipientIds({ customerId: session.customer_id }, message.senderId || null, senderIsTeam);
+          const recipients = await getChatRecipientIds({ customerId: session.customer_id, assigneeId: effectiveAssigneeId, queueId: effectiveQueueId }, message.senderId || null, senderIsTeam);
           // Não manda push pra quem já está com essa conversa aberta (conectado
           // ao SSE dela agora) — mesmo espírito do WhatsApp.
           const toNotify = await excludeActiveViewers(targetSessionId, recipients);
@@ -1477,6 +1535,29 @@ export async function POST(request: Request) {
         [message.timestamp || new Date().toISOString(), chatId]
       );
       emitInternalChatEvent(chatId, { type: 'message', chatId });
+
+      // Push real (Web Push) pra quem não é o remetente — sem isso, quem tem
+      // a aba minimizada só sabia da mensagem no próximo poll de
+      // notificações (até 10s, sujeito ainda ao throttling de aba em segundo
+      // plano do navegador). Mesmo padrão sem checagem de "viewer ativo" já
+      // usado pelo canal WhatsApp (não existe hoje um "internal_chat_viewers"
+      // equivalente a chat_session_viewers).
+      (async () => {
+        try {
+          const chatRes = await query('SELECT member_ids FROM public.internal_chats WHERE id = $1', [chatId]);
+          const memberIds: string[] = chatRes.rows[0]?.member_ids || [];
+          const recipientIds = memberIds.filter(id => id !== message.senderId);
+          await Promise.all(recipientIds.map(id => notifyUser(id, {
+            title: `Nova mensagem de ${message.senderName || 'alguém do time'}`,
+            body: message.text || 'Anexo enviado',
+            url: '/chat-internal',
+            tag: `internal_chat_message:${inserted.rows[0].id}`
+          })));
+        } catch (err) {
+          console.error('[push] Falha ao notificar chat interno:', err);
+        }
+      })();
+
       return NextResponse.json({ success: true, id: inserted.rows[0].id });
     }
 

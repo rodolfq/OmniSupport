@@ -72,17 +72,20 @@ function normalize(s: string): string {
   return s.normalize('NFD').replace(/\p{Diacritic}/gu, '').toLowerCase().trim();
 }
 
-// Mês e dia "de hoje" sempre pelo Postgres (ver cabeçalho do arquivo) — nunca
+// Mês (alvo, considerando monthOffset) e dia "de hoje" (sempre o de verdade,
+// nunca o navegado — é o que classifyWeekendRows usa pra marcar passado/
+// próximo/restante) sempre pelo Postgres (ver cabeçalho do arquivo) — nunca
 // `new Date()` do processo Node, que roda em UTC. `todayIso` viaja pro
-// cliente pra destacar passado/próximo fim de semana/restante sem cada tela
-// precisar de outra chamada — ver classifyWeekendRows em
-// lib/weekend-schedule-utils.ts.
-async function currentMonthAndToday(): Promise<{ monthName: string; todayIso: string }> {
+// cliente sem cada tela precisar de outra chamada — ver classifyWeekendRows
+// em lib/weekend-schedule-utils.ts.
+async function resolveMonthAndToday(monthOffset: number): Promise<{ monthName: string; todayIso: string }> {
   const res = await query(
     `SELECT EXTRACT(MONTH FROM NOW() AT TIME ZONE 'America/Sao_Paulo')::int AS mes,
             to_char(NOW() AT TIME ZONE 'America/Sao_Paulo', 'YYYY-MM-DD') AS hoje`
   );
-  return { monthName: PT_MONTHS[res.rows[0].mes - 1], todayIso: res.rows[0].hoje };
+  const currentMonthIndex = res.rows[0].mes - 1; // 0-based
+  const targetIndex = ((currentMonthIndex + monthOffset) % 12 + 12) % 12;
+  return { monthName: PT_MONTHS[targetIndex], todayIso: res.rows[0].hoje };
 }
 
 // --- Link configurável -------------------------------------------------
@@ -152,7 +155,7 @@ export async function saveWeekendScheduleSheetId(rawInput: string | null, actorI
   );
   // Sem isso, a tela continuaria mostrando dado da planilha ANTIGA até o
   // cache de 5 min expirar sozinho, mesmo com o link já trocado.
-  cache = null;
+  cache.clear();
 }
 
 // --- Descoberta da aba (nome -> gid) ----------------------------------------
@@ -288,17 +291,20 @@ function extractWeekendSection(rows: string[][]): WeekendScheduleRow[] {
 // não, mas o padrão já usado em outros lugares do projeto): evita bater no
 // Google a cada carregamento de tela — a planilha muda no máximo algumas
 // vezes por dia. 5 min é curto o bastante pra não incomodar quem acabou de
-// editar e clicou em "Atualizar".
+// editar e clicou em "Atualizar". Chave por monthOffset — navegar pra outro
+// mês não pode invalidar/atrasar o mês atual (usado também pelo popover do
+// Giro).
 const CACHE_TTL_MS = 5 * 60 * 1000;
-let cache: { data: WeekendScheduleResult; expiresAt: number } | null = null;
+const cache = new Map<number, { data: WeekendScheduleResult; expiresAt: number }>();
 
-export async function getWeekendSchedule(forceRefresh = false): Promise<WeekendScheduleResult> {
-  if (!forceRefresh && cache && cache.expiresAt > Date.now()) {
-    return cache.data;
+export async function getWeekendSchedule(forceRefresh = false, monthOffset = 0): Promise<WeekendScheduleResult> {
+  const cached = cache.get(monthOffset);
+  if (!forceRefresh && cached && cached.expiresAt > Date.now()) {
+    return cached.data;
   }
 
   const sheetId = await resolvePublishedSheetId();
-  const [{ monthName, todayIso }, tabs] = await Promise.all([currentMonthAndToday(), fetchTabList(sheetId)]);
+  const [{ monthName, todayIso }, tabs] = await Promise.all([resolveMonthAndToday(monthOffset), fetchTabList(sheetId)]);
   const tab = pickCurrentMonthTab(tabs, monthName);
   const csvRes = await fetchGoogleSheets(
     `https://docs.google.com/spreadsheets/d/e/${sheetId}/pub?output=csv&gid=${tab.gid}`
@@ -322,6 +328,6 @@ export async function getWeekendSchedule(forceRefresh = false): Promise<WeekendS
   }
 
   const result: WeekendScheduleResult = { tabName: tab.name, rows, sheetId, todayIso, fetchedAt: new Date().toISOString() };
-  cache = { data: result, expiresAt: Date.now() + CACHE_TTL_MS };
+  cache.set(monthOffset, { data: result, expiresAt: Date.now() + CACHE_TTL_MS });
   return result;
 }

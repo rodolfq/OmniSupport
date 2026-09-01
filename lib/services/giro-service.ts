@@ -43,6 +43,14 @@ function isValidDate(dateStr: string): boolean {
   return /^\d{4}-\d{2}-\d{2}$/.test(dateStr) && !Number.isNaN(new Date(`${dateStr}T00:00:00Z`).getTime());
 }
 
+// Dia da semana é propriedade fixa do calendário (não depende de "agora"), daí
+// dar pra checar com Date puro em vez de round-trip no Postgres — 0=domingo,
+// 6=sábado, parseado como UTC pra não escorregar de dia por fuso local.
+function isWeekend(dateStr: string): boolean {
+  const day = new Date(`${dateStr}T00:00:00Z`).getUTCDay();
+  return day === 0 || day === 6;
+}
+
 interface EligibleParticipant {
   userId: string;
   name: string;
@@ -317,9 +325,12 @@ export async function getGiroDay(dateStr: string): Promise<GiroDay> {
   const isPast = dateStr < today;
 
   const existing = await query('SELECT * FROM public.giro_days WHERE giro_date = $1::date', [dateStr]);
-  if (existing.rows[0]) return hydrateDay(existing.rows[0], isPast);
+  if (existing.rows[0]) return hydrateDay(existing.rows[0], isPast || isWeekend(dateStr));
 
-  if (isPast) {
+  // Fim de semana nunca gera giro — mesmo tratamento de "somente leitura, sem
+  // registro" já usado pra data passada (sábado/domingo não entram no
+  // rodízio, então inventar uma ordem pra eles não faz sentido).
+  if (isPast || isWeekend(dateStr)) {
     return {
       id: '', date: dateStr, handoffMode: 'none', handoffUserId: null,
       rows: [], history: [], isReadOnly: true, exists: false
@@ -406,6 +417,7 @@ export async function reprocessDay(dateStr: string): Promise<{ error?: string }>
 
   const today = toDateOnly(await getTodaySP());
   if (dateStr < today) return { error: 'Datas passadas não são reprocessadas.' };
+  if (isWeekend(dateStr)) return { error: 'Fins de semana não têm giro.' };
 
   const dayRes = await query('SELECT * FROM public.giro_days WHERE giro_date = $1::date', [dateStr]);
   const day = dayRes.rows[0];

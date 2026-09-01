@@ -9,10 +9,15 @@ export async function GET(request: NextRequest) {
   const check = await assertCanViewGiro();
   if (!check.ok) return NextResponse.json({ error: check.error }, { status: permissionErrorStatus(check.error) });
 
-  const forceRefresh = new URL(request.url).searchParams.get('refresh') === '1';
+  const params = new URL(request.url).searchParams;
+  const forceRefresh = params.get('refresh') === '1';
+  // Deslocamento em meses a partir do atual (0 = mês atual, 1 = próximo,
+  // -1 = anterior) — navegação de mês na tela "Escala Fim de Semana".
+  const monthOffsetParam = parseInt(params.get('month') || '0', 10);
+  const monthOffset = Number.isFinite(monthOffsetParam) ? monthOffsetParam : 0;
 
   try {
-    const result = await getWeekendSchedule(forceRefresh);
+    const result = await getWeekendSchedule(forceRefresh, monthOffset);
     return NextResponse.json(result);
   } catch (error: any) {
     if (error instanceof WeekendScheduleNotFoundError) {

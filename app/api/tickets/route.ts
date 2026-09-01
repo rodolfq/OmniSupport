@@ -93,14 +93,25 @@ export async function GET(request: Request) {
       const ticketId = searchParams.get('ticketId');
       if (!ticketId) return NextResponse.json({ error: 'ticketId é obrigatório' }, { status: 400 });
 
+      // Nome/foto do autor via JOIN, não mais resolvidos no client contra
+      // /api/users?type=all — aquela rota é restrita a papel de equipe
+      // (Cliente/Funcionário recebem 403), então o próprio autor de uma
+      // mensagem (inclusive a de quem está vendo) nunca resolvia pra eles:
+      // avatar caía no fallback genérico "U" e o nome ficava em branco.
       const res = await query(
-        'SELECT * FROM public.ticket_messages WHERE ticket_id = $1 ORDER BY created_at DESC',
+        `SELECT m.*, p.name AS sender_name, p.avatar_thumb_url AS sender_avatar_thumb_url
+           FROM public.ticket_messages m
+           LEFT JOIN public.profiles p ON p.id = m.author_id
+          WHERE m.ticket_id = $1
+          ORDER BY m.created_at DESC`,
         [ticketId]
       );
       return NextResponse.json(res.rows.map(m => ({
         id: m.id,
         ticketId: m.ticket_id,
         senderId: m.author_id,
+        senderName: m.sender_name,
+        senderAvatarThumbUrl: m.sender_avatar_thumb_url,
         text: m.content,
         timestamp: m.created_at,
         isVisibleToCustomer: m.is_visible_to_customer,

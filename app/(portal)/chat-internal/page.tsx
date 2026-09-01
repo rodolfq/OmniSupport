@@ -163,6 +163,8 @@ export default function ChatInternalPage() {
   const [bubbleColor, setBubbleColor] = useState(currentUser?.chatPreferences?.bubbleColor || 'indigo');
   const [avatarSize, setAvatarSize] = useState(currentUser?.chatPreferences?.avatarSize || 'md');
   const [isAddingMember, setIsAddingMember] = useState(false);
+  const [addMemberSearch, setAddMemberSearch] = useState('');
+  const [addMemberSelectedIds, setAddMemberSelectedIds] = useState<Set<string>>(new Set());
   const [contextMenu, setContextMenu] = useState<{ x: number, y: number, roomId: string | null } | null>(null);
   const [findChatsWithUserId, setFindChatsWithUserId] = useState<string | null>(null);
   const [showHidden, setShowHidden] = useState(false);
@@ -711,20 +713,26 @@ export default function ChatInternalPage() {
     toast.success('Grupo atualizado com sucesso!');
   };
 
-  const handleAddMember = (userId: string) => {
+  const handleAddMembers = (userIds: string[]) => {
     if (!selectedRoomId || !selectedRoom) return;
-    if (selectedRoom.memberIds.includes(userId)) return;
-    
-    const updatedRoom = { 
-      ...selectedRoom, 
-      memberIds: [...selectedRoom.memberIds, userId],
+    const newIds = userIds.filter(id => !selectedRoom.memberIds.includes(id));
+    if (newIds.length === 0) return;
+
+    const names = newIds.map(id => allUsers.find(u => u.id === id)?.name).filter((n): n is string => !!n);
+    const namesLabel = names.length > 1
+      ? `${names.slice(0, -1).join(', ')} e ${names[names.length - 1]}`
+      : names[0];
+
+    const updatedRoom = {
+      ...selectedRoom,
+      memberIds: [...selectedRoom.memberIds, ...newIds],
       messages: [
         ...selectedRoom.messages,
         {
           id: `sys-${generateId()}`,
           senderId: 'system',
           senderName: 'Sistema',
-          text: `${currentUser?.name} adicionou ${allUsers.find(u => u.id === userId)?.name} ao grupo`,
+          text: `${currentUser?.name} adicionou ${namesLabel} ao grupo`,
           timestamp: new Date().toISOString(),
           type: 'system' as const
         }
@@ -733,7 +741,9 @@ export default function ChatInternalPage() {
     InternalChatService.saveChat(updatedRoom);
     loadRooms();
     setIsAddingMember(false);
-    toast.success('Membro adicionado ao grupo');
+    setAddMemberSelectedIds(new Set());
+    setAddMemberSearch('');
+    toast.success(newIds.length > 1 ? `${newIds.length} membros adicionados ao grupo` : 'Membro adicionado ao grupo');
   };
 
   const handleRemoveMember = (userId: string) => {
@@ -1168,7 +1178,7 @@ export default function ChatInternalPage() {
             <div className="space-y-2">
               <p className="px-4 text-[10px] font-semibold uppercase text-[var(--text-tertiary)] tracking-widest">Conversas</p>
               {filteredRooms.map((room, roomIdx) => {
-                const lastMessage = room.messages[room.messages.length - 1];
+                const lastMessage = room.lastMessage;
                 const isActive = selectedRoomId === room.id;
                 
                 // For direct chats, find the other user's info
@@ -1780,7 +1790,7 @@ export default function ChatInternalPage() {
                       </div>
 
                       <span className="flex items-center gap-1.5 text-[9px] font-bold text-[var(--text-tertiary)] mt-1 px-1">
-                        <ClientTime date={msg.timestamp} />
+                        <ClientTime date={msg.timestamp} showDate showTime />
                         {isMine && (() => {
                           // 3 estados persistidos de verdade agora (antes
                           // era só client-side): 1 check = enviado, 2
@@ -2366,8 +2376,12 @@ export default function ChatInternalPage() {
                     <div className="flex items-center gap-2 text-[10px] font-semibold uppercase text-[var(--text-tertiary)] tracking-widest">
                        <Users size={14} /> Membros ({new Set(selectedRoom.memberIds || []).size})
                     </div>
-                    <button 
-                      onClick={() => setIsAddingMember(!isAddingMember)}
+                    <button
+                      onClick={() => {
+                        setIsAddingMember(!isAddingMember);
+                        setAddMemberSearch('');
+                        setAddMemberSelectedIds(new Set());
+                      }}
                       className="flex items-center gap-2 text-[10px] font-semibold uppercase text-[var(--accent-text)] hover:text-indigo-800 tracking-widest"
                     >
                       <UserPlus size={14} /> Adicionar
@@ -2375,30 +2389,62 @@ export default function ChatInternalPage() {
                   </div>
 
                   {isAddingMember && (
-                    <motion.div 
+                    <motion.div
                       initial={{ opacity: 0, y: -10 }}
                       animate={{ opacity: 1, y: 0 }}
                       className="p-4 bg-[var(--surface-card)] rounded-3xl border border-[var(--border-default)] animate-in fade-in slide-in-from-top-2"
                     >
-                       <p className="text-[10px] font-semibold text-[var(--text-tertiary)] uppercase mb-3 px-2">Selecionar Usuário</p>
+                       <p className="text-[10px] font-semibold text-[var(--text-tertiary)] uppercase mb-3 px-2">Selecionar Usuários</p>
+                       <input
+                          type="text"
+                          value={addMemberSearch}
+                          onChange={(e) => setAddMemberSearch(e.target.value)}
+                          placeholder="Buscar por nome..."
+                          className="w-full mb-3 px-3 py-2 rounded-xl border border-[var(--border-default)] bg-[var(--surface-page)] text-xs font-medium outline-none focus:ring-2 focus:ring-[var(--accent)]/20 focus:border-[var(--accent)]"
+                       />
                        <div className="max-h-[200px] overflow-y-auto space-y-1">
-                          {allUsers.filter(u => !selectedRoom.memberIds?.includes(u.id)).map((user, idx) => (
-                            <button 
-                              key={`add-member-${user.id || idx}`}
-                              onClick={() => handleAddMember(user.id)}
-                              className="w-full flex items-center gap-3 p-3 rounded-2xl hover:bg-[var(--surface-card)] transition-all text-left"
-                            >
-                               <div className="w-8 h-8 rounded-lg bg-[var(--accent)] flex items-center justify-center text-white text-xs font-black">
-                                  {user.name.charAt(0)}
-                               </div>
-                               <div>
-                                  <p className="text-xs font-black text-[var(--text-primary)]">{user.name}</p>
-                                  <p className="text-[9px] font-bold text-[var(--text-tertiary)] uppercase tracking-tighter">{user.role}</p>
-                               </div>
-                               <Plus size={14} className="ml-auto text-[var(--accent-text)]" />
-                            </button>
-                          ))}
+                          {allUsers
+                            .filter(u => !selectedRoom.memberIds?.includes(u.id))
+                            .filter(u => u.name.toLowerCase().includes(addMemberSearch.trim().toLowerCase()))
+                            .map((user, idx) => {
+                              const isSelected = addMemberSelectedIds.has(user.id);
+                              return (
+                                <button
+                                  key={`add-member-${user.id || idx}`}
+                                  onClick={() => setAddMemberSelectedIds(prev => {
+                                    const next = new Set(prev);
+                                    next.has(user.id) ? next.delete(user.id) : next.add(user.id);
+                                    return next;
+                                  })}
+                                  className={cn(
+                                    "w-full flex items-center gap-3 p-3 rounded-2xl hover:bg-[var(--surface-page)] transition-all text-left",
+                                    isSelected && "bg-[var(--accent)]/10"
+                                  )}
+                                >
+                                   <div className="w-8 h-8 rounded-lg bg-[var(--accent)] flex items-center justify-center text-white text-xs font-black shrink-0">
+                                      {user.name.charAt(0)}
+                                   </div>
+                                   <div className="flex-1 min-w-0">
+                                      <p className="text-xs font-black text-[var(--text-primary)] truncate">{user.name}</p>
+                                      <p className="text-[9px] font-bold text-[var(--text-tertiary)] uppercase tracking-tighter">{user.role}</p>
+                                   </div>
+                                   <div className={cn(
+                                      "w-5 h-5 rounded-md border-2 flex items-center justify-center shrink-0",
+                                      isSelected ? "bg-[var(--accent)] border-[var(--accent)]" : "border-[var(--border-default)]"
+                                   )}>
+                                      {isSelected && <Check size={12} className="text-white" />}
+                                   </div>
+                                </button>
+                              );
+                            })}
                        </div>
+                       <button
+                          onClick={() => handleAddMembers([...addMemberSelectedIds])}
+                          disabled={addMemberSelectedIds.size === 0}
+                          className="w-full mt-3 py-2.5 rounded-xl text-xs font-black uppercase tracking-widest text-white bg-[var(--accent)] hover:bg-[var(--accent-hover)] transition-all disabled:opacity-50 disabled:cursor-not-allowed"
+                       >
+                          Adicionar {addMemberSelectedIds.size > 0 ? `${addMemberSelectedIds.size} selecionado${addMemberSelectedIds.size > 1 ? 's' : ''}` : ''}
+                       </button>
                     </motion.div>
                   )}
 

@@ -21,7 +21,6 @@ import {
   Attachment,
   User,
   Company,
-  CategoryConfig,
   RequestTypeConfig,
   ProductConfig,
   PriorityConfig,
@@ -33,7 +32,6 @@ import { toast } from "sonner";
 import {
   useCompaniesQuery,
   useProfilesLiteQuery,
-  useConfigCategoriesQuery,
   useConfigPrioritiesQuery,
   useConfigStatusesQuery,
   useQueuesQuery,
@@ -65,7 +63,6 @@ export function NewTicketModal() {
   const [selectedCustomerId, setSelectedCustomerId] = useState("");
   const [employeeIds, setEmployeeIds] = useState<string[]>([]);
   const [queueId, setQueueId] = useState("");
-  const [categoryId, setCategoryId] = useState("");
   const [requestTypeId, setRequestTypeId] = useState("");
   const [productId, setProductId] = useState("");
   const [priority, setPriority] = useState("");
@@ -133,14 +130,6 @@ export function NewTicketModal() {
     [users]
   );
 
-  // selectableOptions sem id selecionado: aqui o chamado está sendo CRIADO, e
-  // opção arquivada não deve mais ser oferecida a chamado novo — só continua
-  // visível onde já foi usada (ver ticket-detail-modal.tsx).
-  const { data: categoriesData } = useConfigCategoriesQuery({ enabled: isNewTicketModalOpen });
-  const availableCategories = React.useMemo(
-    () => selectableOptions((categoriesData || []) as CategoryConfig[]),
-    [categoriesData]
-  );
   const { data: queuesData } = useQueuesQuery({ enabled: isNewTicketModalOpen });
   const availableQueues = React.useMemo(() => (queuesData || []) as Array<{ id: string; name: string }>, [queuesData]);
   const { data: requestTypesData } = useConfigRequestTypesQuery({ enabled: isNewTicketModalOpen });
@@ -192,7 +181,6 @@ export function NewTicketModal() {
     setSelectedCustomerId("");
     setEmployeeIds([]);
     setQueueId("");
-    setCategoryId("");
     setRequestTypeId("");
     setProductId("");
     setPriority("");
@@ -239,13 +227,24 @@ export function NewTicketModal() {
     isCustomer,
   ]);
 
-  // Prioridade padrão (a primeira cadastrada) — só quando o campo ainda está
-  // vazio, pra não sobrescrever escolha do usuário. Separado do efeito acima
-  // porque agora depende dos dados do hook (podem já estar em cache e
-  // resolver antes/depois do reset de campos).
+  // Solicitante principal padrão: quando quem cria é Admin/Equipe (o cliente
+  // já se auto-seleciona acima), pré-preenche com quem for marcado em
+  // "Funcionários com Acesso" — só enquanto o campo estiver vazio, pra não
+  // sobrescrever escolha manual.
   useEffect(() => {
-    if (isNewTicketModalOpen && !priority && availablePriorities[0]) {
-      setPriority(availablePriorities[0].label);
+    if (!isCustomer && !selectedCustomerId && employeeIds.length > 0) {
+      setSelectedCustomerId(employeeIds[0]);
+    }
+  }, [isCustomer, selectedCustomerId, employeeIds]);
+
+  // Prioridade padrão "Baixa" — só quando o campo ainda está vazio, pra não
+  // sobrescrever escolha do usuário. Busca pelo label explicitamente porque
+  // config_priorities não tem sort_order (ordem de availablePriorities não é
+  // garantida); cai pro primeiro cadastrado se "Baixa" não existir na lista.
+  useEffect(() => {
+    if (isNewTicketModalOpen && !priority && availablePriorities.length > 0) {
+      const baixa = availablePriorities.find((p) => p.label === "Baixa");
+      setPriority((baixa ?? availablePriorities[0]).label);
     }
   }, [isNewTicketModalOpen, priority, availablePriorities]);
 
@@ -299,7 +298,6 @@ export function NewTicketModal() {
       companyId: selectedCompanyId,
       customerId: selectedCustomerId || currentUser.id,
       queueId: queueId || undefined,
-      categoryId: categoryId || undefined,
       requestTypeId: requestTypeId || undefined,
       productId: productId || undefined,
       employeeIds: employeeIds,
@@ -430,7 +428,16 @@ export function NewTicketModal() {
                     </label>
                     <StyledSelect
                       value={selectedCustomerId}
-                      onChange={(e) => setSelectedCustomerId(e.target.value)}
+                      onChange={(e) => {
+                        const val = e.target.value;
+                        setSelectedCustomerId(val);
+                        // Solicitante principal também recebe atualizações —
+                        // entra marcado em "Funcionários com Acesso" sozinho,
+                        // sem tirar quem já estava marcado ali.
+                        if (val) {
+                          setEmployeeIds((prev) => (prev.includes(val) ? prev : [...prev, val]));
+                        }
+                      }}
                       className="w-full bg-[var(--surface-card)] border border-[var(--border-default)] rounded-xl px-4 py-2.5 text-sm font-medium focus:ring-2 focus:ring-[var(--accent)]/20 focus:border-[var(--accent)] transition-all appearance-none outline-none disabled:opacity-60"
                       required
                     >
@@ -490,97 +497,87 @@ export function NewTicketModal() {
                 />
               </div>
 
-              <div className="grid grid-cols-2 gap-4">
-                <div className="space-y-1">
-                  <label className="text-[10px] font-semibold uppercase tracking-widest text-[var(--text-tertiary)] ml-1">
-                    Fila
-                  </label>
-                  <StyledSelect
-                    value={queueId}
-                    onChange={(e) => setQueueId(e.target.value)}
-                    className="w-full bg-[var(--surface-card)] border border-[var(--border-default)] rounded-xl px-4 py-2.5 text-sm font-medium focus:ring-2 focus:ring-[var(--accent)]/20 focus:border-[var(--accent)] outline-none transition-all appearance-none"
-                  >
-                    <option value="">Selecione uma fila</option>
-                    {availableQueues.map((q) => (
-                      <option key={q.id} value={q.id}>
-                        {q.name}
-                      </option>
-                    ))}
-                  </StyledSelect>
-                </div>
-                <div className="space-y-1">
-                  <label className="text-[10px] font-semibold uppercase tracking-widest text-[var(--text-tertiary)] ml-1">
-                    Categoria
-                  </label>
-                  <StyledSelect
-                    value={categoryId}
-                    onChange={(e) => setCategoryId(e.target.value)}
-                    className="w-full bg-[var(--surface-card)] border border-[var(--border-default)] rounded-xl px-4 py-2.5 text-sm font-medium focus:ring-2 focus:ring-[var(--accent)]/20 focus:border-[var(--accent)] outline-none transition-all appearance-none"
-                  >
-                    <option value="">Selecione uma categoria</option>
-                    {availableCategories.map((cat) => (
-                      <option key={cat.id} value={cat.id}>
-                        {cat.label}
-                      </option>
-                    ))}
-                  </StyledSelect>
-                </div>
-              </div>
+              {/* Fila/Tipo/Prioridade/Produto são detalhe operacional interno —
+                  Cliente/Funcionário só preenchem Assunto, Descrição e
+                  Anexos; o resto fica a cargo de quem atende (prioridade
+                  ainda recebe o padrão "Baixa" por baixo dos panos, ver
+                  efeito de default acima). */}
+              {!isCustomer && (
+                <>
+                  <div className="space-y-1">
+                    <label className="text-[10px] font-semibold uppercase tracking-widest text-[var(--text-tertiary)] ml-1">
+                      Fila
+                    </label>
+                    <StyledSelect
+                      value={queueId}
+                      onChange={(e) => setQueueId(e.target.value)}
+                      className="w-full bg-[var(--surface-card)] border border-[var(--border-default)] rounded-xl px-4 py-2.5 text-sm font-medium focus:ring-2 focus:ring-[var(--accent)]/20 focus:border-[var(--accent)] outline-none transition-all appearance-none"
+                    >
+                      <option value="">Selecione uma fila</option>
+                      {availableQueues.map((q) => (
+                        <option key={q.id} value={q.id}>
+                          {q.name}
+                        </option>
+                      ))}
+                    </StyledSelect>
+                  </div>
 
-              <div className="grid grid-cols-2 gap-4">
-                <div className="space-y-1">
-                  <label className="text-[10px] font-semibold uppercase tracking-widest text-[var(--text-tertiary)] ml-1">
-                    Tipo de Solicitação
-                  </label>
-                  <StyledSelect
-                    value={requestTypeId}
-                    onChange={(e) => setRequestTypeId(e.target.value)}
-                    className="w-full bg-[var(--surface-card)] border border-[var(--border-default)] rounded-xl px-4 py-2.5 text-sm font-medium focus:ring-2 focus:ring-[var(--accent)]/20 focus:border-[var(--accent)] outline-none transition-all appearance-none"
-                  >
-                    <option value="">Selecione um tipo de solicitação</option>
-                    {availableRequestTypes.map((rt) => (
-                      <option key={rt.id} value={rt.id}>
-                        {rt.label}
-                      </option>
-                    ))}
-                  </StyledSelect>
-                </div>
-                <div className="space-y-1">
-                  <label className="text-[10px] font-semibold uppercase tracking-widest text-[var(--text-tertiary)] ml-1">
-                    Prioridade
-                  </label>
-                  <StyledSelect
-                    value={priority}
-                    onChange={(e) => setPriority(e.target.value)}
-                    className="w-full bg-[var(--surface-card)] border border-[var(--border-default)] rounded-xl px-4 py-2.5 text-sm font-medium focus:ring-2 focus:ring-[var(--accent)]/20 focus:border-[var(--accent)] outline-none transition-all appearance-none"
-                  >
-                    <option value="">Selecione a prioridade</option>
-                    {availablePriorities.map((p) => (
-                      <option key={p.id} value={p.label}>
-                        {p.label}
-                      </option>
-                    ))}
-                  </StyledSelect>
-                </div>
-              </div>
+                  <div className="grid grid-cols-2 gap-4">
+                    <div className="space-y-1">
+                      <label className="text-[10px] font-semibold uppercase tracking-widest text-[var(--text-tertiary)] ml-1">
+                        Tipo de Solicitação
+                      </label>
+                      <StyledSelect
+                        value={requestTypeId}
+                        onChange={(e) => setRequestTypeId(e.target.value)}
+                        className="w-full bg-[var(--surface-card)] border border-[var(--border-default)] rounded-xl px-4 py-2.5 text-sm font-medium focus:ring-2 focus:ring-[var(--accent)]/20 focus:border-[var(--accent)] outline-none transition-all appearance-none"
+                      >
+                        <option value="">Selecione um tipo de solicitação</option>
+                        {availableRequestTypes.map((rt) => (
+                          <option key={rt.id} value={rt.id}>
+                            {rt.label}
+                          </option>
+                        ))}
+                      </StyledSelect>
+                    </div>
+                    <div className="space-y-1">
+                      <label className="text-[10px] font-semibold uppercase tracking-widest text-[var(--text-tertiary)] ml-1">
+                        Prioridade
+                      </label>
+                      <StyledSelect
+                        value={priority}
+                        onChange={(e) => setPriority(e.target.value)}
+                        className="w-full bg-[var(--surface-card)] border border-[var(--border-default)] rounded-xl px-4 py-2.5 text-sm font-medium focus:ring-2 focus:ring-[var(--accent)]/20 focus:border-[var(--accent)] outline-none transition-all appearance-none"
+                      >
+                        <option value="">Selecione a prioridade</option>
+                        {availablePriorities.map((p) => (
+                          <option key={p.id} value={p.label}>
+                            {p.label}
+                          </option>
+                        ))}
+                      </StyledSelect>
+                    </div>
+                  </div>
 
-              <div className="space-y-1">
-                <label className="text-[10px] font-semibold uppercase tracking-widest text-[var(--text-tertiary)] ml-1">
-                  Produto
-                </label>
-                <StyledSelect
-                  value={productId}
-                  onChange={(e) => setProductId(e.target.value)}
-                  className="w-full bg-[var(--surface-card)] border border-[var(--border-default)] rounded-xl px-4 py-2.5 text-sm font-medium focus:ring-2 focus:ring-[var(--accent)]/20 focus:border-[var(--accent)] outline-none transition-all appearance-none"
-                >
-                  <option value="">Selecione um produto</option>
-                  {availableProducts.map((p) => (
-                    <option key={p.id} value={p.id}>
-                      {p.label}
-                    </option>
-                  ))}
-                </StyledSelect>
-              </div>
+                  <div className="space-y-1">
+                    <label className="text-[10px] font-semibold uppercase tracking-widest text-[var(--text-tertiary)] ml-1">
+                      Produto
+                    </label>
+                    <StyledSelect
+                      value={productId}
+                      onChange={(e) => setProductId(e.target.value)}
+                      className="w-full bg-[var(--surface-card)] border border-[var(--border-default)] rounded-xl px-4 py-2.5 text-sm font-medium focus:ring-2 focus:ring-[var(--accent)]/20 focus:border-[var(--accent)] outline-none transition-all appearance-none"
+                    >
+                      <option value="">Selecione um produto</option>
+                      {availableProducts.map((p) => (
+                        <option key={p.id} value={p.id}>
+                          {p.label}
+                        </option>
+                      ))}
+                    </StyledSelect>
+                  </div>
+                </>
+              )}
 
               {!isCustomer && (
                 <div className="space-y-1">

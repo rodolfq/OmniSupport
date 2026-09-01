@@ -174,7 +174,7 @@ async function findChatSessionByPhone(jid: string, instanceId = 'default') {
   // à parte em findSurveyableClosedSession, antes deste lookup ser chamado.
   const placeHolders = variants.map((_, i) => `$${i + 1}`).join(',');
   const res = await query(
-    `SELECT id, customer_phone, customer_id, customer_name, updated_at, status, awaiting_survey_until
+    `SELECT id, customer_phone, customer_id, customer_name, updated_at, status, awaiting_survey_until, assignee_id, queue_id
      FROM public.chat_sessions
      WHERE customer_phone IN (${placeHolders})
        AND status != 'closed'
@@ -258,7 +258,7 @@ async function findOrCreateChatSession(jid: string, pushName: string | undefined
          VALUES ($1, $2, $3, $4, $5, $6, NOW(), NOW())
          ON CONFLICT (customer_phone) WHERE status <> 'closed' AND customer_phone IS NOT NULL
          DO NOTHING
-         RETURNING id, customer_phone, customer_id, customer_name, updated_at`,
+         RETURNING id, customer_phone, customer_id, customer_name, updated_at, assignee_id, queue_id`,
         [profile?.id || null, customerName, digits, status, queue?.id || null, assigneeId]
       );
       return { assigneeId, insertRes };
@@ -968,7 +968,7 @@ export class WhatsAppService {
           }
         });
 
-        getChatRecipientIds({ customerId: session.customer_id }, null, false)
+        getChatRecipientIds({ customerId: session.customer_id, assigneeId: session.assignee_id, queueId: session.queue_id }, null, false)
           .then(recipients => excludeActiveViewers(session.id, recipients))
           .then(recipients => Promise.all(recipients.map(id => notifyUser(id, {
             title: `Nova mensagem de ${senderName}`,

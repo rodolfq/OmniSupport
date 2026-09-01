@@ -48,6 +48,12 @@ function weekdayLabel(iso: string): string {
   return dias[new Date(`${iso}T00:00:00Z`).getUTCDay()];
 }
 
+/** Sábado/domingo nunca geram giro — mesma checagem de lib/services/giro-service.ts. */
+function isWeekendIso(iso: string): boolean {
+  const day = new Date(`${iso}T00:00:00Z`).getUTCDay();
+  return day === 0 || day === 6;
+}
+
 // ------------------------------------------------------------------ cores
 
 const TYPE_STYLE: Record<GiroServiceType, string> = {
@@ -319,7 +325,9 @@ export function GiroDayView({ canManage }: GiroDayViewProps) {
         <div className="px-5 py-3 rounded-2xl bg-[var(--surface-pill)] border border-[var(--border-default)] flex items-center gap-3">
           <Lock size={15} className="text-[var(--text-tertiary)] shrink-0" />
           <p className="text-[11px] font-bold text-[var(--text-tertiary)]">
-            Este dia já passou: a consulta é livre, mas nada aqui pode ser alterado.
+            {date && isWeekendIso(date)
+              ? 'Fim de semana não tem Giro: a consulta é livre, mas nada aqui pode ser alterado.'
+              : 'Este dia já passou: a consulta é livre, mas nada aqui pode ser alterado.'}
           </p>
         </div>
       )}
@@ -329,14 +337,16 @@ export function GiroDayView({ canManage }: GiroDayViewProps) {
         <div className="bg-[var(--surface-card)] border border-[var(--border-default)] rounded-[2rem] p-16 text-center">
           <CalendarDays size={40} className="mx-auto text-[var(--text-tertiary)] mb-4 opacity-50" />
           <p className="text-sm font-black uppercase tracking-tight text-[var(--text-secondary)]">
-            {readOnly ? 'Não houve Giro nesta data' : 'Nenhum participante no Giro de hoje'}
+            {date && isWeekendIso(date) ? 'Sem Giro neste fim de semana' : readOnly ? 'Não houve Giro nesta data' : 'Nenhum participante no Giro de hoje'}
           </p>
           <p className="text-[11px] font-medium text-[var(--text-tertiary)] mt-2">
-            {readOnly
-              ? 'Datas passadas nunca são geradas — o que aparece aqui é só o que existiu no dia.'
-              : canManage
-                ? 'Cadastre quem participa do rodízio na aba Configuração e reprocesse este dia.'
-                : 'Peça a quem administra o Giro para cadastrar os participantes.'}
+            {date && isWeekendIso(date)
+              ? 'Sábado e domingo não entram no rodízio — a ordem volta na segunda-feira.'
+              : readOnly
+                ? 'Datas passadas nunca são geradas — o que aparece aqui é só o que existiu no dia.'
+                : canManage
+                  ? 'Cadastre quem participa do rodízio na aba Configuração e reprocesse este dia.'
+                  : 'Peça a quem administra o Giro para cadastrar os participantes.'}
           </p>
         </div>
       ) : (

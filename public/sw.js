@@ -28,7 +28,9 @@ self.addEventListener('push', (event) => {
     // escuro — iconnobg.png agora tem a mesma placa azul-marinho do
     // icon.png (transparência pura deixou de ser viável com essa logo).
     icon: '/branding/iconnobg.png?v=2',
-    badge: '/branding/iconnobg.png?v=2',
+    // badge é desenhado pelo Android usando só o canal alfa (silhueta) —
+    // não pode reaproveitar o PNG do icon, que tem fundo sólido opaco.
+    badge: '/branding/push-badge.png',
     tag: payload.tag || 'ssx-desk',
     data: { url: payload.url || '/dashboard' }
   };

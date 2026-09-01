@@ -4,6 +4,7 @@ import React, { useState, useEffect, useMemo } from 'react';
 import { Ticket as TicketType, TicketStatus, UserRole, TicketPriority, Permission, InternalTicket } from '@/lib/types';
 import { fetchAllTickets } from '@/lib/tickets';
 import { isClosedTicketStatus, isInProgressTicketStatus } from '@/lib/ticket-status';
+import { addBusinessHours } from '@/lib/sla';
 import { fetchPriorities, fetchStatuses, ConfigService } from '@/lib/services/config-service';
 import { useProfilesLiteQuery } from '@/lib/query-hooks';
 import { UserAvatar } from '@/components/user-avatar';
@@ -223,14 +224,14 @@ export default function DashboardPage() {
     const overdue = allActive.filter(t => {
       const config = priorities.find(p => p.label === t.priority);
       if (!config || !config.sla_hours) return false;
-      const limit = new Date(new Date(t.createdAt).getTime() + config.sla_hours * 60 * 60 * 1000);
+      const limit = addBusinessHours(t.createdAt, config.sla_hours);
       return limit < now;
     }).length;
 
     const nearExpiry = allActive.filter(t => {
       const config = priorities.find(p => p.label === t.priority);
       if (!config || !config.sla_hours) return false;
-      const limit = new Date(new Date(t.createdAt).getTime() + config.sla_hours * 60 * 60 * 1000);
+      const limit = addBusinessHours(t.createdAt, config.sla_hours);
       const diff = limit.getTime() - now.getTime();
       return diff > 0 && diff < 4 * 60 * 60 * 1000; // 4 hours
     }).length;
@@ -400,7 +401,7 @@ export default function DashboardPage() {
               tickets={allTickets.filter(t => {
                 const config = priorities.find(p => p.label === t.priority);
                 if (!config || !config.sla_hours || isClosedTicketStatus(t.status)) return false;
-                const limit = new Date(new Date(t.createdAt).getTime() + config.sla_hours * 60 * 60 * 1000);
+                const limit = addBusinessHours(t.createdAt, config.sla_hours);
                 return limit < new Date();
               })}
               color="rose"
@@ -415,7 +416,7 @@ export default function DashboardPage() {
               tickets={allTickets.filter(t => {
                 const config = priorities.find(p => p.label === t.priority);
                 if (!config || !config.sla_hours || isClosedTicketStatus(t.status)) return false;
-                const limit = new Date(new Date(t.createdAt).getTime() + config.sla_hours * 60 * 60 * 1000);
+                const limit = addBusinessHours(t.createdAt, config.sla_hours);
                 const diff = limit.getTime() - new Date().getTime();
                 return diff > 0 && diff < 4 * 60 * 60 * 1000;
               })}
@@ -921,7 +922,7 @@ function TicketCard({ ticket, availablePriorities, users, onClick }: { ticket: T
   // Dynamic SLA limit calculation
   const slaLimit = useMemo(() => {
     if (!priorityConfig || !priorityConfig.sla_hours) return null;
-    return new Date(new Date(ticket.createdAt).getTime() + priorityConfig.sla_hours * 60 * 60 * 1000);
+    return addBusinessHours(ticket.createdAt, priorityConfig.sla_hours);
   }, [ticket.createdAt, priorityConfig]);
 
   const isOverdue = slaLimit && slaLimit < now && !isClosedTicketStatus(ticket.status);

@@ -27,7 +27,8 @@ import {
   useCompaniesQuery, useProfilesWithAvatarQuery, useConfigStatusesQuery, useConfigCategoriesQuery,
   useConfigRequestTypesQuery, useConfigProductsQuery, useConfigPrioritiesQuery, useInternalTeamsQuery, useQueuesQuery
 } from '@/lib/query-hooks';
-import { isClosedTicketStatus, registerClosedStatusLabels } from '@/lib/ticket-status';
+import { isClosedTicketStatus, registerClosedStatusLabels, getCustomerStatusLabel } from '@/lib/ticket-status';
+import { addBusinessHours } from '@/lib/sla';
 import { FieldChange, formatChangeMessage } from '@/lib/ticket-diff';
 import { wrapEmailHtml, ticketRefBlock } from '@/lib/email-templates';
 import { fileToBase64 } from '@/lib/image-utils';
@@ -66,6 +67,13 @@ export function TicketDetailModal({ ticket, onClose, initialDraft }: TicketDetai
   const scrollRef = useRef<HTMLDivElement>(null);
   const { currentUser, hasPermission, triggerRefresh, suppressTicketAssignedNotification, notifications } = useApp();
   const isCustomer = currentUser?.role === UserRole.CUSTOMER;
+  // Funcionário também não deve ver o detalhe interno do chamado — antes só
+  // Cliente caía neste resumo simplificado, e Funcionário (sem tickets:read)
+  // não batia em nenhum dos dois blocos (nem o interno, nem este), ficando
+  // sem resumo nenhum. Só usada aqui: os outros `isCustomer`/`!isCustomer`
+  // deste arquivo já dependem de hasPermission(TICKETS_READ) em paralelo, que
+  // Funcionário nunca tem — então já ficam ocultos pra ele por esse caminho.
+  const isCompanyUser = isCustomer || currentUser?.role === UserRole.EMPLOYEE;
 
   // As 9 buscas de config/referência abaixo eram feitas do zero (Promise.all)
   // toda vez que este modal abria — hoje vêm de queries com cache
@@ -322,6 +330,22 @@ export function TicketDetailModal({ ticket, onClose, initialDraft }: TicketDetai
       setActiveTab('description');
     }
   }, [ticket, currentUser, hasPermission]);
+
+  // Chamado não tem tempo real (diferente de chat_sessions/chat interno, que
+  // já têm SSE via lib/chat-events.ts) — sem isso, uma nota nova só aparecia
+  // ao reabrir o chamado (bug relatado: "não reflete imediatamente"). Polling
+  // simples, no mesmo espírito do poller de segurança de 30s do chat,
+  // enquanto o modal deste chamado estiver aberto. `loadMessages` é
+  // referenciada dentro do callback (definida mais abaixo neste componente),
+  // não na criação do efeito — por quando o setInterval de fato dispara, ela
+  // já existe.
+  useEffect(() => {
+    if (!ticket?.id) return;
+    const interval = setInterval(() => {
+      loadMessages().catch(err => console.error('Erro ao atualizar mensagens do chamado:', err));
+    }, 15000);
+    return () => clearInterval(interval);
+  }, [ticket?.id]);
 
   // Aplica o rascunho vindo de "Copiar para Chamado" (Ticket Interno →
   // Chamado) por cima dos defaults do efeito acima — precisa rodar depois
@@ -587,18 +611,27 @@ const loadMessages = async () => {
 
       await MessageService.create(newMessage);
 
+      // Não chama TicketService.update aqui: a rota action=create-message já
+      // grava `tickets.updated_at = NOW()` como parte do INSERT da mensagem
+      // (ver app/api/tickets/route.ts). Chamar de novo era redundante e,
+      // depois do endurecimento de permissão do PUT (só tickets:write),
+      // travava Cliente/Funcionário — que legitimamente respondem o próprio
+      // chamado, mas nunca têm essa permissão — com "Você não tem permissão
+      // para editar chamados." só objeto local, pro e-mail de resposta abaixo.
       const updatedTicket: Ticket = {
         ...ticket,
         updatedAt: new Date().toISOString()
       };
-      await TicketService.update(updatedTicket);
 
       setMessage('');
       setMessageAttachments([]);
-      loadMessages();
+      loadMessages().catch(err => console.error('Erro ao atualizar mensagens do chamado:', err));
       triggerRefresh();
 
-      if (!isInternal) sendReplyEmailInBackground(newMessage, updatedTicket);
+      // Este e-mail avisa o CLIENTE que a equipe respondeu — não faz sentido
+      // (e o aviso de falha nem deveria aparecer) quando quem respondeu é o
+      // próprio Cliente/Funcionário.
+      if (!isInternal && !isCompanyUser) sendReplyEmailInBackground(newMessage, updatedTicket);
     };
 
     // Grava a resposta como mensagem visível ao cliente (igual handleSendMessage)
@@ -624,11 +657,13 @@ const loadMessages = async () => {
 
       await MessageService.create(newMessage);
 
+      // Mesmo motivo do handleSendMessage acima: create-message já bate
+      // tickets.updated_at sozinho, esta chamada era redundante (e exige
+      // tickets:write, que nem todo perfil que usa este botão tem).
       const updatedTicket: Ticket = {
         ...ticket,
         updatedAt: new Date().toISOString()
       };
-      await TicketService.update(updatedTicket);
 
       const hasAttachments = messageAttachments.length > 0;
       setMessage('');
@@ -1082,7 +1117,7 @@ const loadMessages = async () => {
                 <span className="text-sm font-bold text-[var(--text-primary)] truncate min-w-0">{ticket.title}</span>
               </div>
               <div className="flex items-center gap-3 shrink-0">
-                {!isCustomer && (
+                {!isCompanyUser && (
                   <div className="flex items-center gap-2 pr-3 border-r border-[var(--border-default)]">
                     {!assigneeId && (
                       <button
@@ -1119,7 +1154,7 @@ const loadMessages = async () => {
                   >
                     <Link2 size={18} />
                   </button>
-                  {!isCustomer && (
+                  {!isCompanyUser && (
                     <button
                       onClick={handleDuplicateTicket}
                       disabled={isDuplicatingTicket}
@@ -1140,7 +1175,7 @@ const loadMessages = async () => {
             </div>
 
             {/* Linha 2: status do chamado (linha própria, sem disputar espaço com os botões) */}
-            {!isCustomer && (
+            {!isCompanyUser && (
               <div className="px-8 pb-3">
                 {statuses.length > 0 ? (
                   <div className="inline-flex bg-[var(--surface-pill)] p-0.5 rounded-lg">
@@ -1257,29 +1292,6 @@ const loadMessages = async () => {
                           </StyledSelect>
                        </div>
                        <div className="flex items-start gap-4">
-                          <span className="text-[11px] font-semibold uppercase text-[var(--text-tertiary)] w-24 pt-0.5">Categoria</span>
-                          <StyledSelect
-                            value={mainCategory}
-                            onChange={(e) => {
-                              const val = e.target.value;
-                              setMainCategory(val);
-                              scheduleTicketSave({ categoryId: val });
-                            }}
-                            className="text-sm font-bold text-[var(--text-secondary)] bg-transparent border-none outline-none focus:ring-2 focus:ring-[var(--accent)]/10 rounded px-1 -ml-1 cursor-pointer hover:bg-[var(--surface-card)] transition-all"
-                          >
-                            <option value="">Sem categoria</option>
-                            {/* Arquivados ficam de fora, MENOS o que este
-                                chamado já usa — se ele sumisse da lista, o
-                                <select> cairia em "Sem categoria" e a primeira
-                                gravação apagaria a classificação do chamado. */}
-                            {selectableOptions(categories, mainCategory).map(cat => (
-                              <option key={cat.id} value={cat.id}>
-                                {cat.label}{cat.isArchived ? ' (arquivado)' : ''}
-                              </option>
-                            ))}
-                          </StyledSelect>
-                       </div>
-                       <div className="flex items-start gap-4">
                           <span className="text-[11px] font-semibold uppercase text-[var(--text-tertiary)] w-24 pt-0.5">Tipo</span>
                           <StyledSelect
                             value={mainRequestType}
@@ -1359,7 +1371,7 @@ const loadMessages = async () => {
                                (() => {
                                    const config = priorities.find(p => p.label === mainPriority);
                                    if (!config || !(config.sla_hours ?? config.slaHours)) return false;
-                                   const limit = new Date(new Date(ticket.createdAt).getTime() + (config.sla_hours ?? config.slaHours) * 60 * 60 * 1000);
+                                   const limit = addBusinessHours(ticket.createdAt, (config.sla_hours ?? config.slaHours)!);
                                    return limit < new Date() && !isClosedTicketStatus(ticketStatus);
                                  })() ? "text-[var(--text-danger)]" : "text-[var(--text-secondary)]"
                              )}>
@@ -1514,32 +1526,10 @@ const loadMessages = async () => {
                  </div>
                )}
 
-               {isCustomer && (
-                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-x-12 gap-y-4">
-                     <div className="space-y-3">
-                        <div className="flex items-start gap-4">
-                           <span className="text-[11px] font-semibold uppercase text-[var(--text-tertiary)] w-24 pt-0.5">Status</span>
-                           <span className="text-sm font-bold text-[var(--accent-text)] bg-[var(--accent)]/10 px-2 py-0.5 rounded uppercase tracking-tighter">{ticket.status}</span>
-                        </div>
-                        <div className="flex items-start gap-4">
-                           <span className="text-[11px] font-semibold uppercase text-[var(--text-tertiary)] w-24 pt-0.5">Prioridade</span>
-                           <span className="text-sm font-bold text-[var(--text-secondary)]">{ticket.priority}</span>
-                        </div>
-                        <div className="flex items-start gap-4">
-                           <span className="text-[11px] font-semibold uppercase text-[var(--text-tertiary)] w-24 pt-0.5">Identificado</span>
-                           <span className="text-sm font-bold text-[var(--text-secondary)]">#{ticket.ticketNumber ? String(ticket.ticketNumber).padStart(4, '0') : ticket.id.slice(0, 8)}</span>
-                        </div>
-                     </div>
-                     <div className="space-y-3">
-                        <div className="flex items-start gap-4">
-                           <span className="text-[11px] font-semibold uppercase text-[var(--text-tertiary)] w-24 pt-0.5">Categoria</span>
-                           <span className="text-sm font-bold text-[var(--text-secondary)]">{categories.find(c => c.id === ticket.categoryId)?.label || 'Sem categoria'}</span>
-                        </div>
-                        <div className="flex items-start gap-4">
-                           <span className="text-[11px] font-semibold uppercase text-[var(--text-tertiary)] w-24 pt-0.5">Abertura</span>
-                           <span className="text-sm font-bold text-[var(--text-secondary)]">{new Date(ticket.createdAt).toLocaleDateString()}</span>
-                        </div>
-                     </div>
+               {isCompanyUser && (
+                  <div className="flex items-start gap-4">
+                     <span className="text-[11px] font-semibold uppercase text-[var(--text-tertiary)] w-24 pt-0.5">Status</span>
+                     <span className="text-sm font-bold text-[var(--accent-text)] bg-[var(--accent)]/10 px-2 py-0.5 rounded uppercase tracking-tighter">{getCustomerStatusLabel(ticket.status)}</span>
                   </div>
                )}
 
@@ -2063,14 +2053,22 @@ const loadMessages = async () => {
                 .filter(m => m.type !== 'system' && m.type !== 'system_log' && (historyTab === 'customer' ? m.isVisibleToCustomer : !m.isVisibleToCustomer))
                 .map((m) => {
                   const isInternal = m.type === 'internal' || !m.isVisibleToCustomer;
+                  // m.senderName/senderAvatarThumbUrl vêm prontos da rota (JOIN
+                  // com profiles) — allUsers só como reforço pra quem já tem
+                  // acesso a ele (equipe), porque Cliente/Funcionário recebem
+                  // 403 de /api/users?type=all e allUsers fica sempre vazio
+                  // pra eles, o que fazia até a PRÓPRIA mensagem cair no
+                  // fallback genérico "U" sem nome nenhum ao lado da hora.
                   const sender = allUsers.find(u => u.id === m.senderId);
-                  
+                  const senderName = m.senderName || sender?.name || null;
+                  const senderAvatarThumbUrl = m.senderAvatarThumbUrl || sender?.avatarThumbUrl;
+
                   return (
                     <div key={m.id} className="group animate-in fade-in slide-in-from-right-2 duration-300">
                       <div className="flex gap-3">
                         <UserAvatar
-                          name={sender?.name || 'U'}
-                          thumbUrl={sender?.avatarThumbUrl}
+                          name={senderName || 'Sistema'}
+                          thumbUrl={senderAvatarThumbUrl}
                           size={32}
                           fallbackClassName={cn(
                             "text-white font-black shadow-sm",
@@ -2080,7 +2078,7 @@ const loadMessages = async () => {
                         />
                         <div className="flex-1 min-w-0">
                           <div className="flex items-center gap-2 mb-1">
-                            <span className="text-xs font-black text-[var(--text-primary)]">{sender?.name}</span>
+                            <span className="text-xs font-black text-[var(--text-primary)]">{senderName || 'Sistema'}</span>
                             <span className="text-[9px] font-bold text-[var(--text-tertiary)]"><ClientTime date={m.timestamp} showDate /></span>
                             {isInternal && (
                               <span className="text-[8px] font-semibold px-1 py-0.5 bg-[var(--surface-warning)] text-[var(--text-warning)] rounded uppercase tracking-tighter">Interno</span>
@@ -2188,7 +2186,7 @@ const loadMessages = async () => {
                          </button>
                       </div>
                       <div className="flex items-center gap-2">
-                         {historyTab !== 'internal' && (
+                         {historyTab !== 'internal' && !isCompanyUser && (
                            <button
                              onClick={handleSendWhatsAppReply}
                              disabled={!message.trim() || message === '<p></p>' || !allUsers.find(u => u.id === customerId)?.phone}

@@ -429,7 +429,13 @@ export async function DELETE(request: Request) {
     return NextResponse.json({ error: 'Você não tem permissão para excluir empresas.' }, { status: 403 });
   }
 
-  const id = new URL(request.url).searchParams.get('id');
+  const url = new URL(request.url);
+  const id = url.searchParams.get('id');
+  // Segunda chamada, depois que a tela já mostrou pra quem for excluir quantos
+  // chamados/avaliações serão apagados junto (ver requiresConfirmation abaixo)
+  // — decisão do usuário no hotfix 31/08/2026: avisar em vez de bloquear
+  // sempre, mas nunca apagar sem confirmação explícita.
+  const confirmed = url.searchParams.get('confirm') === '1';
   if (!id) return NextResponse.json({ error: 'ID da empresa é obrigatório.' }, { status: 400 });
 
   try {
@@ -440,7 +446,9 @@ export async function DELETE(request: Request) {
     // pessoas dentro do card de uma empresa, quem fica sem empresa desaparece
     // da interface, sem erro nenhum, ainda que siga no banco com todo o
     // histórico. Foi o que aconteceu com a empresa de exemplo do schema, e o
-    // contato dela virou invisível com 14 chamados atrelados.
+    // contato dela virou invisível com 14 chamados atrelados. Diferente de
+    // tickets/avaliações abaixo, aqui não há "avisar e prosseguir": mover ou
+    // excluir as pessoas é sempre pré-requisito.
     const vinculados = await query('SELECT COUNT(*)::int AS total FROM public.profiles WHERE company_id = $1', [id]);
     const total = vinculados.rows[0]?.total || 0;
     if (total > 0) {
@@ -451,10 +459,32 @@ export async function DELETE(request: Request) {
       }, { status: 409 });
     }
 
+    // tickets.company_id e customer_evaluations.company_id são ON DELETE
+    // CASCADE (ver schema_postgres.sql) — excluir a empresa apaga os dois
+    // silenciosamente. Sem people vinculadas (checagem acima), avisa com os
+    // números exatos e só segue de fato quando a tela confirmar de novo.
+    const [ticketsRes, evaluationsRes] = await Promise.all([
+      query('SELECT COUNT(*)::int AS total FROM public.tickets WHERE company_id = $1', [id]),
+      query('SELECT COUNT(*)::int AS total FROM public.customer_evaluations WHERE company_id = $1', [id])
+    ]);
+    const ticketCount = ticketsRes.rows[0]?.total || 0;
+    const evaluationCount = evaluationsRes.rows[0]?.total || 0;
+
+    if (!confirmed && (ticketCount > 0 || evaluationCount > 0)) {
+      return NextResponse.json({
+        requiresConfirmation: true,
+        ticketCount,
+        evaluationCount,
+        error: `Esta empresa tem ${ticketCount} chamado(s) e ${evaluationCount} avaliação(ões) vinculados — `
+          + 'serão apagados definitivamente junto com a empresa. Confirme para prosseguir.'
+      }, { status: 409 });
+    }
+
     await query('DELETE FROM public.companies WHERE id = $1', [id]);
     logAudit({
       actorId: actor.id, actorName: actor.name, action: 'delete',
-      entityType: 'company', entityId: id, entityLabel: existing.rows[0]?.name || null
+      entityType: 'company', entityId: id, entityLabel: existing.rows[0]?.name || null,
+      changes: { ticketsDeleted: ticketCount, evaluationsDeleted: evaluationCount }
     });
     return NextResponse.json({ success: true });
   } catch (error: any) {

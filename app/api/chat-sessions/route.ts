@@ -318,7 +318,7 @@ export async function POST(request: Request) {
         await client.query('BEGIN');
         const ticketRes = await client.query(
           `INSERT INTO public.tickets (title, description, status, priority, category, company_id, customer_id, assignee_id, created_by, chat_session_id)
-           VALUES ($1, '', $2, 'Média', 'Atendimento Chat', $3, $4, $5, $6, $7)
+           VALUES ($1, '', $2, 'Baixa', 'Atendimento Chat', $3, $4, $5, $6, $7)
            RETURNING id, public_ticket_number`,
           [
             ticketTitle,

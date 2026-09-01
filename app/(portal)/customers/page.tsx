@@ -3,7 +3,7 @@
 import React, { useState, useEffect, useMemo, useRef } from 'react';
 import { assignChatSession } from '@/lib/services/chat-session-actions';
 import { getUsers } from '@/lib/services/user-actions-service';
-import { getCompanies, setCompanyActive, updateCompanyLogo } from '@/lib/services/company-service';
+import { getCompanies, setCompanyActive, updateCompanyLogo, deleteCompany } from '@/lib/services/company-service';
 import { Company, User, UserRole, Permission } from '@/lib/types';
 import { Building2, User as UserIcon, Mail, Phone, Plus, MessageCircle, Ticket, ShieldCheck, ShieldOff, Search, X, Check, Pencil, UserPlus, RefreshCw, Headset, Briefcase, Camera, Trash2, ArrowLeft } from 'lucide-react';
 import { cn, normalizeString, normalizePhone, maskPhone } from '@/lib/utils';
@@ -138,12 +138,20 @@ export default function CustomersPage() {
   const [isWhatsAppModalOpen, setIsWhatsAppModalOpen] = useState(false);
   const [isCompanyModalOpen, setIsCompanyModalOpen] = useState(false);
   const [companyToEdit, setCompanyToEdit] = useState<Company | null>(null);
-  // Empresa não é mais excluída pela tela — é desativada (reversível, preserva
-  // pessoas e histórico). deleteCompany continua existindo em app/actions.ts,
-  // sem botão que a acione.
+  // Desativar (reversível, preserva pessoas e histórico) é a ação do dia a
+  // dia. Excluir de vez (companyToDelete/deleteCompany abaixo) é ação
+  // separada e destrutiva, só dentro de "Editar Empresa" — ver
+  // components/new-company-modal.tsx.
   const [companyToToggle, setCompanyToToggle] = useState<Company | null>(null);
   const [toggleError, setToggleError] = useState('');
+  const [companyToDelete, setCompanyToDelete] = useState<Company | null>(null);
   const [deleteError, setDeleteError] = useState<string>('');
+  // Preenchido quando o servidor recusa a primeira tentativa com
+  // requiresConfirmation (há chamados/avaliações vinculados) — a partir daí o
+  // modal troca de aviso genérico pra mostrar os números exatos e exige um
+  // segundo clique explícito antes de excluir de verdade.
+  const [deletePendingCounts, setDeletePendingCounts] = useState<{ ticketCount: number; evaluationCount: number } | null>(null);
+  const [isDeletingCompany, setIsDeletingCompany] = useState(false);
   const [searchQuery, setSearchQuery] = useState('');
   const [isSyncingBitrix24, setIsSyncingBitrix24] = useState(false);
   const [isUploadingLogo, setIsUploadingLogo] = useState(false);
@@ -722,6 +730,12 @@ if (isCompanyPortalUser) {
           setIsCompanyModalOpen(false);
           setCompanyToToggle(companyToEdit);
         }}
+        onRequestDelete={() => {
+          setIsCompanyModalOpen(false);
+          setCompanyToDelete(companyToEdit);
+          setDeletePendingCounts(null);
+          setDeleteError('');
+        }}
       />
       <WhatsAppNumberModal
         isOpen={isWhatsAppModalOpen}
@@ -779,6 +793,83 @@ if (isCompanyPortalUser) {
               >
                 {companyToToggle.isActive === false ? 'Reativar empresa' : 'Desativar empresa'}
               </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Exclusão definitiva — separada de Desativar/Reativar acima. Primeiro
+          clique tenta excluir; se o servidor recusar com requiresConfirmation
+          (chamados/avaliações vinculados, apagados em cascata), o modal troca
+          de aviso genérico pra mostrar os números exatos e pede confirmação
+          explícita antes de seguir (decisão do usuário no hotfix 31/08/2026:
+          avisar e permitir, não bloquear sempre). Pessoa vinculada continua
+          bloqueando sem opção de prosseguir — ver deleteError abaixo. */}
+      {companyToDelete && (
+        <div className="fixed inset-0 bg-slate-900/50 backdrop-blur-sm z-50 flex items-center justify-center p-4">
+          <div className="bg-[var(--surface-card)] rounded-2xl shadow-xl w-full max-w-md overflow-hidden">
+            <div className="p-6 border-b border-[var(--border-default)] flex items-center gap-3">
+              <div className="w-10 h-10 rounded-full bg-[var(--surface-danger)] flex items-center justify-center text-[var(--text-danger)]">
+                <Trash2 size={20} />
+              </div>
+              <h3 className="font-bold text-[var(--text-primary)]">Excluir empresa definitivamente?</h3>
+            </div>
+            <div className="p-6 space-y-3">
+              {deleteError && !deletePendingCounts && (
+                <div className="bg-[var(--surface-danger)] border border-[var(--text-danger)]/30 text-[var(--text-danger)] rounded-xl p-4 text-sm font-medium">
+                  {deleteError}
+                </div>
+              )}
+              {deletePendingCounts ? (
+                <div className="bg-[var(--surface-danger)] border border-[var(--text-danger)]/30 text-[var(--text-danger)] rounded-xl p-4 text-sm font-medium space-y-1">
+                  <p>
+                    Esta empresa tem <b>{deletePendingCounts.ticketCount} chamado(s)</b> e{' '}
+                    <b>{deletePendingCounts.evaluationCount} avaliação(ões)</b> vinculados.
+                  </p>
+                  <p>Serão apagados definitivamente junto com a empresa. Esta ação não pode ser desfeita.</p>
+                </div>
+              ) : !deleteError ? (
+                <p className="text-[var(--text-secondary)]">
+                  <b>{companyToDelete.name}</b> e seu cadastro serão apagados definitivamente. Esta ação não pode ser desfeita.
+                </p>
+              ) : null}
+            </div>
+            <div className="p-6 bg-[var(--surface-card)] flex gap-3 justify-end border-t border-[var(--border-default)]">
+              <button
+                onClick={() => { setCompanyToDelete(null); setDeleteError(''); setDeletePendingCounts(null); }}
+                className="px-4 py-2 font-semibold text-[var(--text-secondary)] bg-[var(--surface-pill)] hover:bg-[var(--border-default)] rounded-lg transition-colors"
+              >
+                Cancelar
+              </button>
+              {(!deleteError || deletePendingCounts) && (
+                <button
+                  disabled={isDeletingCompany}
+                  onClick={async () => {
+                    const alvo = companyToDelete;
+                    setIsDeletingCompany(true);
+                    const result = await deleteCompany(alvo.id, !!deletePendingCounts);
+                    setIsDeletingCompany(false);
+                    if (result.error) {
+                      setDeleteError(result.error);
+                      if (result.requiresConfirmation) {
+                        setDeletePendingCounts({
+                          ticketCount: result.ticketCount || 0,
+                          evaluationCount: result.evaluationCount || 0
+                        });
+                      }
+                      return;
+                    }
+                    setCompanyToDelete(null);
+                    setDeleteError('');
+                    setDeletePendingCounts(null);
+                    toast.success('Empresa excluída definitivamente.');
+                    loadData();
+                  }}
+                  className="px-4 py-2 font-semibold text-white bg-[var(--text-danger)] hover:opacity-90 rounded-lg transition-colors shadow-sm disabled:opacity-50"
+                >
+                  {deletePendingCounts ? 'Excluir mesmo assim' : 'Excluir empresa'}
+                </button>
+              )}
             </div>
           </div>
         </div>

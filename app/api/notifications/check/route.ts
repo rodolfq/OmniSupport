@@ -218,6 +218,33 @@ export async function GET(request: NextRequest) {
         });
       });
 
+      // Chat interno não tinha evento de origem nenhum aqui — por isso o som
+      // de notificação nunca disparava (não era bug de autoplay do browser).
+      // Mesmo padrão de chatMessages acima, mas escopado a quem é membro do
+      // grupo/DM (member_ids), já que chat interno não tem noção de fila.
+      const internalChatMessages = await query(
+        `SELECT m.id, m.chat_id, m.sender_name, m.text, m.created_at
+         FROM public.internal_chat_messages m
+         JOIN public.internal_chats c ON c.id = m.chat_id
+         WHERE m.created_at > $1
+           AND (m.sender_id IS NULL OR m.sender_id <> $2::uuid)
+           AND $2::uuid = ANY(COALESCE(c.member_ids, '{}'::uuid[]))
+         ORDER BY m.created_at ASC
+         LIMIT 50`,
+        [since, user.id]
+      );
+
+      internalChatMessages.rows.forEach((message) => {
+        events.push({
+          sourceId: `internal_chat_message:${message.id}`,
+          title: `Nova mensagem de ${message.sender_name || 'alguém do time'}`,
+          message: message.text || 'Anexo enviado',
+          type: 'internal_chat_message',
+          targetId: message.chat_id,
+          createdAt: message.created_at
+        });
+      });
+
       // Item 17 do roadmap: hotfixes atrasados que o scheduler de fundo
       // (lib/services/hotfix-scheduler.ts) já marcou com alerted_at — só pro
       // responsável, mesmo mecanismo de "comparar contra since" do resto

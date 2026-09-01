@@ -16,6 +16,7 @@ import { TicketService } from "@/lib/services/ticket-service";
 
 import { SearchFilters, searchTickets, getQuickFilterCounts, QuickFilterCounts } from "@/lib/search";
 import { isClosedTicketStatus, isInProgressTicketStatus } from "@/lib/ticket-status";
+import { addBusinessHours } from "@/lib/sla";
 import { mergeTickets } from "@/lib/services/chat-session-actions";
 import { ConfigService } from "@/lib/services/config-service";
 import { findStatusColor } from "@/lib/status-colors";
@@ -194,7 +195,7 @@ export function TicketsView({
   // chamado vai buscar — pelo hover, não pelo clique, pra já estar no cache
   // (ou pelo menos em voo) quando o modal realmente abrir.
   const prefetchTicketModal = () => prefetchTicketModalReferenceData(queryClient);
-  const { currentUser, hasPermission, notifications, setIsNewTicketModalOpen, pendingTicketDraft, setPendingTicketDraft } = useApp();
+  const { currentUser, hasPermission, notifications, setIsNewTicketModalOpen, pendingTicketDraft, setPendingTicketDraft, refreshTrigger } = useApp();
   const [internalLinks, setInternalLinks] = useState<InternalLinkRow[]>([]);
   const [filteredTickets, setFilteredTickets] = useState<Ticket[]>([]);
   const [selectedTicket, setSelectedTicket] = useState<Ticket | null>(null);
@@ -405,11 +406,11 @@ export function TicketsView({
 
   useEffect(() => {
     if (!currentUser?.id) return;
-    const requestKey = `${currentUser.id}:${currentPage}:${JSON.stringify(effectiveFilters)}`;
+    const requestKey = `${currentUser.id}:${currentPage}:${JSON.stringify(effectiveFilters)}:${refreshTrigger}`;
     if (lastAutomaticRequestKeyRef.current === requestKey) return;
     lastAutomaticRequestKeyRef.current = requestKey;
     loadTickets();
-  }, [currentUser?.id, currentPage, effectiveFilters]);
+  }, [currentUser?.id, currentPage, effectiveFilters, refreshTrigger]);
 
   // Contagens dos chips — independem de qual chip está ativo (mostram as 5
   // colunas de uma vez), só acompanham os Filtros avançados/busca de texto.
@@ -776,7 +777,7 @@ export function TicketsView({
             if (isClosedTicketStatus(ticket.status)) return "";
             const config = priorities.find((p) => p.label === ticket.priority);
             if (!config || !config.sla_hours) return "";
-            return new Date(ticket.createdAt).getTime() + config.sla_hours * 60 * 60 * 1000;
+            return addBusinessHours(ticket.createdAt, config.sla_hours).getTime();
           };
           aValue = slaValue(a);
           bValue = slaValue(b);
@@ -807,10 +808,7 @@ export function TicketsView({
     if (!config || !config.sla_hours)
       return { label: "---", color: "text-[var(--text-tertiary)]", isOverdue: false };
 
-    const createdAt = new Date(ticket.createdAt);
-    const limit = new Date(
-      createdAt.getTime() + config.sla_hours * 60 * 60 * 1000,
-    );
+    const limit = addBusinessHours(ticket.createdAt, config.sla_hours);
     const now = new Date();
     const isOverdue = now > limit;
 

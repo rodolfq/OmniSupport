@@ -20,7 +20,7 @@ import {
 import { motion, AnimatePresence } from 'motion/react';
 import { cn, normalizeString } from '@/lib/utils';
 import { TicketDetailModal } from '@/components/ticket-detail-modal';
-import { isClosedTicketStatus, isInProgressTicketStatus } from '@/lib/ticket-status';
+import { isClosedTicketStatus, getCustomerStatusLabel } from '@/lib/ticket-status';
 import { useSearchParams, useRouter } from 'next/navigation';
 
 interface InternalTicketItem extends InternalTicket {
@@ -35,28 +35,20 @@ const INTERNAL_STATUS_META: Record<string, { label: string; color: string }> = {
   'Concluído': { label: 'Concluído', color: 'bg-[var(--surface-success)] text-[var(--text-success)]' },
 };
 
-type CustomerStatusFilter = 'all' | 'Novo' | 'Em andamento' | 'Pendente' | 'Resolvido' | 'Concluído';
+// Cliente/Funcionário só enxergam 3 estados — o restante do fluxo interno
+// (sub-status, "Aguardando Cliente" etc.) vira só "Em Andamento" pra eles.
+type CustomerStatusFilter = 'all' | 'Novo' | 'Em Andamento' | 'Finalizado';
 
 const CUSTOMER_STATUS_FILTERS: Array<{ value: CustomerStatusFilter; label: string }> = [
   { value: 'all', label: 'Todos' },
   { value: 'Novo', label: 'Novo' },
-  { value: 'Em andamento', label: 'Em andamento' },
-  { value: 'Pendente', label: 'Pendente' },
-  { value: 'Resolvido', label: 'Resolvido' },
-  { value: 'Concluído', label: 'Concluído' },
+  { value: 'Em Andamento', label: 'Em andamento' },
+  { value: 'Finalizado', label: 'Finalizado' },
 ];
-
-function getCustomerStatusLabel(status: string) {
-  if (isClosedTicketStatus(status)) return 'Concluído';
-  if (isInProgressTicketStatus(status)) return 'Em andamento';
-  return status;
-}
 
 function matchesCustomerStatusFilter(status: string, filter: CustomerStatusFilter) {
   if (filter === 'all') return true;
-  if (filter === 'Em andamento') return isInProgressTicketStatus(status);
-  if (filter === 'Concluído') return isClosedTicketStatus(status);
-  return status === filter;
+  return getCustomerStatusLabel(status) === filter;
 }
 
 export default function MyTicketsPage() {
@@ -188,13 +180,12 @@ export default function MyTicketsPage() {
     return filteredInternalTickets.slice(0, visibleCount);
   }, [filteredInternalTickets, visibleCount]);
 
+  // Mesma simplificação de 3 estados de getCustomerStatusLabel — a cor
+  // sempre acompanha o selo que o cliente realmente vê.
   const getStatusColor = (status: string) => {
+    if (isClosedTicketStatus(status)) return 'bg-[var(--surface-success)] text-[var(--text-success)]';
     if (status === 'Novo') return 'bg-[var(--surface-info)] text-[var(--text-info)]';
-    if (isInProgressTicketStatus(status)) return 'bg-[var(--surface-warning)] text-[var(--text-warning)]';
-    if (status === 'Pendente') return 'bg-[var(--surface-pill)] text-[var(--text-secondary)]';
-    if (status === 'Resolvido') return 'bg-[var(--surface-success)] text-[var(--text-success)]';
-    if (isClosedTicketStatus(status)) return 'bg-[var(--surface-pill)] text-[var(--text-secondary)]';
-    return 'bg-[var(--surface-pill)] text-[var(--text-secondary)]';
+    return 'bg-[var(--surface-warning)] text-[var(--text-warning)]';
   };
 
   return (

@@ -37,3 +37,13 @@ export function isInProgressTicketStatus(status?: string | null): boolean {
 export function getDefaultClosedTicketStatus(availableStatuses: string[] = []): string {
   return availableStatuses.find(isClosedTicketStatus) || TicketStatus.CLOSED;
 }
+
+// Cliente/Funcionário só enxergam 3 estados (Novo / Em Andamento /
+// Finalizado) — todo o resto do fluxo interno (sub-status, "Aguardando
+// Cliente" etc.) vira "Em Andamento" pra eles. Usado tanto em my-tickets/
+// page.tsx quanto no selo de status do ticket-detail-modal.tsx.
+export function getCustomerStatusLabel(status?: string | null): 'Novo' | 'Em Andamento' | 'Finalizado' {
+  if (isClosedTicketStatus(status)) return 'Finalizado';
+  if (status === 'Novo') return 'Novo';
+  return 'Em Andamento';
+}

@@ -382,6 +382,12 @@ export interface Message {
   id: string;
   ticketId?: string;
   senderId: string;
+  // Preenchidos pela rota (JOIN com profiles) desde o hotfix 31/08/2026 — só
+  // em GET ?action=messages. Existem pra que o nome/avatar de quem mandou a
+  // mensagem não dependa de o client já ter uma lista separada de usuários
+  // carregada (que Cliente/Funcionário não tem acesso, ver /api/users).
+  senderName?: string | null;
+  senderAvatarThumbUrl?: string | null;
   text: string;
   timestamp: string;
   isVisibleToCustomer: boolean;
@@ -553,6 +559,7 @@ export interface InternalGroup {
   type: 'direct' | 'group';
   memberIds: string[];
   messages: ChatMessage[];
+  lastMessage?: Pick<ChatMessage, 'id' | 'senderId' | 'senderName' | 'text' | 'timestamp' | 'type' | 'isDeleted'> | null;
   lastMessageAt: string;
   pinnedBy?: string[];
   pinnedMessageIds?: string[];

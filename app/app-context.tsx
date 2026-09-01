@@ -13,7 +13,7 @@ export interface AppNotification {
   sourceId?: string;
   title: string;
   message: string;
-  type: 'ticket_new' | 'ticket_update' | 'ticket_assigned' | 'ticket_closed' | 'chat_new' | 'chat_message' | 'internal_ticket_message' | 'internal_ticket_status' | 'customer_evaluation_prompt' | 'hotfix_overdue' | 'calendar_event';
+  type: 'ticket_new' | 'ticket_update' | 'ticket_assigned' | 'ticket_closed' | 'chat_new' | 'chat_message' | 'internal_chat_message' | 'internal_ticket_message' | 'internal_ticket_status' | 'customer_evaluation_prompt' | 'hotfix_overdue' | 'calendar_event';
   targetId?: string;
   recipientId: string;
   timestamp: string;
@@ -34,6 +34,7 @@ export interface NotificationSettings {
   ticket_closed: boolean;
   chat_new: boolean;
   chat_message: boolean;
+  internal_chat_message: boolean;
   internal_ticket_message: boolean;
   internal_ticket_status: boolean;
   customer_evaluation_prompt: boolean;
@@ -135,6 +136,7 @@ const DEFAULT_SETTINGS: NotificationSettings = {
   ticket_closed: true,
   chat_new: true,
   chat_message: true,
+  internal_chat_message: true,
   internal_ticket_message: true,
   internal_ticket_status: true,
   customer_evaluation_prompt: true,
@@ -146,6 +148,7 @@ const DEFAULT_SETTINGS: NotificationSettings = {
 function getNotificationTargetHref(notif: Pick<AppNotification, 'type' | 'targetId'>, isCompanyUser: boolean): string | null {
   if (!notif.targetId) return null;
   if (notif.type.startsWith('chat_')) return `${isCompanyUser ? '/my-tickets' : '/dashboard'}?chat=${notif.targetId}`;
+  if (notif.type === 'internal_chat_message') return '/chat-internal';
   if (notif.type.startsWith('internal_ticket_')) return `/internal-tickets/${notif.targetId}`;
   if (notif.type === 'hotfix_overdue') return '/settings?tab=hotfixes';
   // Não tem link de página — a ação é abrir o modal de avaliação, só possível
@@ -384,7 +387,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
         return updated;
       });
       
-      const soundType = notif.type.startsWith('chat_') ? 'chat' : 'system';
+      const soundType = (notif.type.startsWith('chat_') || notif.type === 'internal_chat_message') ? 'chat' : 'system';
       playSound(soundType);
 
       // Sem `type`: cai no estilo "default" do Toaster (ver app/layout.tsx),

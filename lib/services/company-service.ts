@@ -129,11 +129,29 @@ export async function getCustomerEvaluationSummary(
   }
 }
 
-export async function deleteCompany(id: string): Promise<MutationResult> {
+// confirm=false (padrão) para o primeiro clique: se a empresa tiver chamados
+// ou avaliações vinculados (apagados em cascata pelo schema), o servidor
+// recusa com requiresConfirmation=true + as contagens exatas, em vez de
+// apagar direto — a tela mostra esse aviso e só chama de novo com
+// confirm=true se quem administra confirmar mesmo assim.
+export async function deleteCompany(id: string, confirm = false): Promise<MutationResult & {
+  requiresConfirmation?: boolean;
+  ticketCount?: number;
+  evaluationCount?: number;
+}> {
   try {
-    const res = await apiFetch(`/api/companies?id=${encodeURIComponent(id)}`, { method: 'DELETE' });
+    const qs = confirm ? `&confirm=1` : '';
+    const res = await apiFetch(`/api/companies?id=${encodeURIComponent(id)}${qs}`, { method: 'DELETE' });
+    const data = await res.json().catch(() => null);
     if (!res.ok) {
-      const data = await res.json().catch(() => null);
+      if (data?.requiresConfirmation) {
+        return {
+          error: data.error,
+          requiresConfirmation: true,
+          ticketCount: data.ticketCount,
+          evaluationCount: data.evaluationCount
+        };
+      }
       return { error: data?.error || 'Erro ao excluir empresa no servidor.' };
     }
     return { success: true };

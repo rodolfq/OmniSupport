@@ -1037,6 +1037,10 @@ ALTER TABLE public.companies ADD COLUMN IF NOT EXISTS is_in_training boolean DEF
 -- de profiles.avatar_url/avatar_thumb_url.
 ALTER TABLE public.companies ADD COLUMN IF NOT EXISTS logo_url TEXT;
 ALTER TABLE public.companies ADD COLUMN IF NOT EXISTS logo_thumb_url TEXT;
+-- Desativação de empresa, no lugar de exclusão (migrations/companies_desativar.sql)
+-- — drift encontrado em 2026-08-31, nunca tinha sido refletido aqui.
+ALTER TABLE public.companies ADD COLUMN IF NOT EXISTS is_active boolean NOT NULL DEFAULT true;
+CREATE INDEX IF NOT EXISTS idx_companies_active ON public.companies (name) WHERE is_active;
 ALTER TABLE public.internal_chat_messages ADD COLUMN IF NOT EXISTS read_by uuid[] DEFAULT '{}'::uuid[];
 ALTER TABLE public.internal_chat_messages ADD COLUMN IF NOT EXISTS delivered_by uuid[] DEFAULT '{}'::uuid[];
 ALTER TABLE public.profiles ADD COLUMN IF NOT EXISTS is_active boolean DEFAULT true NOT NULL;
@@ -1183,11 +1187,11 @@ INSERT INTO public.companies (id, name, industry, phone) VALUES
 ON CONFLICT (id) DO NOTHING;
 
 -- Seed Default Priorities
-INSERT INTO public.config_priorities (label, sla_hours, color) VALUES 
-('Baixa', 120, 'bg-slate-100 text-slate-600'),
-('Média', 72, 'bg-blue-100 text-blue-700'),
-('Alta', 24, 'bg-orange-100 text-orange-700'),
-('Urgente', 12, 'bg-red-100 text-red-700')
+INSERT INTO public.config_priorities (label, sla_hours, color) VALUES
+('Baixa', 120, 'bg-slate-100 dark:bg-[var(--surface-pill)] text-slate-600 dark:text-[var(--text-secondary)]'),
+('Média', 72, 'bg-blue-100 dark:bg-blue-500/20 text-blue-700 dark:text-blue-300'),
+('Alta', 24, 'bg-orange-100 dark:bg-orange-500/20 text-orange-700 dark:text-orange-300'),
+('Urgente', 12, 'bg-red-100 dark:bg-red-500/20 text-red-700 dark:text-red-300')
 ON CONFLICT (label) DO NOTHING;
 
 -- Seed Default Statuses (Chamados)

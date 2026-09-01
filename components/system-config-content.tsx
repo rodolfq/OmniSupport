@@ -371,7 +371,7 @@ export function SystemConfigContent({ categories, priorities, requestTypes, prod
             const currentVal = slaValues[label] ?? Math.round(rawSlaHours / 24);
 
             return (
-              <div key={label} className="bg-[var(--surface-card)] p-4 rounded-xl border border-[var(--border-default)] flex items-center justify-between gap-4 shadow-sm">
+              <div key={label} className="bg-[var(--surface-card)] p-4 rounded-xl border border-[var(--border-default)] flex flex-wrap items-center justify-between gap-4 shadow-sm">
                 <div className="flex items-center gap-3 shrink-0">
                   <div className="flex">
                     {[0, 1, 2, 3].map((s) => (

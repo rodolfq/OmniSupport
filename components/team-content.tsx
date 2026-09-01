@@ -432,8 +432,8 @@ export function TeamContent() {
           </div>
         </div>
 
-        <div className="overflow-x-auto">
-          <table className="w-full text-left border-collapse">
+        <div className="hidden md:block overflow-x-auto">
+          <table className="w-full text-left border-collapse min-w-[720px]">
             <thead>
               <tr className="bg-[var(--surface-card)]/50">
                 <th className="px-8 py-5 text-[10px] font-semibold uppercase text-[var(--text-tertiary)] tracking-widest">ID</th>
@@ -537,6 +537,88 @@ export function TeamContent() {
               )}
             </tbody>
           </table>
+          {isLoadingAnalysts && (
+            <div className="py-6 flex items-center justify-center">
+              <div className="w-5 h-5 border-2 border-[var(--accent)]/30 border-t-[var(--accent)] rounded-full animate-spin" />
+            </div>
+          )}
+        </div>
+
+        {/* Lista em cards <md — a tabela de 5 colunas fica espremida demais
+            numa tela estreita (mesmo padrão de tickets-view.tsx). */}
+        <div className="md:hidden divide-y divide-[var(--border-default)]">
+          {analysts.map((user) => {
+            const profile = profiles.find(p => p.id === (user as any).accessProfileId);
+            return (
+              <div key={user.id} className="px-5 py-4">
+                <div className="flex items-start gap-3">
+                  <UserAvatar
+                    name={user.name}
+                    thumbUrl={user.avatarThumbUrl}
+                    size={40}
+                    rounded="rounded-2xl"
+                    className="font-black shrink-0 border border-[var(--accent)]/20"
+                    fallbackClassName="bg-[var(--accent)]/10 text-[var(--accent-text)] border border-[var(--accent)]/20"
+                  />
+                  <div className="min-w-0 flex-1">
+                    <div className="flex items-center justify-between gap-2">
+                      <span className="font-bold text-[var(--text-primary)] truncate">{user.name}</span>
+                      <div className={cn(
+                        "flex items-center gap-1.5 text-[9px] font-semibold uppercase tracking-widest shrink-0",
+                        user.status === 'online' ? "text-[var(--text-success)]" :
+                        user.status === 'away' ? "text-[var(--text-warning)]" : "text-[var(--text-tertiary)]"
+                      )}>
+                        {user.status === 'online' && <div className="w-1.5 h-1.5 rounded-full bg-[var(--text-success)] animate-pulse" />}
+                        {user.status === 'away' && <div className="w-1.5 h-1.5 rounded-full bg-[var(--text-warning-strong)]" />}
+                        {user.status === 'offline' && <div className="w-1.5 h-1.5 rounded-full bg-[var(--text-tertiary)]" />}
+                        {user.status === 'online' ? 'Disponível' :
+                         user.status === 'away' ? 'Ausente' :
+                         user.status === 'offline' ? 'Offline' : 'Ativo'}
+                      </div>
+                    </div>
+                    <span className="text-[11px] text-[var(--text-tertiary)] flex items-center gap-1 truncate">
+                      <Mail size={11} /> {user.email}
+                    </span>
+                    <div className="flex items-center justify-between mt-2 gap-2">
+                      <div className="flex items-center gap-1.5 min-w-0">
+                        <Shield size={12} className="text-[var(--accent-text)] shrink-0" />
+                        <div className="flex flex-col min-w-0">
+                          <span className="px-2 py-0.5 rounded-full bg-[var(--accent)]/10 text-[var(--accent-text)] text-[9px] font-semibold uppercase tracking-widest w-fit truncate">
+                            {profile ? profile.name : 'Sem perfil'}
+                          </span>
+                        </div>
+                      </div>
+                      {canManageTeam ? (
+                        <div className="flex gap-1 shrink-0">
+                          <button
+                            onClick={() => handleOpenModal(user)}
+                            className="p-2 text-[var(--text-tertiary)] hover:text-[var(--accent-text)] hover:bg-[var(--accent)]/10 rounded-xl transition-all"
+                            title="Editar"
+                          >
+                            <Edit2 size={16} />
+                          </button>
+                          <button
+                            onClick={() => handleDelete(user.id)}
+                            className="p-2 text-[var(--text-tertiary)] hover:text-[var(--text-danger)] hover:bg-[var(--surface-danger)] rounded-xl transition-all"
+                            title="Remover"
+                          >
+                            <Trash2 size={16} />
+                          </button>
+                        </div>
+                      ) : (
+                        <span className="text-[9px] text-[var(--text-tertiary)] uppercase font-semibold shrink-0">Somente leitura</span>
+                      )}
+                    </div>
+                  </div>
+                </div>
+              </div>
+            );
+          })}
+          {!isLoadingAnalysts && analysts.length === 0 && (
+            <div className="px-8 py-12 text-center text-sm font-medium text-[var(--text-tertiary)]">
+              {debouncedSearch ? 'Nenhum analista encontrado para essa busca.' : 'Nenhum analista cadastrado ainda.'}
+            </div>
+          )}
           {isLoadingAnalysts && (
             <div className="py-6 flex items-center justify-center">
               <div className="w-5 h-5 border-2 border-[var(--accent)]/30 border-t-[var(--accent)] rounded-full animate-spin" />

@@ -2,7 +2,7 @@
 
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { useQueryClient } from '@tanstack/react-query';
-import { CalendarRange, RefreshCw, AlertTriangle, ExternalLink, Link2, X, Loader2 } from 'lucide-react';
+import { CalendarRange, RefreshCw, AlertTriangle, ExternalLink, Link2, X, Loader2, ChevronLeft, ChevronRight } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import { toast } from 'sonner';
 import { cn } from '@/lib/utils';
@@ -24,7 +24,12 @@ export function WeekendScheduleContent() {
   const { hasPermission } = useApp();
   const canManage = hasPermission(Permission.GIRO_MANAGE);
   const queryClient = useQueryClient();
-  const { data, isLoading, error: queryError } = useWeekendScheduleQuery({ enabled: true });
+  // 0 = mês atual (o mesmo que o popover do Giro sempre mostra), 1 = próximo,
+  // -1 = anterior etc. — a aba correspondente na planilha só existe se o
+  // time já publicou aquele mês (fora do controle do código, ver
+  // weekend-schedule-service.ts).
+  const [monthOffset, setMonthOffset] = useState(0);
+  const { data, isLoading, error: queryError } = useWeekendScheduleQuery({ enabled: true, monthOffset });
   const [refreshing, setRefreshing] = useState(false);
   const [isLinkModalOpen, setIsLinkModalOpen] = useState(false);
 
@@ -34,7 +39,7 @@ export function WeekendScheduleContent() {
   const handleRefresh = async () => {
     setRefreshing(true);
     try {
-      await refreshWeekendSchedule(queryClient);
+      await refreshWeekendSchedule(queryClient, monthOffset);
       toast.success('Escala atualizada.');
     } catch (err: any) {
       toast.error(err?.message || 'Não foi possível atualizar a escala.');
@@ -43,10 +48,16 @@ export function WeekendScheduleContent() {
     }
   };
 
-  const classifiedRows = useMemo(
-    () => data ? classifyWeekendRows(data.rows, data.todayIso) : [],
-    [data]
-  );
+  const classifiedRows = useMemo(() => {
+    if (!data) return [];
+    const rows = classifyWeekendRows(data.rows, data.todayIso);
+    // "Próximo fim de semana" só faz sentido no mês atual — num mês
+    // navegado, a primeira linha ainda não passada sempre bateria como
+    // "next" mesmo sendo só o início daquele mês, não o plantão mais
+    // próximo de verdade.
+    if (monthOffset === 0) return rows;
+    return rows.map(r => (r.status === 'next' ? { ...r, status: 'upcoming' as const } : r));
+  }, [data, monthOffset]);
 
   // Assim que a escala carrega, a data em verde (próximo plantão) já entra
   // centralizada na tela — só na primeira vez que os dados chegam, não a
@@ -54,6 +65,9 @@ export function WeekendScheduleContent() {
   // resolve sozinho o caso "não dá pra centralizar de verdade" (linha perto
   // do topo/fim da lista): ele rola só o necessário pra deixar visível.
   const nextRowRef = useRef<HTMLTableRowElement>(null);
+  // Card <md equivalente à linha da tabela — as duas árvores (tabela/cards)
+  // ficam sempre montadas, só uma delas visível por vez via hidden/md:hidden.
+  const nextCardRef = useRef<HTMLDivElement>(null);
   const hasCenteredRef = useRef(false);
   useEffect(() => {
     if (hasCenteredRef.current) return;
@@ -61,6 +75,7 @@ export function WeekendScheduleContent() {
     hasCenteredRef.current = true;
     requestAnimationFrame(() => {
       nextRowRef.current?.scrollIntoView({ block: 'center', behavior: 'smooth' });
+      nextCardRef.current?.scrollIntoView({ block: 'center', behavior: 'smooth' });
     });
   }, [classifiedRows]);
 
@@ -77,6 +92,30 @@ export function WeekendScheduleContent() {
           </p>
         </div>
         <div className="flex items-center gap-2 self-start">
+          <div className="flex items-center gap-1 bg-[var(--surface-pill)] rounded-lg border border-[var(--border-default)] p-1">
+            <button
+              onClick={() => setMonthOffset(m => m - 1)}
+              title="Mês anterior"
+              className="p-1.5 rounded-md text-[var(--text-tertiary)] hover:bg-[var(--border-default)] hover:text-[var(--text-primary)] transition-all"
+            >
+              <ChevronLeft size={16} />
+            </button>
+            {monthOffset !== 0 && (
+              <button
+                onClick={() => setMonthOffset(0)}
+                className="px-2 text-[10px] font-black uppercase tracking-widest text-[var(--accent-text)] hover:underline"
+              >
+                Mês atual
+              </button>
+            )}
+            <button
+              onClick={() => setMonthOffset(m => m + 1)}
+              title="Próximo mês"
+              className="p-1.5 rounded-md text-[var(--text-tertiary)] hover:bg-[var(--border-default)] hover:text-[var(--text-primary)] transition-all"
+            >
+              <ChevronRight size={16} />
+            </button>
+          </div>
           {canManage && (
             <button
               onClick={() => setIsLinkModalOpen(true)}
@@ -114,8 +153,8 @@ export function WeekendScheduleContent() {
             Nenhuma linha de escala encontrada na aba do mês atual.
           </div>
         ) : (
-          <div className="overflow-x-auto">
-            <table className="w-full text-sm">
+          <div className="hidden md:block overflow-x-auto">
+            <table className="w-full text-sm min-w-[640px]">
               <thead>
                 <tr className="border-b border-[var(--border-default)] bg-[var(--surface-pill)]/40">
                   <th className="text-left px-6 py-3 text-[10px] font-black uppercase tracking-widest text-[var(--text-tertiary)]">Data</th>
@@ -157,6 +196,43 @@ export function WeekendScheduleContent() {
                 ))}
               </tbody>
             </table>
+          </div>
+        )}
+        {!isLoading && !error && data && data.rows.length > 0 && (
+          <div className="md:hidden divide-y divide-[var(--border-default)]">
+            {classifiedRows.map((row, i) => (
+              <div
+                key={`${row.date}-${i}`}
+                ref={row.status === 'next' ? nextCardRef : undefined}
+                className={cn(
+                  'px-5 py-3 transition-colors',
+                  row.status === 'past' && 'opacity-40',
+                  row.status === 'next' && 'bg-[var(--accent)]/10'
+                )}
+              >
+                <div className="flex items-center justify-between gap-2">
+                  <span className={cn('flex items-center gap-2 font-bold text-sm', row.status === 'next' ? 'text-[var(--accent-text)]' : 'text-[var(--text-primary)]')}>
+                    {row.date}
+                    <span className="text-[10px] font-medium text-[var(--text-tertiary)]">{row.weekday}</span>
+                  </span>
+                  {row.status === 'next' && (
+                    <span className="px-1.5 py-0.5 rounded-full bg-[var(--accent)] text-white text-[8px] font-black uppercase tracking-widest shrink-0">
+                      Próximo
+                    </span>
+                  )}
+                </div>
+                <div className="mt-1.5 grid grid-cols-2 gap-x-3 gap-y-1 text-xs">
+                  <span className="text-[var(--text-tertiary)]">Titular</span>
+                  <span className="font-bold text-[var(--text-primary)] text-right">{row.titular || '—'}</span>
+                  <span className="text-[var(--text-tertiary)]">Substituto</span>
+                  <span className="text-[var(--text-secondary)] text-right">{row.substituto || '—'}</span>
+                  <span className="text-[var(--text-tertiary)]">Responsável efetivo</span>
+                  <span className="text-[var(--text-secondary)] text-right">{row.responsavelEfetivo || '—'}</span>
+                  <span className="text-[var(--text-tertiary)]">Horas</span>
+                  <span className="text-[var(--text-secondary)] text-right">{row.horas}</span>
+                </div>
+              </div>
+            ))}
           </div>
         )}
       </div>

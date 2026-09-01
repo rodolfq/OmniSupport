@@ -168,7 +168,7 @@ export class MetaWhatsAppService {
     const session = await runExclusive(`session:${digits}`, async () => {
       const placeHolders = finalVariants.map((_, i) => `$${i + 1}`).join(',');
       const sessionRes = await query(
-        `SELECT id, customer_phone, customer_id FROM public.chat_sessions
+        `SELECT id, customer_phone, customer_id, assignee_id, queue_id FROM public.chat_sessions
          WHERE customer_phone IN (${placeHolders})
            AND (status != 'closed' OR (awaiting_survey_until IS NOT NULL AND awaiting_survey_until > NOW()))
          ORDER BY updated_at DESC LIMIT 1`,
@@ -204,7 +204,7 @@ export class MetaWhatsAppService {
            VALUES ($1, $2, $3, $4, $5, $6, NOW(), NOW())
            ON CONFLICT (customer_phone) WHERE status <> 'closed' AND customer_phone IS NOT NULL
            DO NOTHING
-           RETURNING id, customer_phone, customer_id`,
+           RETURNING id, customer_phone, customer_id, assignee_id, queue_id`,
           [profile?.id || null, customerName, digits, status, queue?.id || null, assigneeId]
         );
         return { insertRes };
@@ -213,7 +213,7 @@ export class MetaWhatsAppService {
       if (insertRes.rows[0]) return insertRes.rows[0];
 
       const retryRes = await query(
-        `SELECT id, customer_phone, customer_id FROM public.chat_sessions
+        `SELECT id, customer_phone, customer_id, assignee_id, queue_id FROM public.chat_sessions
          WHERE customer_phone IN (${placeHolders})
          ORDER BY updated_at DESC LIMIT 1`,
         finalVariants
@@ -276,7 +276,7 @@ export class MetaWhatsAppService {
         }
       });
 
-      getChatRecipientIds({ customerId: session.customer_id }, null, false)
+      getChatRecipientIds({ customerId: session.customer_id, assigneeId: session.assignee_id, queueId: session.queue_id }, null, false)
         .then(recipients => excludeActiveViewers(session.id, recipients))
         .then(recipients => Promise.all(recipients.map(id => notifyUser(id, {
           title: `Nova mensagem de ${name}`,

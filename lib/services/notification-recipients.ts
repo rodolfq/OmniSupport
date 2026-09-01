@@ -1,5 +1,6 @@
 import { query } from '@/lib/db';
 import { notifyUser } from '@/lib/services/push-service';
+import { resolveQueueById } from '@/lib/services/queue-routing';
 
 const TEAM_ROLES = ['Administrador', 'Equipe', 'Time Interno'];
 
@@ -87,18 +88,32 @@ export async function pushToTicketRecipients(
   }
 }
 
+// Mensagem do cliente: uma vez que a conversa tem responsável, só ele precisa
+// ser avisado — antes disso, notificar todo o time (Administrador+Equipe+
+// Time Interno) fazia todo mundo tocar a cada mensagem, mesmo já atribuída.
+// Sem responsável, cai no pool de quem atende a fila da conversa; só sem fila
+// nenhuma (ou fila sem membros) é que soa pra equipe inteira.
+async function getUnassignedChatRecipientIds(queueId?: string | null): Promise<string[]> {
+  if (queueId) {
+    const queue = await resolveQueueById(queueId);
+    if (queue && queue.memberIds.length > 0) return queue.memberIds;
+  }
+  return getTeamUserIds();
+}
+
 // Mesma regra usada hoje no polling para chat: se quem mandou a mensagem é da
-// equipe, só o cliente da conversa precisa ser avisado; se foi o cliente,
-// qualquer membro da equipe (não há "dono" fixo de um chat pendente) deve
-// saber que uma nova mensagem chegou.
+// equipe, só o cliente da conversa precisa ser avisado; se foi o cliente, só
+// o responsável (quando já atribuído) ou o pool da fila/equipe.
 export async function getChatRecipientIds(
-  session: { customerId?: string | null },
+  session: { customerId?: string | null; assigneeId?: string | null; queueId?: string | null },
   senderId: string | null,
   senderIsTeam: boolean
 ): Promise<string[]> {
   if (senderIsTeam) {
     return session.customerId ? [session.customerId] : [];
   }
-  const teamIds = await getTeamUserIds();
-  return senderId ? teamIds.filter(id => id !== senderId) : teamIds;
+  const recipientIds = session.assigneeId
+    ? [session.assigneeId]
+    : await getUnassignedChatRecipientIds(session.queueId);
+  return senderId ? recipientIds.filter(id => id !== senderId) : recipientIds;
 }

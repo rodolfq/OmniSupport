@@ -63,7 +63,7 @@ import { cn, maskPhone, matchPhones, safeJsonStringify } from '@/lib/utils';
 import { useApp } from '@/app/app-context';
 import { isEvaluationSnoozed } from '@/lib/evaluation-snooze';
 import { deriveLiveStatus } from '@/lib/presence';
-import { useSearchParams } from 'next/navigation';
+import { useSearchParams, usePathname, useRouter } from 'next/navigation';
 import { LinkContactModal } from '@/components/link-contact-modal';
 import { renderLinkedText } from '@/components/linked-chat-text';
 import { PhoneContactPanel } from '@/components/phone-contact-panel';
@@ -171,6 +171,8 @@ export function ChatWidget() {
     openEvaluationModal
   } = useApp();
   const searchParams = useSearchParams();
+  const pathname = usePathname();
+  const router = useRouter();
   const isMobileViewport = useIsMobile();
 
   const [customerSessions, setCustomerSessions] = useState<ChatSession[]>([]);
@@ -214,11 +216,20 @@ export function ChatWidget() {
   }, [isExpanded, isMinimized, setIsOmniChatExpanded]);
 
   useEffect(() => {
-    if (activeOmniChatId) {
-      setIsOmniChatOpen(true);
+    // Só marca como lida quando o painel está de fato aberto — NÃO abre
+    // sozinho. Selecionar uma conversa (setActiveOmniChatId) também acontece
+    // em segundo plano, sem o cliente ter pedido (ver o efeito "cliente não
+    // tem lista lateral" mais abaixo, que escolhe o atendimento em aberto
+    // assim que ele chega do servidor, mesmo com o painel fechado) — marcar
+    // como lida nesse momento apagaria o indicador de mensagem nova antes de
+    // quem está usando ter visto qualquer coisa. Abrir de propósito é sempre
+    // explícito: quem quer abrir chama setIsOmniChatOpen(true) junto no
+    // próprio call site (clique no ícone, clique numa notificação, ?chat= na
+    // URL) — nunca só por tabela aqui.
+    if (activeOmniChatId && !isMinimized) {
       markNotificationsAsReadByTarget(activeOmniChatId);
     }
-  }, [activeOmniChatId, setIsOmniChatOpen, markNotificationsAsReadByTarget]);
+  }, [activeOmniChatId, isMinimized, markNotificationsAsReadByTarget]);
 
   // Rede de segurança pra quando OUTRO componente manda abrir uma conversa
   // por aqui sem passar pelo fluxo interno deste widget — ex.: clicar num
@@ -239,8 +250,16 @@ export function ChatWidget() {
     if (chatId) {
       setIsOmniChatOpen(true);
       setActiveOmniChatId(chatId);
+      // Consome o parâmetro depois de abrir — sem isso, ?chat= fica preso na
+      // barra de endereço (veio de um clique em notificação) e o chat volta
+      // a abrir sozinho a cada F5, mesmo depois de quem está usando já ter
+      // fechado o painel de propósito.
+      const params = new URLSearchParams(searchParams?.toString());
+      params.delete('chat');
+      const query = params.toString();
+      router.replace(query ? `${pathname}?${query}` : pathname, { scroll: false });
     }
-  }, [searchParams, setIsOmniChatOpen, setActiveOmniChatId]);
+  }, [searchParams, setIsOmniChatOpen, setActiveOmniChatId, router, pathname]);
 
   const selectedChatId = activeOmniChatId;
   const setSelectedChatId = setActiveOmniChatId;
@@ -2898,7 +2917,7 @@ useEffect(() => {
                           </div>
                           <span className="flex items-center gap-1.5 text-[9px] text-[var(--text-tertiary)] font-semibold uppercase mt-1 px-1 tracking-widest">
                             <ClientTime date={m.timestamp} />
-                            {m.isEdited && (
+                            {m.isEdited && !isCustomer && (
                               <button onClick={() => openMessageHistory(m.id)} className="hover:text-[var(--accent-text)] lowercase italic">
                                 (editado)
                               </button>

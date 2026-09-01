@@ -77,8 +77,9 @@ const analystsDef = { queryKey: ['ref', 'analysts'], queryFn: () => getJson('/ap
 // lib/services/weekend-schedule-service.ts) — queryFn própria (não getJson)
 // porque o erro 404 de "aba do mês não encontrada" carrega availableTabs no
 // corpo, que a tela quer mostrar; getJson descarta o corpo no erro.
-async function getWeekendScheduleJson(): Promise<WeekendScheduleResult> {
-  const res = await fetch('/api/giro/weekend-schedule');
+async function getWeekendScheduleJson(monthOffset = 0): Promise<WeekendScheduleResult> {
+  const qs = monthOffset !== 0 ? `?month=${monthOffset}` : '';
+  const res = await fetch(`/api/giro/weekend-schedule${qs}`);
   const body = await res.json();
   if (!res.ok) {
     const err = new Error(body?.error || `Falha ao buscar a escala de fim de semana (${res.status})`);
@@ -87,7 +88,13 @@ async function getWeekendScheduleJson(): Promise<WeekendScheduleResult> {
   }
   return body;
 }
-const weekendScheduleDef = { queryKey: ['ref', 'weekend-schedule'], queryFn: getWeekendScheduleJson };
+
+// monthOffset 0 usa a MESMA chave de sempre — é o que faz o popover do Giro
+// (sempre mês atual) e a tela cheia (navegável) compartilharem cache quando
+// a tela está no mês atual, ver comentário de refreshWeekendSchedule abaixo.
+function weekendScheduleQueryKey(monthOffset: number) {
+  return monthOffset === 0 ? ['ref', 'weekend-schedule'] : ['ref', 'weekend-schedule', monthOffset];
+}
 
 // `enabled` (opcional, default true) existe pra componentes que ficam
 // sempre montados mas só devem buscar quando realmente visíveis/abertos
@@ -152,25 +159,33 @@ export function useAnalystsQuery(options?: QueryOptions) {
 // máximo algumas vezes por dia, e o servidor já cacheia por 5 min (ver
 // weekend-schedule-service.ts) — não faz sentido o cliente revalidar mais
 // rápido que a própria fonte.
-export function useWeekendScheduleQuery(options?: QueryOptions) {
-  return useQuery({ ...weekendScheduleDef, staleTime: 5 * 60_000, enabled: options?.enabled });
+export function useWeekendScheduleQuery(options?: QueryOptions & { monthOffset?: number }) {
+  const monthOffset = options?.monthOffset ?? 0;
+  return useQuery({
+    queryKey: weekendScheduleQueryKey(monthOffset),
+    queryFn: () => getWeekendScheduleJson(monthOffset),
+    staleTime: 5 * 60_000,
+    enabled: options?.enabled,
+  });
 }
 
 /**
  * Botão "Atualizar" (ver weekend-schedule-content.tsx) — ignora o cache do
  * servidor (?refresh=1) e escreve o resultado direto no cache do
- * TanStack Query, então popover e tela cheia atualizam juntos na hora, sem
- * cada um refazer sua própria requisição.
+ * TanStack Query, então popover e tela cheia atualizam juntos na hora (só
+ * quando ambos estão no mês atual, monthOffset 0 — navegar pra outro mês na
+ * tela cheia usa uma chave própria, sem interferir no popover).
  */
-export async function refreshWeekendSchedule(queryClient: QueryClient): Promise<WeekendScheduleResult> {
-  const res = await fetch('/api/giro/weekend-schedule?refresh=1');
+export async function refreshWeekendSchedule(queryClient: QueryClient, monthOffset = 0): Promise<WeekendScheduleResult> {
+  const qs = monthOffset !== 0 ? `?refresh=1&month=${monthOffset}` : '?refresh=1';
+  const res = await fetch(`/api/giro/weekend-schedule${qs}`);
   const body = await res.json();
   if (!res.ok) {
     const err = new Error(body?.error || `Falha ao atualizar a escala de fim de semana (${res.status})`);
     (err as any).availableTabs = body?.availableTabs;
     throw err;
   }
-  queryClient.setQueryData(weekendScheduleDef.queryKey, body);
+  queryClient.setQueryData(weekendScheduleQueryKey(monthOffset), body);
   return body;
 }
 
