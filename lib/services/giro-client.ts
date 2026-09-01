@@ -21,6 +21,9 @@ export interface MutationResult {
   reinserted?: boolean;
   /** Só preenchido por saveGiroChecklistItem ao criar um item novo. */
   id?: string;
+  /** Quantos dias futuros já gerados foram reprocessados automaticamente
+   *  (save/delete/reorder de participante) — ver reprocessUpcomingDays. */
+  reprocessedDays?: number;
 }
 
 async function mutate(path: string, body: any, fallback: string): Promise<MutationResult> {

@@ -18,3 +18,7 @@ data/
 # Cache incremental do TypeScript. Estava versionado e aparecia como alterado a
 # cada `tsc --noEmit`, sujando o diff sem significar mudança nenhuma no código.
 *.tsbuildinfo
+
+# Overrides locais do Compose (ex.: apontar o container pro banco de dev em
+# vez do .env de produção) — específico de máquina, nunca deve ir pro repo.
+docker-compose.override.yml

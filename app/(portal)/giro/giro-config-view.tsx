@@ -157,6 +157,13 @@ export function GiroConfigView() {
    * lá). Envia o participante inteiro porque a API grava o registro
    * completo, não um patch.
    */
+  // Aviso de que o reprocessamento automático rodou (ver reprocessUpcomingDays
+  // no servidor) — só aparece quando de fato mexeu em algum dia futuro.
+  const notifyReprocessed = (count?: number) => {
+    if (!count) return;
+    toast.info(`${count} dia${count > 1 ? 's' : ''} futuro${count > 1 ? 's' : ''} do Giro reprocessado${count > 1 ? 's' : ''} automaticamente.`);
+  };
+
   const persist = async (p: GiroParticipant, changes: Partial<GiroParticipant>, message?: string) => {
     const previous = p;
     const next: GiroParticipant = {
@@ -185,6 +192,7 @@ export function GiroConfigView() {
     }
     if (message) toast.success(message);
     if (result.reinserted) toast.info('Como a ausência foi retirada hoje, a pessoa voltou ao fim do Giro de hoje.');
+    notifyReprocessed(result.reprocessedDays);
     return true;
   };
 
@@ -198,6 +206,7 @@ export function GiroConfigView() {
       return;
     }
     toast.success(`${p.name} saiu do cadastro do Giro.`);
+    notifyReprocessed(result.reprocessedDays);
   };
 
   const handleAddCandidate = async (candidate: GiroCandidate) => {
@@ -228,6 +237,7 @@ export function GiroConfigView() {
       return;
     }
     toast.success(`${candidate.name} entrou no Giro.`);
+    notifyReprocessed(result.reprocessedDays);
   };
 
   const handleFreeDragEnd = async (event: DragEndEvent) => {
@@ -250,7 +260,9 @@ export function GiroConfigView() {
     if (result.error) {
       setParticipants(previousParticipants);
       toast.error(result.error);
+      return;
     }
+    notifyReprocessed(result.reprocessedDays);
   };
 
   // ------------------------------------------------------------ checklist

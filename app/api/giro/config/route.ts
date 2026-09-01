@@ -70,20 +70,26 @@ export async function POST(request: Request) {
       const result = await giro.saveParticipant(body);
       if (result.error) return NextResponse.json({ error: result.error }, { status: 400 });
       logAudit({ actorId: actor.id, actorName: actor.name, action: 'update', entityType: 'giro_participant', entityId: body.userId, entityLabel: 'Participante do Giro' });
-      return NextResponse.json({ success: true, reinserted: !!result.reinserted });
+      // Cadastro mudou (posição fixa, ausência, entrada/saída) — reprocessa
+      // sozinho todo dia futuro já gerado, em vez de exigir um clique manual
+      // em "Reprocessar" em cada um.
+      const { reprocessed } = await giro.reprocessUpcomingDays();
+      return NextResponse.json({ success: true, reinserted: !!result.reinserted, reprocessedDays: reprocessed.length });
     }
 
     if (action === 'reorder-participants') {
       if (!Array.isArray(body.orderedUserIds)) return NextResponse.json({ error: 'orderedUserIds é obrigatório.' }, { status: 400 });
       await giro.reorderParticipants(body.orderedUserIds);
-      return NextResponse.json({ success: true });
+      const { reprocessed } = await giro.reprocessUpcomingDays();
+      return NextResponse.json({ success: true, reprocessedDays: reprocessed.length });
     }
 
     if (action === 'delete-participant') {
       if (!body.userId) return NextResponse.json({ error: 'userId é obrigatório.' }, { status: 400 });
       await giro.deleteParticipant(body.userId);
       logAudit({ actorId: actor.id, actorName: actor.name, action: 'delete', entityType: 'giro_participant', entityId: body.userId, entityLabel: 'Participante do Giro' });
-      return NextResponse.json({ success: true });
+      const { reprocessed } = await giro.reprocessUpcomingDays();
+      return NextResponse.json({ success: true, reprocessedDays: reprocessed.length });
     }
 
     if (action === 'save-checklist-item') {

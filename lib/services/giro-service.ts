@@ -126,8 +126,10 @@ async function getPreviousOrder(dateStr: string): Promise<{ userId: string; isFi
  *    número já é bloqueado na gravação (saveParticipant) — o `takenSlots`
  *    abaixo é só uma rede de segurança pra dado legado/corrida de escrita,
  *    não o mecanismo principal.
- * 2. Os livres que já estavam na ordem anterior rodam: o ÚLTIMO deles assume o
- *    primeiro lugar e os demais descem uma posição. Com um único livre não há
+ * 2. Os livres que já estavam na ordem anterior rodam: o PRIMEIRO deles (quem
+ *    fez a passagem de turno) vai pro FIM da fila, e os demais sobem uma
+ *    posição — quem era o segundo (próximo da fila) assume o primeiro lugar
+ *    e a passagem de turno do dia seguinte. Com um único livre não há
  *    rodízio (rodar uma lista de um elemento é a própria lista).
  * 3. Quem NÃO estava na ordem anterior (novo, voltou de ausência, foi incluído
  *    à mão ontem) entra no fim e FORA do rodízio deste primeiro dia — decisão
@@ -178,7 +180,7 @@ function buildOrder(
     .map(p => p.userId);
 
   const rotated = freeFromPrevious.length > 1
-    ? [freeFromPrevious[freeFromPrevious.length - 1], ...freeFromPrevious.slice(0, -1)]
+    ? [...freeFromPrevious.slice(1), freeFromPrevious[0]]
     : freeFromPrevious;
 
   const freeQueue = [...rotated, ...newcomers];
@@ -483,6 +485,31 @@ export async function reprocessDay(dateStr: string): Promise<{ error?: string }>
   } finally {
     client.release();
   }
+}
+
+/**
+ * Reprocessa todos os dias de hoje em diante que já existem em giro_days —
+ * chamado depois de qualquer mudança no cadastro (novo participante, saída,
+ * reordenar, posição fixa) pra não depender de alguém abrir dia por dia e
+ * clicar em "Reprocessar" manualmente. Dias com atendimento concluído são
+ * pulados (mesma regra de reprocessDay) em vez de travar o lote inteiro.
+ */
+export async function reprocessUpcomingDays(): Promise<{ reprocessed: string[]; skipped: string[] }> {
+  const today = toDateOnly(await getTodaySP());
+  const res = await query(
+    `SELECT giro_date FROM public.giro_days WHERE giro_date >= $1::date ORDER BY giro_date ASC`,
+    [today]
+  );
+
+  const reprocessed: string[] = [];
+  const skipped: string[] = [];
+  for (const row of res.rows) {
+    const dateStr = toDateOnly(row.giro_date);
+    const result = await reprocessDay(dateStr);
+    if (result.error) skipped.push(dateStr);
+    else reprocessed.push(dateStr);
+  }
+  return { reprocessed, skipped };
 }
 
 // ------------------------------------------------------------ passagem de turno

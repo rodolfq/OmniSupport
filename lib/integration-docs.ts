@@ -20,6 +20,15 @@ export interface EndpointErrorDoc {
   description: string;
 }
 
+// Exemplo pronto de consulta (só parâmetros de query) — vira um curl completo
+// e um atalho "usar este exemplo" no testador, pra quem só quer copiar e
+// colar num Postman/Insomnia sem descobrir sozinho quais parâmetros combinar.
+export interface EndpointExample {
+  label: string;
+  description: string;
+  query: Record<string, string>;
+}
+
 export interface EndpointDoc {
   id: string;
   method: 'GET' | 'POST' | 'PUT' | 'PATCH' | 'DELETE';
@@ -28,6 +37,7 @@ export interface EndpointDoc {
   description: string;
   scope: IntegrationScope | null; // null = qualquer chave ativa, sem escopo específico
   params: EndpointParam[];
+  examples?: EndpointExample[];
   exampleResponse: string;
   errors: EndpointErrorDoc[];
 }
@@ -234,27 +244,70 @@ export const INTEGRATION_ENDPOINTS: EndpointDoc[] = [
     method: 'GET',
     path: '/api/integrations/v1/tickets',
     summary: 'Listar ou consultar chamados',
-    description: 'Sem "id" retorna uma página de chamados de todos os clientes (use companyId para filtrar por empresa, ou updatedSince para sincronização incremental). Com "id" retorna o chamado com as mensagens visíveis ao cliente — mensagens internas entre atendentes não são expostas por esta API.',
+    description: 'Sem "id" retorna uma página de chamados de todos os clientes, filtrável por qualquer um dos parâmetros abaixo (todos combináveis entre si). Com "id" retorna o chamado com as mensagens visíveis ao cliente — mensagens internas entre atendentes não são expostas por esta API.',
     scope: 'tickets:read',
     params: [
-      { name: 'id', in: 'query', type: 'string', description: 'Retorna esse chamado + mensagens.' },
-      { name: 'companyId', in: 'query', type: 'uuid', description: 'Opcional. Filtra por empresa — sem esse parâmetro, retorna chamados de todos os clientes.' },
+      { name: 'id', in: 'query', type: 'string', description: 'Retorna esse chamado + mensagens (ignora os demais filtros).' },
+      { name: 'companyId', in: 'query', type: 'uuid', description: 'Filtra por empresa (ver GET /companies).' },
+      { name: 'customerId', in: 'query', type: 'uuid', description: 'Filtra pelo contato que abriu o chamado (ver GET /employees).' },
+      { name: 'assigneeId', in: 'query', type: 'uuid', description: 'Filtra pelo analista responsável.' },
+      { name: 'queueId', in: 'query', type: 'string', description: 'Filtra pela fila do chamado.' },
       { name: 'status', in: 'query', type: 'string', description: 'Ex.: "Novo", "Em Atendimento", "Aguardando Cliente", "Fechado".', placeholder: 'Novo' },
+      { name: 'subStatus', in: 'query', type: 'string', description: 'Sub-status dentro do status principal, quando cadastrado.' },
+      { name: 'priority', in: 'query', type: '"Baixa" | "Média" | "Alta" | "Urgente"', description: 'Prioridade exata.', placeholder: 'Urgente' },
+      { name: 'category', in: 'query', type: 'string', description: 'Nome da categoria (não diferencia maiúsc./minúsc.) — use este em vez de categoryId se não souber o UUID.', placeholder: 'Hardware' },
+      { name: 'categoryId', in: 'query', type: 'uuid', description: 'Id exato da categoria, se você já souber.' },
+      { name: 'requestType', in: 'query', type: 'string', description: 'Nome do tipo de solicitação (não diferencia maiúsc./minúsc.).' },
+      { name: 'requestTypeId', in: 'query', type: 'uuid', description: 'Id exato do tipo de solicitação.' },
+      { name: 'product', in: 'query', type: 'string', description: 'Nome do produto (não diferencia maiúsc./minúsc.).' },
+      { name: 'productId', in: 'query', type: 'uuid', description: 'Id exato do produto.' },
+      { name: 'tags', in: 'query', type: 'string (separado por vírgula)', description: 'Chamados que tenham QUALQUER uma das tags informadas.', placeholder: 'vip,retido' },
+      { name: 'search', in: 'query', type: 'string', description: 'Trecho do título (não diferencia maiúsc./minúsc.).' },
+      { name: 'contentSearch', in: 'query', type: 'string', description: 'Trecho da descrição (não diferencia maiúsc./minúsc.).' },
+      { name: 'createdFrom', in: 'query', type: 'ISO 8601', description: 'Só chamados criados a partir desta data/hora.', placeholder: '2026-08-01T00:00:00Z' },
+      { name: 'createdTo', in: 'query', type: 'ISO 8601', description: 'Só chamados criados até esta data/hora.' },
       { name: 'updatedSince', in: 'query', type: 'ISO 8601', description: 'Só chamados alterados a partir desta data/hora — para sincronizar incrementalmente sem reler tudo a cada chamada.', placeholder: '2026-08-01T00:00:00Z' },
       { name: 'limit', in: 'query', type: 'number', description: 'Itens por página. Padrão 100, máximo 500.', placeholder: '100' },
       { name: 'offset', in: 'query', type: 'number', description: 'Deslocamento para paginação. Padrão 0.', placeholder: '0' },
     ],
+    examples: [
+      {
+        label: 'Só chamados de uma categoria',
+        description: 'Filtra pelo nome da categoria — não precisa saber o UUID.',
+        query: { category: 'Hardware' },
+      },
+      {
+        label: 'Abertos e urgentes',
+        description: 'Combina status + prioridade — os filtros sempre funcionam em conjunto (E lógico).',
+        query: { status: 'Novo', priority: 'Urgente' },
+      },
+      {
+        label: 'Por responsável e fila',
+        description: 'Chamados de um analista específico dentro de uma fila.',
+        query: { assigneeId: '<uuid-do-analista>', queueId: '<id-da-fila>' },
+      },
+      {
+        label: 'Por tag',
+        description: 'Chamados marcados com "vip" OU "retido".',
+        query: { tags: 'vip,retido' },
+      },
+      {
+        label: 'Sincronização incremental',
+        description: 'Só o que mudou desde a última vez que você sincronizou — ideal para rodar periodicamente.',
+        query: { updatedSince: '2026-08-01T00:00:00Z' },
+      },
+    ],
     exampleResponse: JSON.stringify(
       {
         data: [
-          { id: '294803172edd...', ticketNumber: 23, title: 'Impressora não liga', description: 'Não liga mesmo trocando a tomada.', status: 'Novo', subStatus: null, priority: 'Média', category: 'Hardware', categoryId: 'a1b2...', requestTypeId: null, productId: null, tags: ['hardware'], companyId: '56f9...', customerId: null, assigneeId: null, employeeIds: [], createdAt: '2026-07-20T12:00:00.000Z', updatedAt: '2026-07-20T12:00:00.000Z' },
+          { id: '294803172edd...', ticketNumber: 23, title: 'Impressora não liga', description: 'Não liga mesmo trocando a tomada.', status: 'Novo', subStatus: null, priority: 'Média', category: 'Hardware', categoryId: 'a1b2...', requestTypeId: null, productId: null, tags: ['hardware'], queueId: 'suporte-n1', companyId: '56f9...', customerId: null, assigneeId: null, employeeIds: [], createdAt: '2026-07-20T12:00:00.000Z', updatedAt: '2026-07-20T12:00:00.000Z' },
         ],
         meta: { limit: 100, offset: 0, total: 1, hasMore: false },
       },
       null,
       2
     ),
-    errors: [...AUTH_ERRORS, scopeError('tickets:read'), { status: 400, code: 'VALIDATION_ERROR', description: 'updatedSince não é uma data ISO 8601 válida.' }, { status: 404, code: 'NOT_FOUND', description: 'Chamado não encontrado.' }],
+    errors: [...AUTH_ERRORS, scopeError('tickets:read'), { status: 400, code: 'VALIDATION_ERROR', description: 'updatedSince/createdFrom/createdTo não é uma data ISO 8601 válida.' }, { status: 404, code: 'NOT_FOUND', description: 'Chamado não encontrado.' }],
   },
   {
     id: 'tickets-create',
@@ -319,21 +372,53 @@ export const INTEGRATION_ENDPOINTS: EndpointDoc[] = [
     method: 'GET',
     path: '/api/integrations/v1/conversations',
     summary: 'Listar ou consultar conversas',
-    description: 'Sem "id" retorna uma página de conversas (chat/WhatsApp) de todos os clientes (use companyId, customerId ou updatedSince para filtrar). Com "id" retorna a conversa com todas as mensagens visíveis ao cliente — anotações internas entre atendentes não são expostas por esta API.',
+    description: 'Sem "id" retorna uma página de conversas (chat/WhatsApp) de todos os clientes, filtrável por qualquer um dos parâmetros abaixo (todos combináveis entre si). Com "id" retorna a conversa com todas as mensagens visíveis ao cliente — anotações internas entre atendentes não são expostas por esta API.',
     scope: 'conversations:read',
     params: [
-      { name: 'id', in: 'query', type: 'uuid', description: 'Retorna essa conversa + mensagens.' },
-      { name: 'companyId', in: 'query', type: 'uuid', description: 'Opcional. Filtra pela empresa do cliente — sem esse parâmetro, retorna conversas de todos os clientes.' },
+      { name: 'id', in: 'query', type: 'uuid', description: 'Retorna essa conversa + mensagens (ignora os demais filtros).' },
+      { name: 'companyId', in: 'query', type: 'uuid', description: 'Filtra pela empresa do cliente.' },
       { name: 'customerId', in: 'query', type: 'uuid', description: 'Filtra por cliente.' },
+      { name: 'customerPhone', in: 'query', type: 'string', description: 'Filtra por telefone (aceita com ou sem DDI/pontuação — compara só os dígitos).', placeholder: '11999990000' },
+      { name: 'assigneeId', in: 'query', type: 'uuid', description: 'Filtra pelo analista responsável pela conversa.' },
+      { name: 'queueId', in: 'query', type: 'string', description: 'Filtra pela fila da conversa.' },
+      { name: 'ticketId', in: 'query', type: 'string', description: 'Conversa vinculada a este chamado.' },
+      { name: 'tags', in: 'query', type: 'string (separado por vírgula)', description: 'Conversas que tenham QUALQUER uma das tags informadas.', placeholder: 'vip' },
       { name: 'status', in: 'query', type: 'string', description: 'Ex.: "waiting", "active", "closed".', placeholder: 'active' },
       { name: 'updatedSince', in: 'query', type: 'ISO 8601', description: 'Só conversas alteradas a partir desta data/hora — para sincronização incremental.', placeholder: '2026-08-01T00:00:00Z' },
       { name: 'limit', in: 'query', type: 'number', description: 'Itens por página. Padrão 100, máximo 500.', placeholder: '100' },
       { name: 'offset', in: 'query', type: 'number', description: 'Deslocamento para paginação. Padrão 0.', placeholder: '0' },
     ],
+    examples: [
+      {
+        label: 'Conversas ativas de um analista',
+        description: 'Combina responsável + status — os filtros sempre funcionam em conjunto (E lógico).',
+        query: { assigneeId: '<uuid-do-analista>', status: 'active' },
+      },
+      {
+        label: 'Por telefone do cliente',
+        description: 'Não precisa formatar — só os dígitos são comparados.',
+        query: { customerPhone: '11999990000' },
+      },
+      {
+        label: 'Por tag',
+        description: 'Conversas marcadas com "vip".',
+        query: { tags: 'vip' },
+      },
+      {
+        label: 'Conversa de um chamado específico',
+        description: 'Encontra a conversa que deu origem a um chamado já conhecido.',
+        query: { ticketId: '<id-do-chamado>' },
+      },
+      {
+        label: 'Sincronização incremental',
+        description: 'Só o que mudou desde a última vez que você sincronizou — ideal para rodar periodicamente.',
+        query: { updatedSince: '2026-08-01T00:00:00Z' },
+      },
+    ],
     exampleResponse: JSON.stringify(
       {
         data: [
-          { id: '7188...', type: 'support', customerId: '48bf...', customerName: 'Jean', customerPhone: '11999990000', assigneeId: 'a881...', queueId: 'suporte-n1', status: 'active', ticketId: null, ticketNumber: null, createdAt: '2026-07-20T12:00:00.000Z', updatedAt: '2026-07-20T12:00:00.000Z', lastMessageAt: null },
+          { id: '7188...', type: 'support', customerId: '48bf...', customerName: 'Jean', customerPhone: '11999990000', assigneeId: 'a881...', queueId: 'suporte-n1', status: 'active', ticketId: null, ticketNumber: null, tags: ['vip'], createdAt: '2026-07-20T12:00:00.000Z', updatedAt: '2026-07-20T12:00:00.000Z', lastMessageAt: null },
         ],
         meta: { limit: 100, offset: 0, total: 1, hasMore: false },
       },

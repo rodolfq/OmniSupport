@@ -103,6 +103,7 @@ export function IntegrationsContent() {
   const [testerLoading, setTesterLoading] = useState(false);
   const [testerResult, setTesterResult] = useState<TesterResult | null>(null);
   const [curlCopied, setCurlCopied] = useState(false);
+  const [copiedExampleLabel, setCopiedExampleLabel] = useState<string | null>(null);
   const guideRef = React.useRef<HTMLDivElement>(null);
 
   const jumpToEndpoint = (id: string) => {
@@ -201,6 +202,17 @@ export function IntegrationsContent() {
     await navigator.clipboard.writeText(buildCurl(selected, baseUrl, testerKey, paramValues));
     setCurlCopied(true);
     setTimeout(() => setCurlCopied(false), 2000);
+  };
+
+  const copyExampleCurl = async (label: string, exampleQuery: Record<string, string>) => {
+    await navigator.clipboard.writeText(buildCurl(selected, baseUrl, testerKey, exampleQuery));
+    setCopiedExampleLabel(label);
+    setTimeout(() => setCopiedExampleLabel(null), 2000);
+  };
+
+  const applyExample = (exampleQuery: Record<string, string>) => {
+    setParamValues(prev => ({ ...prev, ...exampleQuery }));
+    setTesterResult(null);
   };
 
   const handleExecute = async () => {
@@ -462,6 +474,39 @@ export function IntegrationsContent() {
                     </div>
                   );
                 })}
+              </div>
+            )}
+
+            {selected.examples && selected.examples.length > 0 && (
+              <div className="space-y-3">
+                <p className="text-[10px] font-black uppercase text-[var(--text-tertiary)] tracking-widest">Exemplos de consulta</p>
+                <div className="grid grid-cols-1 gap-3">
+                  {selected.examples.map(example => (
+                    <div key={example.label} className="p-4 bg-[var(--surface-pill)] rounded-2xl border border-[var(--border-default)] space-y-2">
+                      <div className="flex items-start justify-between gap-3 flex-wrap">
+                        <div>
+                          <p className="text-xs font-black text-[var(--text-primary)]">{example.label}</p>
+                          <p className="text-[11px] text-[var(--text-tertiary)] font-medium">{example.description}</p>
+                        </div>
+                        <div className="flex items-center gap-2 shrink-0">
+                          <button
+                            onClick={() => applyExample(example.query)}
+                            className="px-3 py-1.5 rounded-lg text-[9px] font-black uppercase tracking-widest text-[var(--accent-text)] bg-[var(--accent)]/10 hover:bg-[var(--accent)]/20 transition-all"
+                          >
+                            Usar no testador
+                          </button>
+                          <button
+                            onClick={() => copyExampleCurl(example.label, example.query)}
+                            className="px-3 py-1.5 rounded-lg text-[9px] font-black uppercase tracking-widest text-[var(--text-tertiary)] hover:text-[var(--accent-text)] hover:bg-[var(--surface-card)] transition-all flex items-center gap-1"
+                          >
+                            {copiedExampleLabel === example.label ? <Check size={11} /> : <Copy size={11} />} Copiar curl
+                          </button>
+                        </div>
+                      </div>
+                      <pre className="p-3 bg-slate-900 text-slate-100 rounded-xl overflow-x-auto text-[10px] leading-relaxed"><code>{buildCurl(selected, baseUrl, testerKey, example.query)}</code></pre>
+                    </div>
+                  ))}
+                </div>
               </div>
             )}
 

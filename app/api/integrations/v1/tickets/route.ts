@@ -22,7 +22,7 @@ import { handleTicketCreated, handleTicketUpdated } from '@/lib/services/automat
 // dois é usado por serializeTicket, então nenhum dos dois entra no SELECT.
 const TICKET_COLUMNS = `
   id, public_ticket_number, title, description, status, sub_status, priority,
-  category, category_id, request_type_id, product_id, tags,
+  category, category_id, request_type_id, product_id, tags, queue_id,
   company_id, customer_id, assignee_id, employee_ids, created_at, updated_at
 `;
 
@@ -45,6 +45,7 @@ function serializeTicket(row: any) {
     requestTypeId: row.request_type_id,
     productId: row.product_id,
     tags: row.tags || [],
+    queueId: row.queue_id,
     companyId: row.company_id,
     customerId: row.customer_id,
     assigneeId: row.assignee_id,
@@ -103,6 +104,29 @@ export async function GET(request: Request) {
 
     const companyId = searchParams.get('companyId');
     const status = searchParams.get('status');
+    const subStatus = searchParams.get('subStatus');
+    const priority = searchParams.get('priority');
+    const assigneeId = searchParams.get('assigneeId');
+    const customerId = searchParams.get('customerId');
+    const queueId = searchParams.get('queueId');
+    const categoryId = searchParams.get('categoryId');
+    const requestTypeId = searchParams.get('requestTypeId');
+    const productId = searchParams.get('productId');
+    // Nome em vez de id, pra quem consome a API não precisar descobrir o
+    // UUID antes — não existe endpoint v1 de listagem dessas configurações
+    // (categoria/tipo de solicitação/produto) hoje, então isso seria um beco
+    // sem saída pra quem só quer filtrar por "Hardware".
+    const category = searchParams.get('category');
+    const requestType = searchParams.get('requestType');
+    const product = searchParams.get('product');
+    // Qualquer uma das tags bater já inclui o chamado (overlap, não exige
+    // todas) — mesmo espírito de "tem essa tag" que a tela usa.
+    const tags = searchParams.get('tags');
+    // Mesmo par search/contentSearch do filtro interno (components/filter-bar.tsx).
+    const search = searchParams.get('search');
+    const contentSearch = searchParams.get('contentSearch');
+    const createdFrom = searchParams.get('createdFrom');
+    const createdTo = searchParams.get('createdTo');
     // Sincronização incremental: "me dê tudo que mudou desde a última vez
     // que eu sincronizei" — sem isso, o único jeito de detectar mudança era
     // reler a página inteira e comparar na mão a cada chamada.
@@ -119,6 +143,78 @@ export async function GET(request: Request) {
     if (status) {
       params.push(status);
       conditions.push(`status = $${params.length}`);
+    }
+    if (subStatus) {
+      params.push(subStatus);
+      conditions.push(`sub_status = $${params.length}`);
+    }
+    if (priority) {
+      params.push(priority);
+      conditions.push(`priority = $${params.length}`);
+    }
+    if (assigneeId) {
+      params.push(assigneeId);
+      conditions.push(`assignee_id = $${params.length}`);
+    }
+    if (customerId) {
+      params.push(customerId);
+      conditions.push(`customer_id = $${params.length}`);
+    }
+    if (queueId) {
+      params.push(queueId);
+      conditions.push(`queue_id = $${params.length}`);
+    }
+    if (categoryId) {
+      params.push(categoryId);
+      conditions.push(`category_id = $${params.length}`);
+    } else if (category) {
+      params.push(category);
+      conditions.push(`category_id = (SELECT id FROM public.config_categories WHERE lower(label) = lower($${params.length}))`);
+    }
+    if (requestTypeId) {
+      params.push(requestTypeId);
+      conditions.push(`request_type_id = $${params.length}`);
+    } else if (requestType) {
+      params.push(requestType);
+      conditions.push(`request_type_id = (SELECT id FROM public.config_request_types WHERE lower(label) = lower($${params.length}))`);
+    }
+    if (productId) {
+      params.push(productId);
+      conditions.push(`product_id = $${params.length}`);
+    } else if (product) {
+      params.push(product);
+      conditions.push(`product_id = (SELECT id FROM public.config_products WHERE lower(label) = lower($${params.length}))`);
+    }
+    if (tags) {
+      const tagList = tags.split(',').map(t => t.trim()).filter(Boolean);
+      if (tagList.length) {
+        params.push(tagList);
+        conditions.push(`tags && $${params.length}::text[]`);
+      }
+    }
+    if (search) {
+      params.push(`%${search}%`);
+      conditions.push(`title ILIKE $${params.length}`);
+    }
+    if (contentSearch) {
+      params.push(`%${contentSearch}%`);
+      conditions.push(`description ILIKE $${params.length}`);
+    }
+    if (createdFrom) {
+      const parsed = new Date(createdFrom);
+      if (Number.isNaN(parsed.getTime())) {
+        return integrationError(auth, 'VALIDATION_ERROR', 'createdFrom precisa ser uma data ISO 8601 válida.', 400);
+      }
+      params.push(parsed.toISOString());
+      conditions.push(`created_at >= $${params.length}`);
+    }
+    if (createdTo) {
+      const parsed = new Date(createdTo);
+      if (Number.isNaN(parsed.getTime())) {
+        return integrationError(auth, 'VALIDATION_ERROR', 'createdTo precisa ser uma data ISO 8601 válida.', 400);
+      }
+      params.push(parsed.toISOString());
+      conditions.push(`created_at <= $${params.length}`);
     }
     if (updatedSince) {
       const parsed = new Date(updatedSince);

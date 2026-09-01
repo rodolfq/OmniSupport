@@ -2072,6 +2072,11 @@ useEffect(() => {
   if (isOmniChatExpanded && (!isExpanded || isMinimized)) return null;
 
   const isMobileFullScreen = isMobileViewport && !isMinimized;
+  // Modo foco (botão de maximizar): agora é tela cheia de verdade, igual à
+  // página de Chat Interno mostrando os chats — não a caixa flutuante de
+  // 90vw/85vh de antes. Mesmo tratamento do fullscreen mobile, só que também
+  // disparado no desktop por isExpanded.
+  const isFullScreen = isMobileFullScreen || isExpanded;
 
   return (
     <div
@@ -2080,7 +2085,7 @@ useEffect(() => {
         // Em tela cheia no celular precisa ficar acima da bottom nav (z-[200]
         // em mobile-bottom-nav.tsx) — ela já se esconde sozinha enquanto o
         // chat está aberto, mas isso é reforço para não depender só disso.
-        isMobileFullScreen ? "inset-0 z-[250]" : "bottom-6 right-6 z-[200]"
+        isFullScreen ? "inset-0 z-[250]" : "bottom-6 right-6 z-[200]"
       )}
       data-expanded={isExpanded && !isMinimized ? 'true' : 'false'}
     >
@@ -2092,15 +2097,15 @@ useEffect(() => {
               opacity: 1,
               y: 0,
               scale: 1,
-              width: isMobileFullScreen ? '100vw' : (isExpanded ? '90vw' : 'min(400px, calc(100vw - 2rem))'),
-              height: isMobileFullScreen ? '100dvh' : (isExpanded ? '85vh' : 'min(600px, calc(100vh - 6rem))'),
-              right: isMobileFullScreen ? 0 : (isExpanded ? 'calc(5vw - 24px)' : '0'),
-              bottom: isMobileFullScreen ? 0 : (isExpanded ? 'calc(7.5vh - 24px)' : '80px'),
+              width: isFullScreen ? '100vw' : 'min(400px, calc(100vw - 2rem))',
+              height: isFullScreen ? '100dvh' : 'min(600px, calc(100vh - 6rem))',
+              right: isFullScreen ? 0 : '0',
+              bottom: isFullScreen ? 0 : '80px',
             }}
             exit={{ opacity: 0, y: 50, scale: 0.9 }}
             className={cn(
               "bg-[var(--surface-card)] border border-[var(--border-default)] shadow-2xl flex flex-col overflow-hidden absolute",
-              isMobileFullScreen ? "rounded-none z-[210] border-none" : isExpanded ? "rounded-3xl z-[210]" : "rounded-2xl z-[205]"
+              isFullScreen ? "rounded-none z-[210] border-none" : "rounded-2xl z-[205]"
             )}
           >
             {/* Header */}
@@ -2148,7 +2153,8 @@ useEffect(() => {
               {(!isCustomer && (!selectedChatId || isExpanded)) && (
                 <div className={cn(
                   "flex flex-col border-r border-[var(--border-default)] bg-[var(--surface-card)]",
-                  isExpanded ? "w-80" : "w-full"
+                  // 350px — mesma largura da lista em /chat-internal.
+                  isExpanded ? "w-[350px]" : "w-full"
                 )}>
                   <div className="p-3 border-b border-[var(--border-default)] space-y-2">
                     <div className="relative">

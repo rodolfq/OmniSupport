@@ -17,7 +17,7 @@ import {
 // pesquisa de satisfação) vaze pra fora sem decisão deliberada.
 const SESSION_COLUMNS = `
   id, type, customer_id, customer_name, customer_phone, assignee_id, queue_id,
-  status, ticket_id, ticket_number, created_at, updated_at, last_message_at
+  status, ticket_id, ticket_number, tags, created_at, updated_at, last_message_at
 `;
 
 function serializeSession(row: any) {
@@ -32,6 +32,7 @@ function serializeSession(row: any) {
     status: row.status,
     ticketId: row.ticket_id,
     ticketNumber: row.ticket_number,
+    tags: row.tags || [],
     createdAt: row.created_at,
     updatedAt: row.updated_at,
     lastMessageAt: row.last_message_at,
@@ -88,7 +89,13 @@ export async function GET(request: Request) {
 
     const companyId = searchParams.get('companyId');
     const customerId = searchParams.get('customerId');
+    const customerPhone = searchParams.get('customerPhone');
     const status = searchParams.get('status');
+    const assigneeId = searchParams.get('assigneeId');
+    const queueId = searchParams.get('queueId');
+    const ticketId = searchParams.get('ticketId');
+    // Qualquer uma das tags bater já inclui a conversa (overlap, não exige todas).
+    const tags = searchParams.get('tags');
     // Mesmo padrão de sincronização incremental do endpoint de chamados.
     const updatedSince = searchParams.get('updatedSince');
     const limit = Math.min(Math.max(parseInt(searchParams.get('limit') || '100', 10) || 100, 1), 500);
@@ -106,9 +113,32 @@ export async function GET(request: Request) {
       params.push(customerId);
       conditions.push(`cs.customer_id = $${params.length}`);
     }
+    if (customerPhone) {
+      params.push(`%${customerPhone.replace(/\D/g, '')}%`);
+      conditions.push(`regexp_replace(cs.customer_phone, '\\D', '', 'g') LIKE $${params.length}`);
+    }
     if (status) {
       params.push(status);
       conditions.push(`cs.status = $${params.length}`);
+    }
+    if (assigneeId) {
+      params.push(assigneeId);
+      conditions.push(`cs.assignee_id = $${params.length}`);
+    }
+    if (queueId) {
+      params.push(queueId);
+      conditions.push(`cs.queue_id = $${params.length}`);
+    }
+    if (ticketId) {
+      params.push(ticketId);
+      conditions.push(`cs.ticket_id = $${params.length}`);
+    }
+    if (tags) {
+      const tagList = tags.split(',').map(t => t.trim()).filter(Boolean);
+      if (tagList.length) {
+        params.push(tagList);
+        conditions.push(`cs.tags && $${params.length}::text[]`);
+      }
     }
     if (updatedSince) {
       const parsed = new Date(updatedSince);
