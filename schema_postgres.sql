@@ -80,6 +80,14 @@ CREATE TABLE public.profiles (
 ALTER TABLE public.companies ADD COLUMN cs_responsavel_id UUID REFERENCES public.profiles(id) ON DELETE SET NULL;
 ALTER TABLE public.companies ADD COLUMN comercial_responsavel_id UUID REFERENCES public.profiles(id) ON DELETE SET NULL;
 
+-- Id do cliente no sistema "Central" (rastreamento/telemetria), vindo da
+-- planilha de CS (ver lib/services/customer-sheet-service.ts) — não é um
+-- identificador único por empresa aqui: um mesmo id_central pode aparecer em
+-- mais de uma linha da planilha quando duas marcas/CNPJs compartilham a
+-- mesma conta central. TEXT porque é só referência externa, nunca usado em
+-- cálculo.
+ALTER TABLE public.companies ADD COLUMN id_central TEXT;
+
 -- Hotfixes Table (item 17 do roadmap — cadastro de hotfix / janela de release)
 CREATE TABLE public.hotfixes (
   id UUID PRIMARY KEY DEFAULT (md5(random()::text || clock_timestamp()::text)::uuid),

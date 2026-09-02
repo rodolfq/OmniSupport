@@ -131,6 +131,9 @@ export async function GET(request: Request) {
                 is_in_training AS "isInTraining",
                 is_active AS "isActive",
                 logo_thumb_url AS "logoThumbUrl",
+                cs_responsavel_id AS "csResponsavelId",
+                comercial_responsavel_id AS "comercialResponsavelId",
+                id_central AS "idCentral",
                 (logo_url IS NOT NULL AND logo_url <> '') AS has_logo
            FROM public.companies WHERE id = $1`,
         [id]
@@ -151,7 +154,7 @@ export async function GET(request: Request) {
     // problema que avatar_url já causou — ver comentário em /api/users
     // type=lite). logo_thumb_url já nasce pequena, essa pode ir direto.
     const LIST_COLUMNS = `id, name, industry, phone, created_at, is_in_training, cs_responsavel_id,
-                          comercial_responsavel_id, is_active, logo_thumb_url,
+                          comercial_responsavel_id, id_central, is_active, logo_thumb_url,
                           (logo_url IS NOT NULL AND logo_url <> '') AS has_logo`;
     const res = isCompanyUser
       ? await query(`SELECT ${LIST_COLUMNS} FROM public.companies WHERE id = $1 ORDER BY name ASC`, [actor.company_id])
@@ -167,6 +170,7 @@ export async function GET(request: Request) {
         isInTraining: isCompanyUser ? undefined : (c.is_in_training || false),
         csResponsavelId: c.cs_responsavel_id || undefined,
         comercialResponsavelId: c.comercial_responsavel_id || undefined,
+        idCentral: c.id_central || undefined,
         // Desativadas continuam na lista de propósito: a tela as esconde do uso
         // corrente mas precisa mostrá-las a quem procura. Esconder aqui
         // repetiria o problema que a desativação veio resolver.

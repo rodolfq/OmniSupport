@@ -154,7 +154,7 @@ export default function CustomersPage() {
   const [deletePendingCounts, setDeletePendingCounts] = useState<{ ticketCount: number; evaluationCount: number } | null>(null);
   const [isDeletingCompany, setIsDeletingCompany] = useState(false);
   const [searchQuery, setSearchQuery] = useState('');
-  const [isSyncingBitrix24, setIsSyncingBitrix24] = useState(false);
+  const [isSyncingCustomerSheet, setIsSyncingCustomerSheet] = useState(false);
   const [isUploadingLogo, setIsUploadingLogo] = useState(false);
   const logoInputRef = useRef<HTMLInputElement>(null);
   const isCompanyPortalUser = [UserRole.CUSTOMER, UserRole.EMPLOYEE].includes(currentUser?.role as UserRole);
@@ -221,27 +221,32 @@ if (isCompanyPortalUser) {
     if (currentUser) loadData();
   }, [currentUser?.id]);
 
-  // Sincronização manual com o Bitrix24 (CRM) — sem job em segundo plano de
-  // propósito, só o botão. Casa por nome exato: empresa já existente aqui
-  // é atualizada, senão é criada. Ver lib/services/bitrix24-service.ts.
-  const handleSyncBitrix24 = async () => {
-    if (isSyncingBitrix24) return;
-    setIsSyncingBitrix24(true);
+  // Sincronização manual com a planilha de CS (Google Sheets, abas Onboarding
+  // + Ongoing) — sem job em segundo plano de propósito, só o botão. Substitui
+  // o antigo sync do Bitrix24 pra empresas. Casa por nome (sem diferenciar
+  // maiúsc./minúsc.): empresa já existente aqui é atualizada, senão é criada.
+  // Ver lib/services/customer-sheet-service.ts.
+  const handleSyncCustomerSheet = async () => {
+    if (isSyncingCustomerSheet) return;
+    setIsSyncingCustomerSheet(true);
     try {
-      const res = await fetch('/api/integrations/bitrix24/sync', { method: 'POST' });
+      const res = await fetch('/api/integrations/customer-sheet/sync', { method: 'POST' });
       const data = await res.json();
-      if (!res.ok) throw new Error(data?.error || 'Falha ao sincronizar com o Bitrix24.');
-      toast.success(`Bitrix24 sincronizado: ${data.created} nova(s), ${data.updated} atualizada(s)${data.skipped ? `, ${data.skipped} ignorada(s)` : ''}.`);
+      if (!res.ok) throw new Error(data?.error || 'Falha ao importar a planilha.');
+      toast.success(`Planilha importada: ${data.created} nova(s), ${data.updated} atualizada(s)${data.skipped ? `, ${data.skipped} ignorada(s)` : ''}.`);
+      if (Array.isArray(data.unresolvedCs) && data.unresolvedCs.length > 0) {
+        toast.warning(`CS não identificado automaticamente para: ${data.unresolvedCs.join(', ')}. Atribua à mão no cadastro da empresa.`, { duration: 10000 });
+      }
       if (Array.isArray(data.errors) && data.errors.length > 0) {
-        console.error('[Bitrix24] Erros durante a sincronização:', data.errors);
-        toast.warning(`${data.errors.length} empresa(s) falharam ao sincronizar — ver console.`);
+        console.error('[Planilha CS] Erros durante a importação:', data.errors);
+        toast.warning(`${data.errors.length} empresa(s) falharam ao importar — ver console.`);
       }
       await loadData();
     } catch (err: any) {
-      console.error('Erro ao sincronizar com o Bitrix24:', err);
-      toast.error(err?.message || 'Falha ao sincronizar com o Bitrix24.');
+      console.error('Erro ao importar a planilha:', err);
+      toast.error(err?.message || 'Falha ao importar a planilha.');
     } finally {
-      setIsSyncingBitrix24(false);
+      setIsSyncingCustomerSheet(false);
     }
   };
 
@@ -351,13 +356,13 @@ if (isCompanyPortalUser) {
             Empresas
             {canManageCompanies && (
               <span className="flex items-center gap-2.5">
-                <span title="Sincronizar empresas do Bitrix24">
+                <span title="Importar empresas da planilha de CS">
                   <RefreshCw
                     size={14}
-                    onClick={handleSyncBitrix24}
+                    onClick={handleSyncCustomerSheet}
                     className={cn(
                       "text-[var(--text-tertiary)] cursor-pointer hover:text-[var(--accent-text)] transition-colors",
-                      isSyncingBitrix24 && "animate-spin pointer-events-none opacity-60"
+                      isSyncingCustomerSheet && "animate-spin pointer-events-none opacity-60"
                     )}
                   />
                 </span>

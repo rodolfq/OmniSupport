@@ -1,7 +1,7 @@
 ﻿'use client';
 
 import React, { useState } from 'react';
-import { X, Building2, Phone, Mail, Lock, UserPlus, RefreshCw, Eye, EyeOff, GraduationCap, ShieldAlert, AlertTriangle, ShieldOff, ShieldCheck, Headset, Briefcase, Trash2 } from 'lucide-react';
+import { X, Building2, Phone, Mail, Lock, UserPlus, RefreshCw, Eye, EyeOff, GraduationCap, ShieldAlert, AlertTriangle, ShieldOff, ShieldCheck, Headset, Briefcase, Trash2, Hash } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import { saveCompany, getCustomerEvaluationSummary, updateCompanyTraining, saveCustomerEvaluation } from '@/lib/services/company-service';
 import { Company, User, type CustomerEvaluationScores, type CustomerEvaluationSummary, type CustomerProfileTag, MIN_RELIABLE_EVALUATION_COUNT } from '@/lib/types';
@@ -289,6 +289,21 @@ export function NewCompanyModal({ isOpen, onClose, onSuccess, company, showInter
                   </div>
                 </div>
               </div>
+
+              {/* Só existe pra quem já veio da Planilha de CS — nunca editável
+                  aqui, é sempre a importação que preenche (ver
+                  lib/services/customer-sheet-service.ts). */}
+              {isEditing && company?.idCentral && (
+                <div className="space-y-2">
+                  <label className="text-[10px] font-black uppercase tracking-widest text-[var(--text-tertiary)] ml-1">Id Central</label>
+                  <div className="relative">
+                    <Hash className="absolute left-4 top-1/2 -translate-y-1/2 text-[var(--text-tertiary)]" size={16} />
+                    <p className="w-full bg-[var(--surface-pill)] border border-[var(--border-default)] rounded-xl pl-12 pr-4 py-3 text-sm font-medium text-[var(--text-secondary)]">
+                      {company.idCentral}
+                    </p>
+                  </div>
+                </div>
+              )}
 
               {!isEditing && (
                 <div className="rounded-2xl border border-[var(--accent)]/20 bg-[var(--accent)]/10 p-5 space-y-4">

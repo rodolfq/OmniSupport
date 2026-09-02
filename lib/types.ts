@@ -213,6 +213,11 @@ export interface Company {
   // pensados para vir de uma API externa no futuro.
   csResponsavelId?: string;
   comercialResponsavelId?: string;
+  // Id do cliente no sistema "Central" (rastreamento/telemetria) — importado
+  // da planilha de CS (ver lib/services/customer-sheet-service.ts), nunca
+  // editado à mão aqui. Não é único: duas empresas podem compartilhar o
+  // mesmo id_central quando são marcas/CNPJs na mesma conta central.
+  idCentral?: string;
   // Empresa desativada continua existindo, com pessoas e histórico intactos —
   // só sai do uso corrente. Substitui a exclusão, que era destrutiva de um
   // jeito silencioso: apagar a empresa deixava as pessoas dela SEM empresa
