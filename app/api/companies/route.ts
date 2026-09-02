@@ -134,6 +134,8 @@ export async function GET(request: Request) {
                 cs_responsavel_id AS "csResponsavelId",
                 comercial_responsavel_id AS "comercialResponsavelId",
                 id_central AS "idCentral",
+                decisor_nome AS "decisorNome",
+                decisor_telefone AS "decisorTelefone",
                 (logo_url IS NOT NULL AND logo_url <> '') AS has_logo
            FROM public.companies WHERE id = $1`,
         [id]
@@ -154,7 +156,8 @@ export async function GET(request: Request) {
     // problema que avatar_url já causou — ver comentário em /api/users
     // type=lite). logo_thumb_url já nasce pequena, essa pode ir direto.
     const LIST_COLUMNS = `id, name, industry, phone, created_at, is_in_training, cs_responsavel_id,
-                          comercial_responsavel_id, id_central, is_active, logo_thumb_url,
+                          comercial_responsavel_id, id_central, decisor_nome, decisor_telefone,
+                          is_active, logo_thumb_url,
                           (logo_url IS NOT NULL AND logo_url <> '') AS has_logo`;
     const res = isCompanyUser
       ? await query(`SELECT ${LIST_COLUMNS} FROM public.companies WHERE id = $1 ORDER BY name ASC`, [actor.company_id])
@@ -171,6 +174,8 @@ export async function GET(request: Request) {
         csResponsavelId: c.cs_responsavel_id || undefined,
         comercialResponsavelId: c.comercial_responsavel_id || undefined,
         idCentral: c.id_central || undefined,
+        decisorNome: c.decisor_nome || undefined,
+        decisorTelefone: c.decisor_telefone || undefined,
         // Desativadas continuam na lista de propósito: a tela as esconde do uso
         // corrente mas precisa mostrá-las a quem procura. Esconder aqui
         // repetiria o problema que a desativação veio resolver.
@@ -326,7 +331,7 @@ export async function POST(request: Request) {
     // Antes desta rota ganhar autorização, QUALQUER sessão fazia as duas —
     // inclusive Cliente/Funcionário, que podiam renomear ou apagar a empresa
     // de outro cliente.
-    const { id, name, industry, phone, adminUser, csResponsavelId, comercialResponsavelId } = body;
+    const { id, name, industry, phone, adminUser, csResponsavelId, comercialResponsavelId, decisorNome, decisorTelefone } = body;
     const ehPapelDeEquipe = ['Administrador', 'Equipe', 'Time Interno'].includes(actor.role);
     const exigeAdministrador = !!id || !!adminUser;
 
@@ -346,14 +351,16 @@ export async function POST(request: Request) {
       await query(
         `UPDATE public.companies
             SET name = $1, industry = $2, phone = $3,
-                cs_responsavel_id = $4, comercial_responsavel_id = $5
-          WHERE id = $6`,
-        [name, industry, phone, csResponsavelId || null, comercialResponsavelId || null, id]
+                cs_responsavel_id = $4, comercial_responsavel_id = $5,
+                decisor_nome = $6, decisor_telefone = $7
+          WHERE id = $8`,
+        [name, industry, phone, csResponsavelId || null, comercialResponsavelId || null,
+         decisorNome?.trim() || null, decisorTelefone?.trim() || null, id]
       );
       logAudit({
         actorId: actor.id, actorName: actor.name, action: 'update',
         entityType: 'company', entityId: id, entityLabel: name,
-        changes: { name, industry, phone, csResponsavelId, comercialResponsavelId }
+        changes: { name, industry, phone, csResponsavelId, comercialResponsavelId, decisorNome, decisorTelefone }
       });
       return NextResponse.json({ id });
     }

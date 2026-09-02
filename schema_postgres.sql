@@ -88,6 +88,13 @@ ALTER TABLE public.companies ADD COLUMN comercial_responsavel_id UUID REFERENCES
 -- cálculo.
 ALTER TABLE public.companies ADD COLUMN id_central TEXT;
 
+-- Decisor (nome do contato decisor na empresa-cliente) e telefone dele,
+-- importados da planilha de CS (colunas AE/AF) — ver
+-- lib/services/customer-sheet-service.ts. TEXT simples: é um contato externo,
+-- não um usuário do sistema (diferente de cs_responsavel_id/comercial_responsavel_id).
+ALTER TABLE public.companies ADD COLUMN decisor_nome TEXT;
+ALTER TABLE public.companies ADD COLUMN decisor_telefone TEXT;
+
 -- Hotfixes Table (item 17 do roadmap — cadastro de hotfix / janela de release)
 CREATE TABLE public.hotfixes (
   id UUID PRIMARY KEY DEFAULT (md5(random()::text || clock_timestamp()::text)::uuid),

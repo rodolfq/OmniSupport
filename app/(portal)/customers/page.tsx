@@ -233,9 +233,15 @@ if (isCompanyPortalUser) {
       const res = await fetch('/api/integrations/customer-sheet/sync', { method: 'POST' });
       const data = await res.json();
       if (!res.ok) throw new Error(data?.error || 'Falha ao importar a planilha.');
-      toast.success(`Planilha importada: ${data.created} nova(s), ${data.updated} atualizada(s)${data.skipped ? `, ${data.skipped} ignorada(s)` : ''}.`);
+      toast.success(`Planilha importada: ${data.created} nova(s), ${data.updated} atualizada(s)${data.skipped ? `, ${data.skipped} ignorada(s)` : ''}${data.primaryUsersCreated ? `, ${data.primaryUsersCreated} usuário(s) principal(is) criado(s) a partir do Decisor` : ''}.`);
       if (Array.isArray(data.unresolvedCs) && data.unresolvedCs.length > 0) {
         toast.warning(`CS não identificado automaticamente para: ${data.unresolvedCs.join(', ')}. Atribua à mão no cadastro da empresa.`, { duration: 10000 });
+      }
+      // Diferente de CS: Comercial sem match fica em branco sem avisar — pedido
+      // do usuário (2026-09-02), incomodava mais do que ajudava. O dado
+      // continua disponível em unresolvedComercial pra quem quiser olhar.
+      if (Array.isArray(data.unresolvedComercial) && data.unresolvedComercial.length > 0) {
+        console.warn('[Planilha CS] Comercial não identificado automaticamente:', data.unresolvedComercial);
       }
       if (Array.isArray(data.errors) && data.errors.length > 0) {
         console.error('[Planilha CS] Erros durante a importação:', data.errors);
@@ -575,15 +581,6 @@ if (isCompanyPortalUser) {
             </div>
 
             <div className="px-5 sm:px-8 py-5 border-t border-[var(--border-default)] bg-[var(--surface-pill)]/40 grid grid-cols-2 md:grid-cols-4 gap-4 sm:gap-6">
-              <div className="flex items-center gap-3">
-                <div className="w-9 h-9 rounded-lg bg-[var(--surface-card)] border border-[var(--border-default)] flex items-center justify-center text-[var(--text-tertiary)] shrink-0">
-                  <Phone size={15} />
-                </div>
-                <div className="min-w-0">
-                  <p className="text-[9px] font-black uppercase tracking-widest text-[var(--text-tertiary)]">Telefone</p>
-                  <p className="text-sm font-bold text-[var(--text-primary)] truncate">{selectedCompany.phone || 'Sem telefone'}</p>
-                </div>
-              </div>
               {/* Contador de funcionários removido a pedido: a própria lista
                   de funcionários vem logo abaixo, então o número era só uma
                   repetição do que já está visível. */}
@@ -605,6 +602,28 @@ if (isCompanyPortalUser) {
                     <div className="min-w-0">
                       <p className="text-[9px] font-black uppercase tracking-widest text-[var(--text-tertiary)]">Comercial Responsável</p>
                       <p className="text-sm font-bold text-[var(--text-primary)] truncate">{resolveInternalUser(selectedCompany.comercialResponsavelId)?.name || 'Não definido'}</p>
+                    </div>
+                  </div>
+                  {/* Sem "Não definido" aqui de propósito: sem Decisor
+                      cadastrado (nem vindo da planilha, nem editado à mão),
+                      o campo fica em branco — não é pra sugerir nenhum outro
+                      responsável no lugar. */}
+                  <div className="flex items-center gap-3">
+                    <div className="w-9 h-9 rounded-lg bg-[var(--surface-card)] border border-[var(--border-default)] flex items-center justify-center text-[var(--text-tertiary)] shrink-0">
+                      <UserPlus size={15} />
+                    </div>
+                    <div className="min-w-0">
+                      <p className="text-[9px] font-black uppercase tracking-widest text-[var(--text-tertiary)]">Decisor</p>
+                      <p className="text-sm font-bold text-[var(--text-primary)] truncate">{selectedCompany.decisorNome}</p>
+                    </div>
+                  </div>
+                  <div className="flex items-center gap-3">
+                    <div className="w-9 h-9 rounded-lg bg-[var(--surface-card)] border border-[var(--border-default)] flex items-center justify-center text-[var(--text-tertiary)] shrink-0">
+                      <Phone size={15} />
+                    </div>
+                    <div className="min-w-0">
+                      <p className="text-[9px] font-black uppercase tracking-widest text-[var(--text-tertiary)]">Telefone do Decisor</p>
+                      <p className="text-sm font-bold text-[var(--text-primary)] truncate">{selectedCompany.decisorTelefone}</p>
                     </div>
                   </div>
                 </>

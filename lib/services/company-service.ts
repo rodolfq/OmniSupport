@@ -83,10 +83,12 @@ export async function saveCompany(
   phone: string,
   adminUser?: { name: string; email: string; password: string; phone?: string },
   csResponsavelId?: string | null,
-  comercialResponsavelId?: string | null
+  comercialResponsavelId?: string | null,
+  decisorNome?: string | null,
+  decisorTelefone?: string | null
 ): Promise<MutationResult> {
   return post(
-    { id, name, industry, phone, adminUser, csResponsavelId, comercialResponsavelId },
+    { id, name, industry, phone, adminUser, csResponsavelId, comercialResponsavelId, decisorNome, decisorTelefone },
     'Erro ao salvar empresa no servidor.'
   );
 }

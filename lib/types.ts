@@ -218,6 +218,13 @@ export interface Company {
   // editado à mão aqui. Não é único: duas empresas podem compartilhar o
   // mesmo id_central quando são marcas/CNPJs na mesma conta central.
   idCentral?: string;
+  // Contato decisor na empresa-cliente e telefone dele — importados da
+  // planilha de CS junto com CS/Comercial Responsável (mesma fonte, mesma
+  // regra de sincronização: ver lib/services/customer-sheet-service.ts).
+  // Editáveis à mão aqui, mas uma sincronização nova sempre reescreve com o
+  // valor da planilha quando a célula não estiver vazia.
+  decisorNome?: string;
+  decisorTelefone?: string;
   // Empresa desativada continua existindo, com pessoas e histórico intactos —
   // só sai do uso corrente. Substitui a exclusão, que era destrutiva de um
   // jeito silencioso: apagar a empresa deixava as pessoas dela SEM empresa

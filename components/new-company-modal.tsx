@@ -61,6 +61,12 @@ export function NewCompanyModal({ isOpen, onClose, onSuccess, company, showInter
   const [comercialResponsavelId, setComercialResponsavelId] = useState('');
   const [internalUsers, setInternalUsers] = useState<User[]>([]);
 
+  // Decisor (contato na empresa-cliente) e telefone dele — vêm da Planilha de
+  // CS, mas ficam editáveis aqui; uma sincronização nova reescreve com o valor
+  // da planilha (ver lib/services/customer-sheet-service.ts).
+  const [decisorNome, setDecisorNome] = useState('');
+  const [decisorTelefone, setDecisorTelefone] = useState('');
+
   // Perfil interno — nunca exposto ao cliente, só faz sentido pra uma
   // empresa que já existe (precisa de um id pra vincular as avaliações).
   const [isInTraining, setIsInTraining] = useState(false);
@@ -79,6 +85,8 @@ export function NewCompanyModal({ isOpen, onClose, onSuccess, company, showInter
       setIsInTraining(company.isInTraining || false);
       setCsResponsavelId(company.csResponsavelId || '');
       setComercialResponsavelId(company.comercialResponsavelId || '');
+      setDecisorNome(company.decisorNome || '');
+      setDecisorTelefone(company.decisorTelefone || '');
     } else {
       setName('');
       setPhone('');
@@ -89,6 +97,8 @@ export function NewCompanyModal({ isOpen, onClose, onSuccess, company, showInter
       setIsInTraining(false);
       setCsResponsavelId('');
       setComercialResponsavelId('');
+      setDecisorNome('');
+      setDecisorTelefone('');
     }
   }, [company, isOpen]);
 
@@ -146,7 +156,9 @@ export function NewCompanyModal({ isOpen, onClose, onSuccess, company, showInter
           phone: adminPhone
         },
         csResponsavelId || null,
-        comercialResponsavelId || null
+        comercialResponsavelId || null,
+        decisorNome || null,
+        decisorTelefone || null
       );
       
       if (result.error) {
@@ -286,6 +298,37 @@ export function NewCompanyModal({ isOpen, onClose, onSuccess, company, showInter
                         <option key={u.id} value={u.id}>{u.name}</option>
                       ))}
                     </StyledSelect>
+                  </div>
+                </div>
+              </div>
+
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                <div className="space-y-2">
+                  <label className="text-[10px] font-black uppercase tracking-widest text-[var(--text-tertiary)] ml-1">Decisor</label>
+                  <div className="relative">
+                    <UserPlus className="absolute left-4 top-1/2 -translate-y-1/2 text-[var(--text-tertiary)]" size={16} />
+                    <input
+                      type="text"
+                      value={decisorNome}
+                      onChange={(e) => setDecisorNome(e.target.value)}
+                      placeholder="Nome do contato decisor"
+                      className="w-full bg-[var(--surface-card)] border border-[var(--border-default)] rounded-xl pl-12 pr-4 py-3 text-sm font-medium focus:ring-2 focus:ring-[var(--accent)]/20 focus:border-[var(--accent)] outline-none transition-all"
+                    />
+                  </div>
+                </div>
+
+                <div className="space-y-2">
+                  <label className="text-[10px] font-black uppercase tracking-widest text-[var(--text-tertiary)] ml-1">Telefone do Decisor</label>
+                  <div className="relative">
+                    <Phone className="absolute left-4 top-1/2 -translate-y-1/2 text-[var(--text-tertiary)]" size={16} />
+                    <input
+                      type="text"
+                      value={maskPhone(decisorTelefone)}
+                      onChange={(e) => setDecisorTelefone(e.target.value)}
+                      placeholder="(xx) xxxxx-xxxx"
+                      maxLength={15}
+                      className="w-full bg-[var(--surface-card)] border border-[var(--border-default)] rounded-xl pl-12 pr-4 py-3 text-sm font-medium focus:ring-2 focus:ring-[var(--accent)]/20 focus:border-[var(--accent)] outline-none transition-all"
+                    />
                   </div>
                 </div>
               </div>
