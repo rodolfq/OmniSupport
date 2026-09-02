@@ -162,7 +162,22 @@ export function TicketDetailModal({ ticket, onClose, initialDraft }: TicketDetai
   const [isEditingDescription, setIsEditingDescription] = useState(false);
   const [companies, setCompanies] = useState<any[]>([]);
   const [internalTeams, setInternalTeams] = useState<Array<{id: string, name: string}>>([]);
-  const [queues, setQueues] = useState<Array<{id: string, name: string}>>([]);
+  // member_ids em snake_case de propósito — vem de `SELECT *` sem remapear
+  // (ver /api/config?type=queues), diferente da rota dedicada /api/queues
+  // (essa sim em camelCase) que a tela de Filas usa.
+  const [queues, setQueues] = useState<Array<{id: string, name: string, member_ids?: string[]}>>([]);
+
+  // Só quem é da fila selecionada pode virar responsável — sem fila
+  // escolhida, mantém a lista inteira de sempre. O responsável ATUAL sempre
+  // entra na lista mesmo se não for mais da fila (ex.: fila trocada depois
+  // de atribuído), senão o <select> mostraria o valor sem a opção
+  // correspondente. `analysts` (lista cheia) continua servindo pra
+  // resolver nome/avatar em qualquer lugar — só o dropdown usa a filtrada.
+  const assignableAnalysts = React.useMemo(() => {
+    if (!mainQueue) return analysts;
+    const memberIds = new Set(queues.find(q => q.id === mainQueue)?.member_ids || []);
+    return analysts.filter(a => memberIds.has(a.id) || a.id === assigneeId);
+  }, [analysts, queues, mainQueue, assigneeId]);
 
   // Autosave do chamado principal: edições de campo (status, prioridade,
   // categoria, responsável, empresa, contato, colaboradores, tags) são
@@ -259,15 +274,27 @@ export function TicketDetailModal({ ticket, onClose, initialDraft }: TicketDetai
       // avatarUrl, isAdmin) — sem precisar remapear como no fetch antigo via
       // supabase.from(), que trazia a linha crua (snake_case).
       setAllUsers(profiles as any);
-      // Equipe: show all support team
-      // Time Interno: show only members of their internal teams
+      // Equipe/Administrador: sempre entram inteiros — só Time Interno tem
+      // escopo. Quem vê chamado (Administrador/Equipe) enxerga TODO o Time
+      // Interno como candidato a responsável, porque é a Fila (member_ids)
+      // quem decide de verdade quem pode assumir um chamado específico (ver
+      // assignableAnalysts abaixo) — restringir aqui também deixava gente
+      // que É da fila (ex.: Time Interno) fora da lista sem chance nenhuma.
+      // `isAdmin` (profiles.is_admin) é a flag de "admin da empresa-cliente"
+      // (Cliente), não tem nada a ver com o papel Administrador daqui —
+      // depender dela pra incluir Administrador excluía quem tivesse essa
+      // flag falsa, e via de regra é sempre falsa pra papel interno.
       if (currentUser?.role === 'Time Interno' && currentUser?.internalTeamIds) {
+        // Time Interno: só enxerga os colegas de Time Interno do PRÓPRIO
+        // time (não vê Time Interno de outros times) — Equipe/Administrador
+        // continuam inteiros.
         const userTeams = currentUser.internalTeamIds;
         setAnalysts(profiles.filter((u: any) =>
-          u.role === 'Equipe' || u.isAdmin || (userTeams && u.internalTeamIds?.some((t: string) => userTeams.includes(t)))
+          u.role === 'Equipe' || u.role === 'Administrador' ||
+          (u.role === 'Time Interno' && u.internalTeamIds?.some((t: string) => userTeams.includes(t)))
         ) as any);
       } else {
-        setAnalysts(profiles.filter((u: any) => u.role === 'Equipe' || u.isAdmin) as any);
+        setAnalysts(profiles.filter((u: any) => u.role === 'Equipe' || u.role === 'Administrador' || u.role === 'Time Interno') as any);
       }
     }
     const statusList = statusesQuery.data;
@@ -1353,7 +1380,7 @@ const loadMessages = async () => {
                                  className="text-sm font-bold text-[var(--text-secondary)] bg-transparent border-none outline-none focus:ring-2 focus:ring-[var(--accent)]/10 rounded px-1 -ml-1 cursor-pointer hover:bg-[var(--surface-card)] transition-all"
                                >
                                  <option value="">Não atribuído</option>
-                                 {analysts.map(a => <option key={a.id} value={a.id}>{a.name}</option>)}
+                                 {assignableAnalysts.map(a => <option key={a.id} value={a.id}>{a.name}</option>)}
                                </StyledSelect>
                              ) : (
                                <span className="text-sm font-bold text-[var(--text-secondary)]">

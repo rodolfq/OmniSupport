@@ -511,7 +511,7 @@ export function QueuesContent() {
                           de cadastro. Quem está "Ausente" continua contando pra
                           posição quando volta a ficar Online no mesmo dia, só
                           não recebe atendimento novo enquanto ausente. */}
-                      <div className="mt-8 grid grid-cols-2 md:grid-cols-4 lg:grid-cols-6 gap-3">
+                      <div className="mt-8 flex flex-col gap-2">
                          {orderedMemberIds(queue.memberIds).map((mid, idx) => {
                            const user = users.find(u => u.id === mid);
                            if (!user) return null;
@@ -520,7 +520,7 @@ export function QueuesContent() {
                            const changesToday = analystStatus?.statusChangesToday ?? 0;
                            const flagged = changesToday >= STATUS_CHANGES_ALERT_THRESHOLD;
                            return (
-                             <div key={mid} title={statusLabel(status)} className="flex items-center gap-2 p-2 bg-[var(--surface-card)] rounded-xl border border-[var(--border-default)] shadow-sm">
+                             <div key={mid} title={statusLabel(status)} className="flex items-center gap-3 p-2.5 bg-[var(--surface-card)] rounded-xl border border-[var(--border-default)] shadow-sm min-w-0">
                                 <span className="text-[9px] font-black text-[var(--text-tertiary)] w-3 shrink-0 text-center">{status === 'online' ? idx + 1 : '–'}</span>
                                 <div className="relative shrink-0">
                                    <UserAvatar
@@ -533,7 +533,7 @@ export function QueuesContent() {
                                    />
                                    <span className={cn("absolute -bottom-0.5 -right-0.5 w-2 h-2 rounded-full border border-[var(--surface-card)]", statusDotClass(status))} />
                                 </div>
-                                <span className="text-[10px] font-bold text-[var(--text-secondary)] truncate flex-1">{user.name}</span>
+                                <span className="text-[11px] font-bold text-[var(--text-secondary)] flex-1 min-w-0 break-words">{user.name}</span>
                                 {flagged && (
                                   <span title={`${changesToday} trocas de status hoje`} className="shrink-0">
                                     <AlertTriangle size={12} className="text-[var(--text-warning-strong)]" />
@@ -754,7 +754,7 @@ export function QueuesContent() {
                                     />
                                   </div>
                                   <div className="min-w-0 flex-1 pr-3">
-                                     <p className="text-[11px] font-black uppercase truncate text-[var(--text-primary)] leading-none mb-1">{user.name}</p>
+                                     <p className="text-[11px] font-black uppercase text-[var(--text-primary)] leading-tight mb-1 break-words">{user.name}</p>
                                      <p className="text-[9px] text-[var(--text-tertiary)] font-bold truncate">{user.role}</p>
                                   </div>
                                   {selected && (
