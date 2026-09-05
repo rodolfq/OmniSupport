@@ -287,6 +287,7 @@ export async function GET(request: Request) {
         ticketNumber: data.public_ticket_number,
         companyId: data.company_id,
         customerId: data.customer_id,
+        createdBy: data.created_by || undefined,
         customerName: data.customer_name || undefined,
         assigneeName: data.assignee_name || undefined,
         // O spread acima só entrega snake_case (assignee_id/sub_status); a
@@ -342,6 +343,7 @@ export async function GET(request: Request) {
         ticketNumber: t.public_ticket_number,
         companyId: t.company_id,
         customerId: t.customer_id,
+        createdBy: t.created_by || undefined,
         customerName: customerMap.get(t.customer_id),
         // Mesmo apelido do branch de chamado único acima — a lista alimenta o
         // modal de detalhe, então sem isto o modal abre já sem responsável.

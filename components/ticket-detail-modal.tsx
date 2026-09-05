@@ -706,7 +706,7 @@ const loadMessages = async () => {
         const res = await fetch('/api/whatsapp/send', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ instanceId, to: phone, message: stripNotificationHtml(newMessage.text) })
+          body: JSON.stringify({ instanceId, to: phone, message: stripNotificationHtml(newMessage.text), sessionId: ticket.chatSessionId })
         });
         if (!res.ok) {
           toast.warning('Mensagem salva, mas não foi enviada no WhatsApp.');
@@ -1199,6 +1199,17 @@ const loadMessages = async () => {
                   </button>
                 </div>
               </div>
+            </div>
+
+            {/* Linha de criação — data + quem criou (ticket.createdBy é o
+                autor de verdade, gravado no INSERT; nunca editável). */}
+            <div className="px-8 pb-2 -mt-1">
+              <span className="text-[10px] font-medium text-[var(--text-tertiary)]">
+                Criado em <ClientTime date={ticket.createdAt} showDate showTime />
+                {ticket.createdBy && (
+                  <> · por {allUsers.find(u => u.id === ticket.createdBy)?.name || 'Usuário removido'}</>
+                )}
+              </span>
             </div>
 
             {/* Linha 2: status do chamado (linha própria, sem disputar espaço com os botões) */}

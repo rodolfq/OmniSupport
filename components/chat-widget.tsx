@@ -38,7 +38,9 @@ import {
   ThumbsUp,
   ThumbsDown,
   Copy,
-  Link2
+  Link2,
+  AlertCircle,
+  RotateCw
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import {
@@ -51,7 +53,8 @@ import {
   Ticket,
   Company,
   Attachment,
-  TagConfig
+  TagConfig,
+  Permission
 } from '@/lib/types';
 import { ChatService, fetchChatSessions, pushChatMessage, createChatSession, saveChatHistory, resolveChatSessionForPhone, submitSurveyResponse, transcribeChatAudio, getPreviousChatHistories, fetchSessionMessages, PreviousChatHistoriesResult, SessionMessagesResult } from '@/lib/services/chat-service';
 import { fetchQuickNotes, fetchAnalystStatuses, fetchCompanies, fetchQueues, fetchSurveySettings, ConfigService } from '@/lib/services/config-service';
@@ -168,7 +171,8 @@ export function ChatWidget() {
     getContactPhoto,
     ensureContactPhoto,
     userStatus,
-    openEvaluationModal
+    openEvaluationModal,
+    hasPermission
   } = useApp();
   const searchParams = useSearchParams();
   const pathname = usePathname();
@@ -568,7 +572,11 @@ export function ChatWidget() {
       setRevealedTranscriptions(prev => new Set(prev).add(key));
     } catch (err) {
       console.error('Erro ao transcrever áudio:', err);
-      toast.error('Não foi possível transcrever o áudio.');
+      // err.message já traz a causa real devolvida pelo servidor (ffmpeg
+      // ausente, timeout, arquivo sumido do volume) — mostrar a mensagem
+      // genérica aqui escondia exatamente a informação que serve pra
+      // diagnosticar o problema (ver transcribeMessageAudio, throwOnError).
+      toast.error(err instanceof Error && err.message ? err.message : 'Não foi possível transcrever o áudio.');
     } finally {
       setTranscribingIds(prev => {
         const next = new Set(prev);
@@ -1171,6 +1179,99 @@ useEffect(() => {
     if (next) setSelectedChatId(next.id);
   }, [isCustomer, currentUser, selectedChatId, customerSessions, setSelectedChatId]);
 
+  // Reflete o status de encaminhamento direto no estado local (feedback
+  // imediato pra quem enviou, sem esperar o round-trip do SSE) — quem mais
+  // estiver olhando a mesma conversa recebe a mesma informação pelo evento
+  // 'receipt' que updateMessageWhatsAppStatus dispara no servidor.
+  const patchMessageWhatsappStatus = (sessionId: string, messageId: string, status: 'sending' | 'sent' | 'failed', errorMsg?: string) => {
+    setCustomerSessions(prev => prev.map(s => {
+      if (s.id !== sessionId) return s;
+      return {
+        ...s,
+        messages: (s.messages || []).map(m => m.id === messageId ? { ...m, whatsappStatus: status, whatsappError: errorMsg } : m)
+      };
+    }));
+  };
+
+  // Encaminha uma mensagem já salva no chat pro WhatsApp de verdade — mesma
+  // lógica que já existia duplicada em 3 pontos (resposta normal, aviso de
+  // chamado criado, encerramento com pesquisa), agora compartilhada, e usada
+  // também no caminho de "sessão ainda não carregada no estado local" de
+  // handleSendMessage — que nunca teve isso e por isso deixava passar em
+  // silêncio (sem toast, sem log) quando a sessão ainda não tinha chegado no
+  // customerSessions local (ex.: responder uma conversa recém-criada antes
+  // do próximo fetchChatSessions()).
+  //
+  // Grava o resultado (sent/failed) na própria mensagem — não só um toast
+  // passageiro — pra ficar visível de novo mesmo se a pessoa reabrir a
+  // conversa depois, com um motivo claro e um jeito de tentar de novo (ver
+  // handleResendWhatsAppMessage e o ícone de status no balão da mensagem).
+  const forwardMessageToWhatsApp = async (params: {
+    sessionId: string;
+    messageId: string;
+    customerPhone?: string;
+    queueId?: string | null;
+    text: string;
+    hasAttachments?: boolean;
+  }): Promise<{ ok: boolean; error?: string }> => {
+    const { sessionId, messageId, customerPhone, queueId, text, hasAttachments } = params;
+    if (!customerPhone) return { ok: true }; // sem telefone = não é canal WhatsApp, nada a fazer
+    const phone = customerPhone.replace(/\D/g, '');
+    if (!phone) return { ok: true };
+
+    const queue = allQueues.find((q: any) => q.id === queueId);
+    const instanceId = queue?.whatsapp_instance_id || queue?.whatsappInstanceId || 'default';
+
+    patchMessageWhatsappStatus(sessionId, messageId, 'sending');
+
+    let outcome: { ok: boolean; error?: string };
+    try {
+      const res = await fetch('/api/whatsapp/send', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: safeJsonStringify({ instanceId, to: phone, message: text, sessionId }),
+      });
+      if (!res.ok) {
+        const body = await res.json().catch(() => ({}));
+        const errorMsg = body.error || `Erro ${res.status}`;
+        console.error('WhatsApp send failed:', { status: res.status, statusText: res.statusText, error: body.error, instanceId, phone, hasAttachments });
+        toast.warning('Mensagem salva, mas não foi enviada no WhatsApp.');
+        outcome = { ok: false, error: errorMsg };
+      } else {
+        if (hasAttachments) {
+          // Envio de mídia pelo WhatsApp ainda não é suportado (só o texto é transmitido).
+          console.warn('WhatsApp send: attachment present but media sending is not yet implemented; only text was transmitted.', { instanceId, phone });
+          toast.warning('Anexo salvo na conversa, mas o envio de mídia (áudio/arquivo) pelo WhatsApp ainda não está disponível.');
+        }
+        outcome = { ok: true };
+      }
+    } catch (error: any) {
+      const errorMsg = error?.message || 'Falha de rede';
+      console.error('Failed to send real WhatsApp message:', { message: error?.message, stack: error?.stack, instanceId, phone, hasAttachments });
+      toast.warning('Mensagem salva, mas não foi enviada no WhatsApp.');
+      outcome = { ok: false, error: errorMsg };
+    }
+
+    patchMessageWhatsappStatus(sessionId, messageId, outcome.ok ? 'sent' : 'failed', outcome.error);
+    ChatService.updateMessageWhatsAppStatus(messageId, sessionId, outcome.ok ? 'sent' : 'failed', outcome.error);
+    return outcome;
+  };
+
+  // Botão "Reenviar" no balão de uma mensagem que falhou — repete o mesmo
+  // encaminhamento, usando os dados atuais da sessão selecionada (fila pode
+  // ter mudado desde a tentativa original).
+  const handleResendWhatsAppMessage = async (message: ChatMessage) => {
+    if (!selectedChat) return;
+    await forwardMessageToWhatsApp({
+      sessionId: selectedChat.id,
+      messageId: message.id,
+      customerPhone: selectedChat.customerPhone,
+      queueId: selectedChat.queueId,
+      text: message.text,
+      hasAttachments: !!message.attachments?.length
+    });
+  };
+
    const handleSendMessage = async () => {
     console.log('[DEBUG] handleSendMessage called', { message, selectedChatId, hasCurrentUser: !!currentUser, attachments: chatAttachments.length });
     if ((!message?.trim() && chatAttachments.length === 0) || !currentUser) return;
@@ -1263,45 +1364,14 @@ useEffect(() => {
         }
 
         if (!isSurveyResponse && session.customerPhone) {
-          const queue = allQueues.find((q: any) => q.id === session.queueId);
-          const instanceId = queue?.whatsapp_instance_id || queue?.whatsappInstanceId || 'default';
-          const phone = session.customerPhone.replace(/\D/g, '');
-
-          if (phone) {
-            const hasAttachments = !!newMessage.attachments && newMessage.attachments.length > 0;
-            try {
-              const res = await fetch('/api/whatsapp/send', {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: safeJsonStringify({ instanceId, to: phone, message: newMessage.text }),
-              });
-              if (!res.ok) {
-                const body = await res.json().catch(() => ({}));
-                console.error('WhatsApp send failed:', {
-                  status: res.status,
-                  statusText: res.statusText,
-                  error: body.error,
-                  instanceId,
-                  phone,
-                  hasAttachments
-                });
-                toast.warning('Mensagem salva, mas não foi enviada no WhatsApp.');
-              } else if (hasAttachments) {
-                // Envio de mídia pelo WhatsApp ainda não é suportado (só o texto é transmitido).
-                console.warn('WhatsApp send: attachment present but media sending is not yet implemented; only text was transmitted.', { instanceId, phone });
-                toast.warning('Anexo salvo na conversa, mas o envio de mídia (áudio/arquivo) pelo WhatsApp ainda não está disponível.');
-              }
-            } catch (error: any) {
-              console.error('Failed to send real WhatsApp message:', {
-                message: error?.message,
-                stack: error?.stack,
-                instanceId,
-                phone,
-                hasAttachments
-              });
-              toast.warning('Mensagem salva, mas não foi enviada no WhatsApp.');
-            }
-          }
+          await forwardMessageToWhatsApp({
+            sessionId: effectiveSessionId,
+            messageId: newMessage.id,
+            customerPhone: session.customerPhone,
+            queueId: session.queueId,
+            text: newMessage.text,
+            hasAttachments: !!newMessage.attachments && newMessage.attachments.length > 0
+          });
         }
         
         // Refresh sessions from Supabase
@@ -1342,6 +1412,25 @@ useEffect(() => {
         }
         const refreshedSessions = await fetchChatSessions();
         setCustomerSessions(refreshedSessions);
+
+        // Mesmo encaminhamento pro WhatsApp que o ramo "session" acima faz —
+        // faltava aqui. Sem isso, responder uma conversa que ainda não tinha
+        // chegado no estado local (típico de uma conversa recém-criada, ex.:
+        // primeira resposta a um atendimento que acabou de chegar via
+        // WhatsApp/Pyvon) salvava a mensagem no chat só localmente e nunca
+        // chegava no WhatsApp de verdade — sem erro nenhum visível, porque
+        // este ramo nunca teve a chamada a /api/whatsapp/send.
+        const freshSession: any = refreshedSessions.find((s: any) => s.id === effectiveSessionId);
+        if (freshSession?.customerPhone) {
+          await forwardMessageToWhatsApp({
+            sessionId: effectiveSessionId,
+            messageId: newMessage.id,
+            customerPhone: freshSession.customerPhone,
+            queueId: freshSession.queueId,
+            text: newMessage.text,
+            hasAttachments: !!newMessage.attachments && newMessage.attachments.length > 0
+          });
+        }
       } catch (error) {
         console.error('Failed to send message (no session fallback):', error);
         toast.error('Erro ao enviar mensagem.');
@@ -1526,29 +1615,16 @@ useEffect(() => {
         };
         try {
           await pushChatMessage(selectedChat.id, ticketNoticeMessage);
-          if (selectedChat.customerPhone) {
-            const phone = selectedChat.customerPhone.replace(/\D/g, '');
-            if (phone) {
-              const queue = allQueues.find((q: any) => q.id === selectedChat.queueId);
-              const instanceId = queue?.whatsapp_instance_id || queue?.whatsappInstanceId || 'default';
-              // Não aguarda — ver comentário equivalente no fluxo de
-              // encerramento mais abaixo: com o WhatsApp desconectado, essa
-              // chamada pode levar quase 1min pra falhar e travava "Gerar
-              // Chamado" à toa.
-              fetch('/api/whatsapp/send', {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: safeJsonStringify({ instanceId, to: phone, message: ticketNoticeMessage.text }),
-              }).then(sendRes => {
-                if (!sendRes.ok) {
-                  toast.warning('Chamado avisado no chat, mas não foi enviado via WhatsApp.');
-                }
-              }).catch(sendErr => {
-                console.error('Failed to send ticket notice via WhatsApp:', sendErr);
-                toast.warning('Chamado avisado no chat, mas não foi enviado via WhatsApp.');
-              });
-            }
-          }
+          // Não aguarda — ver comentário equivalente no fluxo de encerramento
+          // mais abaixo: com o WhatsApp desconectado, essa chamada pode levar
+          // quase 1min pra falhar e travava "Gerar Chamado" à toa.
+          forwardMessageToWhatsApp({
+            sessionId: selectedChat.id,
+            messageId: ticketNoticeMessage.id,
+            customerPhone: selectedChat.customerPhone,
+            queueId: selectedChat.queueId,
+            text: ticketNoticeMessage.text
+          });
         } catch (msgError) {
           console.error('Failed to notify customer about ticket creation:', msgError);
         }
@@ -1636,33 +1712,21 @@ useEffect(() => {
             await pushChatMessage(selectedChat.id, closingChatMessage);
             awaitingSurveyUntil = new Date(Date.now() + surveySettings.responseWindowHours * 3600_000).toISOString();
 
-            if (selectedChat.customerPhone) {
-              const phone = selectedChat.customerPhone.replace(/\D/g, '');
-              if (phone) {
-                const queue = allQueues.find((q: any) => q.id === selectedChat.queueId);
-                const instanceId = queue?.whatsapp_instance_id || queue?.whatsappInstanceId || 'default';
-                // Não aguarda: quando o WhatsApp está desconectado, o envio
-                // faz até 3 tentativas com espera de reconexão de ~20s cada
-                // (WhatsAppService.sendMessage/waitUntilConnected) — chegando
-                // a ~1min. Esperar isso aqui travava "Gerar chamado e
-                // finalizar" inteiro (a sessão só fecha depois deste bloco),
-                // dando a impressão de que o chat não fechava. O aviso de
-                // encerramento já foi registrado no chat acima
-                // (pushChatMessage); o envio ao WhatsApp é best-effort.
-                fetch('/api/whatsapp/send', {
-                  method: 'POST',
-                  headers: { 'Content-Type': 'application/json' },
-                  body: safeJsonStringify({ instanceId, to: phone, message: closingMessage }),
-                }).then(sendRes => {
-                  if (!sendRes.ok) {
-                    toast.warning('Mensagem de encerramento registrada no chat, mas não foi enviada via WhatsApp.');
-                  }
-                }).catch(sendErr => {
-                  console.error('Failed to send closing WhatsApp notice:', sendErr);
-                  toast.warning('Mensagem de encerramento registrada no chat, mas não foi enviada via WhatsApp.');
-                });
-              }
-            }
+            // Não aguarda: quando o WhatsApp está desconectado, o envio faz
+            // até 3 tentativas com espera de reconexão de ~20s cada
+            // (WhatsAppService.sendMessage/waitUntilConnected) — chegando a
+            // ~1min. Esperar isso aqui travava "Gerar chamado e finalizar"
+            // inteiro (a sessão só fecha depois deste bloco), dando a
+            // impressão de que o chat não fechava. O aviso de encerramento já
+            // foi registrado no chat acima (pushChatMessage); o envio ao
+            // WhatsApp é best-effort.
+            forwardMessageToWhatsApp({
+              sessionId: selectedChat.id,
+              messageId: closingChatMessage.id,
+              customerPhone: selectedChat.customerPhone,
+              queueId: selectedChat.queueId,
+              text: closingMessage
+            });
           }
         } catch (surveyError) {
           console.error('Failed to send closing survey:', surveyError);
@@ -2928,7 +2992,29 @@ useEffect(() => {
                                 (editado)
                               </button>
                             )}
-                            {isOwnMessage && (() => {
+                            {isOwnMessage && m.whatsappStatus === 'sending' && (
+                              <span className="flex items-center gap-1 text-[var(--text-tertiary)]" title="Enviando pelo WhatsApp...">
+                                <Loader2 size={11} className="animate-spin" /> enviando
+                              </span>
+                            )}
+                            {isOwnMessage && m.whatsappStatus === 'failed' && (
+                              <span className="flex items-center gap-1">
+                                <span
+                                  className="flex items-center gap-1 text-[var(--text-danger)] cursor-default"
+                                  title={m.whatsappError ? `Não enviada pelo WhatsApp: ${m.whatsappError}` : 'Não enviada pelo WhatsApp'}
+                                >
+                                  <AlertCircle size={11} /> não enviada
+                                </span>
+                                <button
+                                  onClick={(e) => { e.stopPropagation(); handleResendWhatsAppMessage(m); }}
+                                  className="flex items-center gap-0.5 text-[var(--accent-text)] hover:underline normal-case"
+                                  title="Tentar enviar de novo"
+                                >
+                                  <RotateCw size={10} /> reenviar
+                                </button>
+                              </span>
+                            )}
+                            {isOwnMessage && (!m.whatsappStatus || m.whatsappStatus === 'sent') && (() => {
                               // Sessão de chat com cliente é sempre 1:1 (cliente
                               // + analista responsável) — só esses dois contam
                               // como "destinatário" pro 2o/3o check.
@@ -3436,13 +3522,17 @@ useEffect(() => {
                      Gerar Chamado & Finalizar
                    </button>
 
-                   <button
-                     onClick={() => handleGenerateTicket(true, true)}
-                     className="w-full py-3.5 bg-[var(--surface-card)] border-2 border-[var(--text-danger)]/20 text-[var(--text-danger)] rounded-2xl text-[10px] font-semibold uppercase tracking-widest hover:bg-[var(--surface-danger)] transition-all"
-                   >
-                     Fechar como Spam
-                   </button>
-                   <p className="text-[9px] text-[var(--text-tertiary)] font-medium text-center -mt-2">Gera o chamado e encerra, mas não envia nenhuma mensagem ao cliente — use quando um bot dele responder automaticamente à pesquisa e reabrir o chat em loop.</p>
+                   {hasPermission(Permission.CHAT_MARK_SPAM) && (
+                     <>
+                       <button
+                         onClick={() => handleGenerateTicket(true, true)}
+                         className="w-full py-3.5 bg-[var(--surface-card)] border-2 border-[var(--text-danger)]/20 text-[var(--text-danger)] rounded-2xl text-[10px] font-semibold uppercase tracking-widest hover:bg-[var(--surface-danger)] transition-all"
+                       >
+                         Fechar como Spam
+                       </button>
+                       <p className="text-[9px] text-[var(--text-tertiary)] font-medium text-center -mt-2">Gera o chamado e encerra, mas não envia nenhuma mensagem ao cliente — use quando um bot dele responder automaticamente à pesquisa e reabrir o chat em loop.</p>
+                     </>
+                   )}
                 </div>
              </motion.div>
           </div>

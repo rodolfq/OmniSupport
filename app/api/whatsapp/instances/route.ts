@@ -21,7 +21,7 @@ export async function GET() {
     if (!actor) return NextResponse.json({ error: 'Sessão inválida.' }, { status: 401 });
 
     const res = await query(
-      `SELECT id, name, phone, status, provider, phone_number_id, verify_token,
+      `SELECT id, name, phone, status, provider, phone_number_id, verify_token, pyvon_environment,
               (access_token IS NOT NULL AND access_token <> '') AS has_access_token
          FROM public.whatsapp_instances ORDER BY created_at ASC`
     );
@@ -33,7 +33,8 @@ export async function GET() {
       provider: r.provider || 'baileys',
       phoneNumberId: r.phone_number_id || undefined,
       hasAccessToken: r.has_access_token,
-      verifyToken: r.verify_token || undefined
+      verifyToken: r.verify_token || undefined,
+      pyvonEnvironment: r.pyvon_environment || undefined
     })));
   } catch (err) {
     console.error('Error getting WhatsApp instances:', err);
@@ -60,9 +61,10 @@ export async function POST(request: Request) {
                 phone_number_id = $5,
                 verify_token = COALESCE($6, verify_token),
                 access_token = CASE WHEN $7 = '' THEN access_token ELSE $7 END,
+                pyvon_environment = COALESCE($8, pyvon_environment),
                 updated_at = NOW()
-          WHERE id = $8`,
-        [name.trim(), phone || null, status, provider, meta?.phoneNumberId || null, meta?.verifyToken || null, meta?.accessToken ?? '', id]
+          WHERE id = $9`,
+        [name.trim(), phone || null, status, provider, meta?.phoneNumberId || null, meta?.verifyToken || null, meta?.accessToken ?? '', meta?.pyvonEnvironment || null, id]
       );
       logAudit({
         actorId: actor.id, actorName: actor.name, action: 'update',
@@ -79,9 +81,9 @@ export async function POST(request: Request) {
       ? (meta?.verifyToken || crypto.randomUUID().replace(/-/g, ''))
       : null;
     await query(
-      `INSERT INTO public.whatsapp_instances (id, name, phone, status, provider, phone_number_id, access_token, verify_token)
-       VALUES ($1, $2, $3, $4, $5, $6, $7, $8)`,
-      [newId, name.trim(), phone || null, status, provider, meta?.phoneNumberId || null, meta?.accessToken || null, verifyToken]
+      `INSERT INTO public.whatsapp_instances (id, name, phone, status, provider, phone_number_id, access_token, verify_token, pyvon_environment)
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)`,
+      [newId, name.trim(), phone || null, status, provider, meta?.phoneNumberId || null, meta?.accessToken || null, verifyToken, meta?.pyvonEnvironment || null]
     );
     logAudit({
       actorId: actor.id, actorName: actor.name, action: 'create',

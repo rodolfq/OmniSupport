@@ -22,6 +22,10 @@ export enum Permission {
   TICKETS_ASSIGN = 'tickets:assign',
   // "Central de Atendimento": fila de chats do WhatsApp (widget + /chat-management).
   OUTSIDE_QUEUE_VIEW = 'tickets:outside_queue',
+  // Botão "Fechar como Spam" no encerramento da Central de Atendimento —
+  // separado de OUTSIDE_QUEUE_VIEW porque é uma ação mais sensível (some com
+  // a mensagem de encerramento/pesquisa, sem avisar o cliente).
+  CHAT_MARK_SPAM = 'chat:mark_spam',
   INTERNAL_TICKETS_VIEW = 'internal:view',
   INTERNAL_TICKETS_EDIT = 'internal:edit',
   // Sem isto, quem tem internal:view só enxerga tickets internos da(s)
@@ -367,6 +371,10 @@ export interface Ticket {
   employeeIds?: string[];
   assigneeId?: string;
   createdAt: string;
+  // Autor do chamado (tickets.created_by) — quem preencheu o formulário ou
+  // gerou a partir do chat, não confundir com customerId (a favor de quem o
+  // chamado é aberto). Sempre gravado no INSERT, nunca editável depois.
+  createdBy?: string;
   completedAt?: string;
   updatedAt: string;
   category?: string; // legado: pré-split Fila/Categoria/Tipo de Solicitação, mantido só para compat com integrações externas — código novo não precisa mais preenchê-lo
@@ -422,7 +430,7 @@ export interface Attachment {
   transcription?: string;
 }
 
-export type WhatsappProvider = 'baileys' | 'meta';
+export type WhatsappProvider = 'baileys' | 'meta' | 'pyvon';
 
 export interface WhatsappInstance {
   id: string;
@@ -438,6 +446,8 @@ export interface WhatsappInstance {
   // configurado ou não (ver getWhatsappInstances em app/actions.ts).
   hasAccessToken?: boolean;
   verifyToken?: string;
+  // Só para 'pyvon': 'prod' (api.pyvon.io) ou 'dev' (api-dev.pyvon.io).
+  pyvonEnvironment?: 'prod' | 'dev';
 }
 
 export interface Queue {
@@ -500,6 +510,15 @@ export interface ChatMessage {
   // 3o check (colorido, "lido"): destinatário abriu essa conversa de fato —
   // sempre subconjunto de deliveredBy.
   readBy?: string[];
+  // Encaminhamento pro WhatsApp (Baileys/Meta/Pyvon), independente do
+  // deliveredBy/readBy acima (aquilo é sincronização dentro do portal).
+  // 'sending' só existe otimista no client, nunca persistido — o servidor só
+  // grava 'sent'/'failed'. Sem 'delivered'/'read': o Pyvon não fornece
+  // confirmação de entrega hoje ("hoje o contrato não a fornece"), então não
+  // inventamos esse estado — mostrar ticks de entrega/leitura seria dado
+  // falso. undefined = mensagem sem canal WhatsApp associado.
+  whatsappStatus?: 'sending' | 'sent' | 'failed';
+  whatsappError?: string;
   reactions?: MessageReaction[];
   metadata?: {
     fileUrl?: string;
@@ -561,6 +580,10 @@ export interface AutomationSetting {
   // Canal de e-mail — independente do WhatsApp acima, mesmo evento/atraso.
   email_enabled: boolean;
   email_subject: string | null;
+  // Template Pyvon usado como fallback quando o canal resolvido for Pyvon e
+  // a janela de 24h estiver fechada (bot-response não entrega texto livre
+  // fora dela) — null = sem fallback, o disparo falha e fica registrado.
+  pyvon_template_id: string | null;
   updated_at: string;
 }
 

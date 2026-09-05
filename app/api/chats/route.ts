@@ -98,6 +98,8 @@ export async function GET(request: NextRequest) {
           metadata: m.metadata,
           readBy: m.read_by || [],
           deliveredBy: m.delivered_by || [],
+          whatsappStatus: m.whatsapp_status || undefined,
+          whatsappError: m.whatsapp_error || undefined,
           reactions: m.reactions || [],
           isEdited: !!m.edited_at,
           editedAt: m.edited_at,
@@ -1118,6 +1120,28 @@ export async function POST(request: Request) {
       if ((marked.rowCount ?? 0) > 0) {
         emitChatEvent(sessionId, { type: 'receipt', sessionId });
       }
+      return NextResponse.json({ success: true });
+    }
+
+    if (action === 'update-message-whatsapp-status') {
+      // Grava o resultado de UMA tentativa de encaminhar a mensagem pro
+      // WhatsApp (ver forwardMessageToWhatsApp em chat-widget.tsx) — sem
+      // isso, uma falha de envio (instância desconectada, limite da Meta
+      // atingido, Pyvon em modo de teste...) só existia como toast
+      // passageiro, sem nada persistido na mensagem em si nem visível pra
+      // quem reabrisse a conversa depois.
+      const { messageId, sessionId, status, error } = body;
+      if (!messageId || !sessionId || !status) {
+        return NextResponse.json({ error: 'Dados incompletos.' }, { status: 400 });
+      }
+      if (!['sent', 'failed'].includes(status)) {
+        return NextResponse.json({ error: 'Status inválido.' }, { status: 400 });
+      }
+      await query(
+        `UPDATE public.chat_messages SET whatsapp_status = $1, whatsapp_error = $2 WHERE id = $3 AND session_id = $4`,
+        [status, error || null, messageId, sessionId]
+      );
+      emitChatEvent(sessionId, { type: 'receipt', sessionId });
       return NextResponse.json({ success: true });
     }
 

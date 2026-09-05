@@ -7,6 +7,7 @@ import { cn } from '@/lib/utils';
 import { StyledSelect } from '@/components/styled-select';
 import { AUTOMATION_EVENTS, AUTOMATION_VARIABLES, renderTemplate, AutomationEventDef } from '@/lib/automation-events';
 import { AutomationSetting } from '@/lib/types';
+import { getPyvonTemplates, PyvonTemplate } from '@/lib/services/pyvon-template-service';
 
 interface EditState {
   enabled: boolean;
@@ -16,6 +17,7 @@ interface EditState {
   triggerStatus: string;
   emailEnabled: boolean;
   emailSubject: string;
+  pyvonTemplateId: string;
   saving: boolean;
   showPreview: boolean;
 }
@@ -33,6 +35,7 @@ function toEditState(def: AutomationEventDef, saved?: AutomationSetting): EditSt
     triggerStatus: saved?.trigger_status ?? def.defaultTriggerStatus ?? '',
     emailEnabled: saved?.email_enabled ?? false,
     emailSubject: saved?.email_subject ?? '',
+    pyvonTemplateId: saved?.pyvon_template_id ?? '',
     saving: false,
     showPreview: false
   };
@@ -57,6 +60,7 @@ export function AutomatedMessagesContent() {
   const [editState, setEditState] = React.useState<Record<string, EditState>>(
     Object.fromEntries(AUTOMATION_EVENTS.map(def => [def.key, toEditState(def)]))
   );
+  const [pyvonTemplates, setPyvonTemplates] = React.useState<PyvonTemplate[]>([]);
   const [loaded, setLoaded] = React.useState(false);
   const [focusedEventKey, setFocusedEventKey] = React.useState<string | null>(null);
   const textareaRefs = React.useRef<Record<string, HTMLTextAreaElement | null>>({});
@@ -64,13 +68,15 @@ export function AutomatedMessagesContent() {
   React.useEffect(() => {
     const load = async () => {
       try {
-        const [settingsRes, statusesRes] = await Promise.all([
+        const [settingsRes, statusesRes, templates] = await Promise.all([
           fetch('/api/config?type=automation-settings'),
-          fetch('/api/config?type=statuses')
+          fetch('/api/config?type=statuses'),
+          getPyvonTemplates()
         ]);
         const settings: AutomationSetting[] = await settingsRes.json();
         const statusList = await statusesRes.json();
         setStatuses(statusList || []);
+        setPyvonTemplates(templates.filter(t => t.isActive));
 
         const byKey = new Map(settings.map(s => [s.event_key, s]));
         setEditState(
@@ -134,7 +140,8 @@ export function AutomatedMessagesContent() {
             firstOccurrenceOnly: state.firstOccurrenceOnly,
             triggerStatus: def.statusConfigurable ? (state.triggerStatus || null) : null,
             emailEnabled: state.emailEnabled,
-            emailSubject: state.emailSubject || null
+            emailSubject: state.emailSubject || null,
+            pyvonTemplateId: state.pyvonTemplateId || null
           }
         })
       });
@@ -199,6 +206,23 @@ export function AutomatedMessagesContent() {
                     placeholder="Chamado {{numero_chamado}} — {{titulo}}"
                     className="w-full bg-[var(--surface-card)] border border-[var(--border-default)] rounded-xl px-4 py-2.5 text-sm font-medium"
                   />
+                </div>
+              )}
+
+              {state.enabled && pyvonTemplates.length > 0 && (
+                <div className="space-y-1.5">
+                  <span className="text-[10px] font-semibold uppercase tracking-widest text-[var(--text-tertiary)]">Template Pyvon (fallback fora da janela de 24h)</span>
+                  <StyledSelect
+                    value={state.pyvonTemplateId}
+                    onChange={(e) => patchEvent(def.key, { pyvonTemplateId: e.target.value })}
+                    className="w-full bg-[var(--surface-card)] border border-[var(--border-default)] rounded-xl px-4 py-2.5 text-sm font-medium"
+                  >
+                    <option value="">Sem fallback — falha se a janela estiver fechada</option>
+                    {pyvonTemplates.map(t => (
+                      <option key={t.id} value={t.id}>{t.templateName}</option>
+                    ))}
+                  </StyledSelect>
+                  <p className="text-[9px] text-[var(--text-tertiary)]">Só usado quando o canal do cliente é Pyvon e a última mensagem dele foi há mais de 24h. O template precisa ter exatamente 1 variável — a mensagem acima inteira vai nela.</p>
                 </div>
               )}
 

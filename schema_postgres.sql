@@ -488,7 +488,10 @@ CREATE TABLE public.chat_sessions (
   awaiting_survey_until TIMESTAMP WITH TIME ZONE,
   -- Tags vinculadas em tempo real pelo atendente (ids de config_tags, domain='chat').
   -- Array de texto solto, sem FK — mesmo padrão já usado em tickets.tags.
-  tags TEXT[] DEFAULT '{}'
+  tags TEXT[] DEFAULT '{}',
+  -- Id do contato no Pyvon ("cadastro_id") — canal WhatsApp via Pyvon, ver
+  -- lib/services/pyvon-service.ts. É com ele que se responde/inicia template.
+  pyvon_cadastro_id INTEGER
 );
 
 -- Poll de 30s (GET /api/chats?action=sessions) e a subquery correlacionada
@@ -536,11 +539,23 @@ CREATE TABLE public.chat_messages (
   created_at TIMESTAMP WITH TIME ZONE DEFAULT now() NOT NULL,
   -- Full-text search (Agente de IA, search_client_chats) — ver comentário
   -- equivalente em public.tickets.
-  search_vector TSVECTOR GENERATED ALWAYS AS (to_tsvector('portuguese', coalesce(text, ''))) STORED
+  search_vector TSVECTOR GENERATED ALWAYS AS (to_tsvector('portuguese', coalesce(text, ''))) STORED,
+  -- Id da mensagem no Pyvon ("message_id") — chave de idempotência: o mesmo
+  -- evento pode chegar duas vezes em retentativa de rede (ver pyvon-service.ts).
+  pyvon_message_id TEXT,
+  -- Status de encaminhamento pro WhatsApp ('sending'/'sent'/'failed', sem
+  -- 'delivered'/'read' — Pyvon não fornece confirmação de entrega hoje) — ver
+  -- migrations/chat_messages_whatsapp_status.sql.
+  whatsapp_status TEXT,
+  whatsapp_error TEXT
 );
 
 CREATE INDEX IF NOT EXISTS idx_chat_messages_session_id ON public.chat_messages(session_id, created_at);
 CREATE INDEX IF NOT EXISTS idx_chat_messages_search_vector ON public.chat_messages USING GIN (search_vector);
+-- Índice único parcial: outros canais deixam pyvon_message_id NULL, e
+-- Postgres permite múltiplos NULLs num índice único.
+CREATE UNIQUE INDEX IF NOT EXISTS idx_chat_messages_pyvon_message_id
+  ON public.chat_messages(pyvon_message_id) WHERE pyvon_message_id IS NOT NULL;
 
 -- Chat Histories Table
 CREATE TABLE public.chat_histories (
@@ -676,8 +691,38 @@ CREATE TABLE public.whatsapp_instances (
   phone_number_id TEXT,
   verify_token TEXT,
   created_at TIMESTAMP WITH TIME ZONE DEFAULT now() NOT NULL,
-  updated_at TIMESTAMP WITH TIME ZONE DEFAULT now() NOT NULL
+  updated_at TIMESTAMP WITH TIME ZONE DEFAULT now() NOT NULL,
+  -- provider = 'pyvon': 'prod' (api.pyvon.io) ou 'dev' (api-dev.pyvon.io).
+  -- access_token guarda o X-Pyvon-Secret do tenant nesse caso (reaproveitado,
+  -- mesmo campo que o Meta usa pro token da Graph API).
+  pyvon_environment TEXT
 );
+
+-- Templates de WhatsApp (HSM) aprovados na Meta, usados pelo Pyvon pra
+-- iniciar conversa fora da janela de 24h (POST /api/webhook/bot-template) —
+-- ver lib/services/pyvon-service.ts. Cadastro manual: o Pyvon não expõe um
+-- jeito de listar templates aprovados por API, só o nome já combinado com
+-- quem administra a WABA.
+CREATE TABLE public.pyvon_templates (
+  id UUID PRIMARY KEY DEFAULT (md5(random()::text || clock_timestamp()::text)::uuid),
+  template_name TEXT NOT NULL,
+  language TEXT NOT NULL DEFAULT 'pt_BR',
+  description TEXT,
+  -- Array de { key, label }: key é o nome da variável tal como o template
+  -- espera (numérica "1"/"2" ou nomeada "nome_unidade"), label é o rótulo
+  -- amigável mostrado no formulário de preenchimento.
+  variables_schema JSONB NOT NULL DEFAULT '[]'::jsonb,
+  is_active BOOLEAN NOT NULL DEFAULT TRUE,
+  created_at TIMESTAMP WITH TIME ZONE DEFAULT now() NOT NULL
+);
+
+-- Template Pyvon usado como fallback quando a automação resolve o canal
+-- Pyvon e a janela de 24h está fechada (bot-response não entrega texto livre
+-- fora dela) — ver lib/services/automation-service.ts e pyvon-service.ts.
+-- ALTER (não coluna direto na criação de automation_settings, lá em cima)
+-- porque pyvon_templates só é criada aqui, depois.
+ALTER TABLE public.automation_settings
+  ADD COLUMN pyvon_template_id UUID REFERENCES public.pyvon_templates(id) ON DELETE SET NULL;
 
 -- WhatsApp Contact Photos (persistidas para não reconsultar o WhatsApp após obter sucesso)
 CREATE TABLE public.whatsapp_contact_photos (

@@ -110,6 +110,7 @@ export async function GET(request: Request) {
         ticketNumber: t.public_ticket_number,
         companyId: t.company_id,
         customerId: t.customer_id,
+        createdBy: t.created_by || undefined,
         // Esta é a listagem principal de chamados, e é dela que sai o objeto
         // aberto no modal de detalhe. O spread acima entrega só snake_case;
         // sem estes apelidos o responsavel e o sub-status chegam `undefined`

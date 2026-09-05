@@ -2,6 +2,7 @@ import { query } from '../db';
 import { isClosedTicketStatus } from '../ticket-status';
 import { AUTOMATION_EVENTS, renderTemplate } from '../automation-events';
 import { WhatsAppService } from './whatsapp-service';
+import { PyvonService } from './pyvon-service';
 import { EmailService } from './email-service';
 import { wrapEmailHtml, ticketRefBlock } from '../email-templates';
 
@@ -62,16 +63,17 @@ export async function saveAutomationSetting(eventKey: string, updates: {
   triggerStatus?: string | null;
   emailEnabled?: boolean;
   emailSubject?: string | null;
+  pyvonTemplateId?: string | null;
 }): Promise<any> {
   await ensureAutomationSettingsSeeded();
   const res = await query(
     `UPDATE public.automation_settings
      SET enabled = $1, message = $2, delay_minutes = $3, first_occurrence_only = $4, trigger_status = $5,
-         email_enabled = $6, email_subject = $7, updated_at = now()
-     WHERE event_key = $8
+         email_enabled = $6, email_subject = $7, pyvon_template_id = $8, updated_at = now()
+     WHERE event_key = $9
      RETURNING *`,
     [updates.enabled, updates.message, updates.delayMinutes, updates.firstOccurrenceOnly, updates.triggerStatus || null,
-     !!updates.emailEnabled, updates.emailSubject || null, eventKey]
+     !!updates.emailEnabled, updates.emailSubject || null, updates.pyvonTemplateId || null, eventKey]
   );
   return res.rows[0];
 }
@@ -167,6 +169,60 @@ async function resolveTicketRecipients(ticket: TicketRow): Promise<{ recipients:
   return { recipients, missingPhone };
 }
 
+// Envia a mensagem de automação pelo canal Pyvon: texto livre quando a
+// janela de 24h está aberta, ou o template configurado como fallback quando
+// não está. A mensagem inteira (já renderizada, sem variáveis do template
+// Meta) vai na PRIMEIRA variável do template — por isso o template usado
+// aqui precisa ter exatamente uma variável, pensada pra caber um texto
+// livre; não há como mapear automaticamente pra um template com várias
+// variáveis nomeadas específicas. Devolve true se algo foi de fato
+// entregue/aceito, false se não havia como (janela fechada sem template).
+async function dispatchPyvonAutomationMessage(
+  instanceId: string,
+  recipient: TicketRecipient,
+  renderedMessage: string,
+  pyvonTemplateId: string | null
+): Promise<boolean> {
+  const ctx = await PyvonService.resolveOutboundContext(recipient.phone);
+
+  if (ctx.cadastroId && ctx.withinWindow) {
+    const result = await PyvonService.sendMessage(instanceId, { cadastroId: ctx.cadastroId }, renderedMessage);
+    return !result.skipped;
+  }
+
+  if (!pyvonTemplateId) return false;
+
+  const templateRes = await query('SELECT template_name, language, variables_schema FROM public.pyvon_templates WHERE id = $1 AND is_active = true', [pyvonTemplateId]);
+  const template = templateRes.rows[0];
+  if (!template) return false;
+
+  const firstVarKey = template.variables_schema?.[0]?.key || '1';
+  const result = await PyvonService.sendTemplate(instanceId, {
+    templateName: template.template_name,
+    cadastroId: ctx.cadastroId || undefined,
+    phone: ctx.cadastroId ? undefined : recipient.phone,
+    name: recipient.name,
+    language: template.language,
+    variables: { [firstVarKey]: renderedMessage },
+    contentPreview: renderedMessage
+  });
+  // skipped: 200 "aceito" mas nada foi enviado (bot-debug-mode /
+  // bot-reply-test-only) — cadastro_id pode vir preenchido mesmo assim, não
+  // basta checar a presença dele.
+  if (result?.skipped || !result?.cadastro_id) return false;
+
+  await PyvonService.recordOutboundTemplateMessage({
+    instanceId,
+    phone: recipient.phone,
+    cadastroId: result.cadastro_id,
+    customerName: recipient.name,
+    analystId: null, // sem analista real aqui — mensagem automática, "sender" fica anônimo/sistema
+    analystName: 'SSX Desk (automático)',
+    text: renderedMessage
+  });
+  return true;
+}
+
 async function logDispatch(fields: {
   eventKey: string; ticketId: string; recipientId?: string | null; recipientName?: string;
   channel?: 'whatsapp' | 'email'; recipientPhone?: string; recipientEmail?: string; subject?: string;
@@ -205,14 +261,21 @@ export async function dispatchEvent(eventKey: string, ticket: TicketRow, extra: 
 
     const delayMinutes = Number(setting.delay_minutes) || 0;
 
-    // WhatsApp — igual antes, só que agora protegido explicitamente contra
-    // duas pessoas diferentes com o mesmo telefone (a lista de recipients já
-    // não dedupa mais por telefone, já que precisa incluir todo mundo pro
-    // e-mail — sem isso o mesmo número levaria a mensagem em dobro).
+    // WhatsApp — protegido explicitamente contra duas pessoas diferentes com
+    // o mesmo telefone (a lista de recipients já não dedupa mais por
+    // telefone, já que precisa incluir todo mundo pro e-mail — sem isso o
+    // mesmo número levaria a mensagem em dobro).
     if (setting.enabled) {
       for (const r of missingPhone) {
         await logDispatch({ eventKey, ticketId: ticket.id, recipientId: r.id, recipientName: r.name, channel: 'whatsapp', message: renderedMessage, status: 'failed', error: 'Sem telefone cadastrado' });
       }
+
+      // Se houver um canal Pyvon configurado, a automação prefere ele (não
+      // fica mais sempre fixa no Baileys 'default', item 2 da dívida técnica
+      // do CLAUDE.md) — mas só no envio imediato; o caminho com atraso
+      // (delayMinutes > 0, processado por automation-scheduler.ts) continua
+      // saindo pelo Baileys por ora, é um gap conhecido, não um bloqueio.
+      const pyvonInstanceId = await PyvonService.getSoleInstanceId();
 
       const sentPhones = new Set<string>();
       for (const r of recipients) {
@@ -225,13 +288,24 @@ export async function dispatchEvent(eventKey: string, ticket: TicketRow, extra: 
              VALUES ($1,$2,$3,$4,'whatsapp',$5,$6,'pending', now() + ($7 || ' minutes')::interval)`,
             [eventKey, ticket.id, r.id, r.name, r.phone, renderedMessage, String(delayMinutes)]
           );
-        } else {
+          continue;
+        }
+
+        if (pyvonInstanceId) {
           try {
-            await WhatsAppService.sendMessage('default', r.phone, renderedMessage);
-            await logDispatch({ eventKey, ticketId: ticket.id, recipientId: r.id, recipientName: r.name, channel: 'whatsapp', recipientPhone: r.phone, message: renderedMessage, status: 'sent' });
+            const sent = await dispatchPyvonAutomationMessage(pyvonInstanceId, r, renderedMessage, setting.pyvon_template_id);
+            await logDispatch({ eventKey, ticketId: ticket.id, recipientId: r.id, recipientName: r.name, channel: 'whatsapp', recipientPhone: r.phone, message: renderedMessage, status: sent ? 'sent' : 'failed', error: sent ? undefined : 'Janela de 24h fechada e sem template Pyvon configurado para este evento' });
           } catch (err: any) {
             await logDispatch({ eventKey, ticketId: ticket.id, recipientId: r.id, recipientName: r.name, channel: 'whatsapp', recipientPhone: r.phone, message: renderedMessage, status: 'failed', error: err?.message || String(err) });
           }
+          continue;
+        }
+
+        try {
+          await WhatsAppService.sendMessage('default', r.phone, renderedMessage);
+          await logDispatch({ eventKey, ticketId: ticket.id, recipientId: r.id, recipientName: r.name, channel: 'whatsapp', recipientPhone: r.phone, message: renderedMessage, status: 'sent' });
+        } catch (err: any) {
+          await logDispatch({ eventKey, ticketId: ticket.id, recipientId: r.id, recipientName: r.name, channel: 'whatsapp', recipientPhone: r.phone, message: renderedMessage, status: 'failed', error: err?.message || String(err) });
         }
       }
     }

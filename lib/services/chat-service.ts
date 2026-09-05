@@ -58,6 +58,21 @@ export class ChatService {
     }).catch(() => {});
   }
 
+  /** Grava o resultado de uma tentativa de encaminhar a mensagem pro
+   *  WhatsApp — ver forwardMessageToWhatsApp em components/chat-widget.tsx. */
+  static async updateMessageWhatsAppStatus(
+    messageId: string,
+    sessionId: string,
+    status: 'sent' | 'failed',
+    error?: string
+  ): Promise<void> {
+    await fetch('/api/chats', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ action: 'update-message-whatsapp-status', messageId, sessionId, status, error })
+    }).catch(() => {});
+  }
+
   static async toggleReaction(messageId: string, userId: string, emoji: string): Promise<void> {
     const res = await fetch('/api/chats', {
       method: 'POST',

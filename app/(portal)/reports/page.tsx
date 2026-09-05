@@ -69,7 +69,8 @@ const ENTITY_TYPE_LABELS: Record<string, string> = {
   hotfix: 'Hotfix',
   access_profile: 'Perfil de Acesso',
   employee: 'Funcionário',
-  report: 'Relatório'
+  report: 'Relatório',
+  ticket: 'Chamado'
 };
 
 const ACTION_ICON: Record<string, React.ReactNode> = {

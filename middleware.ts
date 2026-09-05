@@ -16,6 +16,7 @@ const PUBLIC_PATHS = new Set([
   '/api/auth/login',
   '/api/auth/logout',
   '/api/whatsapp/webhook', // chamado pela Meta, sem sessão de usuário
+  '/api/whatsapp/pyvon-webhook', // chamado pelo Pyvon, autenticado por X-Pyvon-Secret (ver pyvon-service.ts)
   '/api/health', // healthcheck do container (Dockerfile), sem sessão de usuário
   '/api/version', // polling do aviso de nova versão (app-context.tsx) — não deve cair em 401 se a sessão expirar no meio do dia
   '/manifest.webmanifest',

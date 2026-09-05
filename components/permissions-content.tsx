@@ -67,6 +67,7 @@ const permissionGroups = [
       { id: Permission.TICKETS_ASSIGN, label: 'Atribuir responsável', desc: 'Permite mudar o analista responsável por um chamado' },
       { id: Permission.TICKETS_DELETE, label: 'Excluir chamados', desc: 'Permite remover chamados permanentemente' },
       { id: Permission.OUTSIDE_QUEUE_VIEW, label: 'Central de Atendimento', desc: 'Permite ver e atender a fila de chats do WhatsApp — widget flutuante e /chat-management' },
+      { id: Permission.CHAT_MARK_SPAM, label: 'Marcar conversa como spam', desc: 'Permite usar "Fechar como Spam" ao encerrar um atendimento — sem enviar mensagem de encerramento/pesquisa ao cliente' },
     ]
   },
   {

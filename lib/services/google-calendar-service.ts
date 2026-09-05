@@ -1,4 +1,5 @@
 import { query } from '../db';
+import { notifyUser } from './push-service';
 
 /**
  * Integração com Google Agenda — vínculo pessoal por usuário (OAuth2, só
@@ -25,6 +26,14 @@ const CALENDAR_EVENTS_URL = 'https://www.googleapis.com/calendar/v3/calendars/pr
 const SCOPES = ['openid', 'email', 'https://www.googleapis.com/auth/calendar.readonly'];
 
 export class GoogleCalendarNotConfiguredError extends Error {}
+
+// invalid_grant é o Google dizendo que o refresh_token não serve mais
+// (pessoa revogou o acesso na própria conta, trocou a senha, ou — se o app
+// OAuth ainda estiver em modo "Teste" no Google Cloud Console — o
+// consentimento expirou sozinho em 7 dias). Diferente de um erro de rede/
+// Google fora do ar: não adianta tentar de novo na próxima rodada do
+// scheduler, a conexão está morta e precisa de um novo vínculo manual.
+class GoogleTokenRevokedError extends Error {}
 
 function getClientId(): string {
   const id = process.env.GOOGLE_CLIENT_ID;
@@ -121,7 +130,12 @@ async function refreshAccessToken(refreshToken: string): Promise<GoogleTokenResp
     })
   });
   const data = await res.json();
-  if (!res.ok) throw new Error(data.error_description || data.error || `Google respondeu ${res.status}`);
+  if (!res.ok) {
+    if (data.error === 'invalid_grant') {
+      throw new GoogleTokenRevokedError(data.error_description || data.error);
+    }
+    throw new Error(data.error_description || data.error || `Google respondeu ${res.status}`);
+  }
   return data;
 }
 
@@ -199,7 +213,27 @@ async function getValidAccessToken(userId: string): Promise<string | null> {
     return row.access_token;
   }
 
-  const tokens = await refreshAccessToken(row.refresh_token);
+  let tokens: GoogleTokenResponse;
+  try {
+    tokens = await refreshAccessToken(row.refresh_token);
+  } catch (err) {
+    if (err instanceof GoogleTokenRevokedError) {
+      // Conexão morta do lado do Google — apaga daqui também, senão a tela
+      // (components/google-calendar-settings.tsx) continua mostrando
+      // "Conectado" pra sempre (getConnectionStatus só olha se a linha
+      // existe) e o scheduler tentaria de novo a cada rodada só pra
+      // repetir o mesmo invalid_grant no log.
+      await query('DELETE FROM public.google_calendar_connections WHERE user_id = $1', [userId]);
+      await notifyUser(userId, {
+        title: 'Google Agenda desconectada',
+        body: 'O acesso à sua agenda expirou ou foi revogado. Vincule de novo em Configurações > Notificações para voltar a receber lembretes.',
+        url: '/settings?tab=notifications',
+        tag: 'google_calendar_disconnected'
+      }).catch(() => {});
+      return null;
+    }
+    throw err;
+  }
   const newExpiresAt = new Date(Date.now() + tokens.expires_in * 1000);
   await query(
     `UPDATE public.google_calendar_connections SET access_token = $1, access_token_expires_at = $2, updated_at = now() WHERE user_id = $3`,

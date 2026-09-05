@@ -11,6 +11,7 @@ import { cn, normalizeString, normalizePhone, maskPhone } from '@/lib/utils';
 import { NewEmployeeModal } from '@/components/new-employee-modal';
 import { EditEmployeeModal } from '@/components/edit-employee-modal';
 import { NewCompanyModal } from '@/components/new-company-modal';
+import { StartPyvonConversationModal } from '@/components/start-pyvon-conversation-modal';
 import { ConfirmModal } from '@/components/confirm-modal';
 import { useIsMobile } from '@/hooks/use-mobile';
 import { UserService } from '@/lib/services/user-service';
@@ -139,6 +140,7 @@ export default function CustomersPage() {
   const [isWhatsAppModalOpen, setIsWhatsAppModalOpen] = useState(false);
   const [isCompanyModalOpen, setIsCompanyModalOpen] = useState(false);
   const [companyToEdit, setCompanyToEdit] = useState<Company | null>(null);
+  const [isPyvonConversationModalOpen, setIsPyvonConversationModalOpen] = useState(false);
   // Desativar (reversível, preserva pessoas e histórico) é a ação do dia a
   // dia. Excluir de vez (companyToDelete/deleteCompany abaixo) é ação
   // separada e destrutiva, só dentro de "Editar Empresa" — ver
@@ -565,6 +567,15 @@ if (isCompanyPortalUser) {
                     <Pencil size={16} /> Editar Empresa
                   </button>
                 )}
+                {!isCompanyPortalUser && selectedCompany.decisorTelefone && (
+                  <button
+                    onClick={() => setIsPyvonConversationModalOpen(true)}
+                    title="Iniciar conversa por WhatsApp com o Decisor"
+                    className="flex items-center gap-2 bg-[var(--surface-success)] text-[var(--text-success)] px-4 py-2.5 rounded-lg text-sm font-bold hover:opacity-80 transition-all"
+                  >
+                    <MessageCircle size={16} /> Iniciar Conversa
+                  </button>
+                )}
                 {/* Desativar/Reativar mora só dentro de "Editar Empresa" (ver
                     components/new-company-modal.tsx). É ação de manutenção do
                     cadastro, não do dia a dia — no cabeçalho ficava ao lado de
@@ -759,6 +770,12 @@ if (isCompanyPortalUser) {
           setDeletePendingCounts(null);
           setDeleteError('');
         }}
+      />
+      <StartPyvonConversationModal
+        isOpen={isPyvonConversationModalOpen}
+        onClose={() => setIsPyvonConversationModalOpen(false)}
+        defaultPhone={selectedCompany?.decisorTelefone}
+        defaultName={selectedCompany?.decisorNome}
       />
       <WhatsAppNumberModal
         isOpen={isWhatsAppModalOpen}
