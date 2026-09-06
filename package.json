@@ -8,7 +8,11 @@
     "build": "next build",
     "start": "next start",
     "lint": "next lint",
-    "check:encoding": "node scripts/check-encoding.js"
+    "check:encoding": "node scripts/check-encoding.js",
+    "test:db:reset": "node tests/db-reset.js && npx ts-node tests/fixtures/seed.ts",
+    "pretest:e2e": "npm run test:db:reset",
+    "test:e2e": "playwright test",
+    "test:e2e:ui": "playwright test --ui"
   },
   "dependencies": {
     "@dnd-kit/core": "^6.3.1",
@@ -60,6 +64,7 @@
     "ws": "^8.20.0"
   },
   "devDependencies": {
+    "@playwright/test": "^1.62.1",
     "@tailwindcss/postcss": "^4.0.0",
     "@types/node": "^20.19.43",
     "@types/nodemailer": "^8.0.1",

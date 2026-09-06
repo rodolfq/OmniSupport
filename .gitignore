@@ -6,6 +6,7 @@ coverage/
 *.log
 .env*
 !.env.example
+!.env.test
 
 # Modelo Whisper baixado por lib/services/transcription-service.ts (cache local,
 # nao deve ir pro git — cada servidor baixa a sua copia na primeira transcricao)
@@ -22,3 +23,11 @@ data/
 # Overrides locais do Compose (ex.: apontar o container pro banco de dev em
 # vez do .env de produção) — específico de máquina, nunca deve ir pro repo.
 docker-compose.override.yml
+
+# Artefatos gerados pela suíte Playwright (tests/) — sessão salva por papel,
+# relatório HTML, trace/screenshot de falha e anexos gravados pelo servidor
+# de teste. Nada disso é fixture, é sempre regerado por `npm run test:e2e`.
+tests/.auth/
+tests/.tmp/
+playwright-report/
+test-results/

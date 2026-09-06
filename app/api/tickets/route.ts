@@ -15,7 +15,7 @@ async function getTicketActor(request: NextRequest) {
   if (!decoded?.id) return null;
 
   const result = await query(
-    `SELECT p.id, p.role, COALESCE(rp.permissions, '{}'::text[]) AS permissions
+    `SELECT p.id, p.role, p.company_id, COALESCE(rp.permissions, '{}'::text[]) AS permissions
      FROM public.profiles p
      LEFT JOIN public.role_permissions rp ON rp.id = p.access_profile_id
      WHERE p.id = $1`,
@@ -27,6 +27,21 @@ async function getTicketActor(request: NextRequest) {
 
 function canDeleteTickets(actor: any) {
   return actor?.role === 'Administrador' || (actor?.permissions || []).includes('tickets:delete');
+}
+
+/**
+ * Cliente/Funcionário são usuário de empresa-cliente — só podem enxergar
+ * chamado da PRÓPRIA empresa (`company_id`). Administrador/Equipe/Time
+ * Interno continuam vendo tudo (é o time de suporte; a fila/atribuição já
+ * estreita a visão deles do lado do client, em my-tickets/page.tsx, sem ser
+ * fronteira de segurança entre empresas).
+ *
+ * Achado ao montar tests/api/tickets-api.spec.ts (06/09/2026): GET
+ * /api/tickets (lista, chamado único e mensagens) não filtrava por empresa
+ * nenhuma — qualquer sessão autenticada lia chamado de qualquer empresa.
+ */
+function isCompanyScopedActor(actor: any) {
+  return actor?.role === 'Cliente' || actor?.role === 'Funcionário';
 }
 
 /**
@@ -46,11 +61,17 @@ function canWriteTickets(actor: any) {
   return actor?.role === 'Administrador' || (actor?.permissions || []).includes('tickets:write');
 }
 
-export async function GET(request: Request) {
+export async function GET(request: NextRequest) {
   const { searchParams } = new URL(request.url);
   const id = searchParams.get('id');
   const action = searchParams.get('action');
   const includeClosed = searchParams.get('includeClosed') === 'true';
+
+  // middleware.ts já garante um JWT válido pra chegar até aqui, mas não
+  // resolve QUEM é — sem isso a rota servia dado de qualquer chamado pra
+  // qualquer sessão autenticada, sem saber a empresa de quem pediu.
+  const actor = await getTicketActor(request);
+  if (!actor) return NextResponse.json({ error: 'Não autenticado.' }, { status: 401 });
 
   try {
     if (action === 'lookup') {
@@ -92,6 +113,16 @@ export async function GET(request: Request) {
     if (action === 'messages') {
       const ticketId = searchParams.get('ticketId');
       if (!ticketId) return NextResponse.json({ error: 'ticketId é obrigatório' }, { status: 400 });
+
+      if (isCompanyScopedActor(actor)) {
+        const ticketCompanyRes = await query('SELECT company_id FROM public.tickets WHERE id = $1', [ticketId]);
+        if (ticketCompanyRes.rowCount === 0) {
+          return NextResponse.json({ error: 'Chamado não encontrado' }, { status: 404 });
+        }
+        if (ticketCompanyRes.rows[0].company_id !== actor.company_id) {
+          return NextResponse.json({ error: 'Você não tem permissão para ver este chamado.' }, { status: 403 });
+        }
+      }
 
       // Nome/foto do autor via JOIN, não mais resolvidos no client contra
       // /api/users?type=all — aquela rota é restrita a papel de equipe
@@ -281,6 +312,9 @@ export async function GET(request: Request) {
         return NextResponse.json({ error: 'Chamado não encontrado' }, { status: 404 });
       }
       const data = res.rows[0];
+      if (isCompanyScopedActor(actor) && data.company_id !== actor.company_id) {
+        return NextResponse.json({ error: 'Você não tem permissão para ver este chamado.' }, { status: 403 });
+      }
       return NextResponse.json({
         ...data,
         ticketId: data.number,
@@ -317,13 +351,26 @@ export async function GET(request: Request) {
       // tela de detalhe mostrar o histórico do chat ao vivo em vez de duplicar
       // o conteúdo em tickets.description.
       const chatSessionSelect = `(SELECT cs.id FROM public.chat_sessions cs WHERE cs.ticket_id = t.id ORDER BY cs.created_at DESC LIMIT 1) AS chat_session_id`;
-      const closedStatusPlaceholders = CLOSED_TICKET_STATUSES.map((_, i) => `$${i + 1}`).join(',');
-      const ticketsRes = includeClosed
-        ? await query(`SELECT t.*, ${chatSessionSelect} FROM public.tickets t ORDER BY t.created_at DESC`)
-        : await query(
-            `SELECT t.*, ${chatSessionSelect} FROM public.tickets t WHERE t.status NOT IN (${closedStatusPlaceholders}) ORDER BY t.created_at DESC`,
-            [...CLOSED_TICKET_STATUSES]
-          );
+
+      // Cliente/Funcionário: só chamado da própria empresa. Sem isto, chamado
+      // de outra empresa não aparecia no filtro do client
+      // (my-tickets/page.tsx), mas o servidor já tinha mandado a lista
+      // inteira — bastava chamar a rota direto pra ver tudo.
+      const params: any[] = [];
+      const whereParts: string[] = [];
+      if (!includeClosed) {
+        params.push(...CLOSED_TICKET_STATUSES);
+        whereParts.push(`t.status NOT IN (${CLOSED_TICKET_STATUSES.map((_, i) => `$${i + 1}`).join(',')})`);
+      }
+      if (isCompanyScopedActor(actor)) {
+        params.push(actor.company_id);
+        whereParts.push(`t.company_id = $${params.length}`);
+      }
+      const whereClause = whereParts.length ? `WHERE ${whereParts.join(' AND ')}` : '';
+      const ticketsRes = await query(
+        `SELECT t.*, ${chatSessionSelect} FROM public.tickets t ${whereClause} ORDER BY t.created_at DESC`,
+        params
+      );
 
       const customerIds = [...new Set(ticketsRes.rows.map(t => t.customer_id).filter(Boolean))];
       const customerMap = new Map<string, string>();
@@ -382,12 +429,10 @@ export async function POST(request: Request) {
         return NextResponse.json({ error: 'Sessão expirada. Faça login novamente.' }, { status: 401 });
       }
 
-      // Validar empresa
-      const companyId = ticket.companyId || '11111111-1111-4111-8111-111111111111';
-
       // Certificar que o perfil existe no Postgres próprio
-      const profileCheck = await query('SELECT role FROM public.profiles WHERE id = $1', [userId]);
+      const profileCheck = await query('SELECT role, company_id FROM public.profiles WHERE id = $1', [userId]);
       let userRole = 'Cliente';
+      let companyId = ticket.companyId || '11111111-1111-4111-8111-111111111111';
       if (profileCheck.rowCount === 0) {
         await query(
           `INSERT INTO public.profiles (id, email, name, role, company_id, password)
@@ -403,6 +448,16 @@ export async function POST(request: Request) {
         );
       } else {
         userRole = profileCheck.rows[0].role;
+        // Cliente/Funcionário: a empresa do chamado é SEMPRE a própria
+        // empresa do perfil, nunca o `ticket.companyId` que vem do corpo da
+        // requisição — sem isso, um Cliente podia registrar o próprio
+        // chamado em nome de outra empresa (ou, faltando o campo, ele caía
+        // sempre na empresa padrão do seed, mesmo pra quem é de outra
+        // empresa). Administrador/Equipe continuam escolhendo a empresa
+        // (tela mostra um seletor pra eles, ver new-ticket-modal.tsx).
+        if (isCompanyScopedActor({ role: userRole })) {
+          companyId = profileCheck.rows[0].company_id;
+        }
       }
 
       // Anexo chega do client como data: URL e é gravado em disco aqui (ver
