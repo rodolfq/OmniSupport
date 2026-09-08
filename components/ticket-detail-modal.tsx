@@ -95,6 +95,17 @@ export function TicketDetailModal({ ticket, onClose, initialDraft }: TicketDetai
   const [activeTab, setActiveTab] = useState<'description' | 'internal' | 'history' | 'attachments' | 'chat'>('description');
   const [chatSessionData, setChatSessionData] = useState<SessionMessagesResult | null>(null);
   const [isLoadingChatSession, setIsLoadingChatSession] = useState(false);
+  // Precisa ficar ANTES do `if (!ticket) return null;` mais abaixo: um Hook
+  // chamado depois de um retorno condicional muda de quantidade entre
+  // renders (chamado quando `ticket` existe, pulado quando não) — violação
+  // de rules-of-hooks que corrompe o estado interno do React entre um render
+  // e outro do mesmo modal. `ticket?.chatSessionId` já é opcional, então mover
+  // pra cá não muda o comportamento, só a ordem.
+  useAutoTranscribeMissingAudio(
+    ticket?.chatSessionId,
+    chatSessionData?.messages,
+    (updater) => setChatSessionData(prev => prev ? { ...prev, messages: updater(prev.messages) } : prev)
+  );
   const [historyTab, setHistoryTab] = useState<'customer' | 'internal' | 'recent-tickets'>('customer');
   const [recentCompanyTickets, setRecentCompanyTickets] = useState<Ticket[]>([]);
   const [loadingRecentCompanyTickets, setLoadingRecentCompanyTickets] = useState(false);
@@ -427,14 +438,6 @@ const loadMessages = async () => {
      }
    };
 
-   // Mesma ideia do Histórico de Conversas: qualquer áudio dessa conversa
-   // ainda sem transcrição é transcrito sozinho assim que a aba "Conversa" é
-   // carregada, sem depender de clique manual.
-   useAutoTranscribeMissingAudio(
-     ticket?.chatSessionId,
-     chatSessionData?.messages,
-     (updater) => setChatSessionData(prev => prev ? { ...prev, messages: updater(prev.messages) } : prev)
-   );
 
    const loadInternalTickets = async () => {
      if (!ticket) return;
