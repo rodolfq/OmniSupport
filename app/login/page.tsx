@@ -8,12 +8,14 @@ import { Mail, Lock, ArrowRight, Eye, EyeOff, Sun, Moon } from 'lucide-react';
 import { toast } from 'sonner';
 import { UserRole } from '@/lib/types';
 import { useTheme } from '@/app/theme-provider';
+import { ForgotPasswordModal } from '@/components/forgot-password-modal';
 
 export default function LoginPage() {
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [showPassword, setShowPassword] = useState(false);
   const [isLoading, setIsLoading] = useState(false);
+  const [showForgotPassword, setShowForgotPassword] = useState(false);
   const { currentUser, setCurrentUser, authInitialized } = useApp();
   const { toggleTheme } = useTheme();
   const router = useRouter();
@@ -179,11 +181,18 @@ export default function LoginPage() {
               </div>
             </div>
 
-            <div className="flex items-center text-xs font-bold px-1">
+            <div className="flex items-center justify-between text-xs font-bold px-1">
               <label className="flex items-center gap-2 text-[var(--text-tertiary)] cursor-pointer">
                 <input type="checkbox" className="rounded border-[var(--border-default)] text-[var(--accent-text)] focus:ring-[var(--accent)]" disabled={isLoading} />
                 Lembrar-me
               </label>
+              <button
+                type="button"
+                onClick={() => setShowForgotPassword(true)}
+                className="text-[var(--accent-text)] hover:underline"
+              >
+                Esqueci minha senha
+              </button>
             </div>
 
             <button
@@ -206,6 +215,8 @@ export default function LoginPage() {
           </form>
         </div>
       </div>
+
+      <ForgotPasswordModal isOpen={showForgotPassword} onClose={() => setShowForgotPassword(false)} />
     </div>
   );
 }

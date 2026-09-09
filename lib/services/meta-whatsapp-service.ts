@@ -263,8 +263,8 @@ export class MetaWhatsAppService {
         // ON CONFLICT como rede de segurança entre processos/instâncias — ver
         // migrations/chat_sessions_unique_open_phone.sql.
         const insertRes = await query(
-          `INSERT INTO public.chat_sessions (customer_id, customer_name, customer_phone, status, queue_id, assignee_id, created_at, updated_at)
-           VALUES ($1, $2, $3, $4, $5, $6, NOW(), NOW())
+          `INSERT INTO public.chat_sessions (customer_id, customer_name, customer_phone, status, queue_id, assignee_id, channel, created_at, updated_at)
+           VALUES ($1, $2, $3, $4, $5, $6, 'whatsapp_meta', NOW(), NOW())
            ON CONFLICT (customer_phone) WHERE status <> 'closed' AND customer_phone IS NOT NULL
            DO NOTHING
            RETURNING id, customer_phone, customer_id, assignee_id, queue_id`,

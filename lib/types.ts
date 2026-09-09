@@ -551,6 +551,10 @@ export interface ChatSession {
   awaitingSurveyUntil?: string;
   // Ids de config_tags (domain='chat') vinculados pelo atendente em tempo real.
   tags?: string[];
+  // Canal de origem — decide se a resposta deve ser espelhada pro WhatsApp
+  // (forwardMessageToWhatsApp, chat-widget.tsx). undefined = sessão anterior a
+  // este campo, cai no comportamento antigo (baseado em customerPhone).
+  channel?: 'whatsapp_baileys' | 'whatsapp_meta' | 'pyvon' | 'widget';
 }
 
 export interface SurveySettings {

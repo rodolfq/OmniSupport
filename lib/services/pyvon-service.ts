@@ -262,8 +262,8 @@ export class PyvonService {
       const assigneeId = queue ? await pickNextQueueAssignee(queue) : null;
       const status = assigneeId ? 'active' : 'pending';
       const insertRes = await query(
-        `INSERT INTO public.chat_sessions (customer_id, customer_name, customer_phone, status, queue_id, assignee_id, pyvon_cadastro_id, created_at, updated_at)
-         VALUES ($1, $2, $3, $4, $5, $6, $7, NOW(), NOW())
+        `INSERT INTO public.chat_sessions (customer_id, customer_name, customer_phone, status, queue_id, assignee_id, pyvon_cadastro_id, channel, created_at, updated_at)
+         VALUES ($1, $2, $3, $4, $5, $6, $7, 'pyvon', NOW(), NOW())
          ON CONFLICT (customer_phone) WHERE status <> 'closed' AND customer_phone IS NOT NULL
          DO NOTHING
          RETURNING id, customer_phone, customer_id, customer_name, assignee_id, queue_id, pyvon_cadastro_id`,

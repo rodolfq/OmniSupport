@@ -127,6 +127,19 @@ CREATE INDEX IF NOT EXISTS idx_profiles_internal_teams ON public.profiles USING 
 CREATE INDEX IF NOT EXISTS idx_profiles_role_created_at ON public.profiles(role, created_at DESC);
 CREATE INDEX IF NOT EXISTS idx_profiles_company_id ON public.profiles(company_id);
 
+-- Tokens de "Esqueci minha senha" (self-service, via e-mail) — uso único,
+-- curta duração, nunca em texto puro (token_hash = SHA-256 do token do
+-- link) — ver lib/services/password-reset-service.ts.
+CREATE TABLE public.password_reset_tokens (
+  id UUID PRIMARY KEY DEFAULT (md5(random()::text || clock_timestamp()::text)::uuid),
+  profile_id UUID NOT NULL REFERENCES public.profiles(id) ON DELETE CASCADE,
+  token_hash TEXT NOT NULL UNIQUE,
+  expires_at TIMESTAMP WITH TIME ZONE NOT NULL,
+  used_at TIMESTAMP WITH TIME ZONE,
+  created_at TIMESTAMP WITH TIME ZONE DEFAULT now() NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_password_reset_tokens_profile ON public.password_reset_tokens(profile_id);
+
 -- Role Permissions Table ("Perfil de Acesso" na UI) — fonte única de quais
 -- telas/ações um usuário tem. profiles.access_profile_id aponta pra cá; o
 -- antigo join por profiles.role = role_permissions.role foi descontinuado
@@ -405,6 +418,10 @@ CREATE TABLE public.tickets (
   customer_id UUID REFERENCES public.profiles(id) ON DELETE SET NULL,
   assignee_id UUID REFERENCES public.profiles(id) ON DELETE SET NULL,
   created_by UUID REFERENCES public.profiles(id) ON DELETE SET NULL,
+  -- Quem fez a última edição de campo (status, responsável, etc.) — usado só
+  -- pra excluir o próprio autor do polling de notificações (ver
+  -- app/api/notifications/check/route.ts), não é histórico/auditoria.
+  updated_by UUID REFERENCES public.profiles(id) ON DELETE SET NULL,
   employee_ids UUID[] DEFAULT '{}',
   created_at TIMESTAMP WITH TIME ZONE DEFAULT now() NOT NULL,
   updated_at TIMESTAMP WITH TIME ZONE DEFAULT now() NOT NULL,
@@ -491,7 +508,12 @@ CREATE TABLE public.chat_sessions (
   tags TEXT[] DEFAULT '{}',
   -- Id do contato no Pyvon ("cadastro_id") — canal WhatsApp via Pyvon, ver
   -- lib/services/pyvon-service.ts. É com ele que se responde/inicia template.
-  pyvon_cadastro_id INTEGER
+  pyvon_cadastro_id INTEGER,
+  -- Canal de origem ('whatsapp_baileys' | 'whatsapp_meta' | 'pyvon' | 'widget')
+  -- — decide se a resposta do analista deve ser espelhada pro WhatsApp
+  -- (forwardMessageToWhatsApp, chat-widget.tsx). NULL = sessão anterior a esta
+  -- coluna, mantém o comportamento antigo (baseado em customer_phone).
+  channel TEXT
 );
 
 -- Poll de 30s (GET /api/chats?action=sessions) e a subquery correlacionada

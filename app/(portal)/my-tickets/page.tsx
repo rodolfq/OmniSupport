@@ -20,6 +20,7 @@ import {
 import { motion, AnimatePresence } from 'motion/react';
 import { cn, normalizeString } from '@/lib/utils';
 import { TicketDetailModal } from '@/components/ticket-detail-modal';
+import { CustomerDashboardPanel } from '@/components/customer-dashboard-panel';
 import { isClosedTicketStatus, getCustomerStatusLabel } from '@/lib/ticket-status';
 import { useSearchParams, useRouter } from 'next/navigation';
 
@@ -256,6 +257,12 @@ export default function MyTicketsPage() {
           )}
         </div>
       </div>
+
+      {/* Dashboard: só pro lado empresa-cliente (Cliente/Funcionário), nunca
+          pra Equipe/Administrador/Time Interno usando "Meus Chamados" como
+          fila pessoal — conceito de "empresa toda vs meus chamados" não se
+          aplica a eles aqui. */}
+      {!isInternalRole && ticketMode === 'tickets' && <CustomerDashboardPanel />}
 
       {/* Filters Bar */}
       <div className="bg-[var(--surface-card)] p-4 rounded-2xl border border-[var(--border-default)] shadow-sm flex flex-wrap items-center gap-4">

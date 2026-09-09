@@ -5,10 +5,11 @@ import { hashPassword } from '@/lib/auth-utils';
 // Importado de lib/server-auth.ts e não de app/actions.ts: naquele arquivo
 // vale 'use server', onde toda função exportada vira endpoint público — e
 // ajudante de autorização não deve ser chamável de fora.
-import { getCurrentActionUser, assertUserManageable, getAdminTeamIds } from '@/lib/server-auth';
+import { getCurrentActionUser, assertUserManageable, getAdminTeamIds, getActorEffectivePermissions } from '@/lib/server-auth';
 import { generateAvatarThumb } from '@/lib/services/avatar-thumb-service';
 import { canForceOthersOffline } from '@/lib/services/presence-authorization';
 import { logAudit } from '@/lib/audit-log';
+import { Permission } from '@/lib/types';
 
 // Papéis "de equipe" — os únicos que hoje consomem GET/POST desta rota
 // (Canais de Atendimento, Filas, Hotfixes, vínculo de contato). Cliente/
@@ -432,6 +433,20 @@ export async function POST(request: Request) {
           const p = await query('SELECT internal_team_id FROM public.role_permissions WHERE id = $1', [finalProfileId]);
           if (p.rows[0]?.internal_team_id) finalTeamIds = [p.rows[0].internal_team_id];
         }
+      } else if (role === 'Funcionário' && (await getActorEffectivePermissions(actor.id)).includes(Permission.CUSTOMERS_WRITE)) {
+        // Equipe/Time Interno com CUSTOMERS_WRITE ("Gerenciar clientes") pode
+        // cadastrar Funcionário de qualquer empresa — mesma permissão que já
+        // libera o botão "Novo Funcionário" na tela de Empresas
+        // (app/(portal)/customers/page.tsx:165). Antes disso esse caso caía
+        // sempre no ramo de baixo (equipe interna), que não tem nada a ver com
+        // empresa-cliente: ou barrava com "Você não administra essa equipe",
+        // ou — se o ator por acaso administrasse alguma equipe interna por
+        // outro motivo — criava o usuário como "Time Interno" em vez do
+        // Funcionário pedido, ignorando companyId.
+        if (!companyId) {
+          return NextResponse.json({ error: 'Selecione a empresa do funcionário.' }, { status: 400 });
+        }
+        finalTeamIds = [];
       } else {
         // Nem Administrador nem Cliente: só passa se administrar a equipe do
         // perfil escolhido. Papel e equipe vêm SEMPRE do perfil, nunca do que

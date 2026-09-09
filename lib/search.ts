@@ -49,7 +49,10 @@ export async function searchTickets(
     query: filters.query || '',
     status: filters.status || '',
     priority: filters.priority || '',
+    companyId: filters.companyId || '',
     assigneeId: filters.assigneeId || '',
+    startDate: filters.startDate || '',
+    endDate: filters.endDate || '',
     slaOverdue: String(filters.slaOverdue || false),
     unassigned: String(filters.unassigned || false),
     highPriority: String(filters.highPriority || false),
@@ -78,6 +81,9 @@ export async function getQuickFilterCounts(
     query: baseFilters.query || '',
     status: baseFilters.status || '',
     priority: baseFilters.priority || '',
+    companyId: baseFilters.companyId || '',
+    startDate: baseFilters.startDate || '',
+    endDate: baseFilters.endDate || '',
     includeClosed: String(baseFilters.includeClosed || false),
     userId,
   });
@@ -132,5 +138,20 @@ export async function getTicketStats(filters: Partial<SearchFilters> = {}): Prom
   overdue: number;
 }> {
   const res = await fetch('/api/search?action=stats');
+  return res.json();
+}
+
+export interface CustomerDashboardData {
+  scope: 'company' | 'self';
+  tickets: { novos: number; emAndamento: number; finalizadosRecentes: number; total: number };
+  chats: { ativas: number; encerradasRecentes: number };
+}
+
+// Dashboard de Cliente/Funcionário em /my-tickets — sem SLA de propósito
+// (pedido do usuário), só contagem de chamados/conversas no escopo que a
+// própria lista de chamados já usa (ver app/api/search/route.ts).
+export async function getCustomerDashboard(): Promise<CustomerDashboardData> {
+  const res = await fetch('/api/search?action=customer-dashboard');
+  if (!res.ok) throw new Error('Erro ao carregar dashboard.');
   return res.json();
 }

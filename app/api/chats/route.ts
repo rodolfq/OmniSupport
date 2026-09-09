@@ -124,6 +124,7 @@ export async function GET(request: NextRequest) {
         lastMessageAt: s.last_message_at || s.created_at,
         awaitingSurveyUntil: s.awaiting_survey_until,
         tags: s.tags || [],
+        channel: s.channel || undefined,
         messages: messagesBySession.get(s.id) || []
       }));
 
@@ -165,6 +166,7 @@ export async function GET(request: NextRequest) {
           lastMessageAt: s.last_message_at || s.created_at,
           awaitingSurveyUntil: s.awaiting_survey_until,
           tags: s.tags || [],
+          channel: s.channel || undefined,
           lastMessage: lastMessage ? {
             id: lastMessage.id,
             senderId: lastMessage.sender_id,
@@ -901,8 +903,11 @@ export async function POST(request: Request) {
             // vinha do relógio do navegador. Como o tempo de espera e o de
             // primeira resposta são medidos a partir daqui, um relógio errado
             // no cliente distorcia métrica de atendimento.
-            `INSERT INTO public.chat_sessions (id, customer_id, customer_name, customer_phone, status, queue_id, assignee_id, created_at, updated_at)
-             VALUES ($1, $2, $3, $4, $5, NULL, $6, NOW(), NOW())
+            // channel = 'widget': esta ação só nasce de um cliente/funcionário
+            // logado no portal (ver comentário acima) — nunca de uma instância
+            // de WhatsApp de verdade, mesmo que o perfil tenha telefone cadastrado.
+            `INSERT INTO public.chat_sessions (id, customer_id, customer_name, customer_phone, status, queue_id, assignee_id, channel, created_at, updated_at)
+             VALUES ($1, $2, $3, $4, $5, NULL, $6, 'widget', NOW(), NOW())
              ON CONFLICT DO NOTHING
              RETURNING id, assignee_id`,
             [id, resolvedCustomerId, resolvedCustomerName, session.customerPhone || null, status, assigneeId]
@@ -973,9 +978,12 @@ export async function POST(request: Request) {
         const newId = crypto.randomUUID();
         await runExclusive(`queue-assign:${queue?.id ?? 'combined'}`, async () => {
           const assigneeId = queue ? await pickNextQueueAssignee(queue) : null;
+          // channel = 'widget': esta ação (push-message) só é chamada pelo
+          // widget do portal (ver pushChatMessage em chat-widget.tsx) — nunca
+          // por uma instância de WhatsApp.
           await query(
-            `INSERT INTO public.chat_sessions (id, customer_id, customer_name, customer_phone, status, queue_id, assignee_id, created_at, updated_at)
-             VALUES ($1, $2, $3, $4, $5, $6, $7, NOW(), NOW())`,
+            `INSERT INTO public.chat_sessions (id, customer_id, customer_name, customer_phone, status, queue_id, assignee_id, channel, created_at, updated_at)
+             VALUES ($1, $2, $3, $4, $5, $6, $7, 'widget', NOW(), NOW())`,
             [newId, session.customer_id, session.customer_name, session.customer_phone, assigneeId ? 'active' : 'pending', queue?.id || null, assigneeId]
           );
           effectiveAssigneeId = assigneeId;

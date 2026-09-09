@@ -13,8 +13,11 @@ import { isOriginAllowed, CORS_ALLOWED_ORIGINS } from '@/lib/runtime-config'
 const PUBLIC_PATHS = new Set([
   '/login',
   '/login/new', // tela secreta de lançamento (descartável, ver app/login/new/page.tsx)
+  '/reset-password', // link de e-mail de "Esqueci minha senha" — chega sem sessão, o token vem na própria URL
   '/api/auth/login',
   '/api/auth/logout',
+  '/api/auth/forgot-password', // solicita o e-mail de redefinição — sempre sem sessão
+  '/api/auth/reset-password', // aplica a nova senha a partir do token do e-mail — sempre sem sessão
   '/api/whatsapp/webhook', // chamado pela Meta, sem sessão de usuário
   '/api/whatsapp/pyvon-webhook', // chamado pelo Pyvon, autenticado por X-Pyvon-Secret (ver pyvon-service.ts)
   '/api/health', // healthcheck do container (Dockerfile), sem sessão de usuário

@@ -292,42 +292,6 @@ export function TicketsView({
     }),
   );
 
-  const applyRoleBasedFilters = async (tickets: Ticket[]): Promise<Ticket[]> => {
-    if (!currentUser) return tickets;
-
-    let filtered = [...tickets];
-
-    if (currentUser.role === UserRole.CUSTOMER) {
-      filtered = filtered.filter((t) => t.companyId === currentUser.companyId);
-
-      if (!currentUser.viewAllCompanyTickets) {
-        filtered = filtered.filter(
-          (t) =>
-            t.customerId === currentUser.id ||
-            t.employeeIds?.includes(currentUser.id),
-        );
-      }
-    } else {
-      // Chegar aqui já exige tickets:read (gate no componente pai) — só
-      // resta escopar quem não tem Central de Atendimento (outside_queue) às
-      // próprias filas/atribuições, igual antes.
-      const canViewOutsideQueue =
-        hasPermission(Permission.OUTSIDE_QUEUE_VIEW) ||
-        currentUser.role === UserRole.ADMIN;
-
-      if (!canViewOutsideQueue) {
-        filtered = filtered.filter(
-          (t) =>
-            !t.assigneeId ||
-            t.assigneeId === currentUser.id ||
-            t.employeeIds?.includes(currentUser.id),
-        );
-      }
-    }
-
-    return filtered;
-  };
-
   const bulkUpdateTickets = async (ids: string[], updates: any) => {
     const res = await fetch('/api/tickets', {
       method: 'PATCH',
@@ -377,10 +341,15 @@ export function TicketsView({
     if (!currentUser) return;
     setLoading(true);
     try {
+      // Escopo por papel (Cliente só vê a própria empresa; quem não tem
+      // Central de Atendimento só vê fila/atribuição própria) já é aplicado
+      // no servidor (app/api/search/route.ts, buildScopeWhere) — dentro do
+      // WHERE, antes da paginação. Fazer de novo aqui client-side, depois de
+      // já ter só os `pageSize` da página atual, era o bug: podia sobrar
+      // menos itens que o anunciado (ou nenhum) mesmo havendo mais páginas.
       const result = await searchTickets(effectiveFilters, currentPage, pageSize);
-      const roleFilteredTickets = await applyRoleBasedFilters(result.tickets);
 
-      setFilteredTickets(roleFilteredTickets);
+      setFilteredTickets(result.tickets);
       setTotalCount(result.total);
       setTotalPages(Math.ceil(result.total / pageSize));
     } catch (error) {

@@ -7,7 +7,8 @@ import { cn } from "@/lib/utils";
 import { motion, AnimatePresence } from "motion/react";
 import { TicketStatus, SavedFilter, UserRole } from "@/lib/types";
 import { useApp } from "@/app/app-context";
-import { useCompaniesQuery, useProfilesLiteQuery } from "@/lib/query-hooks";
+import { useProfilesLiteQuery, useConfigStatusesQuery } from "@/lib/query-hooks";
+import { CompanySearchSelect } from "@/components/company-search-select";
 import { searchTickets, SearchFilters, getSavedViews, saveCustomView, saveSearchHistory } from "@/lib/search";
 
 interface ModernSearchBarProps {
@@ -39,6 +40,10 @@ export function ModernSearchBar({ onSearch, loading, extraControls, quickFilters
   const [status, setStatus] = useState<TicketStatus | "">("");
   const [priority, setPriority] = useState<string>("");
   const [company, setCompany] = useState<string>("");
+  // Nome da empresa filtrada, guardado à parte do id — desde que o filtro
+  // deixou de pré-carregar TODAS as empresas (ver CompanySearchSelect), não
+  // há mais lista local pra resolver "Cliente: {nome}" no chip de filtro ativo.
+  const [companyName, setCompanyName] = useState<string>("");
   const [assignee, setAssignee] = useState<string>("");
   const [startDate, setStartDate] = useState<string>("");
   const [endDate, setEndDate] = useState<string>("");
@@ -50,8 +55,11 @@ export function ModernSearchBar({ onSearch, loading, extraControls, quickFilters
   // avatar_url) — a tabela profiles tem ~51MB de fotos em base64, então
   // usar a query "com avatar" (a que ticket-detail-modal.tsx precisa) aqui
   // custaria esse payload à toa pra um dropdown de filtro.
-  const { data: companies = [] } = useCompaniesQuery();
   const { data: users = [] } = useProfilesLiteQuery();
+  // Lista real e editável (Configurações > Status), não os 5 valores fixos
+  // de TicketStatus — um status cadastrado depois (ou renomeado) nunca
+  // aparecia como opção de filtro, mesmo com chamados nesse status.
+  const { data: statuses = [] } = useConfigStatusesQuery('ticket');
 
   const inputRef = useRef<HTMLInputElement>(null);
   const lastSubmittedFiltersRef = useRef(JSON.stringify({}));
@@ -108,7 +116,7 @@ export function ModernSearchBar({ onSearch, loading, extraControls, quickFilters
     switch (key) {
       case "status": setStatus(""); break;
       case "priority": setPriority(""); break;
-      case "companyId": setCompany(""); break;
+      case "companyId": setCompany(""); setCompanyName(""); break;
       case "assigneeId": setAssignee(""); break;
       case "startDate": setStartDate(""); break;
       case "endDate": setEndDate(""); break;
@@ -122,6 +130,7 @@ export function ModernSearchBar({ onSearch, loading, extraControls, quickFilters
     setStatus("");
     setPriority("");
     setCompany("");
+    setCompanyName("");
     setAssignee("");
     setStartDate("");
     setEndDate("");
@@ -154,6 +163,9 @@ export function ModernSearchBar({ onSearch, loading, extraControls, quickFilters
     setStatus(filters.status || "");
     setPriority(filters.priority || "");
     setCompany(filters.companyId || "");
+    // Visualização salva só guarda o id — o nome é resolvido pelo próprio
+    // CompanySearchSelect (GET /api/companies?id=) quando não vier em cache.
+    setCompanyName("");
     setAssignee(filters.assigneeId || "");
     setStartDate(filters.startDate || "");
     setEndDate(filters.endDate || "");
@@ -332,7 +344,7 @@ export function ModernSearchBar({ onSearch, loading, extraControls, quickFilters
             )}
             {activeFilters.companyId && (
               <span className="inline-flex items-center gap-1.5 px-3 py-1.5 bg-[var(--surface-success)] text-[var(--text-success)] rounded-full text-xs font-bold">
-                Cliente: {companies.find((c: any) => c.id === activeFilters.companyId)?.name || activeFilters.companyId}
+                Cliente: {companyName || activeFilters.companyId}
                 <button onClick={() => removeFilter("companyId")}><X size={12} /></button>
               </span>
             )}
@@ -386,8 +398,8 @@ export function ModernSearchBar({ onSearch, loading, extraControls, quickFilters
                     className="w-full px-3 py-2 rounded-lg border border-[var(--border-default)] text-xs font-bold bg-[var(--surface-card)] focus:border-indigo-400 outline-none"
                   >
                     <option value="">Qualquer Status</option>
-                    {Object.values(TicketStatus).map(s => (
-                      <option key={s} value={s}>{s}</option>
+                    {statuses.map((s: any) => (
+                      <option key={s.id} value={s.label}>{s.label}</option>
                     ))}
                   </StyledSelect>
                 </div>
@@ -415,16 +427,12 @@ export function ModernSearchBar({ onSearch, loading, extraControls, quickFilters
                   <label className="text-[10px] font-semibold uppercase text-[var(--text-tertiary)] flex items-center gap-1">
                     <Building2 size={12} /> Cliente
                   </label>
-                  <StyledSelect
+                  <CompanySearchSelect
                     value={company}
-                    onChange={(e) => setCompany(e.target.value)}
+                    selectedName={companyName}
+                    onChange={(id, name) => { setCompany(id); setCompanyName(name); }}
                     className="w-full px-3 py-2 rounded-lg border border-[var(--border-default)] text-xs font-bold bg-[var(--surface-card)] focus:border-indigo-400 outline-none"
-                  >
-                    <option value="">Qualquer Cliente</option>
-                    {companies.map((c: any) => (
-                      <option key={c.id} value={c.id}>{c.name}</option>
-                    ))}
-                  </StyledSelect>
+                  />
                 </div>
 
                 {/* Assignee (Responsável) */}

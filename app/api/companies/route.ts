@@ -37,9 +37,26 @@ export async function GET(request: Request) {
   const { searchParams } = new URL(request.url);
   const id = searchParams.get('id');
   const tipo = searchParams.get('tipo');
+  const search = searchParams.get('search');
   const isCompanyUser = actor.role === 'Cliente' || actor.role === 'Funcionário';
 
   try {
+    // ---------------------------------------------- busca leve (autocomplete)
+    // Usada pelo filtro "Cliente" de Chamados (components/company-search-select.tsx):
+    // só id+name, sem logo/responsáveis/etc — o resto da rota (sem `search`)
+    // devolve a lista INTEIRA com thumbnail de logo, cara demais pra digitar
+    // a cada tecla. Cliente/Funcionário nem precisa disso (só enxerga a
+    // própria empresa, já resolvida sem busca), mas não custa nada restringir
+    // igual ao resto da rota.
+    if (search !== null) {
+      const term = search.trim();
+      if (!term) return NextResponse.json([]);
+      const res = isCompanyUser
+        ? await query(`SELECT id, name FROM public.companies WHERE id = $1 AND name ILIKE $2`, [actor.company_id, `%${term}%`])
+        : await query(`SELECT id, name FROM public.companies WHERE name ILIKE $1 ORDER BY name ASC LIMIT 20`, [`%${term}%`]);
+      return NextResponse.json(res.rows.map(c => ({ id: c.id, name: c.name })));
+    }
+
     // ------------------------------------------- resumo de avaliação interna
     // Média por critério + tag mais recente, para o cadastro da empresa. Não
     // lista cada avaliação (isso é o relatório).

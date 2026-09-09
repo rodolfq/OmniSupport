@@ -670,6 +670,11 @@ export async function PUT(request: NextRequest) {
     }
 
     sets.push('updated_at = NOW()');
+    // Usado só pelo polling de notificações (app/api/notifications/check),
+    // pra não avisar o próprio usuário de uma edição que ele mesmo fez
+    // (fechou o chamado, se auto-atribuiu, etc.).
+    sets.push(`updated_by = $${params.length + 1}`);
+    params.push(actor.id);
     params.push(id);
 
     const updateRes = await query(
@@ -763,6 +768,10 @@ export async function PATCH(request: NextRequest) {
     }
 
     setClauses.push(`updated_at = NOW()`);
+    // Mesmo motivo do PUT único: exclui o autor da notificação no polling.
+    setClauses.push(`updated_by = $${paramIndex}`);
+    params.push(actor.id);
+    paramIndex++;
 
     const idParamsStart = paramIndex;
     const idPlaceholders = ids.map((_, i) => `$${idParamsStart + i}`).join(',');

@@ -122,6 +122,9 @@ export async function GET(request: NextRequest) {
        FROM public.tickets t
        WHERE t.updated_at > $1
          AND t.updated_at > t.created_at
+         -- Quem editou o próprio chamado (fechou, se auto-atribuiu) já viu a
+         -- confirmação visual na hora — não precisa do aviso de volta.
+         AND (t.updated_by IS NULL OR t.updated_by <> $2::uuid)
          AND ${relevantTicketClause}
        ORDER BY t.updated_at ASC
        LIMIT 50`,

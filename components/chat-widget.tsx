@@ -82,6 +82,31 @@ import { toast } from 'sonner';
 
 const MAX_CHAT_ATTACHMENT_SIZE = 8 * 1024 * 1024;
 
+// Só formata o padrão BR mais comum (55 + DDD + 9 dígitos, com ou sem o "55");
+// qualquer outro formato (número estrangeiro, grupo/broadcast antigo) cai no
+// fallback e mostra os dígitos como vieram, em vez de arriscar um agrupamento errado.
+function formatPhoneDisplay(phone: string): string {
+  const digits = phone.replace(/\D/g, '');
+  const local = digits.startsWith('55') && digits.length === 13 ? digits.slice(2) : digits;
+  if (local.length === 11) {
+    return `+55 (${local.slice(0, 2)}) ${local.slice(2, 7)}-${local.slice(7)}`;
+  }
+  return phone;
+}
+
+// Origem visível da conversa — sessão sem `channel` (criada antes deste
+// campo existir, ver migrations/chat_sessions_channel.sql) não mostra nada,
+// em vez de arriscar um palpite errado.
+function getChannelLabel(channel?: string): string | null {
+  switch (channel) {
+    case 'whatsapp_baileys': return 'WhatsApp (não-oficial)';
+    case 'whatsapp_meta': return 'WhatsApp (oficial)';
+    case 'pyvon': return 'WhatsApp (Pyvon)';
+    case 'widget': return 'Portal (chat)';
+    default: return null;
+  }
+}
+
 function fileToDataUrl(file: Blob): Promise<string> {
   return new Promise((resolve, reject) => {
     const reader = new FileReader();
@@ -1211,11 +1236,17 @@ useEffect(() => {
     messageId: string;
     customerPhone?: string;
     queueId?: string | null;
+    channel?: string;
     text: string;
     hasAttachments?: boolean;
   }): Promise<{ ok: boolean; error?: string }> => {
-    const { sessionId, messageId, customerPhone, queueId, text, hasAttachments } = params;
+    const { sessionId, messageId, customerPhone, queueId, channel, text, hasAttachments } = params;
     if (!customerPhone) return { ok: true }; // sem telefone = não é canal WhatsApp, nada a fazer
+    // channel === 'widget': conversa 100% pelo widget do portal — o cliente só
+    // tem telefone cadastrado no PERFIL, isso nunca foi um canal de WhatsApp de
+    // verdade. Sessão sem channel (criada antes deste campo existir) mantém o
+    // comportamento antigo, baseado só na presença de telefone.
+    if (channel === 'widget') return { ok: true };
     const phone = customerPhone.replace(/\D/g, '');
     if (!phone) return { ok: true };
 
@@ -1267,6 +1298,7 @@ useEffect(() => {
       messageId: message.id,
       customerPhone: selectedChat.customerPhone,
       queueId: selectedChat.queueId,
+      channel: selectedChat.channel,
       text: message.text,
       hasAttachments: !!message.attachments?.length
     });
@@ -1369,6 +1401,7 @@ useEffect(() => {
             messageId: newMessage.id,
             customerPhone: session.customerPhone,
             queueId: session.queueId,
+            channel: session.channel,
             text: newMessage.text,
             hasAttachments: !!newMessage.attachments && newMessage.attachments.length > 0
           });
@@ -1427,6 +1460,7 @@ useEffect(() => {
             messageId: newMessage.id,
             customerPhone: freshSession.customerPhone,
             queueId: freshSession.queueId,
+            channel: freshSession.channel,
             text: newMessage.text,
             hasAttachments: !!newMessage.attachments && newMessage.attachments.length > 0
           });
@@ -1623,6 +1657,7 @@ useEffect(() => {
             messageId: ticketNoticeMessage.id,
             customerPhone: selectedChat.customerPhone,
             queueId: selectedChat.queueId,
+            channel: selectedChat.channel,
             text: ticketNoticeMessage.text
           });
         } catch (msgError) {
@@ -1725,6 +1760,7 @@ useEffect(() => {
               messageId: closingChatMessage.id,
               customerPhone: selectedChat.customerPhone,
               queueId: selectedChat.queueId,
+              channel: selectedChat.channel,
               text: closingMessage
             });
           }
@@ -2459,6 +2495,26 @@ useEffect(() => {
                         {selectedChat?.ticketNumber && (
                           <p className="text-[9px] text-[var(--text-tertiary)] font-semibold uppercase tracking-widest">
                             Conversa #{String(selectedChat.ticketNumber).padStart(4, '0')}
+                          </p>
+                        )}
+                        {/* Telefone do contato — antes só existia internamente
+                            (foto de contato, encaminhamento WhatsApp), nunca
+                            visível ao atendente sem abrir o painel à parte. */}
+                        {!isCustomer && selectedChat?.customerPhone && (
+                          <p className="text-[9px] text-[var(--text-tertiary)] font-semibold tracking-widest flex items-center gap-1 mt-0.5">
+                            <Phone size={9} />
+                            {formatPhoneDisplay(selectedChat.customerPhone)}
+                          </p>
+                        )}
+                        {/* Origem da conversa — antes o sistema decidia "é
+                            WhatsApp?" só pela presença de telefone, sem
+                            mostrar de onde a conversa realmente veio (a causa
+                            do bug de tentar enviar WhatsApp em conversa de
+                            widget). Agora fica visível pro atendente. */}
+                        {!isCustomer && getChannelLabel(selectedChat?.channel) && (
+                          <p className="text-[9px] text-[var(--text-tertiary)] font-semibold uppercase tracking-widest flex items-center gap-1 mt-0.5">
+                            <MessageCircle size={9} />
+                            {getChannelLabel(selectedChat?.channel)}
                           </p>
                         )}
                         {/* Marcadores vinculados em tempo real pelo atendente — só

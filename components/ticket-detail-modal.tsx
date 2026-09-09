@@ -162,6 +162,7 @@ export function TicketDetailModal({ ticket, onClose, initialDraft }: TicketDetai
   const [ticketSubStatus, setTicketSubStatus] = useState<string | null>(ticket?.subStatus || null);
   const [openSubStatusMenuFor, setOpenSubStatusMenuFor] = useState<string | null>(null);
   const [ticketDescription, setTicketDescription] = useState(ticket?.description || '');
+  const [ticketTitle, setTicketTitle] = useState(ticket?.title || '');
   const [mainQueue, setMainQueue] = useState(ticket?.queueId || '');
   const [mainCategory, setMainCategory] = useState(ticket?.categoryId || '');
   const [mainRequestType, setMainRequestType] = useState(ticket?.requestTypeId || '');
@@ -337,6 +338,7 @@ export function TicketDetailModal({ ticket, onClose, initialDraft }: TicketDetai
     setTicketStatus(ticket.status);
     setTicketSubStatus(ticket.subStatus || null);
     setTicketDescription(ticket.description);
+    setTicketTitle(ticket.title);
     setMainQueue(ticket.queueId || '');
     setMainCategory(ticket.categoryId || '');
     setMainRequestType(ticket.requestTypeId || '');
@@ -870,9 +872,11 @@ const loadMessages = async () => {
     const customerToSave = merged.customerId || customerId;
     const employeesToSave = merged.employeeIds || employeeIds;
     const descriptionToSave = merged.description !== undefined ? merged.description : ticketDescription;
+    const titleToSave = merged.title !== undefined ? merged.title : ticketTitle;
 
     const updated: Ticket = {
       ...ticket,
+      title: titleToSave,
       queueId: queueToSave || undefined,
       categoryId: categoryIdToSave || undefined,
       requestTypeId: requestTypeToSave || undefined,
@@ -894,6 +898,9 @@ const loadMessages = async () => {
     // (não aparece na Conversa, só registra pra consulta).
     const prev = lastSavedRef.current || ticket;
     const changes: FieldChange[] = [];
+    if (titleToSave !== prev.title) {
+      changes.push({ label: 'Título', from: prev.title, to: titleToSave });
+    }
     if (statusToSave !== prev.status) {
       changes.push({ label: 'Estágio', from: prev.status, to: statusToSave as string });
     }
@@ -1308,7 +1315,26 @@ const loadMessages = async () => {
           <div className="flex-1 overflow-y-auto">
             {/* Title Large */}
             <div className="px-8 py-8 space-y-6">
-               <h1 className="text-3xl font-black text-[var(--text-primary)] tracking-tight leading-tight">{ticket.title}</h1>
+               {!isCustomer && hasPermission(Permission.TICKETS_READ) ? (
+                 <input
+                   value={ticketTitle}
+                   onChange={(e) => setTicketTitle(e.target.value)}
+                   onBlur={() => {
+                     if (!ticketTitle.trim()) {
+                       setTicketTitle(ticket.title);
+                       return;
+                     }
+                     flushTicketSave({ title: ticketTitle });
+                   }}
+                   onKeyDown={(e) => {
+                     if (e.key === 'Enter') (e.target as HTMLInputElement).blur();
+                     if (e.key === 'Escape') { setTicketTitle(ticket.title); (e.target as HTMLInputElement).blur(); }
+                   }}
+                   className="w-full text-3xl font-black text-[var(--text-primary)] tracking-tight leading-tight bg-transparent border border-transparent rounded-lg -mx-2 px-2 hover:border-[var(--border-default)] focus:border-[var(--accent)] focus:outline-none transition-colors"
+                 />
+               ) : (
+                 <h1 className="text-3xl font-black text-[var(--text-primary)] tracking-tight leading-tight">{ticket.title}</h1>
+               )}
 
                {/* Grid Info (Odoo style) */}
                {!isCustomer && hasPermission(Permission.TICKETS_READ) && (
