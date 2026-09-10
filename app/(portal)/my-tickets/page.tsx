@@ -48,7 +48,9 @@ const CUSTOMER_STATUS_FILTERS: Array<{ value: CustomerStatusFilter; label: strin
 ];
 
 function matchesCustomerStatusFilter(status: string, filter: CustomerStatusFilter) {
-  if (filter === 'all') return true;
+  // "Todos" não inclui os finalizados por padrão — chamado encerrado só
+  // aparece quando o cliente escolhe o filtro "Finalizado" de propósito.
+  if (filter === 'all') return !isClosedTicketStatus(status);
   return getCustomerStatusLabel(status) === filter;
 }
 

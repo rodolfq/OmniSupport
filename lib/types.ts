@@ -599,6 +599,9 @@ export interface InternalGroup {
   messages: ChatMessage[];
   lastMessage?: Pick<ChatMessage, 'id' | 'senderId' | 'senderName' | 'text' | 'timestamp' | 'type' | 'isDeleted'> | null;
   lastMessageAt: string;
+  // Mensagens de outros membros ainda não lidas por MIM (a API já resolve
+  // "por mim" pela sessão) — badge da lista, mesmo padrão do WhatsApp.
+  unreadCount?: number;
   pinnedBy?: string[];
   pinnedMessageIds?: string[];
   mutedBy?: string[];

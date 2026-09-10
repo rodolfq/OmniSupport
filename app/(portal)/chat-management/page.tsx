@@ -738,69 +738,62 @@ const handleDeleteNote = async () => {
                            const displayName = s.customerName || contact?.name || (s.customerPhone && maskPhone(s.customerPhone)) || 'Contato sem nome';
                            const photo = contact?.avatarUrl || getContactPhoto(s.customerPhone, getSessionInstanceId(s));
                            return (
-                         <div key={s.id} className="p-4 sm:p-6 flex flex-col sm:flex-row sm:items-center justify-between gap-4 hover:bg-[var(--surface-card)] transition-all">
-                            <div className="flex items-center gap-4">
-                               <input
-                                 type="checkbox"
-                                 className="w-4 h-4 rounded border-[var(--border-default)] accent-[var(--accent)] cursor-pointer"
-                                 checked={selectedSessionIds.has(s.id)}
-                                 onChange={() => toggleSessionSelected(s.id)}
-                               />
-                               <div className={cn(
-                                 "w-12 h-12 rounded-2xl flex items-center justify-center relative overflow-hidden",
-                                 s.status === 'pending' ? "bg-[var(--surface-warning)] text-[var(--text-warning)] border-2 border-amber-300 animate-pulse" : "bg-[var(--surface-success)] text-[var(--text-success)]"
-                               )}>
-                                  {photo ? (
-                                    <img src={photo} alt={displayName} className="w-full h-full object-cover" />
-                                  ) : (
-                                    <UserIcon size={24} />
-                                  )}
+                         <div key={s.id} className="p-4 sm:p-6 flex flex-col gap-4 hover:bg-[var(--surface-card)] transition-all">
+                            <div className="flex items-start justify-between gap-4">
+                               <div className="flex items-center gap-4 min-w-0">
+                                  <input
+                                    type="checkbox"
+                                    className="w-4 h-4 shrink-0 rounded border-[var(--border-default)] accent-[var(--accent)] cursor-pointer"
+                                    checked={selectedSessionIds.has(s.id)}
+                                    onChange={() => toggleSessionSelected(s.id)}
+                                  />
                                   <div className={cn(
-                                    "absolute -top-1 -right-1 w-4 h-4 rounded-full border-2 border-white shadow-sm",
-                                    s.status === 'pending' ? "bg-[var(--text-warning-strong)]" : "bg-[var(--text-success)]"
-                                  )} />
-                               </div>
-                               <div>
-                                  <div className="flex items-center gap-2">
-                                     <div className="flex flex-col">
-                                        <p className="font-black text-[var(--text-primary)] leading-tight flex items-center gap-2">
-                                          {displayName}
-                                          {s.status === 'pending' && (
-                                            <span className="flex items-center gap-1 px-1.5 py-0.5 bg-[var(--surface-danger)] text-[var(--text-danger)] text-[8px] font-semibold rounded border border-[var(--text-danger)]/20">
-                                              AGUARDANDO
-                                            </span>
-                                          )}
-                                        </p>
-                                        {company ? (
-                                          <p className="text-[10px] text-[var(--accent-text)] font-bold uppercase tracking-widest">{company.name}</p>
-                                        ) : (
-                                          <p className="text-[10px] text-[var(--text-tertiary)] font-bold uppercase tracking-widest italic">Sem Empresa</p>
-                                        )}
-                                     </div>
-                                     <span className={cn(
-                                       "text-[8px] font-semibold uppercase px-2 py-0.5 rounded self-start",
-                                       s.status === 'pending' ? "bg-[var(--surface-warning)] text-[var(--text-warning)]" : "bg-[var(--surface-success)] text-[var(--text-success)]"
-                                     )}>
-                                       {s.status === 'pending' ? 'Pendente' : 'Em Curso'}
-                                     </span>
+                                    "w-12 h-12 shrink-0 rounded-2xl flex items-center justify-center relative overflow-hidden",
+                                    s.status === 'pending' ? "bg-[var(--surface-warning)] text-[var(--text-warning)] border-2 border-amber-300 animate-pulse" : "bg-[var(--surface-success)] text-[var(--text-success)]"
+                                  )}>
+                                     {photo ? (
+                                       <img src={photo} alt={displayName} className="w-full h-full object-cover" />
+                                     ) : (
+                                       <UserIcon size={24} />
+                                     )}
+                                     <div className={cn(
+                                       "absolute -top-1 -right-1 w-4 h-4 rounded-full border-2 border-white shadow-sm",
+                                       s.status === 'pending' ? "bg-[var(--text-warning-strong)]" : "bg-[var(--text-success)]"
+                                     )} />
                                   </div>
-                                  <p className="text-xs text-[var(--text-tertiary)] mt-1">Iniciado em {s.startedAt ? new Date(s.startedAt).toLocaleTimeString() : '-'}</p>
+                                  <div className="min-w-0">
+                                     <div className="flex items-center gap-2 flex-wrap">
+                                        <p className="font-black text-[var(--text-primary)] leading-tight truncate">
+                                          {displayName}
+                                        </p>
+                                        <span className={cn(
+                                          "shrink-0 text-[8px] font-semibold uppercase px-2 py-0.5 rounded",
+                                          s.status === 'pending' ? "bg-[var(--surface-warning)] text-[var(--text-warning)]" : "bg-[var(--surface-success)] text-[var(--text-success)]"
+                                        )}>
+                                          {s.status === 'pending' ? 'Pendente' : 'Em Curso'}
+                                        </span>
+                                     </div>
+                                     <p className={cn(
+                                       "text-[10px] font-bold uppercase tracking-widest truncate",
+                                       company ? "text-[var(--accent-text)]" : "text-[var(--text-tertiary)] italic"
+                                     )}>
+                                       {company ? company.name : 'Sem Empresa'}
+                                     </p>
+                                     <p className="text-xs text-[var(--text-tertiary)] mt-1">Iniciado em {s.startedAt ? new Date(s.startedAt).toLocaleTimeString() : '-'}</p>
+                                  </div>
                                </div>
+                               {s.assigneeId && (
+                                  <p className="shrink-0 text-right text-[10px] text-[var(--text-tertiary)] font-medium">
+                                     Analista <span className="text-[var(--text-secondary)] font-bold">{analysts.find(a => a.id === s.assigneeId)?.name || 'Desconhecido'}</span>
+                                  </p>
+                               )}
                             </div>
-                             <div className="flex items-center gap-2 flex-wrap w-full sm:w-auto">
-                                {s.assigneeId && (
-                                   <div className="flex flex-col items-end mr-4">
-                                      <p className="text-[9px] font-semibold uppercase text-[var(--text-tertiary)] tracking-widest leading-none mb-1">Analista</p>
-                                      <p className="text-xs font-bold text-[var(--text-secondary)]">
-                                         {analysts.find(a => a.id === s.assigneeId)?.name || 'Desconhecido'}
-                                      </p>
-                                   </div>
-                                )}
-                                 {!s.customerId && !customers.some(c => 
-                                   matchPhones(c.phone, s.customerPhone) || 
+                             <div className="flex items-center justify-end gap-2 flex-wrap pt-3 border-t border-[var(--border-default)]/60">
+                                 {!s.customerId && !customers.some(c =>
+                                   matchPhones(c.phone, s.customerPhone) ||
                                    (c.phones && c.phones.some(p => matchPhones(p, s.customerPhone)))
                                  ) && (
-                                   <button 
+                                   <button
                                      onClick={() => handleOpenLinkModal(s)}
                                      className="flex items-center gap-2 px-4 py-2.5 bg-[var(--surface-pill)] text-[var(--text-secondary)] rounded-xl text-[10px] font-semibold uppercase tracking-widest hover:bg-[var(--border-default)] transition-all border border-[var(--border-default)]"
                                    >

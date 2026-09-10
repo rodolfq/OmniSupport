@@ -284,12 +284,27 @@ export default function ChatInternalPage() {
   // Load messages when room is selected
   useEffect(() => {
     if (selectedRoomId) {
+      // Zera o badge na hora — o servidor só grava o read_by de fato quando
+      // internal-messages responde (refreshMessages abaixo), mas esperar por
+      // isso deixava o número "preso" por um instante depois de abrir a sala.
+      setRooms(prev => prev.map(r => r.id === selectedRoomId ? { ...r, unreadCount: 0 } : r));
       refreshMessages(selectedRoomId);
     }
     setMentionQuery(null);
     setMentionStartIndex(-1);
     setTypingUsers({});
   }, [selectedRoomId, refreshMessages]);
+
+  // Sem isto, a lista de conversas só atualizava (preview + badge de não
+  // lidas) quando alguma ação local disparava loadRooms() de novo — mensagem
+  // chegando numa sala QUE NÃO é a aberta no momento não tinha como aparecer
+  // sem F5. Mesmo intervalo do poll de presença acima, mesmo racional (rede
+  // de segurança pra cima do SSE, que só cobre a sala aberta).
+  useEffect(() => {
+    if (!currentUser) return;
+    const interval = setInterval(loadRooms, 20000);
+    return () => clearInterval(interval);
+  }, [currentUser?.id, loadRooms]);
 
   // Tempo real da sala aberta: sem isso, o Chat Interno não tinha NENHUM
   // mecanismo de atualização ao vivo — duas pessoas na mesma sala só viam a
@@ -1185,7 +1200,12 @@ export default function ChatInternalPage() {
                 const otherUser = getDirectChatUser(room);
                 const avatar = room.type === 'group' ? room.imageUrl : (otherUser?.avatarThumbUrl || otherUser?.avatarUrl || null);
                 const isPinned = room.pinnedBy?.includes(currentUser?.id || '');
+                const isMuted = room.mutedBy?.includes(currentUser?.id || '');
                 const presenceIndicator = room.type === 'direct' ? getPresenceIndicator(otherUser?.id) : null;
+                // Sala aberta nunca mostra o próprio badge (mesmo padrão do
+                // WhatsApp) — o servidor já zera no próximo GET, mas a sala
+                // some da vista assim que selecionada de qualquer forma.
+                const hasUnread = !isActive && (room.unreadCount || 0) > 0;
 
                 return (
                   <div 
@@ -1217,19 +1237,35 @@ export default function ChatInternalPage() {
                       )}
                     </div>
                     <div className="flex-1 min-w-0">
-                      <div className="flex justify-between items-center mb-0.5 gap-2">
+                      <div className="flex justify-between items-start mb-0.5 gap-2">
                         <div className="flex items-center gap-1.5 min-w-0 flex-1">
                            <span className="text-sm font-black text-[var(--text-primary)] truncate">{room.name}</span>
                         </div>
-                        <div className="flex items-center gap-2 shrink-0">
-                          {room.mutedBy?.includes(currentUser?.id || '') && <BellOff size={10} className="text-slate-300" />}
-                          {isPinned && <Pin size={12} className="text-[var(--accent-text)] fill-indigo-500 rotate-45 shrink-0" />}
-                          <span className="text-[10px] font-bold text-[var(--text-tertiary)]">
-                            {room.lastMessageAt ? new Date(room.lastMessageAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) : ''}
-                          </span>
+                        <div className="flex flex-col items-end gap-1 shrink-0">
+                          <div className="flex items-center gap-1.5">
+                            {isMuted && <BellOff size={10} className="text-slate-300" />}
+                            {isPinned && <Pin size={12} className="text-[var(--accent-text)] fill-indigo-500 rotate-45 shrink-0" />}
+                            <span className={cn(
+                              "text-[10px] font-bold",
+                              hasUnread ? "text-[var(--accent-text)]" : "text-[var(--text-tertiary)]"
+                            )}>
+                              {room.lastMessageAt ? new Date(room.lastMessageAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) : ''}
+                            </span>
+                          </div>
+                          {hasUnread && (
+                            <span className={cn(
+                              "min-w-[18px] h-[18px] px-1 rounded-full text-white text-[10px] font-bold flex items-center justify-center",
+                              isMuted ? "bg-slate-400" : "bg-[var(--accent)]"
+                            )}>
+                              {room.unreadCount! > 99 ? '99+' : room.unreadCount}
+                            </span>
+                          )}
                         </div>
                       </div>
-                      <p className="text-xs text-[var(--text-tertiary)] truncate font-medium">
+                      <p className={cn(
+                        "text-xs truncate",
+                        hasUnread ? "text-[var(--text-secondary)] font-bold" : "text-[var(--text-tertiary)] font-medium"
+                      )}>
                         {lastMessage ? (
                           lastMessage.isDeleted ? (lastMessage.text || 'Mensagem apagada') :
                           lastMessage.type === 'text' ? lastMessage.text :

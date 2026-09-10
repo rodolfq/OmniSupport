@@ -553,6 +553,7 @@ export async function GET(request: NextRequest) {
       // mostrar preview nenhum.
       const chatIds = res.rows.map(c => c.id);
       const lastMessageByChat = new Map<string, any>();
+      const unreadCountByChat = new Map<string, number>();
       if (chatIds.length > 0) {
         const lastMessagesRes = await query(
           `SELECT DISTINCT ON (chat_id) chat_id, id, sender_id, sender_name, text, type, created_at
@@ -562,6 +563,20 @@ export async function GET(request: NextRequest) {
           [chatIds]
         );
         lastMessagesRes.rows.forEach(m => lastMessageByChat.set(m.chat_id, m));
+
+        // Badge de não lidas por sala (ícone do contato/grupo na lista),
+        // mesmo critério do "3o check" acima: mensagem de outra pessoa que
+        // este usuário ainda não abriu (read_by não contém o próprio id).
+        const unreadRes = await query(
+          `SELECT chat_id, COUNT(*)::int AS count
+           FROM public.internal_chat_messages
+           WHERE chat_id = ANY($1::text[])
+             AND sender_id IS DISTINCT FROM $2
+             AND NOT ($2::uuid = ANY(read_by))
+           GROUP BY chat_id`,
+          [chatIds, authenticatedUser.id]
+        );
+        unreadRes.rows.forEach(r => unreadCountByChat.set(r.chat_id, r.count));
       }
 
       return NextResponse.json(res.rows.map(c => {
@@ -582,6 +597,7 @@ export async function GET(request: NextRequest) {
             type: lastMessage.type
           } : null,
           lastMessageAt: c.last_message_at || c.created_at,
+          unreadCount: unreadCountByChat.get(c.id) || 0,
           pinnedBy: c.pinned_by || [],
           pinnedMessageIds: c.pinned_message_ids || [],
           mutedBy: c.muted_by || [],

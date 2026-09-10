@@ -2397,6 +2397,11 @@ useEffect(() => {
                                 {company && (
                                   <p className="text-[9px] text-[var(--accent-text)] font-bold uppercase tracking-widest">{company.name}</p>
                                 )}
+                                {s.assigneeId && (
+                                  <p className="text-[9px] text-[var(--text-tertiary)] font-semibold uppercase tracking-widest truncate">
+                                    Com {allUsers.find(u => u.id === s.assigneeId)?.name || 'analista atribuído'}
+                                  </p>
+                                )}
                                 {lastMessagePreview && (
                                   <p className="text-[10px] text-[var(--text-tertiary)] font-medium truncate">{lastMessagePreview}</p>
                                 )}
@@ -3369,12 +3374,15 @@ useEffect(() => {
                     )}
                   </div>
                 </div>
-              ) : !isMobileFullScreen ? (
-                // Em tela cheia no celular a lista já ocupa 100% da largura
-                // quando não há conversa selecionada (ver condição da
-                // Sidebar acima) — este placeholder só faz sentido no
-                // layout de duas colunas do desktop; renderizá-lo também no
-                // mobile espremia a lista e o placeholder lado a lado.
+              ) : (!isMobileFullScreen && isExpanded) ? (
+                // Mesmo raciocínio do mobile (ver comentário que existia
+                // aqui): a Sidebar também ocupa 100% da largura no desktop
+                // quando o widget não está expandido (w-full em vez de
+                // w-[350px] — ver condição da Sidebar acima), então esse
+                // placeholder só faz sentido quando `isExpanded` é o layout
+                // de duas colunas de verdade. Sem o `isExpanded` aqui, este
+                // bloco virava um segundo item flex ao lado da lista cheia e
+                // era espremido a quase 0px — na prática nunca aparecia.
                 <div className="flex-1 flex flex-col items-center justify-center p-12 text-center bg-[var(--surface-card)]/50">
                    <div className="w-20 h-20 bg-[var(--accent)]/10 rounded-[2rem] flex items-center justify-center text-[var(--accent-text)] mb-6">
                       <MessageCircle size={40} />
