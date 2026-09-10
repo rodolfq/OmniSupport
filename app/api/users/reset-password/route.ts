@@ -22,7 +22,10 @@ export async function POST(request: NextRequest) {
     }
 
     const actorResult = await query(
-      'SELECT role, is_admin FROM public.profiles WHERE id = $1',
+      `SELECT p.role, COALESCE(rp.permissions, '{}'::text[]) AS permissions
+       FROM public.profiles p
+       LEFT JOIN public.role_permissions rp ON rp.id = p.access_profile_id
+       WHERE p.id = $1`,
       [decoded.id]
     );
 
@@ -31,9 +34,14 @@ export async function POST(request: NextRequest) {
     }
 
     const actor = actorResult.rows[0];
-    const canResetPassword = actor.is_admin || ['Admin', 'Administrador'].includes(actor.role);
+    const isFullAdmin = actor.role === 'Administrador';
+    // "Gerenciar clientes" (customers:write) também reinicia senha — de
+    // propósito, restrito a alvo Cliente/Funcionário logo abaixo: sem essa
+    // restrição, esse mesmo acesso (pensado só pra gerenciar empresa-cliente)
+    // deixaria reiniciar senha de analista/admin também.
+    const hasCustomersWrite = (actor.permissions || []).includes('customers:write');
 
-    if (!canResetPassword) {
+    if (!isFullAdmin && !hasCustomersWrite) {
       return NextResponse.json({ error: 'Voce nao tem permissao para reiniciar senhas.' }, { status: 403 });
     }
 
@@ -41,6 +49,14 @@ export async function POST(request: NextRequest) {
 
     if (!userId || typeof userId !== 'string') {
       return NextResponse.json({ error: 'ID do usuario e obrigatorio.' }, { status: 400 });
+    }
+
+    if (!isFullAdmin) {
+      const targetResult = await query('SELECT role FROM public.profiles WHERE id = $1', [userId]);
+      const targetRole = targetResult.rows[0]?.role;
+      if (!targetRole || !['Cliente', 'Funcionário'].includes(targetRole)) {
+        return NextResponse.json({ error: 'Voce so pode reiniciar senha de cliente/funcionario.' }, { status: 403 });
+      }
     }
 
     if (password !== undefined && (typeof password !== 'string' || password.length < 6)) {

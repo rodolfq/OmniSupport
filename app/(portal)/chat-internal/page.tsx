@@ -651,7 +651,7 @@ export default function ChatInternalPage() {
     const room = rooms.find(r => r.id === selectedRoomId);
     const rawText = msg.text?.trim() || (msg.metadata?.fileName ? `Arquivo: ${msg.metadata.fileName}` : 'Mensagem sem texto');
     const title = buildTitleFromText(rawText);
-    const description = `Mensagem de ${msg.senderName} no chat interno${room ? ` "${room.name}"` : ''}:\n\n${rawText}`;
+    const description = `Mensagem de ${msg.senderName} no chat interno${room ? ` "${getRoomDisplayName(room)}"` : ''}:\n\n${rawText}`;
     return { title, description };
   };
 
@@ -1030,21 +1030,6 @@ export default function ChatInternalPage() {
     }
   };
 
-  const filteredRooms = rooms
-    .filter(r => {
-      const isHidden = r.hiddenBy?.includes(currentUser?.id || '');
-      const isVisible = showHidden || !isHidden;
-      const matchesSearch = normalizeString(r.name).includes(normalizeString(searchTerm));
-      const matchesUserFilter = findChatsWithUserId ? r.memberIds.includes(findChatsWithUserId) : true;
-      return isVisible && matchesSearch && matchesUserFilter;
-    })
-    .sort((a, b) => {
-      const aPinned = a.pinnedBy?.includes(currentUser?.id || '') ? 1 : 0;
-      const bPinned = b.pinnedBy?.includes(currentUser?.id || '') ? 1 : 0;
-      if (aPinned !== bPinned) return bPinned - aPinned;
-      return new Date(b.lastMessageAt).getTime() - new Date(a.lastMessageAt).getTime();
-    });
-
   const getDirectChatUser = (room: InternalGroup) => {
     if (room.type !== 'direct') return undefined;
     const isSelfChat = Boolean(currentUser) && room.memberIds.length > 0 &&
@@ -1055,6 +1040,31 @@ export default function ChatInternalPage() {
     return allUsers.find(user => user.id === participantId) ||
       (participantId === currentUser?.id ? currentUser : undefined);
   };
+
+  // `internal_chats.name` é gravado UMA VEZ, na criação (ver startDirectChat),
+  // sempre como o nome de QUEM RECEBEU o convite — correto pra quem criou a
+  // sala, mas o outro participante via o PRÓPRIO nome como título da
+  // conversa (e a busca por esse nome nunca batia, já que a coluna não é o
+  // dele). Resolver o nome do outro membro na hora, aqui, corrige os dois
+  // lados de uma sala direta ao mesmo tempo — sem precisar migrar dado
+  // antigo nem duplicar a coluna por participante.
+  const getRoomDisplayName = (room: InternalGroup) =>
+    (room.type === 'direct' ? getDirectChatUser(room)?.name : null) || room.name;
+
+  const filteredRooms = rooms
+    .filter(r => {
+      const isHidden = r.hiddenBy?.includes(currentUser?.id || '');
+      const isVisible = showHidden || !isHidden;
+      const matchesSearch = normalizeString(getRoomDisplayName(r)).includes(normalizeString(searchTerm));
+      const matchesUserFilter = findChatsWithUserId ? r.memberIds.includes(findChatsWithUserId) : true;
+      return isVisible && matchesSearch && matchesUserFilter;
+    })
+    .sort((a, b) => {
+      const aPinned = a.pinnedBy?.includes(currentUser?.id || '') ? 1 : 0;
+      const bPinned = b.pinnedBy?.includes(currentUser?.id || '') ? 1 : 0;
+      if (aPinned !== bPinned) return bPinned - aPinned;
+      return new Date(b.lastMessageAt).getTime() - new Date(a.lastMessageAt).getTime();
+    });
 
   const getPresence = (userId?: string) => userId ? analystStatuses.find(s => s.userId === userId) : undefined;
 
@@ -1198,6 +1208,7 @@ export default function ChatInternalPage() {
                 
                 // For direct chats, find the other user's info
                 const otherUser = getDirectChatUser(room);
+                const displayName = room.type === 'direct' ? (otherUser?.name || room.name) : room.name;
                 const avatar = room.type === 'group' ? room.imageUrl : (otherUser?.avatarThumbUrl || otherUser?.avatarUrl || null);
                 const isPinned = room.pinnedBy?.includes(currentUser?.id || '');
                 const isMuted = room.mutedBy?.includes(currentUser?.id || '');
@@ -1224,9 +1235,9 @@ export default function ChatInternalPage() {
                         !avatar && (room.type === 'group' ? "bg-[var(--accent)]" : "bg-[var(--text-success)]")
                       )}>
                         {avatar ? (
-                          <img src={avatar} alt={room.name} className="w-full h-full object-cover" />
+                          <img src={avatar} alt={displayName} className="w-full h-full object-cover" />
                         ) : (
-                          room.type === 'group' ? <Users size={20} /> : room.name.charAt(0)
+                          room.type === 'group' ? <Users size={20} /> : displayName.charAt(0)
                         )}
                       </div>
                       {presenceIndicator && (
@@ -1239,7 +1250,7 @@ export default function ChatInternalPage() {
                     <div className="flex-1 min-w-0">
                       <div className="flex justify-between items-start mb-0.5 gap-2">
                         <div className="flex items-center gap-1.5 min-w-0 flex-1">
-                           <span className="text-sm font-black text-[var(--text-primary)] truncate">{room.name}</span>
+                           <span className="text-sm font-black text-[var(--text-primary)] truncate">{displayName}</span>
                         </div>
                         <div className="flex flex-col items-end gap-1 shrink-0">
                           <div className="flex items-center gap-1.5">
@@ -1349,7 +1360,7 @@ export default function ChatInternalPage() {
                     ) : (
                       (getDirectChatUser(selectedRoom)?.avatarThumbUrl || getDirectChatUser(selectedRoom)?.avatarUrl) ? (
                         <img src={getDirectChatUser(selectedRoom)?.avatarThumbUrl || getDirectChatUser(selectedRoom)?.avatarUrl} alt={getDirectChatUser(selectedRoom)?.name || selectedRoom.name} className="w-full h-full object-cover" />
-                      ) : selectedRoom.name.charAt(0)
+                      ) : getRoomDisplayName(selectedRoom).charAt(0)
                     )}
                   </div>
                   {selectedRoom.type === 'direct' && getPresenceIndicator(getDirectChatUser(selectedRoom)?.id) && (
@@ -1360,7 +1371,7 @@ export default function ChatInternalPage() {
                   )}
                 </div>
                 <div className="min-w-0">
-                  <h2 className="text-lg font-black text-[var(--text-primary)] tracking-tight truncate">{selectedRoom.name}</h2>
+                  <h2 className="text-lg font-black text-[var(--text-primary)] tracking-tight truncate">{getRoomDisplayName(selectedRoom)}</h2>
                   <p className="text-xs font-bold text-[var(--text-tertiary)] uppercase tracking-widest truncate">
                     {Object.keys(typingUsers).length > 0 ? (
                       <span className="text-[var(--accent-text)] normal-case flex items-center gap-1.5">

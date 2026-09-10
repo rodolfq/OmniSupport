@@ -510,7 +510,7 @@ export default function MyTicketsPage() {
               className="inline-flex items-center gap-2 bg-[var(--accent)] hover:bg-[var(--accent-hover)] text-white px-6 py-2.5 rounded-lg text-sm font-semibold shadow-md transition-all focus:outline-none focus:ring-2 focus:ring-[var(--accent)]/40"
             >
               <Plus size={18} />
-              Abrir Primeiro Chamado
+              Abrir Chamado
             </button>
           </div>
         )}

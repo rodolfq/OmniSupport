@@ -118,20 +118,27 @@ export function NewTicketModal() {
   // query não resolve, arriscando o mesmo loop de render infinito já visto
   // (e corrigido) em chat-widget.tsx.
   const users = React.useMemo(() => (profilesData || []) as User[], [profilesData]);
+  // `isAdmin` (is_admin) não é "analista de suporte" — é "Admin Cliente",
+  // marca o contato administrador de uma empresa-cliente (ver
+  // app/(portal)/customers/page.tsx). Incluí-lo aqui enfiava as ~200 contas
+  // de Cliente/Funcionário marcadas como admin da própria empresa no meio
+  // dos ~100 analistas de verdade, fazendo o time de suporte sumir na
+  // lista. "Admin" (sem acento, maiúscula) também nunca existiu como valor
+  // de role — só 'Administrador' — era código morto.
+  // Time Interno entra junto: é o mesmo trio usado em /api/users?type=analysts
+  // e no Chat Interno (role IN ('Administrador','Equipe','Time Interno')) —
+  // gente desse papel também atende chamado de cliente na prática.
   const analysts = React.useMemo(
-    () =>
-      users.filter(
-        (u) =>
-          u.role === "Equipe" ||
-          u.role === "Administrador" ||
-          u.isAdmin ||
-          (u.role as any) === "Admin",
-      ),
+    () => users.filter((u) => u.role === "Equipe" || u.role === "Administrador" || u.role === "Time Interno"),
     [users]
   );
 
   const { data: queuesData } = useQueuesQuery({ enabled: isNewTicketModalOpen });
-  const availableQueues = React.useMemo(() => (queuesData || []) as Array<{ id: string; name: string }>, [queuesData]);
+  // `any[]`: a rota (/api/config?type=queues) devolve a linha crua da tabela
+  // (member_ids em snake_case, sem mapeamento pra camelCase) — mesmo padrão
+  // de leitura usado em chat-widget.tsx/chat-management/page.tsx pra achar a
+  // fila do operador logado.
+  const availableQueues = React.useMemo(() => (queuesData || []) as any[], [queuesData]);
   const { data: requestTypesData } = useConfigRequestTypesQuery({ enabled: isNewTicketModalOpen });
   const availableRequestTypes = React.useMemo(
     () => selectableOptions((requestTypesData || []) as RequestTypeConfig[]),
@@ -247,6 +254,18 @@ export function NewTicketModal() {
       setPriority((baixa ?? availablePriorities[0]).label);
     }
   }, [isNewTicketModalOpen, priority, availablePriorities]);
+
+  // Fila padrão: a fila de que o próprio operador é membro — evita abrir
+  // chamado sem fila toda vez que quem cria já atende uma fila fixa. Só
+  // entra enquanto o campo estiver vazio (não sobrescreve escolha manual) e
+  // continua livremente editável pelo select abaixo.
+  useEffect(() => {
+    if (!isNewTicketModalOpen || isCustomer || queueId || !currentUser || availableQueues.length === 0) return;
+    const myQueue = availableQueues.find(
+      (q) => q.member_ids?.includes?.(currentUser.id) || q.memberIds?.includes?.(currentUser.id)
+    );
+    if (myQueue) setQueueId(myQueue.id);
+  }, [isNewTicketModalOpen, isCustomer, queueId, currentUser, availableQueues]);
 
   const filteredUsers = users.filter((u) => u.companyId === selectedCompanyId);
 

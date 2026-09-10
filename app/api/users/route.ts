@@ -417,7 +417,11 @@ export async function POST(request: Request) {
       let finalProfileId: string | null = accessProfileId || null;
       let finalTeamIds: string[] = internalTeamIds || [];
 
-      if (actor.role === 'Cliente') {
+      // Funcionário "Admin Cliente" (is_admin=true, ver customers/page.tsx)
+      // ganha a mesma abertura do Cliente dono da conta: cadastrar só
+      // Funcionário da própria empresa. Continua sem enxergar
+      // view_all_company_tickets/times internos, igual ao Cliente.
+      if (actor.role === 'Cliente' || (actor.role === 'Funcionário' && actor.is_admin)) {
         if (role !== 'Funcionário' || companyId !== actor.company_id) {
           return NextResponse.json(
             { error: 'Você só pode criar funcionários da sua própria empresa.' },

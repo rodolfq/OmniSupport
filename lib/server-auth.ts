@@ -32,8 +32,11 @@ export async function getCurrentActionUser() {
   // tickets internos e quais equipes a pessoa enxerga (ver
   // app/api/internal-tickets/route.ts). Buscá-lo à parte em cada rota levaria
   // a alguma esquecer, e o modo de falhar é abrir demais, não de menos.
+  // is_admin junto pelo mesmo motivo: é o que distingue o Funcionário
+  // "Admin Cliente" (ver app/(portal)/customers/page.tsx) do resto do time da
+  // empresa-cliente — decide se ele pode cadastrar outros funcionários.
   const result = await query(
-    'SELECT id, name, role, company_id, internal_team_ids FROM public.profiles WHERE id = $1',
+    'SELECT id, name, role, company_id, internal_team_ids, is_admin FROM public.profiles WHERE id = $1',
     [decoded.id]
   );
 

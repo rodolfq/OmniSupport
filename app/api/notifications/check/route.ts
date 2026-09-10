@@ -65,6 +65,11 @@ export async function GET(request: NextRequest) {
          -- (chat_survey_response, abaixo). Sem este filtro, a mesma mensagem
          -- virava também um "Nova mensagem" duplicado e confuso.
          AND s.status != 'closed'
+         -- Log de troca de marcador tem notificação própria, mais abaixo,
+         -- restrita ao responsável — sem este filtro, todo o time recebia
+         -- "nova mensagem" a cada marcador trocado (m.sender_id é sempre NULL
+         -- nesse log, e chatWhere aceita NULL pra qualquer um do time).
+         AND (m.metadata->>'systemEvent') IS DISTINCT FROM 'tags-updated'
          AND ${chatWhere}
        ORDER BY m.created_at ASC
        LIMIT 50`,
@@ -82,6 +87,40 @@ export async function GET(request: NextRequest) {
         createdAt: message.created_at
       });
     });
+
+    // Marcador de conversa trocado — ao contrário da "nova mensagem" acima,
+    // só quem é responsável pela conversa precisa saber, e só quando quem
+    // trocou não foi ele mesmo (ver actorId gravado em set-tags,
+    // app/api/chat-sessions/route.ts). Time inteiro / conversa sem
+    // responsável não gera aviso nenhum aqui — marcador é organização de
+    // quem já está com o atendimento, não um chamado à ação pro resto do
+    // time.
+    if (isTeamUser(user.role)) {
+      const tagMessages = await query(
+        `SELECT m.id, m.session_id, m.text, m.created_at
+         FROM public.chat_messages m
+         JOIN public.chat_sessions s ON s.id = m.session_id
+         WHERE m.created_at > $1
+           AND s.status != 'closed'
+           AND m.metadata->>'systemEvent' = 'tags-updated'
+           AND s.assignee_id = $2::uuid
+           AND (m.metadata->>'actorId') IS DISTINCT FROM $2::text
+         ORDER BY m.created_at ASC
+         LIMIT 50`,
+        [since, user.id]
+      );
+
+      tagMessages.rows.forEach((message) => {
+        events.push({
+          sourceId: `chat_message:${message.id}`,
+          title: 'Marcadores atualizados',
+          message: message.text,
+          type: 'chat_message',
+          targetId: message.session_id,
+          createdAt: message.created_at
+        });
+      });
+    }
 
     const relevantTicketClause = isCompanyUser(user.role)
       ? user.view_all_company_tickets

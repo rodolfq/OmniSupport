@@ -211,12 +211,12 @@ export async function POST(request: Request) {
     // Marcadores (tags) da conversa — vínculo em tempo real pelo atendente
     // =====================================================================
     if (action === 'set-tags') {
-      const { sessionId, tagIds, actingUserId } = body;
+      const { sessionId, tagIds } = body;
       if (!sessionId || !Array.isArray(tagIds)) {
         return NextResponse.json({ error: 'Dados inválidos.' }, { status: 400 });
       }
 
-      const sessionRes = await query('SELECT tags FROM public.chat_sessions WHERE id = $1', [sessionId]);
+      const sessionRes = await query('SELECT tags, assignee_id FROM public.chat_sessions WHERE id = $1', [sessionId]);
       const session = sessionRes.rows[0];
       if (!session) return NextResponse.json({ error: 'Atendimento não encontrado.' }, { status: 404 });
 
@@ -230,37 +230,42 @@ export async function POST(request: Request) {
 
       // Log de bastidor só quando o conjunto realmente muda — evita spam de
       // "atualizou os marcadores" a cada clique que já estava no estado final
-      // (ex.: dois analistas com o mesmo popover aberto).
+      // (ex.: dois analistas com o mesmo popover aberto). `actorId` no
+      // metadata (em vez de confiar num actingUserId vindo do corpo da
+      // requisição) é o que permite ao polling de notificações
+      // (app/api/notifications/check/route.ts) saber quem mexeu, pra nunca
+      // avisar o próprio autor da mudança — e o filtro por esse mesmo campo
+      // tira esta mensagem do fluxo genérico de "nova mensagem", que ia pro
+      // time inteiro sem olhar responsável nenhum.
       const added = nextTags.filter(id => !previousTags.includes(id));
       const removed = previousTags.filter(id => !nextTags.includes(id));
-      if ((added.length || removed.length) && actingUserId) {
+      if (added.length || removed.length) {
         try {
           const labelIds = [...new Set([...added, ...removed])];
           const labelsRes = await query('SELECT id, label FROM public.config_tags WHERE id = ANY($1::uuid[])', [labelIds]);
           const labelById = new Map(labelsRes.rows.map((r: any) => [r.id, r.label]));
-          const actingUserRes = await query('SELECT name FROM public.profiles WHERE id = $1', [actingUserId]);
-          const actingUserName = actingUserRes.rows[0]?.name || 'Alguém';
 
           // Símbolos (+ / −) em vez de "adicionou X ao marcador" evita ter que
           // acertar singular/plural pros dois casos possíveis ao mesmo tempo.
           const parts: string[] = [];
           if (added.length) parts.push(`+ ${added.map(id => labelById.get(id) || '?').join(', ')}`);
           if (removed.length) parts.push(`− ${removed.map(id => labelById.get(id) || '?').join(', ')}`);
-          const text = `${actingUserName} atualizou os marcadores da conversa: ${parts.join(' ')}`;
+          const text = `${actor.name} atualizou os marcadores da conversa: ${parts.join(' ')}`;
 
           const logMessageId = crypto.randomUUID();
           const logTimestamp = new Date().toISOString();
+          const logMetadata = { systemEvent: 'tags-updated', actorId: actor.id };
           await query(
             `INSERT INTO public.chat_messages (id, session_id, sender_id, sender_name, text, type, metadata, created_at)
-             VALUES ($1, $2, NULL, 'SSX Desk', $3, 'internal', '{}'::jsonb, $4)`,
-            [logMessageId, sessionId, text, logTimestamp]
+             VALUES ($1, $2, NULL, 'SSX Desk', $3, 'internal', $5::jsonb, $4)`,
+            [logMessageId, sessionId, text, logTimestamp, JSON.stringify(logMetadata)]
           );
           emitChatEvent(sessionId, {
             type: 'message',
             sessionId,
             message: {
               id: logMessageId, senderId: null, senderName: 'SSX Desk',
-              text, timestamp: logTimestamp, type: 'internal', metadata: {}, attachments: []
+              text, timestamp: logTimestamp, type: 'internal', metadata: logMetadata, attachments: []
             }
           });
         } catch (err) {

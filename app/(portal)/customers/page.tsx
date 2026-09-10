@@ -161,8 +161,13 @@ export default function CustomersPage() {
   const logoInputRef = useRef<HTMLInputElement>(null);
   const isCompanyPortalUser = [UserRole.CUSTOMER, UserRole.EMPLOYEE].includes(currentUser?.role as UserRole);
   const isCustomerAdmin = currentUser?.role === UserRole.CUSTOMER;
+  // Funcionário "Admin Cliente" (isAdmin=true — mesmo flag do selo "Admin
+  // Cliente" na lista de funcionários, ver companyEmployees abaixo) também
+  // cadastra funcionário da própria empresa, igual ao Cliente dono da conta
+  // — ver app/api/users/route.ts (action=create-full).
+  const canCreateEmployeesAsCompanyAdmin = isCustomerAdmin || (currentUser?.role === UserRole.EMPLOYEE && !!currentUser?.isAdmin);
   const canManageCompanies = hasPermission(Permission.CUSTOMERS_WRITE);
-  const canCreateEmployees = canManageCompanies || isCustomerAdmin;
+  const canCreateEmployees = canManageCompanies || canCreateEmployeesAsCompanyAdmin;
   const canEditEmployees = canManageCompanies || isCustomerAdmin;
   // Cliente/Funcionário editam a logo da PRÓPRIA empresa (a lista já vem
   // filtrada só pra ela — ver loadData), equipe interna edita a de qualquer
@@ -353,11 +358,20 @@ if (isCompanyPortalUser) {
   // que era o que espremia as duas colunas de 320px+ numa tela de ~390px e
   // vazava texto pra fora da viewport) — mesmo padrão de navegação usado no
   // Chat Interno e no WhatsApp Omni.
-  const showListMobile = !isMobileViewport || !selectedCompanyId;
-  const showDetailMobile = !isMobileViewport || !!selectedCompanyId;
+  // Cliente/Funcionário nunca têm lista pra escolher (só a própria empresa,
+  // já auto-selecionada em loadData) — sempre cai direto no detalhe, mesmo
+  // no instante antes do fetch terminar, senão a tela ficava em branco até
+  // selectedCompanyId ser setado.
+  const showListMobile = !isCompanyPortalUser && (!isMobileViewport || !selectedCompanyId);
+  const showDetailMobile = isCompanyPortalUser || !isMobileViewport || !!selectedCompanyId;
 
   return (
     <div className="flex flex-col md:flex-row gap-4 md:gap-8 h-full md:max-h-[calc(100vh-120px)] overflow-hidden">
+      {/* Cliente/Funcionário só têm a própria empresa (filteredCompanies já
+          vem com 1 item só, ver loadData acima) — a coluna de seleção não
+          serve pra nada nesse caso, só ocupa espaço e falta se hidden a
+          lista sozinha (que já era condicional só no mobile). */}
+      {!isCompanyPortalUser && (
       <div className={cn("w-full md:w-80 flex-col gap-4", showListMobile ? "flex" : "hidden md:flex")}>
         <div className="space-y-4">
           <h2 className="font-black text-xs uppercase tracking-[0.2em] text-[var(--text-tertiary)] mb-2 flex justify-between items-center">
@@ -452,12 +466,13 @@ if (isCompanyPortalUser) {
           )}
         </div>
       </div>
+      )}
 
       <div className={cn(
         "flex-1 overflow-y-auto space-y-8 pr-0 md:pr-4 scrollbar-thin scrollbar-thumb-slate-200",
         showDetailMobile ? "block" : "hidden md:block"
       )}>
-        {isMobileViewport && selectedCompany && (
+        {!isCompanyPortalUser && isMobileViewport && selectedCompany && (
           <button
             onClick={() => setSelectedCompanyId(null)}
             className="flex items-center gap-2 text-xs font-bold uppercase tracking-widest text-[var(--text-tertiary)] hover:text-[var(--accent-text)] transition-colors"
