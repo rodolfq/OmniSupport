@@ -1374,7 +1374,7 @@ ON CONFLICT (name) DO NOTHING;
 -- Seed Default Role Permissions
 INSERT INTO public.role_permissions (name, role, permissions) VALUES
   ('Administrador', 'Administrador', ARRAY[
-    'tickets:read', 'tickets:write', 'tickets:delete', 'tickets:assign',
+    'tickets:read', 'tickets:write', 'tickets:assign',
     'customers:read', 'customers:write',
     'team:read', 'team:write',
     'settings:read', 'settings:write',

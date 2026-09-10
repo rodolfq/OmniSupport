@@ -65,7 +65,6 @@ const permissionGroups = [
       { id: Permission.TICKETS_READ, label: 'Visualizar chamados', desc: 'Permite ver a lista e detalhes de chamados (/tickets) — também libera a chave "Chamados" no Dashboard Geral' },
       { id: Permission.TICKETS_WRITE, label: 'Responder/Editar chamados', desc: 'Permite enviar respostas e editar campos de um chamado' },
       { id: Permission.TICKETS_ASSIGN, label: 'Atribuir responsável', desc: 'Permite mudar o analista responsável por um chamado' },
-      { id: Permission.TICKETS_DELETE, label: 'Excluir chamados', desc: 'Permite remover chamados permanentemente' },
       { id: Permission.OUTSIDE_QUEUE_VIEW, label: 'Central de Atendimento', desc: 'Permite ver e atender a fila de chats do WhatsApp — widget flutuante e /chat-management' },
       { id: Permission.CHAT_MARK_SPAM, label: 'Marcar conversa como spam', desc: 'Permite usar "Fechar como Spam" ao encerrar um atendimento — sem enviar mensagem de encerramento/pesquisa ao cliente' },
     ]

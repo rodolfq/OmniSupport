@@ -30,7 +30,6 @@ import {
   Loader2,
   CheckSquare,
   Square,
-  Trash2,
   Users,
   RefreshCw,
   X,
@@ -51,7 +50,6 @@ import { ModernSearchBar } from "@/components/modern-search-bar";
 import { TicketDetailModal } from "@/components/ticket-detail-modal";
 import { UserAvatar } from "@/components/user-avatar";
 import { InlineAssigneePicker } from "@/components/inline-assignee-picker";
-import { ConfirmDialog } from "@/components/confirm-dialog";
 import { useApp } from "@/app/app-context";
 import {
   DndContext,
@@ -200,8 +198,6 @@ export function TicketsView({
   const [filteredTickets, setFilteredTickets] = useState<Ticket[]>([]);
   const [selectedTicket, setSelectedTicket] = useState<Ticket | null>(null);
   const [openDraft, setOpenDraft] = useState<{ text: string; attachments: Attachment[]; visibleToCustomer: boolean } | null>(null);
-  const [ticketToDelete, setTicketToDelete] = useState<Ticket | null>(null);
-  const [isDeletingTicket, setIsDeletingTicket] = useState(false);
   const [currentPage, setCurrentPage] = useState(1);
   const [totalPages, setTotalPages] = useState(1);
   const [totalCount, setTotalCount] = useState(0);
@@ -263,7 +259,6 @@ export function TicketsView({
   const users = useMemo(() => (usersLiteData || []) as any[], [usersLiteData]);
   const lastAutomaticRequestKeyRef = useRef('');
   const referenceDataUserIdRef = useRef('');
-  const canDeleteTickets = hasPermission(Permission.TICKETS_DELETE) || currentUser?.role === UserRole.ADMIN;
 
   // Trocar responsável direto na lista usa a mesma permissão da edição de
   // chamado — é a mesma escrita, só que sem abrir o registro.
@@ -492,36 +487,6 @@ export function TicketsView({
     const worst = [...items].sort((a, b) => (INTERNAL_STATUS_RANK[a.status] ?? 1) - (INTERNAL_STATUS_RANK[b.status] ?? 1))[0];
     const unread = items.some((it) => notifications.some((n) => n.targetId === it.internal_ticket_id && !n.read));
     return { count: items.length, status: worst.status, unread };
-  };
-
-  const handleDeleteTicket = async () => {
-    if (!ticketToDelete || isDeletingTicket) return;
-
-    setIsDeletingTicket(true);
-    try {
-      const res = await fetch(`/api/tickets?id=${encodeURIComponent(ticketToDelete.id)}`, {
-        method: 'DELETE'
-      });
-
-      const result = await res.json().catch(() => ({}));
-      if (!res.ok) {
-        throw new Error(result.error || 'Erro ao excluir chamado.');
-      }
-
-      toast.success('Chamado excluído com sucesso!', {
-        description: `#${ticketToDelete.ticketNumber ? String(ticketToDelete.ticketNumber).padStart(4, '0') : ticketToDelete.id.slice(0, 8)} foi removido do banco.`
-      });
-      setSelectedTickets(prev => prev.filter(id => id !== ticketToDelete.id));
-      if (selectedTicket?.id === ticketToDelete.id) {
-        setSelectedTicket(null);
-      }
-      setTicketToDelete(null);
-      await loadTickets();
-    } catch (error: any) {
-      toast.error(error.message || 'Erro ao excluir chamado.');
-    } finally {
-      setIsDeletingTicket(false);
-    }
   };
 
   // Bulk actions functions
@@ -889,7 +854,7 @@ export function TicketsView({
           <td key="status" className="px-6 py-5">
             <span
               className={cn(
-                "px-3 py-1 rounded-full text-[10px] font-semibold uppercase tracking-tighter",
+                "px-3 py-1 rounded-full text-[10px] font-semibold uppercase tracking-tighter whitespace-nowrap",
                 ticket.status === TicketStatus.NEW
                   ? "bg-[var(--surface-info)] text-[var(--text-info)]"
                   : isInProgressTicketStatus(ticket.status)
@@ -946,19 +911,6 @@ export function TicketsView({
         return (
           <td key="action" className="px-6 py-5 text-right">
             <div className="flex items-center justify-end gap-1">
-              {canDeleteTickets && (
-                <button
-                  type="button"
-                  onClick={(event) => {
-                    event.stopPropagation();
-                    setTicketToDelete(ticket);
-                  }}
-                  className="p-2 text-slate-300 hover:text-[var(--text-danger)] hover:bg-[var(--surface-danger)] rounded-xl transition-all"
-                  title="Excluir chamado"
-                >
-                  <Trash2 size={16} />
-                </button>
-              )}
               <button
                 type="button"
                 className="p-2 text-slate-300 group-hover:text-[var(--accent-text)] transition-colors"
@@ -1523,19 +1475,6 @@ export function TicketsView({
           />
         )}
       </AnimatePresence>
-
-      <ConfirmDialog
-        isOpen={!!ticketToDelete}
-        onClose={() => {
-          if (!isDeletingTicket) setTicketToDelete(null);
-        }}
-        onConfirm={handleDeleteTicket}
-        title="Excluir chamado"
-        description={`Tem certeza que deseja excluir o chamado #${ticketToDelete?.ticketNumber ? String(ticketToDelete.ticketNumber).padStart(4, '0') : ticketToDelete?.id.slice(0, 8)}? Essa ação removerá o registro do banco.`}
-        confirmLabel={isDeletingTicket ? "Excluindo..." : "Excluir"}
-        cancelLabel="Cancelar"
-        variant="danger"
-      />
 
       {/* Transfer Modal */}
       <AnimatePresence>

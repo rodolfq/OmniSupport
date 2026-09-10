@@ -25,10 +25,6 @@ async function getTicketActor(request: NextRequest) {
   return result.rows[0] || null;
 }
 
-function canDeleteTickets(actor: any) {
-  return actor?.role === 'Administrador' || (actor?.permissions || []).includes('tickets:delete');
-}
-
 /**
  * Cliente/Funcionário são usuário de empresa-cliente — só podem enxergar
  * chamado da PRÓPRIA empresa (`company_id`). Administrador/Equipe/Time
@@ -800,38 +796,5 @@ export async function PATCH(request: NextRequest) {
   } catch (error: any) {
     console.error('Error in tickets PATCH:', error);
     return NextResponse.json({ error: error.message }, { status: 500 });
-  }
-}
-
-export async function DELETE(request: NextRequest) {
-  const id = request.nextUrl.searchParams.get('id');
-
-  if (!id) {
-    return NextResponse.json({ error: 'ID do chamado é obrigatório.' }, { status: 400 });
-  }
-
-  try {
-    const actor = await getTicketActor(request);
-    if (!actor) {
-      return NextResponse.json({ error: 'Sessão inválida ou expirada.' }, { status: 401 });
-    }
-
-    if (!canDeleteTickets(actor)) {
-      return NextResponse.json({ error: 'Você não tem permissão para excluir chamados.' }, { status: 403 });
-    }
-
-    const result = await query(
-      'DELETE FROM public.tickets WHERE id = $1 RETURNING id, public_ticket_number',
-      [id]
-    );
-
-    if ((result.rowCount ?? 0) === 0) {
-      return NextResponse.json({ error: 'Chamado não encontrado.' }, { status: 404 });
-    }
-
-    return NextResponse.json({ success: true, ticket: result.rows[0] });
-  } catch (error: any) {
-    console.error('Error in tickets DELETE:', error);
-    return NextResponse.json({ error: error.message || 'Erro ao excluir chamado.' }, { status: 500 });
   }
 }

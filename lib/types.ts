@@ -18,7 +18,6 @@ export enum UserRole {
 export enum Permission {
   TICKETS_READ = 'tickets:read',
   TICKETS_WRITE = 'tickets:write',
-  TICKETS_DELETE = 'tickets:delete',
   TICKETS_ASSIGN = 'tickets:assign',
   // "Central de Atendimento": fila de chats do WhatsApp (widget + /chat-management).
   OUTSIDE_QUEUE_VIEW = 'tickets:outside_queue',
