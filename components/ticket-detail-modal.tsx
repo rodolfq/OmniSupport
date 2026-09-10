@@ -6,7 +6,7 @@ import { UserAvatar } from '@/components/user-avatar';
 import { X, User, MessageCircle, Clock, Link2, Paperclip, Save, Maximize2, Minimize2, Send, Lock, History, Download, File, Image as ImageIcon, Film, Loader2, Check, Copy, GitMerge } from 'lucide-react';
 import { motion } from 'motion/react';
 import { Ticket, TicketStatus, User as UserType, Message, UserRole, StatusConfig, Company, Attachment, PriorityConfig, CategoryConfig, RequestTypeConfig, ProductConfig, InternalTicket, Permission } from '@/lib/types';
-import { cn, stripNotificationHtml, selectableOptions } from '@/lib/utils';
+import { cn, stripNotificationHtml, selectableOptions, linkifyPlainUrls } from '@/lib/utils';
 import { useApp } from '@/app/app-context';
 import { Star } from 'lucide-react';
 import { toast } from 'sonner';
@@ -413,6 +413,20 @@ export function TicketDetailModal({ ticket, onClose, initialDraft }: TicketDetai
       }, 100);
     }
   }, [messages, historyTab]);
+
+  // Esc fecha igual ao clique fora (handleRequestClose, definido mais abaixo
+  // — a referência só é avaliada quando a tecla é apertada, depois que o
+  // componente já terminou de montar, então a ordem de declaração aqui não
+  // importa). Guard `!ticket` primeiro evita acessar handleRequestClose
+  // antes dele existir no render em que o modal está fechado (ticket nulo).
+  useEffect(() => {
+    if (!ticket) return;
+    const handleKeyDown = (event: KeyboardEvent) => {
+      if (event.key === 'Escape') handleRequestClose();
+    };
+    document.addEventListener('keydown', handleKeyDown);
+    return () => document.removeEventListener('keydown', handleKeyDown);
+  }, [ticket]);
 
   if (!ticket) return null;
 
@@ -1995,8 +2009,8 @@ const loadMessages = async () => {
                               </button>
                             </div>
                             <div
-                              className="p-3 rounded-2xl text-sm leading-relaxed shadow-sm prose prose-sm max-w-none bg-[var(--surface-warning)] border border-[var(--border-alert)] text-[var(--text-warning)] border-l-4 border-l-amber-400 prose-amber"
-                              dangerouslySetInnerHTML={{ __html: m.text }}
+                              className="p-3 rounded-2xl text-sm leading-relaxed shadow-sm prose prose-sm max-w-none break-words bg-[var(--surface-warning)] border border-[var(--border-alert)] text-[var(--text-warning)] border-l-4 border-l-amber-400 prose-amber"
+                              dangerouslySetInnerHTML={{ __html: linkifyPlainUrls(m.text) }}
                             />
                             {m.attachments && m.attachments.length > 0 && (
                               <div className="mt-3 pt-3 border-t border-[var(--border-default)]">
@@ -2162,12 +2176,12 @@ const loadMessages = async () => {
                             )}
                           </div>
 <div className={cn(
-                             "p-3 rounded-2xl text-sm leading-relaxed shadow-sm prose prose-sm max-w-none",
-                             isInternal 
-                               ? "bg-[var(--surface-warning)] border border-[var(--border-alert)] text-[var(--text-warning)] border-l-4 border-l-amber-400 prose-amber" 
+                             "p-3 rounded-2xl text-sm leading-relaxed shadow-sm prose prose-sm max-w-none break-words",
+                             isInternal
+                               ? "bg-[var(--surface-warning)] border border-[var(--border-alert)] text-[var(--text-warning)] border-l-4 border-l-amber-400 prose-amber"
                                : "bg-[var(--surface-card)] border border-[var(--border-default)] text-[var(--text-secondary)]"
                            )}
-                           dangerouslySetInnerHTML={{ __html: m.text }}
+                           dangerouslySetInnerHTML={{ __html: linkifyPlainUrls(m.text) }}
                            />
                            {/* Render attachments inline */}
                            {m.attachments && m.attachments.length > 0 && (

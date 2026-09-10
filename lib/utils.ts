@@ -131,6 +131,26 @@ export function stripNotificationHtml(value: string) {
     .trim();
 }
 
+// Vira link clicável qualquer URL solta no meio de HTML (usado antes de
+// dangerouslySetInnerHTML) — necessário pra conteúdo que não passou pelo
+// RichEditor (que já converte link digitado em <a> de verdade), como as
+// notas internas importadas em lote (ver scripts de migração do Bitrix/Odoo).
+// Separa por <a>...</a> já existente pra nunca aninhar link dentro de link.
+// Corta a URL em ] [ < > " ' de propósito: sobra de BBCode de export antigo
+// (ex.: "https://...]https://...[/URL]") vira dois links limpos em vez de um
+// só gigante que engole o `]`/`[/URL]` junto.
+export function linkifyPlainUrls(html: string) {
+  const urlPattern = /https?:\/\/[^\s<>"'\[\]]+/g;
+  return html
+    .split(/(<a\b[^>]*>[\s\S]*?<\/a>)/gi)
+    .map(part => (
+      /^<a\b/i.test(part)
+        ? part
+        : part.replace(urlPattern, url => `<a href="${url}" target="_blank" rel="noopener noreferrer" class="text-[var(--accent-text)] underline break-all">${url}</a>`)
+    ))
+    .join('');
+}
+
 export function safeJsonStringify(obj: any) {
   const cache = new Set();
   try {
