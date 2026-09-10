@@ -1638,12 +1638,17 @@ useEffect(() => {
         // Avisa o cliente, dentro da própria conversa, que um chamado foi
         // aberto — sempre registrado no chat (visível pro cliente logado ou
         // via WhatsApp) e, adicionalmente, encaminhado pelo WhatsApp quando
-        // há telefone.
+        // há telefone. O link vai junto porque quem está no WhatsApp não tem
+        // a tela do chamado aberta como quem está logado no portal — mesmo
+        // padrão de /tickets/<número> usado no e-mail de resposta (ver
+        // ticket-detail-modal.tsx) e nas automações (automation-service.ts).
+        const ticketNoticeBaseUrl = process.env.NEXT_PUBLIC_APP_URL || window.location.origin;
+        const ticketNoticeUrl = `${ticketNoticeBaseUrl}/tickets/${createdTicketNumber}`;
         const ticketNoticeMessage: ChatMessage = {
           id: crypto.randomUUID(),
           senderId: currentUser.id,
           senderName: 'SSX Desk',
-          text: `📄 Novo chamado gerado #${String(createdTicketNumber).padStart(4, '0')}`,
+          text: `📄 Novo chamado gerado #${String(createdTicketNumber).padStart(4, '0')}\n\nAcompanhe o andamento do seu chamado pelo link abaixo:\n${ticketNoticeUrl}`,
           timestamp: new Date().toISOString(),
           type: 'system'
         };
