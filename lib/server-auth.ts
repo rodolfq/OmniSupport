@@ -1,6 +1,7 @@
 import { cookies } from 'next/headers';
 import { query } from './db';
 import { verifyJWT } from './jwt';
+import { Permission } from './types';
 
 /**
  * Autorização do lado servidor, compartilhada por rotas de API e Server Actions.
@@ -100,6 +101,22 @@ export async function assertUserManageable(
       return { ok: false, error: 'Você só pode gerenciar funcionários da sua própria empresa.' };
     }
     return { ok: true, target };
+  }
+
+  // Equipe/Time Interno com "Gerenciar clientes" (customers:write) administra
+  // Cliente/Funcionário de QUALQUER empresa — mesma permissão que já libera o
+  // botão "Editar" em app/(portal)/customers/page.tsx (canEditEmployees) e o
+  // ramo de CUSTOMERS_WRITE em action=create-full, logo acima em
+  // app/api/users/route.ts. Sem este ramo, editar um Funcionário caía sempre
+  // no fallback de "admin de equipe interna" abaixo — que não tem nada a ver
+  // com "Gerenciar clientes" — e barrava com "Você não tem permissão para
+  // gerenciar este usuário" mesmo com a permissão concedida.
+  if (['Cliente', 'Funcionário'].includes(target.role)) {
+    const effectivePermissions = await getActorEffectivePermissions(actor.id);
+    if (effectivePermissions.includes(Permission.CUSTOMERS_WRITE)) {
+      return { ok: true, target };
+    }
+    return { ok: false, error: 'Você não tem permissão para gerenciar este usuário.' };
   }
 
   if (target.role === 'Administrador') {
