@@ -504,8 +504,11 @@ if (isCompanyPortalUser) {
                 </p>
               </div>
             )}
-            <div className={cn("p-5 sm:p-8 flex flex-col sm:flex-row sm:justify-between sm:items-start gap-5", selectedCompany.isActive === false && "opacity-70")}>
-              <div className="flex items-center gap-4 sm:gap-6 min-w-0">
+            <div className={cn("p-5 sm:p-8 flex flex-col gap-6", selectedCompany.isActive === false && "opacity-70")}>
+              {/* Nome da empresa em linha própria, sem disputar espaço com os
+                  botões — antes, com 4 ações ao lado, o nome ficava espremido
+                  e truncava mesmo em telas largas. */}
+              <div className="flex items-center gap-4 sm:gap-5 min-w-0">
                 <div
                   className={cn(
                     "w-20 h-20 rounded-2xl flex items-center justify-center relative group/logo overflow-hidden shrink-0",
@@ -556,15 +559,18 @@ if (isCompanyPortalUser) {
                     className="hidden"
                   />
                 )}
-                <div className="min-w-0">
+                <div className="min-w-0 flex-1">
                   <h1 className={cn(
-                    "text-2xl sm:text-3xl font-black tracking-tight truncate",
+                    "text-xl sm:text-2xl font-black tracking-tight leading-tight break-words",
                     selectedCompany.isActive === false ? "text-[var(--text-tertiary)]" : "text-[var(--text-primary)]"
                   )}>{selectedCompany.name}</h1>
                   {/* Setor removido do cabeçalho a pedido: continua no cadastro
                       (Editar Empresa) e no card da lista lateral. */}
                 </div>
               </div>
+
+              {/* Ações em linha própria, com o mesmo espaçamento (gap-2) entre
+                  todos os botões, da esquerda pra direita. */}
               <div className="flex flex-wrap items-center gap-2">
                 <Link
                   href={`/customers/${selectedCompany.id}`}
@@ -586,9 +592,10 @@ if (isCompanyPortalUser) {
                   <button
                     onClick={() => setIsPyvonConversationModalOpen(true)}
                     title="Iniciar conversa por WhatsApp com o Decisor"
-                    className="flex items-center gap-2 bg-[var(--surface-success)] text-[var(--text-success)] px-4 py-2.5 rounded-lg text-sm font-bold hover:opacity-80 transition-all"
+                    aria-label="Iniciar conversa por WhatsApp com o Decisor"
+                    className="flex items-center justify-center w-10 h-10 bg-[var(--surface-success)] text-[var(--text-success)] rounded-lg hover:opacity-80 transition-all"
                   >
-                    <MessageCircle size={16} /> Iniciar Conversa
+                    <MessageCircle size={18} />
                   </button>
                 )}
                 {/* Desativar/Reativar mora só dentro de "Editar Empresa" (ver
@@ -598,9 +605,11 @@ if (isCompanyPortalUser) {
                 {canCreateEmployees && (
                   <button
                     onClick={() => setIsEmployeeModalOpen(true)}
-                    className="flex items-center gap-2 bg-[var(--accent)] text-white px-6 py-2.5 rounded-lg text-sm font-bold shadow-md hover:bg-[var(--accent-hover)] transition-all"
+                    title="Novo Funcionário"
+                    aria-label="Novo Funcionário"
+                    className="flex items-center justify-center w-10 h-10 bg-[var(--accent)] text-white rounded-lg shadow-md hover:bg-[var(--accent-hover)] transition-all"
                   >
-                    <UserPlus size={16} /> Novo Funcionário
+                    <UserPlus size={18} />
                   </button>
                 )}
               </div>
