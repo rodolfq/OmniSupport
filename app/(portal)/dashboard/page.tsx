@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useState, useEffect, useMemo } from 'react';
+import React, { useState, useEffect, useMemo, useRef } from 'react';
 import { Ticket as TicketType, TicketStatus, UserRole, TicketPriority, Permission, InternalTicket } from '@/lib/types';
 import { fetchAllTickets } from '@/lib/tickets';
 import { isClosedTicketStatus, isInProgressTicketStatus } from '@/lib/ticket-status';
@@ -10,13 +10,12 @@ import { useProfilesLiteQuery } from '@/lib/query-hooks';
 import { UserAvatar } from '@/components/user-avatar';
 import { findStatusColor } from '@/lib/status-colors';
 import { useApp } from '@/app/app-context';
-import { Plus, Clock, AlertCircle, User, Lock, Ticket as TicketIcon, FolderKanban, Users } from 'lucide-react';
+import { Plus, Clock, AlertCircle, User, Lock, Ticket as TicketIcon, FolderKanban, Users, LayoutGrid, List as ListIcon, Settings2, Eye, EyeOff, ChevronUp, ChevronDown } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import { cn } from '@/lib/utils';
 import { TicketDetailModal } from '@/components/ticket-detail-modal';
 import { FilterBar } from '@/components/filter-bar';
 import { useSearchParams, useRouter } from 'next/navigation';
-import { useIsMobile } from '@/hooks/use-mobile';
 
 interface InternalTicketItem extends InternalTicket {
   uuid: string;
@@ -36,6 +35,26 @@ interface InternalStatusMeta {
   accent: string;
 }
 
+// Mesmos valores de app/api/dashboard-prefs/route.ts (DashboardListSort) —
+// não importado direto por ser client component; manter os dois em sincronia.
+type DashboardListSort = 'urgency' | 'created_desc' | 'created_asc' | 'priority' | 'number' | 'title';
+
+interface KanbanPrefsState {
+  order: string[];
+  hidden: string[];
+  view: 'kanban' | 'list';
+  sortBy: DashboardListSort;
+}
+
+const LIST_SORT_OPTIONS: { value: DashboardListSort; label: string }[] = [
+  { value: 'urgency', label: 'Urgência' },
+  { value: 'created_desc', label: 'Mais recentes' },
+  { value: 'created_asc', label: 'Mais antigos' },
+  { value: 'priority', label: 'Prioridade' },
+  { value: 'number', label: 'Número do chamado' },
+  { value: 'title', label: 'Título (A-Z)' }
+];
+
 export default function DashboardPage() {
   const router = useRouter();
   const [allTickets, setAllTickets] = useState<TicketType[]>([]);
@@ -43,7 +62,6 @@ export default function DashboardPage() {
   const [loading, setLoading] = useState(true);
   const { currentUser, setIsNewTicketModalOpen, refreshTrigger, hasPermission } = useApp();
   const searchParams = useSearchParams();
-  const isMobileViewport = useIsMobile();
 
   const [priorities, setPriorities] = useState<any[]>([]);
   const [statuses, setStatuses] = useState<any[]>([]);
@@ -53,6 +71,66 @@ export default function DashboardPage() {
   const { data: usersLiteData } = useProfilesLiteQuery();
   const users = useMemo(() => usersLiteData || [], [usersLiteData]);
   const [selectedTicket, setSelectedTicket] = useState<TicketType | null>(null);
+
+  // Organizar/ocultar colunas e alternar kanban/lista no board de chamados —
+  // preferência pessoal, vinculada ao usuário (não ao navegador), ver
+  // app/api/dashboard-prefs/route.ts e profiles.dashboard_kanban_prefs.
+  const [kanbanPrefs, setKanbanPrefs] = useState<KanbanPrefsState>({ order: [], hidden: [], view: 'kanban', sortBy: 'urgency' });
+  const [showColumnSettings, setShowColumnSettings] = useState(false);
+  const columnSettingsRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    let active = true;
+    async function loadKanbanPrefs() {
+      try {
+        const res = await fetch('/api/dashboard-prefs');
+        if (!active || !res.ok) return;
+        const data = await res.json().catch(() => null);
+        const p = data?.prefs || {};
+        setKanbanPrefs({
+          order: Array.isArray(p.order) ? p.order : [],
+          hidden: Array.isArray(p.hidden) ? p.hidden : [],
+          view: p.view === 'list' ? 'list' : 'kanban',
+          sortBy: LIST_SORT_OPTIONS.some(o => o.value === p.sortBy) ? p.sortBy : 'urgency'
+        });
+      } catch {
+        // Sem preferência salva (ou falha de rede): fica no padrão — todas as
+        // colunas visíveis, ordem do cadastro, kanban, ordenado por urgência.
+      }
+    }
+    loadKanbanPrefs();
+    return () => { active = false; };
+  }, []);
+
+  // Sempre otimista: atualiza a tela na hora e só então grava — o board não
+  // deve travar esperando o servidor confirmar um clique de reordenar/ocultar.
+  const persistKanbanPrefs = (next: Partial<KanbanPrefsState>) => {
+    setKanbanPrefs(prev => {
+      const merged = { ...prev, ...next };
+      fetch('/api/dashboard-prefs', {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(merged)
+      }).catch(err => console.error('Erro ao salvar preferências do dashboard:', err));
+      return merged;
+    });
+  };
+
+  useEffect(() => {
+    if (!showColumnSettings) return;
+    const handleClickOutside = (event: MouseEvent) => {
+      if (columnSettingsRef.current && !columnSettingsRef.current.contains(event.target as Node)) setShowColumnSettings(false);
+    };
+    const handleEsc = (event: KeyboardEvent) => {
+      if (event.key === 'Escape') setShowColumnSettings(false);
+    };
+    document.addEventListener('mousedown', handleClickOutside);
+    document.addEventListener('keydown', handleEsc);
+    return () => {
+      document.removeEventListener('mousedown', handleClickOutside);
+      document.removeEventListener('keydown', handleEsc);
+    };
+  }, [showColumnSettings]);
 
   // Chave Chamados / Tickets Internos — cada lado só aparece pra quem tem a
   // permissão correspondente (Chamados = tickets:read, Tickets Internos =
@@ -204,14 +282,108 @@ export default function DashboardPage() {
     return () => controller.abort();
   }, [searchParams, currentUser?.id, currentUser?.role, refreshTrigger, router, canSeeTickets]);
 
-  const columns = useMemo(() => statuses
-    .filter(s => !isClosedTicketStatus(s.label))
+  // Só status de topo viram coluna — sub-status (config_statuses.parent_status_id
+  // preenchido) mora dentro do status pai (tickets.sub_status), nunca é um
+  // valor próprio de tickets.status. Sem este filtro, cada sub-status virava
+  // uma coluna extra que nunca recebia chamado nenhum (a comparação
+  // t.status === label do sub-status nunca bate).
+  const baseColumns = useMemo(() => statuses
+    .filter(s => !s.parentStatusId && !isClosedTicketStatus(s.label))
     .map(s => ({
       title: s.label,
       status: s.label
     })), [statuses]);
 
-  // ... (rest of component remains same)
+  // Aplica a ordem salva (kanbanPrefs.order): quem já está na lista respeita
+  // essa posição, e status novo no cadastro desde a última vez que o usuário
+  // organizou entra no fim, na ordem do cadastro — nunca some da tela.
+  const orderedAllColumns = useMemo(() => {
+    if (kanbanPrefs.order.length === 0) return baseColumns;
+    const remaining = new Map(baseColumns.map(c => [c.status, c]));
+    const ordered: typeof baseColumns = [];
+    kanbanPrefs.order.forEach(status => {
+      const col = remaining.get(status);
+      if (col) { ordered.push(col); remaining.delete(status); }
+    });
+    baseColumns.forEach(col => { if (remaining.has(col.status)) ordered.push(col); });
+    return ordered;
+  }, [baseColumns, kanbanPrefs.order]);
+
+  const columns = useMemo(
+    () => orderedAllColumns.filter(c => !kanbanPrefs.hidden.includes(c.status)),
+    [orderedAllColumns, kanbanPrefs.hidden]
+  );
+
+  const moveColumn = (status: string, direction: -1 | 1) => {
+    const order = orderedAllColumns.map(c => c.status);
+    const idx = order.indexOf(status);
+    const swapWith = idx + direction;
+    if (idx < 0 || swapWith < 0 || swapWith >= order.length) return;
+    [order[idx], order[swapWith]] = [order[swapWith], order[idx]];
+    persistKanbanPrefs({ order });
+  };
+
+  const toggleColumnHidden = (status: string) => {
+    const hidden = kanbanPrefs.hidden.includes(status)
+      ? kanbanPrefs.hidden.filter(s => s !== status)
+      : [...kanbanPrefs.hidden, status];
+    persistKanbanPrefs({ hidden });
+  };
+
+  const resetColumnPrefs = () => persistKanbanPrefs({ order: [], hidden: [] });
+
+  // Cor configurada de cada status (Configurações > Status) — o kanban não
+  // precisa (a coluna já diz o status no título), mas a lista sim, já que
+  // ali os chamados de status diferentes ficam misturados na mesma lista.
+  const statusColorMap = useMemo(() => {
+    const map = new Map<string, ReturnType<typeof findStatusColor>>();
+    statuses.forEach(s => map.set(s.label, findStatusColor(s.color)));
+    return map;
+  }, [statuses]);
+
+  // Lista única (sem dividir por coluna). O badge de vencido/perto de vencer
+  // (isOverdue/isNear) é sempre calculado, mesmo critério dos cards do
+  // Kanban — só a ORDEM muda conforme kanbanPrefs.sortBy.
+  const listTickets = useMemo(() => {
+    if (kanbanPrefs.view !== 'list') return [];
+    const visibleStatuses = new Set(columns.map(c => c.status));
+    const now = new Date();
+    const withUrgency = filteredTickets
+      .filter(t => visibleStatuses.has(t.status))
+      .map(t => {
+        const config = priorities.find(p => p.label === t.priority);
+        const slaLimit = config?.sla_hours ? addBusinessHours(t.createdAt, config.sla_hours) : null;
+        const isOverdue = !!slaLimit && slaLimit < now;
+        const isNear = !!slaLimit && !isOverdue && (slaLimit.getTime() - now.getTime() < 4 * 60 * 60 * 1000);
+        const tier = isOverdue ? 0 : isNear ? 1 : 2;
+        // sla_hours do config da prioridade: quanto menor, mais urgente —
+        // usado só pra ordenar por "Prioridade" sem travar em 4 rótulos
+        // fixos (a lista de prioridades é configurável, ver config_priorities).
+        const priorityRank = config?.sla_hours ?? Number.MAX_SAFE_INTEGER;
+        return { ticket: t, isOverdue, isNear, tier, slaLimit, priorityRank };
+      });
+
+    withUrgency.sort((a, b) => {
+      switch (kanbanPrefs.sortBy) {
+        case 'created_desc':
+          return new Date(b.ticket.createdAt).getTime() - new Date(a.ticket.createdAt).getTime();
+        case 'created_asc':
+          return new Date(a.ticket.createdAt).getTime() - new Date(b.ticket.createdAt).getTime();
+        case 'priority':
+          return a.priorityRank - b.priorityRank;
+        case 'number':
+          return (b.ticket.ticketNumber || 0) - (a.ticket.ticketNumber || 0);
+        case 'title':
+          return a.ticket.title.localeCompare(b.ticket.title, 'pt-BR');
+        case 'urgency':
+        default:
+          if (a.tier !== b.tier) return a.tier - b.tier;
+          if (a.tier < 2) return (a.slaLimit?.getTime() || 0) - (b.slaLimit?.getTime() || 0);
+          return new Date(b.ticket.createdAt).getTime() - new Date(a.ticket.createdAt).getTime();
+      }
+    });
+    return withUrgency;
+  }, [kanbanPrefs.view, kanbanPrefs.sortBy, columns, filteredTickets, priorities]);
 
   const stats = useMemo(() => {
     const total = filteredTickets.length;
@@ -245,7 +417,9 @@ export default function DashboardPage() {
 
   const groupedTickets = useMemo(() => {
     const groups: { [key: string]: TicketType[] } = {};
-    statuses.forEach(s => {
+    // Mesmo filtro de baseColumns: sub-status nunca aparece em tickets.status,
+    // agrupar por ele só criaria uma entrada vazia.
+    statuses.filter(s => !s.parentStatusId).forEach(s => {
       groups[s.label] = filteredTickets.filter(t => t.status === s.label);
     });
     return groups;
@@ -439,47 +613,186 @@ export default function DashboardPage() {
         </div>
       )}
 
-      <div className={cn(
-        "grid gap-6 flex-1 min-h-[600px] pb-4",
-        !isMobileViewport && "overflow-x-auto scrollbar-thin",
-        columns.length <= 4 ? "md:grid-cols-4" : "md:grid-cols-5"
-      )} style={isMobileViewport ? undefined : { minWidth: columns.length * 280 }}>
-        {columns.map(col => {
-          const colTickets = groupedTickets[col.status] || [];
-          const displayTickets = colTickets.slice(0, 20); // Only render first 20 for performance
-          const hasMore = colTickets.length > 20;
+      {/* Barra de ferramentas do board: alterna Kanban/Lista e abre o
+          organizador de colunas (ordem + ocultar), preferência salva por
+          usuário (ver app/api/dashboard-prefs). */}
+      <div className="flex items-center justify-between gap-3">
+        <div className="flex items-center gap-1 p-1 bg-[var(--surface-pill)] rounded-xl border border-[var(--border-default)]">
+          <button
+            onClick={() => persistKanbanPrefs({ view: 'kanban' })}
+            className={cn(
+              "px-3 py-1.5 rounded-lg text-[10px] font-semibold uppercase tracking-widest transition-all flex items-center gap-1.5",
+              kanbanPrefs.view !== 'list' ? "bg-[var(--surface-card)] text-[var(--text-primary)] shadow-sm" : "text-[var(--text-tertiary)] hover:text-[var(--text-secondary)]"
+            )}
+          >
+            <LayoutGrid size={13} /> Kanban
+          </button>
+          <button
+            onClick={() => persistKanbanPrefs({ view: 'list' })}
+            className={cn(
+              "px-3 py-1.5 rounded-lg text-[10px] font-semibold uppercase tracking-widest transition-all flex items-center gap-1.5",
+              kanbanPrefs.view === 'list' ? "bg-[var(--surface-card)] text-[var(--text-primary)] shadow-sm" : "text-[var(--text-tertiary)] hover:text-[var(--text-secondary)]"
+            )}
+          >
+            <ListIcon size={13} /> Lista
+          </button>
+        </div>
 
-          return (
-            <div key={col.status} className="flex flex-col gap-4 md:min-w-[280px]">
-              <div className="flex items-center justify-between px-2">
-                <h3 className="text-[10px] font-semibold uppercase tracking-[0.2em] text-[var(--text-tertiary)]">{col.title}</h3>
-                <span className="bg-[var(--border-default)] text-[var(--text-secondary)] text-[10px] font-bold px-2 py-0.5 rounded-full">
-                  {colTickets.length}
-                </span>
+        {kanbanPrefs.view === 'list' && (
+          <div className="flex items-center gap-2">
+            <label htmlFor="dashboard-list-sort" className="text-[10px] font-semibold uppercase tracking-widest text-[var(--text-tertiary)]">Ordenar por</label>
+            <select
+              id="dashboard-list-sort"
+              value={kanbanPrefs.sortBy}
+              onChange={(e) => persistKanbanPrefs({ sortBy: e.target.value as DashboardListSort })}
+              className="text-xs font-semibold bg-[var(--surface-pill)] border border-[var(--border-default)] rounded-lg px-2.5 py-2 text-[var(--text-secondary)] focus:outline-none focus:ring-2 focus:ring-[var(--accent)]/20 focus:border-[var(--accent)] transition-all"
+            >
+              {LIST_SORT_OPTIONS.map(opt => (
+                <option key={opt.value} value={opt.value}>{opt.label}</option>
+              ))}
+            </select>
+          </div>
+        )}
+
+        {kanbanPrefs.view !== 'list' && (
+          <div className="relative" ref={columnSettingsRef}>
+            <button
+              onClick={() => setShowColumnSettings(v => !v)}
+              className="flex items-center gap-1.5 px-3 py-2 rounded-lg text-[10px] font-semibold uppercase tracking-widest text-[var(--text-tertiary)] hover:text-[var(--text-secondary)] hover:bg-[var(--surface-pill)] transition-all"
+            >
+              <Settings2 size={13} /> Colunas
+            </button>
+            {showColumnSettings && (
+              <div className="absolute right-0 top-full mt-2 w-64 bg-[var(--surface-card)] border border-[var(--border-default)] rounded-2xl shadow-xl p-3 z-20">
+                <div className="flex items-center justify-between px-1 pb-2">
+                  <span className="text-[10px] font-bold uppercase tracking-widest text-[var(--text-tertiary)]">Organizar colunas</span>
+                  <button onClick={resetColumnPrefs} className="text-[10px] font-semibold text-[var(--accent-text)] hover:underline">Restaurar</button>
+                </div>
+                <div className="space-y-0.5 max-h-[280px] overflow-y-auto scrollbar-thin">
+                  {orderedAllColumns.map((col, idx) => {
+                    const isHidden = kanbanPrefs.hidden.includes(col.status);
+                    return (
+                      <div key={col.status} className={cn("flex items-center gap-1.5 px-2 py-1.5 rounded-lg", isHidden ? "opacity-50" : "hover:bg-[var(--surface-pill)]")}>
+                        <div className="flex flex-col -my-1 shrink-0">
+                          <button
+                            disabled={idx === 0}
+                            onClick={() => moveColumn(col.status, -1)}
+                            title="Mover pra cima"
+                            className="text-[var(--text-tertiary)] hover:text-[var(--text-secondary)] disabled:opacity-20 disabled:pointer-events-none"
+                          >
+                            <ChevronUp size={12} />
+                          </button>
+                          <button
+                            disabled={idx === orderedAllColumns.length - 1}
+                            onClick={() => moveColumn(col.status, 1)}
+                            title="Mover pra baixo"
+                            className="text-[var(--text-tertiary)] hover:text-[var(--text-secondary)] disabled:opacity-20 disabled:pointer-events-none"
+                          >
+                            <ChevronDown size={12} />
+                          </button>
+                        </div>
+                        <span className="flex-1 min-w-0 truncate text-xs font-semibold text-[var(--text-secondary)]">{col.title}</span>
+                        <button
+                          onClick={() => toggleColumnHidden(col.status)}
+                          title={isHidden ? 'Mostrar coluna' : 'Ocultar coluna'}
+                          className="shrink-0 text-[var(--text-tertiary)] hover:text-[var(--text-secondary)]"
+                        >
+                          {isHidden ? <EyeOff size={14} /> : <Eye size={14} />}
+                        </button>
+                      </div>
+                    );
+                  })}
+                </div>
               </div>
-              <div className="flex-1 bg-[var(--surface-pill)]/50 rounded-2xl p-4 space-y-4 border border-dashed border-[var(--border-default)]">
-                {displayTickets.map(ticket => (
-                  <TicketCard
-                    key={ticket.id}
-                    ticket={ticket}
-                    availablePriorities={priorities}
-                    users={users}
-                    onClick={() => setSelectedTicket(ticket)}
-                  />
-                ))}
-                {hasMore && (
-                  <button
-                    onClick={() => router.push(`/tickets?status=${col.status}`)}
-                    className="w-full py-3 text-[10px] font-semibold uppercase tracking-widest text-[var(--text-tertiary)] hover:text-[var(--accent-text)] transition-colors bg-[var(--surface-card)]/50 rounded-xl border border-dashed border-[var(--border-default)]"
-                  >
-                    Ver mais {colTickets.length - 20} chamados
-                  </button>
-                )}
-              </div>
-            </div>
-          );
-        })}
+            )}
+          </div>
+        )}
       </div>
+
+      {kanbanPrefs.view === 'list' ? (
+        <div className="bg-[var(--surface-pill)]/50 rounded-2xl border border-dashed border-[var(--border-default)] divide-y divide-[var(--border-default)] overflow-hidden">
+          {listTickets.length === 0 ? (
+            <p className="text-center text-[11px] font-semibold text-[var(--text-tertiary)] py-8">Nenhum chamado</p>
+          ) : (
+            listTickets.slice(0, 50).map(({ ticket, isOverdue, isNear }) => (
+              <ListTicketRow
+                key={ticket.id}
+                ticket={ticket}
+                statusColor={statusColorMap.get(ticket.status) || findStatusColor(undefined)}
+                isOverdue={isOverdue}
+                isNear={isNear}
+                priorities={priorities}
+                users={users}
+                onClick={() => setSelectedTicket(ticket)}
+              />
+            ))
+          )}
+          {listTickets.length > 50 && (
+            <button
+              onClick={() => router.push('/tickets')}
+              className="w-full py-3 text-[10px] font-semibold uppercase tracking-widest text-[var(--text-tertiary)] hover:text-[var(--accent-text)] transition-colors bg-[var(--surface-card)]/50"
+            >
+              Ver mais {listTickets.length - 50} chamados
+            </button>
+          )}
+        </div>
+      ) : (
+        /* Kanban estilo Bitrix: uma fileira só, colunas de largura fixa e
+           estreita, scroll horizontal único (nunca quebra linha). O CSS Grid
+           que existia antes (md:grid-cols-4/5) entrava em conflito com o
+           minWidth forçado pra caber todas as colunas — com mais colunas do
+           que o número de tracks do grid, ele quebrava pra uma 2ª linha e
+           esticava a largura de cada coluna de forma inconsistente. Flex
+           resolve porque cada coluna tem largura própria e o container só
+           rola, nunca quebra. */
+        <div className="flex flex-col gap-6 md:flex-row md:items-start md:gap-4 md:overflow-x-auto md:scrollbar-thin md:pb-4">
+          {columns.map(col => {
+            const colTickets = groupedTickets[col.status] || [];
+            const displayTickets = colTickets.slice(0, 20); // Only render first 20 for performance
+            const hasMore = colTickets.length > 20;
+
+            return (
+              <div key={col.status} className="flex flex-col gap-3 md:w-[248px] md:shrink-0">
+                <div className="flex items-center justify-between px-1">
+                  <h3 className="text-[10px] font-semibold uppercase tracking-[0.2em] text-[var(--text-tertiary)]">{col.title}</h3>
+                  <span className="bg-[var(--border-default)] text-[var(--text-secondary)] text-[10px] font-bold px-2 py-0.5 rounded-full">
+                    {colTickets.length}
+                  </span>
+                </div>
+                {/* Altura fixa por coluna (md+) em vez de crescer com a
+                    quantidade de chamados — clamp() acompanha a tela do
+                    usuário (nunca menor que 280px nem maior que 640px) sem
+                    precisar recalcular via JS. Rola por dentro (scrollbar já
+                    fina/minimalista por padrão, ver app/globals.css) — no
+                    mobile continua no tamanho do conteúdo, empilhado com o
+                    resto da página. */}
+                <div className="bg-[var(--surface-pill)]/50 rounded-2xl p-3 space-y-3 border border-dashed border-[var(--border-default)] md:h-[clamp(280px,calc(100vh_-_460px),640px)] md:overflow-y-auto">
+                  {displayTickets.map(ticket => (
+                    <TicketCard
+                      key={ticket.id}
+                      ticket={ticket}
+                      availablePriorities={priorities}
+                      users={users}
+                      onClick={() => setSelectedTicket(ticket)}
+                    />
+                  ))}
+                  {hasMore && (
+                    <button
+                      onClick={() => router.push(`/tickets?status=${col.status}`)}
+                      className="w-full py-3 text-[10px] font-semibold uppercase tracking-widest text-[var(--text-tertiary)] hover:text-[var(--accent-text)] transition-colors bg-[var(--surface-card)]/50 rounded-xl border border-dashed border-[var(--border-default)]"
+                    >
+                      Ver mais {colTickets.length - 20} chamados
+                    </button>
+                  )}
+                  {colTickets.length === 0 && (
+                    <p className="text-center text-[11px] font-semibold text-[var(--text-tertiary)] py-6">Nenhum chamado</p>
+                  )}
+                </div>
+              </div>
+            );
+          })}
+        </div>
+      )}
       </>
       ) : canSeeInternal ? (
         <InternalDashboard tickets={internalTickets} loading={loadingInternal} router={router} statuses={internalStatuses} />
@@ -905,6 +1218,68 @@ function StatCard({ label, value, color, textColor, icon, highlight, pulse }: {
         <div className="opacity-50">{icon}</div>
       </div>
       <p className={cn("text-3xl font-bold", textColor || "text-[var(--text-primary)]")}>{value}</p>
+    </div>
+  );
+}
+
+// Linha compacta do modo "Lista" — mesma informação do TicketCard (status,
+// prioridade, número, título, responsável, SLA), só que numa linha em vez de
+// cartão, já que aqui os chamados de status diferentes ficam misturados.
+function ListTicketRow({ ticket, statusColor, isOverdue, isNear, priorities, users, onClick }: {
+  ticket: TicketType;
+  statusColor: { dot: string };
+  isOverdue: boolean;
+  isNear: boolean;
+  priorities: any[];
+  users: any[];
+  onClick: () => void;
+}) {
+  const priorityConfig = priorities.find(p => p.label === ticket.priority);
+  const assignee = ticket.assigneeId ? users.find(u => u.id === ticket.assigneeId) : null;
+
+  return (
+    <div
+      onClick={onClick}
+      className="flex items-center gap-3 px-4 py-3 cursor-pointer hover:bg-[var(--surface-card)] transition-colors"
+    >
+      <div className={cn("w-1.5 h-1.5 rounded-full shrink-0", statusColor.dot)} title={ticket.status} />
+      <span className={cn(
+        "shrink-0 hidden sm:inline-block text-[9px] font-semibold px-2 py-0.5 rounded uppercase tracking-tighter",
+        priorityConfig?.color || 'bg-[var(--surface-pill)] text-[var(--text-secondary)]'
+      )}>
+        {ticket.priority}
+      </span>
+      <span className="shrink-0 text-[10px] font-bold text-[var(--text-tertiary)] uppercase tracking-wider">
+        #{ticket.ticketNumber ? String(ticket.ticketNumber).padStart(4, '0') : ticket.id.slice(0, 8)}
+      </span>
+      <h3 className="flex-1 min-w-0 truncate text-xs font-semibold text-[var(--text-primary)]">{ticket.title}</h3>
+      {(isOverdue || isNear) && (
+        <span className={cn(
+          "shrink-0 text-[8px] font-semibold px-2 py-0.5 rounded uppercase tracking-tighter text-white",
+          isOverdue ? "bg-[var(--text-danger)]" : "bg-orange-500 dark:bg-orange-500"
+        )}>
+          {isOverdue ? 'Vencido' : 'Expira logo'}
+        </span>
+      )}
+      <div className="shrink-0 hidden sm:flex items-center gap-1.5 w-[110px] justify-end">
+        {assignee ? (
+          <>
+            <UserAvatar
+              name={assignee.name}
+              thumbUrl={(assignee as any).avatarThumbUrl}
+              size={16}
+              rounded="rounded"
+              fallbackClassName="bg-[var(--accent)]/15 text-[var(--accent-text)]"
+            />
+            <span className="text-[9px] text-[var(--text-tertiary)] font-semibold truncate">{assignee.name.split(' ')[0]}</span>
+          </>
+        ) : (
+          <span className="text-[9px] text-[var(--text-warning-strong)] font-semibold uppercase tracking-tighter">Sem analista</span>
+        )}
+      </div>
+      <span className="shrink-0 hidden md:inline text-[9px] text-[var(--text-tertiary)] font-medium w-[70px] text-right">
+        {new Date(ticket.createdAt).toLocaleString('pt-BR', { day: '2-digit', month: '2-digit' })}
+      </span>
     </div>
   );
 }

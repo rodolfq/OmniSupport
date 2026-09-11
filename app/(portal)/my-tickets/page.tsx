@@ -15,7 +15,8 @@ import {
   LayoutGrid,
   List as ListIcon,
   Tag,
-  FolderKanban
+  FolderKanban,
+  Kanban
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import { cn, normalizeString } from '@/lib/utils';
@@ -47,6 +48,16 @@ const CUSTOMER_STATUS_FILTERS: Array<{ value: CustomerStatusFilter; label: strin
   { value: 'Finalizado', label: 'Finalizado' },
 ];
 
+// Board Kanban de "Meus Chamados" — mesmo modelo do Dashboard (coluna de
+// largura fixa, altura fixa por coluna com scroll interno, ver
+// app/(portal)/dashboard/page.tsx), só que travado nos 3 estados que o
+// cliente/funcionário já enxerga em todo o resto desta tela (getCustomerStatusLabel).
+const MY_TICKETS_KANBAN_COLUMNS: Array<{ status: 'Novo' | 'Em Andamento' | 'Finalizado'; title: string }> = [
+  { status: 'Novo', title: 'Novos' },
+  { status: 'Em Andamento', title: 'Em Andamento' },
+  { status: 'Finalizado', title: 'Finalizados' },
+];
+
 function matchesCustomerStatusFilter(status: string, filter: CustomerStatusFilter) {
   // "Todos" não inclui os finalizados por padrão — chamado encerrado só
   // aparece quando o cliente escolhe o filtro "Finalizado" de propósito.
@@ -62,7 +73,7 @@ export default function MyTicketsPage() {
   const [search, setSearch] = useState('');
   const [filter, setFilter] = useState<CustomerStatusFilter>('all');
   const [selectedTicket, setSelectedTicket] = useState<Ticket | null>(null);
-  const [view, setView] = useState<'grid' | 'list'>('grid');
+  const [view, setView] = useState<'grid' | 'list' | 'kanban'>('grid');
   const [visibleCount, setVisibleCount] = useState(12);
 
   // Chave Chamados / Tickets Internos — só existe pra quem enxerga tickets
@@ -183,6 +194,25 @@ export default function MyTicketsPage() {
     return filteredTickets.slice(0, visibleCount);
   }, [filteredTickets, visibleCount]);
 
+  // Só a busca por texto — sem o filtro de status de CUSTOMER_STATUS_FILTERS,
+  // que no modo "Todos" exclui Finalizado (ver matchesCustomerStatusFilter).
+  // O board precisa das 3 colunas sempre, Finalizados incluso.
+  const kanbanTickets = useMemo(() => {
+    const normalQuery = normalizeString(search);
+    return allTickets.filter(t =>
+      normalizeString(t.title).includes(normalQuery) || normalizeString(t.id).includes(normalQuery)
+    );
+  }, [allTickets, search]);
+
+  const kanbanGrouped = useMemo(() => {
+    const groups: Record<string, Ticket[]> = { 'Novo': [], 'Em Andamento': [], 'Finalizado': [] };
+    kanbanTickets.forEach(t => {
+      const label = getCustomerStatusLabel(t.status);
+      if (groups[label]) groups[label].push(t);
+    });
+    return groups;
+  }, [kanbanTickets]);
+
   const filteredInternalTickets = useMemo(() => {
     const normalQuery = normalizeString(search);
     if (!normalQuery) return internalTickets;
@@ -229,7 +259,7 @@ export default function MyTicketsPage() {
                 <TicketIcon size={14} /> Chamados
               </button>
               <button
-                onClick={() => { setTicketMode('internal'); setVisibleCount(12); }}
+                onClick={() => { setTicketMode('internal'); setVisibleCount(12); setView(v => v === 'kanban' ? 'grid' : v); }}
                 className={cn(
                   "px-3 py-2 rounded-lg text-[10px] font-semibold uppercase tracking-widest transition-all flex items-center gap-1.5",
                   ticketMode === 'internal' ? "bg-[var(--surface-card)] text-[var(--text-warning)] shadow-sm" : "text-[var(--text-tertiary)] hover:text-[var(--text-secondary)]"
@@ -282,7 +312,9 @@ export default function MyTicketsPage() {
           />
         </div>
 
-        {ticketMode === 'tickets' && (
+        {/* No Kanban os 3 estados já aparecem lado a lado como coluna — o
+            filtro de status vira redundante (e "Todos" some Finalizado). */}
+        {ticketMode === 'tickets' && view !== 'kanban' && (
           <div className="flex items-center gap-2 p-1 bg-[var(--surface-pill)] rounded-xl border border-[var(--border-default)] overflow-x-auto max-w-full scrollbar-hidden">
             {CUSTOMER_STATUS_FILTERS.map(s => (
               <button
@@ -309,6 +341,14 @@ export default function MyTicketsPage() {
            <button onClick={() => setView('list')} className={cn("p-2 rounded-lg transition-all", view === 'list' ? "bg-[var(--accent)] text-white shadow-sm" : "text-[var(--text-tertiary)] hover:bg-[var(--surface-pill)]")}>
              <ListIcon size={16} />
            </button>
+           {/* Kanban só faz sentido pro lado Chamados — Tickets Internos tem
+               um modelo de status próprio (4 estados, INTERNAL_STATUS_META),
+               diferente dos 3 que o cliente/funcionário enxerga aqui. */}
+           {ticketMode === 'tickets' && (
+             <button onClick={() => setView('kanban')} title="Kanban" className={cn("p-2 rounded-lg transition-all", view === 'kanban' ? "bg-[var(--accent)] text-white shadow-sm" : "text-[var(--text-tertiary)] hover:bg-[var(--surface-pill)]")}>
+               <Kanban size={16} />
+             </button>
+           )}
         </div>
       </div>
 
@@ -412,6 +452,33 @@ export default function MyTicketsPage() {
               </button>
             </div>
           )
+        ) : view === 'kanban' ? (
+          // Mesmo modelo do Dashboard: coluna de largura fixa, altura fixa
+          // por coluna (acompanha a tela, clamp) com scroll interno — a
+          // barra já é fina/minimalista por padrão (ver app/globals.css).
+          <div className="flex flex-col gap-6 md:flex-row md:items-start md:gap-4 md:overflow-x-auto md:scrollbar-thin md:pb-4">
+            {MY_TICKETS_KANBAN_COLUMNS.map(col => {
+              const colTickets = kanbanGrouped[col.status] || [];
+              return (
+                <div key={col.status} className="flex flex-col gap-3 md:w-[260px] md:shrink-0">
+                  <div className="flex items-center justify-between px-1">
+                    <h3 className="text-[10px] font-semibold uppercase tracking-[0.2em] text-[var(--text-tertiary)]">{col.title}</h3>
+                    <span className="bg-[var(--border-default)] text-[var(--text-secondary)] text-[10px] font-bold px-2 py-0.5 rounded-full">
+                      {colTickets.length}
+                    </span>
+                  </div>
+                  <div className="bg-[var(--surface-pill)]/50 rounded-2xl p-3 space-y-3 border border-dashed border-[var(--border-default)] md:h-[clamp(280px,calc(100vh_-_460px),640px)] md:overflow-y-auto">
+                    {colTickets.map(ticket => (
+                      <MyTicketKanbanCard key={ticket.id} ticket={ticket} onClick={() => setSelectedTicket(ticket)} />
+                    ))}
+                    {colTickets.length === 0 && (
+                      <p className="text-center text-[11px] font-semibold text-[var(--text-tertiary)] py-6">Nenhum chamado</p>
+                    )}
+                  </div>
+                </div>
+              );
+            })}
+          </div>
         ) : visibleTickets.length > 0 ? (
           <>
             <div className={cn(
@@ -525,6 +592,28 @@ export default function MyTicketsPage() {
           }}
         />
       )}
+    </div>
+  );
+}
+
+// Card compacto do modo Kanban — a coluna já diz o status, então só o
+// essencial: número, data e título (o resto — tags, descrição — continua só
+// no card do grid/lista e no modal de detalhe).
+function MyTicketKanbanCard({ ticket, onClick }: { ticket: Ticket; onClick: () => void }) {
+  return (
+    <div
+      onClick={onClick}
+      className="bg-[var(--surface-card)] p-3 rounded-xl border border-[var(--border-default)] cursor-pointer transition-all hover:shadow-md hover:border-[var(--accent)]/40 shadow-sm"
+    >
+      <div className="flex items-center justify-between mb-2">
+        <span className="text-[10px] font-semibold text-[var(--text-tertiary)] uppercase tracking-wider">
+          #{ticket.ticketNumber ? String(ticket.ticketNumber).padStart(4, '0') : ticket.id.slice(0, 8)}
+        </span>
+        <span className="text-[9px] text-[var(--text-tertiary)] font-semibold uppercase">
+          {new Date(ticket.createdAt).toLocaleDateString('pt-BR')}
+        </span>
+      </div>
+      <h4 className="text-xs font-semibold text-[var(--text-primary)] leading-snug line-clamp-2">{ticket.title}</h4>
     </div>
   );
 }
