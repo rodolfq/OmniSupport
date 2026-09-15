@@ -6,7 +6,7 @@ import { getPyvonTemplates, savePyvonTemplate, deletePyvonTemplate, PyvonTemplat
 import { ConfirmDialog } from '@/components/confirm-dialog';
 import { toast } from 'sonner';
 
-const EMPTY_FORM = { id: null as string | null, templateName: '', language: 'pt_BR', description: '', variablesSchema: [] as PyvonTemplateVariable[], isActive: true };
+const EMPTY_FORM = { id: null as string | null, templateName: '', language: 'pt_BR', description: '', variablesSchema: [] as PyvonTemplateVariable[], isActive: true, bodyText: '' };
 
 /**
  * Cadastro dos templates HSM aprovados na Meta que o Pyvon pode usar pra
@@ -31,7 +31,7 @@ export function PyvonTemplatesManager() {
 
   const openNew = () => { setForm(EMPTY_FORM); setIsEditing(true); };
   const openEdit = (t: PyvonTemplate) => {
-    setForm({ id: t.id, templateName: t.templateName, language: t.language, description: t.description, variablesSchema: t.variablesSchema, isActive: t.isActive });
+    setForm({ id: t.id, templateName: t.templateName, language: t.language, description: t.description, variablesSchema: t.variablesSchema, isActive: t.isActive, bodyText: t.bodyText || '' });
     setIsEditing(true);
   };
 
@@ -120,6 +120,20 @@ export function PyvonTemplatesManager() {
               placeholder="Ex: aviso de veículo sem posição"
               className="w-full bg-[var(--surface-card)] border border-[var(--border-default)] rounded-xl px-4 py-3 text-sm font-medium focus:ring-2 focus:ring-[var(--accent)]/20 focus:border-[var(--accent)] outline-none transition-all"
             />
+          </div>
+
+          <div className="space-y-1.5">
+            <label className="text-[10px] font-black uppercase tracking-widest text-[var(--text-tertiary)] ml-1">Texto aprovado na Meta</label>
+            <textarea
+              value={form.bodyText}
+              onChange={(e) => setForm(prev => ({ ...prev, bodyText: e.target.value }))}
+              placeholder={'Olá, {{1}}! ...'}
+              rows={4}
+              className="w-full bg-[var(--surface-card)] border border-[var(--border-default)] rounded-xl px-4 py-3 text-sm font-medium focus:ring-2 focus:ring-[var(--accent)]/20 focus:border-[var(--accent)] outline-none transition-all resize-y"
+            />
+            <p className="text-[10px] text-[var(--text-tertiary)] ml-1">
+              Copie o texto exato aprovado, com os marcadores <span className="font-mono">{'{{1}}'}</span>, <span className="font-mono">{'{{2}}'}</span>... — usado só pra mostrar um preview fiel da mensagem no nosso chat, não é enviado como texto livre.
+            </p>
           </div>
 
           <div className="space-y-2">

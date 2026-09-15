@@ -9,6 +9,7 @@ import { getChatRecipientIds } from './notification-recipients';
 import { resolveQueueForInstance, pickNextQueueAssignee, dispatchPendingChatSessions } from './queue-routing';
 import { storeAttachmentBuffer } from './attachment-storage';
 import { transcribeMessageAudio, isAudioAttachment, isTranscriptionEnabled } from './transcription-service';
+import { isCrisisModeEnabled, recordCrisisModeMessage, CRISIS_MODE_MESSAGE } from './crisis-mode-service';
 import type { Attachment } from '@/lib/types';
 
 /**
@@ -87,7 +88,7 @@ export function phoneVariants(rawPhone: string): string[] {
 export class PyvonService {
   static async getInstanceById(instanceId: string) {
     const res = await query(
-      `SELECT id, access_token, pyvon_environment FROM public.whatsapp_instances WHERE id = $1 AND provider = 'pyvon'`,
+      `SELECT id, access_token, pyvon_environment, pyvon_channel_id FROM public.whatsapp_instances WHERE id = $1 AND provider = 'pyvon'`,
       [instanceId]
     );
     return res.rows[0] || null;
@@ -110,10 +111,14 @@ export class PyvonService {
     return BASE_URLS[environment || 'prod'] || BASE_URLS.prod;
   }
 
-  private static async getCredentials(instanceId: string): Promise<{ secret: string; baseUrl: string }> {
+  private static async getCredentials(instanceId: string): Promise<{ secret: string; baseUrl: string; channelId?: number }> {
     const instance = await this.getInstanceById(instanceId);
     if (!instance?.access_token) throw new Error('Instância Pyvon não configurada.');
-    return { secret: instance.access_token, baseUrl: this.baseUrlFor(instance.pyvon_environment) };
+    return {
+      secret: instance.access_token,
+      baseUrl: this.baseUrlFor(instance.pyvon_environment),
+      channelId: instance.pyvon_channel_id ?? undefined
+    };
   }
 
   // ---------------------------------------------------------- entrada (webhook)
@@ -141,11 +146,23 @@ export class PyvonService {
     }
 
     let attachment: Attachment | null = null;
-    if (payload.type && payload.type !== 'text' && payload.media_url) {
-      try {
-        attachment = await this.downloadMedia(payload.message_id, instanceId);
-      } catch (err) {
-        console.error('[Pyvon] Falha ao baixar mídia recebida:', err);
+    if (payload.type && payload.type !== 'text') {
+      if (payload.media_url) {
+        try {
+          attachment = await this.downloadMedia(payload.message_id, instanceId);
+          if (!attachment) {
+            console.warn(`[Pyvon] downloadMedia devolveu vazio pra message_id=${payload.message_id} (type=${payload.type}) — provável 404 nas duas tentativas.`);
+          }
+        } catch (err) {
+          console.error('[Pyvon] Falha ao baixar mídia recebida:', err);
+        }
+      } else {
+        // Diagnóstico: o payload veio com type != text mas sem media_url —
+        // contraria a doc oficial ("presente quando type não é text"). Sem
+        // isso não temos como saber por que a mídia nunca chega, já que o
+        // resto do fluxo segue normal (mensagem salva só com o texto
+        // placeholder "[Imagem]" etc.).
+        console.warn(`[Pyvon] Mensagem type=${payload.type} chegou SEM media_url — message_id=${payload.message_id}, channel_id=${payload.channel_id}. Payload completo:`, JSON.stringify(payload));
       }
     }
 
@@ -219,6 +236,88 @@ export class PyvonService {
         console.error('[Pyvon] Falha ao transcrever áudio automaticamente:', err);
       });
     }
+
+    // Nota do "Histórico Cliente" enviada via template atualizacao_chamado
+    // (ver dispatchTicketUpdateTemplate em automation-service.ts): só a
+    // mensagem IMEDIATAMENTE seguinte do cliente decide se ela sai sozinha —
+    // por isso o campo é sempre limpo aqui, dê "prosseguir" ou não. Qualquer
+    // outra resposta fica pro analista decidir manualmente, como sempre.
+    if (session.pyvon_pending_note_text) {
+      const pendingText = session.pyvon_pending_note_text;
+      const isProsseguir = text.trim().toLowerCase().replace(/[.,!?]+$/, '') === 'prosseguir';
+      await query(
+        `UPDATE public.chat_sessions SET pyvon_pending_note_text = NULL, pyvon_pending_note_set_at = NULL WHERE id = $1`,
+        [session.id]
+      );
+      if (isProsseguir) {
+        this.sendAutomaticNoteReply(instanceId, session, pendingText).catch(err => {
+          console.error('[Pyvon] Falha ao enviar nota automática após "Prosseguir":', err);
+        });
+      }
+    }
+  }
+
+  // Depois que o cliente confirma com "Prosseguir" (ver handleWebhook acima),
+  // manda o texto da nota como mensagem normal (já dentro da janela — o
+  // cliente acabou de escrever) e registra no chat como qualquer resposta,
+  // sem analista real (mesma convenção de recordOutboundTemplateMessage).
+  private static async sendAutomaticNoteReply(instanceId: string, session: any, noteText: string): Promise<void> {
+    const result = await this.sendMessage(
+      instanceId,
+      { cadastroId: session.pyvon_cadastro_id || undefined, phone: session.customer_phone || undefined, name: session.customer_name || undefined },
+      noteText
+    );
+    if (result.skipped || (result.delivery && result.delivery !== 'sent')) {
+      console.warn(`[Pyvon] Nota automática não entregue (sessão ${session.id}): ${result.skipped || result.delivery_error || result.delivery}`);
+      return;
+    }
+
+    const metadata = { source: 'pyvon', auto_reply: true };
+    const messageRes = await query(
+      `INSERT INTO public.chat_messages (session_id, sender_id, sender_name, text, type, metadata, created_at)
+       VALUES ($1, NULL, $2, $3, 'text', $4, NOW())
+       RETURNING id, created_at`,
+      [session.id, 'SSX Desk (automático)', noteText, JSON.stringify(metadata)]
+    );
+    const savedMessage = messageRes.rows[0];
+    if (!savedMessage) return;
+
+    await query('UPDATE public.chat_sessions SET last_message_at = NOW(), updated_at = NOW() WHERE id = $1', [session.id]);
+
+    emitSessionsChanged({ reason: 'message', sessionId: session.id });
+    emitChatEvent(session.id, {
+      type: 'message',
+      sessionId: session.id,
+      message: {
+        id: savedMessage.id,
+        senderId: null,
+        senderName: 'SSX Desk (automático)',
+        text: noteText,
+        timestamp: savedMessage.created_at,
+        type: 'text',
+        metadata,
+        attachments: []
+      }
+    });
+  }
+
+  // Modo de Crise (ver crisis-mode-service.ts) — chamado só para sessão
+  // recém-criada (findOrCreateSession), nunca para conversa já existente.
+  // Mesma checagem de delivery que sendAutomaticNoteReply: só grava no
+  // histórico se o Pyvon confirmou o envio, senão o analista veria uma
+  // mensagem marcada como enviada que o cliente nunca recebeu.
+  private static async maybeSendCrisisModeMessage(instanceId: string, session: any): Promise<void> {
+    if (!(await isCrisisModeEnabled())) return;
+    const result = await this.sendMessage(
+      instanceId,
+      { cadastroId: session.pyvon_cadastro_id || undefined, phone: session.customer_phone || undefined, name: session.customer_name || undefined },
+      CRISIS_MODE_MESSAGE
+    );
+    if (result.skipped || (result.delivery && result.delivery !== 'sent')) {
+      console.warn(`[Pyvon] Mensagem do Modo de Crise não entregue (sessão ${session.id}): ${result.skipped || result.delivery_error || result.delivery}`);
+      return;
+    }
+    await recordCrisisModeMessage(session.id);
   }
 
   // NOTA: diferente de Baileys/Meta, ainda não trata a resposta "1"/"0" a uma
@@ -230,7 +329,7 @@ export class PyvonService {
 
     if (variants.length) {
       const existing = await query(
-        `SELECT id, customer_phone, customer_id, customer_name, assignee_id, queue_id, pyvon_cadastro_id
+        `SELECT id, customer_phone, customer_id, customer_name, assignee_id, queue_id, pyvon_cadastro_id, pyvon_pending_note_text
            FROM public.chat_sessions
           WHERE customer_phone IN (${placeHoldersFor(variants)}) AND status != 'closed'
           ORDER BY updated_at DESC LIMIT 1`,
@@ -240,7 +339,7 @@ export class PyvonService {
     } else {
       // Canal sem telefone exposto (ex.: Instagram) — casa só pelo cadastro_id.
       const existing = await query(
-        `SELECT id, customer_phone, customer_id, customer_name, assignee_id, queue_id, pyvon_cadastro_id
+        `SELECT id, customer_phone, customer_id, customer_name, assignee_id, queue_id, pyvon_cadastro_id, pyvon_pending_note_text
            FROM public.chat_sessions
           WHERE pyvon_cadastro_id = $1 AND status != 'closed'
           ORDER BY updated_at DESC LIMIT 1`,
@@ -250,8 +349,17 @@ export class PyvonService {
     }
 
     const digits = variants[0] || null;
+    // regexp_replace: profiles.phone é salvo com máscara ((21) 99177-8567) —
+    // comparar sem normalizar os dois lados nunca batia, e a conversa nascia
+    // com o nome de exibição do WhatsApp/Pyvon em vez do nome cadastrado
+    // (mesma correção em whatsapp-service.ts/meta-whatsapp-service.ts).
     const profileRes = variants.length
-      ? await query(`SELECT id, name FROM public.profiles WHERE phone IN (${placeHoldersFor(variants)}) LIMIT 1`, variants)
+      ? await query(
+          `SELECT id, name FROM public.profiles
+           WHERE regexp_replace(COALESCE(phone, ''), '\\D', '', 'g') IN (${placeHoldersFor(variants)})
+           LIMIT 1`,
+          variants
+        )
       : { rows: [] as any[] };
     const profile = profileRes.rows[0];
     const customerName = profile?.name || name;
@@ -266,18 +374,26 @@ export class PyvonService {
          VALUES ($1, $2, $3, $4, $5, $6, $7, 'pyvon', NOW(), NOW())
          ON CONFLICT (customer_phone) WHERE status <> 'closed' AND customer_phone IS NOT NULL
          DO NOTHING
-         RETURNING id, customer_phone, customer_id, customer_name, assignee_id, queue_id, pyvon_cadastro_id`,
+         RETURNING id, customer_phone, customer_id, customer_name, assignee_id, queue_id, pyvon_cadastro_id, pyvon_pending_note_text`,
         [profile?.id || null, customerName, digits, status, queue?.id || null, assigneeId, cadastroId]
       );
       return { insertRes };
     });
 
-    if (insertRes.rows[0]) return insertRes.rows[0];
+    if (insertRes.rows[0]) {
+      const newSession = insertRes.rows[0];
+      // Modo de Crise (ver crisis-mode-service.ts) — disparo sem bloquear o
+      // processamento da mensagem real que originou esta sessão.
+      this.maybeSendCrisisModeMessage(instanceId, newSession).catch(err => {
+        console.error('[Pyvon] Falha ao enviar mensagem do Modo de Crise:', err?.message || err);
+      });
+      return newSession;
+    }
 
     // Perdeu a corrida contra outro processo — usa a sessão que venceu.
     if (variants.length) {
       const retryRes = await query(
-        `SELECT id, customer_phone, customer_id, customer_name, assignee_id, queue_id, pyvon_cadastro_id
+        `SELECT id, customer_phone, customer_id, customer_name, assignee_id, queue_id, pyvon_cadastro_id, pyvon_pending_note_text
            FROM public.chat_sessions WHERE customer_phone IN (${placeHoldersFor(variants)})
           ORDER BY updated_at DESC LIMIT 1`,
         variants
@@ -327,9 +443,9 @@ export class PyvonService {
     instanceId: string,
     target: { cadastroId?: number; phone?: string; name?: string },
     content?: string,
-    opts?: { imageUrl?: string; documentUrl?: string }
-  ): Promise<{ ok: boolean; message_id?: number; skipped?: string }> {
-    const { secret, baseUrl } = await this.getCredentials(instanceId);
+    opts?: { imageUrl?: string; documentUrl?: string; channelId?: number }
+  ): Promise<{ ok: boolean; message_id?: number; skipped?: string; delivery?: 'sent' | 'failed' | 'not_sent'; delivery_error?: string }> {
+    const { secret, baseUrl, channelId } = await this.getCredentials(instanceId);
     const res = await axios.post(
       `${baseUrl}/api/webhook/bot-response`,
       {
@@ -338,7 +454,13 @@ export class PyvonService {
         name: target.cadastroId ? undefined : target.name,
         content,
         image_url: opts?.imageUrl,
-        document_url: opts?.documentUrl
+        document_url: opts?.documentUrl,
+        // channel_id: obrigatório quando o tenant tem mais de um canal oficial
+        // ativo (bot-response/bot-template recusam com 422 sem ele) — vem do
+        // canal padrão configurado em Configurações > WhatsApp
+        // (whatsapp_instances.pyvon_channel_id), a menos que quem chamou
+        // explicitamente informe outro.
+        channel_id: opts?.channelId ?? channelId
       },
       { headers: { 'X-Pyvon-Secret': secret } }
     );
@@ -347,6 +469,13 @@ export class PyvonService {
       // tenant, homologação sem contato marcado como teste, ou contato
       // interno de suporte do Pyvon) — nunca tratar como entregue.
       console.warn(`[Pyvon] Envio ignorado (${res.data.skipped}) para ${target.cadastroId ? `cadastro_id=${target.cadastroId}` : `phone=${target.phone}`}`);
+    } else if (res.data?.delivery && res.data.delivery !== 'sent') {
+      // bot-response responde 200 (aceito e registrado no histórico) mesmo
+      // quando o envio ao provedor falhou de verdade (ex.: janela de 24h
+      // fechada) — o único jeito de saber é olhar `delivery`/`delivery_error`
+      // na mesma resposta. Sem isso, a mensagem aparecia como "enviada" no
+      // nosso chat mesmo nunca tendo chegado no WhatsApp do cliente.
+      console.warn(`[Pyvon] Envio não entregue (${res.data.delivery}): ${res.data.delivery_error || 'sem motivo informado'}`);
     }
     return res.data;
   }
@@ -361,7 +490,7 @@ export class PyvonService {
     channelId?: number;
     contentPreview?: string;
   }): Promise<{ ok: boolean; cadastro_id?: number; created?: boolean; message_id?: number; skipped?: string }> {
-    const { secret, baseUrl } = await this.getCredentials(instanceId);
+    const { secret, baseUrl, channelId } = await this.getCredentials(instanceId);
     const res = await axios.post(
       `${baseUrl}/api/webhook/bot-template`,
       {
@@ -371,7 +500,9 @@ export class PyvonService {
         name: params.name,
         language: params.language || 'pt_BR',
         variables: params.variables,
-        channel_id: params.channelId,
+        // Mesmo canal padrão de sendMessage acima — só sobrepõe se quem
+        // chamou informar um channel_id explícito.
+        channel_id: params.channelId ?? channelId,
         content_preview: params.contentPreview
       },
       { headers: { 'X-Pyvon-Secret': secret } }
@@ -489,5 +620,98 @@ export class PyvonService {
     });
 
     return { id: session.id };
+  }
+
+  // Substitui {{1}}, {{2}}... pelo valor de cada variável, na ORDEM da chave
+  // numérica — mesma convenção que o próprio Pyvon/Meta usa no template
+  // aprovado. Variável nomeada (não numérica) é substituída pelo nome
+  // literal entre chaves (ex.: {{nome_unidade}}), mesma sintaxe.
+  static renderTemplateBody(bodyText: string | null | undefined, variables: Record<string, string>): string {
+    if (!bodyText) return '';
+    return bodyText.replace(/\{\{\s*([\w.]+)\s*\}\}/g, (match, key) => variables[key] ?? match);
+  }
+
+  /**
+   * Ponto único pra "iniciar conversa" nos dois lugares que abrem chat por
+   * telefone (botão "Iniciar Conversa" em Empresas, e "+ Novo WhatsApp" no
+   * chat widget) — decide sozinho, olhando a janela de 24h
+   * (resolveOutboundContext), se dá pra abrir a conversa normal ou se precisa
+   * mandar o template `contato_pos_vendas` antes. Sempre reivindica a
+   * conversa pro analista que chamou, mas só quando ela ainda não tiver
+   * responsável — não tira atendimento de quem já está atendendo.
+   */
+  static async startConversation(instanceId: string, params: {
+    phone: string;
+    name?: string;
+    actorId: string;
+    actorName: string;
+  }): Promise<{ sessionId: string; usedTemplate: boolean }> {
+    const customerName = params.name?.trim() || 'Cliente';
+    const context = await this.resolveOutboundContext(params.phone);
+
+    let sessionId: string;
+    let usedTemplate: boolean;
+
+    if (context.withinWindow && context.sessionId) {
+      sessionId = context.sessionId;
+      usedTemplate = false;
+    } else {
+      const templateRes = await query(
+        `SELECT body_text FROM public.pyvon_templates WHERE template_name = 'contato_pos_vendas' AND is_active = true LIMIT 1`
+      );
+      const template = templateRes.rows[0];
+      if (!template) {
+        throw new Error('Template "contato_pos_vendas" não está cadastrado (ou está inativo) em Configurações > WhatsApp.');
+      }
+
+      const variables = { '1': customerName };
+      const sendResult = await this.sendTemplate(instanceId, {
+        templateName: 'contato_pos_vendas',
+        phone: params.phone,
+        name: customerName,
+        cadastroId: context.cadastroId || undefined,
+        variables
+      });
+      if (sendResult.skipped) {
+        throw new Error(`Pyvon não enviou o template (${sendResult.skipped}).`);
+      }
+      if (!sendResult.cadastro_id) {
+        throw new Error('Pyvon não retornou o cadastro_id do contato.');
+      }
+
+      const recorded = await this.recordOutboundTemplateMessage({
+        instanceId,
+        phone: params.phone,
+        cadastroId: sendResult.cadastro_id,
+        customerName,
+        analystId: params.actorId,
+        analystName: params.actorName,
+        text: this.renderTemplateBody(template.body_text, variables) || `[template contato_pos_vendas]`
+      });
+      if (!recorded) throw new Error('Falha ao registrar a conversa iniciada.');
+      sessionId = recorded.id;
+      usedTemplate = true;
+    }
+
+    await this.claimSessionIfUnassigned(sessionId, params.actorId);
+
+    return { sessionId, usedTemplate };
+  }
+
+  // Reivindica a conversa pra quem chamou, só se ainda não tiver responsável
+  // — nunca tira atendimento de quem já está atendendo. Usado depois de
+  // qualquer envio automático que "começa" ou "reabre" contato em nome de um
+  // analista específico (startConversation acima, dispatchTicketUpdateTemplate
+  // em automation-service.ts).
+  static async claimSessionIfUnassigned(sessionId: string, actorId: string): Promise<void> {
+    const claimRes = await query(
+      `UPDATE public.chat_sessions SET assignee_id = $1, status = 'active', updated_at = NOW()
+        WHERE id = $2 AND assignee_id IS NULL
+        RETURNING id`,
+      [actorId, sessionId]
+    );
+    if ((claimRes.rowCount ?? 0) > 0) {
+      emitSessionsChanged({ reason: 'assigned', sessionId });
+    }
   }
 }

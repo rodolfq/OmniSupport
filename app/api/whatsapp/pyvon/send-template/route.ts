@@ -63,8 +63,16 @@ export async function POST(request: Request) {
     return NextResponse.json(result);
   } catch (error: any) {
     const status = error?.response?.status;
-    const message = error?.response?.data?.error || error?.response?.data?.message || error?.message || 'Falha ao iniciar conversa via template.';
-    console.error('[api/whatsapp/pyvon/send-template] Failed:', { status, message });
+    const data = error?.response?.data;
+    // data.error às vezes é BOOLEANO no contrato do Pyvon (flag, não
+    // mensagem) — pegar ele direto virava um toast "true" no client (new
+    // Error(true).message === "true"). data.message é o texto de verdade;
+    // só cai pro campo "error" quando ele também for string.
+    const message = (typeof data?.message === 'string' && data.message)
+      || (typeof data?.error === 'string' && data.error)
+      || error?.message
+      || 'Falha ao iniciar conversa via template.';
+    console.error('[api/whatsapp/pyvon/send-template] Failed:', { status, data, message });
     // Nunca 502/503/504 aqui — ver comentário acima sobre Cloudflare reescrever essas respostas.
     return NextResponse.json({ error: message }, { status: status && status < 500 ? status : 422 });
   }

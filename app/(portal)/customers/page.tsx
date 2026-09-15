@@ -6,16 +6,16 @@ import { assignChatSession } from '@/lib/services/chat-session-actions';
 import { getUsers } from '@/lib/services/user-actions-service';
 import { getCompanies, setCompanyActive, updateCompanyLogo, deleteCompany } from '@/lib/services/company-service';
 import { Company, User, UserRole, Permission } from '@/lib/types';
-import { Building2, User as UserIcon, Mail, Phone, Plus, MessageCircle, Ticket, ShieldCheck, ShieldOff, Search, X, Check, Pencil, UserPlus, RefreshCw, Headset, Briefcase, Camera, Trash2, ArrowLeft } from 'lucide-react';
+import { Building2, User as UserIcon, Mail, Phone, Plus, MessageCircle, Ticket, ShieldCheck, ShieldOff, Search, X, Check, Pencil, UserPlus, RefreshCw, Headset, Briefcase, Camera, Trash2, ArrowLeft, Loader2, CheckCircle2, Clock } from 'lucide-react';
 import { cn, normalizeString, normalizePhone, maskPhone } from '@/lib/utils';
 import { NewEmployeeModal } from '@/components/new-employee-modal';
 import { EditEmployeeModal } from '@/components/edit-employee-modal';
 import { NewCompanyModal } from '@/components/new-company-modal';
-import { StartPyvonConversationModal } from '@/components/start-pyvon-conversation-modal';
+import { StartWhatsAppConversationModal } from '@/components/start-whatsapp-conversation-modal';
 import { ConfirmModal } from '@/components/confirm-modal';
 import { useIsMobile } from '@/hooks/use-mobile';
 import { UserService } from '@/lib/services/user-service';
-import { resolveChatSessionForPhone } from '@/lib/services/chat-service';
+import { checkPyvonOutboundStatus, startPyvonConversation } from '@/lib/services/pyvon-template-service';
 import { useApp } from '@/app/app-context';
 import { motion, AnimatePresence } from 'motion/react';
 import { toast } from 'sonner';
@@ -31,24 +31,78 @@ function fileToDataUrl(file: Blob): Promise<string> {
   });
 }
 
-function WhatsAppNumberModal({ 
-  isOpen, 
-  onClose, 
-  user 
-}: { 
-  isOpen: boolean, 
-  onClose: () => void, 
-  user: User | null 
+type PhoneWindowStatus = 'checking' | 'open' | 'closed' | 'unknown';
+
+// Canal Pyvon: mesma checagem/decisão de
+// components/start-whatsapp-conversation-modal.tsx (Empresas > Decisor) e do
+// "+ Novo WhatsApp" do chat widget — dentro da janela de 24h abre normal,
+// fora dela manda o template contato_pos_vendas antes. Aqui o telefone já é
+// conhecido (cadastro do funcionário), por isso checa cada número da lista
+// assim que o modal abre, em vez de esperar o analista digitar.
+function WhatsAppNumberModal({
+  isOpen,
+  onClose,
+  user
+}: {
+  isOpen: boolean,
+  onClose: () => void,
+  user: User | null
 }) {
   const { currentUser, setIsOmniChatOpen, setActiveOmniChatId, userStatus } = useApp();
+  const [windowStatusByPhone, setWindowStatusByPhone] = useState<Record<string, PhoneWindowStatus>>({});
+  const [sendingPhone, setSendingPhone] = useState<string | null>(null);
+  const phones = user?.phones || (user?.phone ? [user.phone] : []);
+
+  useEffect(() => {
+    if (!isOpen || phones.length === 0) return;
+    setWindowStatusByPhone(Object.fromEntries(phones.map(n => [n, 'checking'])));
+    let active = true;
+    Promise.all(phones.map(async n => {
+      const result = await checkPyvonOutboundStatus(n);
+      return [n, 'error' in result ? 'unknown' : (result.withinWindow ? 'open' : 'closed')] as const;
+    })).then(entries => {
+      if (active) setWindowStatusByPhone(Object.fromEntries(entries));
+    });
+    return () => { active = false; };
+  }, [isOpen, user?.id]);
+
   if (!user) return null;
-  const phones = user.phones || (user.phone ? [user.phone] : []);
+
+  const handleSelectPhone = async (n: string) => {
+    // Exigência de estar Online vem ANTES de criar a conversa: quem inicia
+    // por aqui vira o responsável (a atribuição é feita no servidor, em
+    // lib/services/pyvon-service.ts), então barrar depois deixaria uma
+    // conversa criada e atribuída a alguém que a tela acabou de recusar.
+    const isPortalUser = currentUser
+      && [UserRole.CUSTOMER, UserRole.EMPLOYEE].includes(currentUser.role as UserRole);
+    if (!isPortalUser && userStatus !== 'online') {
+      toast.error('Você precisa estar Online para assumir atendimentos!');
+      return;
+    }
+
+    setSendingPhone(n);
+    try {
+      const result = await startPyvonConversation({ phone: n, name: user.name });
+      if ('error' in result) {
+        toast.error(result.error);
+        return;
+      }
+      toast[result.usedTemplate ? 'info' : 'success'](result.usedTemplate
+        ? 'Fora da janela de 24h — mensagem inicial enviada e conversa aberta.'
+        : 'Conversa aberta — o contato já pode ser respondido normalmente.');
+      setActiveOmniChatId(result.sessionId);
+      setIsOmniChatOpen(true);
+      onClose();
+    } finally {
+      setSendingPhone(null);
+    }
+  };
 
   return (
     <AnimatePresence>
       {isOpen && (
         <div className="fixed inset-0 z-[110] flex items-center justify-center p-4">
-          <motion.div 
+          <motion.div
             initial={{ opacity: 0 }}
             animate={{ opacity: 1 }}
             exit={{ opacity: 0 }}
@@ -69,53 +123,44 @@ function WhatsAppNumberModal({
             </div>
 
             <p className="text-xs font-bold text-[var(--text-tertiary)] uppercase tracking-widest mb-4 font-black">Central de Atendimento</p>
-            
+
             <div className="space-y-2">
-              {phones.length > 0 ? phones.map((n, idx) => (
+              {phones.length > 0 ? phones.map((n, idx) => {
+                const status = windowStatusByPhone[n] || 'checking';
+                const isSending = sendingPhone === n;
+                return (
                 <button
                    key={idx}
-                   onClick={async () => {
-                     // Exigência de estar Online vem ANTES de criar a conversa:
-                     // quem inicia por aqui vira o responsável (a atribuição é
-                     // feita no servidor, em app/api/chats/route.ts), então
-                     // barrar depois deixaria uma conversa criada e atribuída a
-                     // alguém que a tela acabou de recusar.
-                     const isPortalUser = currentUser
-                       && [UserRole.CUSTOMER, UserRole.EMPLOYEE].includes(currentUser.role as UserRole);
-                     if (!isPortalUser && userStatus !== 'online') {
-                       toast.error('Você precisa estar Online para assumir atendimentos!');
-                       return;
-                     }
-
-                     // resolveChatSessionForPhone (lib/services/chat-service) é o
-                     // mesmo caminho usado ao clicar num telefone dentro da
-                     // conversa: acha a sessão aberta ou cria uma nova, já com
-                     // a normalização de telefone brasileiro (DDI, nono
-                     // dígito) que este trecho não fazia — aqui só se removia
-                     // o que não era dígito. Conversa JÁ existente mantém o
-                     // responsável atual, não é "roubada".
-                     const resolved = await resolveChatSessionForPhone(n, user.name);
-                     if ('error' in resolved) {
-                       toast.error(resolved.error);
-                       return;
-                     }
-                     const sessionId = resolved.sessionId;
-
-                    setActiveOmniChatId(sessionId);
-                    setIsOmniChatOpen(true);
-                    onClose();
-                  }}
-                  className="w-full flex items-center justify-between p-4 bg-[var(--surface-card)] border border-[var(--border-default)] rounded-2xl hover:border-[var(--accent)] hover:bg-[var(--accent)]/10 transition-all group"
+                   disabled={!!sendingPhone}
+                   onClick={() => handleSelectPhone(n)}
+                  className="w-full flex items-center justify-between p-4 bg-[var(--surface-card)] border border-[var(--border-default)] rounded-2xl hover:border-[var(--accent)] hover:bg-[var(--accent)]/10 transition-all group disabled:opacity-60 disabled:pointer-events-none"
                 >
                   <div className="flex items-center gap-3">
                     <div className="w-10 h-10 rounded-xl bg-[var(--surface-card)] border border-[var(--border-default)] flex items-center justify-center text-[var(--accent-text)] shadow-sm group-hover:bg-[var(--accent)] group-hover:text-white transition-all">
-                      <MessageCircle size={20} />
+                      {isSending ? <Loader2 size={18} className="animate-spin" /> : <MessageCircle size={20} />}
                     </div>
-                    <span className="text-sm font-black text-[var(--text-secondary)]">{maskPhone(n)}</span>
+                    <div className="text-left">
+                      <span className="text-sm font-black text-[var(--text-secondary)] block">{maskPhone(n)}</span>
+                      {/* Transparência da janela de 24h — nunca decide nada
+                          aqui, só antecipa o que o servidor vai decidir ao
+                          clicar (ver PyvonService.startConversation). */}
+                      <span className={cn(
+                        "text-[9px] font-bold uppercase tracking-widest flex items-center gap-1 mt-0.5",
+                        status === 'open' && "text-[var(--text-success)]",
+                        status === 'closed' && "text-[var(--text-warning)]",
+                        (status === 'checking' || status === 'unknown') && "text-[var(--text-tertiary)]"
+                      )}>
+                        {status === 'checking' && <><Loader2 size={10} className="animate-spin" /> Verificando janela...</>}
+                        {status === 'open' && <><CheckCircle2 size={10} /> Conversa normal</>}
+                        {status === 'closed' && <><Clock size={10} /> Vai enviar template</>}
+                        {status === 'unknown' && 'Central de Atendimento'}
+                      </span>
+                    </div>
                   </div>
                   <Check size={16} className="text-[var(--accent-text)] opacity-0 group-hover:opacity-100 transition-all" />
                 </button>
-              )) : (
+                );
+              }) : (
                 <p className="text-sm text-[var(--text-tertiary)] italic text-center py-4">Nenhum número cadastrado.</p>
               )}
             </div>
@@ -795,7 +840,7 @@ if (isCompanyPortalUser) {
           setDeleteError('');
         }}
       />
-      <StartPyvonConversationModal
+      <StartWhatsAppConversationModal
         isOpen={isPyvonConversationModalOpen}
         onClose={() => setIsPyvonConversationModalOpen(false)}
         defaultPhone={selectedCompany?.decisorTelefone}

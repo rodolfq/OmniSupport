@@ -335,6 +335,20 @@ Basta enviar 1, se você estiver satisfeito, ou 0, se poderíamos fazer melhor.'
   CONSTRAINT config_survey_settings_single_row CHECK (id = 1)
 );
 
+-- Config Modo de Crise (linha única) — quando enabled=true, toda sessão de
+-- chat NOVA (qualquer canal: Baileys, Meta, Pyvon, widget do portal) recebe
+-- automaticamente o aviso de instabilidade assim que nasce/cai na fila,
+-- além da atribuição normal ao próximo analista (ver
+-- lib/services/crisis-mode-service.ts). Mensagem é fixa (não editável pela
+-- tela), só o liga/desliga é configurável — Configurações > Sistema,
+-- restrito a Administrador de verdade (não basta a permissão settings:system).
+CREATE TABLE public.config_crisis_mode (
+  id INTEGER PRIMARY KEY DEFAULT 1,
+  enabled BOOLEAN NOT NULL DEFAULT false,
+  updated_at TIMESTAMP WITH TIME ZONE DEFAULT now() NOT NULL,
+  CONSTRAINT config_crisis_mode_single_row CHECK (id = 1)
+);
+
 -- Config E-mail (SMTP, linha única) — resposta ao cliente e notificação de
 -- atribuição de chamado por e-mail (Configurações > E-mail).
 CREATE TABLE public.config_email_settings (
@@ -517,7 +531,13 @@ CREATE TABLE public.chat_sessions (
   -- — decide se a resposta do analista deve ser espelhada pro WhatsApp
   -- (forwardMessageToWhatsApp, chat-widget.tsx). NULL = sessão anterior a esta
   -- coluna, mantém o comportamento antigo (baseado em customer_phone).
-  channel TEXT
+  channel TEXT,
+  -- Nota do "Histórico Cliente" enviada via template atualizacao_chamado,
+  -- aguardando a PRÓXIMA mensagem do cliente pra decidir se sai
+  -- automaticamente (só quando ela for exatamente "prosseguir") — ver
+  -- PyvonService.handleWebhook. NULL = nenhuma nota pendente.
+  pyvon_pending_note_text TEXT,
+  pyvon_pending_note_set_at TIMESTAMP WITH TIME ZONE
 );
 
 -- Poll de 30s (GET /api/chats?action=sessions) e a subquery correlacionada
@@ -721,7 +741,11 @@ CREATE TABLE public.whatsapp_instances (
   -- provider = 'pyvon': 'prod' (api.pyvon.io) ou 'dev' (api-dev.pyvon.io).
   -- access_token guarda o X-Pyvon-Secret do tenant nesse caso (reaproveitado,
   -- mesmo campo que o Meta usa pro token da Graph API).
-  pyvon_environment TEXT
+  pyvon_environment TEXT,
+  -- Canal padrão (Pyvon) a usar quando o tenant tem mais de um canal oficial
+  -- ativo — sem isso, bot-response/bot-template recusam com 422 "Mais de um
+  -- canal oficial ativo: informe channel_id". NULL = tenant com um canal só.
+  pyvon_channel_id INTEGER
 );
 
 -- Templates de WhatsApp (HSM) aprovados na Meta, usados pelo Pyvon pra
@@ -739,6 +763,10 @@ CREATE TABLE public.pyvon_templates (
   -- amigável mostrado no formulário de preenchimento.
   variables_schema JSONB NOT NULL DEFAULT '[]'::jsonb,
   is_active BOOLEAN NOT NULL DEFAULT TRUE,
+  -- Texto literal aprovado na Meta (com os marcadores {{1}}, {{2}}...), pra
+  -- montar um preview fiel da mensagem no nosso chat — ver
+  -- lib/services/pyvon-service.ts (renderTemplateBody).
+  body_text TEXT,
   created_at TIMESTAMP WITH TIME ZONE DEFAULT now() NOT NULL
 );
 
@@ -1325,6 +1353,9 @@ ON CONFLICT (label) DO NOTHING;
 
 -- Seed Config E-mail (linha única, desativada até alguém preencher o SMTP)
 INSERT INTO public.config_email_settings (id) VALUES (1) ON CONFLICT (id) DO NOTHING;
+
+-- Seed Config Modo de Crise (linha única, desligado por padrão)
+INSERT INTO public.config_crisis_mode (id) VALUES (1) ON CONFLICT (id) DO NOTHING;
 
 -- Seed Default Absence Reasons
 INSERT INTO public.absence_reasons (label) VALUES

@@ -236,6 +236,7 @@ export default function PortalLayout({ children }: { children: React.ReactNode }
               >
                 {theme === 'dark' ? <Sun size={20} /> : <Moon size={20} />}
               </button>
+              <AiAssistantWidget />
               <div className="relative">
                 <button
                   onClick={() => setIsNotificationsOpen(!isNotificationsOpen)}
@@ -279,7 +280,6 @@ export default function PortalLayout({ children }: { children: React.ReactNode }
         <NewTicketModal />
         <CustomerEvaluationModal />
         {canUseChatWidget && <ChatWidget />}
-        <AiAssistantWidget />
         <MobileBottomNav />
       </div>
       <ForcePasswordChange />

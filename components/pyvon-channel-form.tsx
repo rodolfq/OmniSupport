@@ -58,6 +58,9 @@ export function PyvonChannelForm({
   const [isDeleting, setIsDeleting] = useState(false);
   const [confirmingDelete, setConfirmingDelete] = useState(false);
   const [testResult, setTestResult] = useState<{ channels: any[] } | null>(null);
+  // Canal padrão (Pyvon) — só é obrigatório quando o tenant tem mais de um
+  // canal oficial ativo (bot-response/bot-template recusam 422 sem ele).
+  const [defaultChannelId, setDefaultChannelId] = useState(instance?.pyvonChannelId != null ? String(instance.pyvonChannelId) : '');
 
   const webhookUrl = typeof window !== 'undefined' ? `${window.location.origin}/api/whatsapp/pyvon-webhook` : '';
 
@@ -74,7 +77,11 @@ export function PyvonChannelForm({
         instance?.phone || '',
         instance?.status || 'connected',
         'pyvon',
-        { accessToken: secret.trim(), pyvonEnvironment: environment }
+        {
+          accessToken: secret.trim(),
+          pyvonEnvironment: environment,
+          pyvonChannelId: defaultChannelId.trim() ? Number(defaultChannelId) : null
+        }
       );
       if ('error' in result && result.error) throw new Error(result.error);
       toast.success('Canal Pyvon salvo!');
@@ -87,10 +94,9 @@ export function PyvonChannelForm({
     }
   };
 
-  const handleTest = async () => {
+  const fetchChannels = async (silent: boolean) => {
     if (!instance) return;
-    setIsTesting(true);
-    setTestResult(null);
+    if (!silent) setIsTesting(true);
     try {
       const res = await fetch('/api/whatsapp/pyvon/test', {
         method: 'POST',
@@ -100,17 +106,28 @@ export function PyvonChannelForm({
       const data = await res.json();
       if (!res.ok) throw new Error(data.error || 'Falha ao testar conexão.');
       setTestResult({ channels: data.channels || [] });
-      toast.success(
-        data.channels?.length
-          ? `Conexão confirmada — ${data.channels.length} canal(is) oficial(is) encontrado(s).`
-          : 'Conexão confirmada — mas o tenant ainda não tem canal oficial (WABA) ativo no Pyvon.'
-      );
+      if (!silent) {
+        toast.success(
+          data.channels?.length
+            ? `Conexão confirmada — ${data.channels.length} canal(is) oficial(is) encontrado(s).`
+            : 'Conexão confirmada — mas o tenant ainda não tem canal oficial (WABA) ativo no Pyvon.'
+        );
+      }
     } catch (e: any) {
-      toast.error(e.message || 'Falha ao testar conexão.');
+      if (!silent) toast.error(e.message || 'Falha ao testar conexão.');
     } finally {
-      setIsTesting(false);
+      if (!silent) setIsTesting(false);
     }
   };
+
+  // Busca a lista de canais em silêncio ao abrir o formulário de um canal já
+  // salvo, só pra popular o seletor de "Canal Padrão" — sem isso, quem
+  // precisasse trocar o canal teria que clicar em "Testar Conexão" antes.
+  React.useEffect(() => {
+    if (instance) fetchChannels(true);
+  }, [instance?.id]);
+
+  const handleTest = () => fetchChannels(false);
 
   const handleDelete = async () => {
     if (!instance) return;
@@ -202,6 +219,35 @@ export function PyvonChannelForm({
           </button>
         </div>
       </div>
+
+      {isEditing && (
+        <div className="space-y-1.5">
+          <label className="text-[10px] font-black uppercase tracking-widest text-[var(--text-tertiary)] ml-1">Canal Padrão</label>
+          {testResult && testResult.channels.length > 0 ? (
+            <StyledSelect
+              value={defaultChannelId}
+              onChange={(e) => setDefaultChannelId(e.target.value)}
+              className="w-full bg-[var(--surface-card)] border border-[var(--border-default)] rounded-xl px-4 py-3 text-sm font-medium focus:ring-2 focus:ring-[var(--accent)]/20 focus:border-[var(--accent)] outline-none transition-all"
+            >
+              <option value="">Nenhum (só funciona com 1 canal ativo)</option>
+              {testResult.channels.map((c: any) => (
+                <option key={c.id} value={c.id}>{c.name} ({c.id})</option>
+              ))}
+            </StyledSelect>
+          ) : (
+            <input
+              type="number"
+              value={defaultChannelId}
+              onChange={(e) => setDefaultChannelId(e.target.value)}
+              placeholder="Ex: 48"
+              className="w-full bg-[var(--surface-card)] border border-[var(--border-default)] rounded-xl px-4 py-3 text-sm font-mono focus:ring-2 focus:ring-[var(--accent)]/20 focus:border-[var(--accent)] outline-none transition-all"
+            />
+          )}
+          <p className="text-[10px] text-[var(--text-tertiary)] font-medium leading-relaxed ml-1">
+            Só é obrigatório quando o tenant tem mais de um canal oficial ativo — sem ele, o Pyvon recusa o envio com &quot;Mais de um canal oficial ativo: informe channel_id&quot;.
+          </p>
+        </div>
+      )}
 
       <div className="p-4 bg-[var(--accent)]/5 border border-[var(--accent)]/15 rounded-2xl space-y-3">
         <p className="text-[10px] font-black text-[var(--accent-text)] uppercase tracking-widest">URL do webhook a cadastrar no Pyvon</p>

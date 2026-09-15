@@ -6,6 +6,7 @@ import { Bell } from 'lucide-react';
 import { useApp } from '@/app/app-context';
 import { NotificationPanel } from './notification-panel';
 import { GiroStatusPopover } from './giro-status-popover';
+import { AiAssistantWidget } from './ai-assistant-widget';
 import { Permission, UserRole } from '@/lib/types';
 
 export function MobileHeader() {
@@ -32,6 +33,7 @@ export function MobileHeader() {
         </div>
         <div className="flex items-center gap-1 shrink-0">
           {showGiroButton && <GiroStatusPopover />}
+          <AiAssistantWidget />
           <button
             onClick={() => setIsOpen(true)}
             className="relative p-2 rounded-xl text-[var(--text-tertiary)] hover:bg-[var(--surface-pill)] transition-all"

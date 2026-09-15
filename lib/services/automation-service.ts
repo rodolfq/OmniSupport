@@ -1,5 +1,6 @@
 import { query } from '../db';
 import { isClosedTicketStatus } from '../ticket-status';
+import { htmlToWhatsAppText } from '../utils';
 import { AUTOMATION_EVENTS, renderTemplate } from '../automation-events';
 import { WhatsAppService } from './whatsapp-service';
 import { PyvonService } from './pyvon-service';
@@ -31,6 +32,7 @@ interface TicketMessageRow {
   is_visible_to_customer: boolean;
   type: string;
   content: string;
+  author_id?: string | null;
 }
 
 const STATUS_KEYED_EVENTS = ['solicitacao_informacoes', 'aguardando_aprovacao', 'aguardando_nota', 'chamado_finalizado'];
@@ -223,6 +225,110 @@ async function dispatchPyvonAutomationMessage(
   return true;
 }
 
+// chamado_aberto: confirmação de abertura, SEMPRE via template (nunca texto
+// livre, mesmo com a janela de 24h aberta) — decisão do usuário: essa
+// notificação específica precisa ser confiável de verdade, não pode depender
+// da janela. Só pro Solicitante Principal (ticket.customer_id); demais
+// envolvidos (funcionário/empresa com view_all_company_tickets) continuam no
+// texto livre configurável de sempre (dispatchPyvonAutomationMessage acima).
+// Diferente do fallback genérico (que espreme a mensagem inteira numa única
+// variável), este template tem duas variáveis fixas e nomeadas: {{1}} nome,
+// {{2}} número do chamado — por isso é tratado à parte, não generalizado.
+async function dispatchTicketOpenedTemplate(
+  instanceId: string,
+  recipient: TicketRecipient,
+  ticketNumber: string
+): Promise<boolean> {
+  const templateRes = await query(
+    `SELECT body_text FROM public.pyvon_templates WHERE template_name = 'chamado_aberto' AND is_active = true LIMIT 1`
+  );
+  const template = templateRes.rows[0];
+  if (!template) return false;
+
+  const variables = { '1': recipient.name, '2': `#${ticketNumber}` };
+  const ctx = await PyvonService.resolveOutboundContext(recipient.phone);
+  const result = await PyvonService.sendTemplate(instanceId, {
+    templateName: 'chamado_aberto',
+    cadastroId: ctx.cadastroId || undefined,
+    phone: ctx.cadastroId ? undefined : recipient.phone,
+    name: recipient.name,
+    variables,
+    contentPreview: PyvonService.renderTemplateBody(template.body_text, variables)
+  });
+  // skipped: 200 "aceito" mas nada foi enviado (bot-debug-mode /
+  // bot-reply-test-only) — cadastro_id pode vir preenchido mesmo assim, não
+  // basta checar a presença dele.
+  if (result?.skipped || !result?.cadastro_id) return false;
+
+  await PyvonService.recordOutboundTemplateMessage({
+    instanceId,
+    phone: recipient.phone,
+    cadastroId: result.cadastro_id,
+    customerName: recipient.name,
+    analystId: null,
+    analystName: 'SSX Desk (automático)',
+    text: PyvonService.renderTemplateBody(template.body_text, variables) || '[template chamado_aberto]'
+  });
+  return true;
+}
+
+// atualizacao_chamado: aviso de nota no "Histórico Cliente", SEMPRE via
+// template (mesma lógica de chamado_aberto acima) — só pro Solicitante
+// Principal. Diferença: depois de enviar, guarda o TEXTO DA NOTA na sessão
+// como "pendente" (chat_sessions.pyvon_pending_note_text) — só é enviado de
+// verdade se a PRÓXIMA mensagem do cliente for exatamente "Prosseguir" (ver
+// PyvonService.handleWebhook, que também limpa o campo de qualquer forma).
+// A conversa cai pro autor da nota, se ainda não tiver responsável.
+async function dispatchTicketUpdateTemplate(
+  instanceId: string,
+  recipient: TicketRecipient,
+  ticketNumber: string,
+  noteText: string,
+  noteAuthorId: string | null
+): Promise<boolean> {
+  if (!noteText.trim()) return false; // nota vazia não tem o que enviar depois do "Prosseguir"
+
+  const templateRes = await query(
+    `SELECT body_text FROM public.pyvon_templates WHERE template_name = 'atualizacao_chamado' AND is_active = true LIMIT 1`
+  );
+  const template = templateRes.rows[0];
+  if (!template) return false;
+
+  const variables = { '1': recipient.name, '2': `#${ticketNumber}` };
+  const ctx = await PyvonService.resolveOutboundContext(recipient.phone);
+  const result = await PyvonService.sendTemplate(instanceId, {
+    templateName: 'atualizacao_chamado',
+    cadastroId: ctx.cadastroId || undefined,
+    phone: ctx.cadastroId ? undefined : recipient.phone,
+    name: recipient.name,
+    variables,
+    contentPreview: PyvonService.renderTemplateBody(template.body_text, variables)
+  });
+  if (result?.skipped || !result?.cadastro_id) return false;
+
+  const recorded = await PyvonService.recordOutboundTemplateMessage({
+    instanceId,
+    phone: recipient.phone,
+    cadastroId: result.cadastro_id,
+    customerName: recipient.name,
+    analystId: null,
+    analystName: 'SSX Desk (automático)',
+    text: PyvonService.renderTemplateBody(template.body_text, variables) || '[template atualizacao_chamado]'
+  });
+  if (!recorded) return false;
+
+  await query(
+    `UPDATE public.chat_sessions SET pyvon_pending_note_text = $1, pyvon_pending_note_set_at = NOW() WHERE id = $2`,
+    [noteText, recorded.id]
+  );
+
+  if (noteAuthorId) {
+    await PyvonService.claimSessionIfUnassigned(recorded.id, noteAuthorId);
+  }
+
+  return true;
+}
+
 async function logDispatch(fields: {
   eventKey: string; ticketId: string; recipientId?: string | null; recipientName?: string;
   channel?: 'whatsapp' | 'email'; recipientPhone?: string; recipientEmail?: string; subject?: string;
@@ -281,6 +387,42 @@ export async function dispatchEvent(eventKey: string, ticket: TicketRow, extra: 
       for (const r of recipients) {
         if (!r.phone || sentPhones.has(r.phone)) continue;
         sentPhones.add(r.phone);
+
+        // chamado_aberto: sempre via template pro Solicitante Principal,
+        // nunca texto livre — nem espera o atraso configurado (o ponto de
+        // usar template é justamente não depender de timing/janela). Se o
+        // template não estiver cadastrado/ativo, ou o envio falhar por
+        // qualquer motivo, cai no comportamento padrão abaixo — nunca deixa o
+        // solicitante sem nenhuma notificação por causa disso.
+        if (eventKey === 'novo_chamado' && r.id === ticket.customer_id && pyvonInstanceId) {
+          let sentViaTemplate = false;
+          try {
+            sentViaTemplate = await dispatchTicketOpenedTemplate(pyvonInstanceId, r, context.numero_chamado);
+          } catch (err: any) {
+            console.error('[automation] Falha ao enviar template chamado_aberto:', err?.message || err);
+          }
+          if (sentViaTemplate) {
+            await logDispatch({ eventKey, ticketId: ticket.id, recipientId: r.id, recipientName: r.name, channel: 'whatsapp', recipientPhone: r.phone, message: renderedMessage, status: 'sent' });
+            continue;
+          }
+        }
+
+        // atualizacao_chamado: mesma ideia, mas pra nota no Histórico
+        // Cliente (evento resposta_analista) — texto real da nota vem em
+        // extra.autor_id/extra.nota (buildPlaceholderContext já expõe
+        // context.nota; autor_id só existe em extra, não é placeholder).
+        if (eventKey === 'resposta_analista' && r.id === ticket.customer_id && pyvonInstanceId) {
+          let sentViaTemplate = false;
+          try {
+            sentViaTemplate = await dispatchTicketUpdateTemplate(pyvonInstanceId, r, context.numero_chamado, context.nota, extra.autor_id || null);
+          } catch (err: any) {
+            console.error('[automation] Falha ao enviar template atualizacao_chamado:', err?.message || err);
+          }
+          if (sentViaTemplate) {
+            await logDispatch({ eventKey, ticketId: ticket.id, recipientId: r.id, recipientName: r.name, channel: 'whatsapp', recipientPhone: r.phone, message: renderedMessage, status: 'sent' });
+            continue;
+          }
+        }
 
         if (delayMinutes > 0) {
           await query(
@@ -420,6 +562,15 @@ export function handleTicketUpdated(oldTicket: TicketRow | null | undefined, new
 /** Chamar sem await (fire-and-forget) ao criar uma ticket_message. `ticket` já deve ter sido buscado pelo chamador. */
 export function handleTicketMessageCreated(message: TicketMessageRow, ticket: TicketRow | null | undefined): void {
   if (!ticket || !message.is_visible_to_customer || message.type === 'internal') return;
-  dispatchEvent('resposta_analista', ticket, { nota: message.content || '' })
+  // autor_id não é placeholder de mensagem (buildPlaceholderContext ignora
+  // chaves que não conhece) — só carona pra dispatchEvent saber quem
+  // escreveu a nota, usado pra reivindicar a conversa em atualizacao_chamado.
+  // htmlToWhatsAppText: message.content é HTML (RichEditor, hoje só negrito/
+  // itálico) — convertido pra *negrito*/_itálico_ (sintaxe nativa do
+  // WhatsApp) em vez de só descartar a formatação. O e-mail (que só
+  // escapa/renderiza texto puro aqui, não faz parse de HTML) mostra os
+  // asteriscos/underscores literais — troca aceitável por não duplicar o
+  // texto da nota em dois formatos.
+  dispatchEvent('resposta_analista', ticket, { nota: htmlToWhatsAppText(message.content || ''), autor_id: message.author_id || '' })
     .catch(err => console.error('[automation] handleTicketMessageCreated:', err));
 }

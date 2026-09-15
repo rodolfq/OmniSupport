@@ -18,7 +18,7 @@ export async function GET() {
 
   try {
     const res = await query(
-      `SELECT id, template_name, language, description, variables_schema, is_active, created_at
+      `SELECT id, template_name, language, description, variables_schema, is_active, body_text, created_at
          FROM public.pyvon_templates ORDER BY created_at ASC`
     );
     return NextResponse.json(res.rows.map(r => ({
@@ -27,7 +27,8 @@ export async function GET() {
       language: r.language,
       description: r.description || '',
       variablesSchema: r.variables_schema || [],
-      isActive: r.is_active
+      isActive: r.is_active,
+      bodyText: r.body_text || ''
     })));
   } catch (err) {
     console.error('Error listing Pyvon templates:', err);
@@ -41,15 +42,15 @@ export async function POST(request: Request) {
   const { actor } = check;
 
   try {
-    const { id, templateName, language, description, variablesSchema, isActive } = await request.json();
+    const { id, templateName, language, description, variablesSchema, isActive, bodyText } = await request.json();
     if (!templateName?.trim()) return NextResponse.json({ error: 'Nome do template é obrigatório.' }, { status: 400 });
 
     if (id) {
       await query(
         `UPDATE public.pyvon_templates
-            SET template_name = $1, language = $2, description = $3, variables_schema = $4, is_active = $5
-          WHERE id = $6`,
-        [templateName.trim(), language || 'pt_BR', description || null, JSON.stringify(variablesSchema || []), isActive !== false, id]
+            SET template_name = $1, language = $2, description = $3, variables_schema = $4, is_active = $5, body_text = $6
+          WHERE id = $7`,
+        [templateName.trim(), language || 'pt_BR', description || null, JSON.stringify(variablesSchema || []), isActive !== false, bodyText || null, id]
       );
       logAudit({
         actorId: actor.id, actorName: actor.name, action: 'update',
@@ -60,9 +61,9 @@ export async function POST(request: Request) {
     }
 
     const res = await query(
-      `INSERT INTO public.pyvon_templates (template_name, language, description, variables_schema, is_active)
-       VALUES ($1, $2, $3, $4, $5) RETURNING id`,
-      [templateName.trim(), language || 'pt_BR', description || null, JSON.stringify(variablesSchema || []), isActive !== false]
+      `INSERT INTO public.pyvon_templates (template_name, language, description, variables_schema, is_active, body_text)
+       VALUES ($1, $2, $3, $4, $5, $6) RETURNING id`,
+      [templateName.trim(), language || 'pt_BR', description || null, JSON.stringify(variablesSchema || []), isActive !== false, bodyText || null]
     );
     logAudit({
       actorId: actor.id, actorName: actor.name, action: 'create',

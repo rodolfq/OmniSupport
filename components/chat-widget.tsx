@@ -40,7 +40,9 @@ import {
   Copy,
   Link2,
   AlertCircle,
-  RotateCw
+  RotateCw,
+  CheckCircle2,
+  Clock
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import {
@@ -56,11 +58,12 @@ import {
   TagConfig,
   Permission
 } from '@/lib/types';
-import { ChatService, fetchChatSessions, pushChatMessage, createChatSession, saveChatHistory, resolveChatSessionForPhone, submitSurveyResponse, transcribeChatAudio, getPreviousChatHistories, fetchSessionMessages, PreviousChatHistoriesResult, SessionMessagesResult } from '@/lib/services/chat-service';
+import { ChatService, fetchChatSessions, pushChatMessage, createChatSession, saveChatHistory, submitSurveyResponse, transcribeChatAudio, getPreviousChatHistories, fetchSessionMessages, PreviousChatHistoriesResult, SessionMessagesResult } from '@/lib/services/chat-service';
 import { fetchQuickNotes, fetchAnalystStatuses, fetchCompanies, fetchQueues, fetchSurveySettings, ConfigService } from '@/lib/services/config-service';
 import { useProfilesWithAvatarQuery } from '@/lib/query-hooks';
 import { TicketService } from '@/lib/services/ticket-service';
 import { saveTicketFromChatSession, closeChatSessionAfterTicket, assignChatSession, returnChatSessionToQueue, setChatSessionTags } from '@/lib/services/chat-session-actions';
+import { checkPyvonOutboundStatus, startPyvonConversation } from '@/lib/services/pyvon-template-service';
 import { ChatTagPicker, tagAccentBgClass } from '@/components/chat-tag-picker';
 import { cn, maskPhone, matchPhones, safeJsonStringify } from '@/lib/utils';
 import { useApp } from '@/app/app-context';
@@ -81,6 +84,27 @@ import { useIsMobile } from '@/hooks/use-mobile';
 import { toast } from 'sonner';
 
 const MAX_CHAT_ATTACHMENT_SIZE = 8 * 1024 * 1024;
+
+// Botão flutuante arrastável (clicar e segurar pra mover, ver
+// handleLauncherPointerDown mais abaixo) — tamanho real do botão (w-16 h-16)
+// e margem mínima até a borda da tela, usados tanto pra travar o arrasto
+// dentro da viewport quanto pra recalcular se ele ficaria fora da tela num
+// resize/rotação. Posição fica em px absolutos (canto sup.-esquerdo do
+// botão), persistida no localStorage — é preferência só deste navegador,
+// não precisa ir pro banco.
+const CHAT_LAUNCHER_SIZE = 64;
+const CHAT_LAUNCHER_EDGE_MARGIN = 8;
+const CHAT_LAUNCHER_POS_KEY = 'omni-chat-launcher-pos';
+
+function clampChatLauncherPos(left: number, top: number) {
+  if (typeof window === 'undefined') return { left, top };
+  const maxLeft = Math.max(CHAT_LAUNCHER_EDGE_MARGIN, window.innerWidth - CHAT_LAUNCHER_SIZE - CHAT_LAUNCHER_EDGE_MARGIN);
+  const maxTop = Math.max(CHAT_LAUNCHER_EDGE_MARGIN, window.innerHeight - CHAT_LAUNCHER_SIZE - CHAT_LAUNCHER_EDGE_MARGIN);
+  return {
+    left: Math.min(Math.max(left, CHAT_LAUNCHER_EDGE_MARGIN), maxLeft),
+    top: Math.min(Math.max(top, CHAT_LAUNCHER_EDGE_MARGIN), maxTop),
+  };
+}
 
 // Só formata o padrão BR mais comum (55 + DDD + 9 dígitos, com ou sem o "55");
 // qualquer outro formato (número estrangeiro, grupo/broadcast antigo) cai no
@@ -229,6 +253,86 @@ export function ChatWidget() {
   // Use isOmniChatOpen directly instead of syncing with a local isMinimized state
   const isMinimized = !isOmniChatOpen;
   const setIsMinimized = (minimized: boolean) => setIsOmniChatOpen(!minimized);
+
+  // Posição livre do botão flutuante (null = ainda no canto padrão,
+  // inferior direito). Carregada uma vez do localStorage já com clamp pro
+  // tamanho de tela atual, porque a tela pode ter mudado de tamanho desde a
+  // última vez que a posição foi salva neste navegador.
+  const [launcherPos, setLauncherPos] = useState<{ left: number; top: number } | null>(null);
+  const [isDraggingLauncher, setIsDraggingLauncher] = useState(false);
+  // Sobrevive ao pointerup/click sintético que o navegador dispara em
+  // seguida — sem isso, soltar o botão depois de arrastar também contaria
+  // como um clique e abriria/fecharia o chat sem o usuário pedir.
+  const justDraggedLauncherRef = useRef(false);
+
+  useEffect(() => {
+    try {
+      const saved = window.localStorage.getItem(CHAT_LAUNCHER_POS_KEY);
+      if (saved) {
+        const parsed = JSON.parse(saved);
+        if (typeof parsed?.left === 'number' && typeof parsed?.top === 'number') {
+          setLauncherPos(clampChatLauncherPos(parsed.left, parsed.top));
+        }
+      }
+    } catch {}
+  }, []);
+
+  useEffect(() => {
+    const onResize = () => {
+      setLauncherPos(prev => (prev ? clampChatLauncherPos(prev.left, prev.top) : prev));
+    };
+    window.addEventListener('resize', onResize);
+    return () => window.removeEventListener('resize', onResize);
+  }, []);
+
+  // Clicar e segurar (350ms parado) entra em modo de arrasto; soltar antes
+  // disso é só um clique normal (abre/fecha). Uma vez arrastando, o botão
+  // segue o ponteiro livremente, travado dentro da tela (clampChatLauncherPos).
+  const handleLauncherPointerDown = (e: React.PointerEvent<HTMLButtonElement>) => {
+    if (e.pointerType === 'mouse' && e.button !== 0) return;
+    const startX = e.clientX;
+    const startY = e.clientY;
+    const rect = e.currentTarget.getBoundingClientRect();
+    const origLeft = rect.left;
+    const origTop = rect.top;
+    let dragActive = false;
+    let finalPos: { left: number; top: number } | null = null;
+
+    const activateDrag = () => {
+      dragActive = true;
+      justDraggedLauncherRef.current = true;
+      setIsDraggingLauncher(true);
+      document.body.style.userSelect = 'none';
+    };
+    const holdTimer = setTimeout(activateDrag, 350);
+
+    const onMove = (moveEvent: PointerEvent) => {
+      if (!dragActive) return;
+      moveEvent.preventDefault();
+      const dx = moveEvent.clientX - startX;
+      const dy = moveEvent.clientY - startY;
+      finalPos = clampChatLauncherPos(origLeft + dx, origTop + dy);
+      setLauncherPos(finalPos);
+    };
+    const onUp = () => {
+      clearTimeout(holdTimer);
+      window.removeEventListener('pointermove', onMove);
+      window.removeEventListener('pointerup', onUp);
+      if (dragActive) {
+        setIsDraggingLauncher(false);
+        document.body.style.userSelect = '';
+        if (finalPos) {
+          try { window.localStorage.setItem(CHAT_LAUNCHER_POS_KEY, JSON.stringify(finalPos)); } catch {}
+        }
+        setTimeout(() => { justDraggedLauncherRef.current = false; }, 0);
+      } else {
+        justDraggedLauncherRef.current = false;
+      }
+    };
+
+    window.addEventListener('pointermove', onMove);
+    window.addEventListener('pointerup', onUp);
+  };
 
   useEffect(() => {
     if (!isExpanded || isMinimized) return;
@@ -690,6 +794,31 @@ export function ChatWidget() {
   const [newChatName, setNewChatName] = useState('');
   const [customerSearch, setCustomerSearch] = useState('');
   const [searchResults, setSearchResults] = useState<{id: string, name: string, phone?: string, type: 'company' | 'employee', companyName?: string}[]>([]);
+
+  // Transparência da janela de 24h (canal Pyvon) — mesma checagem/decisão de
+  // components/start-whatsapp-conversation-modal.tsx (Empresas > Decisor),
+  // só que embutida aqui pra não perder a busca de cliente/funcionário
+  // cadastrado que só este modal tem. Quem decide de verdade é sempre o
+  // servidor (startPyvonConversation), isto aqui é só preview.
+  const [newChatWindowStatus, setNewChatWindowStatus] = useState<'unknown' | 'checking' | 'open' | 'closed'>('unknown');
+  const [isStartingNewChat, setIsStartingNewChat] = useState(false);
+  const newChatCheckSeqRef = useRef(0);
+  useEffect(() => {
+    const digits = newChatNumber.replace(/\D/g, '');
+    if (digits.length < 10) {
+      setNewChatWindowStatus('unknown');
+      return;
+    }
+    setNewChatWindowStatus('checking');
+    const seq = ++newChatCheckSeqRef.current;
+    const timer = setTimeout(async () => {
+      const result = await checkPyvonOutboundStatus(digits);
+      if (seq !== newChatCheckSeqRef.current) return;
+      if ('error' in result) { setNewChatWindowStatus('unknown'); return; }
+      setNewChatWindowStatus(result.withinWindow ? 'open' : 'closed');
+    }, 500);
+    return () => clearTimeout(timer);
+  }, [newChatNumber]);
   
   const [isFinishModalOpen, setIsFinishModalOpen] = useState(false);
   const [ticketTitle, setTicketTitle] = useState('');
@@ -1238,9 +1367,10 @@ useEffect(() => {
     queueId?: string | null;
     channel?: string;
     text: string;
-    hasAttachments?: boolean;
+    attachments?: Attachment[];
   }): Promise<{ ok: boolean; error?: string }> => {
-    const { sessionId, messageId, customerPhone, queueId, channel, text, hasAttachments } = params;
+    const { sessionId, messageId, customerPhone, queueId, channel, text, attachments } = params;
+    const hasAttachments = !!attachments?.length;
     if (!customerPhone) return { ok: true }; // sem telefone = não é canal WhatsApp, nada a fazer
     // channel === 'widget': conversa 100% pelo widget do portal — o cliente só
     // tem telefone cadastrado no PERFIL, isso nunca foi um canal de WhatsApp de
@@ -1260,7 +1390,7 @@ useEffect(() => {
       const res = await fetch('/api/whatsapp/send', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: safeJsonStringify({ instanceId, to: phone, message: text, sessionId }),
+        body: safeJsonStringify({ instanceId, to: phone, message: text, sessionId, messageId }),
       });
       if (!res.ok) {
         const body = await res.json().catch(() => ({}));
@@ -1269,10 +1399,15 @@ useEffect(() => {
         toast.warning('Mensagem salva, mas não foi enviada no WhatsApp.');
         outcome = { ok: false, error: errorMsg };
       } else {
-        if (hasAttachments) {
-          // Envio de mídia pelo WhatsApp ainda não é suportado (só o texto é transmitido).
-          console.warn('WhatsApp send: attachment present but media sending is not yet implemented; only text was transmitted.', { instanceId, phone });
-          toast.warning('Anexo salvo na conversa, mas o envio de mídia (áudio/arquivo) pelo WhatsApp ainda não está disponível.');
+        const body = await res.json().catch(() => ({}));
+        // mediaSent === false: o canal é capaz de encaminhar mídia (Pyvon),
+        // mas este anexo específico não pôde virar link público agora (ex.:
+        // NEXT_PUBLIC_APP_URL não configurada, ou anexo em data: URL legado).
+        // undefined: canal ainda não suporta mídia (Baileys/Meta) — mesmo
+        // aviso de sempre.
+        if (hasAttachments && body.mediaSent !== true) {
+          console.warn('WhatsApp send: attachment present but media was not forwarded.', { instanceId, phone, mediaSent: body.mediaSent });
+          toast.warning('Anexo salvo na conversa, mas o envio de mídia pelo WhatsApp ainda não está disponível neste canal.');
         }
         outcome = { ok: true };
       }
@@ -1300,7 +1435,7 @@ useEffect(() => {
       queueId: selectedChat.queueId,
       channel: selectedChat.channel,
       text: message.text,
-      hasAttachments: !!message.attachments?.length
+      attachments: message.attachments
     });
   };
 
@@ -1403,10 +1538,10 @@ useEffect(() => {
             queueId: session.queueId,
             channel: session.channel,
             text: newMessage.text,
-            hasAttachments: !!newMessage.attachments && newMessage.attachments.length > 0
+            attachments: newMessage.attachments
           });
         }
-        
+
         // Refresh sessions from Supabase
         const refreshedSessions = await fetchChatSessions();
         setCustomerSessions(refreshedSessions);
@@ -1462,7 +1597,7 @@ useEffect(() => {
             queueId: freshSession.queueId,
             channel: freshSession.channel,
             text: newMessage.text,
-            hasAttachments: !!newMessage.attachments && newMessage.attachments.length > 0
+            attachments: newMessage.attachments
           });
         }
       } catch (error) {
@@ -1474,41 +1609,35 @@ useEffect(() => {
     setShowQuickNoteSearch(false);
   };
 
-  // Acha/retoma ou cria a sessão de WhatsApp pro número informado e a
-  // seleciona. Compartilhado por dois gatilhos: o modal "Novo WhatsApp"
-  // (digitação manual, ver handleStartNewChat) e o clique num número de
-  // telefone detectado dentro do texto de uma mensagem (ver
-  // components/linked-chat-text.tsx) — igual ao que o WhatsApp Web faz. A
-  // resolução em si (achar/criar sessão) mora em lib/services/chat-service.ts
-  // (resolveChatSessionForPhone), reaproveitada também pelo preview de
-  // conversa em chat-management/page.tsx. Retorna se deu certo, pra quem
-  // chama decidir se fecha modal/limpa campo.
-  const openChatForPhone = async (rawNumber: string, displayName?: string): Promise<boolean> => {
+  // Canal Pyvon: decide sozinho (servidor) se abre normal (dentro da janela
+  // de 24h) ou se precisa do template contato_pos_vendas antes — mesma regra
+  // de components/start-whatsapp-conversation-modal.tsx. Substituiu o
+  // openChatForPhone direto, que abria sem checar nada.
+  const handleStartNewChat = async () => {
+    if (!newChatNumber || isStartingNewChat) return;
+    setIsStartingNewChat(true);
     try {
-      const result = await resolveChatSessionForPhone(rawNumber, displayName);
+      const result = await startPyvonConversation({ phone: newChatNumber, name: newChatName || undefined });
       if ('error' in result) {
         toast.error(result.error);
-        return false;
+        return;
       }
       setSelectedChatId(result.sessionId);
       const sessions = await fetchChatSessions();
       setCustomerSessions(sessions);
-      toast[result.reopened ? 'info' : 'success'](result.reopened ? 'Conversa existente reaberta.' : 'Conversa WhatsApp iniciada!');
-      return true;
+      toast.success(result.usedTemplate
+        ? 'Fora da janela de 24h — mensagem inicial enviada e conversa aberta.'
+        : 'Conversa aberta — o contato já pode ser respondido normalmente.');
+      setIsNewChatModalOpen(false);
+      setNewChatNumber('');
+      setNewChatName('');
+      setNewChatWindowStatus('unknown');
     } catch (error) {
       console.error('Error starting chat:', error);
       toast.error('Erro ao iniciar conversa.');
-      return false;
+    } finally {
+      setIsStartingNewChat(false);
     }
-  };
-
-  const handleStartNewChat = async () => {
-    if (!newChatNumber) return;
-    const ok = await openChatForPhone(newChatNumber, newChatName);
-    if (!ok) return;
-    setIsNewChatModalOpen(false);
-    setNewChatNumber('');
-    setNewChatName('');
   };
 
   // Arquiva a conversa ATUAL (grava snapshot em chat_histories, mesmo formato
@@ -2183,15 +2312,28 @@ useEffect(() => {
   // disparado no desktop por isExpanded.
   const isFullScreen = isMobileFullScreen || isExpanded;
 
+  // Com o botão arrastado (launcherPos preenchido, fora do fullscreen), o
+  // painel abre sempre pro lado com mais espaço na tela em vez do canto fixo
+  // de sempre — pra cima/direita por padrão (replica o comportamento
+  // original quando launcherPos é null), vira pra baixo/esquerda conforme o
+  // botão se aproxima do topo/da borda esquerda.
+  const hasCustomLauncherPos = !!launcherPos && !isFullScreen;
+  const openPanelUp = !hasCustomLauncherPos || (launcherPos!.top + CHAT_LAUNCHER_SIZE / 2) > window.innerHeight / 2;
+  const anchorPanelRight = !hasCustomLauncherPos || (launcherPos!.left + CHAT_LAUNCHER_SIZE / 2) > window.innerWidth / 2;
+
   return (
     <div
       className={cn(
-        "omni-chat-shell fixed flex flex-col items-end",
+        "omni-chat-shell fixed flex flex-col",
+        anchorPanelRight ? "items-end" : "items-start",
         // Em tela cheia no celular precisa ficar acima da bottom nav (z-[200]
         // em mobile-bottom-nav.tsx) — ela já se esconde sozinha enquanto o
         // chat está aberto, mas isso é reforço para não depender só disso.
-        isFullScreen ? "inset-0 z-[250]" : "bottom-6 right-6 z-[200]"
+        isFullScreen
+          ? "inset-0 z-[250]"
+          : cn("z-[200]", !hasCustomLauncherPos && "bottom-6 right-6")
       )}
+      style={hasCustomLauncherPos ? { left: launcherPos!.left, top: launcherPos!.top } : undefined}
       data-expanded={isExpanded && !isMinimized ? 'true' : 'false'}
     >
       <AnimatePresence>
@@ -2204,8 +2346,10 @@ useEffect(() => {
               scale: 1,
               width: isFullScreen ? '100vw' : 'min(400px, calc(100vw - 2rem))',
               height: isFullScreen ? '100dvh' : 'min(600px, calc(100vh - 6rem))',
-              right: isFullScreen ? 0 : '0',
-              bottom: isFullScreen ? 0 : '80px',
+              right: isFullScreen ? 0 : (anchorPanelRight ? '0' : 'auto'),
+              left: isFullScreen ? 'auto' : (anchorPanelRight ? 'auto' : '0'),
+              bottom: isFullScreen ? 0 : (openPanelUp ? '80px' : 'auto'),
+              top: isFullScreen ? 'auto' : (openPanelUp ? 'auto' : '80px'),
             }}
             exit={{ opacity: 0, y: 50, scale: 0.9 }}
             className={cn(
@@ -2271,7 +2415,12 @@ useEffect(() => {
                       />
                     </div>
                     <button
-                      onClick={() => setIsNewChatModalOpen(true)}
+                      onClick={() => {
+                        setNewChatNumber('');
+                        setNewChatName('');
+                        setNewChatWindowStatus('unknown');
+                        setIsNewChatModalOpen(true);
+                      }}
                       className="w-full py-2 bg-[var(--accent)]/10 text-[var(--accent-text)] border border-[var(--accent)]/20 rounded-xl text-[10px] font-semibold uppercase tracking-widest flex items-center justify-center gap-2 hover:bg-[var(--accent)]/20 transition-all"
                     >
                       <Plus size={13} /> Novo WhatsApp
@@ -3529,12 +3678,35 @@ useEffect(() => {
                         />
                      </div>
                    </div>
-                   <button 
-                     onClick={handleStartNewChat} 
-                     disabled={!newChatNumber}
-                     className="w-full mt-4 py-4 bg-[var(--accent)] text-white rounded-2xl text-[11px] font-semibold uppercase tracking-widest shadow-xl shadow-indigo-100 hover:bg-[var(--accent-hover)] disabled:opacity-50 disabled:cursor-not-allowed transition-all"
+
+                   {/* Transparência da janela de 24h (canal Pyvon) — nunca
+                       decide nada aqui, só antecipa o que o servidor vai
+                       decidir ao clicar (ver handleStartNewChat). */}
+                   {newChatWindowStatus !== 'unknown' && (
+                     <div className={cn(
+                       "flex items-start gap-2.5 p-3.5 rounded-2xl text-xs font-semibold leading-snug",
+                       newChatWindowStatus === 'checking' && "bg-[var(--surface-pill)] text-[var(--text-tertiary)]",
+                       newChatWindowStatus === 'open' && "bg-[var(--surface-success)] text-[var(--text-success)]",
+                       newChatWindowStatus === 'closed' && "bg-[var(--surface-warning)] text-[var(--text-warning)]"
+                     )}>
+                       {newChatWindowStatus === 'checking' && <Loader2 size={15} className="shrink-0 mt-0.5 animate-spin" />}
+                       {newChatWindowStatus === 'open' && <CheckCircle2 size={15} className="shrink-0 mt-0.5" />}
+                       {newChatWindowStatus === 'closed' && <Clock size={15} className="shrink-0 mt-0.5" />}
+                       <span>
+                         {newChatWindowStatus === 'checking' && 'Verificando se este contato já respondeu nas últimas 24h...'}
+                         {newChatWindowStatus === 'open' && 'Dentro da janela de 24h — a conversa abre normal, sem template.'}
+                         {newChatWindowStatus === 'closed' && 'Fora da janela de 24h (ou contato novo) — vamos enviar a mensagem inicial do modelo aprovado ("contato_pos_vendas") pra poder falar com ele.'}
+                       </span>
+                     </div>
+                   )}
+
+                   <button
+                     onClick={handleStartNewChat}
+                     disabled={!newChatNumber || isStartingNewChat}
+                     className="w-full mt-4 py-4 bg-[var(--accent)] text-white rounded-2xl text-[11px] font-semibold uppercase tracking-widest shadow-xl shadow-indigo-100 hover:bg-[var(--accent-hover)] disabled:opacity-50 disabled:cursor-not-allowed transition-all flex items-center justify-center gap-2"
                    >
-                     Iniciar Conversa
+                     {isStartingNewChat && <Loader2 size={14} className="animate-spin" />}
+                     {newChatWindowStatus === 'closed' ? 'Enviar Mensagem e Abrir Conversa' : 'Iniciar Conversa'}
                    </button>
                 </div>
              </motion.div>
@@ -3686,15 +3858,20 @@ useEffect(() => {
           quando aberto é redundante com o ChevronDown do próprio cabeçalho
           do chat (poucas linhas acima). */}
       {!isMobileViewport && (!isExpanded || isMinimized) && (
-        <button 
+        <button
           onClick={() => {
+            if (justDraggedLauncherRef.current) { justDraggedLauncherRef.current = false; return; }
             if (isMinimized) {
               setIsExpanded(false);
             }
             setIsMinimized(!isMinimized);
           }}
+          onPointerDown={handleLauncherPointerDown}
+          title={isMinimized ? 'Abrir chat (clique e segure para mover)' : 'Fechar chat (clique e segure para mover)'}
+          style={{ touchAction: 'none', transition: isDraggingLauncher ? 'none' : undefined }}
           className={cn(
             "w-16 h-16 rounded-full flex items-center justify-center text-white shadow-2xl transition-all hover:scale-110 active:scale-95 relative group",
+            isDraggingLauncher ? "cursor-grabbing scale-110" : "cursor-pointer",
             isMinimized ? "bg-[var(--accent)]" : "bg-slate-900 border-4 border-slate-800"
           )}
         >

@@ -1,15 +1,20 @@
 'use client';
 
 import React from 'react';
-import { RotateCcw, Eye, EyeOff, Save, Clock, MessageCircleMore, Mail } from 'lucide-react';
+import { RotateCcw, Save, Clock, MessageCircleMore, Mail } from 'lucide-react';
 import { toast } from 'sonner';
-import { cn } from '@/lib/utils';
 import { StyledSelect } from '@/components/styled-select';
-import { AUTOMATION_EVENTS, AUTOMATION_VARIABLES, renderTemplate, AutomationEventDef } from '@/lib/automation-events';
+import { AUTOMATION_EVENTS, AUTOMATION_VARIABLES, AutomationEventDef } from '@/lib/automation-events';
 import { AutomationSetting } from '@/lib/types';
-import { getPyvonTemplates, PyvonTemplate } from '@/lib/services/pyvon-template-service';
 
 interface EditState {
+  // `enabled` (WhatsApp) e `pyvonTemplateId` não têm mais controle na UI —
+  // o envio via WhatsApp hoje é feito pelos templates dedicados (chamado_
+  // aberto/atualizacao_chamado, ver lib/services/automation-service.ts),
+  // não por este texto livre. Os dois campos continuam aqui só pra ida e
+  // volta intacta no Salvar (o valor gravado no banco não muda por conta
+  // desta tela), sem UI própria — nunca zerar/reescrever esses dois ao
+  // salvar.
   enabled: boolean;
   message: string;
   delayMinutes: number;
@@ -19,12 +24,7 @@ interface EditState {
   emailSubject: string;
   pyvonTemplateId: string;
   saving: boolean;
-  showPreview: boolean;
 }
-
-const PREVIEW_CONTEXT: Record<string, string> = Object.fromEntries(
-  AUTOMATION_VARIABLES.map(v => [v.key, v.sample])
-);
 
 function toEditState(def: AutomationEventDef, saved?: AutomationSetting): EditState {
   return {
@@ -36,23 +36,8 @@ function toEditState(def: AutomationEventDef, saved?: AutomationSetting): EditSt
     emailEnabled: saved?.email_enabled ?? false,
     emailSubject: saved?.email_subject ?? '',
     pyvonTemplateId: saved?.pyvon_template_id ?? '',
-    saving: false,
-    showPreview: false
+    saving: false
   };
-}
-
-// Aproximação simples da formatação do WhatsApp para a prévia (negrito
-// *x*, itálico _x_, riscado ~x~). Não pretende ser um parser completo.
-function renderWhatsAppFormatting(text: string): string {
-  const escaped = text
-    .replace(/&/g, '&amp;')
-    .replace(/</g, '&lt;')
-    .replace(/>/g, '&gt;');
-  return escaped
-    .replace(/\*([^*\n]+)\*/g, '<strong>$1</strong>')
-    .replace(/_([^_\n]+)_/g, '<em>$1</em>')
-    .replace(/~([^~\n]+)~/g, '<del>$1</del>')
-    .replace(/\n/g, '<br/>');
 }
 
 export function AutomatedMessagesContent() {
@@ -60,7 +45,6 @@ export function AutomatedMessagesContent() {
   const [editState, setEditState] = React.useState<Record<string, EditState>>(
     Object.fromEntries(AUTOMATION_EVENTS.map(def => [def.key, toEditState(def)]))
   );
-  const [pyvonTemplates, setPyvonTemplates] = React.useState<PyvonTemplate[]>([]);
   const [loaded, setLoaded] = React.useState(false);
   const [focusedEventKey, setFocusedEventKey] = React.useState<string | null>(null);
   const textareaRefs = React.useRef<Record<string, HTMLTextAreaElement | null>>({});
@@ -68,15 +52,13 @@ export function AutomatedMessagesContent() {
   React.useEffect(() => {
     const load = async () => {
       try {
-        const [settingsRes, statusesRes, templates] = await Promise.all([
+        const [settingsRes, statusesRes] = await Promise.all([
           fetch('/api/config?type=automation-settings'),
-          fetch('/api/config?type=statuses'),
-          getPyvonTemplates()
+          fetch('/api/config?type=statuses')
         ]);
         const settings: AutomationSetting[] = await settingsRes.json();
         const statusList = await statusesRes.json();
         setStatuses(statusList || []);
-        setPyvonTemplates(templates.filter(t => t.isActive));
 
         const byKey = new Map(settings.map(s => [s.event_key, s]));
         setEditState(
@@ -165,7 +147,6 @@ export function AutomatedMessagesContent() {
         {AUTOMATION_EVENTS.map(def => {
           const state = editState[def.key];
           if (!state) return null;
-          const preview = renderTemplate(state.message, PREVIEW_CONTEXT);
 
           return (
             <div key={def.key} className="bg-[var(--surface-card)] border border-[var(--border-default)] rounded-2xl p-6 shadow-sm space-y-4">
@@ -175,15 +156,6 @@ export function AutomatedMessagesContent() {
                   <p className="text-xs text-[var(--text-tertiary)] mt-1">{def.description}</p>
                 </div>
                 <div className="flex flex-col items-end gap-1.5 shrink-0">
-                  <label className="flex items-center gap-2 text-xs font-semibold text-[var(--text-secondary)] cursor-pointer select-none">
-                    <input
-                      type="checkbox"
-                      checked={state.enabled}
-                      onChange={(e) => patchEvent(def.key, { enabled: e.target.checked })}
-                      className="w-4 h-4 accent-[var(--accent)]"
-                    />
-                    <MessageCircleMore size={13} /> WhatsApp {state.enabled ? 'Ativo' : 'Inativo'}
-                  </label>
                   <label className="flex items-center gap-2 text-xs font-semibold text-[var(--text-secondary)] cursor-pointer select-none">
                     <input
                       type="checkbox"
@@ -206,23 +178,6 @@ export function AutomatedMessagesContent() {
                     placeholder="Chamado {{numero_chamado}} — {{titulo}}"
                     className="w-full bg-[var(--surface-card)] border border-[var(--border-default)] rounded-xl px-4 py-2.5 text-sm font-medium"
                   />
-                </div>
-              )}
-
-              {state.enabled && pyvonTemplates.length > 0 && (
-                <div className="space-y-1.5">
-                  <span className="text-[10px] font-semibold uppercase tracking-widest text-[var(--text-tertiary)]">Template Pyvon (fallback fora da janela de 24h)</span>
-                  <StyledSelect
-                    value={state.pyvonTemplateId}
-                    onChange={(e) => patchEvent(def.key, { pyvonTemplateId: e.target.value })}
-                    className="w-full bg-[var(--surface-card)] border border-[var(--border-default)] rounded-xl px-4 py-2.5 text-sm font-medium"
-                  >
-                    <option value="">Sem fallback — falha se a janela estiver fechada</option>
-                    {pyvonTemplates.map(t => (
-                      <option key={t.id} value={t.id}>{t.templateName}</option>
-                    ))}
-                  </StyledSelect>
-                  <p className="text-[9px] text-[var(--text-tertiary)]">Só usado quando o canal do cliente é Pyvon e a última mensagem dele foi há mais de 24h. O template precisa ter exatamente 1 variável — a mensagem acima inteira vai nela.</p>
                 </div>
               )}
 
@@ -257,20 +212,7 @@ export function AutomatedMessagesContent() {
                 >
                   <RotateCcw size={12} /> Restaurar padrão
                 </button>
-                <button
-                  onClick={() => patchEvent(def.key, { showPreview: !state.showPreview })}
-                  className="flex items-center gap-1.5 text-[10px] font-semibold uppercase text-[var(--accent-text)] hover:bg-[var(--accent)]/10 px-3 py-1.5 rounded-lg border border-[var(--accent)]/20 transition-colors"
-                >
-                  {state.showPreview ? <EyeOff size={12} /> : <Eye size={12} />} {state.showPreview ? 'Ocultar prévia' : 'Visualizar'}
-                </button>
               </div>
-
-              {state.showPreview && (
-                <div className="flex justify-start">
-                  <div className="max-w-[85%] bg-[#dcf8c6] text-[#111b21] rounded-2xl rounded-tl-sm px-4 py-3 text-sm leading-relaxed shadow-sm whitespace-pre-wrap"
-                       dangerouslySetInnerHTML={{ __html: renderWhatsAppFormatting(preview) }} />
-                </div>
-              )}
 
               <div className="flex flex-wrap items-center justify-between gap-4 pt-2 border-t border-[var(--border-default)]">
                 <div className="flex flex-wrap items-center gap-4">

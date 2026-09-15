@@ -5,6 +5,7 @@ import { emitChatEvent, emitSessionsChanged, excludeActiveViewers } from '../cha
 import { notifyUser } from './push-service';
 import { getChatRecipientIds } from './notification-recipients';
 import { resolveQueueForInstance, pickNextQueueAssignee, dispatchPendingChatSessions } from './queue-routing';
+import { isCrisisModeEnabled, recordCrisisModeMessage, CRISIS_MODE_MESSAGE } from './crisis-mode-service';
 
 interface MetaWebhookPayload {
   object: string;
@@ -245,9 +246,14 @@ export class MetaWhatsAppService {
       // roteia pra fila vinculada a este canal, senão a conversa nasce sem
       // dono (bug que existia aqui antes — toda mensagem via Meta virava
       // 'active' sem assignee_id nem queue_id, fora do rodízio de filas).
+      // regexp_replace: profiles.phone é salvo com máscara ((21) 99177-8567) —
+      // comparar sem normalizar os dois lados nunca batia (ver mesma correção
+      // em whatsapp-service.ts/pyvon-service.ts).
       const profileRes = finalVariants.length
         ? await query(
-            `SELECT id, name FROM public.profiles WHERE phone IN (${placeHolders}) LIMIT 1`,
+            `SELECT id, name FROM public.profiles
+             WHERE regexp_replace(COALESCE(phone, ''), '\\D', '', 'g') IN (${placeHolders})
+             LIMIT 1`,
             finalVariants
           )
         : { rows: [] as any[] };
@@ -273,7 +279,22 @@ export class MetaWhatsAppService {
         return { insertRes };
       });
 
-      if (insertRes.rows[0]) return insertRes.rows[0];
+      if (insertRes.rows[0]) {
+        const newSession = insertRes.rows[0];
+        // Modo de Crise (ver crisis-mode-service.ts) — disparo sem bloquear o
+        // recebimento da mensagem real; falha aqui nunca deve impedir o resto.
+        // Sem instanceId não há como enviar pela Meta (getTokens exige), então
+        // não registra nada — melhor não avisar do que registrar como enviado
+        // sem o cliente ter recebido.
+        if (instanceId) {
+          isCrisisModeEnabled().then(async (enabled) => {
+            if (!enabled) return;
+            await MetaWhatsAppService.sendMessage(instanceId, digits, CRISIS_MODE_MESSAGE);
+            await recordCrisisModeMessage(newSession.id);
+          }).catch(err => console.error('[MetaWhatsApp] Falha ao enviar mensagem do Modo de Crise:', err?.message || err));
+        }
+        return newSession;
+      }
 
       const retryRes = await query(
         `SELECT id, customer_phone, customer_id, assignee_id, queue_id FROM public.chat_sessions

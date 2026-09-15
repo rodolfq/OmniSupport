@@ -1,12 +1,16 @@
 'use client';
 
 import React from 'react';
-import { Plus, Trash2, Star, Archive, ArchiveRestore, ChevronDown, ChevronRight } from 'lucide-react';
+import { Plus, Trash2, Star, Archive, ArchiveRestore, ChevronDown, ChevronRight, AlertTriangle } from 'lucide-react';
 import { useQueryClient } from '@tanstack/react-query';
 import { toast } from 'sonner';
 import { EditableLabel } from '@/components/editable-label';
 import { ConfirmModal } from '@/components/confirm-modal';
 import { ConfigService, SimpleListType } from '@/lib/services/config-service';
+import { useApp } from '@/app/app-context';
+import { UserRole } from '@/lib/types';
+import { CRISIS_MODE_MESSAGE } from '@/lib/crisis-mode-message';
+import { cn } from '@/lib/utils';
 
 interface SimpleItem {
   id: string;
@@ -131,6 +135,8 @@ function SimpleListSection({
 }
 
 export function SystemConfigContent({ categories, priorities, requestTypes, products, setCategories, setPriorities, setRequestTypes, setProducts, surveySettings, setSurveySettings }: any) {
+  const { currentUser } = useApp();
+  const isAdmin = currentUser?.role === UserRole.ADMIN;
   // Esta tela lê e escreve nessas mesmas tabelas via estado elevado (props
   // set*), então continua gerenciando sua própria lista local como sempre —
   // só avisa o cache compartilhado (lib/query-hooks.ts, usado por
@@ -323,6 +329,36 @@ export function SystemConfigContent({ categories, priorities, requestTypes, prod
     }
   };
 
+  // Modo de Crise — só Administrador vê e mexe (não basta settings:system,
+  // ver app/api/config/route.ts TIPOS_SOMENTE_ADMIN). Auto-contido: não
+  // depende de estado erguido no settings/page.tsx como as listas acima.
+  const [crisisModeEnabled, setCrisisModeEnabled] = React.useState(false);
+  const [crisisModeLoaded, setCrisisModeLoaded] = React.useState(false);
+  const [savingCrisisMode, setSavingCrisisMode] = React.useState(false);
+
+  React.useEffect(() => {
+    if (!isAdmin) return;
+    ConfigService.getCrisisMode()
+      .then(data => setCrisisModeEnabled(data.enabled))
+      .catch(() => {})
+      .finally(() => setCrisisModeLoaded(true));
+  }, [isAdmin]);
+
+  const handleToggleCrisisMode = async (next: boolean) => {
+    setSavingCrisisMode(true);
+    try {
+      await ConfigService.saveCrisisMode(next);
+      setCrisisModeEnabled(next);
+      toast.success(next
+        ? 'Modo de Crise ativado — todo chat novo receberá o aviso de instabilidade automaticamente.'
+        : 'Modo de Crise desativado.');
+    } catch (err: any) {
+      toast.error(err?.message || 'Erro ao salvar o Modo de Crise');
+    } finally {
+      setSavingCrisisMode(false);
+    }
+  };
+
   return (
     <>
     <div className="grid grid-cols-1 md:grid-cols-2 gap-8 border-t border-[var(--border-default)] pt-8 mt-8">
@@ -465,6 +501,43 @@ export function SystemConfigContent({ categories, priorities, requestTypes, prod
         * Enviada por WhatsApp junto com o aviso de encerramento. O cliente responde "1" (satisfeito) ou "0" (poderia ser melhor) dentro do prazo configurado.
       </p>
     </div>
+
+    {isAdmin && crisisModeLoaded && (
+      <div className="border-t border-[var(--border-default)] pt-8 mt-8 space-y-4">
+        <div className="flex items-center justify-between">
+          <div className="flex items-center gap-2">
+            <AlertTriangle size={16} className="text-[var(--text-danger)]" />
+            <h4 className="text-sm font-semibold text-[var(--text-primary)] uppercase tracking-tight">Modo de Crise</h4>
+          </div>
+          <label className="flex items-center gap-2 text-xs font-semibold text-[var(--text-secondary)] cursor-pointer select-none">
+            <input
+              type="checkbox"
+              checked={crisisModeEnabled}
+              disabled={savingCrisisMode}
+              onChange={(e) => handleToggleCrisisMode(e.target.checked)}
+              className="w-4 h-4 accent-[var(--text-danger)]"
+            />
+            {crisisModeEnabled ? 'Ativo' : 'Inativo'}
+          </label>
+        </div>
+        <div className={cn(
+          "rounded-2xl p-4 border space-y-3",
+          crisisModeEnabled
+            ? "bg-[var(--text-danger)]/5 border-[var(--text-danger)]/30"
+            : "bg-[var(--surface-card)] border-[var(--border-default)]"
+        )}>
+          <p className="text-xs text-[var(--text-secondary)] font-medium">
+            Enquanto ativo, todo chat novo que cair na fila — WhatsApp (qualquer canal) ou chat do portal — recebe automaticamente o aviso abaixo assim que nasce, além de ser atribuído normalmente ao próximo analista do rodízio.
+          </p>
+          <div className="space-y-1.5">
+            <span className="text-[10px] font-semibold uppercase tracking-widest text-[var(--text-tertiary)]">Mensagem enviada (fixa, não editável)</span>
+            <p className="w-full bg-[var(--surface-card)] border border-[var(--border-default)] rounded-xl px-4 py-3 text-sm whitespace-pre-wrap">
+              {CRISIS_MODE_MESSAGE}
+            </p>
+          </div>
+        </div>
+      </div>
+    )}
 
     <ConfirmModal
       isOpen={!!pendingDelete}

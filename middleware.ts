@@ -20,6 +20,7 @@ const PUBLIC_PATHS = new Set([
   '/api/auth/reset-password', // aplica a nova senha a partir do token do e-mail — sempre sem sessão
   '/api/whatsapp/webhook', // chamado pela Meta, sem sessão de usuário
   '/api/whatsapp/pyvon-webhook', // chamado pelo Pyvon, autenticado por X-Pyvon-Secret (ver pyvon-service.ts)
+  '/api/whatsapp/pyvon/media-proxy', // Pyvon baixa mídia encaminhada por nós — sem cookie, autenticado por token HMAC de curta duração na querystring (ver lib/services/pyvon-media-link.ts)
   '/api/health', // healthcheck do container (Dockerfile), sem sessão de usuário
   '/api/version', // polling do aviso de nova versão (app-context.tsx) — não deve cair em 401 se a sessão expirar no meio do dia
   '/manifest.webmanifest',

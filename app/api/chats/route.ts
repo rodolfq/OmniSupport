@@ -15,6 +15,7 @@ import { persistAttachments } from '@/lib/services/attachment-storage';
 import { getOrGenerateChatSummary, ChatSummaryNotFoundError, ChatSummaryGenerationError } from '@/lib/services/chat-summary-service';
 import { AssistantNotConfiguredError, parseGroqRetryWait } from '@/lib/groq-client';
 import { normalizeBrazilianPhoneDigits } from '@/lib/utils';
+import { isCrisisModeEnabled, recordCrisisModeMessage } from '@/lib/services/crisis-mode-service';
 
 function normalizePhone(value?: string | null): string {
   return (value || '').replace(/\D/g, '');
@@ -946,6 +947,12 @@ export async function POST(request: Request) {
       // agora; a próxima mensagem dela (ação abaixo) já cobre o resto.
       if (!result.reused) {
         emitSessionsChanged({ reason: 'new-session', sessionId: result.id });
+        // Modo de Crise (ver crisis-mode-service.ts) — widget não precisa de
+        // envio externo, só de aparecer na conversa (o cliente já está com a
+        // tela aberta). Disparo sem bloquear a resposta desta ação.
+        isCrisisModeEnabled().then(enabled => {
+          if (enabled) return recordCrisisModeMessage(result.id);
+        }).catch(err => console.error('[Chats] Falha ao enviar mensagem do Modo de Crise:', err));
       }
 
       return NextResponse.json(result);

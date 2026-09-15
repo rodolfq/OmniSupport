@@ -10,12 +10,13 @@ import { useApp } from '@/app/app-context';
 import { Permission } from '@/lib/types';
 import { toast } from 'sonner';
 
-// Widget flutuante do Agente de IA — busca em chamados, tickets internos,
-// chat com cliente e chat de grupo interno (ver lib/services/ai-assistant-
-// service.ts). Posicionado acima do ChatWidget (bottom-6) pra não colidir
-// com ele; z-index abaixo da faixa 200-250 do ChatWidget de propósito — se
-// os dois algum dia se sobrepuserem numa tela pequena, o chat de
-// atendimento ao cliente continua por cima.
+// Botão fixo no header (desktop em app/(portal)/layout.tsx, mobile em
+// mobile-header.tsx — mesmo padrão do GiroStatusPopover: um wrapper
+// `relative` com o botão e o painel dropdown juntos, fecha ao clicar fora ou
+// Esc). Antes era um widget flutuante no canto inferior esquerdo da tela —
+// trocado porque nesse canto ele sobrepunha o botão de sair (logout) da
+// barra lateral. Aqui, ancorado ao próprio botão que abre, nunca sobrepõe
+// outro controle fixo da tela.
 
 interface AssistantMessage {
   role: 'user' | 'model';
@@ -47,6 +48,7 @@ export function AiAssistantWidget() {
   const conversationIdRef = useRef<string>('');
   const scrollRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLTextAreaElement>(null);
+  const containerRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
     if (!conversationIdRef.current) {
@@ -59,6 +61,24 @@ export function AiAssistantWidget() {
       scrollRef.current.scrollTop = scrollRef.current.scrollHeight;
     }
   }, [messages, isSending]);
+
+  // Fecha ao clicar fora ou apertar Esc — mesmo padrão do GiroStatusPopover
+  // e do sino de notificações.
+  useEffect(() => {
+    if (!isOpen) return;
+    const handleClickOutside = (event: MouseEvent) => {
+      if (containerRef.current && !containerRef.current.contains(event.target as Node)) setIsOpen(false);
+    };
+    const handleEsc = (event: KeyboardEvent) => {
+      if (event.key === 'Escape') setIsOpen(false);
+    };
+    document.addEventListener('mousedown', handleClickOutside);
+    document.addEventListener('keydown', handleEsc);
+    return () => {
+      document.removeEventListener('mousedown', handleClickOutside);
+      document.removeEventListener('keydown', handleEsc);
+    };
+  }, [isOpen]);
 
   // Progresso da indexação (busca semântica) — só enquanto o painel está
   // aberto. Some sozinho da tela quando chega a 100% (ver render abaixo),
@@ -79,7 +99,7 @@ export function AiAssistantWidget() {
   }, [isOpen]);
 
   // Ícone configurado em Configurações > Agente de IA — busca uma vez ao
-  // montar (não depende de isOpen: o botão flutuante já precisa do ícone
+  // montar (não depende de isOpen: o botão do header já precisa do ícone
   // certo antes do painel ser aberto).
   useEffect(() => {
     let cancelled = false;
@@ -144,14 +164,26 @@ export function AiAssistantWidget() {
   };
 
   return (
-    <div className="fixed bottom-28 right-6 z-[190] flex flex-col items-end">
+    <div className="relative" ref={containerRef}>
+      <button
+        onClick={() => setIsOpen(o => !o)}
+        className={cn(
+          'relative p-1 rounded-full transition-all',
+          isOpen ? 'ring-2 ring-[var(--accent)]' : 'hover:ring-2 hover:ring-[var(--border-default)]'
+        )}
+        title="Sasha — Agente de IA"
+      >
+        <AiAssistantIcon avatarSource={avatarSource} crop={avatarCrop} size={28} />
+      </button>
+
       <AnimatePresence>
         {isOpen && (
           <motion.div
-            initial={{ opacity: 0, y: 30, scale: 0.95 }}
+            initial={{ opacity: 0, y: -8, scale: 0.95 }}
             animate={{ opacity: 1, y: 0, scale: 1 }}
-            exit={{ opacity: 0, y: 30, scale: 0.95 }}
-            className="mb-3 w-[min(380px,calc(100vw-2rem))] h-[min(540px,calc(100vh-8rem))] bg-[var(--surface-card)] border border-[var(--border-default)] shadow-2xl rounded-2xl flex flex-col overflow-hidden"
+            exit={{ opacity: 0, y: -8, scale: 0.95 }}
+            transition={{ duration: 0.15 }}
+            className="absolute right-0 top-full mt-3 w-[min(380px,calc(100vw-2rem))] h-[min(540px,calc(100vh-8rem))] bg-[var(--surface-card)] border border-[var(--border-default)] shadow-2xl rounded-2xl flex flex-col overflow-hidden z-[200] origin-top-right"
           >
             {/* Header */}
             <div className="bg-[var(--accent)] px-4 py-3 flex items-center justify-between text-white shrink-0 relative">
@@ -255,17 +287,6 @@ export function AiAssistantWidget() {
           </motion.div>
         )}
       </AnimatePresence>
-
-      {/* Launcher */}
-      {!isOpen && (
-        <button
-          onClick={() => setIsOpen(true)}
-          className="w-14 h-14 rounded-full overflow-hidden shadow-2xl hover:scale-110 active:scale-95 transition-all"
-          title="Sasha"
-        >
-          <AiAssistantIcon avatarSource={avatarSource} crop={avatarCrop} size={56} />
-        </button>
-      )}
     </div>
   );
 }

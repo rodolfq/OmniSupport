@@ -183,7 +183,9 @@ Nossa equipe retomará o atendimento em breve.
     statusConfigurable: false,
     defaultMessage: `💬 Nova atualização
 
-Há uma nova resposta em seu chamado nº {{numero_chamado}}.
+Há uma nova resposta em seu chamado nº {{numero_chamado}}:
+
+{{nota}}
 
 Acesse o sistema ou responda esta conversa para continuar o atendimento.
 

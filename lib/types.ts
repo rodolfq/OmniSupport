@@ -447,6 +447,10 @@ export interface WhatsappInstance {
   verifyToken?: string;
   // Só para 'pyvon': 'prod' (api.pyvon.io) ou 'dev' (api-dev.pyvon.io).
   pyvonEnvironment?: 'prod' | 'dev';
+  // Só para 'pyvon': canal padrão a usar quando o tenant tem mais de um canal
+  // oficial ativo (Suporte, Comercial...) — sem isso, bot-response/bot-template
+  // recusam com 422 "Mais de um canal oficial ativo: informe channel_id".
+  pyvonChannelId?: number;
 }
 
 export interface Queue {

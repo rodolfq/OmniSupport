@@ -335,6 +335,24 @@ export class ConfigService {
     return res.json();
   }
 
+  static async getCrisisMode(): Promise<{ enabled: boolean }> {
+    const res = await fetch('/api/config?type=crisis-mode');
+    const data = await res.json();
+    return { enabled: data?.enabled ?? false };
+  }
+
+  static async saveCrisisMode(enabled: boolean): Promise<void> {
+    const res = await fetch('/api/config', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ type: 'crisis-mode', settings: { enabled } })
+    });
+    if (!res.ok) {
+      const data = await res.json().catch(() => null);
+      throw new Error(data?.error || 'Erro ao salvar o Modo de Crise.');
+    }
+  }
+
   static async getEmailSettings(): Promise<EmailSettings> {
     const res = await fetch('/api/config?type=email-settings');
     const data = await res.json();

@@ -198,6 +198,9 @@ export async function GET(request: Request) {
     } else if (type === 'email-settings') {
       const res = await query('SELECT * FROM public.config_email_settings WHERE id = 1');
       return NextResponse.json(res.rows[0] || null);
+    } else if (type === 'crisis-mode') {
+      const res = await query('SELECT * FROM public.config_crisis_mode WHERE id = 1');
+      return NextResponse.json(res.rows[0] || null);
     } else if (type === 'automation-settings') {
       const settings = await getAutomationSettings();
       return NextResponse.json(settings);
@@ -232,10 +235,28 @@ const TIPOS_ADMINISTRATIVOS = new Set([
   'automation-settings', 'metric-thresholds'
 ]);
 
+// Modo de Crise é mais sensível que o resto (afeta toda mensagem nova de
+// TODO cliente, em todo canal, enquanto ligado) — o pedido foi restringir a
+// Administrador de verdade, sem a válvula de settings:write/settings:system
+// que o resto de TIPOS_ADMINISTRATIVOS aceita. Por isso fica fora daquele
+// Set e ganha o próprio bloco abaixo.
+const TIPOS_SOMENTE_ADMIN = new Set(['crisis-mode']);
+
 export async function POST(request: Request) {
   try {
     const body = await request.json();
     const { type, action } = body;
+
+    if (TIPOS_SOMENTE_ADMIN.has(type)) {
+      const actor = await getCurrentActionUser();
+      if (!actor) return NextResponse.json({ error: 'Sessão inválida.' }, { status: 401 });
+      if (actor.role !== 'Administrador') {
+        return NextResponse.json(
+          { error: 'Apenas Administradores podem alterar o Modo de Crise.' },
+          { status: 403 }
+        );
+      }
+    }
 
     if (TIPOS_ADMINISTRATIVOS.has(type)) {
       const actor = await getCurrentActionUser();
@@ -636,6 +657,17 @@ export async function POST(request: Request) {
         await query('DELETE FROM public.quick_notes WHERE id = $1', [note.id]);
         return NextResponse.json({ success: true });
       }
+    } else if (type === 'crisis-mode') {
+      const { settings } = body;
+      const res = await query(
+        `UPDATE public.config_crisis_mode
+         SET enabled = $1,
+             updated_at = now()
+         WHERE id = 1
+         RETURNING *`,
+        [!!settings.enabled]
+      );
+      return NextResponse.json(res.rows[0]);
     } else if (type === 'survey-settings') {
       const { settings } = body;
       const res = await query(

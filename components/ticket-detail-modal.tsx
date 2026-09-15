@@ -6,7 +6,7 @@ import { UserAvatar } from '@/components/user-avatar';
 import { X, User, MessageCircle, Clock, Link2, Paperclip, Save, Maximize2, Minimize2, Send, Lock, History, Download, File, Image as ImageIcon, Film, Loader2, Check, Copy, GitMerge } from 'lucide-react';
 import { motion } from 'motion/react';
 import { Ticket, TicketStatus, User as UserType, Message, UserRole, StatusConfig, Company, Attachment, PriorityConfig, CategoryConfig, RequestTypeConfig, ProductConfig, InternalTicket, Permission } from '@/lib/types';
-import { cn, stripNotificationHtml, selectableOptions, linkifyPlainUrls } from '@/lib/utils';
+import { cn, selectableOptions, linkifyPlainUrls } from '@/lib/utils';
 import { useApp } from '@/app/app-context';
 import { Star } from 'lucide-react';
 import { toast } from 'sonner';
@@ -30,7 +30,6 @@ import {
 import { isClosedTicketStatus, registerClosedStatusLabels, getCustomerStatusLabel } from '@/lib/ticket-status';
 import { addBusinessHours } from '@/lib/sla';
 import { FieldChange, formatChangeMessage } from '@/lib/ticket-diff';
-import { wrapEmailHtml, ticketRefBlock } from '@/lib/email-templates';
 import { fileToBase64 } from '@/lib/image-utils';
 
 interface TicketDetailModalProps {
@@ -566,81 +565,16 @@ const loadMessages = async () => {
       toast.success('Ticket interno desvinculado');
     };
 
-    // Toda resposta visível ao cliente sai por e-mail automaticamente — não é
-    // uma ação opcional/separada (por decisão), então não tem botão próprio:
-    // roda em segundo plano a partir de qualquer caminho que grave uma
-    // resposta (handleSendMessage, handleSendWhatsAppReply). Falha aqui nunca
-    // deve impedir o resto do fluxo (mensagem já foi salva antes de chamar).
-    const sendReplyEmailInBackground = async (replyMessage: Message, forTicket: Ticket) => {
-      const contato = allUsers.find(u => u.id === customerId);
-      const customerEmail = contato?.email;
-      if (!customerEmail) {
-        // Antes isto só ia para o console: a resposta era salva, o e-mail não
-        // saía, e quem escreveu ficava achando que o cliente tinha sido
-        // avisado. Agora o aviso aparece na tela, porque muda o que a pessoa
-        // faz em seguida (ligar, mandar WhatsApp, ou cadastrar o e-mail).
-        //
-        // Contato sem e-mail é situação NORMAL desde que a coluna virou
-        // opcional: quem é criado a partir de uma conversa tem só nome e
-        // telefone (ver migrations/profiles_email_opcional.sql).
-        const nome = contato?.name || 'O contato deste chamado';
-        toast.warning(
-          contato
-            ? `${nome} não tem e-mail cadastrado — a resposta foi salva no chamado, mas não foi enviada por e-mail.`
-            : 'Este chamado não tem contato vinculado — a resposta foi salva, mas não foi enviada por e-mail.',
-          { duration: 8000 }
-        );
-        console.warn(`[email] Resposta do chamado ${forTicket.id} não enviada: contato (customerId=${customerId}) sem e-mail cadastrado ou não encontrado.`);
-        return;
-      }
-
-      const ticketLabel = `#${forTicket.ticketNumber ? String(forTicket.ticketNumber).padStart(4, '0') : forTicket.id.slice(0, 8)}`;
-      const baseUrl = process.env.NEXT_PUBLIC_APP_URL || window.location.origin;
-      // /tickets/<número> — link curto, resolvido pra onde o chamado
-      // realmente abre (cliente ou equipe) por app/(portal)/tickets/[id]/page.tsx.
-      const ctaUrl = `${baseUrl}/tickets/${forTicket.ticketNumber ?? forTicket.id}`;
-
-      // E-mail suporta HTML nativamente — diferente do WhatsApp, não precisa
-      // passar por stripNotificationHtml, só entra dentro do bloco de
-      // destaque da resposta.
-      const hasAttachments = Array.isArray(replyMessage.attachments) && replyMessage.attachments.length > 0;
-      // Não anexa o arquivo em si no e-mail (o servidor de envio não baixa o
-      // anexo do storage) — só indica o nome, o cliente pega o arquivo de
-      // fato acessando o chamado pelo botão abaixo.
-      const attachmentsHtml = hasAttachments ? `
-        <p style="margin:10px 0 0;font-size:12px;color:#6b7280;">
-          📎 ${replyMessage.attachments!.length > 1 ? 'Anexos' : 'Anexo'}: ${replyMessage.attachments!.map(a => a.name).join(', ')}
-        </p>
-      ` : '';
-      const bodyHtml = `
-        <p style="margin:0 0 10px;">Você recebeu uma nova resposta da nossa equipe no chamado:</p>
-        ${ticketRefBlock(ticketLabel, forTicket.title)}
-        <div style="padding:16px 18px;background:#f9fafb;border-left:4px solid #0FA694;border-radius:8px;color:#374151;">
-          ${replyMessage.text}
-          ${attachmentsHtml}
-        </div>
-      `.trim();
-      const html = wrapEmailHtml({ bodyHtml, ctaUrl, ctaLabel: 'Acessar o chamado' });
-
-      try {
-        const res = await fetch('/api/email/send', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ to: customerEmail, subject: `Chamado ${ticketLabel} — ${forTicket.title}`, html })
-        });
-        if (!res.ok) {
-          const data = await res.json().catch(() => ({}));
-          console.error(`[email] Falha ao enviar resposta do chamado ${forTicket.id} para ${customerEmail}:`, data.error);
-          toast.warning(data.error || 'Resposta salva, mas não foi enviada por e-mail.');
-        } else {
-          console.log(`[email] Resposta do chamado ${forTicket.id} enviada para ${customerEmail}.`);
-        }
-      } catch (err) {
-        console.error('Email send failed:', err);
-        toast.warning('Resposta salva, mas não foi enviada por e-mail.');
-      }
-    };
-
+    // Nota visível ao cliente: salva a mensagem e pronto — WhatsApp (template
+    // Pyvon aprovado, ver atualizacao_chamado) e e-mail (mesmo layout do
+    // aviso de chamado aberto) saem sozinhos, do lado do servidor, disparados
+    // pela automação "Comentário interno convertido em resposta"
+    // (resposta_analista, ver handleTicketMessageCreated em
+    // lib/services/automation-service.ts) — não é mais responsabilidade
+    // desta tela escolher canal nem duplicar envio. Antes existiam dois
+    // botões (um só salvava + mandava e-mail; outro também forçava um
+    // WhatsApp em texto livre, sem template) — unificados aqui num só,
+    // porque a automação já cobre os dois canais de forma confiável.
     const handleSendMessage = async (isInternal: boolean) => {
       if (!message.trim() || !currentUser || !ticket) return;
 
@@ -663,83 +597,11 @@ const loadMessages = async () => {
       // depois do endurecimento de permissão do PUT (só tickets:write),
       // travava Cliente/Funcionário — que legitimamente respondem o próprio
       // chamado, mas nunca têm essa permissão — com "Você não tem permissão
-      // para editar chamados." só objeto local, pro e-mail de resposta abaixo.
-      const updatedTicket: Ticket = {
-        ...ticket,
-        updatedAt: new Date().toISOString()
-      };
-
+      // para editar chamados."
       setMessage('');
       setMessageAttachments([]);
       loadMessages().catch(err => console.error('Erro ao atualizar mensagens do chamado:', err));
       triggerRefresh();
-
-      // Este e-mail avisa o CLIENTE que a equipe respondeu — não faz sentido
-      // (e o aviso de falha nem deveria aparecer) quando quem respondeu é o
-      // próprio Cliente/Funcionário.
-      if (!isInternal && !isCompanyUser) sendReplyEmailInBackground(newMessage, updatedTicket);
-    };
-
-    // Grava a resposta como mensagem visível ao cliente (igual handleSendMessage)
-    // e também dispara pelo WhatsApp — mesmo endpoint e resolução de instância
-    // (via Fila do chamado) já usados em chat-widget.tsx. Envio de WhatsApp é
-    // só texto (mídia ainda não suportada pelo backend) e não bloqueia o
-    // registro da mensagem: se o WhatsApp falhar, avisa mas mantém o resto.
-    const handleSendWhatsAppReply = async () => {
-      if (!message.trim() || !currentUser || !ticket) return;
-      const customerPhone = allUsers.find(u => u.id === customerId)?.phone;
-      if (!customerPhone) return;
-
-      const newMessage: Message = {
-        id: Math.random().toString(36).substr(2, 9),
-        ticketId: ticket.id,
-        senderId: currentUser.id,
-        text: message,
-        timestamp: new Date().toISOString(),
-        isVisibleToCustomer: true,
-        type: 'text',
-        attachments: messageAttachments.length > 0 ? messageAttachments : undefined
-      };
-
-      await MessageService.create(newMessage);
-
-      // Mesmo motivo do handleSendMessage acima: create-message já bate
-      // tickets.updated_at sozinho, esta chamada era redundante (e exige
-      // tickets:write, que nem todo perfil que usa este botão tem).
-      const updatedTicket: Ticket = {
-        ...ticket,
-        updatedAt: new Date().toISOString()
-      };
-
-      const hasAttachments = messageAttachments.length > 0;
-      setMessage('');
-      setMessageAttachments([]);
-      loadMessages();
-      triggerRefresh();
-
-      const queue = queues.find(q => q.id === mainQueue) as any;
-      const instanceId = queue?.whatsapp_instance_id || queue?.whatsappInstanceId || 'default';
-      const phone = customerPhone.replace(/\D/g, '');
-
-      try {
-        const res = await fetch('/api/whatsapp/send', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ instanceId, to: phone, message: stripNotificationHtml(newMessage.text), sessionId: ticket.chatSessionId })
-        });
-        if (!res.ok) {
-          toast.warning('Mensagem salva, mas não foi enviada no WhatsApp.');
-        } else if (hasAttachments) {
-          toast.warning('Anexo salvo na conversa, mas o envio de mídia pelo WhatsApp ainda não está disponível.');
-        } else {
-          toast.success('Enviado pelo WhatsApp.');
-        }
-      } catch (err) {
-        console.error('WhatsApp send failed:', err);
-        toast.warning('Mensagem salva, mas não foi enviada no WhatsApp.');
-      }
-
-      sendReplyEmailInBackground(newMessage, updatedTicket);
     };
 
     // Posta direto no ticket interno selecionado (internal_ticket_messages),
@@ -2241,11 +2103,12 @@ const loadMessages = async () => {
                      </div>
                    )}
                    
-                   <RichEditor 
+                   <RichEditor
                      content={message}
                      onChange={setMessage}
                      placeholder={historyTab === 'internal' ? "Nota interna..." : "Escreva sua resposta..."}
                      minHeight="100px"
+                     toolbar="simple"
                    />
                    <div className="flex items-center justify-between">
                       <div>
@@ -2267,17 +2130,6 @@ const loadMessages = async () => {
                          </button>
                       </div>
                       <div className="flex items-center gap-2">
-                         {historyTab !== 'internal' && !isCompanyUser && (
-                           <button
-                             onClick={handleSendWhatsAppReply}
-                             disabled={!message.trim() || message === '<p></p>' || !allUsers.find(u => u.id === customerId)?.phone}
-                             title={!allUsers.find(u => u.id === customerId)?.phone ? 'Contato sem telefone cadastrado' : undefined}
-                             className="px-6 py-2 rounded-xl transition-all disabled:opacity-50 shadow-lg text-xs font-black uppercase tracking-widest flex items-center gap-2 bg-[var(--text-success)] hover:bg-emerald-700 text-white shadow-emerald-100"
-                           >
-                              <MessageCircle size={16} />
-                              Enviar por WhatsApp
-                           </button>
-                         )}
                          <button
                            onClick={() => handleSendMessage(historyTab === 'internal')}
                            disabled={!message.trim() || message === '<p></p>'}
@@ -2287,7 +2139,7 @@ const loadMessages = async () => {
                            )}
                          >
                             <Send size={16} />
-                            Enviar {historyTab === 'internal' ? 'Nota' : 'Resposta'}
+                            Enviar Nota
                          </button>
                       </div>
                    </div>

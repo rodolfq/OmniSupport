@@ -110,7 +110,12 @@ export default function MyTicketsPage() {
     if (!canSeeTickets) { setAllTickets([]); return []; }
     const all = await fetchAllTickets(undefined, { includeClosed: true });
 
-    const canViewEverything = hasPermission(Permission.OUTSIDE_QUEUE_VIEW) || currentUser.role === UserRole.ADMIN;
+    // OUTSIDE_QUEUE_VIEW ("Central de Atendimento") saiu daqui de propósito:
+    // é permissão de atender a FILA DE CHAT do WhatsApp (/chat-management),
+    // não de visão de CHAMADO — misturar os dois fazia quem só tinha
+    // permissão de chat enxergar todo chamado da empresa em "Meus Chamados",
+    // mesmo sem ser responsável por nenhum. Só Administrador vê tudo aqui.
+    const canViewEverything = currentUser.role === UserRole.ADMIN;
 
     const filtered = all.filter(t => {
       if (canViewEverything) return true;
@@ -131,7 +136,7 @@ export default function MyTicketsPage() {
     });
     setAllTickets(filtered);
     return filtered;
-  }, [currentUser, canSeeTickets, hasPermission]);
+  }, [currentUser, canSeeTickets]);
 
   useEffect(() => {
     async function loadData() {

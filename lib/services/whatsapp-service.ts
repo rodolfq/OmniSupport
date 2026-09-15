@@ -14,6 +14,7 @@ import { runExclusive } from '../key-mutex';
 import { resolveQueueForInstance, pickNextQueueAssignee, dispatchPendingChatSessions } from './queue-routing';
 import { storeAttachmentBuffer } from './attachment-storage';
 import { transcribeMessageAudio, isAudioAttachment, isTranscriptionEnabled } from './transcription-service';
+import { isCrisisModeEnabled, recordCrisisModeMessage, CRISIS_MODE_MESSAGE } from './crisis-mode-service';
 
 const log = pino({ level: (process.env.WHATSAPP_LOG_LEVEL as any) || 'warn' });
 
@@ -230,8 +231,16 @@ async function findOrCreateChatSession(jid: string, pushName: string | undefined
     let profile: { id: string; name: string } | undefined;
     if (profileVariants.length) {
       const placeHolders = profileVariants.map((_, i) => `$${i + 1}`).join(',');
+      // regexp_replace: profiles.phone é digitado/salvo com máscara
+      // ((21) 99177-8567, ver maskPhone em lib/utils.ts) — comparar contra
+      // profileVariants (dígitos puros) sem normalizar os dois lados nunca
+      // batia, e a conversa nascia com o nome de exibição do WhatsApp em vez
+      // do nome cadastrado (achado em 2026-09-14 com "Jean Teste"/"Rafael
+      // Desenv" no lugar de "Rodolfo SSX"/"Rafael Leal").
       const profileRes = await query(
-        `SELECT id, name FROM public.profiles WHERE phone IN (${placeHolders}) LIMIT 1`,
+        `SELECT id, name FROM public.profiles
+         WHERE regexp_replace(COALESCE(phone, ''), '\\D', '', 'g') IN (${placeHolders})
+         LIMIT 1`,
         profileVariants
       );
       profile = profileRes.rows[0];
@@ -264,7 +273,18 @@ async function findOrCreateChatSession(jid: string, pushName: string | undefined
       return { assigneeId, insertRes };
     });
 
-    if (insertRes.rows[0]) return insertRes.rows[0];
+    if (insertRes.rows[0]) {
+      const newSession = insertRes.rows[0];
+      // Modo de Crise (ver crisis-mode-service.ts) — dispara sem bloquear o
+      // fluxo normal de recebimento da mensagem; uma falha aqui nunca deve
+      // impedir a sessão de nascer nem a mensagem real de ser processada.
+      isCrisisModeEnabled().then(async (enabled) => {
+        if (!enabled) return;
+        await WhatsAppService.sendMessage(instanceId, digits, CRISIS_MODE_MESSAGE);
+        await recordCrisisModeMessage(newSession.id);
+      }).catch(err => console.error(`[WhatsApp:${instanceId}] Falha ao enviar mensagem do Modo de Crise:`, err?.message || err));
+      return newSession;
+    }
 
     // Perdeu a corrida contra outro processo — usa a sessão que venceu.
     return await findChatSessionByPhone(jid, instanceId);

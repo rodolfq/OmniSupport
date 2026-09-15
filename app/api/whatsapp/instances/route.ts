@@ -21,7 +21,7 @@ export async function GET() {
     if (!actor) return NextResponse.json({ error: 'Sessão inválida.' }, { status: 401 });
 
     const res = await query(
-      `SELECT id, name, phone, status, provider, phone_number_id, verify_token, pyvon_environment,
+      `SELECT id, name, phone, status, provider, phone_number_id, verify_token, pyvon_environment, pyvon_channel_id,
               (access_token IS NOT NULL AND access_token <> '') AS has_access_token
          FROM public.whatsapp_instances ORDER BY created_at ASC`
     );
@@ -34,7 +34,8 @@ export async function GET() {
       phoneNumberId: r.phone_number_id || undefined,
       hasAccessToken: r.has_access_token,
       verifyToken: r.verify_token || undefined,
-      pyvonEnvironment: r.pyvon_environment || undefined
+      pyvonEnvironment: r.pyvon_environment || undefined,
+      pyvonChannelId: r.pyvon_channel_id ?? undefined
     })));
   } catch (err) {
     console.error('Error getting WhatsApp instances:', err);
@@ -62,9 +63,10 @@ export async function POST(request: Request) {
                 verify_token = COALESCE($6, verify_token),
                 access_token = CASE WHEN $7 = '' THEN access_token ELSE $7 END,
                 pyvon_environment = COALESCE($8, pyvon_environment),
+                pyvon_channel_id = $9,
                 updated_at = NOW()
-          WHERE id = $9`,
-        [name.trim(), phone || null, status, provider, meta?.phoneNumberId || null, meta?.verifyToken || null, meta?.accessToken ?? '', meta?.pyvonEnvironment || null, id]
+          WHERE id = $10`,
+        [name.trim(), phone || null, status, provider, meta?.phoneNumberId || null, meta?.verifyToken || null, meta?.accessToken ?? '', meta?.pyvonEnvironment || null, meta?.pyvonChannelId ?? null, id]
       );
       logAudit({
         actorId: actor.id, actorName: actor.name, action: 'update',

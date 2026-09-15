@@ -131,6 +131,37 @@ export function stripNotificationHtml(value: string) {
     .trim();
 }
 
+// HTML (negrito/itálico + parágrafos — é só o que o RichEditor em modo
+// "simple" produz, ver components/rich-editor.tsx) para texto puro já na
+// sintaxe de formatação do próprio WhatsApp: *negrito*, _itálico_. O
+// WhatsApp interpreta isso de verdade no celular do cliente — diferente de
+// stripNotificationHtml (que descarta toda formatação), aqui ela sobrevive.
+// Ordem importa: negrito/itálico primeiro (funciona mesmo aninhado, porque
+// processa o texto original antes de tirar as tags de parágrafo/quebra) e só
+// depois vira quebra de linha de verdade — nunca colapsa tudo num espaço só
+// como o stripNotificationHtml faz, senão perde as linhas da nota.
+export function htmlToWhatsAppText(html: string): string {
+  if (!html) return '';
+  return html
+    .replace(/<(strong|b)>([\s\S]*?)<\/\1>/gi, '*$2*')
+    .replace(/<(em|i)>([\s\S]*?)<\/\1>/gi, '_$2_')
+    .replace(/<br\s*\/?>/gi, '\n')
+    .replace(/<\/p>\s*<p>/gi, '\n')
+    .replace(/<\/?p>/gi, '')
+    .replace(/<[^>]*>/g, '')
+    .replace(/&nbsp;/g, ' ')
+    .replace(/&amp;/g, '&')
+    .replace(/&lt;/g, '<')
+    .replace(/&gt;/g, '>')
+    .replace(/&quot;/g, '"')
+    .replace(/&#39;/g, "'")
+    .replace(/[ \t]+/g, ' ')
+    .split('\n')
+    .map(line => line.trim())
+    .join('\n')
+    .trim();
+}
+
 // Vira link clicável qualquer URL solta no meio de HTML (usado antes de
 // dangerouslySetInnerHTML) — necessário pra conteúdo que não passou pelo
 // RichEditor (que já converte link digitado em <a> de verdade), como as

@@ -1,8 +1,7 @@
 import { NextResponse } from 'next/server';
 import { query } from '@/lib/db';
 import { CLOSED_TICKET_STATUSES } from '@/lib/ticket-status';
-import { getCurrentActionUser, getActorEffectivePermissions } from '@/lib/server-auth';
-import { Permission } from '@/lib/types';
+import { getCurrentActionUser } from '@/lib/server-auth';
 
 // SQL de "SLA vencido" reutilizado pelo filtro slaOverdue (action=tickets) e
 // pela coluna "overdue" dos chips rápidos (action=quick-counts) — mantido
@@ -130,17 +129,13 @@ async function buildScopeWhere(
       params.push(actor.id);
       paramCount++;
     }
-  } else if (actor.role !== 'Administrador') {
-    // Chegar aqui já exige tickets:read (checado no client antes de montar a
-    // tela) — só resta escopar quem não tem Central de Atendimento
-    // (outside_queue) às próprias filas/atribuições.
-    const permissions = await getActorEffectivePermissions(actor.id);
-    if (!permissions.includes(Permission.OUTSIDE_QUEUE_VIEW)) {
-      sql += ` AND (assignee_id IS NULL OR assignee_id = $${paramCount} OR $${paramCount} = ANY(employee_ids))`;
-      params.push(actor.id);
-      paramCount++;
-    }
   }
+  // Sem "else" pra qualquer papel interno (Administrador/Equipe/Time
+  // Interno): a tela /tickets é o quadro geral da equipe, mostra todo
+  // chamado da empresa pra qualquer um deles, sem escopar por responsável —
+  // decisão do usuário (2026-09-14). "Meus Chamados" é quem restringe a
+  // "meu ou sem responsável" (ver app/(portal)/my-tickets/page.tsx),
+  // /tickets não. Só Cliente é escopado por empresa, acima.
 
   return { sql, params, paramCount };
 }

@@ -24,9 +24,19 @@ interface RichEditorProps {
   onChange: (html: string) => void;
   placeholder?: string;
   minHeight?: string;
+  // 'full' (padrão): negrito, itálico, títulos, listas, citação, link,
+  // imagem, vídeo do YouTube. 'simple': só negrito, itálico e desfazer/
+  // refazer — usado na nota do chamado (Histórico Cliente/Nota Interna),
+  // que agora também vira mensagem de WhatsApp/e-mail, onde formatação rica
+  // (título, lista, embed) não tem como ser representada. As extensões
+  // correspondentes nem entram no editor nesse modo — não é só esconder o
+  // botão da barra, o atalho de teclado e o autoformat (ex.: "# " virar
+  // título) também ficam desligados.
+  toolbar?: 'full' | 'simple';
 }
 
-export function RichEditor({ content, onChange, placeholder = 'Comece a digitar...', minHeight = '150px' }: RichEditorProps) {
+export function RichEditor({ content, onChange, placeholder = 'Comece a digitar...', minHeight = '150px', toolbar = 'full' }: RichEditorProps) {
+  const isSimple = toolbar === 'simple';
   const [isUrlModalOpen, setIsUrlModalOpen] = React.useState<'link' | 'image' | 'youtube' | null>(null);
   const [urlInputValue, setUrlInputValue] = React.useState('');
 
@@ -42,31 +52,44 @@ export function RichEditor({ content, onChange, placeholder = 'Comece a digitar.
     extensions: [
       StarterKit.configure({
         link: false,
+        ...(isSimple ? {
+          heading: false,
+          blockquote: false,
+          bulletList: false,
+          orderedList: false,
+          codeBlock: false,
+          horizontalRule: false,
+          code: false,
+        } : {}),
       }),
       BubbleMenuExtension,
       FloatingMenuExtension,
-      ResizableImage.configure({
-        allowBase64: true,
-        // NodeView cuida do visual dentro do editor — este HTMLAttributes é
-        // o que garante que o HTML salvo (editor.getHTML(), usado fora do
-        // editor: chamado, e-mail, nota interna) continue com a mesma classe.
-        HTMLAttributes: {
-          class: 'rounded-xl max-w-full my-4 border border-[var(--border-default)] shadow-sm',
-        },
-      }),
-      Link.configure({
-        openOnClick: false,
-        HTMLAttributes: {
-          class: 'text-[var(--accent-text)] underline font-medium',
-        },
-      }),
-      Youtube.configure({
-        width: 480,
-        height: 320,
-        HTMLAttributes: {
-          class: 'rounded-xl overflow-hidden my-4 shadow-lg mx-auto',
-        },
-      }),
+      // Imagem, link e vídeo embutido não existem no modo simples — nem
+      // como node do editor, pra colar/atalho também não produzir um.
+      ...(isSimple ? [] : [
+        ResizableImage.configure({
+          allowBase64: true,
+          // NodeView cuida do visual dentro do editor — este HTMLAttributes é
+          // o que garante que o HTML salvo (editor.getHTML(), usado fora do
+          // editor: chamado, e-mail, nota interna) continue com a mesma classe.
+          HTMLAttributes: {
+            class: 'rounded-xl max-w-full my-4 border border-[var(--border-default)] shadow-sm',
+          },
+        }),
+        Link.configure({
+          openOnClick: false,
+          HTMLAttributes: {
+            class: 'text-[var(--accent-text)] underline font-medium',
+          },
+        }),
+        Youtube.configure({
+          width: 480,
+          height: 320,
+          HTMLAttributes: {
+            class: 'rounded-xl overflow-hidden my-4 shadow-lg mx-auto',
+          },
+        }),
+      ]),
       Placeholder.configure({
         placeholder,
       }),
@@ -165,73 +188,77 @@ export function RichEditor({ content, onChange, placeholder = 'Comece a digitar.
         >
           <Italic size={16} />
         </button>
-        <div className="w-px h-4 bg-[var(--text-tertiary)] mx-1" />
-        <button
-          type="button"
-          onClick={() => editor.chain().focus().toggleHeading({ level: 1 }).run()}
-          className={cn("p-1.5 rounded-lg transition-all hover:bg-[var(--surface-card)] hover:shadow-sm", editor.isActive('heading', { level: 1 }) ? "bg-[var(--surface-card)] shadow-sm text-[var(--accent-text)]" : "text-[var(--text-tertiary)]")}
-          title="Título 1"
-        >
-          <Heading1 size={16} />
-        </button>
-        <button
-          type="button"
-          onClick={() => editor.chain().focus().toggleHeading({ level: 2 }).run()}
-          className={cn("p-1.5 rounded-lg transition-all hover:bg-[var(--surface-card)] hover:shadow-sm", editor.isActive('heading', { level: 2 }) ? "bg-[var(--surface-card)] shadow-sm text-[var(--accent-text)]" : "text-[var(--text-tertiary)]")}
-          title="Título 2"
-        >
-          <Heading2 size={16} />
-        </button>
-        <div className="w-px h-4 bg-[var(--text-tertiary)] mx-1" />
-        <button
-          type="button"
-          onClick={() => editor.chain().focus().toggleBulletList().run()}
-          className={cn("p-1.5 rounded-lg transition-all hover:bg-[var(--surface-card)] hover:shadow-sm", editor.isActive('bulletList') ? "bg-[var(--surface-card)] shadow-sm text-[var(--accent-text)]" : "text-[var(--text-tertiary)]")}
-          title="Lista"
-        >
-          <List size={16} />
-        </button>
-        <button
-          type="button"
-          onClick={() => editor.chain().focus().toggleOrderedList().run()}
-          className={cn("p-1.5 rounded-lg transition-all hover:bg-[var(--surface-card)] hover:shadow-sm", editor.isActive('orderedList') ? "bg-[var(--surface-card)] shadow-sm text-[var(--accent-text)]" : "text-[var(--text-tertiary)]")}
-          title="Lista Numerada"
-        >
-          <ListOrdered size={16} />
-        </button>
-        <button
-          type="button"
-          onClick={() => editor.chain().focus().toggleBlockquote().run()}
-          className={cn("p-1.5 rounded-lg transition-all hover:bg-[var(--surface-card)] hover:shadow-sm", editor.isActive('blockquote') ? "bg-[var(--surface-card)] shadow-sm text-[var(--accent-text)]" : "text-[var(--text-tertiary)]")}
-          title="Citação"
-        >
-          <Quote size={16} />
-        </button>
-        <div className="w-px h-4 bg-[var(--text-tertiary)] mx-1" />
-        <button
-          type="button"
-          onClick={() => openUrlModal('link')}
-          className={cn("p-1.5 rounded-lg transition-all hover:bg-[var(--surface-card)] hover:shadow-sm", editor.isActive('link') ? "bg-[var(--surface-card)] shadow-sm text-[var(--accent-text)]" : "text-[var(--text-tertiary)]")}
-          title="Link"
-        >
-          <LinkIcon size={16} />
-        </button>
-        <button
-          type="button"
-          onClick={() => openUrlModal('image')}
-          className="p-1.5 rounded-lg transition-all hover:bg-[var(--surface-card)] hover:shadow-sm text-[var(--text-tertiary)]"
-          title="Imagem"
-        >
-          <ImageIcon size={16} />
-        </button>
-        <button
-          type="button"
-          onClick={() => openUrlModal('youtube')}
-          className="p-1.5 rounded-lg transition-all hover:bg-[var(--surface-card)] hover:shadow-sm text-[var(--text-tertiary)]"
-          title="Vídeo do YouTube"
-        >
-          <YoutubeIcon size={16} />
-        </button>
+        {!isSimple && (
+          <>
+            <div className="w-px h-4 bg-[var(--text-tertiary)] mx-1" />
+            <button
+              type="button"
+              onClick={() => editor.chain().focus().toggleHeading({ level: 1 }).run()}
+              className={cn("p-1.5 rounded-lg transition-all hover:bg-[var(--surface-card)] hover:shadow-sm", editor.isActive('heading', { level: 1 }) ? "bg-[var(--surface-card)] shadow-sm text-[var(--accent-text)]" : "text-[var(--text-tertiary)]")}
+              title="Título 1"
+            >
+              <Heading1 size={16} />
+            </button>
+            <button
+              type="button"
+              onClick={() => editor.chain().focus().toggleHeading({ level: 2 }).run()}
+              className={cn("p-1.5 rounded-lg transition-all hover:bg-[var(--surface-card)] hover:shadow-sm", editor.isActive('heading', { level: 2 }) ? "bg-[var(--surface-card)] shadow-sm text-[var(--accent-text)]" : "text-[var(--text-tertiary)]")}
+              title="Título 2"
+            >
+              <Heading2 size={16} />
+            </button>
+            <div className="w-px h-4 bg-[var(--text-tertiary)] mx-1" />
+            <button
+              type="button"
+              onClick={() => editor.chain().focus().toggleBulletList().run()}
+              className={cn("p-1.5 rounded-lg transition-all hover:bg-[var(--surface-card)] hover:shadow-sm", editor.isActive('bulletList') ? "bg-[var(--surface-card)] shadow-sm text-[var(--accent-text)]" : "text-[var(--text-tertiary)]")}
+              title="Lista"
+            >
+              <List size={16} />
+            </button>
+            <button
+              type="button"
+              onClick={() => editor.chain().focus().toggleOrderedList().run()}
+              className={cn("p-1.5 rounded-lg transition-all hover:bg-[var(--surface-card)] hover:shadow-sm", editor.isActive('orderedList') ? "bg-[var(--surface-card)] shadow-sm text-[var(--accent-text)]" : "text-[var(--text-tertiary)]")}
+              title="Lista Numerada"
+            >
+              <ListOrdered size={16} />
+            </button>
+            <button
+              type="button"
+              onClick={() => editor.chain().focus().toggleBlockquote().run()}
+              className={cn("p-1.5 rounded-lg transition-all hover:bg-[var(--surface-card)] hover:shadow-sm", editor.isActive('blockquote') ? "bg-[var(--surface-card)] shadow-sm text-[var(--accent-text)]" : "text-[var(--text-tertiary)]")}
+              title="Citação"
+            >
+              <Quote size={16} />
+            </button>
+            <div className="w-px h-4 bg-[var(--text-tertiary)] mx-1" />
+            <button
+              type="button"
+              onClick={() => openUrlModal('link')}
+              className={cn("p-1.5 rounded-lg transition-all hover:bg-[var(--surface-card)] hover:shadow-sm", editor.isActive('link') ? "bg-[var(--surface-card)] shadow-sm text-[var(--accent-text)]" : "text-[var(--text-tertiary)]")}
+              title="Link"
+            >
+              <LinkIcon size={16} />
+            </button>
+            <button
+              type="button"
+              onClick={() => openUrlModal('image')}
+              className="p-1.5 rounded-lg transition-all hover:bg-[var(--surface-card)] hover:shadow-sm text-[var(--text-tertiary)]"
+              title="Imagem"
+            >
+              <ImageIcon size={16} />
+            </button>
+            <button
+              type="button"
+              onClick={() => openUrlModal('youtube')}
+              className="p-1.5 rounded-lg transition-all hover:bg-[var(--surface-card)] hover:shadow-sm text-[var(--text-tertiary)]"
+              title="Vídeo do YouTube"
+            >
+              <YoutubeIcon size={16} />
+            </button>
+          </>
+        )}
         <div className="flex-1" />
         <button
           type="button"
@@ -311,13 +338,15 @@ export function RichEditor({ content, onChange, placeholder = 'Comece a digitar.
           >
             <Italic size={14} />
           </button>
-          <button
-            type="button"
-            onClick={() => openUrlModal('link')}
-            className={cn("p-1 rounded transition-all", editor.isActive('link') ? "text-[var(--accent-text)]" : "text-white")}
-          >
-            <LinkIcon size={14} />
-          </button>
+          {!isSimple && (
+            <button
+              type="button"
+              onClick={() => openUrlModal('link')}
+              className={cn("p-1 rounded transition-all", editor.isActive('link') ? "text-[var(--accent-text)]" : "text-white")}
+            >
+              <LinkIcon size={14} />
+            </button>
+          )}
         </BubbleMenu>
       )}
 
