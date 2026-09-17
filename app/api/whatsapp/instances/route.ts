@@ -21,7 +21,7 @@ export async function GET() {
     if (!actor) return NextResponse.json({ error: 'Sessão inválida.' }, { status: 401 });
 
     const res = await query(
-      `SELECT id, name, phone, status, provider, phone_number_id, verify_token, pyvon_environment, pyvon_channel_id,
+      `SELECT id, name, phone, status, provider, pyvon_environment, pyvon_channel_id,
               (access_token IS NOT NULL AND access_token <> '') AS has_access_token
          FROM public.whatsapp_instances ORDER BY created_at ASC`
     );
@@ -31,9 +31,7 @@ export async function GET() {
       phone: r.phone,
       status: r.status,
       provider: r.provider || 'baileys',
-      phoneNumberId: r.phone_number_id || undefined,
       hasAccessToken: r.has_access_token,
-      verifyToken: r.verify_token || undefined,
       pyvonEnvironment: r.pyvon_environment || undefined,
       pyvonChannelId: r.pyvon_channel_id ?? undefined
     })));
@@ -59,38 +57,31 @@ export async function POST(request: Request) {
       await query(
         `UPDATE public.whatsapp_instances
             SET name = $1, phone = $2, status = $3, provider = $4,
-                phone_number_id = $5,
-                verify_token = COALESCE($6, verify_token),
-                access_token = CASE WHEN $7 = '' THEN access_token ELSE $7 END,
-                pyvon_environment = COALESCE($8, pyvon_environment),
-                pyvon_channel_id = $9,
+                access_token = CASE WHEN $5 = '' THEN access_token ELSE $5 END,
+                pyvon_environment = COALESCE($6, pyvon_environment),
+                pyvon_channel_id = $7,
                 updated_at = NOW()
-          WHERE id = $10`,
-        [name.trim(), phone || null, status, provider, meta?.phoneNumberId || null, meta?.verifyToken || null, meta?.accessToken ?? '', meta?.pyvonEnvironment || null, meta?.pyvonChannelId ?? null, id]
+          WHERE id = $8`,
+        [name.trim(), phone || null, status, provider, meta?.accessToken ?? '', meta?.pyvonEnvironment || null, meta?.pyvonChannelId ?? null, id]
       );
       logAudit({
         actorId: actor.id, actorName: actor.name, action: 'update',
         entityType: 'whatsapp_instance', entityId: id, entityLabel: name,
-        changes: { name, provider, phoneNumberId: meta?.phoneNumberId }
+        changes: { name, provider }
       });
       return NextResponse.json({ id });
     }
 
     const newId = crypto.randomUUID();
-    // Canal Meta precisa de verify_token para configurar o webhook no painel
-    // da Meta — gera um se quem criou não informou.
-    const verifyToken = provider === 'meta'
-      ? (meta?.verifyToken || crypto.randomUUID().replace(/-/g, ''))
-      : null;
     await query(
-      `INSERT INTO public.whatsapp_instances (id, name, phone, status, provider, phone_number_id, access_token, verify_token, pyvon_environment)
-       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)`,
-      [newId, name.trim(), phone || null, status, provider, meta?.phoneNumberId || null, meta?.accessToken || null, verifyToken, meta?.pyvonEnvironment || null]
+      `INSERT INTO public.whatsapp_instances (id, name, phone, status, provider, access_token, pyvon_environment)
+       VALUES ($1, $2, $3, $4, $5, $6, $7)`,
+      [newId, name.trim(), phone || null, status, provider, meta?.accessToken || null, meta?.pyvonEnvironment || null]
     );
     logAudit({
       actorId: actor.id, actorName: actor.name, action: 'create',
       entityType: 'whatsapp_instance', entityId: newId, entityLabel: name,
-      changes: { name, provider, phoneNumberId: meta?.phoneNumberId }
+      changes: { name, provider }
     });
     return NextResponse.json({ id: newId });
   } catch (err) {

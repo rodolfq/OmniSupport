@@ -16,6 +16,7 @@ import { getOrGenerateChatSummary, ChatSummaryNotFoundError, ChatSummaryGenerati
 import { AssistantNotConfiguredError, parseGroqRetryWait } from '@/lib/groq-client';
 import { normalizeBrazilianPhoneDigits } from '@/lib/utils';
 import { isCrisisModeEnabled, recordCrisisModeMessage } from '@/lib/services/crisis-mode-service';
+import { getActorEffectivePermissions } from '@/lib/server-auth';
 
 function normalizePhone(value?: string | null): string {
   return (value || '').replace(/\D/g, '');
@@ -364,6 +365,24 @@ export async function GET(request: NextRequest) {
     }
 
     if (action === 'histories') {
+      // Só a autenticação global do middleware protegia isto antes (achado em
+      // 2026-09-17, mesma varredura que corrigiu a tela pra usar permissão em
+      // vez de role fixo) — qualquer sessão válida, incluindo Cliente/
+      // Funcionário, conseguia listar o histórico de TODAS as empresas
+      // chamando a rota direto, já que o componente é só a barreira do lado
+      // do navegador.
+      const token = request.cookies.get('token')?.value;
+      const authenticatedUser = token ? await verifyJWT(token) : null;
+      if (!authenticatedUser?.id) {
+        return NextResponse.json({ error: 'Sessão inválida.' }, { status: 401 });
+      }
+      if (authenticatedUser.role !== 'Administrador') {
+        const permissions = await getActorEffectivePermissions(authenticatedUser.id);
+        if (!permissions.includes('chat:history')) {
+          return NextResponse.json({ error: 'Sem permissão para ver o histórico de conversas.' }, { status: 403 });
+        }
+      }
+
       // "Cliente" = a empresa contratante (companies.name, via profiles.company_id
       // do usuário que conversou) — não confundir com "Funcionário", que é a
       // PESSOA do lado do cliente que efetivamente conversou (customer_name),

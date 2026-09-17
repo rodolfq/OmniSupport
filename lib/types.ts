@@ -21,6 +21,11 @@ export enum Permission {
   TICKETS_ASSIGN = 'tickets:assign',
   // "Central de Atendimento": fila de chats do WhatsApp (widget + /chat-management).
   OUTSIDE_QUEUE_VIEW = 'tickets:outside_queue',
+  // /chat-history — antes travado por role (Administrador/Equipe) direto no
+  // componente, sem nenhuma permissão correspondente (achado em 2026-09-17):
+  // um perfil de Time Interno customizado não tinha como ganhar acesso, por
+  // mais permissões que o admin marcasse nele.
+  CHAT_HISTORY_VIEW = 'chat:history',
   // Botão "Fechar como Spam" no encerramento da Central de Atendimento —
   // separado de OUTSIDE_QUEUE_VIEW porque é uma ação mais sensível (some com
   // a mensagem de encerramento/pesquisa, sem avisar o cliente).
@@ -429,7 +434,7 @@ export interface Attachment {
   transcription?: string;
 }
 
-export type WhatsappProvider = 'baileys' | 'meta' | 'pyvon';
+export type WhatsappProvider = 'baileys' | 'pyvon';
 
 export interface WhatsappInstance {
   id: string;
@@ -437,14 +442,13 @@ export interface WhatsappInstance {
   phone: string;
   status: 'connected' | 'disconnected' | 'connecting' | 'error';
   qrCode?: string;
-  // 'baileys' (QR Code, WhatsApp Web não-oficial) ou 'meta' (Cloud API
-  // oficial). Campos abaixo só fazem sentido para 'meta'.
+  // 'baileys' (QR Code, WhatsApp Web não-oficial) ou 'pyvon' (BSP/CRM que
+  // cuida da conexão oficial). Integração com a Meta Cloud API direta existiu
+  // aqui antes e foi removida (2026-09-17, pedido do usuário).
   provider: WhatsappProvider;
-  phoneNumberId?: string;
   // Nunca inclui o access_token de verdade pro client — só se já está
   // configurado ou não (ver getWhatsappInstances em app/actions.ts).
   hasAccessToken?: boolean;
-  verifyToken?: string;
   // Só para 'pyvon': 'prod' (api.pyvon.io) ou 'dev' (api-dev.pyvon.io).
   pyvonEnvironment?: 'prod' | 'dev';
   // Só para 'pyvon': canal padrão a usar quando o tenant tem mais de um canal
@@ -557,7 +561,7 @@ export interface ChatSession {
   // Canal de origem — decide se a resposta deve ser espelhada pro WhatsApp
   // (forwardMessageToWhatsApp, chat-widget.tsx). undefined = sessão anterior a
   // este campo, cai no comportamento antigo (baseado em customerPhone).
-  channel?: 'whatsapp_baileys' | 'whatsapp_meta' | 'pyvon' | 'widget';
+  channel?: 'whatsapp_baileys' | 'pyvon' | 'widget';
 }
 
 export interface SurveySettings {

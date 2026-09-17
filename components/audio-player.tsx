@@ -62,6 +62,38 @@ export function AudioPlayer({ src, name, isOwnMessage }: AudioPlayerProps) {
     setCurrentTime(value);
   };
 
+  const fixingDurationRef = useRef(false);
+
+  // Áudio de voz do WhatsApp chega como OGG/Opus (via Pyvon) — nesse
+  // container, o Chrome/Chromium não sabe a duração real no <audio
+  // onLoadedMetadata>, só um valor inútil (normalmente Infinity, às vezes um
+  // número bem maior que o áudio de verdade). É por isso que a barra
+  // "andava pouco": o range ficava com max=Infinity/errado, então os
+  // segundos reais de reprodução pareciam quase não mover o preenchimento.
+  // Truque padrão pra esse bug conhecido do Chrome com OGG sem índice de
+  // duração no cabeçalho: forçar uma busca (seek) pro fim do arquivo faz o
+  // decoder calcular a duração de verdade; depois volta pro início antes de
+  // qualquer reprodução real começar.
+  const fixDurationIfBroken = (audio: HTMLAudioElement) => {
+    if (Number.isFinite(audio.duration) || fixingDurationRef.current) return;
+    fixingDurationRef.current = true;
+    const onFixTimeUpdate = () => {
+      audio.removeEventListener('timeupdate', onFixTimeUpdate);
+      audio.currentTime = 0;
+      setDuration(audio.duration);
+      fixingDurationRef.current = false;
+    };
+    audio.addEventListener('timeupdate', onFixTimeUpdate);
+    audio.currentTime = 1e7; // ~115 dias — bem além de qualquer áudio real, sem ser um valor extremo o bastante pra motor de mídia nenhum estranhar
+  };
+
+  // Enquanto fixDurationIfBroken ainda não corrigiu (ou pra formato que nunca
+  // precisou, tipo WAV), duration pode estar em Infinity/NaN por uma fração
+  // de segundo — nunca deixa isso vazar pro <input type="range"> (max=Infinity
+  // é exatamente o bug original: qualquer currentTime real parece não mover
+  // a barra).
+  const safeDuration = Number.isFinite(duration) ? duration : 0;
+
   const own = !!isOwnMessage;
 
   console.log(`[AudioPlayer] Rendering: name="${name}" srcLength=${src?.length ?? 0} srcPrefix="${(src || '').slice(0, 40)}"`);
@@ -90,8 +122,18 @@ export function AudioPlayer({ src, name, isOwnMessage }: AudioPlayerProps) {
         onPlay={() => setIsPlaying(true)}
         onPause={() => setIsPlaying(false)}
         onEnded={() => setIsPlaying(false)}
-        onLoadedMetadata={(e) => setDuration(e.currentTarget.duration)}
-        onTimeUpdate={(e) => setCurrentTime(e.currentTarget.currentTime)}
+        onLoadedMetadata={(e) => {
+          const audio = e.currentTarget;
+          setDuration(audio.duration);
+          fixDurationIfBroken(audio);
+        }}
+        onTimeUpdate={(e) => {
+          // Ignora o timeupdate disparado pelo próprio seek de correção
+          // (fixDurationIfBroken) — sem isso, a barra pisca "115 dias" por um
+          // instante antes de fixDurationIfBroken zerar currentTime de volta.
+          if (fixingDurationRef.current) return;
+          setCurrentTime(e.currentTarget.currentTime);
+        }}
         onError={(e) => {
           const el = e.currentTarget;
           const code = el.error?.code;
@@ -121,14 +163,14 @@ export function AudioPlayer({ src, name, isOwnMessage }: AudioPlayerProps) {
         <input
           type="range"
           min={0}
-          max={duration || 0}
+          max={safeDuration}
           step={0.1}
-          value={Math.min(currentTime, duration || 0)}
+          value={Math.min(currentTime, safeDuration)}
           onChange={handleSeek}
           className={cn("w-full h-1 accent-current cursor-pointer", own ? "text-white" : "text-[var(--accent-text)]")}
         />
         <span className={cn("text-[10px] font-bold tabular-nums", own ? "text-white/80" : "text-[var(--text-tertiary)]")}>
-          {formatTime(currentTime)} / {formatTime(duration)}
+          {formatTime(currentTime)} / {formatTime(safeDuration)}
         </span>
       </div>
 

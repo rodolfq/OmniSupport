@@ -489,7 +489,7 @@ export default function ChatHistoryPage() {
   );
 
   useEffect(() => {
-    if (!currentUser || !hasPermission(Permission.TICKETS_READ)) return;
+    if (!currentUser || !hasPermission(Permission.CHAT_HISTORY_VIEW)) return;
 
     getChatHistories()
       .then(setHistories)
@@ -802,7 +802,7 @@ export default function ChatHistoryPage() {
     }
   };
 
-  if (!currentUser || ![UserRole.ADMIN, UserRole.SUPPORT].includes(currentUser.role as UserRole)) {
+  if (!currentUser || !hasPermission(Permission.CHAT_HISTORY_VIEW)) {
     return (
       <div className="flex items-center justify-center h-full">
         <p className="text-[var(--text-tertiary)]">Acesso negado</p>

@@ -27,8 +27,8 @@ export async function saveWhatsappInstance(
   name: string,
   phone: string,
   status: string,
-  provider: 'baileys' | 'meta' | 'pyvon' = 'baileys',
-  meta?: { phoneNumberId?: string; accessToken?: string; verifyToken?: string; pyvonEnvironment?: 'prod' | 'dev'; pyvonChannelId?: number | null }
+  provider: 'baileys' | 'pyvon' = 'baileys',
+  meta?: { accessToken?: string; pyvonEnvironment?: 'prod' | 'dev'; pyvonChannelId?: number | null }
 ): Promise<MutationResult> {
   try {
     return await apiJson('/api/whatsapp/instances', {

@@ -2,9 +2,8 @@ import { NextResponse } from 'next/server';
 import { assertCanManageWhatsapp, permissionErrorStatus } from '@/lib/server-permissions';
 import { PyvonService } from '@/lib/services/pyvon-service';
 
-// Testa o segredo salvo chamando GET /api/webhook/channels de verdade — mesmo
-// padrão de /api/whatsapp/meta/test (usa a credencial já salva no servidor,
-// nunca reenviada pelo client).
+// Testa o segredo salvo chamando GET /api/webhook/channels de verdade — usa
+// a credencial já salva no servidor, nunca reenviada pelo client.
 export async function POST(request: Request) {
   const check = await assertCanManageWhatsapp();
   if (!check.ok) return NextResponse.json({ error: check.error }, { status: permissionErrorStatus(check.error) });

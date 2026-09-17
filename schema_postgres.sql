@@ -527,8 +527,8 @@ CREATE TABLE public.chat_sessions (
   -- Id do contato no Pyvon ("cadastro_id") — canal WhatsApp via Pyvon, ver
   -- lib/services/pyvon-service.ts. É com ele que se responde/inicia template.
   pyvon_cadastro_id INTEGER,
-  -- Canal de origem ('whatsapp_baileys' | 'whatsapp_meta' | 'pyvon' | 'widget')
-  -- — decide se a resposta do analista deve ser espelhada pro WhatsApp
+  -- Canal de origem ('whatsapp_baileys' | 'pyvon' | 'widget') — decide se a
+  -- resposta do analista deve ser espelhada pro WhatsApp
   -- (forwardMessageToWhatsApp, chat-widget.tsx). NULL = sessão anterior a esta
   -- coluna, mantém o comportamento antigo (baseado em customer_phone).
   channel TEXT,
@@ -537,7 +537,12 @@ CREATE TABLE public.chat_sessions (
   -- automaticamente (só quando ela for exatamente "prosseguir") — ver
   -- PyvonService.handleWebhook. NULL = nenhuma nota pendente.
   pyvon_pending_note_text TEXT,
-  pyvon_pending_note_set_at TIMESTAMP WITH TIME ZONE
+  pyvon_pending_note_set_at TIMESTAMP WITH TIME ZONE,
+  -- Quem escreveu a nota pendente acima — usado só quando ela sai de
+  -- verdade (sendAutomaticNoteReply em pyvon-service.ts), pra prefixar o
+  -- nome do analista em negrito na mensagem ao cliente e atribuir a
+  -- mensagem ao autor certo no nosso próprio chat.
+  pyvon_pending_note_author_id UUID REFERENCES public.profiles(id) ON DELETE SET NULL
 );
 
 -- Poll de 30s (GET /api/chats?action=sessions) e a subquery correlacionada
@@ -725,8 +730,12 @@ CREATE TABLE public.whatsapp_sessions (
 );
 
 -- WhatsApp Instances Table (for UI management) — cada linha é um "canal" de
--- WhatsApp, com provider 'baileys' (QR Code) ou 'meta' (Cloud API oficial).
--- Os campos meta-específicos ficam NULL em canais Baileys.
+-- WhatsApp, com provider 'baileys' (QR Code) ou 'pyvon' (BSP oficial).
+-- Integração direta com a Meta Cloud API ('meta') existiu aqui antes e foi
+-- removida (2026-09-17, pedido do usuário) — chegou a ter as colunas
+-- phone_number_id/verify_token, nunca usadas em produção (zero linhas com
+-- provider='meta'), então foram descartadas junto (ver migrations/
+-- remove_meta_whatsapp.sql).
 CREATE TABLE public.whatsapp_instances (
   id TEXT PRIMARY KEY,
   name TEXT,
@@ -734,13 +743,10 @@ CREATE TABLE public.whatsapp_instances (
   status TEXT DEFAULT 'disconnected',
   provider TEXT NOT NULL DEFAULT 'baileys',
   access_token TEXT,
-  phone_number_id TEXT,
-  verify_token TEXT,
   created_at TIMESTAMP WITH TIME ZONE DEFAULT now() NOT NULL,
   updated_at TIMESTAMP WITH TIME ZONE DEFAULT now() NOT NULL,
   -- provider = 'pyvon': 'prod' (api.pyvon.io) ou 'dev' (api-dev.pyvon.io).
-  -- access_token guarda o X-Pyvon-Secret do tenant nesse caso (reaproveitado,
-  -- mesmo campo que o Meta usa pro token da Graph API).
+  -- access_token guarda o X-Pyvon-Secret do tenant nesse caso.
   pyvon_environment TEXT,
   -- Canal padrão (Pyvon) a usar quando o tenant tem mais de um canal oficial
   -- ativo — sem isso, bot-response/bot-template recusam com 422 "Mais de um

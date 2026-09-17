@@ -81,7 +81,7 @@ export function getNavItems(currentUser: User | null): NavItem[] {
         { name: 'Todos os Chamados', icon: Ticket, href: '/tickets', permission: [Permission.TICKETS_READ, Permission.INTERNAL_TICKETS_VIEW] },
         { name: 'Meus Chamados', icon: UserCircle, href: '/my-tickets' },
         { name: 'Painel Chat', icon: MessageSquare, href: '/chat-management', permission: Permission.OUTSIDE_QUEUE_VIEW },
-        { name: 'Histórico de Conversas', icon: History, href: '/chat-history', permission: Permission.TICKETS_READ },
+        { name: 'Histórico de Conversas', icon: History, href: '/chat-history', permission: Permission.CHAT_HISTORY_VIEW },
       ]
     },
     { name: 'Chat Interno', icon: MessageCircle, href: '/chat-internal', permission: Permission.CHAT_INTERNAL_VIEW },

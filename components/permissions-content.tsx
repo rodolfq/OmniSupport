@@ -66,6 +66,7 @@ const permissionGroups = [
       { id: Permission.TICKETS_WRITE, label: 'Responder/Editar chamados', desc: 'Permite enviar respostas e editar campos de um chamado' },
       { id: Permission.TICKETS_ASSIGN, label: 'Atribuir responsável', desc: 'Permite mudar o analista responsável por um chamado' },
       { id: Permission.OUTSIDE_QUEUE_VIEW, label: 'Central de Atendimento', desc: 'Permite ver e atender a fila de chats do WhatsApp — widget flutuante e /chat-management' },
+      { id: Permission.CHAT_HISTORY_VIEW, label: 'Histórico de Conversas', desc: 'Permite ver conversas encerradas de qualquer cliente (/chat-history), com filtros, resumo por IA e exportação' },
       { id: Permission.CHAT_MARK_SPAM, label: 'Marcar conversa como spam', desc: 'Permite usar "Fechar como Spam" ao encerrar um atendimento — sem enviar mensagem de encerramento/pesquisa ao cliente' },
     ]
   },
@@ -95,7 +96,7 @@ const permissionGroups = [
       // ninguém conseguia conceder nem revogar pela interface, e quem ficava
       // sem ela via o widget falhar sem explicação.
       { id: Permission.AI_ASSISTANT_USE, label: 'Agente de IA', desc: 'Permite usar o widget do Agente de IA — busca em chamados, tickets internos e conversas' },
-      { id: Permission.WHATSAPP_MANAGE, label: 'Conectar canais de WhatsApp', desc: 'Permite parear QR Code / configurar Meta API — mais sensível que só atender chats' },
+      { id: Permission.WHATSAPP_MANAGE, label: 'Conectar canais de WhatsApp', desc: 'Permite parear QR Code / configurar canal Pyvon — mais sensível que só atender chats' },
     ]
   },
   {

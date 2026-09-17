@@ -318,8 +318,10 @@ async function dispatchTicketUpdateTemplate(
   if (!recorded) return false;
 
   await query(
-    `UPDATE public.chat_sessions SET pyvon_pending_note_text = $1, pyvon_pending_note_set_at = NOW() WHERE id = $2`,
-    [noteText, recorded.id]
+    `UPDATE public.chat_sessions
+     SET pyvon_pending_note_text = $1, pyvon_pending_note_set_at = NOW(), pyvon_pending_note_author_id = $2
+     WHERE id = $3`,
+    [noteText, noteAuthorId, recorded.id]
   );
 
   if (noteAuthorId) {

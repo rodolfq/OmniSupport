@@ -31,7 +31,7 @@ Extraído de `package.json`:
 | ORM | **Nenhum** — SQL puro via `pg.Pool` (ver seção 6) | — |
 | Auth | JWT próprio (Web Crypto, HMAC-SHA256) + cookie httpOnly | — |
 | WhatsApp não-oficial | `@whiskeysockets/baileys` | ^7.0.0-rc.9 |
-| WhatsApp oficial | Meta Cloud API (webhook HTTP, sem SDK) | — |
+| WhatsApp oficial | Pyvon (BSP/CRM sobre a Meta Cloud API — webhook HTTP, sem SDK) | — |
 | Push notifications | `web-push` (VAPID) | ^3.6.7 |
 | Transcrição de áudio | `@huggingface/transformers` (Whisper local) + `ffmpeg-static` | ^4.2.0 |
 | Gráficos | `recharts` | ^2.13.3 |
@@ -317,7 +317,7 @@ Padrão predominante: rotas multiplexadas por query param `?action=...` dentro d
 | `/api/whatsapp/status` | GET | Status da conexão (QR pendente/conectado) | `whatsapp:manage` |
 | `/api/whatsapp/send` | POST | Envia mensagem de texto via WhatsApp | Sessão válida (usado pelo chat e pelo botão no chamado) |
 | `/api/whatsapp/contact-photo` | GET | Busca/retorna foto de contato cacheada | Sessão válida |
-| `/api/whatsapp/webhook` | POST | Recebe mensagens da Meta Cloud API | **Público** (autenticado pela Meta, sem sessão de usuário — ver `middleware.ts`) |
+| `/api/whatsapp/pyvon-webhook` | POST | Recebe mensagens do canal oficial via Pyvon (BSP) | **Público** (autenticado por `X-Pyvon-Secret`, sem sessão de usuário — ver `middleware.ts`) |
 | `/api/integrations/keys` | GET/POST/DELETE | Gerencia chaves da API externa (`integration_api_keys`) | `settings:integrations` |
 | `/api/integrations/v1/ping` | GET | Health-check autenticado por API key | Chave de API válida |
 | `/api/integrations/v1/employees` | GET/POST | Funcionários de empresa-cliente, via API key | Chave com escopo `employees:read`/`employees:write` |
@@ -358,7 +358,7 @@ A API de integração (`/api/integrations/v1/*`) usa **autenticação por API ke
 | Integração | Como | Arquivo(s) |
 |---|---|---|
 | WhatsApp não-oficial (QR code) | Baileys, WebSocket direto com servidores do WhatsApp | `lib/services/whatsapp-service.ts`, `lib/supabase-auth.ts` (persistência de credenciais no Postgres) |
-| WhatsApp oficial (Meta Cloud API) | Webhook HTTP público, sem SDK | `app/api/whatsapp/webhook/route.ts`, `lib/services/meta-whatsapp-service.ts` |
+| WhatsApp oficial (Pyvon, BSP sobre a Meta Cloud API) | Webhook HTTP público (`X-Pyvon-Secret`), envio via `bot-response`/`bot-template`. Integração direta com a Meta Cloud API existiu antes e foi removida (2026-09-17) | `app/api/whatsapp/pyvon-webhook/route.ts`, `app/api/whatsapp/pyvon/*`, `lib/services/pyvon-service.ts` |
 | Web Push | VAPID (`web-push`) | `lib/services/push-service.ts`, `hooks/use-push-subscription.ts`, `public/sw.js` |
 | Transcrição de áudio | Whisper local via `@huggingface/transformers` + `ffmpeg-static`, **sem API externa paga** | `lib/services/transcription-service.ts` |
 | API de integração externa (parceiros/sistemas terceiros) | REST própria com API key (`Authorization: Bearer` ou `x-api-key`) | `app/api/integrations/v1/*`, `lib/integration-auth.ts`, `components/integrations-content.tsx` |
@@ -400,7 +400,7 @@ A API de integração (`/api/integrations/v1/*`) usa **autenticação por API ke
 - Autenticação por JWT + cookie httpOnly, com gate global em `middleware.ts`.
 - CRUD completo de chamados (tickets), com fila, categoria, tipo de solicitação, produto e tags separados (migration aplicada).
 - Sistema de permissões por "Perfil de Acesso" (RBAC próprio, não baseado só em `role`), com escopo por equipe interna.
-- Chat ao vivo via WhatsApp (Baileys + Meta Cloud API) e via widget para clientes logados, com distribuição automática por fila (round-robin e "equilíbrio diário").
+- Chat ao vivo via WhatsApp (Baileys + Pyvon) e via widget para clientes logados, com distribuição automática por fila (round-robin e "equilíbrio diário").
 - Realtime de chat via SSE + polling de segurança.
 - Histórico de conversas (com download TXT/PDF/ZIP), histórico "sob demanda" por contato/empresa.
 - Duplicar / vincular / mesclar chamados e conversas.
@@ -508,7 +508,7 @@ Baseado em `AGENTS.md` (já existente no repositório) + observações desta var
 Recomendações objetivas para dois devs trabalharem ao mesmo tempo, dado o que existe hoje:
 
 - **Schema/migrations é o ponto de maior risco de conflito**: como não há ORM nem tracking automático (seção 11/14), dois devs alterando `schema_postgres.sql` ou criando migrations em paralelo podem gerar SQL incompatível sem o Git avisar (é tudo texto solto). Antes de começar uma mudança de schema, avisar o outro dev e verificar se `schema_postgres.sql` já tem uma migration pendente não aplicada.
-- **Áreas com "dono" natural por causa do desenho do código**: `lib/services/whatsapp-service.ts` e `lib/services/meta-whatsapp-service.ts` (WhatsApp) são bem isolados de `lib/services/ticket-service.ts`/`chat-service.ts` (chamados/chat) — bom ponto de divisão de trabalho para reduzir conflito de merge.
+- **Áreas com "dono" natural por causa do desenho do código**: `lib/services/whatsapp-service.ts` e `lib/services/pyvon-service.ts` (WhatsApp) são bem isolados de `lib/services/ticket-service.ts`/`chat-service.ts` (chamados/chat) — bom ponto de divisão de trabalho para reduzir conflito de merge.
 - **`lib/types.ts` e `lib/nav-items.ts` são compartilhados por quase tudo** — mudanças ali tendem a gerar conflito; coordenar antes de editar essas duas arestas.
 - Como não há CI/PR configurado visivelmente neste repositório, qualquer processo de PR/branch deve ser combinado diretamente com o usuário antes de ser adotado — **não assumir GitHub Flow, trunk-based ou qualquer convenção sem confirmar**.
 

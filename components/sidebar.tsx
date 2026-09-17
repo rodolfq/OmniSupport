@@ -104,7 +104,7 @@ export function Sidebar() {
                   className={cn(
                     "p-3 rounded-xl transition-all relative",
                     isActive
-                      ? "bg-white/10 text-[#5EEAD4]"
+                      ? "bg-white/10 text-[#55E7CF]"
                       : "text-white/40 hover:bg-white/5 hover:text-white/70"
                   )}
                   title={item.name}
@@ -121,7 +121,7 @@ export function Sidebar() {
                   className={cn(
                     "p-3 rounded-xl transition-all relative block",
                     isActive
-                      ? "bg-white/10 text-[#5EEAD4]"
+                      ? "bg-white/10 text-[#55E7CF]"
                       : "text-white/40 hover:bg-white/5 hover:text-white/70"
                   )}
                 >

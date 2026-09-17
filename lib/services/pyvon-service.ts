@@ -14,8 +14,8 @@ import type { Attachment } from '@/lib/types';
 
 /**
  * Canal WhatsApp via Pyvon (BSP/CRM que já cuida da conexão oficial com a
- * Meta) — mesmo padrão de provider já usado por Baileys/Meta em
- * whatsapp_instances. Documentação: https://pyvon.io/docs/bot-externo/
+ * Meta) — mesmo padrão de provider já usado por Baileys em whatsapp_instances.
+ * Documentação: https://pyvon.io/docs/bot-externo/
  *
  * Do ponto de vista do Pyvon, o SSX Desk É "o bot" do tenant — pra sempre.
  * NUNCA chamamos `transfer` (bot-response com transfer:true): isso entregaria
@@ -64,8 +64,8 @@ const PLACEHOLDER_BY_TYPE: Record<string, string> = {
   location: '[Localização]',
 };
 
-// Mesmas variantes de 9º dígito/DDI que Meta e Baileys já calculam cada um
-// na própria cópia (não existe um helper compartilhado hoje no projeto).
+// Mesmas variantes de 9º dígito/DDI que Baileys já calcula na própria cópia
+// (não existe um helper compartilhado hoje no projeto).
 export function phoneVariants(rawPhone: string): string[] {
   const digits = normalizePhone(rawPhone);
   if (!digits) return [];
@@ -167,7 +167,12 @@ export class PyvonService {
     }
 
     let text = payload.content || '';
-    if (!text && payload.type && payload.type !== 'text') {
+    // Rótulo genérico ("[Imagem]" etc.) só quando a mídia NÃO baixou — vira o
+    // único indício, na tela do analista, de que algo chegou e falhou. Mídia
+    // baixada com sucesso e sem legenda de verdade (payload.content vazio)
+    // fica com texto vazio mesmo: sem legenda digitada = sem legenda
+    // mostrada (pedido do usuário 2026-09-17), o anexo já aparece sozinho.
+    if (!text && payload.type && payload.type !== 'text' && !attachment) {
       text = PLACEHOLDER_BY_TYPE[payload.type] || '[Mensagem]';
     }
     if (!text && !attachment) return;
@@ -178,11 +183,16 @@ export class PyvonService {
       ...(attachment ? { attachments: [attachment] } : {})
     };
 
+    // session.customer_name (não a `name` do payload) — é o nome já resolvido
+    // contra o cadastro em findOrCreateSession; usar o nome cru do WhatsApp/
+    // Pyvon aqui reintroduziria o mesmo bug corrigido no nome da conversa
+    // (mensagem, notificação e SSE mostrando o nome salvo no celular do
+    // contato em vez do nome cadastrado, mesmo com a sessão já certa).
     const messageRes = await query(
       `INSERT INTO public.chat_messages (session_id, sender_id, sender_name, text, type, metadata, pyvon_message_id, created_at)
        VALUES ($1, $2, $3, $4, $5, $6, $7, NOW())
        RETURNING id, created_at`,
-      [session.id, session.customer_id || null, name, text, attachment ? 'file' : 'text', JSON.stringify(metadata), messageIdStr]
+      [session.id, session.customer_id || null, session.customer_name, text, attachment ? 'file' : 'text', JSON.stringify(metadata), messageIdStr]
     );
     const savedMessage = messageRes.rows[0];
     if (!savedMessage) return;
@@ -212,7 +222,7 @@ export class PyvonService {
       message: {
         id: savedMessage.id,
         senderId: session.customer_id || null,
-        senderName: name,
+        senderName: session.customer_name,
         text,
         timestamp: savedMessage.created_at,
         type: attachment ? 'file' : 'text',
@@ -224,7 +234,7 @@ export class PyvonService {
     getChatRecipientIds({ customerId: session.customer_id, assigneeId: session.assignee_id, queueId: session.queue_id }, null, false)
       .then(recipients => excludeActiveViewers(session.id, recipients))
       .then(recipients => Promise.all(recipients.map(id => notifyUser(id, {
-        title: `Nova mensagem de ${name}`,
+        title: `Nova mensagem de ${session.customer_name}`,
         body: text || 'Anexo enviado',
         url: `/chat?chat=${session.id}`,
         tag: `chat_message:${savedMessage.id}`
@@ -244,13 +254,16 @@ export class PyvonService {
     // outra resposta fica pro analista decidir manualmente, como sempre.
     if (session.pyvon_pending_note_text) {
       const pendingText = session.pyvon_pending_note_text;
+      const pendingAuthorId = session.pyvon_pending_note_author_id || null;
       const isProsseguir = text.trim().toLowerCase().replace(/[.,!?]+$/, '') === 'prosseguir';
       await query(
-        `UPDATE public.chat_sessions SET pyvon_pending_note_text = NULL, pyvon_pending_note_set_at = NULL WHERE id = $1`,
+        `UPDATE public.chat_sessions
+         SET pyvon_pending_note_text = NULL, pyvon_pending_note_set_at = NULL, pyvon_pending_note_author_id = NULL
+         WHERE id = $1`,
         [session.id]
       );
       if (isProsseguir) {
-        this.sendAutomaticNoteReply(instanceId, session, pendingText).catch(err => {
+        this.sendAutomaticNoteReply(instanceId, session, pendingText, pendingAuthorId).catch(err => {
           console.error('[Pyvon] Falha ao enviar nota automática após "Prosseguir":', err);
         });
       }
@@ -259,25 +272,37 @@ export class PyvonService {
 
   // Depois que o cliente confirma com "Prosseguir" (ver handleWebhook acima),
   // manda o texto da nota como mensagem normal (já dentro da janela — o
-  // cliente acabou de escrever) e registra no chat como qualquer resposta,
-  // sem analista real (mesma convenção de recordOutboundTemplateMessage).
-  private static async sendAutomaticNoteReply(instanceId: string, session: any, noteText: string): Promise<void> {
+  // cliente acabou de escrever) e registra no chat como resposta do autor de
+  // verdade (pyvon_pending_note_author_id, gravado em dispatchTicketUpdate
+  // Template/automation-service.ts) — nome em negrito antes do texto pro
+  // cliente saber quem está escrevendo (mesma regra do envio manual em
+  // chat-widget.tsx), igual sempre "SSX Desk (automático)" só se o autor não
+  // existir mais (perfil excluído).
+  private static async sendAutomaticNoteReply(instanceId: string, session: any, noteText: string, authorId: string | null): Promise<void> {
+    let authorName: string | null = null;
+    if (authorId) {
+      const authorRes = await query('SELECT name FROM public.profiles WHERE id = $1', [authorId]);
+      authorName = authorRes.rows[0]?.name || null;
+    }
+    const contentForPyvon = authorName ? `*${authorName}*\n\n${noteText}` : noteText;
+
     const result = await this.sendMessage(
       instanceId,
       { cadastroId: session.pyvon_cadastro_id || undefined, phone: session.customer_phone || undefined, name: session.customer_name || undefined },
-      noteText
+      contentForPyvon
     );
     if (result.skipped || (result.delivery && result.delivery !== 'sent')) {
       console.warn(`[Pyvon] Nota automática não entregue (sessão ${session.id}): ${result.skipped || result.delivery_error || result.delivery}`);
       return;
     }
 
+    const senderName = authorName || 'SSX Desk (automático)';
     const metadata = { source: 'pyvon', auto_reply: true };
     const messageRes = await query(
       `INSERT INTO public.chat_messages (session_id, sender_id, sender_name, text, type, metadata, created_at)
-       VALUES ($1, NULL, $2, $3, 'text', $4, NOW())
+       VALUES ($1, $2, $3, $4, 'text', $5, NOW())
        RETURNING id, created_at`,
-      [session.id, 'SSX Desk (automático)', noteText, JSON.stringify(metadata)]
+      [session.id, authorName ? authorId : null, senderName, noteText, JSON.stringify(metadata)]
     );
     const savedMessage = messageRes.rows[0];
     if (!savedMessage) return;
@@ -290,8 +315,8 @@ export class PyvonService {
       sessionId: session.id,
       message: {
         id: savedMessage.id,
-        senderId: null,
-        senderName: 'SSX Desk (automático)',
+        senderId: authorName ? authorId : null,
+        senderName,
         text: noteText,
         timestamp: savedMessage.created_at,
         type: 'text',
@@ -320,7 +345,7 @@ export class PyvonService {
     await recordCrisisModeMessage(session.id);
   }
 
-  // NOTA: diferente de Baileys/Meta, ainda não trata a resposta "1"/"0" a uma
+  // NOTA: diferente de Baileys, ainda não trata a resposta "1"/"0" a uma
   // pesquisa de satisfação como caso especial (findSurveyableClosedSession) —
   // vira atendimento novo por ora. Replicar isso é um follow-up, não um
   // bloqueio pra receber texto/mídia normalmente.
@@ -329,7 +354,7 @@ export class PyvonService {
 
     if (variants.length) {
       const existing = await query(
-        `SELECT id, customer_phone, customer_id, customer_name, assignee_id, queue_id, pyvon_cadastro_id, pyvon_pending_note_text
+        `SELECT id, customer_phone, customer_id, customer_name, assignee_id, queue_id, pyvon_cadastro_id, pyvon_pending_note_text, pyvon_pending_note_author_id
            FROM public.chat_sessions
           WHERE customer_phone IN (${placeHoldersFor(variants)}) AND status != 'closed'
           ORDER BY updated_at DESC LIMIT 1`,
@@ -339,7 +364,7 @@ export class PyvonService {
     } else {
       // Canal sem telefone exposto (ex.: Instagram) — casa só pelo cadastro_id.
       const existing = await query(
-        `SELECT id, customer_phone, customer_id, customer_name, assignee_id, queue_id, pyvon_cadastro_id, pyvon_pending_note_text
+        `SELECT id, customer_phone, customer_id, customer_name, assignee_id, queue_id, pyvon_cadastro_id, pyvon_pending_note_text, pyvon_pending_note_author_id
            FROM public.chat_sessions
           WHERE pyvon_cadastro_id = $1 AND status != 'closed'
           ORDER BY updated_at DESC LIMIT 1`,
@@ -352,7 +377,7 @@ export class PyvonService {
     // regexp_replace: profiles.phone é salvo com máscara ((21) 99177-8567) —
     // comparar sem normalizar os dois lados nunca batia, e a conversa nascia
     // com o nome de exibição do WhatsApp/Pyvon em vez do nome cadastrado
-    // (mesma correção em whatsapp-service.ts/meta-whatsapp-service.ts).
+    // (mesma correção em whatsapp-service.ts).
     const profileRes = variants.length
       ? await query(
           `SELECT id, name FROM public.profiles
@@ -374,7 +399,7 @@ export class PyvonService {
          VALUES ($1, $2, $3, $4, $5, $6, $7, 'pyvon', NOW(), NOW())
          ON CONFLICT (customer_phone) WHERE status <> 'closed' AND customer_phone IS NOT NULL
          DO NOTHING
-         RETURNING id, customer_phone, customer_id, customer_name, assignee_id, queue_id, pyvon_cadastro_id, pyvon_pending_note_text`,
+         RETURNING id, customer_phone, customer_id, customer_name, assignee_id, queue_id, pyvon_cadastro_id, pyvon_pending_note_text, pyvon_pending_note_author_id`,
         [profile?.id || null, customerName, digits, status, queue?.id || null, assigneeId, cadastroId]
       );
       return { insertRes };
@@ -393,7 +418,7 @@ export class PyvonService {
     // Perdeu a corrida contra outro processo — usa a sessão que venceu.
     if (variants.length) {
       const retryRes = await query(
-        `SELECT id, customer_phone, customer_id, customer_name, assignee_id, queue_id, pyvon_cadastro_id, pyvon_pending_note_text
+        `SELECT id, customer_phone, customer_id, customer_name, assignee_id, queue_id, pyvon_cadastro_id, pyvon_pending_note_text, pyvon_pending_note_author_id
            FROM public.chat_sessions WHERE customer_phone IN (${placeHoldersFor(variants)})
           ORDER BY updated_at DESC LIMIT 1`,
         variants
@@ -443,7 +468,7 @@ export class PyvonService {
     instanceId: string,
     target: { cadastroId?: number; phone?: string; name?: string },
     content?: string,
-    opts?: { imageUrl?: string; documentUrl?: string; channelId?: number }
+    opts?: { imageUrl?: string; documentUrl?: string; audioUrl?: string; channelId?: number }
   ): Promise<{ ok: boolean; message_id?: number; skipped?: string; delivery?: 'sent' | 'failed' | 'not_sent'; delivery_error?: string }> {
     const { secret, baseUrl, channelId } = await this.getCredentials(instanceId);
     const res = await axios.post(
@@ -455,6 +480,13 @@ export class PyvonService {
         content,
         image_url: opts?.imageUrl,
         document_url: opts?.documentUrl,
+        // audio_url: Pyvon baixa, converte pra OGG/Opus e entrega como
+        // mensagem de voz — sem legenda embutida (diferente de imagem/
+        // documento), o `content` sai antes como texto separado. Só usar
+        // quando NENHUM dos outros dois estiver setado (prioridade deles é
+        // maior no próprio Pyvon: document_url > image_url > audio_url), mas
+        // quem chama já garante isso (resolvePyvonMediaUrl manda só um).
+        audio_url: opts?.audioUrl,
         // channel_id: obrigatório quando o tenant tem mais de um canal oficial
         // ativo (bot-response/bot-template recusam com 422 sem ele) — vem do
         // canal padrão configurado em Configurações > WhatsApp

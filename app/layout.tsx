@@ -87,12 +87,19 @@ export default function RootLayout({
               <Toaster
                 position="top-right"
                 richColors
+                closeButton
                 toastOptions={{
                   classNames: {
                     default: '!bg-[var(--surface-card)] !border !border-[var(--accent)]/30 !rounded-2xl !shadow-xl',
                     title: '!text-[var(--text-primary)] !font-black',
                     description: '!text-[var(--text-tertiary)] !font-medium',
-                    icon: '!text-[var(--accent-text)]'
+                    icon: '!text-[var(--accent-text)]',
+                    // Sonner por padrão põe o X no canto SUPERIOR ESQUERDO do
+                    // toast (--toast-close-button-start/-end, definidas pelo
+                    // próprio pacote) — left/right/transform aqui sobrescrevem
+                    // isso pra abrir no lado direito, que é onde o pop-up já
+                    // aparece na tela (position="top-right" acima).
+                    closeButton: '!left-auto !right-0 ![transform:translate(35%,-35%)] !bg-[var(--surface-card)] !border !border-[var(--border-default)] !text-[var(--text-danger)]'
                   }
                 }}
               />

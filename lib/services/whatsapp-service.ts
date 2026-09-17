@@ -848,11 +848,17 @@ export class WhatsAppService {
     if (['imageMessage', 'videoMessage', 'documentMessage', 'audioMessage'].includes(messageType)) {
       try {
         mediaData = await this.downloadIncomingMedia(msg.message, messageType);
-        if (mediaData && !text) {
-          text = messageType === 'audioMessage' ? '[Áudio]' : `[Arquivo: ${mediaData.name}]`;
-        }
+        // Sem legenda de verdade (imageMessage.caption etc., já capturada
+        // acima) = sem legenda mostrada — nada de "[Áudio]"/"[Arquivo: nome]"
+        // fabricado aqui; o anexo já aparece sozinho na tela (pedido do
+        // usuário 2026-09-17). Isso só quando a mídia baixou com sucesso —
+        // baixar cai no ramo abaixo, que mantém o rótulo genérico como
+        // diagnóstico de que algo chegou e não pôde ser processado.
       } catch (err) {
         console.error(`[WhatsApp:${instanceId}] Falha ao baixar mídia:`, err);
+      }
+      if (!mediaData && !text) {
+        text = messageType === 'audioMessage' ? '[Áudio: falha ao baixar]' : '[Arquivo: falha ao baixar]';
       }
     }
 
@@ -868,7 +874,10 @@ export class WhatsAppService {
       const surveySession = await findSurveyableClosedSession(remoteJid, instanceId);
       if (surveySession) {
         try {
-          const senderName = msg.pushName || surveySession.customer_name || 'Contato WhatsApp';
+          // Nome do cadastro (surveySession.customer_name) tem prioridade
+          // sobre o nome salvo no celular do contato (msg.pushName) — mesma
+          // regra do resto do arquivo (ver findOrCreateChatSession).
+          const senderName = surveySession.customer_name || msg.pushName || 'Contato WhatsApp';
           const surveyMetadata = {
             whatsapp_jid: remoteJid,
             source: 'whatsapp',
@@ -927,7 +936,11 @@ export class WhatsAppService {
     };
 
     try {
-      const senderName = msg.pushName || session.customer_name || 'Contato WhatsApp';
+      // Nome do cadastro (session.customer_name) tem prioridade sobre o nome
+      // salvo no celular do contato (msg.pushName) — sem isso a mensagem, a
+      // notificação e o SSE mostravam o nome do WhatsApp mesmo com a sessão
+      // já corretamente nomeada pelo cadastro (achado em 2026-09-16).
+      const senderName = session.customer_name || msg.pushName || 'Contato WhatsApp';
       const messageRes = await query(
         `INSERT INTO public.chat_messages (session_id, sender_id, sender_name, text, type, metadata, created_at)
          VALUES ($1, $2, $3, $4, $5, $6, NOW())

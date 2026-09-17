@@ -1,19 +1,19 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { WhatsAppService } from '@/lib/services/whatsapp-service';
-import { MetaWhatsAppService } from '@/lib/services/meta-whatsapp-service';
 import { PyvonService } from '@/lib/services/pyvon-service';
 import { signPyvonMediaUrl } from '@/lib/services/pyvon-media-link';
 import { ATTACHMENT_URL_PREFIX } from '@/lib/services/attachment-storage';
 import { query } from '@/lib/db';
 import type { Attachment } from '@/lib/types';
 
-// bot-response só aceita UM image_url OU UM document_url por chamada — com
-// mais de um anexo na mensagem, só o primeiro é encaminhado como mídia de
-// verdade (o resto continua só no nosso chat). image/* vira image_url,
-// qualquer outro tipo (áudio, vídeo, documento) vira document_url — o
-// WhatsApp mostra como arquivo baixável em vez de tocar inline, mas ainda
-// chega, que é a diferença que importa aqui.
-function resolvePyvonMediaUrl(attachment: Attachment): { imageUrl?: string; documentUrl?: string } | null {
+// bot-response só aceita UM anexo de verdade por chamada — com mais de um na
+// mensagem, só o primeiro é encaminhado como mídia (o resto continua só no
+// nosso chat). image/* vira image_url; audio/* vira audio_url (Pyvon converte
+// pra OGG/Opus e entrega como mensagem de voz); qualquer outro tipo (vídeo,
+// documento) vira document_url — o WhatsApp mostra como arquivo baixável em
+// vez de tocar/exibir inline, mas ainda chega, que é a diferença que importa
+// aqui.
+function resolvePyvonMediaUrl(attachment: Attachment): { imageUrl?: string; documentUrl?: string; audioUrl?: string } | null {
   if (!attachment?.url) return null;
 
   let publicUrl: string | null = null;
@@ -28,7 +28,9 @@ function resolvePyvonMediaUrl(attachment: Attachment): { imageUrl?: string; docu
   // não encaminhada" abaixo, nunca quebra o envio do texto.
   if (!publicUrl) return null;
 
-  return attachment.type?.startsWith('image/') ? { imageUrl: publicUrl } : { documentUrl: publicUrl };
+  if (attachment.type?.startsWith('image/')) return { imageUrl: publicUrl };
+  if (attachment.type?.startsWith('audio/')) return { audioUrl: publicUrl };
+  return { documentUrl: publicUrl };
 }
 
 export async function POST(request: NextRequest) {
@@ -37,11 +39,10 @@ export async function POST(request: NextRequest) {
   };
 
   try {
-    // O canal escolhe o provedor sozinho (Baileys, Meta ou Pyvon) — quem
-    // chama essa rota (botão manual no chamado, automação, widget) não
-    // precisa saber qual é. Sem linha correspondente em whatsapp_instances
-    // (canal antigo, nunca migrado), assume Baileys pra manter o
-    // comportamento de sempre.
+    // O canal escolhe o provedor sozinho (Baileys ou Pyvon) — quem chama essa
+    // rota (botão manual no chamado, automação, widget) não precisa saber
+    // qual é. Sem linha correspondente em whatsapp_instances (canal antigo,
+    // nunca migrado), assume Baileys pra manter o comportamento de sempre.
     const instRes = await query('SELECT provider FROM public.whatsapp_instances WHERE id = $1', [instanceId || 'default']);
     const provider = instRes.rows[0]?.provider || 'baileys';
 
@@ -70,10 +71,20 @@ export async function POST(request: NextRequest) {
       }
       const media = firstAttachment ? resolvePyvonMediaUrl(firstAttachment) : null;
 
+      // bot-response exige content não-vazio mesmo quando só o anexo importa
+      // (BotResponsePayload.content: "Obrigatório, exceto com transfer:true"
+      // — testado na prática, `content: ''` volta 400). Um espaço não aparece
+      // como legenda visível no WhatsApp, mas satisfaz a validação sem
+      // inventar um texto tipo "Anexo enviado" (pedido do usuário
+      // 2026-09-17: sem legenda digitada = sem legenda mostrada). Só entra
+      // quando há anexo — mensagem de texto puro nunca chega vazia aqui
+      // (chat-widget.tsx já bloqueia enviar sem texto e sem anexo).
+      const contentForPyvon = message || (firstAttachment ? ' ' : message);
+
       const result = await PyvonService.sendMessage(
         instanceId,
         { cadastroId: session.pyvon_cadastro_id || undefined, phone: session.customer_phone || undefined, name: session.customer_name || undefined },
-        message,
+        contentForPyvon,
         media || undefined
       );
       if (result.skipped) {
@@ -102,9 +113,13 @@ export async function POST(request: NextRequest) {
       // anexo em data: URL legado) — o client usa isso pra avisar que só o
       // texto foi encaminhado, sem inventar sucesso total.
       return NextResponse.json({ success: true, mediaSent: firstAttachment ? !!media : undefined });
-    } else if (provider === 'meta') {
-      await MetaWhatsAppService.sendMessage(instanceId, to, message);
     } else {
+      // Baileys ainda não encaminha o anexo em si (só o canal Pyvon tem isso
+      // hoje) — sem legenda digitada, não há texto de verdade pra mandar por
+      // aqui. Antes caía num "Anexo enviado" que passava a impressão de que
+      // o arquivo tinha chegado, quando só o texto saiu. Sem legenda = não
+      // manda nada à toa (pedido do usuário 2026-09-17).
+      if (!message.trim()) return NextResponse.json({ success: true, mediaSent: false });
       await WhatsAppService.sendMessage(instanceId, to, message);
     }
     return NextResponse.json({ success: true });

@@ -42,7 +42,8 @@ import {
   AlertCircle,
   RotateCw,
   CheckCircle2,
-  Clock
+  Clock,
+  Info
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import {
@@ -124,7 +125,6 @@ function formatPhoneDisplay(phone: string): string {
 function getChannelLabel(channel?: string): string | null {
   switch (channel) {
     case 'whatsapp_baileys': return 'WhatsApp (não-oficial)';
-    case 'whatsapp_meta': return 'WhatsApp (oficial)';
     case 'pyvon': return 'WhatsApp (Pyvon)';
     case 'widget': return 'Portal (chat)';
     default: return null;
@@ -828,6 +828,12 @@ export function ChatWidget() {
   const [isConfirmNewTicketOpen, setIsConfirmNewTicketOpen] = useState(false);
   const [isLinkTicketModalOpen, setIsLinkTicketModalOpen] = useState(false);
   const [isMoreActionsOpen, setIsMoreActionsOpen] = useState(false);
+  // Número, meio de contato e responsável saíram do cabeçalho da conversa
+  // pro modal "Ver informações" (menu de três pontinhos) — o cabeçalho
+  // estava sobrecarregado com informação que só interessa sob demanda, não
+  // toda vez que a conversa está aberta. "Com {responsável}" continua na
+  // LISTA de conversas (fora de uma conversa aberta), sem mudança.
+  const [isChatInfoModalOpen, setIsChatInfoModalOpen] = useState(false);
   // Só domain==='chat' — cadastradas em Configurações > Gestão de Tags.
   const [chatTags, setChatTags] = useState<TagConfig[]>([]);
   const [chatAttachments, setChatAttachments] = useState<Attachment[]>([]);
@@ -1383,6 +1389,18 @@ useEffect(() => {
     const queue = allQueues.find((q: any) => q.id === queueId);
     const instanceId = queue?.whatsapp_instance_id || queue?.whatsappInstanceId || 'default';
 
+    // Nome do analista em negrito antes da mensagem — chegando neste ponto
+    // (canal != 'widget') sempre foi um humano da equipe quem escreveu, nunca
+    // o próprio cliente (a conversa dele é sempre channel='widget', tratada
+    // no early-return acima). Sem isso, o cliente não sabia quem estava
+    // respondendo pelo WhatsApp — pedido do usuário 2026-09-17. Fora do
+    // escopo de propósito: templates (chamado_aberto/atualizacao_chamado/
+    // contato_pos_vendas) têm texto fixo aprovado pela Meta, não passam por
+    // aqui.
+    const messageForWhatsApp = (!isCustomer && currentUser?.name)
+      ? `*${currentUser.name}*\n\n${text}`
+      : text;
+
     patchMessageWhatsappStatus(sessionId, messageId, 'sending');
 
     let outcome: { ok: boolean; error?: string };
@@ -1390,7 +1408,7 @@ useEffect(() => {
       const res = await fetch('/api/whatsapp/send', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: safeJsonStringify({ instanceId, to: phone, message: text, sessionId, messageId }),
+        body: safeJsonStringify({ instanceId, to: phone, message: messageForWhatsApp, sessionId, messageId }),
       });
       if (!res.ok) {
         const body = await res.json().catch(() => ({}));
@@ -1474,7 +1492,10 @@ useEffect(() => {
       id: crypto.randomUUID(),
       senderId: currentUser.id,
       senderName: currentUser.name,
-      text: message.trim() || 'Anexo enviado',
+      // Sem legenda digitada = sem legenda mostrada (pedido do usuário
+      // 2026-09-17) — nada de "Anexo enviado" fabricado; forwardMessageToWhatsApp
+      // decide sozinho o mínimo exigido pelo Pyvon quando for encaminhar.
+      text: message.trim(),
       timestamp: new Date().toISOString(),
       type: 'text',
       attachments: chatAttachments.length > 0 ? chatAttachments : undefined,
@@ -2344,8 +2365,8 @@ useEffect(() => {
               opacity: 1,
               y: 0,
               scale: 1,
-              width: isFullScreen ? '100vw' : 'min(400px, calc(100vw - 2rem))',
-              height: isFullScreen ? '100dvh' : 'min(600px, calc(100vh - 6rem))',
+              width: isFullScreen ? '100vw' : 'min(480px, calc(100vw - 2rem))',
+              height: isFullScreen ? '100dvh' : 'min(700px, calc(100vh - 4rem))',
               right: isFullScreen ? 0 : (anchorPanelRight ? '0' : 'auto'),
               left: isFullScreen ? 'auto' : (anchorPanelRight ? 'auto' : '0'),
               bottom: isFullScreen ? 0 : (openPanelUp ? '80px' : 'auto'),
@@ -2635,13 +2656,18 @@ useEffect(() => {
                           {isCustomer ? 'Time de Suporte' : (selectedChat && 'customerName' in selectedChat ? selectedChat.customerName : 'Canal')}
                         </p>
                         {(() => {
-                          // Cliente vê a presença do analista responsável;
-                          // equipe vê a presença do cliente (só funciona se
-                          // ele estiver logado no portal — anônimo via
-                          // WhatsApp não tem presença rastreada).
+                          // Cliente vê a presença do analista responsável (sempre
+                          // um perfil logado no portal, não depende de canal);
+                          // equipe vê a presença do cliente, mas só faz sentido
+                          // em conversa pelo widget do portal — numa conversa por
+                          // WhatsApp/Pyvon, mesmo que o telefone esteja vinculado
+                          // a um perfil com presença rastreada, esse "Visto há"
+                          // reflete a última atividade dele NO PORTAL, não no
+                          // WhatsApp (a API do WhatsApp não expõe isso), então
+                          // mostrar aqui seria enganoso.
                           const label = isCustomer
                             ? presenceLabel(selectedChat?.assigneeId)
-                            : presenceLabel(selectedChat?.customerId);
+                            : (selectedChat?.channel === 'widget' ? presenceLabel(selectedChat?.customerId) : null);
                           if (!label) return null;
                           const isOnlineNow = deriveLiveStatus(getPresence(isCustomer ? selectedChat?.assigneeId : selectedChat?.customerId)) === 'online';
                           return (
@@ -2656,26 +2682,6 @@ useEffect(() => {
                             Conversa #{String(selectedChat.ticketNumber).padStart(4, '0')}
                           </p>
                         )}
-                        {/* Telefone do contato — antes só existia internamente
-                            (foto de contato, encaminhamento WhatsApp), nunca
-                            visível ao atendente sem abrir o painel à parte. */}
-                        {!isCustomer && selectedChat?.customerPhone && (
-                          <p className="text-[9px] text-[var(--text-tertiary)] font-semibold tracking-widest flex items-center gap-1 mt-0.5">
-                            <Phone size={9} />
-                            {formatPhoneDisplay(selectedChat.customerPhone)}
-                          </p>
-                        )}
-                        {/* Origem da conversa — antes o sistema decidia "é
-                            WhatsApp?" só pela presença de telefone, sem
-                            mostrar de onde a conversa realmente veio (a causa
-                            do bug de tentar enviar WhatsApp em conversa de
-                            widget). Agora fica visível pro atendente. */}
-                        {!isCustomer && getChannelLabel(selectedChat?.channel) && (
-                          <p className="text-[9px] text-[var(--text-tertiary)] font-semibold uppercase tracking-widest flex items-center gap-1 mt-0.5">
-                            <MessageCircle size={9} />
-                            {getChannelLabel(selectedChat?.channel)}
-                          </p>
-                        )}
                         {/* Marcadores vinculados em tempo real pelo atendente — só
                             equipe vê/edita, cliente nunca (mesmo padrão do bloco
                             Responsável logo abaixo). */}
@@ -2687,23 +2693,6 @@ useEffect(() => {
                               onChange={(tagIds) => handleChatTagsChange(selectedChat.id, tagIds)}
                             />
                           </div>
-                        )}
-                        {/* Visível só pra equipe — pra qualquer analista que abrir essa
-                            conversa saber de cara quem é o responsável, sem precisar
-                            checar a fila. Nome resolvido contra allUsers (já carregado
-                            pra o AssignChatMenu), sem precisar de rota nova. */}
-                        {!isCustomer && selectedChat && 'assigneeId' in selectedChat && (
-                          <p className="text-[9px] font-semibold uppercase tracking-widest mt-0.5 truncate">
-                            <span className="text-[var(--text-tertiary)]">Responsável: </span>
-                            <span className={cn(
-                              "font-black",
-                              selectedChat.assigneeId ? "text-[var(--accent-text)]" : "text-[var(--text-warning-strong)]"
-                            )}>
-                              {selectedChat.assigneeId
-                                ? (allUsers.find(u => u.id === selectedChat.assigneeId)?.name || 'Carregando...')
-                                : 'Não atribuído'}
-                            </span>
-                          </p>
                         )}
                         {(() => {
                            if (isCustomer) return (
@@ -2812,6 +2801,12 @@ useEffect(() => {
                                 className="absolute right-0 top-full mt-2 z-20 w-56 bg-[var(--surface-card)] border border-[var(--border-default)] rounded-2xl shadow-xl overflow-hidden py-1"
                               >
                                 <button
+                                  onClick={() => { setIsMoreActionsOpen(false); setIsChatInfoModalOpen(true); }}
+                                  className="w-full flex items-center gap-2.5 px-4 py-2.5 text-xs font-semibold text-[var(--text-secondary)] hover:bg-[var(--surface-pill)] transition-all"
+                                >
+                                  <Info size={14} /> Ver informações
+                                </button>
+                                <button
                                   onClick={() => { setIsMoreActionsOpen(false); setIsDuplicateModalOpen(true); }}
                                   className="w-full flex items-center gap-2.5 px-4 py-2.5 text-xs font-semibold text-[var(--text-secondary)] hover:bg-[var(--surface-pill)] transition-all"
                                 >
@@ -2851,7 +2846,7 @@ useEffect(() => {
                   <div
                     ref={scrollRef}
                     onScroll={handleScroll}
-                    className="flex-1 overflow-y-auto px-8 py-6 space-y-3 bg-[var(--surface-card)]/30 scroll-smooth"
+                    className="flex-1 overflow-y-auto px-4 py-4 space-y-2 bg-[var(--surface-card)]/30 scroll-smooth"
                   >
                     {(previousHistoriesContact?.customerId || previousHistoriesContact?.customerPhone) && !(previousHistoriesOffset > 0 && previousHistoriesOffset >= previousHistoriesTotal) && (
                       <div className="flex justify-center pb-2">
@@ -2975,7 +2970,7 @@ useEffect(() => {
                         return (
                           <div key={m.id} className={cn("flex flex-col animate-in fade-in duration-300", isOwnMessage ? "items-end" : "items-start")}>
                             <div className={cn(
-                              "max-w-[min(88%,34rem)] sm:max-w-[78%] p-4 rounded-[1.5rem] text-sm font-medium italic shadow-sm border border-dashed",
+                              "max-w-[min(88%,34rem)] sm:max-w-[78%] p-3 rounded-2xl text-[13px] font-medium italic shadow-sm border border-dashed",
                               isOwnMessage ? "border-white/30 text-[var(--text-tertiary)]" : "border-[var(--border-default)] text-[var(--text-tertiary)]"
                             )}>
                               <span className="flex items-center gap-2">
@@ -3001,7 +2996,7 @@ useEffect(() => {
                       if (editingMessageId === m.id) {
                         return (
                           <div key={m.id} className={cn("flex flex-col animate-in fade-in duration-300 w-full", isOwnMessage ? "items-end" : "items-start")}>
-                            <div className="max-w-[min(88%,34rem)] sm:max-w-[78%] w-full p-3 rounded-[1.5rem] bg-[var(--surface-card)] border-2 border-[var(--accent)] shadow-sm">
+                            <div className="max-w-[min(88%,34rem)] sm:max-w-[78%] w-full p-2.5 rounded-2xl bg-[var(--surface-card)] border-2 border-[var(--accent)] shadow-sm">
                               <textarea
                                 autoFocus
                                 value={editDraftText}
@@ -3010,7 +3005,7 @@ useEffect(() => {
                                   if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); saveEditMessage(); }
                                   if (e.key === 'Escape') cancelEditMessage();
                                 }}
-                                className="w-full bg-transparent border-none outline-none text-sm font-medium resize-none text-[var(--text-primary)]"
+                                className="w-full bg-transparent border-none outline-none text-[13px] font-medium resize-none text-[var(--text-primary)]"
                                 rows={2}
                               />
                               <div className="flex items-center justify-end gap-2 mt-2">
@@ -3025,7 +3020,7 @@ useEffect(() => {
                       return (
                         <div key={m.id} className={cn("flex flex-col animate-in fade-in slide-in-from-bottom-2 duration-300 group", isOwnMessage ? "items-end" : "items-start")}>
                           <div className={cn(
-                            "relative max-w-[min(88%,34rem)] sm:max-w-[78%] p-4 rounded-[1.5rem] text-sm font-medium shadow-sm transition-all break-words whitespace-pre-wrap",
+                            "relative max-w-[min(88%,34rem)] sm:max-w-[78%] p-3 rounded-2xl text-[13px] font-medium shadow-sm transition-all break-words whitespace-pre-wrap",
                             isOwnMessage
                               ? "bg-[var(--accent)] text-white rounded-tr-none"
                               : "bg-[var(--surface-card)] border border-[var(--border-default)] text-[var(--text-primary)] rounded-tl-none"
@@ -3279,7 +3274,7 @@ useEffect(() => {
                     })}
                     {typingUserName && (
                       <div className="flex flex-col items-start animate-in fade-in duration-300">
-                        <div className="bg-[var(--surface-card)] border border-[var(--border-default)] rounded-[1.5rem] rounded-tl-none px-4 py-3 flex items-center gap-1.5">
+                        <div className="bg-[var(--surface-card)] border border-[var(--border-default)] rounded-2xl rounded-tl-none px-3.5 py-2.5 flex items-center gap-1.5">
                           <span className="w-1.5 h-1.5 rounded-full bg-[var(--text-tertiary)] animate-bounce [animation-delay:-0.3s]" />
                           <span className="w-1.5 h-1.5 rounded-full bg-[var(--text-tertiary)] animate-bounce [animation-delay:-0.15s]" />
                           <span className="w-1.5 h-1.5 rounded-full bg-[var(--text-tertiary)] animate-bounce" />
@@ -3775,6 +3770,69 @@ useEffect(() => {
                      </>
                    )}
                 </div>
+             </motion.div>
+          </div>
+        )}
+      </AnimatePresence>
+
+      <AnimatePresence>
+        {isChatInfoModalOpen && selectedChat && (
+          <div className="fixed inset-0 z-[250] flex items-center justify-center p-4">
+             <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} onClick={() => setIsChatInfoModalOpen(false)} className="absolute inset-0 bg-slate-900/40 backdrop-blur-sm" />
+             <motion.div initial={{ scale: 0.9, opacity: 0 }} animate={{ scale: 1, opacity: 1 }} exit={{ scale: 0.9, opacity: 0 }} className="relative bg-[var(--surface-card)] w-full max-w-sm rounded-[2.5rem] shadow-2xl p-8">
+                <h3 className="text-xl font-black text-[var(--text-primary)] uppercase tracking-tight mb-6">Informações da conversa</h3>
+                <div className="space-y-4">
+                  <div>
+                    <p className="text-[10px] font-semibold uppercase tracking-widest text-[var(--text-tertiary)] mb-1">Telefone</p>
+                    <p className="text-sm font-bold text-[var(--text-primary)] flex items-center gap-2">
+                      <Phone size={13} className="text-[var(--text-tertiary)] shrink-0" />
+                      {selectedChat.customerPhone ? formatPhoneDisplay(selectedChat.customerPhone) : '—'}
+                    </p>
+                  </div>
+                  <div>
+                    <p className="text-[10px] font-semibold uppercase tracking-widest text-[var(--text-tertiary)] mb-1">Meio de contato</p>
+                    <p className="text-sm font-bold text-[var(--text-primary)] flex items-center gap-2">
+                      <MessageCircle size={13} className="text-[var(--text-tertiary)] shrink-0" />
+                      {getChannelLabel(selectedChat.channel) || '—'}
+                    </p>
+                  </div>
+                  <div>
+                    <p className="text-[10px] font-semibold uppercase tracking-widest text-[var(--text-tertiary)] mb-1">Responsável</p>
+                    <p className={cn(
+                      "text-sm font-black flex items-center gap-2",
+                      selectedChat.assigneeId ? "text-[var(--accent-text)]" : "text-[var(--text-warning-strong)]"
+                    )}>
+                      <User size={13} className="shrink-0" />
+                      {selectedChat.assigneeId
+                        ? (allUsers.find(u => u.id === selectedChat.assigneeId)?.name || 'Carregando...')
+                        : 'Não atribuído'}
+                    </p>
+                  </div>
+                  {/* Só faz sentido em conversa pelo widget do portal — a API
+                      do WhatsApp não expõe "visto por último", e mesmo que o
+                      telefone esteja vinculado a um perfil com presença
+                      rastreada, mostrar aqui numa conversa por WhatsApp/Pyvon
+                      seria enganoso (refletiria atividade no portal, não no
+                      WhatsApp). */}
+                  {selectedChat.channel === 'widget' && presenceLabel(selectedChat.customerId) && (
+                    <div>
+                      <p className="text-[10px] font-semibold uppercase tracking-widest text-[var(--text-tertiary)] mb-1">Presença</p>
+                      <p className="text-sm font-bold text-[var(--text-primary)] flex items-center gap-2">
+                        <span className={cn(
+                          "w-2 h-2 rounded-full shrink-0",
+                          deriveLiveStatus(getPresence(selectedChat.customerId)) === 'online' ? "bg-[var(--text-success)]" : "bg-[var(--text-tertiary)]"
+                        )} />
+                        {presenceLabel(selectedChat.customerId)}
+                      </p>
+                    </div>
+                  )}
+                </div>
+                <button
+                  onClick={() => setIsChatInfoModalOpen(false)}
+                  className="w-full mt-8 py-3.5 bg-[var(--surface-card)] border-2 border-[var(--border-default)] text-[var(--text-secondary)] rounded-2xl text-[10px] font-semibold uppercase tracking-widest hover:bg-[var(--surface-pill)] transition-all"
+                >
+                  Fechar
+                </button>
              </motion.div>
           </div>
         )}

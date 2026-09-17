@@ -49,8 +49,26 @@ export async function GET(request: NextRequest) {
     const user = userResult.rows[0];
     const events: any[] = [];
 
+    // Time: igual à regra de push nativo (getChatRecipientIds em
+    // notification-recipients.ts) — responsável já atribuído = só ele; sem
+    // responsável = pool de quem atende a fila da conversa; sem fila (ou fila
+    // sem membros) = time inteiro. Faltava aqui (achado em 2026-09-18): esta
+    // consulta nunca filtrou por responsável/fila, só excluía o próprio
+    // remetente — qualquer analista online recebia aviso de TODA conversa,
+    // mesmo já atribuída a outra pessoa.
     const chatWhere = isTeamUser(user.role)
-      ? `(m.sender_id IS NULL OR m.sender_id <> $2::uuid)`
+      ? `(m.sender_id IS NULL OR m.sender_id <> $2::uuid)
+         AND (
+           s.assignee_id = $2::uuid
+           OR (
+             s.assignee_id IS NULL
+             AND (
+               s.queue_id IS NULL
+               OR EXISTS (SELECT 1 FROM public.queues q WHERE q.id = s.queue_id AND $2::uuid = ANY(q.member_ids))
+               OR NOT EXISTS (SELECT 1 FROM public.queues q WHERE q.id = s.queue_id AND q.member_ids IS NOT NULL AND array_length(q.member_ids, 1) > 0)
+             )
+           )
+         )`
       : `(s.customer_id = $2::uuid OR (s.customer_phone IS NOT NULL AND $3::text IS NOT NULL AND regexp_replace(s.customer_phone, '\\D', '', 'g') = regexp_replace($3::text, '\\D', '', 'g'))) AND (m.sender_id IS NULL OR m.sender_id <> $2::uuid)`;
 
     const chatParams = isTeamUser(user.role) ? [since, user.id] : [since, user.id, user.phone || null];
@@ -60,8 +78,8 @@ export async function GET(request: NextRequest) {
        JOIN public.chat_sessions s ON s.id = m.session_id
        WHERE m.created_at > $1
          -- Sessão fechada só recebe mensagem nova no caso da resposta da
-         -- pesquisa de satisfação ("1"/"0" atrasado, ver whatsapp-service.ts/
-         -- meta-whatsapp-service.ts) — essa já tem notificação própria
+         -- pesquisa de satisfação ("1"/"0" atrasado, ver whatsapp-service.ts)
+         -- — essa já tem notificação própria
          -- (chat_survey_response, abaixo). Sem este filtro, a mesma mensagem
          -- virava também um "Nova mensagem" duplicado e confuso.
          AND s.status != 'closed'

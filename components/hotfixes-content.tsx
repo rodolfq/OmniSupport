@@ -219,7 +219,7 @@ export function HotfixesContent() {
                     "relative overflow-hidden rounded-[2rem] p-7 text-white shadow-xl",
                     overdue
                       ? "bg-[#8F2424] bg-gradient-to-br from-[#7A1F1F] to-[#B92C2C] shadow-black/20"
-                      : "bg-[#11477A] bg-gradient-to-br from-[#0D3A69] to-[#15558A] shadow-black/20"
+                      : "bg-[#0A2A4A] bg-gradient-to-br from-[#081F3B] to-[#044C7C] shadow-black/20"
                   )}
                 >
                   <Rocket className="absolute -right-6 -bottom-6 w-32 h-32 text-white/10" />
@@ -227,7 +227,7 @@ export function HotfixesContent() {
                     <div className="flex items-center gap-2 mb-3">
                       <span className={cn(
                         "text-[9px] font-black uppercase tracking-widest px-2.5 py-1 rounded-full",
-                        overdue ? "bg-white/20" : "bg-[#18C7A8]/25 text-[#B9F3E7]"
+                        overdue ? "bg-white/20" : "bg-[#0FA694]/25 text-[#A8F0E1]"
                       )}>
                         {overdue ? 'Atrasado — ainda esta semana' : 'Agendado para esta semana'}
                       </span>
