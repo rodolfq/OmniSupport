@@ -58,6 +58,19 @@ const MY_TICKETS_KANBAN_COLUMNS: Array<{ status: 'Novo' | 'Em Andamento' | 'Fina
   { status: 'Finalizado', title: 'Finalizados' },
 ];
 
+// Mesmo número do ícone "Meus Chamados" na sidebar (ver NavBadges em
+// app/app-context.tsx), só que aplicado ao card do chamado específico que
+// gerou a pendência — some assim que o chamado é aberto (o modal marca como
+// lido, ver ticket-detail-modal.tsx).
+function TicketNotificationBadge({ count }: { count: number }) {
+  if (count <= 0) return null;
+  return (
+    <span className="absolute -top-2 -right-2 min-w-[20px] h-[20px] px-1.5 rounded-full bg-[var(--accent)] text-white text-[10px] font-bold flex items-center justify-center shadow-md z-10">
+      {count > 99 ? '99+' : count}
+    </span>
+  );
+}
+
 function matchesCustomerStatusFilter(status: string, filter: CustomerStatusFilter) {
   // "Todos" não inclui os finalizados por padrão — chamado encerrado só
   // aparece quando o cliente escolhe o filtro "Finalizado" de propósito.
@@ -66,7 +79,7 @@ function matchesCustomerStatusFilter(status: string, filter: CustomerStatusFilte
 }
 
 export default function MyTicketsPage() {
-  const { currentUser, hasPermission, setIsNewTicketModalOpen, refreshTrigger } = useApp();
+  const { currentUser, hasPermission, setIsNewTicketModalOpen, refreshTrigger, navBadges } = useApp();
   const searchParams = useSearchParams();
   const router = useRouter();
   const [allTickets, setAllTickets] = useState<Ticket[]>([]); // Renamed from tickets = useState<Ticket[]>([])
@@ -474,7 +487,12 @@ export default function MyTicketsPage() {
                   </div>
                   <div className="bg-[var(--surface-pill)]/50 rounded-2xl p-3 space-y-3 border border-dashed border-[var(--border-default)] md:h-[clamp(280px,calc(100vh_-_460px),640px)] md:overflow-y-auto">
                     {colTickets.map(ticket => (
-                      <MyTicketKanbanCard key={ticket.id} ticket={ticket} onClick={() => setSelectedTicket(ticket)} />
+                      <MyTicketKanbanCard
+                        key={ticket.id}
+                        ticket={ticket}
+                        notificationCount={navBadges.myTicketsUnreadByTicket[ticket.id] || 0}
+                        onClick={() => setSelectedTicket(ticket)}
+                      />
                     ))}
                     {colTickets.length === 0 && (
                       <p className="text-center text-[11px] font-semibold text-[var(--text-tertiary)] py-6">Nenhum chamado</p>
@@ -499,10 +517,11 @@ export default function MyTicketsPage() {
                   whileHover={{ y: -2 }}
                   onClick={() => setSelectedTicket(ticket)}
                   className={cn(
-                    "bg-[var(--surface-card)] border border-[var(--border-default)] rounded-2xl p-6 shadow-sm cursor-pointer transition-all hover:shadow-md hover:border-[var(--accent)]/40 group flex flex-col",
+                    "relative bg-[var(--surface-card)] border border-[var(--border-default)] rounded-2xl p-6 shadow-sm cursor-pointer transition-all hover:shadow-md hover:border-[var(--accent)]/40 group flex flex-col",
                     view === 'list' && "flex-row items-center gap-6 py-4"
                   )}
                 >
+                  <TicketNotificationBadge count={navBadges.myTicketsUnreadByTicket[ticket.id] || 0} />
                   <div className={cn(
                     "flex-1 min-w-0",
                     view === 'list' && "flex items-center gap-6 flex-1"
@@ -604,12 +623,13 @@ export default function MyTicketsPage() {
 // Card compacto do modo Kanban — a coluna já diz o status, então só o
 // essencial: número, data e título (o resto — tags, descrição — continua só
 // no card do grid/lista e no modal de detalhe).
-function MyTicketKanbanCard({ ticket, onClick }: { ticket: Ticket; onClick: () => void }) {
+function MyTicketKanbanCard({ ticket, notificationCount = 0, onClick }: { ticket: Ticket; notificationCount?: number; onClick: () => void }) {
   return (
     <div
       onClick={onClick}
-      className="bg-[var(--surface-card)] p-3 rounded-xl border border-[var(--border-default)] cursor-pointer transition-all hover:shadow-md hover:border-[var(--accent)]/40 shadow-sm"
+      className="relative bg-[var(--surface-card)] p-3 rounded-xl border border-[var(--border-default)] cursor-pointer transition-all hover:shadow-md hover:border-[var(--accent)]/40 shadow-sm"
     >
+      <TicketNotificationBadge count={notificationCount} />
       <div className="flex items-center justify-between mb-2">
         <span className="text-[10px] font-semibold text-[var(--text-tertiary)] uppercase tracking-wider">
           #{ticket.ticketNumber ? String(ticket.ticketNumber).padStart(4, '0') : ticket.id.slice(0, 8)}

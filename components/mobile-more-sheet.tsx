@@ -36,7 +36,8 @@ export function MobileMoreSheet({ isOpen, onClose }: MobileMoreSheetProps) {
     setUserStatus,
     whatsappStatus,
     dbStatus,
-    hasPermission
+    hasPermission,
+    navBadges
   } = useApp();
   const { theme, toggleTheme } = useTheme();
 
@@ -52,6 +53,25 @@ export function MobileMoreSheet({ isOpen, onClose }: MobileMoreSheetProps) {
     [currentUser]
   );
   const userPermissions = useMemo(() => getUserPermissions(currentUser), [currentUser]);
+
+  // Mesma soma "próprio + sub-itens" do sidebar desktop (components/sidebar.tsx)
+  // — sem isso, o número não apareceria no item "Chamados" fechado, só depois
+  // de abrir o accordion.
+  const getBadgeCount = (item: { badgeKey?: 'chatInternalUnread' | 'myTicketsUnread'; subItems?: { badgeKey?: 'chatInternalUnread' | 'myTicketsUnread' }[] }): number => {
+    const own = item.badgeKey ? (navBadges[item.badgeKey] || 0) : 0;
+    const subTotal = item.subItems?.reduce((sum, sub) => sum + (sub.badgeKey ? (navBadges[sub.badgeKey] || 0) : 0), 0) || 0;
+    return own + subTotal;
+  };
+
+  const NavBadgePill = ({ count }: { count: number }) => {
+    if (count <= 0) return null;
+    return (
+      <span className="min-w-[18px] h-[18px] px-1 rounded-full bg-[var(--accent)] text-white text-[10px] font-bold flex items-center justify-center">
+        {count > 99 ? '99+' : count}
+      </span>
+    );
+  };
+
   const visibleItems = useMemo(
     () => filterVisibleNavItems(navItems, userPermissions),
     [navItems, userPermissions]
@@ -230,7 +250,8 @@ export function MobileMoreSheet({ isOpen, onClose }: MobileMoreSheetProps) {
                         )}
                       >
                         <item.icon size={18} />
-                        {item.name}
+                        <span className="flex-1">{item.name}</span>
+                        <NavBadgePill count={getBadgeCount(item)} />
                       </Link>
                     );
                   }
@@ -246,7 +267,10 @@ export function MobileMoreSheet({ isOpen, onClose }: MobileMoreSheetProps) {
                           <item.icon size={18} />
                           {item.name}
                         </span>
-                        <ChevronDown size={16} className={cn("transition-transform", isOpenSection && "rotate-180")} />
+                        <span className="flex items-center gap-2">
+                          <NavBadgePill count={getBadgeCount(item)} />
+                          <ChevronDown size={16} className={cn("transition-transform", isOpenSection && "rotate-180")} />
+                        </span>
                       </button>
                       {isOpenSection && (
                         <div className="pl-6 py-1 space-y-1">
@@ -270,7 +294,8 @@ export function MobileMoreSheet({ isOpen, onClose }: MobileMoreSheetProps) {
                               )}
                             >
                               <sub.icon size={16} />
-                              {sub.name}
+                              <span className="flex-1">{sub.name}</span>
+                              <NavBadgePill count={sub.badgeKey ? (navBadges[sub.badgeKey] || 0) : 0} />
                             </Link>
                           ))}
                         </div>

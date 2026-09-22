@@ -4,7 +4,7 @@ import React, { useState, useMemo, useRef, useEffect } from 'react';
 import Link from 'next/link';
 import { usePathname, useRouter } from 'next/navigation';
 import { Permission, UserRole } from '@/lib/types';
-import { getNavItems, getUserPermissions, matchesPermission } from '@/lib/nav-items';
+import { getNavItems, getUserPermissions, matchesPermission, NavItem } from '@/lib/nav-items';
 import {
    LogOut,
    Database,
@@ -16,7 +16,7 @@ import { AnalystService } from '@/lib/services/chat-service';
 export function Sidebar() {
   const pathname = usePathname();
   const router = useRouter();
-  const { currentUser, setCurrentUser, userStatus, dbStatus } = useApp();
+  const { currentUser, setCurrentUser, userStatus, dbStatus, navBadges } = useApp();
 
   const handleLogout = async () => {
     // Marca offline explicitamente — sem isso, a presença ficava travada no
@@ -66,6 +66,24 @@ export function Sidebar() {
 
   const userPermissions = useMemo(() => getUserPermissions(currentUser), [currentUser]);
 
+  // Soma o próprio contador do item com o dos sub-itens (ex.: "Meus
+  // Chamados" está dentro do grupo "Chamados" — sem isso, o número nunca
+  // apareceria no ícone recolhido, só dentro do flyout já aberto).
+  const getBadgeCount = (item: NavItem): number => {
+    const own = item.badgeKey ? (navBadges[item.badgeKey] || 0) : 0;
+    const subTotal = item.subItems?.reduce((sum, sub) => sum + (sub.badgeKey ? (navBadges[sub.badgeKey] || 0) : 0), 0) || 0;
+    return own + subTotal;
+  };
+
+  const NavBadgeCount = ({ count }: { count: number }) => {
+    if (count <= 0) return null;
+    return (
+      <span className="absolute -top-1 -right-1 min-w-[18px] h-[18px] px-1 rounded-full bg-[var(--accent)] text-white text-[10px] font-bold flex items-center justify-center border-2 border-[var(--surface-sidebar)]">
+        {count > 99 ? '99+' : count}
+      </span>
+    );
+  };
+
   return (
     <div className="hidden md:flex w-20 bg-[var(--surface-sidebar)] flex-col items-center py-6 gap-8 border-r border-white/10 shadow-xl h-screen sticky top-0 z-20">
       {/* icon.png já tem o fundo azul-marinho da marca embutido — fica
@@ -110,6 +128,7 @@ export function Sidebar() {
                   title={item.name}
                 >
                   <item.icon size={24} />
+                  <NavBadgeCount count={getBadgeCount(item)} />
                   {isActive && (
                     <div className="absolute right-0 top-1/2 -translate-y-1/2 w-1 h-6 bg-[var(--accent)] rounded-l-full" />
                   )}
@@ -126,6 +145,7 @@ export function Sidebar() {
                   )}
                 >
                   <item.icon size={24} />
+                  <NavBadgeCount count={getBadgeCount(item)} />
                   {isActive && (
                     <div className="absolute right-0 top-1/2 -translate-y-1/2 w-1 h-6 bg-[var(--accent)] rounded-l-full" />
                   )}
@@ -176,7 +196,12 @@ export function Sidebar() {
                         )}
                       >
                         <sub.icon size={16} />
-                        {sub.name}
+                        <span className="flex-1">{sub.name}</span>
+                        {sub.badgeKey && (navBadges[sub.badgeKey] || 0) > 0 && (
+                          <span className="min-w-[18px] h-[18px] px-1 rounded-full bg-[var(--accent)] text-white text-[10px] font-bold flex items-center justify-center">
+                            {navBadges[sub.badgeKey]! > 99 ? '99+' : navBadges[sub.badgeKey]}
+                          </span>
+                        )}
                       </Link>
                     )
                   })}

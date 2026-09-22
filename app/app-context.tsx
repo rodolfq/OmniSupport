@@ -114,6 +114,21 @@ interface AppContextType {
   evaluationModalTarget: EvaluationModalTarget | null;
   openEvaluationModal: (target: EvaluationModalTarget) => void;
   closeEvaluationModal: () => void;
+  navBadges: NavBadges;
+  refreshNavBadges: () => Promise<void>;
+  markTicketNotificationsRead: (ticketId: string) => Promise<string | null>;
+}
+
+// Números "stackados" dos ícones da sidebar (components/sidebar.tsx) — Chat
+// Interno soma mensagens não lidas em todas as salas; Meus Chamados soma
+// modificações/notas pendentes nos chamados atribuídos ao usuário (ver
+// app/api/notifications/badges/route.ts).
+export interface NavBadges {
+  chatInternalUnread: number;
+  myTicketsUnread: number;
+  // Mesmo total de myTicketsUnread, mas por chamado — usado pra mostrar o
+  // número no card individual dentro de app/(portal)/my-tickets/page.tsx.
+  myTicketsUnreadByTicket: Record<string, number>;
 }
 
 export interface EvaluationModalTarget {
@@ -462,6 +477,46 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     }
   }, [addNotification]);
 
+  const [navBadges, setNavBadges] = useState<NavBadges>({ chatInternalUnread: 0, myTicketsUnread: 0, myTicketsUnreadByTicket: {} });
+
+  const refreshNavBadges = React.useCallback(async () => {
+    if (!userRef.current?.id) return;
+    try {
+      const res = await fetch('/api/notifications/badges', { credentials: 'include' });
+      if (!res.ok) return;
+      const data = await res.json();
+      setNavBadges({
+        chatInternalUnread: data.chatInternalUnread || 0,
+        myTicketsUnread: data.myTicketsUnread || 0,
+        myTicketsUnreadByTicket: data.myTicketsUnreadByTicket || {}
+      });
+    } catch (error) {
+      console.error('Erro ao buscar notificações da sidebar:', error);
+    }
+  }, []);
+
+  // Chamado ao abrir o modal de detalhe de um chamado atribuído ao próprio
+  // usuário (ver ticket-detail-modal.tsx) — zera a contagem de "Meus
+  // Chamados" pra aquele chamado específico. Devolve o last_read_at
+  // ANTERIOR (ou null, primeira vez) — o modal usa esse corte pra destacar
+  // ali dentro exatamente o que gerou a notificação.
+  const markTicketNotificationsRead = React.useCallback(async (ticketId: string): Promise<string | null> => {
+    try {
+      const res = await fetch('/api/notifications/badges', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ action: 'mark-ticket-read', ticketId })
+      });
+      refreshNavBadges();
+      if (!res.ok) return null;
+      const data = await res.json();
+      return data.previousReadAt || null;
+    } catch (error) {
+      console.error('Erro ao marcar chamado como lido:', error);
+      return null;
+    }
+  }, [refreshNavBadges]);
+
   useEffect(() => { userRef.current = currentUser; }, [currentUser]);
   useEffect(() => { activeChatRef.current = activeOmniChatId; }, [activeOmniChatId]);
   useEffect(() => { chatOpenRef.current = isOmniChatOpen; }, [isOmniChatOpen]);
@@ -673,14 +728,23 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     // exatamente por que nada chegava com a janela minimizada. Navegadores
     // ainda podem limitar (throttle) intervalos em abas em segundo plano por
     // muito tempo, mas isso é bem melhor que nunca verificar.
-    const interval = setInterval(checkNotifications, 10000);
-    const onVisible = () => { if (document.visibilityState === 'visible') checkNotifications(); };
+    refreshNavBadges();
+    const interval = setInterval(() => {
+      checkNotifications();
+      refreshNavBadges();
+    }, 10000);
+    const onVisible = () => {
+      if (document.visibilityState === 'visible') {
+        checkNotifications();
+        refreshNavBadges();
+      }
+    };
     document.addEventListener('visibilitychange', onVisible);
     return () => {
       clearInterval(interval);
       document.removeEventListener('visibilitychange', onVisible);
     };
-  }, [authInitialized, currentUser?.id, checkNotifications]);
+  }, [authInitialized, currentUser?.id, checkNotifications, refreshNavBadges]);
 
   useEffect(() => {
     if (currentUser) {
@@ -945,7 +1009,10 @@ return (
       ensureContactPhoto,
       evaluationModalTarget,
       openEvaluationModal,
-      closeEvaluationModal
+      closeEvaluationModal,
+      navBadges,
+      refreshNavBadges,
+      markTicketNotificationsRead
     }}>
       {children}
     </AppContext.Provider>

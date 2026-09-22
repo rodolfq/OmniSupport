@@ -64,7 +64,7 @@ function internalStatusMeta(status?: string | null) {
 
 export function TicketDetailModal({ ticket, onClose, initialDraft }: TicketDetailModalProps) {
   const scrollRef = useRef<HTMLDivElement>(null);
-  const { currentUser, hasPermission, triggerRefresh, suppressTicketAssignedNotification, notifications } = useApp();
+  const { currentUser, hasPermission, triggerRefresh, suppressTicketAssignedNotification, notifications, markTicketNotificationsRead } = useApp();
   const isCustomer = currentUser?.role === UserRole.CUSTOMER;
   // Funcionário também não deve ver o detalhe interno do chamado — antes só
   // Cliente caía neste resumo simplificado, e Funcionário (sem tickets:read)
@@ -94,6 +94,10 @@ export function TicketDetailModal({ ticket, onClose, initialDraft }: TicketDetai
   const [activeTab, setActiveTab] = useState<'description' | 'internal' | 'history' | 'attachments' | 'chat'>('description');
   const [chatSessionData, setChatSessionData] = useState<SessionMessagesResult | null>(null);
   const [isLoadingChatSession, setIsLoadingChatSession] = useState(false);
+  // Corte de "não lido" pra este chamado (ver efeito de markTicketNotificationsRead
+  // mais abaixo) — null enquanto não é o responsável, ou antes da resposta
+  // chegar. Usado só pra destacar visualmente notas/logs criados depois dele.
+  const [unreadSince, setUnreadSince] = useState<string | null>(null);
   // Precisa ficar ANTES do `if (!ticket) return null;` mais abaixo: um Hook
   // chamado depois de um retorno condicional muda de quantidade entre
   // renders (chamado quando `ticket` existe, pulado quando não) — violação
@@ -350,6 +354,19 @@ export function TicketDetailModal({ ticket, onClose, initialDraft }: TicketDetai
     setEmployeeIds(ticket.employeeIds || []);
     loadMessages();
     loadInternalTickets();
+
+    // Zera o número do ícone "Meus Chamados" na sidebar pra ESTE chamado —
+    // só faz sentido pra quem é o responsável (é dele que a contagem soma),
+    // ver app/api/notifications/badges/route.ts. Guarda o corte anterior
+    // (unreadSinceRef) pra destacar, no corpo do chamado, exatamente o que
+    // gerou a notificação — sem isso, a marca "Novo" já teria desaparecido
+    // no instante seguinte (o upsert já avançou o cursor pra agora).
+    if (currentUser && ticket.assigneeId === currentUser.id) {
+      setUnreadSince(null);
+      markTicketNotificationsRead(ticket.id).then(previousReadAt => setUnreadSince(previousReadAt));
+    } else {
+      setUnreadSince(null);
+    }
     setChatSessionData(null);
     setRecentCompanyTickets([]);
 
@@ -435,6 +452,21 @@ const loadMessages = async () => {
        setMessages(msgs);
      }
    };
+
+   // Marca de "Novo" (notas, notas internas e logs de alteração — Histórico):
+   // criado depois do corte de leitura anterior e por OUTRA pessoa que não o
+   // próprio usuário — mesmo critério do contador do ícone "Meus Chamados"
+   // (ver app/api/notifications/badges/route.ts), só que aplicado item a item
+   // dentro do chamado, pra mostrar exatamente de onde veio a notificação.
+   const isNewSinceLastRead = (m: { timestamp: string; senderId?: string | null }) =>
+     !!unreadSince && m.senderId !== currentUser?.id && new Date(m.timestamp).getTime() > new Date(unreadSince).getTime();
+
+   // Guia o usuário até a aba certa antes de ele ter que abrir uma por uma —
+   // mesmo critério de isNewSinceLastRead, só que resumido a "existe alguma
+   // coisa nova aqui" por seção do chamado.
+   const hasNewCustomerNotes = messages.some(m => m.type !== 'system' && m.type !== 'system_log' && m.isVisibleToCustomer && isNewSinceLastRead(m));
+   const hasNewInternalNotes = messages.some(m => m.type !== 'system' && m.type !== 'system_log' && !m.isVisibleToCustomer && isNewSinceLastRead(m));
+   const hasNewHistoryLog = messages.some(m => (m.type === 'system' || m.type === 'system_log') && isNewSinceLastRead(m));
 
    // Busca sob demanda (só quando a aba "Conversa" é aberta) — a maioria dos
    // chamados nunca chega a ter essa aba clicada, então não faz sentido buscar
@@ -1501,15 +1533,18 @@ const loadMessages = async () => {
                          <Lock size={12} /> Ticket Interno
                        </button>
                      )}
-                      <button 
+                      <button
                         onClick={() => setActiveTab('history')}
                         className={cn(
-                          "px-4 py-3 border-b-2 transition-all flex items-center justify-center",
+                          "relative px-4 py-3 border-b-2 transition-all flex items-center justify-center",
                           activeTab === 'history' ? "border-slate-500 text-[var(--text-secondary)] bg-[var(--surface-card)]/50" : "border-transparent text-[var(--text-tertiary)] hover:text-[var(--text-secondary)]"
                         )}
                         title="Histórico de alterações"
                       >
                         <History size={16} />
+                        {hasNewHistoryLog && (
+                          <span className="absolute top-2 right-2 w-1.5 h-1.5 rounded-full bg-[var(--accent)] animate-pulse" />
+                        )}
                       </button>
                       <button 
                         onClick={() => setActiveTab('attachments')}
@@ -1739,15 +1774,24 @@ const loadMessages = async () => {
                              }
                              return [...changeLog].reverse().map((entry) => {
                                const author = allUsers.find(u => u.id === entry.senderId)?.name || 'Sistema';
+                               const isNew = isNewSinceLastRead(entry);
                                return (
-                                 <div key={entry.id} className="flex gap-4 p-4 rounded-xl border border-[var(--border-default)] bg-[var(--surface-card)]/30">
+                                 <div key={entry.id} className={cn(
+                                   "flex gap-4 p-4 rounded-xl border transition-colors",
+                                   isNew
+                                     ? "border-[var(--accent)]/30 bg-[var(--accent)]/5 ring-1 ring-[var(--accent)]/20"
+                                     : "border-[var(--border-default)] bg-[var(--surface-card)]/30"
+                                 )}>
                                    <div className="w-8 h-8 rounded-full bg-[var(--surface-pill)] flex items-center justify-center shrink-0">
                                      <History size={14} className="text-[var(--text-tertiary)]" />
                                    </div>
                                    <div className="flex-1 min-w-0">
-                                      <div className="flex items-center justify-between gap-4 mb-1">
+                                      <div className="flex items-center gap-2 mb-1">
                                         <span className="text-xs font-bold text-[var(--text-primary)] truncate">{author}</span>
-                                        <span className="text-[10px] font-medium text-[var(--text-tertiary)] shrink-0"><ClientTime date={entry.timestamp} showDate={true} /></span>
+                                        {isNew && (
+                                          <span className="text-[8px] font-black px-1 py-0.5 bg-[var(--accent)] text-white rounded uppercase tracking-tighter shrink-0">Novo</span>
+                                        )}
+                                        <span className="text-[10px] font-medium text-[var(--text-tertiary)] shrink-0 ml-auto"><ClientTime date={entry.timestamp} showDate={true} /></span>
                                       </div>
                                       <p className="text-xs text-[var(--text-secondary)] leading-relaxed whitespace-pre-wrap">{entry.text}</p>
                                    </div>
@@ -1794,22 +1838,24 @@ const loadMessages = async () => {
                    <button
                      onClick={() => setHistoryTab('customer')}
                      className={cn(
-                       "text-[10px] font-semibold uppercase tracking-widest transition-all",
+                       "flex items-center gap-1.5 text-[10px] font-semibold uppercase tracking-widest transition-all",
                        historyTab === 'customer' ? "text-[var(--accent-text)]" : "text-[var(--text-tertiary)]"
                      )}
                    >
                      Histórico Cliente
+                     {hasNewCustomerNotes && <span className="w-1.5 h-1.5 rounded-full bg-[var(--accent)] animate-pulse" />}
                    </button>
                  )}
                  {currentUser?.role !== UserRole.CUSTOMER && hasPermission(Permission.INTERNAL_TICKETS_VIEW) && (
                     <button
                       onClick={() => setHistoryTab('internal')}
                       className={cn(
-                        "text-[10px] font-semibold uppercase tracking-widest transition-all",
+                        "flex items-center gap-1.5 text-[10px] font-semibold uppercase tracking-widest transition-all",
                         historyTab === 'internal' ? "text-[var(--text-warning)]" : "text-[var(--text-tertiary)]"
                        )}
                     >
                       Anotação Interna
+                      {hasNewInternalNotes && <span className="w-1.5 h-1.5 rounded-full bg-[var(--accent)] animate-pulse" />}
                     </button>
                  )}
                  {!isCustomer && hasPermission(Permission.TICKETS_READ) && !!ticket?.companyId && (
@@ -2005,9 +2051,13 @@ const loadMessages = async () => {
                   const sender = allUsers.find(u => u.id === m.senderId);
                   const senderName = m.senderName || sender?.name || null;
                   const senderAvatarThumbUrl = m.senderAvatarThumbUrl || sender?.avatarThumbUrl;
+                  const isNew = isNewSinceLastRead(m);
 
                   return (
-                    <div key={m.id} className="group animate-in fade-in slide-in-from-right-2 duration-300">
+                    <div key={m.id} className={cn(
+                      "group animate-in fade-in slide-in-from-right-2 duration-300 rounded-2xl transition-colors",
+                      isNew && "-mx-2 px-2 py-1 bg-[var(--accent)]/5 ring-1 ring-[var(--accent)]/25"
+                    )}>
                       <div className="flex gap-3">
                         <UserAvatar
                           name={senderName || 'Sistema'}
@@ -2023,6 +2073,9 @@ const loadMessages = async () => {
                           <div className="flex items-center gap-2 mb-1">
                             <span className="text-xs font-black text-[var(--text-primary)]">{senderName || 'Sistema'}</span>
                             <span className="text-[9px] font-bold text-[var(--text-tertiary)]"><ClientTime date={m.timestamp} showDate /></span>
+                            {isNew && (
+                              <span className="text-[8px] font-black px-1 py-0.5 bg-[var(--accent)] text-white rounded uppercase tracking-tighter">Novo</span>
+                            )}
                             {isInternal && (
                               <span className="text-[8px] font-semibold px-1 py-0.5 bg-[var(--surface-warning)] text-[var(--text-warning)] rounded uppercase tracking-tighter">Interno</span>
                             )}

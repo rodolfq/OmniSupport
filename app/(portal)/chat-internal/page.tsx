@@ -146,6 +146,11 @@ export default function ChatInternalPage() {
   const isMobileViewport = useIsMobile();
   const [rooms, setRooms] = useState<InternalGroup[]>([]);
   const [selectedRoomId, setSelectedRoomId] = useState<string | null>(null);
+  // Conversa 1:1 aberta a partir de um contato mas ainda sem nenhuma mensagem
+  // enviada — existe só localmente (nunca persistida), pra clicar num
+  // contato não criar a sala no banco nem pular pro topo da lista antes de
+  // qualquer mensagem de verdade (ver startDirectChat/handleSendMessage).
+  const [draftRoom, setDraftRoom] = useState<InternalGroup | null>(null);
   const [searchTerm, setSearchTerm] = useState('');
   const [message, setMessage] = useState('');
   const [showEmojiPicker, setShowEmojiPicker] = useState(false);
@@ -245,7 +250,7 @@ export default function ChatInternalPage() {
     };
   }, [authInitialized, currentUser?.id, currentUser?.role, currentUser?.permissions, router]);
 
-  const selectedRoom = rooms.find(r => r.id === selectedRoomId);
+  const selectedRoom = rooms.find(r => r.id === selectedRoomId) || (draftRoom?.id === selectedRoomId ? draftRoom : undefined);
 
   // Mais recentes primeiro, como o painel de fixadas do Discord. Mensagens
   // fixadas que não estão no lote carregado simplesmente não aparecem — não
@@ -390,21 +395,23 @@ export default function ChatInternalPage() {
     // Check if direct chat already exists
     const existing = rooms.find(room => isDirectChatWith(room, user.id));
     if (existing) {
+      setDraftRoom(null);
       setSelectedRoomId(existing.id);
     } else {
-      const newRoom: InternalGroup = {
-        id: `d-${generateId()}`,
+      // Não persiste nada ainda — só abre a janela de conversa localmente.
+      // A sala vira uma linha real (e some da lista de "Contatos" pra
+      // aparecer nas conversas) quando a primeira mensagem for de fato
+      // enviada, em handleSendMessage.
+      const draft: InternalGroup = {
+        id: `draft-${user.id}`,
         name: user.name,
         type: 'direct',
-        memberIds: [currentUser!.id, user.id],
+        memberIds: [currentUser.id, user.id],
         messages: [],
         lastMessageAt: new Date().toISOString()
       };
-      InternalChatService.saveChat(newRoom)
-        .then((chatId) => {
-          loadRooms();
-          setSelectedRoomId(chatId);
-        });
+      setDraftRoom(draft);
+      setSelectedRoomId(draft.id);
     }
     setSearchTerm('');
   };
@@ -563,20 +570,32 @@ export default function ChatInternalPage() {
         if (mentions.length > 0) newMessage.metadata = { ...newMessage.metadata, mentions };
     }
 
-    // Persist message to Supabase
-    InternalChatService.saveMessage(selectedRoomId, newMessage)
-      .then(() => {
+    // Se a sala ainda é só um rascunho local (contato clicado sem nenhuma
+    // mensagem enviada até agora), a primeira mensagem é o gatilho que
+    // efetivamente cria a conversa no banco — só a partir daqui ela vira
+    // uma linha real e sobe pro topo da lista (ver startDirectChat).
+    const isDraft = draftRoom?.id === selectedRoomId;
+    const roomIdAtSend = selectedRoomId;
+
+    (async () => {
+      try {
+        const chatId = isDraft && draftRoom
+          ? await InternalChatService.saveChat(draftRoom)
+          : roomIdAtSend;
+
+        await InternalChatService.saveMessage(chatId, newMessage);
         console.log('Message saved successfully');
-        // Reload messages to show latest
-        InternalChatService.getMessages(selectedRoomId)
-          .then(messages => {
-            setRooms(prev => prev.map(r => r.id === selectedRoomId ? { ...r, messages } : r));
-          });
-      })
-      .catch(err => {
+
+        if (isDraft) setDraftRoom(null);
+        await loadRooms();
+        const messages = await InternalChatService.getMessages(chatId);
+        setRooms(prev => prev.map(r => r.id === chatId ? { ...r, messages } : r));
+        if (chatId !== roomIdAtSend) setSelectedRoomId(chatId);
+      } catch (err: any) {
         console.error('Error sending message:', err);
         toast.error('Erro ao enviar mensagem: ' + (err.message || 'Unknown error'));
-      });
+      }
+    })();
 
     setMessage('');
     setReplyingToId(null);

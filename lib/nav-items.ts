@@ -24,6 +24,11 @@ export interface NavItem {
   permission?: Permission | Permission[];
   action?: () => void;
   subItems?: NavItem[];
+  // Chave do contador "stackado" (ver NavBadges em app/app-context.tsx) que
+  // este item deve exibir, se houver — Chat Interno (mensagens não lidas) e
+  // Meus Chamados (modificações/notas pendentes nos chamados atribuídos ao
+  // usuário) são os dois casos hoje.
+  badgeKey?: 'chatInternalUnread' | 'myTicketsUnread';
 }
 
 // Mesma árvore de navegação usada pela sidebar desktop e pelo menu "Mais" do
@@ -79,12 +84,12 @@ export function getNavItems(currentUser: User | null): NavItem[] {
       permission: [Permission.TICKETS_READ, Permission.INTERNAL_TICKETS_VIEW],
       subItems: [
         { name: 'Todos os Chamados', icon: Ticket, href: '/tickets', permission: [Permission.TICKETS_READ, Permission.INTERNAL_TICKETS_VIEW] },
-        { name: 'Meus Chamados', icon: UserCircle, href: '/my-tickets' },
+        { name: 'Meus Chamados', icon: UserCircle, href: '/my-tickets', badgeKey: 'myTicketsUnread' },
         { name: 'Painel Chat', icon: MessageSquare, href: '/chat-management', permission: Permission.OUTSIDE_QUEUE_VIEW },
         { name: 'Histórico de Conversas', icon: History, href: '/chat-history', permission: Permission.CHAT_HISTORY_VIEW },
       ]
     },
-    { name: 'Chat Interno', icon: MessageCircle, href: '/chat-internal', permission: Permission.CHAT_INTERNAL_VIEW },
+    { name: 'Chat Interno', icon: MessageCircle, href: '/chat-internal', permission: Permission.CHAT_INTERNAL_VIEW, badgeKey: 'chatInternalUnread' },
     { name: 'Clientes', icon: Users, href: '/customers', permission: Permission.CUSTOMERS_READ },
     // Configurações virou uma tela única com menus internos (Equipe, Filas,
     // Giro, Hotfixes, WhatsApp, Alterar Senha etc. já estão lá dentro, ver

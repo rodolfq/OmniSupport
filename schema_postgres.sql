@@ -972,6 +972,17 @@ CREATE INDEX IF NOT EXISTS idx_audit_log_entity ON public.audit_log USING btree 
 CREATE INDEX IF NOT EXISTS idx_audit_log_created_at ON public.audit_log USING btree (created_at DESC);
 CREATE INDEX IF NOT EXISTS idx_audit_log_actor_id ON public.audit_log USING btree (actor_id);
 
+-- Notificações "stackadas" do ícone Meus Chamados na sidebar
+-- (app/api/notifications/badges/route.ts, migrations/ticket_notification_reads.sql) --
+CREATE TABLE IF NOT EXISTS public.ticket_notification_reads (
+  ticket_id text NOT NULL,
+  user_id uuid NOT NULL,
+  last_read_at timestamptz NOT NULL DEFAULT now(),
+  CONSTRAINT ticket_notification_reads_pkey PRIMARY KEY (ticket_id, user_id),
+  CONSTRAINT ticket_notification_reads_ticket_id_fkey FOREIGN KEY (ticket_id) REFERENCES tickets(id) ON DELETE CASCADE,
+  CONSTRAINT ticket_notification_reads_user_id_fkey FOREIGN KEY (user_id) REFERENCES profiles(id) ON DELETE CASCADE
+);
+
 -- Web Push / VAPID (lib/services/push-service.ts) --------------------------
 CREATE TABLE IF NOT EXISTS public.push_subscriptions (
   id uuid DEFAULT (md5(((random())::text || (clock_timestamp())::text)))::uuid NOT NULL,
