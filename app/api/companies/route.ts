@@ -3,7 +3,7 @@ import crypto from 'crypto';
 import { pool, query } from '@/lib/db';
 import { hashPassword } from '@/lib/auth-utils';
 import { logAudit } from '@/lib/audit-log';
-import { getCurrentActionUser } from '@/lib/server-auth';
+import { getCurrentActionUser, getActorEffectivePermissions } from '@/lib/server-auth';
 import { processCompanyLogo } from '@/lib/services/logo-thumb-service';
 import type { CustomerEvaluationScores } from '@/lib/types';
 
@@ -28,6 +28,20 @@ const REFERENCE_CACHE_HEADER = 'private, max-age=30, stale-while-revalidate=300'
 
 function somenteAdministrador(actor: any) {
   return actor && actor.role === 'Administrador';
+}
+
+// Achado em 2026-09-23 (varredura de permissões): editar/desativar/excluir
+// empresa (e os campos CS/Comercial/Decisor) exigiam literalmente
+// role==='Administrador' aqui, ignorando customers:write por completo — a
+// tela já esconde os controles por CUSTOMERS_WRITE, mas quem tinha a
+// permissão sem ser Administrador do sistema via 403 ao salvar. Esta função
+// aceita as duas (é sempre uma ADIÇÃO ao que já funcionava, nunca remove o
+// caminho do Administrador).
+async function podeGerenciarEmpresas(actor: any): Promise<boolean> {
+  if (somenteAdministrador(actor)) return true;
+  if (!actor) return false;
+  const permissions = await getActorEffectivePermissions(actor.id);
+  return permissions.includes('customers:write');
 }
 
 export async function GET(request: Request) {
@@ -224,6 +238,15 @@ export async function POST(request: Request) {
       if (actor.role === 'Cliente' || actor.role === 'Funcionário') {
         return NextResponse.json({ error: 'Não autorizado.' }, { status: 403 });
       }
+      // Achado em 2026-09-23: além de excluir Cliente/Funcionário, faltava
+      // permissão própria — qualquer Administrador/Equipe/Time Interno
+      // sempre podia avaliar, sem como restringir por Perfil de Acesso.
+      if (actor.role !== 'Administrador') {
+        const permissions = await getActorEffectivePermissions(actor.id);
+        if (!permissions.includes('customers:evaluate')) {
+          return NextResponse.json({ error: 'Você não tem permissão para avaliar clientes.' }, { status: 403 });
+        }
+      }
       const { companyId, analystId, scores, profileTag, chatSessionId, origin = 'manual', contactId } = body;
       await query(
         `INSERT INTO public.customer_evaluations
@@ -303,7 +326,11 @@ export async function POST(request: Request) {
 
     // -------------------------------------------------- empresa em treinamento
     if (action === 'training') {
-      if (actor.role === 'Cliente' || actor.role === 'Funcionário') {
+      // Achado em 2026-09-23: excluía só Cliente/Funcionário — qualquer
+      // Equipe/Time Interno passava mesmo sem "Gerenciar clientes"
+      // (customers:write), diferente do que a tela já dava a entender (o
+      // toggle só aparece com essa permissão).
+      if (!(await podeGerenciarEmpresas(actor))) {
         return NextResponse.json({ error: 'Você não tem permissão para alterar esse dado.' }, { status: 403 });
       }
       const { companyId, isInTraining } = body;
@@ -319,7 +346,7 @@ export async function POST(request: Request) {
 
     // ------------------------------------------------- ativar / desativar
     if (action === 'set-active') {
-      if (!somenteAdministrador(actor)) {
+      if (!(await podeGerenciarEmpresas(actor))) {
         return NextResponse.json({ error: 'Você não tem permissão para gerenciar empresas.' }, { status: 403 });
       }
       const { id, active } = body;
@@ -352,7 +379,7 @@ export async function POST(request: Request) {
     const ehPapelDeEquipe = ['Administrador', 'Equipe', 'Time Interno'].includes(actor.role);
     const exigeAdministrador = !!id || !!adminUser;
 
-    if (exigeAdministrador ? !somenteAdministrador(actor) : !ehPapelDeEquipe) {
+    if (exigeAdministrador ? !(await podeGerenciarEmpresas(actor)) : !ehPapelDeEquipe) {
       return NextResponse.json({ error: 'Você não tem permissão para gerenciar empresas.' }, { status: 403 });
     }
     if (!name?.trim()) return NextResponse.json({ error: 'Nome da empresa é obrigatório.' }, { status: 400 });
@@ -453,7 +480,7 @@ export async function POST(request: Request) {
 
 export async function DELETE(request: Request) {
   const actor = await getCurrentActionUser();
-  if (!somenteAdministrador(actor)) {
+  if (!(await podeGerenciarEmpresas(actor))) {
     return NextResponse.json({ error: 'Você não tem permissão para excluir empresas.' }, { status: 403 });
   }
 

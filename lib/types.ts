@@ -19,8 +19,18 @@ export enum Permission {
   TICKETS_READ = 'tickets:read',
   TICKETS_WRITE = 'tickets:write',
   TICKETS_ASSIGN = 'tickets:assign',
+  // Separada de TICKETS_WRITE (mesmo raciocínio de TICKETS_ASSIGN acima):
+  // quem tem TICKETS_WRITE já pode alterar status, isso não muda — esta
+  // permissão existe pra dar SÓ a troca de status, sem liberar editar os
+  // demais campos do chamado (título, descrição, categoria, etc.).
+  TICKETS_STATUS_CHANGE = 'tickets:status_change',
   // "Central de Atendimento": fila de chats do WhatsApp (widget + /chat-management).
   OUTSIDE_QUEUE_VIEW = 'tickets:outside_queue',
+  // Mesclar/duplicar chamado — achado em 2026-09-23 (varredura de permissões):
+  // as duas ações só passavam por checagem de sessão válida no servidor,
+  // qualquer papel conseguia chamar a rota direto.
+  TICKETS_MERGE = 'tickets:merge',
+  TICKETS_DUPLICATE = 'tickets:duplicate',
   // /chat-history — antes travado por role (Administrador/Equipe) direto no
   // componente, sem nenhuma permissão correspondente (achado em 2026-09-17):
   // um perfil de Time Interno customizado não tinha como ganhar acesso, por
@@ -37,6 +47,18 @@ export enum Permission {
   INTERNAL_TICKETS_VIEW_ALL = 'internal:view_all',
   CUSTOMERS_READ = 'customers:read',
   CUSTOMERS_WRITE = 'customers:write',
+  // Criar a avaliação interna de uma empresa-cliente (modal disparado ao
+  // encerrar um chat, pelo sino de notificação ou em /activities) — achado em
+  // 2026-09-23: o servidor só excluía Cliente/Funcionário, qualquer papel
+  // interno (Administrador/Equipe/Time Interno) sempre podia avaliar, sem
+  // permissão própria pra restringir.
+  CUSTOMERS_EVALUATE = 'customers:evaluate',
+  // Redefinir a senha de outro usuário (equipe OU cliente/funcionário) — a
+  // ação mais sensível do sistema (equivale a assumir a conta). Antes ficava
+  // sob CUSTOMERS_WRITE no servidor mesmo pra redefinir senha de ANALISTA,
+  // descasado da tela (que liberava por TEAM_WRITE) — permissão própria pra
+  // não depender de nenhuma das duas.
+  USERS_RESET_PASSWORD = 'users:reset_password',
   CHAT_INTERNAL_VIEW = 'chat:internal',
   // Conectar/desconectar canais (QR code, Meta API) — mais sensível que só
   // atender (OUTSIDE_QUEUE_VIEW), por isso é uma permissão separada.
@@ -53,9 +75,19 @@ export enum Permission {
   SETTINGS_AUTOMATION = 'settings:automation',
   SETTINGS_INTEGRATIONS = 'settings:integrations',
   SETTINGS_EMAIL = 'settings:email',
+  // Agente de IA (aba própria em Configurações > Sistema) — separada de
+  // SETTINGS_SYSTEM pelo mesmo motivo de SETTINGS_AUTOMATION/SETTINGS_EMAIL
+  // acima: mexer na configuração do agente (modelo, embeddings) é uma
+  // capacidade diferente de mexer em categoria/status/prioridade.
+  SETTINGS_AI = 'settings:ai',
   QUEUES_MANAGE = 'queues:manage',
   DASHBOARD_VIEW = 'dashboard:view',
   REPORTS_READ = 'reports:read',
+  // Log de Auditoria (/reports, aba própria) — dado mais sensível que o
+  // resto de Relatórios (mostra toda ação de todo mundo), por isso não é
+  // coberto por REPORTS_READ. Antes ficava sob SETTINGS_SYSTEM (mexer em
+  // config do sistema e ver o log de auditoria são capacidades sem relação).
+  REPORTS_AUDIT_LOG = 'reports:audit_log',
   HOTFIXES_MANAGE = 'hotfixes:manage',
   // Nível gerencial, separado do dashboard/relatórios de time acima —
   // roadmap "Time x Gerencial", etapa 1: só a fundação de acesso, as telas

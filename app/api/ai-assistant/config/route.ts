@@ -29,7 +29,11 @@ async function assertCanManageAssistant(): Promise<{ ok: true; actor: any } | { 
   if (!actor) return { ok: false, error: 'Sessão inválida.' };
   if (actor.role === 'Administrador') return { ok: true, actor };
   const permissions = await getActorEffectivePermissions(actor.id);
-  if (!permissions.includes('settings:system')) {
+  // settings:ai é a permissão dedicada (achado em 2026-09-23: só existia
+  // settings:system aqui, uma capacidade sem relação nenhuma com configurar o
+  // agente) — settings:system continua valendo pra quem já administrava por
+  // ela, ninguém perde acesso.
+  if (!permissions.includes('settings:ai') && !permissions.includes('settings:system')) {
     return { ok: false, error: 'Você não tem permissão para gerenciar o Agente de IA.' };
   }
   return { ok: true, actor };

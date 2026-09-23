@@ -263,6 +263,10 @@ export function TicketsView({
   // Trocar responsável direto na lista usa a mesma permissão da edição de
   // chamado — é a mesma escrita, só que sem abrir o registro.
   const canReassign = hasPermission(Permission.TICKETS_WRITE) || currentUser?.role === UserRole.ADMIN;
+  // tickets:write já cobre isso (não muda) — tickets:status_change dá SÓ a
+  // troca de status (Kanban/lote), sem liberar os demais campos.
+  const canChangeStatus = hasPermission(Permission.TICKETS_WRITE) || hasPermission(Permission.TICKETS_STATUS_CHANGE) || currentUser?.role === UserRole.ADMIN;
+  const canMergeTickets = hasPermission(Permission.TICKETS_MERGE) || currentUser?.role === UserRole.ADMIN;
 
   // Só quem atende entra na lista de responsáveis (mesmo recorte do modal de
   // transferência em lote): Cliente/Funcionário nunca são responsáveis.
@@ -523,6 +527,10 @@ export function TicketsView({
 
   const handleBulkStatusChange = async (newStatus: string) => {
     if (selectedTickets.length === 0) return;
+    if (!canChangeStatus) {
+      toast.error('Você não tem permissão para alterar o status de chamados.');
+      return;
+    }
 
     try {
       await bulkUpdateTickets(selectedTickets, { status: newStatus });
@@ -540,6 +548,10 @@ export function TicketsView({
   // (arrastar um card pra outra coluna), reaproveitando o mesmo endpoint da
   // ação em lote.
   const handleSingleStatusChange = async (ticketId: string, newStatus: string) => {
+    if (!canChangeStatus) {
+      toast.error('Você não tem permissão para alterar o status de chamados.');
+      return;
+    }
     try {
       await bulkUpdateTickets([ticketId], { status: newStatus });
       await loadTickets();
@@ -550,6 +562,10 @@ export function TicketsView({
 
   const handleMergeTickets = async () => {
     if (!selectedMasterTicketId || selectedTickets.length < 2) return;
+    if (!canMergeTickets) {
+      toast.error('Você não tem permissão para mesclar chamados.');
+      return;
+    }
 
     const ticketsToMerge = selectedTickets.filter(id => id !== selectedMasterTicketId);
     const masterTicket = filteredTickets.find(t => t.id === selectedMasterTicketId);
@@ -1041,45 +1057,57 @@ export function TicketsView({
                 {selectedTickets.length} selecionado(s)
               </span>
               <div className="flex gap-1.5 flex-wrap">
-                <button
-                  onClick={() => setIsTransferModalOpen(true)}
-                  className="px-3 py-1.5 bg-[var(--surface-card)] text-[var(--accent-text)] rounded-xl text-[10px] font-semibold uppercase tracking-widest border border-[var(--accent)]/30 hover:bg-[var(--accent)] hover:text-white transition-all flex items-center gap-1.5"
-                >
-                  <Users size={12} /> Transferir
-                </button>
-                <button
-                  onClick={() => setIsStatusModalOpen(true)}
-                  className="px-3 py-1.5 bg-[var(--surface-card)] text-[var(--text-secondary)] rounded-xl text-[10px] font-semibold uppercase tracking-widest border border-[var(--border-default)] hover:bg-slate-600 hover:text-white transition-all flex items-center gap-1.5"
-                >
-                  <RefreshCw size={12} /> Status
-                </button>
-                <button
-                  onClick={() => setIsMergeModalOpen(true)}
-                  className="px-3 py-1.5 bg-[var(--surface-card)] text-[var(--text-success)] rounded-xl text-[10px] font-semibold uppercase tracking-widest border border-[var(--text-success)]/30 hover:bg-[var(--text-success)] hover:text-white transition-all flex items-center gap-1.5"
-                >
-                  <GitMerge size={12} /> Mesclar
-                </button>
-                <button
-                  onClick={() => setIsTitleModalOpen(true)}
-                  className="px-3 py-1.5 bg-[var(--surface-card)] text-[var(--text-info)] rounded-xl text-[10px] font-semibold uppercase tracking-widest border border-[var(--text-info)]/30 hover:bg-[var(--text-info)] hover:text-white transition-all flex items-center gap-1.5"
-                >
-                  <FileText size={12} /> Título
-                </button>
-                <button
-                  onClick={() => setIsPriorityModalOpen(true)}
-                  className="px-3 py-1.5 bg-[var(--surface-card)] text-[var(--text-warning)] rounded-xl text-[10px] font-semibold uppercase tracking-widest border border-[var(--border-alert)] hover:bg-[var(--accent-warning-hover)] hover:text-white transition-all flex items-center gap-1.5"
-                >
-                  <Star size={12} /> Prioridade
-                </button>
-                <button
-                  onClick={() => {
-                    setIsTagsModalOpen(true);
-                    loadTags();
-                  }}
-                  className="px-3 py-1.5 bg-[var(--surface-card)] text-purple-600 dark:text-purple-400 rounded-xl text-[10px] font-semibold uppercase tracking-widest border border-purple-200 dark:border-purple-500/30 hover:bg-purple-600 dark:hover:bg-purple-500 hover:text-white transition-all flex items-center gap-1.5"
-                >
-                  <Tag size={12} /> Marcadores
-                </button>
+                {canReassign && (
+                  <button
+                    onClick={() => setIsTransferModalOpen(true)}
+                    className="px-3 py-1.5 bg-[var(--surface-card)] text-[var(--accent-text)] rounded-xl text-[10px] font-semibold uppercase tracking-widest border border-[var(--accent)]/30 hover:bg-[var(--accent)] hover:text-white transition-all flex items-center gap-1.5"
+                  >
+                    <Users size={12} /> Transferir
+                  </button>
+                )}
+                {canChangeStatus && (
+                  <button
+                    onClick={() => setIsStatusModalOpen(true)}
+                    className="px-3 py-1.5 bg-[var(--surface-card)] text-[var(--text-secondary)] rounded-xl text-[10px] font-semibold uppercase tracking-widest border border-[var(--border-default)] hover:bg-slate-600 hover:text-white transition-all flex items-center gap-1.5"
+                  >
+                    <RefreshCw size={12} /> Status
+                  </button>
+                )}
+                {canMergeTickets && (
+                  <button
+                    onClick={() => setIsMergeModalOpen(true)}
+                    className="px-3 py-1.5 bg-[var(--surface-card)] text-[var(--text-success)] rounded-xl text-[10px] font-semibold uppercase tracking-widest border border-[var(--text-success)]/30 hover:bg-[var(--text-success)] hover:text-white transition-all flex items-center gap-1.5"
+                  >
+                    <GitMerge size={12} /> Mesclar
+                  </button>
+                )}
+                {canReassign && (
+                  <button
+                    onClick={() => setIsTitleModalOpen(true)}
+                    className="px-3 py-1.5 bg-[var(--surface-card)] text-[var(--text-info)] rounded-xl text-[10px] font-semibold uppercase tracking-widest border border-[var(--text-info)]/30 hover:bg-[var(--text-info)] hover:text-white transition-all flex items-center gap-1.5"
+                  >
+                    <FileText size={12} /> Título
+                  </button>
+                )}
+                {canReassign && (
+                  <button
+                    onClick={() => setIsPriorityModalOpen(true)}
+                    className="px-3 py-1.5 bg-[var(--surface-card)] text-[var(--text-warning)] rounded-xl text-[10px] font-semibold uppercase tracking-widest border border-[var(--border-alert)] hover:bg-[var(--accent-warning-hover)] hover:text-white transition-all flex items-center gap-1.5"
+                  >
+                    <Star size={12} /> Prioridade
+                  </button>
+                )}
+                {canReassign && (
+                  <button
+                    onClick={() => {
+                      setIsTagsModalOpen(true);
+                      loadTags();
+                    }}
+                    className="px-3 py-1.5 bg-[var(--surface-card)] text-purple-600 dark:text-purple-400 rounded-xl text-[10px] font-semibold uppercase tracking-widest border border-purple-200 dark:border-purple-500/30 hover:bg-purple-600 dark:hover:bg-purple-500 hover:text-white transition-all flex items-center gap-1.5"
+                  >
+                    <Tag size={12} /> Marcadores
+                  </button>
+                )}
                 <button
                   onClick={() => setSelectedTickets([])}
                   className="p-1.5 text-[var(--text-tertiary)] hover:text-[var(--text-danger)] transition-all"

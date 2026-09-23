@@ -1,4 +1,4 @@
-'use client';
+﻿'use client';
 
 import React, { useCallback, useEffect, useRef } from 'react';
 import { useEditor, EditorContent } from '@tiptap/react';
@@ -53,14 +53,6 @@ export function RichEditor({ content, onChange, placeholder = 'Comece a digitar.
   // perde posição do cursor) a cada letra digitada, travando o editor em
   // textos maiores.
   const isInternalUpdate = useRef(false);
-
-  // useEditor só lê `editorProps`/extensões na CRIAÇÃO do editor (não
-  // reage a mudança de props em re-renders, por isso o `content` também
-  // precisa do efeito de sync mais abaixo) — capturar `onPasteImages` direto
-  // no fechamento do handlePaste travaria na primeira versão da função.
-  // Ref sempre atualizada resolve isso sem precisar recriar o editor.
-  const onPasteImagesRef = useRef(onPasteImages);
-  useEffect(() => { onPasteImagesRef.current = onPasteImages; }, [onPasteImages]);
 
   const editor = useEditor({
     immediatelyRender: false,
@@ -123,29 +115,6 @@ export function RichEditor({ content, onChange, placeholder = 'Comece a digitar.
           "prose-a:text-[var(--accent-text)] prose-a:underline"
         ),
       },
-      // Ctrl+V de imagem (print/screenshot) — vira ANEXO de verdade via
-      // onPasteImages, em vez de embutida no texto rico (necessário no modo
-      // 'simple', que nem tem o node de imagem no schema, ver o prop acima).
-      // Sem onPasteImages (ou paste sem imagem), devolve `false` e o Tiptap
-      // segue com o comportamento padrão de sempre.
-      handlePaste: (_view, event) => {
-        const callback = onPasteImagesRef.current;
-        if (!callback) return false;
-        const items = event.clipboardData?.items;
-        if (!items || items.length === 0) return false;
-
-        const files: File[] = [];
-        for (let i = 0; i < items.length; i++) {
-          if (items[i].type.startsWith('image/')) {
-            const file = items[i].getAsFile();
-            if (file) files.push(file);
-          }
-        }
-        if (files.length === 0) return false;
-
-        callback(files);
-        return true;
-      },
     },
   });
 
@@ -162,7 +131,6 @@ export function RichEditor({ content, onChange, placeholder = 'Comece a digitar.
       editor.chain().focus().run();
     }
   }, [editor]);
-
 
   // Sync content if it changes externally (and it's not the editor's own update)
   useEffect(() => {
@@ -351,8 +319,8 @@ export function RichEditor({ content, onChange, placeholder = 'Comece a digitar.
       )}
 
 {/* Editor Content Area */}
-        <div
-          style={{ minHeight }}
+        <div 
+          style={{ minHeight }} 
           className="cursor-text bg-[var(--surface-card)] relative"
           onClick={handleContainerClick}
         >

@@ -196,12 +196,12 @@ export default function SettingsPage() {
               </SettingsNavGroup>
             )}
 
-            {(hasPermission(Permission.SETTINGS_SYSTEM) || hasPermission(Permission.SETTINGS_AUTOMATION) || hasPermission(Permission.SETTINGS_INTEGRATIONS) || hasPermission(Permission.SETTINGS_EMAIL)) && (
+            {(hasPermission(Permission.SETTINGS_SYSTEM) || hasPermission(Permission.SETTINGS_AI) || hasPermission(Permission.SETTINGS_AUTOMATION) || hasPermission(Permission.SETTINGS_INTEGRATIONS) || hasPermission(Permission.SETTINGS_EMAIL)) && (
               <SettingsNavGroup title="Sistema">
                 {hasPermission(Permission.SETTINGS_SYSTEM) && (
                   <SettingsNavLink icon={<Database size={16} />} label="Geral do Sistema" active={activeTab === 'system'} onClick={() => setActiveTab('system')} />
                 )}
-                {hasPermission(Permission.SETTINGS_SYSTEM) && (
+                {(hasPermission(Permission.SETTINGS_AI) || hasPermission(Permission.SETTINGS_SYSTEM)) && (
                   <SettingsNavLink icon={<Bot size={16} />} label="Agente de IA" active={activeTab === 'ai-assistant'} onClick={() => setActiveTab('ai-assistant')} />
                 )}
                 {hasPermission(Permission.SETTINGS_AUTOMATION) && (
@@ -249,7 +249,7 @@ export default function SettingsPage() {
                 <TagManager />
              </div>
            )}
-           {activeTab === 'ai-assistant' && hasPermission(Permission.SETTINGS_SYSTEM) && (
+           {activeTab === 'ai-assistant' && (hasPermission(Permission.SETTINGS_AI) || hasPermission(Permission.SETTINGS_SYSTEM)) && (
              <div className="animate-in fade-in slide-in-from-bottom-4 duration-300">
                 <AiAssistantSettingsContent />
              </div>

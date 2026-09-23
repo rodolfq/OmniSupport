@@ -5,7 +5,7 @@ import { motion, AnimatePresence } from 'motion/react';
 import { X, ShieldCheck, BellOff } from 'lucide-react';
 import { useApp } from '@/app/app-context';
 import { saveCustomerEvaluation } from '@/lib/services/company-service';
-import { CustomerEvaluationScores, CustomerProfileTag } from '@/lib/types';
+import { CustomerEvaluationScores, CustomerProfileTag, Permission } from '@/lib/types';
 import { cn } from '@/lib/utils';
 import { toast } from 'sonner';
 import { StarRating } from '@/components/star-rating';
@@ -55,12 +55,13 @@ const EMPTY_SCORES: CustomerEvaluationScores = {
 // empresa-cliente, nunca visível a ela (edição direta fica no cadastro da
 // empresa, ver new-company-modal.tsx).
 export function CustomerEvaluationModal() {
-  const { evaluationModalTarget, closeEvaluationModal, currentUser } = useApp();
+  const { evaluationModalTarget, closeEvaluationModal, currentUser, hasPermission } = useApp();
   const [scores, setScores] = useState(EMPTY_SCORES);
   const [tag, setTag] = useState<CustomerProfileTag | null>(null);
   const [saving, setSaving] = useState(false);
 
   const isOpen = !!evaluationModalTarget;
+  const canEvaluate = hasPermission(Permission.CUSTOMERS_EVALUATE);
 
   useEffect(() => {
     if (isOpen) {
@@ -68,6 +69,14 @@ export function CustomerEvaluationModal() {
       setTag(null);
     }
   }, [isOpen, evaluationModalTarget?.companyId]);
+
+  // Achado em 2026-09-23: os 3 pontos que abrem este modal (fim de chat,
+  // sino de notificação, /activities) nunca checavam permissão — mais fácil
+  // fechar aqui, num lugar só, do que replicar a checagem nos 3 gatilhos.
+  // Fecha sozinho em vez de mostrar um formulário cujo Salvar só daria 403.
+  useEffect(() => {
+    if (isOpen && !canEvaluate) closeEvaluationModal();
+  }, [isOpen, canEvaluate, closeEvaluationModal]);
 
   // Salvar exige pelo menos 1 critério avaliado — os demais podem ficar
   // vazios (não entram na média, ver StarRating).

@@ -57,6 +57,13 @@ function canWriteTickets(actor: any) {
   return actor?.role === 'Administrador' || (actor?.permissions || []).includes('tickets:write');
 }
 
+// Quem tem tickets:write já pode alterar status (não muda) — esta função
+// também libera quem tem SÓ tickets:status_change, sem os demais campos do
+// chamado (ver uso em PUT/PATCH abaixo, que checam campo a campo).
+function canChangeTicketStatus(actor: any) {
+  return canWriteTickets(actor) || (actor?.permissions || []).includes('tickets:status_change');
+}
+
 export async function GET(request: NextRequest) {
   const { searchParams } = new URL(request.url);
   const id = searchParams.get('id');
@@ -584,9 +591,13 @@ export async function POST(request: Request) {
 export async function PUT(request: NextRequest) {
   const actor = await getTicketActor(request);
   if (!actor) return NextResponse.json({ error: 'Não autenticado.' }, { status: 401 });
-  if (!canWriteTickets(actor)) {
+  // canChangeTicketStatus() já inclui canWriteTickets() — quem só tem
+  // tickets:status_change entra aqui, mas o laço abaixo barra qualquer
+  // campo que não seja status/subStatus.
+  if (!canChangeTicketStatus(actor)) {
     return NextResponse.json({ error: 'Você não tem permissão para editar chamados.' }, { status: 403 });
   }
+  const hasFullWrite = canWriteTickets(actor);
 
   const { searchParams } = new URL(request.url);
   const id = searchParams.get('id');
@@ -645,6 +656,23 @@ export async function PUT(request: NextRequest) {
     for (const [key, column] of Object.entries(FIELDS)) {
       if (!(key in ticket) || ticket[key] === undefined) continue;
       const raw = ticket[key];
+      const isStatusField = key === 'status' || key === 'subStatus';
+
+      // Quem só tem tickets:status_change (sem tickets:write) não pode
+      // alterar NENHUM outro campo — mas quem chama manda o objeto INTEIRO
+      // do chamado (ver comentário acima), então título/prioridade/etc.
+      // chegam aqui com o valor ATUAL, sem ninguém ter mexido. Só barra de
+      // verdade quando o valor enviado é DIFERENTE do que já está gravado.
+      if (!hasFullWrite && !isStatusField) {
+        const oldValue = oldTicket?.[column];
+        const changed = ARRAY_FIELDS.has(key)
+          ? JSON.stringify(raw ?? []) !== JSON.stringify(oldValue ?? [])
+          : (raw === '' ? null : (raw ?? null)) !== (oldValue ?? null);
+        if (changed) {
+          return NextResponse.json({ error: 'Você só tem permissão para alterar o status deste chamado.' }, { status: 403 });
+        }
+        continue;
+      }
 
       if (ARRAY_FIELDS.has(key)) {
         params.push(raw ?? []);
@@ -702,17 +730,26 @@ export async function PUT(request: NextRequest) {
 export async function PATCH(request: NextRequest) {
   const actor = await getTicketActor(request);
   if (!actor) return NextResponse.json({ error: 'Não autenticado.' }, { status: 401 });
-  if (!canWriteTickets(actor)) {
-    return NextResponse.json({ error: 'Você não tem permissão para editar chamados.' }, { status: 403 });
-  }
 
   try {
     const { ids, updates } = await request.json();
-    
+
     if (!ids || !Array.isArray(ids) || ids.length === 0) {
       return NextResponse.json({ error: 'IDs dos chamados são obrigatórios.' }, { status: 400 });
     }
-    
+
+    // Diferente do PUT único, `updates` aqui já é PARCIAL de propósito (quem
+    // chama — botão de status em massa, drag-and-drop do Kanban, transferir,
+    // etc. — só manda as chaves que quer mudar). Então dá pra checar direto:
+    // se for status/subStatus só, tickets:status_change basta; qualquer
+    // outra chave junto exige tickets:write de verdade.
+    const updateKeys = Object.keys(updates || {});
+    const touchesOnlyStatus = updateKeys.length > 0 && updateKeys.every(k => k === 'status' || k === 'subStatus');
+    const authorized = touchesOnlyStatus ? canChangeTicketStatus(actor) : canWriteTickets(actor);
+    if (!authorized) {
+      return NextResponse.json({ error: 'Você não tem permissão para editar chamados.' }, { status: 403 });
+    }
+
     const setClauses: string[] = [];
     const params: any[] = [];
     let paramIndex = 1;

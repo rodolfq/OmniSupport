@@ -737,14 +737,17 @@ export default function DashboardPage() {
           )}
         </div>
       ) : (
-        /* Kanban estilo Bitrix: uma fileira só, colunas de largura fixa e
-           estreita, scroll horizontal único (nunca quebra linha). O CSS Grid
-           que existia antes (md:grid-cols-4/5) entrava em conflito com o
-           minWidth forçado pra caber todas as colunas — com mais colunas do
-           que o número de tracks do grid, ele quebrava pra uma 2ª linha e
-           esticava a largura de cada coluna de forma inconsistente. Flex
-           resolve porque cada coluna tem largura própria e o container só
-           rola, nunca quebra. */
+        /* Kanban estilo Bitrix: uma fileira só, nunca quebra linha. Cada
+           coluna cresce pra dividir igualmente o espaço disponível
+           (md:flex-1) — com poucas colunas elas esticam até preencher a
+           tela, e ocultar uma (Configurações de coluna) redistribui o
+           espaço nas que sobraram automaticamente, de graça, só por ser
+           flex. md:min-w-[220px] é o piso: com colunas demais pra caber
+           nesse mínimo, o container passa a rolar (overflow-x-auto) em vez
+           de espremer a coluna a ponto de ficar ilegível — mesma rede de
+           segurança de antes, só que agora só entra em ação quando
+           realmente precisa (não é mais o padrão fixo pra 1 ou 20 colunas
+           igual). */
         <div className="flex flex-col gap-6 md:flex-row md:items-start md:gap-4 md:overflow-x-auto md:scrollbar-thin md:pb-4">
           {columns.map(col => {
             const colTickets = groupedTickets[col.status] || [];
@@ -752,7 +755,7 @@ export default function DashboardPage() {
             const hasMore = colTickets.length > 20;
 
             return (
-              <div key={col.status} className="flex flex-col gap-3 md:w-[248px] md:shrink-0">
+              <div key={col.status} className="flex flex-col gap-3 md:flex-1 md:min-w-[220px]">
                 <div className="flex items-center justify-between px-1">
                   <h3 className="text-[10px] font-semibold uppercase tracking-[0.2em] text-[var(--text-tertiary)]">{col.title}</h3>
                   <span className="bg-[var(--border-default)] text-[var(--text-secondary)] text-[10px] font-bold px-2 py-0.5 rounded-full">
@@ -761,12 +764,14 @@ export default function DashboardPage() {
                 </div>
                 {/* Altura fixa por coluna (md+) em vez de crescer com a
                     quantidade de chamados — clamp() acompanha a tela do
-                    usuário (nunca menor que 280px nem maior que 640px) sem
+                    usuário (nunca menor que 420px nem maior que 800px) sem
                     precisar recalcular via JS. Rola por dentro (scrollbar já
                     fina/minimalista por padrão, ver app/globals.css) — no
                     mobile continua no tamanho do conteúdo, empilhado com o
-                    resto da página. */}
-                <div className="bg-[var(--surface-pill)]/50 rounded-2xl p-3 space-y-3 border border-dashed border-[var(--border-default)] md:h-[clamp(280px,calc(100vh_-_460px),640px)] md:overflow-y-auto">
+                    resto da página. Piso subiu de 280 pra 420px (2026-09-23,
+                    pedido do usuário): no mínimo anterior só cabia ~1,5 card
+                    por vez. */}
+                <div className="bg-[var(--surface-pill)]/50 rounded-2xl p-3 space-y-3 border border-dashed border-[var(--border-default)] md:h-[clamp(420px,calc(100vh_-_420px),800px)] md:overflow-y-auto">
                   {displayTickets.map(ticket => (
                     <TicketCard
                       key={ticket.id}
@@ -1133,8 +1138,8 @@ function PriorityList({ title, tickets, color, onSelect, priorities, users }: {
           {title} ({tickets.length})
         </h4>
       </div>
-      <div className="space-y-2 max-h-[160px] overflow-y-auto scrollbar-thin pr-1">
-        {tickets.slice(0, 5).map(t => {
+      <div className="space-y-2 max-h-[340px] overflow-y-auto scrollbar-thin pr-1">
+        {tickets.map(t => {
           const assignee = t.assigneeId ? users.find(u => u.id === t.assigneeId) : null;
           return (
             <div
@@ -1176,11 +1181,6 @@ function PriorityList({ title, tickets, color, onSelect, priorities, users }: {
             </div>
           );
         })}
-        {tickets.length > 5 && (
-          <button className="w-full py-1 text-[9px] font-semibold uppercase text-[var(--text-tertiary)] hover:text-[var(--accent-text)]">
-            + {tickets.length - 5} chamados
-          </button>
-        )}
       </div>
     </div>
   );

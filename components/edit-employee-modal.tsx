@@ -4,14 +4,21 @@ import React, { useState, useEffect, useMemo } from 'react';
 import { StyledSelect } from '@/components/styled-select';
 import { X, Save, Mail, Phone, ShieldCheck, ShieldOff, Lock, Plus, Trash2, AlertTriangle, Copy, Check } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
-import { UserRole, type User, type Company } from '@/lib/types';
+import { Permission, UserRole, type User, type Company } from '@/lib/types';
 import { UserService } from '@/lib/services/user-service';
 import { maskPhone } from '@/lib/utils';
 import { Globe } from 'lucide-react';
 import { useCompaniesQuery } from '@/lib/query-hooks';
 import { toast } from 'sonner';
+import { useApp } from '@/app/app-context';
 
 export function EditEmployeeModal({ isOpen, onClose, user, onSuccess }: { isOpen: boolean, onClose: () => void, user: User | null, onSuccess?: () => void }) {
+  const { hasPermission } = useApp();
+  // Achado em 2026-09-23 (varredura de permissões): o botão não tinha
+  // nenhuma checagem — ficava visível pra qualquer um que abrisse o modal
+  // (via CUSTOMERS_WRITE ou "Admin Cliente"), mesmo sem a permissão que o
+  // servidor de fato exige pra reiniciar senha.
+  const canResetPassword = hasPermission(Permission.USERS_RESET_PASSWORD) || hasPermission(Permission.CUSTOMERS_WRITE);
   const [name, setName] = useState('');
   const [email, setEmail] = useState('');
   const [role, setRole] = useState(UserRole.EMPLOYEE);
@@ -250,6 +257,7 @@ export function EditEmployeeModal({ isOpen, onClose, user, onSuccess }: { isOpen
               </div>
 
               <div className="p-4 bg-[var(--surface-card)] rounded-2xl border border-[var(--border-default)] space-y-4">
+                {canResetPassword && (
                 <div className="flex flex-col gap-3">
                   <div className="flex items-center justify-between">
                     <div className="flex items-center gap-3">
@@ -283,8 +291,9 @@ export function EditEmployeeModal({ isOpen, onClose, user, onSuccess }: { isOpen
                     </div>
                   )}
                 </div>
+                )}
 
-                <div className="h-px bg-[var(--border-default)] w-full" />
+                {canResetPassword && <div className="h-px bg-[var(--border-default)] w-full" />}
 
                 <div className="flex items-center justify-between">
                   <div className="flex items-center gap-3">

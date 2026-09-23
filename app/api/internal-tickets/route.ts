@@ -3,6 +3,7 @@ import { query } from '@/lib/db';
 import { verifyJWT } from '@/lib/jwt';
 import { computeInternalTicketSla } from '@/lib/sla';
 import { persistAttachments } from '@/lib/services/attachment-storage';
+import { getActorEffectivePermissions } from '@/lib/server-auth';
 
 // Rota dos tickets internos — criada para tirar o InternalTicketService do
 // shim de compatibilidade Supabase (ver lib/services/ticket-service.ts).
@@ -349,6 +350,19 @@ export async function POST(request: NextRequest) {
     const body = await request.json();
     const { action } = body;
 
+    // Achado em 2026-09-23 (varredura de permissões): save/update/link/message
+    // não checavam NADA além de sessão válida — internal:edit só era exigido
+    // no botão "Novo Ticket" do cliente, editar um ticket já existente
+    // (qualquer equipe, qualquer id) era só ter uma sessão válida.
+    const user = await getSessionUser(request);
+    if (!user) return NextResponse.json({ error: 'Não autenticado.' }, { status: 401 });
+    if (user.role !== 'Administrador') {
+      const permissions = await getActorEffectivePermissions(user.id);
+      if (!permissions.includes('internal:edit')) {
+        return NextResponse.json({ error: 'Você não tem permissão para editar tickets internos.' }, { status: 403 });
+      }
+    }
+
     if (action === 'save') {
       const { ticket, parentTicketId } = body;
       if (!ticket?.title) return NextResponse.json({ error: 'O título é obrigatório.' }, { status: 400 });
@@ -537,6 +551,16 @@ export async function DELETE(request: NextRequest) {
 
   if (!ticketId || !internalTicketId) {
     return NextResponse.json({ error: 'ticketId e internalTicketId são obrigatórios.' }, { status: 400 });
+  }
+
+  // Mesmo achado do POST acima — desvincular também não checava nada.
+  const user = await getSessionUser(request);
+  if (!user) return NextResponse.json({ error: 'Não autenticado.' }, { status: 401 });
+  if (user.role !== 'Administrador') {
+    const permissions = await getActorEffectivePermissions(user.id);
+    if (!permissions.includes('internal:edit')) {
+      return NextResponse.json({ error: 'Você não tem permissão para editar tickets internos.' }, { status: 403 });
+    }
   }
 
   try {

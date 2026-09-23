@@ -2,10 +2,11 @@ import { NextRequest, NextResponse } from 'next/server';
 import { query } from '@/lib/db';
 import { verifyJWT } from '@/lib/jwt';
 
-// Só Administrador (ou quem tem settings:system, mesma permissão que já
-// libera "Geral do Sistema") vê o log de alterações — é dado mais sensível
-// que o resto de /reports (quem excluiu o quê), por isso a checagem extra
-// aqui em vez de reusar REPORTS_READ como o resto da página.
+// Só Administrador (ou quem tem reports:audit_log, permissão dedicada — ou
+// settings:system, mantido por compatibilidade de quem já administrava por
+// ela) vê o log de alterações — é dado mais sensível que o resto de /reports
+// (quem excluiu o quê), por isso a checagem extra aqui em vez de reusar
+// REPORTS_READ como o resto da página.
 async function getActor(request: NextRequest) {
   const token = request.cookies.get('token')?.value;
   if (!token) return null;
@@ -25,7 +26,9 @@ async function getActor(request: NextRequest) {
 }
 
 function canReadAuditLog(actor: any) {
-  return actor?.role === 'Administrador' || (actor?.permissions || []).includes('settings:system');
+  return actor?.role === 'Administrador'
+    || (actor?.permissions || []).includes('reports:audit_log')
+    || (actor?.permissions || []).includes('settings:system');
 }
 
 export async function GET(request: NextRequest) {

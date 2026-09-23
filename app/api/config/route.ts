@@ -231,9 +231,20 @@ export async function GET(request: Request) {
  */
 const TIPOS_ADMINISTRATIVOS = new Set([
   'tags', 'efforts', 'outcomes', 'categories', 'request-types', 'products',
-  'priorities', 'statuses', 'survey-settings', 'email-settings',
-  'automation-settings', 'metric-thresholds'
+  'priorities', 'statuses', 'survey-settings', 'metric-thresholds'
 ]);
+
+// email-settings e automation-settings saíram do Set genérico acima (achado
+// em 2026-09-23): settings:email/settings:automation existem desde a
+// separação de SETTINGS_SYSTEM mas nunca eram checados de verdade aqui —
+// qualquer um com settings:write/settings:system mexia nos dois mesmo sem a
+// permissão específica marcada, e quem tinha só a específica via a aba e
+// apanhava 403 ao salvar. settings:write/settings:system continuam valendo
+// (quem já administrava por elas não perde acesso), só ganharam companhia.
+const TIPOS_COM_PERMISSAO_PROPRIA: Record<string, string> = {
+  'automation-settings': 'settings:automation',
+  'email-settings': 'settings:email',
+};
 
 // Modo de Crise é mais sensível que o resto (afeta toda mensagem nova de
 // TODO cliente, em todo canal, enquanto ligado) — o pedido foi restringir a
@@ -272,6 +283,23 @@ export async function POST(request: Request) {
         if (!pode) {
           return NextResponse.json(
             { error: 'Você não tem permissão para alterar configurações do sistema.' },
+            { status: 403 }
+          );
+        }
+      }
+    }
+
+    if (TIPOS_COM_PERMISSAO_PROPRIA[type]) {
+      const actor = await getCurrentActionUser();
+      if (!actor) return NextResponse.json({ error: 'Sessão inválida.' }, { status: 401 });
+
+      if (actor.role !== 'Administrador') {
+        const permissions = await getActorEffectivePermissions(actor.id);
+        const specific = TIPOS_COM_PERMISSAO_PROPRIA[type];
+        const pode = permissions.includes(specific) || permissions.includes('settings:write') || permissions.includes('settings:system');
+        if (!pode) {
+          return NextResponse.json(
+            { error: 'Você não tem permissão para alterar esta configuração.' },
             { status: 403 }
           );
         }

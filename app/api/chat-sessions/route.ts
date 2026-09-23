@@ -6,7 +6,17 @@ import { notifyUser } from '@/lib/services/push-service';
 import { getChatRecipientIds, getTeamUserIds } from '@/lib/services/notification-recipients';
 import { pickNextQueueAssignee } from '@/lib/services/queue-routing';
 import { runExclusive } from '@/lib/key-mutex';
-import { getCurrentActionUser } from '@/lib/server-auth';
+import { getCurrentActionUser, getActorEffectivePermissions } from '@/lib/server-auth';
+
+// Achado em 2026-09-23 (varredura de permissões): as ações abaixo só
+// checavam "sessão válida" — qualquer papel autenticado atribuía, transferia,
+// mudava marcador e encerrava chat, e mesclava/duplicava chamado, mesmo sem
+// nenhuma permissão. `perms` é "qualquer uma delas basta".
+async function actorTemAlgumaPermissao(actor: any, perms: string[]): Promise<boolean> {
+  if (actor?.role === 'Administrador') return true;
+  const permissions = await getActorEffectivePermissions(actor.id);
+  return perms.some(p => permissions.includes(p));
+}
 
 /**
  * Operações de atendimento e de chamado ligadas à conversa. Última leva da
@@ -41,6 +51,9 @@ export async function POST(request: Request) {
     // Assumir / transferir atendimento
     // =====================================================================
     if (action === 'assign') {
+      if (!(await actorTemAlgumaPermissao(actor, ['tickets:outside_queue']))) {
+        return NextResponse.json({ error: 'Você não tem permissão para atender a Central de Atendimento.' }, { status: 403 });
+      }
       const { sessionId, assigneeId, actingUserId } = body;
       const sessionRes = await query(
         'SELECT customer_id, assignee_id FROM public.chat_sessions WHERE id = $1',
@@ -145,6 +158,9 @@ export async function POST(request: Request) {
     // Devolver para a fila
     // =====================================================================
     if (action === 'return-to-queue') {
+      if (!(await actorTemAlgumaPermissao(actor, ['tickets:outside_queue']))) {
+        return NextResponse.json({ error: 'Você não tem permissão para atender a Central de Atendimento.' }, { status: 403 });
+      }
       const { sessionId, queueId, actingUserId } = body;
       const sessionRes = await query('SELECT customer_id, assignee_id FROM public.chat_sessions WHERE id = $1', [sessionId]);
       if (!sessionRes.rows[0]) return NextResponse.json({ error: 'Atendimento não encontrado.' }, { status: 404 });
@@ -211,6 +227,9 @@ export async function POST(request: Request) {
     // Marcadores (tags) da conversa — vínculo em tempo real pelo atendente
     // =====================================================================
     if (action === 'set-tags') {
+      if (!(await actorTemAlgumaPermissao(actor, ['tickets:outside_queue']))) {
+        return NextResponse.json({ error: 'Você não tem permissão para atender a Central de Atendimento.' }, { status: 403 });
+      }
       const { sessionId, tagIds } = body;
       if (!sessionId || !Array.isArray(tagIds)) {
         return NextResponse.json({ error: 'Dados inválidos.' }, { status: 400 });
@@ -280,7 +299,18 @@ export async function POST(request: Request) {
     // Encerrar atendimento (após gerar chamado)
     // =====================================================================
     if (action === 'close') {
-      const { sessionId, awaitingSurveyUntil } = body;
+      if (!(await actorTemAlgumaPermissao(actor, ['tickets:outside_queue']))) {
+        return NextResponse.json({ error: 'Você não tem permissão para atender a Central de Atendimento.' }, { status: 403 });
+      }
+      const { sessionId, awaitingSurveyUntil, isSpam } = body;
+      // Achado em 2026-09-23: "Fechar como Spam" nunca tinha sinal nenhum no
+      // servidor — a diferença (mandar ou não a pesquisa de satisfação) era
+      // decidida só no client, então CHAT_MARK_SPAM nunca era conferida de
+      // verdade. `isSpam` (opcional, default false — chamadores antigos
+      // continuam fechando normal) agora exige a permissão de verdade.
+      if (isSpam && !(await actorTemAlgumaPermissao(actor, ['chat:mark_spam']))) {
+        return NextResponse.json({ error: 'Você não tem permissão para marcar conversas como spam.' }, { status: 403 });
+      }
       await query(
         `UPDATE public.chat_sessions SET status = 'closed', awaiting_survey_until = $1, updated_at = NOW() WHERE id = $2`,
         [awaitingSurveyUntil ?? null, sessionId]
@@ -376,6 +406,9 @@ export async function POST(request: Request) {
     // Mesclar chamados
     // =====================================================================
     if (action === 'merge-tickets') {
+      if (!(await actorTemAlgumaPermissao(actor, ['tickets:merge']))) {
+        return NextResponse.json({ error: 'Você não tem permissão para mesclar chamados.' }, { status: 403 });
+      }
       const { sourceTicketIds, targetTicketId } = body;
       if (!sourceTicketIds?.length) {
         return NextResponse.json({ error: 'Nenhum chamado selecionado para mesclar.' }, { status: 400 });
@@ -439,6 +472,9 @@ export async function POST(request: Request) {
     // Duplicar chamado
     // =====================================================================
     if (action === 'duplicate-ticket') {
+      if (!(await actorTemAlgumaPermissao(actor, ['tickets:duplicate']))) {
+        return NextResponse.json({ error: 'Você não tem permissão para duplicar chamados.' }, { status: 403 });
+      }
       const { ticketId } = body;
       const sourceRes = await query(
         `SELECT title, description, public_ticket_number, category, queue_id, category_id,

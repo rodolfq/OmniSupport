@@ -65,6 +65,9 @@ const permissionGroups = [
       { id: Permission.TICKETS_READ, label: 'Visualizar chamados', desc: 'Permite ver a lista e detalhes de chamados (/tickets) — também libera a chave "Chamados" no Dashboard Geral' },
       { id: Permission.TICKETS_WRITE, label: 'Responder/Editar chamados', desc: 'Permite enviar respostas e editar campos de um chamado' },
       { id: Permission.TICKETS_ASSIGN, label: 'Atribuir responsável', desc: 'Permite mudar o analista responsável por um chamado' },
+      { id: Permission.TICKETS_STATUS_CHANGE, label: 'Alterar status', desc: 'Permite mudar o status/sub-status de um chamado (detalhe e Kanban) sem precisar de "Responder/Editar chamados" para os demais campos' },
+      { id: Permission.TICKETS_MERGE, label: 'Mesclar chamados', desc: 'Permite absorver um chamado em outro (o mesclado vira status "Mesclado", sem notificar o cliente)' },
+      { id: Permission.TICKETS_DUPLICATE, label: 'Duplicar chamado', desc: 'Permite criar uma cópia de um chamado existente' },
       { id: Permission.OUTSIDE_QUEUE_VIEW, label: 'Central de Atendimento', desc: 'Permite ver e atender a fila de chats do WhatsApp — widget flutuante e /chat-management' },
       { id: Permission.CHAT_HISTORY_VIEW, label: 'Histórico de Conversas', desc: 'Permite ver conversas encerradas de qualquer cliente (/chat-history), com filtros, resumo por IA e exportação' },
       { id: Permission.CHAT_MARK_SPAM, label: 'Marcar conversa como spam', desc: 'Permite usar "Fechar como Spam" ao encerrar um atendimento — sem enviar mensagem de encerramento/pesquisa ao cliente' },
@@ -84,7 +87,8 @@ const permissionGroups = [
     title: 'Clientes',
     permissions: [
       { id: Permission.CUSTOMERS_READ, label: 'Visualizar clientes', desc: 'Permite ver a lista de empresas e contatos (/customers)' },
-      { id: Permission.CUSTOMERS_WRITE, label: 'Gerenciar clientes', desc: 'Permite criar, editar e remover empresas clientes' },
+      { id: Permission.CUSTOMERS_WRITE, label: 'Gerenciar clientes', desc: 'Permite criar, editar, desativar e remover empresas clientes' },
+      { id: Permission.CUSTOMERS_EVALUATE, label: 'Avaliar cliente', desc: 'Permite registrar a avaliação interna de uma empresa-cliente (ao encerrar um chat, pelo sino ou em Atividades)' },
     ]
   },
   {
@@ -114,6 +118,7 @@ const permissionGroups = [
       { id: Permission.TEAM_READ, label: 'Visualizar equipe', desc: 'Permite ver a lista de analistas (aba Equipe em Configurações)' },
       { id: Permission.TEAM_WRITE, label: 'Gerenciar analistas', desc: 'Permite criar, editar e remover analistas' },
       { id: Permission.TEAM_STATUS_MANAGE, label: 'Ausência / Histórico de status', desc: 'Permite ver o histórico de status e ausência de outros analistas' },
+      { id: Permission.USERS_RESET_PASSWORD, label: 'Redefinir senha de usuários', desc: 'Permite redefinir a senha de outra pessoa — equipe, cliente ou funcionário. Ação sensível: equivale a assumir a conta' },
       { id: Permission.SETTINGS_WRITE, label: 'Equipes & Permissões', desc: 'Acesso a esta própria tela — perfis de acesso e administração de equipes' },
     ]
   },
@@ -125,6 +130,7 @@ const permissionGroups = [
       { id: Permission.SETTINGS_AUTOMATION, label: 'Mensagens automáticas', desc: 'Configurar respostas e disparos automáticos' },
       { id: Permission.SETTINGS_INTEGRATIONS, label: 'Integrações', desc: 'Gerenciar chaves e integrações externas' },
       { id: Permission.SETTINGS_EMAIL, label: 'E-mail (SMTP)', desc: 'Configurar servidor de envio de e-mail e testar conexão' },
+      { id: Permission.SETTINGS_AI, label: 'Agente de IA (config)', desc: 'Configurar modelo, embeddings e comportamento do Agente de IA (aba própria em Configurações > Sistema)' },
       { id: Permission.QUEUES_MANAGE, label: 'Filas de atendimento', desc: 'Criar e configurar filas do WhatsApp (aba Filas em Configurações)' },
       { id: Permission.HOTFIXES_MANAGE, label: 'Hotfixes / Janela de release', desc: 'Criar e gerenciar hotfixes, marcar publicação, ver alertas de atraso (aba Hotfixes em Configurações)' },
     ]
@@ -138,6 +144,7 @@ const permissionGroups = [
       { id: Permission.DASHBOARD_MANAGEMENT, label: 'Dashboard Gerencial', desc: 'Acesso à visão gerencial de métricas de atendimento (/dashboard/management) — nível acima do dashboard de time' },
       { id: Permission.REPORTS_INDIVIDUAL, label: 'Dados nominais por analista', desc: 'Permite ver relatórios com nome do analista associado, não só números agregados do time' },
       { id: Permission.REPORTS_EXPORT, label: 'Exportar relatórios', desc: 'Permite exportar relatórios em CSV/PDF' },
+      { id: Permission.REPORTS_AUDIT_LOG, label: 'Log de Auditoria', desc: 'Permite ver o histórico de ações de todos os usuários — dado mais sensível que o resto de Relatórios' },
     ]
   }
 ];

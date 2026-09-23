@@ -1927,7 +1927,7 @@ useEffect(() => {
 
       // ticket_id/ticket_number já foram vinculados por saveTicketFromChatSession —
       // aqui só falta marcar a sessão como encerrada.
-      const closeResult = await closeChatSessionAfterTicket(selectedChat.id, awaitingSurveyUntil);
+      const closeResult = await closeChatSessionAfterTicket(selectedChat.id, awaitingSurveyUntil, closeAsSpam);
       if ('error' in closeResult) {
         console.error('Error closing session:', closeResult.error);
         toast.error('Erro ao fechar conversa.');

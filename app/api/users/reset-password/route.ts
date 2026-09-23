@@ -35,13 +35,22 @@ export async function POST(request: NextRequest) {
 
     const actor = actorResult.rows[0];
     const isFullAdmin = actor.role === 'Administrador';
-    // "Gerenciar clientes" (customers:write) também reinicia senha — de
-    // propósito, restrito a alvo Cliente/Funcionário logo abaixo: sem essa
-    // restrição, esse mesmo acesso (pensado só pra gerenciar empresa-cliente)
-    // deixaria reiniciar senha de analista/admin também.
-    const hasCustomersWrite = (actor.permissions || []).includes('customers:write');
+    // Achado em 2026-09-23 (varredura de permissões): esta rota checava só
+    // customers:write (pensada pra gerenciar empresa-cliente), descasada da
+    // tela de Equipe, que libera o botão por team:write/admin de equipe — um
+    // admin de equipe via "Redefinir Senha" e apanhava 403 pra qualquer alvo
+    // que não fosse Cliente/Funcionário. users:reset_password é a permissão
+    // dedicada daqui pra frente (cobre os dois domínios, decisão do usuário:
+    // uma só, sem separar por tipo de conta) — customers:write/team:write
+    // continuam valendo também, só para não tirar de quem já reiniciava
+    // senha por uma delas hoje (perfis "Suporte"/"Gestor", ver
+    // components/permissions-content.tsx).
+    const permissions: string[] = actor.permissions || [];
+    const hasResetPasswordPermission = permissions.includes('users:reset_password')
+      || permissions.includes('customers:write')
+      || permissions.includes('team:write');
 
-    if (!isFullAdmin && !hasCustomersWrite) {
+    if (!isFullAdmin && !hasResetPasswordPermission) {
       return NextResponse.json({ error: 'Voce nao tem permissao para reiniciar senhas.' }, { status: 403 });
     }
 
@@ -51,11 +60,14 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: 'ID do usuario e obrigatorio.' }, { status: 400 });
     }
 
+    // Mesmo assim, ação mais sensível do sistema — quem não é Administrador
+    // de verdade nunca reinicia a senha de um Administrador (mesma regra de
+    // assertUserManageable em lib/server-auth.ts).
     if (!isFullAdmin) {
       const targetResult = await query('SELECT role FROM public.profiles WHERE id = $1', [userId]);
       const targetRole = targetResult.rows[0]?.role;
-      if (!targetRole || !['Cliente', 'Funcionário'].includes(targetRole)) {
-        return NextResponse.json({ error: 'Voce so pode reiniciar senha de cliente/funcionario.' }, { status: 403 });
+      if (targetRole === 'Administrador') {
+        return NextResponse.json({ error: 'Voce nao pode reiniciar a senha de um Administrador.' }, { status: 403 });
       }
     }
 

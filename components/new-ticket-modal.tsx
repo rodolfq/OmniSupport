@@ -486,10 +486,6 @@ export function NewTicketModal() {
                       onChange={(e) => {
                         const val = e.target.value;
                         if (val === NEW_EMPLOYEE_OPTION_VALUE) {
-                          if (!selectedCompanyId) {
-                            toast.error("Selecione uma empresa primeiro.");
-                            return;
-                          }
                           setIsNewEmployeeModalOpen(true);
                           return;
                         }
@@ -501,6 +497,11 @@ export function NewTicketModal() {
                           setEmployeeIds((prev) => (prev.includes(val) ? prev : [...prev, val]));
                         }
                       }}
+                      // Trancado até escolher a empresa — "+ Criar novo
+                      // funcionário" precisa de uma empresa pra vincular o
+                      // cadastro, e a lista de solicitantes em si não tem
+                      // sentido sem esse filtro (ver filteredUsers).
+                      disabled={!selectedCompanyId}
                       className="w-full bg-[var(--surface-card)] border border-[var(--border-default)] rounded-xl px-4 py-2.5 text-sm font-medium focus:ring-2 focus:ring-[var(--accent)]/20 focus:border-[var(--accent)] transition-all appearance-none outline-none disabled:opacity-60"
                       required
                     >

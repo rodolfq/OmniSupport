@@ -49,9 +49,15 @@ export async function returnChatSessionToQueue(
 
 export async function closeChatSessionAfterTicket(
   sessionId: string,
-  awaitingSurveyUntil: string | null
+  awaitingSurveyUntil: string | null,
+  // Achado em 2026-09-23 (varredura de permissões): o servidor não tinha
+  // como saber se o fechamento era "como spam" — a distinção inteira vivia
+  // no client (não mandar a pesquisa de satisfação). Passar o flag deixa o
+  // servidor exigir CHAT_MARK_SPAM de verdade, em vez de confiar cegamente
+  // em quem chamou a rota ter decidido certo.
+  isSpam: boolean = false
 ): Promise<SucessoSimples | Falha> {
-  return post({ action: 'close', sessionId, awaitingSurveyUntil }, 'Erro ao fechar o atendimento.');
+  return post({ action: 'close', sessionId, awaitingSurveyUntil, isSpam }, 'Erro ao fechar o atendimento.');
 }
 
 export async function saveTicketFromChatSession(

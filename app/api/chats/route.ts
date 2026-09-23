@@ -16,7 +16,7 @@ import { getOrGenerateChatSummary, ChatSummaryNotFoundError, ChatSummaryGenerati
 import { AssistantNotConfiguredError, parseGroqRetryWait } from '@/lib/groq-client';
 import { normalizeBrazilianPhoneDigits } from '@/lib/utils';
 import { isCrisisModeEnabled, recordCrisisModeMessage } from '@/lib/services/crisis-mode-service';
-import { getActorEffectivePermissions } from '@/lib/server-auth';
+import { getCurrentActionUser, getActorEffectivePermissions } from '@/lib/server-auth';
 
 function normalizePhone(value?: string | null): string {
   return (value || '').replace(/\D/g, '');
@@ -32,6 +32,19 @@ function phoneLookupVariants(phone?: string | null): string[] {
     variants.add(`55${digits}`);
   }
   return [...variants];
+}
+
+// Achado em 2026-09-23 (varredura de permissões): todas as ações de Chat
+// Interno abaixo (listar/ler salas, criar/mandar mensagem, digitando,
+// reação) só exigiam sessão válida — CHAT_INTERNAL_VIEW só era checado no
+// CLIENTE (redirect da tela). Qualquer papel autenticado, incluindo
+// Cliente/Funcionário, conseguia criar sala e mandar mensagem chamando a
+// rota direto.
+async function temPermissaoChatInterno(user: { id: string; role?: string } | null | undefined): Promise<boolean> {
+  if (!user?.id) return false;
+  if (user.role === 'Administrador') return true;
+  const permissions = await getActorEffectivePermissions(user.id);
+  return permissions.includes('chat:internal');
 }
 
 export async function GET(request: NextRequest) {
@@ -542,6 +555,9 @@ export async function GET(request: NextRequest) {
       if (!authenticatedUser?.id) {
         return NextResponse.json({ error: 'Sessão inválida.' }, { status: 401 });
       }
+      if (!(await temPermissaoChatInterno(authenticatedUser as any))) {
+        return NextResponse.json({ error: 'Você não tem permissão para acessar o chat interno.' }, { status: 403 });
+      }
 
       // "Entregue" (2o check, cinza) = o cliente deste usuário sincronizou a
       // lista de conversas — acontece aqui, toda vez que a lista carrega,
@@ -635,6 +651,9 @@ export async function GET(request: NextRequest) {
       const authenticatedUser = token ? await verifyJWT(token) : null;
       if (!authenticatedUser?.id) {
         return NextResponse.json({ error: 'Sessão inválida.' }, { status: 401 });
+      }
+      if (!(await temPermissaoChatInterno(authenticatedUser as any))) {
+        return NextResponse.json({ error: 'Você não tem permissão para acessar o chat interno.' }, { status: 403 });
       }
 
       // Abrir a sala de verdade = "lido" (3o check, colorido). Também cobre
@@ -1223,8 +1242,19 @@ export async function POST(request: Request) {
     }
 
     if (action === 'edit-chat-message') {
-      const { messageId, userId, text } = body;
-      if (!messageId || !userId || typeof text !== 'string' || !text.trim()) {
+      // Achado em 2026-09-23 (varredura de permissões): a identidade vinha
+      // do CORPO da requisição (`userId`) — qualquer um editava mensagem de
+      // qualquer outra pessoa só mandando o id de outro usuário no JSON. A
+      // regra "só quem enviou edita" precisa comparar contra a sessão
+      // verificada, nunca contra um valor que o próprio cliente escolhe.
+      const token = (await cookies()).get('token')?.value;
+      const authenticatedUser = token ? await verifyJWT(token) : null;
+      if (!authenticatedUser?.id) {
+        return NextResponse.json({ error: 'Sessão inválida.' }, { status: 401 });
+      }
+
+      const { messageId, text } = body;
+      if (!messageId || typeof text !== 'string' || !text.trim()) {
         return NextResponse.json({ error: 'Dados incompletos.' }, { status: 400 });
       }
 
@@ -1236,7 +1266,7 @@ export async function POST(request: Request) {
       if (!row) {
         return NextResponse.json({ error: 'Mensagem não encontrada.' }, { status: 404 });
       }
-      if (row.sender_id !== userId) {
+      if (row.sender_id !== authenticatedUser.id) {
         return NextResponse.json({ error: 'Só quem enviou pode editar esta mensagem.' }, { status: 403 });
       }
       if (row.text === text.trim()) {
@@ -1249,7 +1279,7 @@ export async function POST(request: Request) {
       // aqui com histórico real em vez de sobrescrever sem rastro).
       await query(
         `INSERT INTO public.chat_message_edits (message_id, previous_text, edited_by) VALUES ($1, $2, $3)`,
-        [messageId, row.text, userId]
+        [messageId, row.text, authenticatedUser.id]
       );
       await query(
         `UPDATE public.chat_messages SET text = $1, edited_at = NOW() WHERE id = $2`,
@@ -1260,8 +1290,16 @@ export async function POST(request: Request) {
     }
 
     if (action === 'delete-chat-message') {
-      const { messageId, userId } = body;
-      if (!messageId || !userId) {
+      // Mesmo achado/correção de edit-chat-message acima: identidade vem da
+      // sessão verificada, não do corpo da requisição.
+      const token = (await cookies()).get('token')?.value;
+      const authenticatedUser = token ? await verifyJWT(token) : null;
+      if (!authenticatedUser?.id) {
+        return NextResponse.json({ error: 'Sessão inválida.' }, { status: 401 });
+      }
+
+      const { messageId } = body;
+      if (!messageId) {
         return NextResponse.json({ error: 'Dados incompletos.' }, { status: 400 });
       }
 
@@ -1274,7 +1312,7 @@ export async function POST(request: Request) {
          SET deleted_at = NOW(), deleted_by = $2
          WHERE id = $1 AND sender_id = $2 AND deleted_at IS NULL
          RETURNING session_id`,
-        [messageId, userId]
+        [messageId, authenticatedUser.id]
       );
       if (deleted.rowCount === 0) {
         return NextResponse.json({ error: 'Mensagem não encontrada ou sem permissão para excluir.' }, { status: 404 });
@@ -1515,6 +1553,12 @@ export async function POST(request: Request) {
     }
 
     if (action === 'save-internal-chat') {
+      const token = (await cookies()).get('token')?.value;
+      const authenticatedUser = token ? await verifyJWT(token) : null;
+      if (!(await temPermissaoChatInterno(authenticatedUser as any))) {
+        return NextResponse.json({ error: 'Você não tem permissão para acessar o chat interno.' }, { status: 403 });
+      }
+
       const { chat } = body;
 
       // Rede de segurança contra duplicidade de conversa 1:1 (além do índice
@@ -1566,8 +1610,19 @@ export async function POST(request: Request) {
     }
 
     if (action === 'delete-internal-message') {
-      const { chatId, messageId, userId } = body;
-      if (!chatId || !messageId || !userId) {
+      // Mesmo achado de edit/delete-chat-message: identidade vinha do corpo
+      // (`userId`) — qualquer um apagava mensagem de qualquer outro só
+      // mandando o id de outro usuário no JSON. Comparar contra a sessão
+      // verificada corrige os dois lados (é a própria mensagem E o próprio
+      // chat interno) de uma vez.
+      const token = (await cookies()).get('token')?.value;
+      const authenticatedUser = token ? await verifyJWT(token) : null;
+      if (!authenticatedUser?.id) {
+        return NextResponse.json({ error: 'Sessão inválida.' }, { status: 401 });
+      }
+
+      const { chatId, messageId } = body;
+      if (!chatId || !messageId) {
         return NextResponse.json({ error: 'Dados incompletos para excluir a mensagem.' }, { status: 400 });
       }
 
@@ -1575,7 +1630,7 @@ export async function POST(request: Request) {
         `DELETE FROM public.internal_chat_messages
          WHERE id = $1 AND chat_id = $2 AND sender_id = $3
          RETURNING id`,
-        [messageId, chatId, userId]
+        [messageId, chatId, authenticatedUser.id]
       );
 
       if (deleted.rowCount === 0) {
@@ -1585,6 +1640,14 @@ export async function POST(request: Request) {
     }
 
     if (action === 'save-internal-message') {
+      // Achado em 2026-09-23: `senderId`/`senderName` vinham do corpo — dava
+      // pra mandar mensagem no chat interno se passando por outra pessoa.
+      // Usa a sessão verificada pros dois campos.
+      const actor = await getCurrentActionUser();
+      if (!(await temPermissaoChatInterno(actor))) {
+        return NextResponse.json({ error: 'Você não tem permissão para acessar o chat interno.' }, { status: 403 });
+      }
+
       const { chatId, message } = body;
       // Anexo chega do client como data: URL e é gravado em disco aqui (ver
       // lib/services/attachment-storage.ts) — no banco fica só a URL.
@@ -1596,8 +1659,8 @@ export async function POST(request: Request) {
          RETURNING id, created_at`,
         [
           chatId,
-          message.senderId || null,
-          message.senderName || null,
+          actor!.id,
+          actor!.name,
           message.text,
           message.type || 'text',
           JSON.stringify(internalMetadata),
@@ -1620,9 +1683,9 @@ export async function POST(request: Request) {
         try {
           const chatRes = await query('SELECT member_ids FROM public.internal_chats WHERE id = $1', [chatId]);
           const memberIds: string[] = chatRes.rows[0]?.member_ids || [];
-          const recipientIds = memberIds.filter(id => id !== message.senderId);
+          const recipientIds = memberIds.filter(id => id !== actor!.id);
           await Promise.all(recipientIds.map(id => notifyUser(id, {
-            title: `Nova mensagem de ${message.senderName || 'alguém do time'}`,
+            title: `Nova mensagem de ${actor!.name || 'alguém do time'}`,
             body: message.text || 'Anexo enviado',
             url: '/chat-internal',
             tag: `internal_chat_message:${inserted.rows[0].id}`
@@ -1636,17 +1699,31 @@ export async function POST(request: Request) {
     }
 
     if (action === 'internal-chat-typing') {
-      const { chatId, userId, userName } = body;
-      if (!chatId || !userId) {
+      // Achado em 2026-09-23: `userId`/`userName` vinham do corpo — qualquer
+      // um disparava "fulano está digitando" fingindo ser outra pessoa. Usa
+      // a sessão verificada pros dois campos (getCurrentActionUser já traz o
+      // nome, sem precisar de outra consulta).
+      const actor = await getCurrentActionUser();
+      if (!(await temPermissaoChatInterno(actor))) {
+        return NextResponse.json({ error: 'Você não tem permissão para acessar o chat interno.' }, { status: 403 });
+      }
+      const { chatId } = body;
+      if (!chatId) {
         return NextResponse.json({ error: 'Dados incompletos.' }, { status: 400 });
       }
-      emitInternalChatEvent(chatId, { type: 'typing', chatId, userId, userName });
+      emitInternalChatEvent(chatId, { type: 'typing', chatId, userId: actor!.id, userName: actor!.name });
       return NextResponse.json({ success: true });
     }
 
     if (action === 'toggle-internal-message-reaction') {
-      const { messageId, userId, emoji } = body;
-      if (!messageId || !userId || !emoji) {
+      // Mesmo achado: `userId` vinha do corpo — qualquer um reagia (ou
+      // removia a reação de outro) fingindo ser outra pessoa.
+      const actor = await getCurrentActionUser();
+      if (!(await temPermissaoChatInterno(actor))) {
+        return NextResponse.json({ error: 'Você não tem permissão para acessar o chat interno.' }, { status: 403 });
+      }
+      const { messageId, emoji } = body;
+      if (!messageId || !emoji) {
         return NextResponse.json({ error: 'Dados incompletos.' }, { status: 400 });
       }
       const chatRes = await query('SELECT chat_id FROM public.internal_chat_messages WHERE id = $1', [messageId]);
@@ -1660,14 +1737,14 @@ export async function POST(request: Request) {
       // igual WhatsApp/Telegram.
       const removed = await query(
         `DELETE FROM public.internal_chat_message_reactions WHERE message_id = $1 AND user_id = $2 AND emoji = $3 RETURNING id`,
-        [messageId, userId, emoji]
+        [messageId, actor!.id, emoji]
       );
       if ((removed.rowCount ?? 0) === 0) {
         await query(
           `INSERT INTO public.internal_chat_message_reactions (message_id, user_id, emoji)
            VALUES ($1, $2, $3)
            ON CONFLICT (message_id, user_id) DO UPDATE SET emoji = EXCLUDED.emoji, created_at = NOW()`,
-          [messageId, userId, emoji]
+          [messageId, actor!.id, emoji]
         );
       }
       emitInternalChatEvent(chatId, { type: 'reaction', chatId, messageId });

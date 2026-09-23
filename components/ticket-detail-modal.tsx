@@ -74,6 +74,11 @@ export function TicketDetailModal({ ticket, onClose, initialDraft }: TicketDetai
   // deste arquivo já dependem de hasPermission(TICKETS_READ) em paralelo, que
   // Funcionário nunca tem — então já ficam ocultos pra ele por esse caminho.
   const isCompanyUser = isCustomer || currentUser?.role === UserRole.EMPLOYEE;
+  // tickets:write já cobre isso (não muda) — tickets:status_change dá SÓ a
+  // troca de status, sem liberar os demais campos do chamado (ver gating
+  // espelhado no servidor, app/api/tickets/route.ts).
+  const canChangeStatus = hasPermission(Permission.TICKETS_WRITE) || hasPermission(Permission.TICKETS_STATUS_CHANGE);
+  const canDuplicateTicket = hasPermission(Permission.TICKETS_DUPLICATE);
 
   // As 9 buscas de config/referência abaixo eram feitas do zero (Promise.all)
   // toda vez que este modal abria — hoje vêm de queries com cache
@@ -720,8 +725,10 @@ const loadMessages = async () => {
       }
     };
 
-    const handleMessageFileUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
-      const selected = Array.from(e.target.files || []);
+    // Compartilhado entre o seletor de arquivo ("Anexar") e o colar
+    // (Ctrl+V) de imagem no editor da nota — mesmas regras (teto de
+    // tamanho, conversão pra data URL) pros dois caminhos.
+    const addMessageAttachments = async (selected: File[]) => {
       if (selected.length === 0) return;
 
       // Barra ANTES de ler o arquivo (fileToBase64) — sem isso, o erro só
@@ -734,10 +741,7 @@ const loadMessages = async () => {
           toast.error(`${file.name} excede o limite de ${MAX_ATTACHMENT_TOTAL_LABEL} por envio.`);
         });
       }
-      if (files.length === 0) {
-        if (messageFileInputRef.current) messageFileInputRef.current.value = '';
-        return;
-      }
+      if (files.length === 0) return;
 
       for (const file of files) {
         const fileId = Math.random().toString(36).substr(2, 9);
@@ -764,11 +768,25 @@ const loadMessages = async () => {
           size: file.size
         }]);
       }
-      
+    };
+
+    const handleMessageFileUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
+      await addMessageAttachments(Array.from(e.target.files || []));
       // Reset input
       if (messageFileInputRef.current) {
         messageFileInputRef.current.value = '';
       }
+    };
+
+    // Cola imagem copiada (print/screenshot, Ctrl+V) como ANEXO da nota —
+    // mesmo mecanismo do botão "Anexar", não embutida no texto rico. O
+    // editor da nota roda em modo 'simple' (ver RichEditor), sem o node de
+    // imagem no schema — faz sentido, já que a nota também vira mensagem de
+    // WhatsApp/e-mail, sem como representar embed — então colar precisa
+    // virar anexo de verdade, igual já funciona no chat de atendimento
+    // (ver addFilesAsChatAttachments em chat-widget.tsx).
+    const handleMessagePasteImages = (files: File[]) => {
+      addMessageAttachments(files);
     };
 
   const flashSaved = () => {
@@ -1012,6 +1030,10 @@ const loadMessages = async () => {
   // sem mensagens) — não navega pro chamado novo automaticamente, só avisa.
   const handleDuplicateTicket = async () => {
     if (!ticket || isDuplicatingTicket) return;
+    if (!canDuplicateTicket) {
+      toast.error('Você não tem permissão para duplicar chamados.');
+      return;
+    }
     setIsDuplicatingTicket(true);
     try {
       const result = await duplicateTicket(ticket.id);
@@ -1124,7 +1146,7 @@ const loadMessages = async () => {
                   >
                     <Link2 size={18} />
                   </button>
-                  {!isCompanyUser && (
+                  {!isCompanyUser && canDuplicateTicket && (
                     <button
                       onClick={handleDuplicateTicket}
                       disabled={isDuplicatingTicket}
@@ -1172,6 +1194,7 @@ const loadMessages = async () => {
                           onMouseLeave={() => setOpenSubStatusMenuFor(prev => prev === s.id ? null : prev)}
                         >
                           <button
+                            disabled={!canChangeStatus}
                             onClick={() => {
                               setTicketStatus(s.label as any);
                               setTicketSubStatus(null);
@@ -1180,9 +1203,11 @@ const loadMessages = async () => {
                                 setOpenSubStatusMenuFor(prev => prev === s.id ? null : s.id);
                               }
                             }}
+                            title={canChangeStatus ? undefined : 'Você não tem permissão para alterar o status deste chamado.'}
                             className={cn(
                               "px-3 py-1 text-[10px] font-semibold uppercase rounded-md transition-all whitespace-nowrap",
-                              isActive ? "bg-[var(--surface-card)] text-[var(--accent-text)] shadow-sm" : "text-[var(--text-tertiary)] hover:bg-[var(--border-default)]/50"
+                              isActive ? "bg-[var(--surface-card)] text-[var(--accent-text)] shadow-sm" : "text-[var(--text-tertiary)] hover:bg-[var(--border-default)]/50",
+                              !canChangeStatus && "opacity-50 cursor-not-allowed hover:bg-transparent"
                             )}
                           >
                             {s.label}
@@ -1194,12 +1219,16 @@ const loadMessages = async () => {
                             <div className="bg-[var(--surface-card)] border border-[var(--border-default)] rounded-xl shadow-xl p-1">
                               {isActive && ticketSubStatus && (
                                 <button
+                                  disabled={!canChangeStatus}
                                   onClick={() => {
                                     setTicketSubStatus(null);
                                     scheduleTicketSave({ status: s.label as any, subStatus: null });
                                     setOpenSubStatusMenuFor(null);
                                   }}
-                                  className="w-full text-left px-3 py-1.5 text-[10px] font-semibold uppercase rounded-lg text-[var(--text-tertiary)] hover:bg-[var(--surface-pill)] transition-all"
+                                  className={cn(
+                                    "w-full text-left px-3 py-1.5 text-[10px] font-semibold uppercase rounded-lg text-[var(--text-tertiary)] hover:bg-[var(--surface-pill)] transition-all",
+                                    !canChangeStatus && "opacity-50 cursor-not-allowed hover:bg-transparent"
+                                  )}
                                 >
                                   Nenhum
                                 </button>
@@ -1207,6 +1236,7 @@ const loadMessages = async () => {
                               {children.map(child => (
                                 <button
                                   key={child.id}
+                                  disabled={!canChangeStatus}
                                   onClick={() => {
                                     setTicketStatus(s.label as any);
                                     setTicketSubStatus(child.label);
@@ -1215,7 +1245,8 @@ const loadMessages = async () => {
                                   }}
                                   className={cn(
                                     "w-full text-left px-3 py-1.5 text-[10px] font-semibold uppercase rounded-lg transition-all whitespace-nowrap",
-                                    isActive && ticketSubStatus === child.label ? "bg-[var(--surface-pill)] text-[var(--accent-text)]" : "text-[var(--text-secondary)] hover:bg-[var(--surface-pill)]"
+                                    isActive && ticketSubStatus === child.label ? "bg-[var(--surface-pill)] text-[var(--accent-text)]" : "text-[var(--text-secondary)] hover:bg-[var(--surface-pill)]",
+                                    !canChangeStatus && "opacity-50 cursor-not-allowed hover:bg-transparent"
                                   )}
                                 >
                                   {child.label}
@@ -1996,6 +2027,7 @@ const loadMessages = async () => {
                        onChange={setMessage}
                        placeholder="Nota do ticket interno..."
                        minHeight="100px"
+                       onPasteImages={handleMessagePasteImages}
                      />
                      <div className="flex items-center justify-between">
                         <div>
@@ -2187,6 +2219,7 @@ const loadMessages = async () => {
                      placeholder={historyTab === 'internal' ? "Nota interna..." : "Escreva sua resposta..."}
                      minHeight="100px"
                      toolbar="simple"
+                     onPasteImages={handleMessagePasteImages}
                    />
                    <div className="flex items-center justify-between">
                       <div>
