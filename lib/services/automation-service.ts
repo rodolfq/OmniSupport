@@ -324,9 +324,12 @@ async function dispatchTicketUpdateTemplate(
     [noteText, noteAuthorId, recorded.id]
   );
 
-  if (noteAuthorId) {
-    await PyvonService.claimSessionIfUnassigned(recorded.id, noteAuthorId);
-  }
+  // A conversa NÃO cai pro autor da nota aqui — só quando o cliente de fato
+  // responder (decisão do usuário, 2026-09-22: mandar a nota sozinha não
+  // deve "roubar" o atendimento de quem já estava com ele, nem criar dono pra
+  // conversa que o cliente nunca respondeu). pyvon_pending_note_author_id
+  // guardado acima é consumido em PyvonService.handleWebhook, que atribui só
+  // na próxima mensagem inbound.
 
   return true;
 }

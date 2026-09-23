@@ -333,13 +333,21 @@ export function SystemConfigContent({ categories, priorities, requestTypes, prod
   // ver app/api/config/route.ts TIPOS_SOMENTE_ADMIN). Auto-contido: não
   // depende de estado erguido no settings/page.tsx como as listas acima.
   const [crisisModeEnabled, setCrisisModeEnabled] = React.useState(false);
+  // Pré-preenchido com o texto padrão (não em branco) — reflete fielmente o
+  // que é enviado hoje mesmo se ninguém nunca customizou (ver
+  // getCrisisMode/lib/crisis-mode-message.ts).
+  const [crisisModeMessage, setCrisisModeMessage] = React.useState(CRISIS_MODE_MESSAGE);
   const [crisisModeLoaded, setCrisisModeLoaded] = React.useState(false);
   const [savingCrisisMode, setSavingCrisisMode] = React.useState(false);
+  const [savingCrisisModeMessage, setSavingCrisisModeMessage] = React.useState(false);
 
   React.useEffect(() => {
     if (!isAdmin) return;
     ConfigService.getCrisisMode()
-      .then(data => setCrisisModeEnabled(data.enabled))
+      .then(data => {
+        setCrisisModeEnabled(data.enabled);
+        setCrisisModeMessage(data.message || CRISIS_MODE_MESSAGE);
+      })
       .catch(() => {})
       .finally(() => setCrisisModeLoaded(true));
   }, [isAdmin]);
@@ -347,7 +355,7 @@ export function SystemConfigContent({ categories, priorities, requestTypes, prod
   const handleToggleCrisisMode = async (next: boolean) => {
     setSavingCrisisMode(true);
     try {
-      await ConfigService.saveCrisisMode(next);
+      await ConfigService.saveCrisisMode(next, crisisModeMessage);
       setCrisisModeEnabled(next);
       toast.success(next
         ? 'Modo de Crise ativado — todo chat novo receberá o aviso de instabilidade automaticamente.'
@@ -356,6 +364,23 @@ export function SystemConfigContent({ categories, priorities, requestTypes, prod
       toast.error(err?.message || 'Erro ao salvar o Modo de Crise');
     } finally {
       setSavingCrisisMode(false);
+    }
+  };
+
+  const handleSaveCrisisModeMessage = async () => {
+    if (!crisisModeMessage.trim()) {
+      toast.error('A mensagem não pode ficar em branco.');
+      return;
+    }
+    setSavingCrisisModeMessage(true);
+    try {
+      const saved = await ConfigService.saveCrisisMode(crisisModeEnabled, crisisModeMessage);
+      setCrisisModeMessage(saved.message || CRISIS_MODE_MESSAGE);
+      toast.success('Mensagem do Modo de Crise atualizada.');
+    } catch (err: any) {
+      toast.error(err?.message || 'Erro ao salvar a mensagem do Modo de Crise');
+    } finally {
+      setSavingCrisisModeMessage(false);
     }
   };
 
@@ -529,11 +554,32 @@ export function SystemConfigContent({ categories, priorities, requestTypes, prod
           <p className="text-xs text-[var(--text-secondary)] font-medium">
             Enquanto ativo, todo chat novo que cair na fila — WhatsApp (qualquer canal) ou chat do portal — recebe automaticamente o aviso abaixo assim que nasce, além de ser atribuído normalmente ao próximo analista do rodízio.
           </p>
-          <div className="space-y-1.5">
-            <span className="text-[10px] font-semibold uppercase tracking-widest text-[var(--text-tertiary)]">Mensagem enviada (fixa, não editável)</span>
-            <p className="w-full bg-[var(--surface-card)] border border-[var(--border-default)] rounded-xl px-4 py-3 text-sm whitespace-pre-wrap">
-              {CRISIS_MODE_MESSAGE}
-            </p>
+          <div className="space-y-2">
+            <span className="text-[10px] font-semibold uppercase tracking-widest text-[var(--text-tertiary)]">Mensagem enviada</span>
+            <textarea
+              value={crisisModeMessage}
+              onChange={(e) => setCrisisModeMessage(e.target.value)}
+              rows={5}
+              className="w-full bg-[var(--surface-card)] border border-[var(--border-default)] rounded-xl px-4 py-3 text-sm resize-y"
+            />
+            <div className="flex items-center justify-between gap-4">
+              <button
+                type="button"
+                onClick={() => setCrisisModeMessage(CRISIS_MODE_MESSAGE)}
+                disabled={savingCrisisModeMessage}
+                className="text-[10px] font-semibold uppercase text-[var(--text-tertiary)] hover:text-[var(--text-secondary)] transition-colors"
+              >
+                Restaurar texto padrão
+              </button>
+              <button
+                type="button"
+                onClick={handleSaveCrisisModeMessage}
+                disabled={savingCrisisModeMessage}
+                className="text-[10px] font-semibold uppercase text-[var(--accent-text)] hover:bg-[var(--accent)]/10 px-3 py-1.5 rounded-lg border border-[var(--accent)]/20 transition-colors disabled:opacity-50"
+              >
+                Salvar
+              </button>
+            </div>
           </div>
         </div>
       </div>

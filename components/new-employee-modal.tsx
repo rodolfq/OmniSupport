@@ -9,7 +9,17 @@ import { maskPhone } from '@/lib/utils';
 import { useCompaniesQuery } from '@/lib/query-hooks';
 import { StyledSelect } from '@/components/styled-select';
 
-export function NewEmployeeModal({ isOpen, onClose, companyId, initialPhone, onSuccess }: { isOpen: boolean, onClose: () => void, companyId?: string, initialPhone?: string, onSuccess?: () => void }) {
+export function NewEmployeeModal({ isOpen, onClose, companyId, initialPhone, onSuccess }: {
+  isOpen: boolean;
+  onClose: () => void;
+  companyId?: string;
+  initialPhone?: string;
+  // Recebe o funcionário recém-criado (id/nome) — quem chama pode ignorar o
+  // argumento (compatível com as chamadas antigas, `() => void`) ou usá-lo
+  // pra pré-selecionar o novo funcionário na hora, sem precisar escolher de
+  // novo numa lista (ver "+ Criar novo funcionário" em new-ticket-modal.tsx).
+  onSuccess?: (createdUser: { id: string; name: string }) => void | Promise<void>;
+}) {
   const [name, setName] = useState('');
   const [email, setEmail] = useState('');
   const [phones, setPhones] = useState<string[]>(['']);
@@ -79,7 +89,7 @@ export function NewEmployeeModal({ isOpen, onClose, companyId, initialPhone, onS
       
       if (result.id) {
         // Trigger success callback immediately to refresh parent list
-        if (onSuccess) await onSuccess();
+        if (onSuccess) await onSuccess({ id: result.id, name });
       }
       
       setSaveSuccess(true);

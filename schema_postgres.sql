@@ -339,12 +339,15 @@ Basta enviar 1, se você estiver satisfeito, ou 0, se poderíamos fazer melhor.'
 -- chat NOVA (qualquer canal: Baileys, Meta, Pyvon, widget do portal) recebe
 -- automaticamente o aviso de instabilidade assim que nasce/cai na fila,
 -- além da atribuição normal ao próximo analista (ver
--- lib/services/crisis-mode-service.ts). Mensagem é fixa (não editável pela
--- tela), só o liga/desliga é configurável — Configurações > Sistema,
--- restrito a Administrador de verdade (não basta a permissão settings:system).
+-- lib/services/crisis-mode-service.ts). `message` editável em
+-- Configurações > Sistema (2026-09-22) — NULL/vazio cai no texto padrão
+-- (lib/crisis-mode-message.ts), nunca manda mensagem em branco. Liga/
+-- desliga e mensagem restritos a Administrador de verdade (não basta a
+-- permissão settings:system).
 CREATE TABLE public.config_crisis_mode (
   id INTEGER PRIMARY KEY DEFAULT 1,
   enabled BOOLEAN NOT NULL DEFAULT false,
+  message TEXT,
   updated_at TIMESTAMP WITH TIME ZONE DEFAULT now() NOT NULL,
   CONSTRAINT config_crisis_mode_single_row CHECK (id = 1)
 );

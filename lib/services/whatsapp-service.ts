@@ -14,7 +14,7 @@ import { runExclusive } from '../key-mutex';
 import { resolveQueueForInstance, pickNextQueueAssignee, dispatchPendingChatSessions } from './queue-routing';
 import { storeAttachmentBuffer } from './attachment-storage';
 import { transcribeMessageAudio, isAudioAttachment, isTranscriptionEnabled } from './transcription-service';
-import { isCrisisModeEnabled, recordCrisisModeMessage, CRISIS_MODE_MESSAGE } from './crisis-mode-service';
+import { isCrisisModeEnabled, recordCrisisModeMessage, getCrisisModeMessage } from './crisis-mode-service';
 
 const log = pino({ level: (process.env.WHATSAPP_LOG_LEVEL as any) || 'warn' });
 
@@ -280,8 +280,9 @@ async function findOrCreateChatSession(jid: string, pushName: string | undefined
       // impedir a sessão de nascer nem a mensagem real de ser processada.
       isCrisisModeEnabled().then(async (enabled) => {
         if (!enabled) return;
-        await WhatsAppService.sendMessage(instanceId, digits, CRISIS_MODE_MESSAGE);
-        await recordCrisisModeMessage(newSession.id);
+        const text = await getCrisisModeMessage();
+        await WhatsAppService.sendMessage(instanceId, digits, text);
+        await recordCrisisModeMessage(newSession.id, text);
       }).catch(err => console.error(`[WhatsApp:${instanceId}] Falha ao enviar mensagem do Modo de Crise:`, err?.message || err));
       return newSession;
     }

@@ -659,13 +659,19 @@ export async function POST(request: Request) {
       }
     } else if (type === 'crisis-mode') {
       const { settings } = body;
+      // message: string vazia/undefined vira NULL (cai no texto padrão em
+      // lib/crisis-mode-message.ts, ver getCrisisModeMessage) — nunca grava
+      // string vazia, que faria a checagem "custom && custom.trim()" falhar
+      // de qualquer forma, mas fica mais claro assim no banco.
+      const message = typeof settings.message === 'string' && settings.message.trim() ? settings.message : null;
       const res = await query(
         `UPDATE public.config_crisis_mode
          SET enabled = $1,
+             message = $2,
              updated_at = now()
          WHERE id = 1
          RETURNING *`,
-        [!!settings.enabled]
+        [!!settings.enabled, message]
       );
       return NextResponse.json(res.rows[0]);
     } else if (type === 'survey-settings') {

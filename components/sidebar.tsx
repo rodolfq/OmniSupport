@@ -213,7 +213,7 @@ export function Sidebar() {
       </div>
 
       <div className="mt-auto flex flex-col items-center gap-4">
-        {![UserRole.CUSTOMER, UserRole.EMPLOYEE].includes(currentUser?.role as UserRole) && (
+        {currentUser?.role === UserRole.ADMIN && (
           <div
             className={cn(
               "p-2 rounded-lg transition-all relative flex flex-col items-center gap-1",

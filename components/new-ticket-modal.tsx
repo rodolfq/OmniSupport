@@ -28,7 +28,9 @@ import {
 } from "@/lib/types";
 import { cn } from "@/lib/utils";
 import { fileToBase64 } from "@/lib/image-utils";
+import { splitAttachmentsByBudget, MAX_ATTACHMENT_TOTAL_LABEL } from "@/lib/attachment-limits";
 import { toast } from "sonner";
+import { useQueryClient } from "@tanstack/react-query";
 import {
   useCompaniesQuery,
   useProfilesLiteQuery,
@@ -41,6 +43,12 @@ import {
 import { createTicket } from "@/lib/tickets";
 import { RichEditor } from "./rich-editor";
 import { AttachmentPreviewModal, AttachmentChipThumb, isImageAttachment } from "./attachment-gallery";
+import { NewEmployeeModal } from "./new-employee-modal";
+
+// Valor sentinela pra distinguir "escolheu criar funcionário novo" de um
+// id de usuário de verdade no <select> de Solicitante Principal — nunca
+// colide com um uuid real.
+const NEW_EMPLOYEE_OPTION_VALUE = "__new_employee__";
 
 export function NewTicketModal() {
   const {
@@ -68,6 +76,8 @@ export function NewTicketModal() {
   const [priority, setPriority] = useState("");
   const [tags, setTags] = useState<string[]>([]);
   const [tagInput, setTagInput] = useState("");
+  const [isNewEmployeeModalOpen, setIsNewEmployeeModalOpen] = useState(false);
+  const queryClient = useQueryClient();
   // Aplica título/descrição prontos (ex.: mensagem do chat interno
   // transformada em chamado, ver app/(portal)/chat-internal/page.tsx)
   // DURANTE o render, não num useEffect — se fosse por efeito, o
@@ -271,8 +281,21 @@ export function NewTicketModal() {
 
   const handleFileUpload = async (files: FileList | null) => {
     if (!files) return;
+
+    // Barra ANTES de ler o arquivo — sem isso, o erro (413 do proxy pra
+    // payload grande, ver guia-implementacao-servidor.html) só aparecia no
+    // console na hora de CRIAR o chamado, sem nenhum aviso em tela.
+    const existingBytes = attachments.reduce((sum, a) => sum + (a.size || 0), 0);
+    const { accepted, rejected } = splitAttachmentsByBudget(Array.from(files), existingBytes);
+    if (rejected.length > 0) {
+      rejected.forEach((file) => {
+        toast.error(`${file.name} excede o limite de ${MAX_ATTACHMENT_TOTAL_LABEL} por envio.`);
+      });
+    }
+    if (accepted.length === 0) return;
+
     const newAttachments: Attachment[] = await Promise.all(
-      Array.from(files).map(async (file) => ({
+      accepted.map(async (file) => ({
         id: Math.random().toString(36).substr(2, 9),
         name: file.name,
         type: file.type,
@@ -362,6 +385,19 @@ export function NewTicketModal() {
     }
   };
 
+  // Funcionário criado direto do "+ Criar novo funcionário" (dentro do
+  // select de Solicitante Principal) — invalida o cache de perfis (mesma
+  // queryKey de useProfilesLiteQuery, ver lib/query-hooks.ts) pra ele
+  // aparecer na lista, e já entra selecionado como solicitante + marcado em
+  // "Funcionários com Acesso", sem precisar escolher de novo.
+  const handleEmployeeCreated = async ({ id }: { id: string; name: string }) => {
+    setIsNewEmployeeModalOpen(false);
+    await queryClient.invalidateQueries({ queryKey: ["ref", "profiles-lite"] });
+    setSelectedCustomerId(id);
+    setEmployeeIds((prev) => (prev.includes(id) ? prev : [...prev, id]));
+    toast.success("Funcionário criado e selecionado como solicitante.");
+  };
+
   const toggleEmployee = (userId: string) => {
     if (employeeIds.includes(userId)) {
       setEmployeeIds(employeeIds.filter((id) => id !== userId));
@@ -449,6 +485,14 @@ export function NewTicketModal() {
                       value={selectedCustomerId}
                       onChange={(e) => {
                         const val = e.target.value;
+                        if (val === NEW_EMPLOYEE_OPTION_VALUE) {
+                          if (!selectedCompanyId) {
+                            toast.error("Selecione uma empresa primeiro.");
+                            return;
+                          }
+                          setIsNewEmployeeModalOpen(true);
+                          return;
+                        }
                         setSelectedCustomerId(val);
                         // Solicitante principal também recebe atualizações —
                         // entra marcado em "Funcionários com Acesso" sozinho,
@@ -461,6 +505,7 @@ export function NewTicketModal() {
                       required
                     >
                       <option value="">Selecione o solicitante</option>
+                      <option value={NEW_EMPLOYEE_OPTION_VALUE}>+ Criar novo funcionário</option>
                       {filteredUsers.map((u) => (
                         <option key={u.id} value={u.id}>
                           {u.name}
@@ -798,6 +843,12 @@ export function NewTicketModal() {
         )}
       </AnimatePresence>
       <AttachmentPreviewModal attachment={previewAttachment} onClose={() => setPreviewAttachment(null)} />
+      <NewEmployeeModal
+        isOpen={isNewEmployeeModalOpen}
+        onClose={() => setIsNewEmployeeModalOpen(false)}
+        companyId={selectedCompanyId}
+        onSuccess={handleEmployeeCreated}
+      />
     </>
   );
 }

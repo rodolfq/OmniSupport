@@ -281,11 +281,19 @@ server {
     # Sem isto, o Nginx usa o próprio default (1m) e rejeita com 413
     # ANTES de a requisição chegar ao Next.js — o app nunca vê o erro,
     # nem loga nada, porque quem recusou foi o proxy, não a aplicação.
-    # Anexo de chat/chamado vai em JSON como data: URL (base64, ~33%
-    # maior que o arquivo original) — o limite do app é 8MB por anexo
-    # (MAX_CHAT_ATTACHMENT_SIZE em components/chat-widget.tsx), então
-    # 15m cobre isso com folga pro resto do payload da mensagem.
-    client_max_body_size 15m;
+    # Anexo vai em JSON como data: URL (base64, ~33% maior que o arquivo
+    # original). O chat widget limita a 8MB por anexo
+    # (MAX_CHAT_ATTACHMENT_SIZE em components/chat-widget.tsx), mas nota/
+    # nota interna de chamado (ticket-detail-modal.tsx) e afins vão até
+    # ~220MB de anexo por envio (MAX_ATTACHMENT_TOTAL_BYTES em
+    # lib/attachment-limits.ts) — 300m cobre isso com folga pro base64 +
+    # resto do payload. Decisão do usuário em 2026-09-22: aceitar arquivo
+    # mais pesado (vídeo de tela em nota, por exemplo), mas não ir a ponto
+    # de 1GB — ver o motivo no comentário do arquivo de limites acima.
+    # Se subir esse número de novo, subir junto o de lib/attachment-limits.ts
+    # (e considerar proxy_read_timeout/client_body_timeout — upload grande
+    # numa conexão lenta pode estourar o timeout padrão antes de terminar).
+    client_max_body_size 300m;
 
     location / {
         proxy_pass http://localhost:3000;
@@ -307,7 +315,7 @@ sudo certbot --nginx -d SEU_DOMINIO.com.br</div>
 
   <div class="callout tip"><span class="ico">✓</span><p>O <code>proxy_set_header Upgrade</code> acima é o que permite o SSE (<code>/api/chats/stream</code>) funcionar corretamente atrás do Nginx — não remova.</p></div>
 
-  <div class="callout warn"><span class="ico">⚠</span><p><code>client_max_body_size</code> ausente é o sintoma mais enganoso desta seção: o navegador mostra <code>413</code> e o console do app não loga nada — porque o Nginx recusou a requisição antes dela chegar ao Next.js. Aconteceu na prática em 2026-09-17 (anexo de chat de 1.2MB, 413 ao enviar).</p></div>
+  <div class="callout warn"><span class="ico">⚠</span><p><code>client_max_body_size</code> ausente (ou baixo demais) é o sintoma mais enganoso desta seção: o navegador mostra <code>413</code> e o console do app não loga nada — porque o Nginx recusou a requisição antes dela chegar ao Next.js. Aconteceu na prática em 2026-09-17 (anexo de chat de 1.2MB, sem o limite configurado) e de novo em 2026-09-22 (vídeo de 26MB numa nota interna de chamado, com o limite antigo de 15m já insuficiente).</p></div>
 
   <div class="page-foot"><span>SSX Desk</span><span>08 — Domínio, HTTPS & proxy</span></div>
 </div>

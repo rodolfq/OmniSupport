@@ -30,6 +30,7 @@ import { fetchPriorities, ConfigService } from '@/lib/services/config-service';
 import { useAnalystsQuery, useConfigEffortsQuery, useConfigOutcomesQuery } from '@/lib/query-hooks';
 import { findStatusColor } from '@/lib/status-colors';
 import { fileToBase64 } from '@/lib/image-utils';
+import { splitAttachmentsByBudget, MAX_ATTACHMENT_TOTAL_LABEL } from '@/lib/attachment-limits';
 
 interface Attachment {
   id: string;
@@ -244,8 +245,24 @@ export default function InternalTicketDetailPage() {
   }, [showLinkTicketModal, ticketSearch, linkedTickets]);
 
   const handleFileSelect = async (e: React.ChangeEvent<HTMLInputElement>) => {
-    const files = Array.from(e.target.files || []);
-    if (files.length === 0) return;
+    const selected = Array.from(e.target.files || []);
+    if (selected.length === 0) return;
+
+    // Barra ANTES de ler o arquivo — sem isso, o erro (413 do proxy pra
+    // payload grande, ver guia-implementacao-servidor.html) só aparecia no
+    // console na hora de ENVIAR a nota, sem nenhum aviso em tela.
+    const existingBytes = previewAttachments.reduce((sum, a) => sum + (a.size || 0), 0);
+    const { accepted: files, rejected } = splitAttachmentsByBudget(selected, existingBytes);
+    if (rejected.length > 0) {
+      rejected.forEach(file => {
+        toast.error(`${file.name} excede o limite de ${MAX_ATTACHMENT_TOTAL_LABEL} por envio.`);
+      });
+    }
+    if (files.length === 0) {
+      if (fileInputRef.current) fileInputRef.current.value = '';
+      return;
+    }
+
     setIsUploading(true);
     try {
       for (const file of files) {
@@ -268,7 +285,7 @@ export default function InternalTicketDetailPage() {
     if ((!input.trim() && previewAttachments.length === 0) || !ticket || !currentUser) return;
     const newMessage: Message = { id: Math.random().toString(36).substr(2, 9), ticketId: ticket.uuid, senderId: currentUser.id, text: input, timestamp: new Date().toISOString(), isVisibleToCustomer: false, type: 'internal', attachments: previewAttachments.length > 0 ? previewAttachments : undefined };
     try { await MessageService.createInternal(newMessage, ticket.uuid); setInput(''); setPreviewAttachments([]); loadMessages(); triggerRefresh(); }
-    catch (error) { toast.error('Erro ao enviar mensagem'); }
+    catch (error: any) { console.error('Erro ao enviar mensagem do ticket interno:', error); toast.error(error?.message || 'Erro ao enviar mensagem'); }
   };
 
   // Overrides explícitos (em vez de depender só do state) evitam salvar um

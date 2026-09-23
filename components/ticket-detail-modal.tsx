@@ -31,6 +31,7 @@ import { isClosedTicketStatus, registerClosedStatusLabels, getCustomerStatusLabe
 import { addBusinessHours } from '@/lib/sla';
 import { FieldChange, formatChangeMessage } from '@/lib/ticket-diff';
 import { fileToBase64 } from '@/lib/image-utils';
+import { splitAttachmentsByBudget, MAX_ATTACHMENT_TOTAL_LABEL } from '@/lib/attachment-limits';
 
 interface TicketDetailModalProps {
   ticket: Ticket | null;
@@ -621,7 +622,16 @@ const loadMessages = async () => {
         attachments: messageAttachments.length > 0 ? messageAttachments : undefined
       };
 
-      await MessageService.create(newMessage);
+      // Sem try/catch aqui, uma falha (ex.: 413 do proxy pra anexo grande —
+      // ver guia-implementacao-servidor.html) virava um "Uncaught (in
+      // promise)" no console, sem nenhum aviso em tela pro usuário.
+      try {
+        await MessageService.create(newMessage);
+      } catch (err: any) {
+        console.error('Erro ao enviar mensagem do chamado:', err);
+        toast.error(err?.message || 'Erro ao enviar mensagem.');
+        return;
+      }
 
       // Não chama TicketService.update aqui: a rota action=create-message já
       // grava `tickets.updated_at = NOW()` como parte do INSERT da mensagem
@@ -711,8 +721,23 @@ const loadMessages = async () => {
     };
 
     const handleMessageFileUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
-      const files = Array.from(e.target.files || []);
-      if (files.length === 0) return;
+      const selected = Array.from(e.target.files || []);
+      if (selected.length === 0) return;
+
+      // Barra ANTES de ler o arquivo (fileToBase64) — sem isso, o erro só
+      // aparecia no console na hora de ENVIAR a nota (413 do proxy, ver
+      // guia-implementacao-servidor.html), sem nenhum aviso em tela.
+      const existingBytes = messageAttachments.reduce((sum, a) => sum + (a.size || 0), 0);
+      const { accepted: files, rejected } = splitAttachmentsByBudget(selected, existingBytes);
+      if (rejected.length > 0) {
+        rejected.forEach(file => {
+          toast.error(`${file.name} excede o limite de ${MAX_ATTACHMENT_TOTAL_LABEL} por envio.`);
+        });
+      }
+      if (files.length === 0) {
+        if (messageFileInputRef.current) messageFileInputRef.current.value = '';
+        return;
+      }
 
       for (const file of files) {
         const fileId = Math.random().toString(36).substr(2, 9);

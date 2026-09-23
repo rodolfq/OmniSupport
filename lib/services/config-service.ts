@@ -335,22 +335,27 @@ export class ConfigService {
     return res.json();
   }
 
-  static async getCrisisMode(): Promise<{ enabled: boolean }> {
+  static async getCrisisMode(): Promise<{ enabled: boolean; message: string }> {
     const res = await fetch('/api/config?type=crisis-mode');
     const data = await res.json();
-    return { enabled: data?.enabled ?? false };
+    return { enabled: data?.enabled ?? false, message: data?.message || '' };
   }
 
-  static async saveCrisisMode(enabled: boolean): Promise<void> {
+  // `message` sempre vai junto, mesmo quando só o toggle mudou (e vice-
+  // versa) — a rota grava as duas colunas juntas a cada chamada; mandar só
+  // uma apagaria a outra (ver app/api/config/route.ts).
+  static async saveCrisisMode(enabled: boolean, message: string): Promise<{ enabled: boolean; message: string }> {
     const res = await fetch('/api/config', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ type: 'crisis-mode', settings: { enabled } })
+      body: JSON.stringify({ type: 'crisis-mode', settings: { enabled, message } })
     });
     if (!res.ok) {
       const data = await res.json().catch(() => null);
       throw new Error(data?.error || 'Erro ao salvar o Modo de Crise.');
     }
+    const data = await res.json();
+    return { enabled: !!data?.enabled, message: data?.message || '' };
   }
 
   static async getEmailSettings(): Promise<EmailSettings> {

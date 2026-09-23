@@ -57,6 +57,7 @@ import EmojiPicker, { Theme as EmojiTheme } from 'emoji-picker-react';
 import Cropper, { Area } from 'react-easy-crop';
 import { Scissors } from 'lucide-react';
 import { fileToBase64 } from '@/lib/image-utils';
+import { MAX_ATTACHMENT_TOTAL_BYTES, MAX_ATTACHMENT_TOTAL_LABEL } from '@/lib/attachment-limits';
 import { toast } from 'sonner';
 import { useIsMobile } from '@/hooks/use-mobile';
 import { ArrowLeft } from 'lucide-react';
@@ -608,6 +609,15 @@ export default function ChatInternalPage() {
   const handleFileUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (!file || !currentUser) return;
+
+    // Barra ANTES de ler o arquivo — sem isso, o erro (413 do proxy pra
+    // payload grande, ver guia-implementacao-servidor.html) só aparecia no
+    // console ao enviar, sem nenhum aviso em tela.
+    if (file.size > MAX_ATTACHMENT_TOTAL_BYTES) {
+      toast.error(`${file.name} excede o limite de ${MAX_ATTACHMENT_TOTAL_LABEL} por envio.`);
+      if (e.target) e.target.value = '';
+      return;
+    }
 
     // Simulate upload
     const base64 = await fileToBase64(file);

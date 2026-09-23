@@ -9,7 +9,7 @@ import { getChatRecipientIds } from './notification-recipients';
 import { resolveQueueForInstance, pickNextQueueAssignee, dispatchPendingChatSessions } from './queue-routing';
 import { storeAttachmentBuffer } from './attachment-storage';
 import { transcribeMessageAudio, isAudioAttachment, isTranscriptionEnabled } from './transcription-service';
-import { isCrisisModeEnabled, recordCrisisModeMessage, CRISIS_MODE_MESSAGE } from './crisis-mode-service';
+import { isCrisisModeEnabled, recordCrisisModeMessage, getCrisisModeMessage } from './crisis-mode-service';
 import type { Attachment } from '@/lib/types';
 
 /**
@@ -252,6 +252,12 @@ export class PyvonService {
     // mensagem IMEDIATAMENTE seguinte do cliente decide se ela sai sozinha —
     // por isso o campo é sempre limpo aqui, dê "prosseguir" ou não. Qualquer
     // outra resposta fica pro analista decidir manualmente, como sempre.
+    //
+    // A conversa cai pro autor da nota SÓ AQUI — na primeira resposta do
+    // cliente depois da nota, não no instante em que a nota foi enviada
+    // (decisão do usuário, 2026-09-22). Vale pra qualquer resposta, não só
+    // "Prosseguir": isProsseguir decide apenas se o TEXTO da nota é reenviado
+    // como mensagem, é um critério à parte de "o cliente respondeu".
     if (session.pyvon_pending_note_text) {
       const pendingText = session.pyvon_pending_note_text;
       const pendingAuthorId = session.pyvon_pending_note_author_id || null;
@@ -262,6 +268,9 @@ export class PyvonService {
          WHERE id = $1`,
         [session.id]
       );
+      if (pendingAuthorId) {
+        await this.claimSessionIfUnassigned(session.id, pendingAuthorId);
+      }
       if (isProsseguir) {
         this.sendAutomaticNoteReply(instanceId, session, pendingText, pendingAuthorId).catch(err => {
           console.error('[Pyvon] Falha ao enviar nota automática após "Prosseguir":', err);
@@ -333,16 +342,17 @@ export class PyvonService {
   // mensagem marcada como enviada que o cliente nunca recebeu.
   private static async maybeSendCrisisModeMessage(instanceId: string, session: any): Promise<void> {
     if (!(await isCrisisModeEnabled())) return;
+    const text = await getCrisisModeMessage();
     const result = await this.sendMessage(
       instanceId,
       { cadastroId: session.pyvon_cadastro_id || undefined, phone: session.customer_phone || undefined, name: session.customer_name || undefined },
-      CRISIS_MODE_MESSAGE
+      text
     );
     if (result.skipped || (result.delivery && result.delivery !== 'sent')) {
       console.warn(`[Pyvon] Mensagem do Modo de Crise não entregue (sessão ${session.id}): ${result.skipped || result.delivery_error || result.delivery}`);
       return;
     }
-    await recordCrisisModeMessage(session.id);
+    await recordCrisisModeMessage(session.id, text);
   }
 
   // NOTA: diferente de Baileys, ainda não trata a resposta "1"/"0" a uma

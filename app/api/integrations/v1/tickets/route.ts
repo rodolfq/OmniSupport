@@ -361,31 +361,53 @@ export async function PATCH(request: Request) {
 
     // status é livre (config_statuses é editável em Configurações), mas
     // precisa ser um dos rótulos cadastrados — senão o chamado fica com um
-    // status que nenhuma tela reconhece.
+    // status que nenhuma tela reconhece. config_statuses guarda status de
+    // TOPO e sub-status na mesma tabela/coluna (parent_status_id que
+    // diferencia) — achado em 2026-09-26 (chamado #3236, Bitrix #7128): aceitar
+    // aqui o rótulo de um SUB-STATUS direto em tickets.status (sem preencher
+    // tickets.sub_status, diferente do que a tela interna sempre faz — ver
+    // ticket-detail-modal.tsx) deixava o chamado invisível em todo Kanban (que
+    // só monta coluna por status de topo), embora ele continuasse contando
+    // como "aberto" nos cartões de estatística. Resolve pro pai
+    // automaticamente quando o rótulo recebido é um sub-status, e limpa
+    // sub_status quando é um status de topo — mesma semântica da tela.
+    let resolvedStatus: string | null = null;
+    let resolvedSubStatus: string | null = null;
     if (body.status !== undefined) {
       const statusCheck = await query(
-        `SELECT 1 FROM public.config_statuses WHERE scope = 'ticket' AND label = $1`,
+        `SELECT label, parent_status_id FROM public.config_statuses WHERE scope = 'ticket' AND label = $1`,
         [body.status]
       );
-      if (statusCheck.rowCount === 0) {
+      const statusRow = statusCheck.rows[0];
+      if (!statusRow) {
         return integrationError(auth, 'VALIDATION_ERROR', `status "${body.status}" não está cadastrado em Configurações.`, 400);
+      }
+      if (statusRow.parent_status_id) {
+        const parentRes = await query(`SELECT label FROM public.config_statuses WHERE id = $1`, [statusRow.parent_status_id]);
+        resolvedStatus = parentRes.rows[0]?.label || body.status;
+        resolvedSubStatus = body.status;
+      } else {
+        resolvedStatus = body.status;
+        resolvedSubStatus = null;
       }
     }
 
     const res = await query(
       `UPDATE public.tickets
           SET status = COALESCE($1, status),
-              priority = COALESCE($2, priority),
-              category_id = CASE WHEN $3::boolean THEN $4::uuid ELSE category_id END,
-              request_type_id = CASE WHEN $5::boolean THEN $6::uuid ELSE request_type_id END,
-              product_id = CASE WHEN $7::boolean THEN $8::uuid ELSE product_id END,
-              tags = COALESCE($9, tags),
-              assignee_id = CASE WHEN $10::boolean THEN $11::uuid ELSE assignee_id END,
+              sub_status = CASE WHEN $2::boolean THEN $3 ELSE sub_status END,
+              priority = COALESCE($4, priority),
+              category_id = CASE WHEN $5::boolean THEN $6::uuid ELSE category_id END,
+              request_type_id = CASE WHEN $7::boolean THEN $8::uuid ELSE request_type_id END,
+              product_id = CASE WHEN $9::boolean THEN $10::uuid ELSE product_id END,
+              tags = COALESCE($11, tags),
+              assignee_id = CASE WHEN $12::boolean THEN $13::uuid ELSE assignee_id END,
               updated_at = NOW()
-        WHERE id = $12
+        WHERE id = $14
         RETURNING ${TICKET_COLUMNS}`,
       [
-        body.status || null,
+        resolvedStatus,
+        body.status !== undefined, resolvedSubStatus,
         body.priority || null,
         body.categoryId !== undefined, body.categoryId || null,
         body.requestTypeId !== undefined, body.requestTypeId || null,
