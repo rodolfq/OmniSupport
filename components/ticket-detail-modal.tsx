@@ -14,6 +14,7 @@ import { RichEditor } from './rich-editor';
 import { AttachmentGallery, AttachmentPreviewModal, AttachmentChipThumb, isImageAttachment, openAttachmentInNewTab } from './attachment-gallery';
 import { LinkInternalTicketModal } from './link-internal-ticket-modal';
 import { ChatAttachmentList } from './chat-attachment-list';
+import { ConfirmDialog } from './confirm-dialog';
 import { ClientTime } from './client-time';
 import { TicketService, MessageService, InternalTicketService } from '@/lib/services/ticket-service';
 import { claimGiroTurnForTicket } from '@/lib/services/giro-client';
@@ -148,6 +149,7 @@ export function TicketDetailModal({ ticket, onClose, initialDraft }: TicketDetai
   const [priorities, setPriorities] = useState<PriorityConfig[]>([]);
   const [employeeIds, setEmployeeIds] = useState<string[]>(ticket?.employeeIds || []);
   const [isDuplicatingTicket, setIsDuplicatingTicket] = useState(false);
+  const [isDuplicateConfirmOpen, setIsDuplicateConfirmOpen] = useState(false);
 
   // ... (rest of memos)
   const allAttachments = React.useMemo(() => {
@@ -1034,6 +1036,7 @@ const loadMessages = async () => {
       toast.error('Você não tem permissão para duplicar chamados.');
       return;
     }
+    setIsDuplicateConfirmOpen(false);
     setIsDuplicatingTicket(true);
     try {
       const result = await duplicateTicket(ticket.id);
@@ -1148,7 +1151,7 @@ const loadMessages = async () => {
                   </button>
                   {!isCompanyUser && canDuplicateTicket && (
                     <button
-                      onClick={handleDuplicateTicket}
+                      onClick={() => setIsDuplicateConfirmOpen(true)}
                       disabled={isDuplicatingTicket}
                       title="Duplicar chamado"
                       className="p-2 hover:bg-[var(--border-default)] rounded-xl transition-all text-[var(--text-tertiary)] disabled:opacity-50"
@@ -2268,6 +2271,15 @@ const loadMessages = async () => {
       excludeIds={internalTickets.map(it => it.uuid).filter(Boolean) as string[]}
     />
     <AttachmentPreviewModal attachment={previewAttachment} onClose={() => setPreviewAttachment(null)} />
+    <ConfirmDialog
+      isOpen={isDuplicateConfirmOpen}
+      onClose={() => setIsDuplicateConfirmOpen(false)}
+      onConfirm={handleDuplicateTicket}
+      title="Duplicar chamado?"
+      description="Será criado um novo chamado com os mesmos dados cadastrais e a mesma descrição, sem as mensagens da conversa."
+      confirmLabel="Duplicar chamado"
+      cancelLabel="Cancelar"
+    />
   </>
   );
 }
