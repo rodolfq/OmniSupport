@@ -33,6 +33,7 @@ import {
   Loader2,
   Check,
   CheckCheck,
+  Reply,
   History,
   ChevronRight,
   ThumbsUp,
@@ -48,6 +49,7 @@ import {
 import { motion, AnimatePresence } from 'motion/react';
 import {
   ChatMessage,
+  ChatReplyQuote,
   ChatSession,
   QuickNote,
   AnalystStatus,
@@ -66,7 +68,7 @@ import { TicketService } from '@/lib/services/ticket-service';
 import { saveTicketFromChatSession, closeChatSessionAfterTicket, assignChatSession, returnChatSessionToQueue, setChatSessionTags } from '@/lib/services/chat-session-actions';
 import { checkPyvonOutboundStatus, startPyvonConversation } from '@/lib/services/pyvon-template-service';
 import { ChatTagPicker, tagAccentBgClass } from '@/components/chat-tag-picker';
-import { cn, maskPhone, matchPhones, safeJsonStringify } from '@/lib/utils';
+import { cn, maskPhone, matchPhones, safeJsonStringify, normalizeString, normalizePhone } from '@/lib/utils';
 import { useApp } from '@/app/app-context';
 import { isEvaluationSnoozed } from '@/lib/evaluation-snooze';
 import { deriveLiveStatus } from '@/lib/presence';
@@ -241,6 +243,8 @@ export function ChatWidget() {
   const typingTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const lastTypingSentAtRef = useRef(0);
   const [reactionPickerMessageId, setReactionPickerMessageId] = useState<string | null>(null);
+  // Mensagem que o analista está citando ("responder" do WhatsApp) — só canal Pyvon.
+  const [replyingTo, setReplyingTo] = useState<ChatMessage | null>(null);
   const [editingMessageId, setEditingMessageId] = useState<string | null>(null);
   const [editDraftText, setEditDraftText] = useState('');
   const [messageHistoryFor, setMessageHistoryFor] = useState<string | null>(null);
@@ -398,6 +402,37 @@ export function ChatWidget() {
   const setSelectedChatId = setActiveOmniChatId;
   const selectedChat = customerSessions.find(s => s.id === selectedChatId);
   const isCustomer = [UserRole.CUSTOMER, UserRole.EMPLOYEE].includes(currentUser?.role as UserRole);
+
+  // Citar ("responder" do WhatsApp) só existe no canal Pyvon, pra equipe, e só
+  // pra mensagem que o Pyvon conhece (pyvonQuotable) e não foi apagada.
+  const canQuoteMessage = (m: ChatMessage) =>
+    !isCustomer &&
+    selectedChat?.channel === 'pyvon' &&
+    !!m.pyvonQuotable &&
+    !m.isDeleted &&
+    m.type !== 'internal' &&
+    m.type !== 'system';
+
+  // A citação pertence à conversa em que foi escolhida: trocar de conversa a descarta.
+  useEffect(() => { setReplyingTo(null); }, [selectedChatId]);
+
+  // Estado de envio de uma mensagem NOSSA no canal Pyvon: 'sending' (1 tique) →
+  // 'sent' (2 tiques) → ou 'failed' (mostrado à parte, com o erro). O Pyvon não
+  // fornece "entregue/lida", então nunca há um 3º estado. 'sent' aqui quer dizer
+  // "aceita pelo WhatsApp": a rota /api/whatsapp/send só responde sucesso quando
+  // o Pyvon devolve delivery = sent.
+  const pyvonTickState = (m: ChatMessage): 'sending' | 'sent' | 'failed' | null => {
+    if (m.whatsappStatus === 'failed') return 'failed';
+    if (m.whatsappStatus === 'sending') return 'sending';
+    if (m.whatsappStatus === 'sent') return 'sent';
+    // Sem status gravado: se o Pyvon já deu um id à mensagem, ela foi aceita.
+    if (m.pyvonQuotable) return 'sent';
+    // Acabou de sair e o status ainda não voltou (ex.: uma atualização da lista
+    // chegou no meio do envio) — segue como "enviando" por um instante; mensagem
+    // antiga sem nenhum registro fica sem tique em vez de afirmar algo sem base.
+    return Date.now() - new Date(m.timestamp).getTime() < 20_000 ? 'sending' : null;
+  };
+
   const selectedChatMessageRows = React.useMemo(() => {
     const rows: Array<
       | { type: 'date'; id: string; label: string }
@@ -589,10 +624,17 @@ export function ChatWidget() {
     // fechar a aba sem trocar pra "Ausente" deixa is_online=true no banco
     // pra sempre — sem esse filtro, um analista sumido há dias continuava
     // aparecendo aqui como alvo válido pra transferir um chat.
+    //
+    // Só papel de equipe: analyst_status também guarda a presença de
+    // Cliente/Funcionário logados no portal (é o que alimenta a bolinha de
+    // "cliente online" no cabeçalho da conversa), e sem este filtro eles
+    // apareciam em "Enviar para" como se fossem analistas — em conversa sem
+    // fila, que não tem lista de membros pra restringir, era todo mundo online.
     return analystStatuses
       .filter(s => deriveLiveStatus(s) === 'online')
       .map(s => allUsers.find(u => u.id === s.userId))
       .filter((u): u is UserType => !!u)
+      .filter(u => [UserRole.ADMIN, UserRole.SUPPORT, UserRole.INTERNAL].includes(u.role as UserRole))
       .map(u => ({ id: u.id, name: u.name }));
   }, [analystStatuses, allUsers]);
 
@@ -854,6 +896,7 @@ export function ChatWidget() {
   const [isLinkModalOpen, setIsLinkModalOpen] = useState(false);
 
   const [chatFilter, setChatFilter] = useState<'all' | 'me' | 'queue'>('all');
+  const [chatSearch, setChatSearch] = useState('');
   const [userQueues, setUserQueues] = useState<string[]>([]);
   const [allQueues, setAllQueues] = useState<any[]>([]);
 
@@ -1374,8 +1417,10 @@ useEffect(() => {
     channel?: string;
     text: string;
     attachments?: Attachment[];
+    // id (nosso) da mensagem que esta resposta cita — o servidor resolve o id do Pyvon
+    replyToMessageId?: string;
   }): Promise<{ ok: boolean; error?: string }> => {
-    const { sessionId, messageId, customerPhone, queueId, channel, text, attachments } = params;
+    const { sessionId, messageId, customerPhone, queueId, channel, text, attachments, replyToMessageId } = params;
     const hasAttachments = !!attachments?.length;
     if (!customerPhone) return { ok: true }; // sem telefone = não é canal WhatsApp, nada a fazer
     // channel === 'widget': conversa 100% pelo widget do portal — o cliente só
@@ -1408,12 +1453,14 @@ useEffect(() => {
       const res = await fetch('/api/whatsapp/send', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: safeJsonStringify({ instanceId, to: phone, message: messageForWhatsApp, sessionId, messageId }),
+        body: safeJsonStringify({ instanceId, to: phone, message: messageForWhatsApp, sessionId, messageId, replyToMessageId }),
       });
       if (!res.ok) {
         const body = await res.json().catch(() => ({}));
         const errorMsg = body.error || `Erro ${res.status}`;
-        console.error('WhatsApp send failed:', { status: res.status, statusText: res.statusText, error: body.error, instanceId, phone, hasAttachments });
+        // O motivo vai no TEXTO do log (não só dentro do objeto), pra aparecer
+        // direto no console sem precisar expandir.
+        console.error(`[WhatsApp] Mensagem ${messageId} NÃO enviada (${channel || 'canal desconhecido'}, HTTP ${res.status}): ${errorMsg}`, { status: res.status, statusText: res.statusText, error: body.error, instanceId, phone, hasAttachments });
         toast.warning('Mensagem salva, mas não foi enviada no WhatsApp.');
         outcome = { ok: false, error: errorMsg };
       } else {
@@ -1427,11 +1474,16 @@ useEffect(() => {
           console.warn('WhatsApp send: attachment present but media was not forwarded.', { instanceId, phone, mediaSent: body.mediaSent });
           toast.warning('Anexo salvo na conversa, mas o envio de mídia pelo WhatsApp ainda não está disponível neste canal.');
         }
+        // A resposta chegou ao cliente, mas sem a citação (o Pyvon não pôde citar
+        // aquela mensagem) — o balão continua mostrando a citação no nosso chat.
+        if (body.quoteDropped) {
+          toast.warning('Mensagem enviada, mas sem a citação: o Pyvon não conseguiu citar a mensagem original.');
+        }
         outcome = { ok: true };
       }
     } catch (error: any) {
       const errorMsg = error?.message || 'Falha de rede';
-      console.error('Failed to send real WhatsApp message:', { message: error?.message, stack: error?.stack, instanceId, phone, hasAttachments });
+      console.error(`[WhatsApp] Mensagem ${messageId} NÃO enviada (${channel || 'canal desconhecido'}, falha de rede): ${errorMsg}`, { message: error?.message, stack: error?.stack, instanceId, phone, hasAttachments });
       toast.warning('Mensagem salva, mas não foi enviada no WhatsApp.');
       outcome = { ok: false, error: errorMsg };
     }
@@ -1453,7 +1505,9 @@ useEffect(() => {
       queueId: selectedChat.queueId,
       channel: selectedChat.channel,
       text: message.text,
-      attachments: message.attachments
+      attachments: message.attachments,
+      // reenviar preserva a citação da tentativa original
+      replyToMessageId: message.metadata?.replyTo?.messageId
     });
   };
 
@@ -1488,6 +1542,20 @@ useEffect(() => {
       }
     }
 
+    // Citação: só canal Pyvon e só de mensagem que o Pyvon conhece. replyTo aqui
+    // é só a prévia OTIMISTA (aparece já no balão); o servidor descarta o que
+    // vem do navegador e grava a citação montada a partir do banco.
+    const quotedMessage = replyingTo && canQuoteMessage(replyingTo) ? replyingTo : null;
+    const quotedAttachment = quotedMessage?.attachments?.[0] || quotedMessage?.metadata?.attachments?.[0];
+    const optimisticReplyTo: ChatReplyQuote | undefined = quotedMessage ? {
+      messageId: quotedMessage.id,
+      senderName: quotedMessage.senderName,
+      text: (quotedMessage.text || '').trim().slice(0, 200),
+      kind: quotedAttachment
+        ? (quotedAttachment.type?.startsWith('image/') ? 'image' : quotedAttachment.type?.startsWith('audio/') ? 'audio' : quotedAttachment.type?.startsWith('video/') ? 'video' : 'file')
+        : 'text'
+    } : undefined;
+
     const newMessage: ChatMessage = {
       id: crypto.randomUUID(),
       senderId: currentUser.id,
@@ -1499,8 +1567,15 @@ useEffect(() => {
       timestamp: new Date().toISOString(),
       type: 'text',
       attachments: chatAttachments.length > 0 ? chatAttachments : undefined,
-      metadata: chatAttachments.length > 0 ? { attachments: chatAttachments } : undefined
+      // Canal Pyvon: já nasce com o 1º tique ("enviando") — o status real
+      // (2 tiques ou erro) chega quando o encaminhamento termina.
+      whatsappStatus: customerSessions.find(s => s.id === activeChatId)?.channel === 'pyvon' ? 'sending' : undefined,
+      metadata: (chatAttachments.length > 0 || quotedMessage) ? {
+        ...(chatAttachments.length > 0 ? { attachments: chatAttachments } : {}),
+        ...(quotedMessage ? { replyToMessageId: quotedMessage.id, replyTo: optimisticReplyTo } : {})
+      } : undefined
     };
+    setReplyingTo(null);
 
     const session = customerSessions.find(s => s.id === activeChatId);
     if (session) {
@@ -1559,7 +1634,8 @@ useEffect(() => {
             queueId: session.queueId,
             channel: session.channel,
             text: newMessage.text,
-            attachments: newMessage.attachments
+            attachments: newMessage.attachments,
+            replyToMessageId: quotedMessage?.id
           });
         }
 
@@ -1618,7 +1694,8 @@ useEffect(() => {
             queueId: freshSession.queueId,
             channel: freshSession.channel,
             text: newMessage.text,
-            attachments: newMessage.attachments
+            attachments: newMessage.attachments,
+            replyToMessageId: quotedMessage?.id
           });
         }
       } catch (error) {
@@ -1735,7 +1812,10 @@ useEffect(() => {
   };
 
   const handleGenerateTicket = async (closeChat: boolean, closeAsSpam: boolean = false, forceNew: boolean = false) => {
-    if (!selectedChat || !ticketTitle || !currentUser) return;
+    // O título só é exigido quando vai nascer um chamado: finalizar uma conversa
+    // que já tem chamado vinculado não usa (nem mostra) o campo de título.
+    if (!selectedChat || !currentUser) return;
+    if (!selectedChat.ticketId && !ticketTitle) return;
 
     // Já existe um chamado vinculado a esta conversa (gerado antes, sem
     // finalizar) — em vez de bloquear, confirma se o usuário quer mesmo abrir
@@ -1771,7 +1851,16 @@ useEffect(() => {
       }).join('\n') || '';
       const chatHistoryText = `===== HISTÓRICO DO CHAT =====\n${formattedChatLog}\n===== FIM DO HISTÓRICO =====\n\n${closeChat ? `Chat finalizado em: ${new Date().toLocaleString('pt-BR')}` : `Chamado gerado em: ${new Date().toLocaleString('pt-BR')} (atendimento continua em aberto)`}`;
 
-      const ticketResult = await saveTicketFromChatSession(selectedChat.id, ticketTitle, closeTicketImmediately, forceNew);
+      // Um chamado por conversa (decisão do usuário, 2026-09-24): finalizar uma
+      // conversa que JÁ tem chamado vinculado só encerra a conversa — não chama
+      // a criação de chamado e não mexe no status do que já existe (antes o
+      // servidor reaproveitava o chamado e ainda o marcava "Fechado" se o
+      // "Fechar imediatamente" estivesse marcado). Conversa sem chamado segue
+      // como sempre: gerar (e, se quiser, finalizar) cria o chamado.
+      const skipTicketCreation = closeChat && hadExistingTicket && !forceNew;
+      const ticketResult = skipTicketCreation
+        ? { ticketId: selectedChat.ticketId as string, ticketNumber: selectedChat.ticketNumber as number }
+        : await saveTicketFromChatSession(selectedChat.id, ticketTitle, closeTicketImmediately, forceNew);
       if ('error' in ticketResult) {
         console.error('Error saving ticket from chat session:', ticketResult.error);
         toast.error('Erro ao criar chamado.');
@@ -1782,43 +1871,12 @@ useEffect(() => {
 
       if (!closeChat) {
         // O vínculo com a conversa em andamento já foi feito dentro de
-        // saveTicketFromChatSession — aqui só falta avisar o cliente, sem
-        // mexer em status/histórico já que o atendimento continua aberto.
-
-        // Avisa o cliente, dentro da própria conversa, que um chamado foi
-        // aberto — sempre registrado no chat (visível pro cliente logado ou
-        // via WhatsApp) e, adicionalmente, encaminhado pelo WhatsApp quando
-        // há telefone. O link vai junto porque quem está no WhatsApp não tem
-        // a tela do chamado aberta como quem está logado no portal — mesmo
-        // padrão de /tickets/<número> usado no e-mail de resposta (ver
-        // ticket-detail-modal.tsx) e nas automações (automation-service.ts).
-        const ticketNoticeBaseUrl = process.env.NEXT_PUBLIC_APP_URL || window.location.origin;
-        const ticketNoticeUrl = `${ticketNoticeBaseUrl}/tickets/${createdTicketNumber}`;
-        const ticketNoticeMessage: ChatMessage = {
-          id: crypto.randomUUID(),
-          senderId: currentUser.id,
-          senderName: 'SSX Desk',
-          text: `📄 Novo chamado gerado #${String(createdTicketNumber).padStart(4, '0')}\n\nAcompanhe o andamento do seu chamado pelo link abaixo:\n${ticketNoticeUrl}`,
-          timestamp: new Date().toISOString(),
-          type: 'system'
-        };
-        try {
-          await pushChatMessage(selectedChat.id, ticketNoticeMessage);
-          // Não aguarda — ver comentário equivalente no fluxo de encerramento
-          // mais abaixo: com o WhatsApp desconectado, essa chamada pode levar
-          // quase 1min pra falhar e travava "Gerar Chamado" à toa.
-          forwardMessageToWhatsApp({
-            sessionId: selectedChat.id,
-            messageId: ticketNoticeMessage.id,
-            customerPhone: selectedChat.customerPhone,
-            queueId: selectedChat.queueId,
-            channel: selectedChat.channel,
-            text: ticketNoticeMessage.text
-          });
-        } catch (msgError) {
-          console.error('Failed to notify customer about ticket creation:', msgError);
-        }
-
+        // saveTicketFromChatSession — não há nada a mandar ao cliente aqui.
+        // Gerar chamado pelo chat NÃO envia mais o aviso "Novo chamado gerado
+        // #N + link" (decisão do usuário, 2026-09-24): quem avisa a abertura é
+        // só o chamado aberto na mão, pelo botão de novo chamado (automação
+        // novo_chamado). Sem mexer em status/histórico, já que o atendimento
+        // continua aberto.
         setIsFinishModalOpen(false);
         const sessions = await fetchChatSessions();
         setCustomerSessions(sessions);
@@ -2431,6 +2489,8 @@ useEffect(() => {
                       <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-[var(--text-tertiary)]" size={13} />
                       <input
                         type="text"
+                        value={chatSearch}
+                        onChange={(e) => setChatSearch(e.target.value)}
                         placeholder="Buscar conversas..."
                         className="w-full bg-[var(--surface-card)] border border-[var(--border-default)] rounded-xl pl-8 pr-3 py-1.5 text-xs font-bold outline-none"
                       />
@@ -2477,10 +2537,36 @@ useEffect(() => {
                       </button>
                     </div>
                   </div>
-                  <div className="flex-1 overflow-y-auto p-3 space-y-1.5">
+                  {/* Fundo da lista mais escuro que os cartões das conversas: cada
+                      conversa é um cartão claro sobre o fundo (antes cartão e
+                      fundo eram o mesmo branco e se misturavam). */}
+                  <div className="flex-1 overflow-y-auto p-3 space-y-1.5 bg-[var(--surface-page)]">
                     {(() => {
+                      const findSessionContact = (s: ChatSession) => allUsers.find(u =>
+                        u.id === s.customerId ||
+                        matchPhones(u.phone, s.customerPhone) || (u.phones && u.phones.some(p => matchPhones(p, s.customerPhone)))
+                      );
+
+                      // Busca da caixa "Buscar conversas...": casa com o que a
+                      // linha mostra — nome do contato, empresa, número da
+                      // conversa (com ou sem "#") e telefone. Sem diferenciar
+                      // maiúsculas/acentos. Vazia = não filtra nada.
+                      const searchTerm = normalizeString(chatSearch.trim());
+                      const searchDigits = normalizePhone(chatSearch);
+                      const searchNumber = searchTerm.replace(/^#/, '');
+                      const matchesSearch = (s: ChatSession) => {
+                        if (!searchTerm) return true;
+                        const contact = findSessionContact(s);
+                        const company = contact ? companies.find(c => c.id === contact.companyId) : null;
+                        const names = normalizeString([s.customerName, contact?.name, company?.name].filter(Boolean).join(' '));
+                        if (names.includes(searchTerm)) return true;
+                        if (s.ticketNumber && /^\d+$/.test(searchNumber) && String(s.ticketNumber).padStart(4, '0').includes(searchNumber)) return true;
+                        return searchDigits.length >= 3 && normalizePhone(s.customerPhone || '').includes(searchDigits);
+                      };
+
                       const filteredSessions = customerSessions
                         .filter(s => s.status !== 'closed')
+                        .filter(matchesSearch)
                         .filter(s => {
                           if (chatFilter === 'all') return true;
                           if (chatFilter === 'me') return s.assigneeId === currentUser?.id;
@@ -2511,10 +2597,7 @@ useEffect(() => {
                       const answered = filteredSessions.filter(s => !needsReply(s));
 
                       const renderRow = (s: ChatSession) => {
-                        const contact = allUsers.find(u =>
-                          u.id === s.customerId ||
-                          matchPhones(u.phone, s.customerPhone) || (u.phones && u.phones.some(p => matchPhones(p, s.customerPhone)))
-                        );
+                        const contact = findSessionContact(s);
                         const company = contact ? companies.find(c => c.id === contact.companyId) : null;
                         const sessionUnread = getSessionUnreadCount(s.id);
                         const rowTags = chatTags.filter(t => (s.tags || []).includes(t.id));
@@ -2529,9 +2612,18 @@ useEffect(() => {
                             onClick={() => setSelectedChatId(s.id)}
                             className={cn(
                               "w-full text-left p-3 rounded-2xl transition-all group flex items-center justify-between border relative overflow-hidden",
+                              // Conversa aberta agora: preenchimento de destaque +
+                              // borda sólida + anel, bem diferente dos cartões das
+                              // outras conversas em andamento (antes era só um
+                              // tom 10% mais claro, quase igual aos demais).
                               selectedChatId === s.id
-                                ? "bg-[var(--accent)]/10 border-[var(--accent)]/20 shadow-sm"
-                                : "bg-[var(--surface-card)] border-[var(--border-default)] hover:border-[var(--accent)]/20 shadow-none"
+                                // [--text-tertiary:...] sobe as legendas pequenas deste
+                                // cartão para o tom secundário: sobre o fundo de destaque
+                                // o terciário do tema escuro ficava em 3,9:1.
+                                // Fundo OPACO (destaque misturado ao cartão), não /15: sobre o
+                                // fundo mais escuro da lista, o semitransparente ficava acinzentado.
+                                ? "bg-[color-mix(in_srgb,var(--accent)_15%,var(--surface-card))] border-[var(--accent)] ring-1 ring-[var(--accent)]/50 shadow-sm [--text-tertiary:var(--text-secondary)]"
+                                : "bg-[var(--surface-card)] border-[var(--border-default)] hover:border-[var(--accent)]/30 shadow-none"
                             )}
                           >
                             {/* Uma faixa fina por tag, empilhadas — evita ter que
@@ -2560,7 +2652,7 @@ useEffect(() => {
                                 )}
                               </div>
                               <div className="min-w-0 flex-1">
-                                <p className="text-xs font-black text-[var(--text-primary)] uppercase tracking-tight">{s.customerName}</p>
+                                <p className={cn("text-xs font-black uppercase tracking-tight", selectedChatId === s.id ? "text-[var(--accent-text)]" : "text-[var(--text-primary)]")}>{s.customerName}</p>
                                 {s.ticketNumber && (
                                   <p className="text-[9px] text-[var(--text-tertiary)] font-semibold uppercase tracking-widest">Conversa #{String(s.ticketNumber).padStart(4, '0')}</p>
                                 )}
@@ -2846,7 +2938,7 @@ useEffect(() => {
                   <div
                     ref={scrollRef}
                     onScroll={handleScroll}
-                    className="flex-1 overflow-y-auto px-4 py-4 space-y-2 bg-[var(--surface-card)]/30 scroll-smooth"
+                    className="flex-1 overflow-y-auto px-4 py-4 space-y-2 bg-[var(--surface-page)] scroll-smooth"
                   >
                     {(previousHistoriesContact?.customerId || previousHistoriesContact?.customerPhone) && !(previousHistoriesOffset > 0 && previousHistoriesOffset >= previousHistoriesTotal) && (
                       <div className="flex justify-center pb-2">
@@ -3018,7 +3110,7 @@ useEffect(() => {
                       }
 
                       return (
-                        <div key={m.id} className={cn("flex flex-col animate-in fade-in slide-in-from-bottom-2 duration-300 group", isOwnMessage ? "items-end" : "items-start")}>
+                        <div key={m.id} id={`chat-msg-${m.id}`} className={cn("flex flex-col animate-in fade-in slide-in-from-bottom-2 duration-300 group rounded-2xl", isOwnMessage ? "items-end" : "items-start")}>
                           <div className={cn(
                             "relative max-w-[min(88%,34rem)] sm:max-w-[78%] p-3 rounded-2xl text-[13px] font-medium shadow-sm transition-all break-words whitespace-pre-wrap",
                             isOwnMessage
@@ -3029,6 +3121,36 @@ useEffect(() => {
                               <p className="text-[10px] font-black uppercase tracking-wide mb-1 text-[var(--accent-text)]">
                                 {m.senderName}:
                               </p>
+                            )}
+                            {/* Citação ("responder" do WhatsApp): trecho da mensagem
+                                original acima do texto; clicar leva até ela. */}
+                            {m.metadata?.replyTo && (
+                              <button
+                                type="button"
+                                onClick={(e) => {
+                                  e.stopPropagation();
+                                  const target = document.getElementById(`chat-msg-${m.metadata?.replyTo?.messageId}`);
+                                  if (!target) {
+                                    toast.info('A mensagem original não está carregada nesta conversa.');
+                                    return;
+                                  }
+                                  target.scrollIntoView({ behavior: 'smooth', block: 'center' });
+                                  target.classList.add('bg-[var(--accent)]/15');
+                                  setTimeout(() => target.classList.remove('bg-[var(--accent)]/15'), 1600);
+                                }}
+                                className={cn(
+                                  "mb-2 block w-full whitespace-normal rounded-xl border-l-4 px-3 py-1.5 text-left",
+                                  isOwnMessage ? "border-white/60 bg-black/15" : "border-[var(--accent)] bg-[var(--surface-pill)]"
+                                )}
+                              >
+                                <span className={cn("block text-[10px] font-black uppercase tracking-wide truncate", isOwnMessage ? "text-white/90" : "text-[var(--accent-text)]")}>
+                                  {m.metadata.replyTo.senderName || 'Mensagem'}
+                                </span>
+                                <span className={cn("block text-[11px] font-medium line-clamp-2 break-words", isOwnMessage ? "text-white/80" : "text-[var(--text-secondary)]")}>
+                                  {m.metadata.replyTo.text
+                                    || ({ image: 'Imagem', audio: 'Áudio', video: 'Vídeo', file: 'Arquivo', text: 'Mensagem' } as Record<string, string>)[m.metadata.replyTo.kind || 'text']}
+                                </span>
+                              </button>
                             )}
                             {renderLinkedText(m.text, isOwnMessage, isCustomer ? undefined : (phone) => setPhoneContactPanelPhone(phone))}
                             {attachments.length > 0 && (
@@ -3052,17 +3174,13 @@ useEffect(() => {
                                         }}
                                         className={attachmentClassName}
                                       >
-                                      <div className="space-y-2">
+                                        {/* Só a imagem: sem legenda com o nome do arquivo
+                                            (pedido do usuário, 2026-09-24). */}
                                         <img
                                           src={attachment.url}
                                           alt={attachment.name}
                                           className="max-h-48 w-full object-cover"
                                         />
-                                        <div className="flex items-center gap-2 px-3 pb-3 text-[10px] font-semibold uppercase tracking-widest">
-                                          <ImageIcon size={13} />
-                                          <span className="truncate">{attachment.name}</span>
-                                        </div>
-                                      </div>
                                       </button>
                                     );
                                   }
@@ -3155,6 +3273,15 @@ useEffect(() => {
                               "absolute -top-4 flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity whitespace-nowrap bg-[var(--surface-card)] border border-[var(--border-default)] rounded-full px-2 py-1 shadow-sm",
                               isOwnMessage ? "right-2" : "left-2"
                             )}>
+                              {canQuoteMessage(m) && (
+                                <button
+                                  onClick={(e) => { e.stopPropagation(); setReplyingTo(m); }}
+                                  className="flex items-center gap-1 text-[9px] font-semibold uppercase text-[var(--accent-text)]"
+                                  title="Citar esta mensagem na resposta"
+                                >
+                                  <Reply size={10} /> Responder
+                                </button>
+                              )}
                               <button
                                 onClick={(e) => { e.stopPropagation(); setReactionPickerMessageId(reactionPickerMessageId === m.id ? null : m.id); }}
                                 className="text-[9px] font-semibold uppercase text-[var(--text-tertiary)] hover:text-[var(--accent-text)]"
@@ -3202,7 +3329,21 @@ useEffect(() => {
                                 (editado)
                               </button>
                             )}
-                            {isOwnMessage && m.whatsappStatus === 'sending' && (
+                            {/* Canal Pyvon: o Pyvon não informa "lida", então o status
+                                é só enviando (1 tique) → enviada (2 tiques) → ou erro
+                                (ver abaixo). Os tiques de "entregue/lida" do portal só
+                                fazem sentido pros outros canais (mais adiante). */}
+                            {isOwnMessage && selectedChat?.channel === 'pyvon' && pyvonTickState(m) === 'sending' && (
+                              <span className="flex items-center text-[var(--text-tertiary)]" title="Enviando pelo WhatsApp...">
+                                <Check size={12} />
+                              </span>
+                            )}
+                            {isOwnMessage && selectedChat?.channel === 'pyvon' && pyvonTickState(m) === 'sent' && (
+                              <span className="flex items-center text-[var(--text-tertiary)]" title="Enviada pelo WhatsApp (o Pyvon não informa leitura)">
+                                <CheckCheck size={12} />
+                              </span>
+                            )}
+                            {isOwnMessage && selectedChat?.channel !== 'pyvon' && m.whatsappStatus === 'sending' && (
                               <span className="flex items-center gap-1 text-[var(--text-tertiary)]" title="Enviando pelo WhatsApp...">
                                 <Loader2 size={11} className="animate-spin" /> enviando
                               </span>
@@ -3224,7 +3365,7 @@ useEffect(() => {
                                 </button>
                               </span>
                             )}
-                            {isOwnMessage && (!m.whatsappStatus || m.whatsappStatus === 'sent') && (() => {
+                            {isOwnMessage && selectedChat?.channel !== 'pyvon' && (!m.whatsappStatus || m.whatsappStatus === 'sent') && (() => {
                               // Sessão de chat com cliente é sempre 1:1 (cliente
                               // + analista responsável) — só esses dois contam
                               // como "destinatário" pro 2o/3o check.
@@ -3404,6 +3545,30 @@ useEffect(() => {
                         </motion.div>
                       )}
                     </AnimatePresence>
+                    {replyingTo && canQuoteMessage(replyingTo) && (
+                      <div className="mb-3 flex items-center justify-between gap-3 rounded-2xl border border-[var(--border-default)] bg-[var(--surface-pill)] p-3 animate-in slide-in-from-bottom-2">
+                        <div className="min-w-0 flex-1 border-l-4 border-[var(--accent)] pl-3">
+                          <p className="truncate text-[10px] font-black uppercase tracking-wide text-[var(--accent-text)]">
+                            Respondendo a {replyingTo.senderId === currentUser?.id ? 'você' : replyingTo.senderName}
+                          </p>
+                          <p className="mt-0.5 line-clamp-2 break-words text-xs font-medium text-[var(--text-secondary)]">
+                            {(replyingTo.text || '').trim() || (
+                              (replyingTo.attachments?.[0] || replyingTo.metadata?.attachments?.[0])
+                                ? 'Anexo'
+                                : 'Mensagem'
+                            )}
+                          </p>
+                        </div>
+                        <button
+                          type="button"
+                          onClick={() => setReplyingTo(null)}
+                          className="shrink-0 rounded-xl p-2 text-[var(--text-tertiary)] transition-all hover:bg-[var(--border-default)]"
+                          title="Cancelar resposta"
+                        >
+                          <X size={16} />
+                        </button>
+                      </div>
+                    )}
                     {chatAttachments.length > 0 && (
                       <div className="mb-3 flex flex-wrap gap-2">
                         {chatAttachments.map((attachment) => (
@@ -3715,6 +3880,45 @@ useEffect(() => {
           <div className="fixed inset-0 z-[250] flex items-center justify-center p-4">
              <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} onClick={() => setIsFinishModalOpen(false)} className="absolute inset-0 bg-slate-900/40 backdrop-blur-sm" />
              <motion.div initial={{ scale: 0.9, opacity: 0 }} animate={{ scale: 1, opacity: 1 }} exit={{ scale: 0.9, opacity: 0 }} className="relative bg-[var(--surface-card)] w-full max-w-sm rounded-[2.5rem] shadow-2xl p-8">
+                {selectedChat?.ticketId ? (
+                  <>
+                    {/* Já existe um chamado desta conversa: só ela é encerrada, sem
+                        gerar outro. Quem ainda não gerou o chamado vê o modal de
+                        sempre (abaixo) — e gerar pelo botão "Gerar Chamado", que
+                        mantém o chat aberto, é o que libera este encerramento. */}
+                    <h3 className="text-xl font-black text-[var(--text-primary)] uppercase tracking-tight mb-2">Finalizar Conversa</h3>
+                    <p className="text-xs text-[var(--text-tertiary)] font-medium mb-6">
+                      Esta conversa já possui o chamado{' '}
+                      <span className="font-black text-[var(--text-primary)]">
+                        {selectedChat.ticketNumber ? `#${String(selectedChat.ticketNumber).padStart(4, '0')}` : ''}
+                      </span>{' '}
+                      vinculado. Ela será encerrada sem gerar outro chamado.
+                    </p>
+
+                    <div className="space-y-4">
+                      <button
+                        onClick={() => handleGenerateTicket(true)}
+                        className="w-full py-4 bg-slate-900 text-white rounded-2xl text-[11px] font-semibold uppercase tracking-widest shadow-xl hover:bg-slate-800 transition-all"
+                      >
+                        Finalizar Conversa
+                      </button>
+                      <p className="text-[9px] text-[var(--text-tertiary)] font-medium text-center -mt-2">Envia a mensagem de encerramento ao cliente. O chamado não é alterado.</p>
+
+                      {hasPermission(Permission.CHAT_MARK_SPAM) && (
+                        <>
+                          <button
+                            onClick={() => handleGenerateTicket(true, true)}
+                            className="w-full py-3.5 bg-[var(--surface-card)] border-2 border-[var(--text-danger)]/20 text-[var(--text-danger)] rounded-2xl text-[10px] font-semibold uppercase tracking-widest hover:bg-[var(--surface-danger)] transition-all"
+                          >
+                            Fechar como Spam
+                          </button>
+                          <p className="text-[9px] text-[var(--text-tertiary)] font-medium text-center -mt-2">Encerra sem enviar nenhuma mensagem ao cliente — use quando um bot dele responder automaticamente à pesquisa e reabrir o chat em loop.</p>
+                        </>
+                      )}
+                    </div>
+                  </>
+                ) : (
+                <>
                 <h3 className="text-xl font-black text-[var(--text-primary)] uppercase tracking-tight mb-2">Gerar Chamado</h3>
                 <p className="text-xs text-[var(--text-tertiary)] font-medium mb-6">Transforme esta conversa em um chamado para Histórico.</p>
 
@@ -3770,6 +3974,8 @@ useEffect(() => {
                      </>
                    )}
                 </div>
+                </>
+                )}
              </motion.div>
           </div>
         )}

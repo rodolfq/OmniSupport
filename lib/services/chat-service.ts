@@ -128,6 +128,19 @@ export class AnalystService {
     if (!res.ok) throw new Error('Error saving status via API');
   }
 
+  // Renova a presença e devolve o status que está no SERVIDOR (fonte da
+  // verdade entre aparelhos) — não grava o status local. status null = ainda
+  // não existe registro deste usuário.
+  static async heartbeat(): Promise<{ status: 'online' | 'away' | 'offline' | null; reason: string | null; statusSince: string | null }> {
+    const res = await fetch('/api/chats', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ action: 'presence-heartbeat' })
+    });
+    if (!res.ok) throw new Error('Error sending presence heartbeat via API');
+    return res.json();
+  }
+
   static async logStatusChange(userId: string, status: 'online' | 'away' | 'offline', reason?: string): Promise<void> {
     const res = await fetch('/api/chats', {
       method: 'POST',

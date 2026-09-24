@@ -375,6 +375,11 @@ export async function POST(request: Request) {
       }
 
       const status = isOnline ? 'online' : 'offline';
+      // Offline forçado por um supervisor leva o motivo 'Desconectado': os
+      // aparelhos da pessoa adotam o Offline (o servidor manda no status) e o
+      // próximo login dela volta pra Online, como o aviso da tela promete
+      // ("até fazer login de novo").
+      const storedReason = actor.id !== userId && !isOnline ? 'Desconectado' : (reason || null);
       // queue_anchor_at só é gravada na PRIMEIRA vez que fica online no dia
       // (ver migrations/queue_daily_anchor.sql). Ficar ausente/offline não mexe
       // nela, então a posição no rodízio não se perde.
@@ -392,11 +397,11 @@ export async function POST(request: Request) {
            queue_anchor_date = CASE
              WHEN EXCLUDED.is_online AND (analyst_status.queue_anchor_date IS NULL OR analyst_status.queue_anchor_date < CURRENT_DATE)
              THEN CURRENT_DATE ELSE analyst_status.queue_anchor_date END`,
-        [userId, isOnline, reason || null, status]
+        [userId, isOnline, storedReason, status]
       );
       await query(
         'INSERT INTO public.user_status_history (user_id, status, reason) VALUES ($1, $2, $3)',
-        [userId, status, reason || null]
+        [userId, status, storedReason]
       );
       return NextResponse.json({ success: true });
     }

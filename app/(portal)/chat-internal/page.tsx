@@ -879,6 +879,21 @@ export default function ChatInternalPage() {
     };
   }, [showPinnedPanel]);
 
+  // Esc fecha o lightbox da imagem. Na captura e parando a propagação, pra o
+  // mesmo Esc não fechar também o painel de fixadas (ou outro popover) por trás.
+  useEffect(() => {
+    if (!previewImageUrl) return;
+    const onKeyDown = (event: KeyboardEvent) => {
+      if (event.key !== 'Escape') return;
+      event.preventDefault();
+      event.stopPropagation();
+      event.stopImmediatePropagation();
+      setPreviewImageUrl(null);
+    };
+    document.addEventListener('keydown', onKeyDown, true);
+    return () => document.removeEventListener('keydown', onKeyDown, true);
+  }, [previewImageUrl]);
+
   // Fechar o painel ao trocar de conversa evita mostrar as fixadas da sala
   // anterior por um frame enquanto as mensagens da nova ainda carregam.
   useEffect(() => {

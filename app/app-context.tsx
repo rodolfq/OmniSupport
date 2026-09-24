@@ -224,6 +224,14 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
   const activeChatRef = useRef<string | null>(null);
   const chatOpenRef = useRef<boolean>(false);
   const initialStatusLoadedRef = useRef<boolean>(false);
+  // Status adotado DO SERVIDOR (outro aparelho mudou) não pode virar uma
+  // gravação de volta — senão os aparelhos ficam reescrevendo um ao outro.
+  const skipNextStatusWriteRef = useRef<boolean>(false);
+  // Quando o usuário trocou o status AQUI pela última vez: a resposta de um
+  // batimento que já estava em voo ainda traz o status antigo do servidor e
+  // não pode desfazer a troca.
+  const lastLocalStatusChangeAtRef = useRef<number>(0);
+  const userStatusRef = useRef<{ status: 'online' | 'away' | 'offline'; reason: string | null }>({ status: 'online', reason: null });
   const audioCacheRef = useRef<Map<string, HTMLAudioElement>>(new Map());
   const audioUnlockedRef = useRef(false);
 
@@ -471,11 +479,21 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
         addNotification(notif, userRef.current!.id);
       });
 
+      // As listas de chamado ("Meus Chamados" etc.) só recarregavam por ação
+      // da PRÓPRIA pessoa — um chamado atribuído a ela por outro analista só
+      // aparecia depois de F5, mesmo com o aviso "Chamado atribuído" já no
+      // sino. Estes três eventos mudam quem vê o quê (passou a ser meu,
+      // encerrou, chegou um novo sem responsável); troca de mensagem/campo
+      // não entra aqui de propósito, senão cada resposta recarregaria a lista.
+      if (incoming.some(n => n.type === 'ticket_assigned' || n.type === 'ticket_closed' || n.type === 'ticket_new')) {
+        triggerRefresh();
+      }
+
       lastCheckTimeRef.current = checkStartedAt;
     } catch (error) {
       console.error('Erro ao buscar notificações:', error);
     }
-  }, [addNotification]);
+  }, [addNotification, triggerRefresh]);
 
   const [navBadges, setNavBadges] = useState<NavBadges>({ chatInternalUnread: 0, myTicketsUnread: 0, myTicketsUnreadByTicket: {} });
 
@@ -537,9 +555,25 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
   }, []);
 
   const setUserStatus = React.useCallback((status: 'online' | 'away' | 'offline', reason?: string) => {
+    lastLocalStatusChangeAtRef.current = Date.now();
     setUserStatusState(status);
     setUserStatusReason(reason || null);
     setUserStatusSince(new Date().toISOString());
+  }, []);
+
+  // O servidor é a fonte da verdade do status (Online/Ausente > motivo/
+  // Offline): quando outro aparelho troca, este adota o que o servidor
+  // devolve no batimento, sem regravar.
+  useEffect(() => { userStatusRef.current = { status: userStatus, reason: userStatusReason }; }, [userStatus, userStatusReason]);
+
+  const adoptServerStatus = React.useCallback((s: { status: 'online' | 'away' | 'offline'; reason: string | null; statusSince: string | null }) => {
+    const cur = userStatusRef.current;
+    if (cur.status !== s.status || (cur.reason || null) !== (s.reason || null)) {
+      skipNextStatusWriteRef.current = true;
+    }
+    setUserStatusState(s.status);
+    setUserStatusReason(s.reason || null);
+    setUserStatusSince(s.statusSince);
   }, []);
 
   const notifyLunchOver = React.useCallback(() => {
@@ -634,9 +668,20 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
             setDbStatus('connected');
             console.log('👤 AppContext: Usuário autenticado via API:', data.user);
             if (data.user.status) {
-              setUserStatusState(data.user.status);
-              setUserStatusReason(data.user.statusReason || null);
-              setUserStatusSince(data.user.statusSince || null);
+              // Offline por logout/desconexão forçada não é uma escolha da
+              // pessoa: abrir o sistema de novo volta pra Online (o efeito de
+              // gravação abaixo persiste). Qualquer outro status é mantido.
+              const leftBySession = data.user.status === 'offline'
+                && (data.user.statusReason === 'Logout' || data.user.statusReason === 'Desconectado');
+              if (leftBySession) {
+                setUserStatusState('online');
+                setUserStatusReason(null);
+                setUserStatusSince(new Date().toISOString());
+              } else {
+                setUserStatusState(data.user.status);
+                setUserStatusReason(data.user.statusReason || null);
+                setUserStatusSince(data.user.statusSince || null);
+              }
             }
             initialStatusLoadedRef.current = true;
             setCurrentUser({
@@ -746,10 +791,47 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     };
   }, [authInitialized, currentUser?.id, checkNotifications, refreshNavBadges]);
 
+  // Login SEM recarregar a página (tela de login → dashboard): o usuário chega
+  // sem status e o app não passa de novo por initAuth, então o estado local
+  // ficava no padrão "Online" — e o primeiro batimento gravava isso por cima do
+  // "Ausente > Almoço" que estava no servidor (marcado em outro aparelho).
+  // Aqui o status real é buscado ANTES de qualquer gravação. Precisa vir antes
+  // do efeito de gravação abaixo (que consome o initialStatusLoadedRef).
+  useEffect(() => {
+    if (!currentUser || currentUser.role === UserRole.CUSTOMER) return;
+    if (initialStatusLoadedRef.current) return; // initAuth já carregou
+    let cancelled = false;
+    (async () => {
+      try {
+        const s = await AnalystService.heartbeat();
+        if (cancelled || !s) return;
+        if (!s.status) {
+          // Primeiro uso: ainda não há registro — grava o padrão (Online).
+          AnalystService.logStatusChange(currentUser.id, userStatusRef.current.status, userStatusRef.current.reason || undefined).catch(() => {});
+          return;
+        }
+        const leftBySession = s.status === 'offline' && (s.reason === 'Logout' || s.reason === 'Desconectado');
+        if (leftBySession) {
+          // Logout/desconexão forçada não é escolha: entrar de novo é ficar Online.
+          setUserStatus('online');
+          return;
+        }
+        adoptServerStatus({ status: s.status, reason: s.reason, statusSince: s.statusSince });
+      } catch (err) {
+        console.error('Erro ao carregar o status de presença:', err);
+      }
+    })();
+    return () => { cancelled = true; };
+  }, [currentUser?.id]);
+
   useEffect(() => {
     if (currentUser) {
       if (!initialStatusLoadedRef.current) {
         initialStatusLoadedRef.current = true;
+        return;
+      }
+      if (skipNextStatusWriteRef.current) {
+        skipNextStatusWriteRef.current = false;
         return;
       }
       const updateStatus = async () => {
@@ -799,11 +881,47 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
   // "Ausente"; o botão de presença (lib/presence.ts) trata como offline
   // quando o last_active fica velho demais, então parar de bater aqui (aba
   // fechada) já resolve sozinho, sem precisar de infra de "adeus" explícito.
+  //
+  // ATENÇÃO: o batimento NÃO grava o status local. Ele renova a presença e
+  // recebe o status que está no servidor, e este aparelho ADOTA esse valor —
+  // é isso que faz "Ausente > Almoço" marcado no computador valer também no
+  // celular (antes cada aparelho reenviava o próprio estado a cada minuto e o
+  // último a bater ganhava). Rodar também ao voltar pra aba/app cobre o celular
+  // que estava em segundo plano.
   useEffect(() => {
     if (!currentUser || currentUser.role === UserRole.CUSTOMER) return;
-    const beat = () => {
-      if (document.visibilityState !== 'visible') return;
-      AnalystService.logStatusChange(currentUser.id, userStatus, userStatusReason || undefined).catch(() => {});
+    const userId = currentUser.id;
+    let inFlight = false;
+    const beat = async () => {
+      if (document.visibilityState !== 'visible' || inFlight) return;
+      inFlight = true;
+      const startedAt = Date.now();
+      try {
+        const s = await AnalystService.heartbeat();
+        // Saiu (logout) ou trocou de usuário enquanto a resposta vinha.
+        if (userRef.current?.id !== userId) return;
+        // Trocou de status AQUI perto desta resposta: o servidor ainda pode
+        // estar com o valor antigo — a troca local manda.
+        if (lastLocalStatusChangeAtRef.current > startedAt - 3000) return;
+        const local = userStatusRef.current;
+
+        // Sem registro no servidor (primeiro uso): este aparelho cria o dele.
+        if (!s || !s.status) {
+          AnalystService.logStatusChange(userId, local.status, local.reason || undefined).catch(() => {});
+          return;
+        }
+        // Outro aparelho SAIU do sistema (logout) mas este continua em uso: não
+        // derruba quem ainda está trabalhando — reafirma o status daqui.
+        if (s.status === 'offline' && s.reason === 'Logout') {
+          AnalystService.logStatusChange(userId, local.status, local.reason || undefined).catch(() => {});
+          return;
+        }
+        adoptServerStatus({ status: s.status, reason: s.reason, statusSince: s.statusSince });
+      } catch {
+        // Falha de rede: o próximo batimento tenta de novo.
+      } finally {
+        inFlight = false;
+      }
     };
     const interval = setInterval(beat, 60000);
     document.addEventListener('visibilitychange', beat);
@@ -811,7 +929,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       clearInterval(interval);
       document.removeEventListener('visibilitychange', beat);
     };
-  }, [currentUser?.id, currentUser?.role, userStatus, userStatusReason]);
+  }, [currentUser?.id, currentUser?.role, adoptServerStatus]);
 
   useEffect(() => {
     const savedSettings = localStorage.getItem('omni_notif_settings');

@@ -6,7 +6,7 @@ import { runExclusive } from '../key-mutex';
 import { emitChatEvent, emitSessionsChanged, excludeActiveViewers } from '../chat-events';
 import { notifyUser } from './push-service';
 import { getChatRecipientIds } from './notification-recipients';
-import { resolveQueueForInstance, pickNextQueueAssignee, dispatchPendingChatSessions } from './queue-routing';
+import { resolveQueueForInstance, resolveQueueById, pickNextQueueAssignee, dispatchPendingChatSessions, isOnlineQueueMember } from './queue-routing';
 import { storeAttachmentBuffer } from './attachment-storage';
 import { transcribeMessageAudio, isAudioAttachment, isTranscriptionEnabled } from './transcription-service';
 import { isCrisisModeEnabled, recordCrisisModeMessage, getCrisisModeMessage } from './crisis-mode-service';
@@ -199,6 +199,22 @@ export class PyvonService {
 
     await query('UPDATE public.chat_sessions SET last_message_at = NOW(), updated_at = NOW() WHERE id = $1', [session.id]);
 
+    // Autor da nota / de quem abriu o chamado (ver automation-service.ts):
+    // a conversa só vai pra ele agora, na primeira resposta do cliente
+    // (decisão do usuário, 2026-09-22), e só se ele estiver online na fila
+    // (2026-09-24). Precisa rodar ANTES da redistribuição de pendentes logo
+    // abaixo — senão o rodízio pega a conversa primeiro e o autor nunca tem
+    // vez. Sem elegibilidade, não faz nada e o rodízio segue normalmente.
+    const pendingText: string | null = session.pyvon_pending_note_text || null;
+    const pendingAuthorId: string | null = session.pyvon_pending_note_author_id || null;
+    if (pendingAuthorId) {
+      try {
+        await this.assignToPendingAuthorIfOnline(session, pendingAuthorId, savedMessage.id);
+      } catch (err) {
+        console.error('[Pyvon] Falha ao atribuir a conversa ao autor pendente:', err);
+      }
+    }
+
     // Conversa que ficou 'pending' por não haver ninguém online quando
     // chegou tenta a distribuição de novo a cada mensagem nova (mesmo
     // gatilho do widget e dos outros canais WhatsApp).
@@ -253,29 +269,62 @@ export class PyvonService {
     // por isso o campo é sempre limpo aqui, dê "prosseguir" ou não. Qualquer
     // outra resposta fica pro analista decidir manualmente, como sempre.
     //
-    // A conversa cai pro autor da nota SÓ AQUI — na primeira resposta do
-    // cliente depois da nota, não no instante em que a nota foi enviada
-    // (decisão do usuário, 2026-09-22). Vale pra qualquer resposta, não só
+    // A atribuição ao autor (acima) vale pra qualquer resposta, não só
     // "Prosseguir": isProsseguir decide apenas se o TEXTO da nota é reenviado
-    // como mensagem, é um critério à parte de "o cliente respondeu".
-    if (session.pyvon_pending_note_text) {
-      const pendingText = session.pyvon_pending_note_text;
-      const pendingAuthorId = session.pyvon_pending_note_author_id || null;
-      const isProsseguir = text.trim().toLowerCase().replace(/[.,!?]+$/, '') === 'prosseguir';
+    // como mensagem, é um critério à parte de "o cliente respondeu". Aqui só
+    // se consome o pendente — a chamada de "abriu o chamado" não tem texto,
+    // só autor, e também precisa ser limpa.
+    if (pendingText || pendingAuthorId) {
       await query(
         `UPDATE public.chat_sessions
          SET pyvon_pending_note_text = NULL, pyvon_pending_note_set_at = NULL, pyvon_pending_note_author_id = NULL
          WHERE id = $1`,
         [session.id]
       );
-      if (pendingAuthorId) {
-        await this.claimSessionIfUnassigned(session.id, pendingAuthorId);
-      }
-      if (isProsseguir) {
+      const isProsseguir = text.trim().toLowerCase().replace(/[.,!?]+$/, '') === 'prosseguir';
+      if (pendingText && isProsseguir) {
         this.sendAutomaticNoteReply(instanceId, session, pendingText, pendingAuthorId).catch(err => {
           console.error('[Pyvon] Falha ao enviar nota automática após "Prosseguir":', err);
         });
       }
+    }
+  }
+
+  // Manda a conversa pro autor da nota / de quem abriu o chamado — só se ele
+  // puder atender agora (online e membro da fila da conversa, mesma régua do
+  // rodízio: isOnlineQueueMember). Se não puder, não faz nada aqui e a
+  // conversa segue o rodízio da fila (dispatchPendingChatSessions, em
+  // handleWebhook, ou o responsável que o rodízio já tinha escolhido).
+  //
+  // Troca um responsável já existente SÓ quando a conversa nasceu do próprio
+  // template automático e ninguém mexeu nela: nenhuma mensagem além dos
+  // templates/respostas automáticas e a resposta atual do cliente. Nesse caso
+  // o responsável foi só o palpite do rodízio no envio do template, não um
+  // atendimento em curso. Conversa com histórico nunca troca de dono.
+  private static async assignToPendingAuthorIfOnline(session: any, authorId: string, currentMessageId: string): Promise<void> {
+    if (session.assignee_id === authorId) return;
+
+    const queue = session.queue_id ? await resolveQueueById(session.queue_id) : null;
+    if (!(await isOnlineQueueMember(authorId, queue))) return;
+
+    const res = await query(
+      `UPDATE public.chat_sessions SET assignee_id = $1, status = 'active', updated_at = NOW()
+        WHERE id = $2
+          AND (
+            assignee_id IS NULL
+            OR NOT EXISTS (
+              SELECT 1 FROM public.chat_messages m
+               WHERE m.session_id = $2 AND m.id <> $3
+                 AND COALESCE(m.metadata->>'template', 'false') <> 'true'
+                 AND COALESCE(m.metadata->>'auto_reply', 'false') <> 'true'
+            )
+          )
+        RETURNING id`,
+      [authorId, session.id, currentMessageId]
+    );
+    if ((res.rowCount ?? 0) > 0) {
+      session.assignee_id = authorId;
+      emitSessionsChanged({ reason: 'assigned', sessionId: session.id });
     }
   }
 
@@ -478,7 +527,7 @@ export class PyvonService {
     instanceId: string,
     target: { cadastroId?: number; phone?: string; name?: string },
     content?: string,
-    opts?: { imageUrl?: string; documentUrl?: string; audioUrl?: string; channelId?: number }
+    opts?: { imageUrl?: string; documentUrl?: string; audioUrl?: string; channelId?: number; replyToMessageId?: number }
   ): Promise<{ ok: boolean; message_id?: number; skipped?: string; delivery?: 'sent' | 'failed' | 'not_sent'; delivery_error?: string }> {
     const { secret, baseUrl, channelId } = await this.getCredentials(instanceId);
     const res = await axios.post(
@@ -488,6 +537,12 @@ export class PyvonService {
         phone: target.cadastroId ? undefined : target.phone,
         name: target.cadastroId ? undefined : target.name,
         content,
+        // Cita uma mensagem da conversa, como o "responder" do WhatsApp (v1.14
+        // do contrato). É o message_id DO PYVON — o do inbound, ou o devolvido
+        // por um bot-response/bot-template anterior —, precisa ser da mesma
+        // conversa e já ter sido entregue ao WhatsApp; senão o Pyvon responde
+        // 422 e não envia nada (quem chama trata, ver app/api/whatsapp/send).
+        reply_to_message_id: opts?.replyToMessageId,
         image_url: opts?.imageUrl,
         document_url: opts?.documentUrl,
         // audio_url: Pyvon baixa, converte pra OGG/Opus e entrega como

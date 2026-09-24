@@ -558,6 +558,10 @@ export interface ChatMessage {
   // falso. undefined = mensagem sem canal WhatsApp associado.
   whatsappStatus?: 'sending' | 'sent' | 'failed';
   whatsappError?: string;
+  // true = a mensagem tem um id do Pyvon (inbound do cliente, ou envio nosso já
+  // confirmado por ele) e portanto PODE ser citada — o Pyvon só cita mensagem
+  // que ele conhece. Calculado no servidor; só existe em conversas do Pyvon.
+  pyvonQuotable?: boolean;
   reactions?: MessageReaction[];
   metadata?: {
     fileUrl?: string;
@@ -570,8 +574,22 @@ export interface ChatMessage {
     // Nome vem "congelado" no momento do envio pra destacar certo mesmo se o
     // usuário for renomeado depois.
     mentions?: { id: string; name: string }[];
+    // Só ENTRADA (o widget informa qual mensagem quer citar): o servidor troca
+    // isto por replyTo, montado a partir do banco (push-message).
+    replyToMessageId?: string;
+    // Mensagem citada ("responder" do WhatsApp) — canal Pyvon.
+    replyTo?: ChatReplyQuote;
   };
   attachments?: Attachment[];
+}
+
+// Trecho da mensagem citada, guardado junto da resposta: fica fixo mesmo que a
+// original seja editada/apagada depois, como no WhatsApp.
+export interface ChatReplyQuote {
+  messageId: string;
+  senderName?: string | null;
+  text?: string;
+  kind?: 'text' | 'image' | 'audio' | 'video' | 'file';
 }
 
 export interface ChatSession {

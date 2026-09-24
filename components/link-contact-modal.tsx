@@ -123,7 +123,7 @@ export function LinkContactModal({
       onClose();
     } catch (e) {
       console.error(e);
-      toast.error('Erro ao associar contato.');
+      toast.error(e instanceof Error && e.message ? e.message : 'Erro ao associar contato.');
     }
   };
 

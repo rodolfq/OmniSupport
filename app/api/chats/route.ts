@@ -12,6 +12,7 @@ import { runExclusive } from '@/lib/key-mutex';
 import { canForceOthersOffline } from '@/lib/services/presence-authorization';
 import { isStalePresence } from '@/lib/presence';
 import { persistAttachments } from '@/lib/services/attachment-storage';
+import { resolveReplyQuote } from '@/lib/services/chat-reply';
 import { getOrGenerateChatSummary, ChatSummaryNotFoundError, ChatSummaryGenerationError } from '@/lib/services/chat-summary-service';
 import { AssistantNotConfiguredError, parseGroqRetryWait } from '@/lib/groq-client';
 import { normalizeBrazilianPhoneDigits } from '@/lib/utils';
@@ -115,6 +116,8 @@ export async function GET(request: NextRequest) {
           deliveredBy: m.delivered_by || [],
           whatsappStatus: m.whatsapp_status || undefined,
           whatsappError: m.whatsapp_error || undefined,
+          // Só as que o Pyvon conhece podem ser citadas (ver ChatMessage.pyvonQuotable)
+          pyvonQuotable: !!m.pyvon_message_id,
           reactions: m.reactions || [],
           isEdited: !!m.edited_at,
           editedAt: m.edited_at,
@@ -770,12 +773,24 @@ export async function POST(request: Request) {
       const { sessionId, customerId, customerName } = body;
       if (!sessionId) return NextResponse.json({ error: 'sessionId é obrigatório.' }, { status: 400 });
 
-      const res = await query(
-        `UPDATE public.chat_sessions
-            SET customer_id = $2, customer_name = $3, updated_at = NOW()
-          WHERE id = $1 RETURNING id`,
-        [sessionId, customerId || null, customerName || null]
-      );
+      let res;
+      try {
+        res = await query(
+          `UPDATE public.chat_sessions
+              SET customer_id = $2, customer_name = $3, updated_at = NOW()
+            WHERE id = $1 RETURNING id`,
+          [sessionId, customerId || null, customerName || null]
+        );
+      } catch (err: any) {
+        // 23505: o cliente já tem outra conversa ABERTA do mesmo tipo (só o
+        // canal 'widget' é limitado a uma por cliente, ver
+        // migrations/chat_sessions_open_customer_widget_only.sql). Mensagem clara
+        // em vez do texto cru do Postgres.
+        if (err?.code === '23505') {
+          return NextResponse.json({ error: 'Este contato já tem outra conversa aberta no portal. Encerre uma delas antes de vincular.' }, { status: 409 });
+        }
+        throw err;
+      }
       if (res.rowCount === 0) return NextResponse.json({ error: 'Conversa não encontrada.' }, { status: 404 });
       return NextResponse.json({ success: true });
     }
@@ -1058,7 +1073,23 @@ export async function POST(request: Request) {
       const persistedAttachments = await persistAttachments(
         message.attachments || message.metadata?.attachments || []
       );
-      const metadata = { ...(message.metadata || {}), attachments: persistedAttachments };
+      // Citação ("responder", canal Pyvon): o navegador só informa QUAL mensagem
+      // quer citar (replyToMessageId); nome/texto gravados vêm do banco, e um
+      // replyTo já pronto vindo do navegador é descartado. Só vale dentro da
+      // mesma conversa — se a sessão acabou de ser reaberta (targetSessionId
+      // novo), a mensagem citada é do atendimento anterior e fica sem citação.
+      const clientMetadata: any = { ...(message.metadata || {}) };
+      const replyToMessageId = clientMetadata.replyToMessageId;
+      delete clientMetadata.replyToMessageId;
+      delete clientMetadata.replyTo;
+      const replyQuote = replyToMessageId && targetSessionId === sessionId
+        ? await resolveReplyQuote(sessionId, String(replyToMessageId))
+        : null;
+      const metadata = {
+        ...clientMetadata,
+        attachments: persistedAttachments,
+        ...(replyQuote ? { replyTo: replyQuote } : {})
+      };
 
       // created_at = NOW() do servidor, e não message.timestamp do navegador.
       // A conversa é ordenada por created_at: com o relógio do cliente, uma
@@ -1440,6 +1471,80 @@ export async function POST(request: Request) {
         [status.userId, status.isOnline, status.lastActive, status.currentLoad]
       );
       return NextResponse.json({ success: true });
+    }
+
+    // Batimento de presença: só renova o "estou aqui" (last_active) e DEVOLVE o
+    // status que está gravado — nunca grava o status que o aparelho acha que
+    // tem. Antes o heartbeat de 60s reenviava o status LOCAL de cada aparelho
+    // por log-status-change, então um celular recém-aberto (estado local
+    // padrão "Online") sobrescrevia o "Ausente > Almoço" marcado no
+    // computador, e o último aparelho a bater sempre ganhava. Agora o servidor
+    // é a fonte da verdade: quem troca de status é a ação explícita
+    // (log-status-change), e os outros aparelhos adotam o que voltar daqui.
+    if (action === 'presence-heartbeat') {
+      const token = (await cookies()).get('token')?.value;
+      const authenticatedUser = token ? await verifyJWT(token) : null;
+      if (!authenticatedUser?.id) {
+        return NextResponse.json({ error: 'Sessão inválida.' }, { status: 401 });
+      }
+      const userId = authenticatedUser.id;
+
+      const beforeRes = await query(
+        'SELECT status, current_reason, status_since, last_active FROM public.analyst_status WHERE user_id = $1',
+        [userId]
+      );
+      const before = beforeRes.rows[0];
+      // Primeiro uso, sem linha ainda: quem cria é log-status-change (o
+      // cliente escreve o status inicial dele uma vez).
+      if (!before) return NextResponse.json({ status: null, reason: null, statusSince: null });
+
+      const wasStale = isStalePresence(before.last_active);
+
+      // Mesma âncora diária do log-status-change: quem segue Online a virada do
+      // dia sem trocar de status ainda precisa ser reancorado.
+      await query(
+        `UPDATE public.analyst_status SET
+           last_active = NOW(),
+           is_online = (status = 'online'),
+           queue_anchor_at = CASE
+             WHEN status = 'online' AND (queue_anchor_date IS NULL OR queue_anchor_date < CURRENT_DATE)
+             THEN NOW() ELSE queue_anchor_at END,
+           queue_anchor_date = CASE
+             WHEN status = 'online' AND (queue_anchor_date IS NULL OR queue_anchor_date < CURRENT_DATE)
+             THEN CURRENT_DATE ELSE queue_anchor_date END
+         WHERE user_id = $1`,
+        [userId]
+      );
+      // O histórico (status-history-panel.tsx) usa a última linha de heartbeat
+      // pra saber até quando um turno durou — segue gravando uma linha, mas
+      // com o status REAL do servidor, não o do aparelho.
+      await query(
+        `INSERT INTO public.user_status_history (user_id, status, reason, timestamp)
+         VALUES ($1, $2, $3, NOW())`,
+        [userId, before.status, before.current_reason]
+      );
+
+      // Voltou de uma presença vencida como Online: passa a contar pro rodízio
+      // agora (mesma regra de log-status-change).
+      if (before.status === 'online' && wasStale) {
+        try {
+          const dispatched = await dispatchPendingChatSessions();
+          await Promise.all(dispatched.map(d => notifyUser(d.assigneeId, {
+            title: 'Novo atendimento atribuído a você',
+            body: `${d.customerName || 'Cliente'} está aguardando atendimento.`,
+            url: `/chat?chat=${d.sessionId}`,
+            tag: `chat_assign:${d.sessionId}`
+          })));
+        } catch (err) {
+          console.error('[queue] Falha ao redistribuir atendimentos pendentes após heartbeat:', err);
+        }
+      }
+
+      return NextResponse.json({
+        status: before.status,
+        reason: before.current_reason || null,
+        statusSince: before.status_since || null
+      });
     }
 
     if (action === 'log-status-change') {

@@ -24,7 +24,10 @@ export function Sidebar() {
     // então quem desloga de propósito ainda aparecia "disponível" nas telas
     // de status até o last_active envelhecer sozinho.
     if (currentUser && currentUser.role !== UserRole.CUSTOMER) {
-      AnalystService.logStatusChange(currentUser.id, 'offline').catch(() => {});
+      // Motivo 'Logout' distingue "saí do sistema" de "me coloquei Offline":
+      // o próximo login volta pra Online sozinho, e outro aparelho ainda
+      // aberto não é derrubado por este logout (ver app-context.tsx).
+      AnalystService.logStatusChange(currentUser.id, 'offline', 'Logout').catch(() => {});
     }
     try {
       await fetch('/api/auth/logout', { method: 'POST' });

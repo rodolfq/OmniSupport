@@ -217,20 +217,22 @@ export async function GET(request: NextRequest) {
     });
 
     if (isTeamUser(user.role)) {
-      // Exclui quem criou o próprio chamado — sem isso, a pessoa que acabou
-      // de criar recebia um segundo aviso genérico ("Novo chamado #X") pelo
-      // polling, duplicando o toast de confirmação ("Chamado criado com
-      // sucesso!") que já apareceu na hora. Mesmo padrão de exclusão de
-      // autor já usado nas outras queries desta rota (chatMessages,
-      // ticketMessages, internalMessages).
+      // "Novo chamado" só aparece quando o PRÓPRIO cliente abriu o chamado,
+      // pelo acesso de cliente (decisão do usuário, 2026-09-24): quem criou é
+      // Cliente ou Funcionário. Chamado aberto por analista, pela integração
+      // (created_by nulo) ou gerado de uma conversa não avisa ninguém. Mesma
+      // regra do push em app/api/tickets/route.ts.
       const newTickets = await query(
-        `SELECT id, public_ticket_number, title, created_at
-         FROM public.tickets
-         WHERE created_at > $1
-           AND (created_by IS NULL OR created_by <> $2::uuid)
-         ORDER BY created_at ASC
+        `SELECT t.id, t.public_ticket_number, t.title, t.created_at
+         FROM public.tickets t
+         WHERE t.created_at > $1
+           AND EXISTS (
+             SELECT 1 FROM public.profiles creator
+             WHERE creator.id = t.created_by AND creator.role IN ('Cliente', 'Funcionário')
+           )
+         ORDER BY t.created_at ASC
          LIMIT 50`,
-        [since, user.id]
+        [since]
       );
 
       newTickets.rows.forEach((ticket) => {

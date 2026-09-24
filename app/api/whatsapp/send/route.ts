@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server';
+import axios from 'axios';
 import { WhatsAppService } from '@/lib/services/whatsapp-service';
 import { PyvonService } from '@/lib/services/pyvon-service';
 import { signPyvonMediaUrl } from '@/lib/services/pyvon-media-link';
@@ -34,8 +35,10 @@ function resolvePyvonMediaUrl(attachment: Attachment): { imageUrl?: string; docu
 }
 
 export async function POST(request: NextRequest) {
-  const { instanceId, to, message, sessionId, messageId } = await request.json() as {
+  const { instanceId, to, message, sessionId, messageId, replyToMessageId } = await request.json() as {
     instanceId: string; to: string; message: string; sessionId?: string; messageId?: string;
+    // id (nosso) da mensagem a citar — só o canal Pyvon usa
+    replyToMessageId?: string;
   };
 
   try {
@@ -81,12 +84,38 @@ export async function POST(request: NextRequest) {
       // (chat-widget.tsx já bloqueia enviar sem texto e sem anexo).
       const contentForPyvon = message || (firstAttachment ? ' ' : message);
 
-      const result = await PyvonService.sendMessage(
-        instanceId,
-        { cadastroId: session.pyvon_cadastro_id || undefined, phone: session.customer_phone || undefined, name: session.customer_name || undefined },
-        contentForPyvon,
-        media || undefined
-      );
+      // Citação ("responder" do WhatsApp): o widget manda o id NOSSO da mensagem
+      // citada; o id que o Pyvon entende (pyvon_message_id) é resolvido aqui,
+      // sempre da MESMA conversa — nunca aceita um id de outra sessão.
+      let replyPyvonId: number | undefined;
+      if (replyToMessageId) {
+        const quotedRes = await query(
+          'SELECT pyvon_message_id FROM public.chat_messages WHERE id::text = $1 AND session_id::text = $2',
+          [replyToMessageId, sessionId]
+        );
+        const asNumber = Number(quotedRes.rows[0]?.pyvon_message_id);
+        if (Number.isInteger(asNumber) && asNumber > 0) replyPyvonId = asNumber;
+      }
+
+      const target = { cadastroId: session.pyvon_cadastro_id || undefined, phone: session.customer_phone || undefined, name: session.customer_name || undefined };
+      // A citação nunca pode custar a mensagem: se o Pyvon recusar (422: a
+      // mensagem citada não é citável nesta conversa, ex.: ainda não foi
+      // entregue ao WhatsApp), reenvia SEM citar em vez de perder a resposta.
+      // Um 422 por outro motivo (ex.: anexo que não baixou) falha igual de novo
+      // e chega ao usuário como erro de sempre.
+      let result;
+      let quoteDropped = !!replyToMessageId && !replyPyvonId;
+      try {
+        result = await PyvonService.sendMessage(instanceId, target, contentForPyvon, { ...(media || {}), replyToMessageId: replyPyvonId });
+      } catch (err) {
+        if (replyPyvonId && axios.isAxiosError(err) && err.response?.status === 422) {
+          console.warn(`[api/whatsapp/send] Pyvon recusou a citação (${JSON.stringify(err.response.data)}); reenviando sem citar.`);
+          quoteDropped = true;
+          result = await PyvonService.sendMessage(instanceId, target, contentForPyvon, media || undefined);
+        } else {
+          throw err;
+        }
+      }
       if (result.skipped) {
         // Aceito pelo Pyvon mas não entregue de verdade (modo de teste do
         // tenant, homologação, ou contato interno de suporte) — sinaliza
@@ -112,7 +141,26 @@ export async function POST(request: NextRequest) {
       // pra gerar link público (NEXT_PUBLIC_APP_URL/JWT_SECRET ausente, ou
       // anexo em data: URL legado) — o client usa isso pra avisar que só o
       // texto foi encaminhado, sem inventar sucesso total.
-      return NextResponse.json({ success: true, mediaSent: firstAttachment ? !!media : undefined });
+      // Guarda o id que o Pyvon deu a esta mensagem: é ele que permite CITAR
+      // depois uma mensagem enviada por nós (as do cliente já chegam com o id
+      // pelo webhook). Falha aqui só tira a opção de citar, nunca o envio.
+      if (messageId && result.message_id) {
+        try {
+          await query(
+            'UPDATE public.chat_messages SET pyvon_message_id = $1 WHERE id::text = $2 AND pyvon_message_id IS NULL',
+            [String(result.message_id), messageId]
+          );
+        } catch (err) {
+          console.warn('[api/whatsapp/send] Não consegui guardar o id do Pyvon da mensagem enviada:', err);
+        }
+      }
+
+      return NextResponse.json({
+        success: true,
+        mediaSent: firstAttachment ? !!media : undefined,
+        // true = era pra citar e saiu sem citação (o widget avisa o analista)
+        quoteDropped: quoteDropped || undefined
+      });
     } else {
       // Baileys ainda não encaminha o anexo em si (só o canal Pyvon tem isso
       // hoje) — sem legenda digitada, não há texto de verdade pra mandar por
@@ -124,14 +172,23 @@ export async function POST(request: NextRequest) {
     }
     return NextResponse.json({ success: true });
   } catch (error: any) {
+    // Erro do Pyvon vem como "Request failed with status code 422" — inútil pra
+    // quem precisa saber o que houve. O motivo de verdade está no corpo da
+    // resposta dele (message/error); é ele que vai pro widget e pro console.
+    const pyvonReason = axios.isAxiosError(error)
+      ? (error.response?.data?.message || error.response?.data?.error || null)
+      : null;
+    const reason = pyvonReason
+      ? `Pyvon (HTTP ${error.response?.status}): ${typeof pyvonReason === 'string' ? pyvonReason : JSON.stringify(pyvonReason)}`
+      : error.message;
     console.error('[api/whatsapp/send] Failed:', {
       instanceId,
       to,
       sessionId,
       messageLength: message?.length,
-      message: error?.message,
+      message: reason,
       stack: error?.stack
     });
-    return NextResponse.json({ error: error.message }, { status: 500 });
+    return NextResponse.json({ error: reason }, { status: 500 });
   }
 }

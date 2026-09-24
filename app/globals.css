@@ -32,18 +32,23 @@
   --accent-strong: #026357;
   --accent-text: #026357;
 
-  /* Superfícies */
-  --surface-page: #F6F8FB;
+  /* Superfícies — o fundo da tela é mais escuro que os cartões (pedido do
+     usuário, 2026-09-24): com #F6F8FB contra #FFFFFF o contraste era 1,06:1 e
+     cartão/coluna do Kanban quase se misturavam ao fundo; #E6EBF2 dá 1,20:1
+     mantendo a matiz navy. Mesma hierarquia do modo escuro (page < card). */
+  --surface-page: #E6EBF2;
   --surface-sidebar: #081F3B;
   --surface-card: #FFFFFF;
   --surface-pill: #EEF2F6;
   --border-default: #E2E7EE;
   --border-strong: #C9D2DE;
 
-  /* Tipografia */
+  /* Tipografia — o terciário foi um degrau mais escuro (#64748B → #5B6B80):
+     texto solto direto sobre o fundo novo, mais escuro, caía pra 3,97:1;
+     agora fica em 4,54:1 (WCAG AA). */
   --text-primary: #0B1220;
   --text-secondary: #33475B;
-  --text-tertiary: #64748B;
+  --text-tertiary: #5B6B80;
 
   /* Estados e badges semânticos — sucesso/info alinhados à marca, alerta/erro mantidos genéricos (convenção universal de UX) */
   --surface-success: #E9F8F4;

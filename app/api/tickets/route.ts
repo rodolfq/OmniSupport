@@ -6,6 +6,7 @@ import { handleTicketCreated, handleTicketUpdated, handleTicketMessageCreated } 
 import { notifyUser } from '@/lib/services/push-service';
 import { getTeamUserIds, getTicketRecipients, pushToTicketRecipients, ticketLabel } from '@/lib/services/notification-recipients';
 import { persistAttachments } from '@/lib/services/attachment-storage';
+import { getCurrentActionUser } from '@/lib/server-auth';
 
 async function getTicketActor(request: NextRequest) {
   const token = request.cookies.get('token')?.value;
@@ -493,15 +494,22 @@ export async function POST(request: Request) {
       const newTicket = res.rows[0];
       handleTicketCreated(newTicket);
 
-      // Exclui quem criou o chamado — mesmo motivo do polling em
-      // app/api/notifications/check/route.ts: sem isso, quem acabou de criar
-      // também levava a notificação push nativa sobre o próprio chamado.
-      getTeamUserIds().then(teamIds => Promise.all(teamIds.filter(id => id !== userId).map(teamId => notifyUser(teamId, {
-        title: `Novo chamado ${ticketLabel(newTicket.public_ticket_number, newTicket.id)}`,
-        body: newTicket.title,
-        url: `/tickets?ticket=${newTicket.id}`,
-        tag: `ticket_new:${newTicket.id}`
-      })))).catch(err => console.error('[push] Falha ao notificar novo chamado:', err));
+      // "Novo chamado" só avisa a equipe quando o PRÓPRIO cliente abre o
+      // chamado, pelo acesso de cliente (decisão do usuário, 2026-09-24) —
+      // chamado aberto por analista/integração/conversa não notifica ninguém.
+      // Quem é o cliente vem da sessão, não do `userId` do corpo: esse campo
+      // é escolhido pelo client e serviria pra disparar o aviso em nome de
+      // qualquer perfil. Mesma regra no polling do sino
+      // (app/api/notifications/check/route.ts).
+      const sessionActor = await getCurrentActionUser();
+      if (isCompanyScopedActor(sessionActor)) {
+        getTeamUserIds().then(teamIds => Promise.all(teamIds.filter(id => id !== userId).map(teamId => notifyUser(teamId, {
+          title: `Novo chamado ${ticketLabel(newTicket.public_ticket_number, newTicket.id)}`,
+          body: newTicket.title,
+          url: `/tickets?ticket=${newTicket.id}`,
+          tag: `ticket_new:${newTicket.id}`
+        })))).catch(err => console.error('[push] Falha ao notificar novo chamado:', err));
+      }
 
       // Se o usuário for "Time Interno", criar ticket interno automaticamente.
       // internal_tickets.team_id é um conceito próprio (texto legado, não FK)

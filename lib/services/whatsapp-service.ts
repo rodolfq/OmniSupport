@@ -10,11 +10,9 @@ import { Attachment } from '../types';
 import { emitChatEvent, emitSessionsChanged, excludeActiveViewers } from '../chat-events';
 import { notifyUser } from './push-service';
 import { getChatRecipientIds } from './notification-recipients';
-import { runExclusive } from '../key-mutex';
-import { resolveQueueForInstance, pickNextQueueAssignee, dispatchPendingChatSessions } from './queue-routing';
 import { storeAttachmentBuffer } from './attachment-storage';
 import { transcribeMessageAudio, isAudioAttachment, isTranscriptionEnabled } from './transcription-service';
-import { isCrisisModeEnabled, recordCrisisModeMessage, getCrisisModeMessage } from './crisis-mode-service';
+import { sendBaileysRedirectNoticeIfDue } from './baileys-redirect';
 
 const log = pino({ level: (process.env.WHATSAPP_LOG_LEVEL as any) || 'warn' });
 
@@ -214,82 +212,6 @@ async function findSurveyableClosedSession(jid: string, instanceId = 'default') 
   );
 
   return res.rows[0] || null;
-}
-
-async function findOrCreateChatSession(jid: string, pushName: string | undefined, instanceId = 'default') {
-  const digits = normalizePhone(jid.split('@')[0] || jid);
-  if (!digits) return null;
-
-  // Tudo dentro do lock: da checagem de sessão existente até o insert, para
-  // que uma segunda mensagem do mesmo telefone (evento separado, quase
-  // simultâneo) espere esta terminar em vez de rodar em paralelo.
-  return runExclusive(`session:${digits}`, async () => {
-    const existing = await findChatSessionByPhone(jid, instanceId);
-    if (existing) return existing;
-
-    const profileVariants = phoneLookupVariants(jid, instanceId);
-    let profile: { id: string; name: string } | undefined;
-    if (profileVariants.length) {
-      const placeHolders = profileVariants.map((_, i) => `$${i + 1}`).join(',');
-      // regexp_replace: profiles.phone é digitado/salvo com máscara
-      // ((21) 99177-8567, ver maskPhone em lib/utils.ts) — comparar contra
-      // profileVariants (dígitos puros) sem normalizar os dois lados nunca
-      // batia, e a conversa nascia com o nome de exibição do WhatsApp em vez
-      // do nome cadastrado (achado em 2026-09-14 com "Jean Teste"/"Rafael
-      // Desenv" no lugar de "Rodolfo SSX"/"Rafael Leal").
-      const profileRes = await query(
-        `SELECT id, name FROM public.profiles
-         WHERE regexp_replace(COALESCE(phone, ''), '\\D', '', 'g') IN (${placeHolders})
-         LIMIT 1`,
-        profileVariants
-      );
-      profile = profileRes.rows[0];
-    }
-
-    const customerName = profile?.name || pushName || 'Contato WhatsApp';
-
-    const queue = await resolveQueueForInstance(instanceId);
-
-    // Escolher o próximo do rodízio e gravar a atribuição precisam acontecer
-    // sob o mesmo lock (por fila, não por telefone — o lock de fora é por
-    // telefone e não impede duas filas diferentes de calcularem o mesmo
-    // "próximo" ao mesmo tempo) — senão duas sessões concorrentes podem ler
-    // o mesmo "último atribuído" e mandar as duas pro mesmo analista.
-    const { insertRes } = await runExclusive(`queue-assign:${queue?.id ?? 'combined'}`, async () => {
-      const assigneeId = queue ? await pickNextQueueAssignee(queue) : null;
-      const status = assigneeId ? 'active' : 'pending';
-
-      // ON CONFLICT como segunda rede de segurança (ver migrations/chat_sessions_
-      // unique_open_phone.sql): cobre corrida entre processos/instâncias diferentes,
-      // que o lock em memória (só vale dentro deste processo Node) não alcança.
-      const insertRes = await query(
-        `INSERT INTO public.chat_sessions (customer_id, customer_name, customer_phone, status, queue_id, assignee_id, channel, created_at, updated_at)
-         VALUES ($1, $2, $3, $4, $5, $6, 'whatsapp_baileys', NOW(), NOW())
-         ON CONFLICT (customer_phone) WHERE status <> 'closed' AND customer_phone IS NOT NULL
-         DO NOTHING
-         RETURNING id, customer_phone, customer_id, customer_name, updated_at, assignee_id, queue_id`,
-        [profile?.id || null, customerName, digits, status, queue?.id || null, assigneeId]
-      );
-      return { assigneeId, insertRes };
-    });
-
-    if (insertRes.rows[0]) {
-      const newSession = insertRes.rows[0];
-      // Modo de Crise (ver crisis-mode-service.ts) — dispara sem bloquear o
-      // fluxo normal de recebimento da mensagem; uma falha aqui nunca deve
-      // impedir a sessão de nascer nem a mensagem real de ser processada.
-      isCrisisModeEnabled().then(async (enabled) => {
-        if (!enabled) return;
-        const text = await getCrisisModeMessage();
-        await WhatsAppService.sendMessage(instanceId, digits, text);
-        await recordCrisisModeMessage(newSession.id, text);
-      }).catch(err => console.error(`[WhatsApp:${instanceId}] Falha ao enviar mensagem do Modo de Crise:`, err?.message || err));
-      return newSession;
-    }
-
-    // Perdeu a corrida contra outro processo — usa a sessão que venceu.
-    return await findChatSessionByPhone(jid, instanceId);
-  });
 }
 
 export class WhatsAppService {
@@ -843,33 +765,17 @@ export class WhatsAppService {
       msg.message?.documentMessage?.caption ||
       '';
 
-    let mediaData: Attachment | null = null;
     const messageType = Object.keys(msg.message)[0];
+    const isMediaMessage = ['imageMessage', 'videoMessage', 'documentMessage', 'audioMessage'].includes(messageType);
 
-    if (['imageMessage', 'videoMessage', 'documentMessage', 'audioMessage'].includes(messageType)) {
-      try {
-        mediaData = await this.downloadIncomingMedia(msg.message, messageType);
-        // Sem legenda de verdade (imageMessage.caption etc., já capturada
-        // acima) = sem legenda mostrada — nada de "[Áudio]"/"[Arquivo: nome]"
-        // fabricado aqui; o anexo já aparece sozinho na tela (pedido do
-        // usuário 2026-09-17). Isso só quando a mídia baixou com sucesso —
-        // baixar cai no ramo abaixo, que mantém o rótulo genérico como
-        // diagnóstico de que algo chegou e não pôde ser processado.
-      } catch (err) {
-        console.error(`[WhatsApp:${instanceId}] Falha ao baixar mídia:`, err);
-      }
-      if (!mediaData && !text) {
-        text = messageType === 'audioMessage' ? '[Áudio: falha ao baixar]' : '[Arquivo: falha ao baixar]';
-      }
-    }
-
-    if (!text && !mediaData) return;
+    // Sem texto e sem mídia (reação, protocolo, etc.): nada a registrar.
+    if (!text && !isMediaMessage) return;
 
     // Resposta "1"/"0" à pesquisa de satisfação chegando atrasada pelo
-    // WhatsApp: registrada na PRÓPRIA sessão fechada (sem reabri-la nem criar
-    // atendimento novo) — é o único caso em que uma sessão fechada continua
-    // "encontrável" por telefone. Qualquer outro texto/mídia é sempre um
-    // atendimento novo (ver findChatSessionByPhone/findOrCreateChatSession).
+    // WhatsApp: registrada na PRÓPRIA sessão fechada (sem reabri-la) — é o
+    // único caso em que uma sessão fechada continua "encontrável" por
+    // telefone. Qualquer outro texto/mídia de quem não tem conversa em
+    // atendimento cai no aviso de mudança de número, mais abaixo.
     const trimmedAnswer = text.trim();
     if (trimmedAnswer === '0' || trimmedAnswer === '1') {
       const surveySession = await findSurveyableClosedSession(remoteJid, instanceId);
@@ -877,7 +783,7 @@ export class WhatsAppService {
         try {
           // Nome do cadastro (surveySession.customer_name) tem prioridade
           // sobre o nome salvo no celular do contato (msg.pushName) — mesma
-          // regra do resto do arquivo (ver findOrCreateChatSession).
+          // regra do resto do arquivo.
           const senderName = surveySession.customer_name || msg.pushName || 'Contato WhatsApp';
           const surveyMetadata = {
             whatsapp_jid: remoteJid,
@@ -926,8 +832,42 @@ export class WhatsAppService {
       }
     }
 
-    const session = await findOrCreateChatSession(remoteJid, msg.pushName, instanceId);
-    if (!session?.id) return;
+    // WhatsApp NÃO oficial (QR Code): só segue o fluxo normal quem JÁ tem uma
+    // conversa em atendimento com um analista (ex.: conversa que ele iniciou, ou
+    // que já estava em curso). Para todo o resto — contato novo, ou conversa sem
+    // responsável — NÃO nasce conversa, a mensagem NÃO é gravada e nada aparece
+    // no widget: o cliente só recebe o aviso de que o atendimento agora é pelo
+    // número novo, no máximo uma vez a cada 5 minutos (ver baileys-redirect.ts).
+    // Decisão do usuário, 2026-09-24. Feito ANTES de baixar a mídia, pra não
+    // gravar em disco anexo de quem não vai ser atendido aqui.
+    const session = await findChatSessionByPhone(remoteJid, instanceId);
+    if (!session?.id || !session.assignee_id) {
+      const contactKey = normalizePhone(remoteJid.split('@')[0] || remoteJid) || remoteJid;
+      // Não espera: o envio pode demorar com o WhatsApp instável.
+      sendBaileysRedirectNoticeIfDue({
+        contactKey,
+        send: (noticeText) => WhatsAppService.sendMessage(instanceId, remoteJid, noticeText)
+      }).catch(err => console.error(`[WhatsApp:${instanceId}] Falha no aviso de redirecionamento:`, err));
+      return;
+    }
+
+    let mediaData: Attachment | null = null;
+    if (isMediaMessage) {
+      try {
+        mediaData = await this.downloadIncomingMedia(msg.message, messageType);
+        // Sem legenda de verdade (imageMessage.caption etc., já capturada
+        // acima) = sem legenda mostrada — nada de "[Áudio]"/"[Arquivo: nome]"
+        // fabricado aqui; o anexo já aparece sozinho na tela (pedido do
+        // usuário 2026-09-17). Isso só quando a mídia baixou com sucesso —
+        // baixar cai no ramo abaixo, que mantém o rótulo genérico como
+        // diagnóstico de que algo chegou e não pôde ser processado.
+      } catch (err) {
+        console.error(`[WhatsApp:${instanceId}] Falha ao baixar mídia:`, err);
+      }
+      if (!mediaData && !text) {
+        text = messageType === 'audioMessage' ? '[Áudio: falha ao baixar]' : '[Arquivo: falha ao baixar]';
+      }
+    }
 
     const metadata: Record<string, any> = {
       whatsapp_jid: remoteJid,
@@ -961,23 +901,6 @@ export class WhatsAppService {
         'UPDATE public.chat_sessions SET last_message_at = NOW(), updated_at = NOW() WHERE id = $1',
         [session.id]
       );
-
-      // Conversa que ficou 'pending' por não haver ninguém online quando
-      // chegou tenta a distribuição de novo a cada mensagem nova (mesmo
-      // gatilho do widget, ver app/api/chats/route.ts) — no-op barato quando
-      // ela já tem responsável.
-      try {
-        const dispatched = await dispatchPendingChatSessions({ sessionId: session.id });
-        dispatched.forEach(d => emitSessionsChanged({ reason: 'assigned', sessionId: d.sessionId }));
-        await Promise.all(dispatched.map(d => notifyUser(d.assigneeId, {
-          title: 'Novo atendimento atribuído a você',
-          body: `${d.customerName || 'Cliente'} está aguardando atendimento.`,
-          url: `/chat?chat=${d.sessionId}`,
-          tag: `chat_assign:${d.sessionId}`
-        })));
-      } catch (err) {
-        console.error(`[WhatsApp:${instanceId}] Falha ao redistribuir atendimento pendente:`, err);
-      }
 
       // Mesma notificação em tempo real (SSE) e push que uma mensagem enviada
       // pelo widget web já dispara (app/api/chats/route.ts) — sem isso, uma

@@ -101,6 +101,22 @@ export function AttachmentPreviewModal({
     setMounted(true);
   }, []);
 
+  // Esc fecha o modal da imagem. Escuta na captura e para a propagação: este
+  // modal abre por cima de outros (detalhe do chamado, chat) que também fecham
+  // com Esc — sem isso um único Esc fecharia a imagem E o modal de trás.
+  useEffect(() => {
+    if (!attachment) return;
+    const onKeyDown = (event: KeyboardEvent) => {
+      if (event.key !== 'Escape') return;
+      event.preventDefault();
+      event.stopPropagation();
+      event.stopImmediatePropagation();
+      onClose();
+    };
+    document.addEventListener('keydown', onKeyDown, true);
+    return () => document.removeEventListener('keydown', onKeyDown, true);
+  }, [attachment, onClose]);
+
   if (!mounted) return null;
 
   return createPortal(

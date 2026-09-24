@@ -66,19 +66,35 @@ export async function resolveCombinedQueuePool(): Promise<RoutingQueue | null> {
 // sessão mais RECENTE por data de criação, e reatribuir sessões antigas não
 // muda esse ponteiro; sem passar quem acabou de receber, o laço entregaria
 // todos os pendentes para a mesma pessoa.
+// excludeUserIds: quem NÃO pode receber desta vez, mesmo online — usado ao
+// devolver uma conversa pra fila (quem devolveu não pode ficar com ela de
+// volta). A ordem do rodízio não muda: quem está excluído é só pulado. Se
+// sobrar ninguém, devolve null e a conversa fica 'pending' na fila.
 export async function pickNextQueueAssignee(
   queue: RoutingQueue,
-  options?: { lastAssigneeId?: string | null }
+  options?: { lastAssigneeId?: string | null; excludeUserIds?: string[] }
 ): Promise<string | null> {
   const { memberIds, strategy } = queue;
   if (!memberIds.length) return null;
 
-  const onlineRes = await query(
-    `SELECT user_id, queue_anchor_at, last_active, status FROM public.analyst_status
-     WHERE user_id = ANY($1::uuid[]) AND is_online = true`,
+  // TODOS os membros com registro de presença, não só os online: a ordem
+  // completa (por âncora do dia) é o que mantém a posição de quem saiu do
+  // rodízio — ver o laço round-robin mais abaixo.
+  const statusRes = await query(
+    `SELECT user_id, queue_anchor_at, last_active, status, is_online FROM public.analyst_status
+     WHERE user_id = ANY($1::uuid[])`,
     [memberIds]
   );
-  const rotation = onlineRes.rows
+  const fullOrder: string[] = statusRes.rows
+    .slice()
+    .sort((a: any, b: any) =>
+      (new Date(a.queue_anchor_at ?? 0).getTime() - new Date(b.queue_anchor_at ?? 0).getTime())
+      // Desempate estável: sem isso, âncoras iguais podem vir em ordem
+      // diferente do banco a cada consulta e o ponteiro "pula" de lugar.
+      || String(a.user_id).localeCompare(String(b.user_id))
+    )
+    .map((r: any) => r.user_id as string);
+  const rotation: string[] = statusRes.rows
     // is_online=true sozinho não basta, por dois motivos:
     // 1) sem heartbeat de verdade, fechar a aba sem logout explícito deixa a
     //    linha "online" pra sempre no banco (mesmo problema documentado em
@@ -91,14 +107,18 @@ export async function pickNextQueueAssignee(
     // deriveLiveStatus cobre os dois e é a MESMA regra que a UI usa pra
     // bolinha de presença — quem o time vê como Ausente/Offline não pode
     // receber chat por aqui.
-    .filter((r: any) => deriveLiveStatus({ status: r.status, isOnline: true, lastActive: r.last_active }) === 'online')
-    .slice()
-    .sort((a: any, b: any) => new Date(a.queue_anchor_at ?? 0).getTime() - new Date(b.queue_anchor_at ?? 0).getTime())
+    .filter((r: any) => r.is_online === true && deriveLiveStatus({ status: r.status, isOnline: true, lastActive: r.last_active }) === 'online')
     .map((r: any) => r.user_id as string);
   if (!rotation.length) return null;
+  const eligible = new Set(rotation);
+
+  const excluded = new Set(options?.excludeUserIds ?? []);
+  if (!rotation.some(id => !excluded.has(id))) return null;
 
   if (strategy === 'daily_balance') {
-    return pickByDailyLoad(rotation);
+    // Mesma ordem de antes (âncora do dia) — fullOrder filtrado por quem está
+    // elegível — pra o desempate por "primeiro da lista" não mudar.
+    return pickByDailyLoad(fullOrder.filter(id => eligible.has(id) && !excluded.has(id)));
   }
 
   let lastAssignee = options?.lastAssigneeId ?? null;
@@ -111,8 +131,44 @@ export async function pickNextQueueAssignee(
     );
     lastAssignee = lastRes.rows[0]?.assignee_id ?? null;
   }
-  const lastIndex = lastAssignee ? rotation.indexOf(lastAssignee) : -1;
-  return rotation[(lastIndex + 1) % rotation.length];
+  // O ponteiro anda pela ordem COMPLETA dos membros e só então pula quem não
+  // está elegível. Antes andava só pela lista de quem estava online: se o
+  // último atendido tinha acabado de ficar Ausente/Offline, indexOf dava -1 e a
+  // vez caía SEMPRE no primeiro da lista (quem ficou online mais cedo no dia) —
+  // era assim que um analista só juntava conversas em sequência enquanto os
+  // outros online esperavam. Agora a vez continua de onde o último parou, mesmo
+  // que ele tenha saído do rodízio.
+  const lastIndex = lastAssignee ? fullOrder.indexOf(lastAssignee) : -1;
+  for (let step = 1; step <= fullOrder.length; step++) {
+    const candidate = fullOrder[(lastIndex + step) % fullOrder.length];
+    if (eligible.has(candidate) && !excluded.has(candidate)) return candidate;
+  }
+  return null;
+}
+
+// "Esta pessoa entraria no rodízio agora?" — mesma régua de pickNextQueueAssignee
+// (membro da fila + presença viva, via deriveLiveStatus), só que pra UM usuário
+// específico. Usada quando a conversa deve ir pra alguém em particular (autor
+// da nota / de quem abriu o chamado) mas só se essa pessoa puder mesmo atender
+// agora — se não puder, quem decide é o rodízio da fila.
+// Sem fila (conversa sem queue_id), só a presença conta.
+export async function isOnlineQueueMember(userId: string, queue: RoutingQueue | null): Promise<boolean> {
+  if (queue && !queue.memberIds.includes(userId)) return false;
+  // Só papel de equipe: analyst_status também guarda a presença de
+  // Cliente/Funcionário logados no portal, e sem fila (nada de lista de
+  // membros pra restringir) qualquer um deles contava como "online" — foi assim
+  // que uma conversa acabou atribuída ao próprio cliente que escreveu a nota.
+  const res = await query(
+    `SELECT a.status, a.last_active
+       FROM public.analyst_status a
+       JOIN public.profiles p ON p.id = a.user_id
+      WHERE a.user_id = $1 AND a.is_online = true
+        AND p.role = ANY(ARRAY['Administrador', 'Equipe', 'Time Interno']::text[])`,
+    [userId]
+  );
+  const row = res.rows[0];
+  if (!row) return false;
+  return deriveLiveStatus({ status: row.status, isOnline: true, lastActive: row.last_active }) === 'online';
 }
 
 export interface DispatchedSession {
@@ -142,9 +198,15 @@ export async function dispatchPendingChatSessions(options?: { sessionId?: string
     filter = ` AND id = $${params.length}`;
   }
 
+  // Conversa do WhatsApp não oficial (Baileys) nunca é distribuída: o cliente
+  // recebe o aviso de que o atendimento agora é pelo número novo (Pyvon) e a
+  // conversa fica sem responsável (decisão do usuário, 2026-09-24 — ver
+  // baileys-redirect.ts). Sem este filtro, qualquer analista ficando Online
+  // (ou uma mensagem em outro canal) redistribuiria essas conversas.
   const pendingRes = await query(
     `SELECT id, queue_id, customer_name FROM public.chat_sessions
-     WHERE status = 'pending' AND assignee_id IS NULL${filter}
+     WHERE status = 'pending' AND assignee_id IS NULL
+       AND COALESCE(channel, '') <> 'whatsapp_baileys'${filter}
      ORDER BY COALESCE(last_message_at, created_at) ASC`,
     params
   );

@@ -23,6 +23,7 @@ export interface TicketRow {
   customer_id: string | null;
   assignee_id: string | null;
   employee_ids?: string[] | null;
+  created_by?: string | null;
   created_at: string;
   updated_at?: string;
 }
@@ -237,7 +238,8 @@ async function dispatchPyvonAutomationMessage(
 async function dispatchTicketOpenedTemplate(
   instanceId: string,
   recipient: TicketRecipient,
-  ticketNumber: string
+  ticketNumber: string,
+  openerId: string | null
 ): Promise<boolean> {
   const templateRes = await query(
     `SELECT body_text FROM public.pyvon_templates WHERE template_name = 'chamado_aberto' AND is_active = true LIMIT 1`
@@ -260,7 +262,7 @@ async function dispatchTicketOpenedTemplate(
   // basta checar a presença dele.
   if (result?.skipped || !result?.cadastro_id) return false;
 
-  await PyvonService.recordOutboundTemplateMessage({
+  const recorded = await PyvonService.recordOutboundTemplateMessage({
     instanceId,
     phone: recipient.phone,
     cadastroId: result.cadastro_id,
@@ -269,6 +271,21 @@ async function dispatchTicketOpenedTemplate(
     analystName: 'SSX Desk (automático)',
     text: PyvonService.renderTemplateBody(template.body_text, variables) || '[template chamado_aberto]'
   });
+
+  // Quem abriu o chamado fica registrado como "autor pendente" da conversa —
+  // mesma regra da nota (dispatchTicketUpdateTemplate abaixo): só quando o
+  // cliente RESPONDER (PyvonService.handleWebhook) a conversa vai pra esse
+  // analista, e só se ele estiver online na fila; senão, rodízio normal.
+  // Não pisa numa nota pendente: se já existe texto de nota aguardando a
+  // resposta do cliente, o autor dela continua sendo o dono da decisão.
+  if (recorded && openerId) {
+    await query(
+      `UPDATE public.chat_sessions
+       SET pyvon_pending_note_author_id = $1
+       WHERE id = $2 AND pyvon_pending_note_text IS NULL`,
+      [openerId, recorded.id]
+    );
+  }
   return true;
 }
 
@@ -278,7 +295,9 @@ async function dispatchTicketOpenedTemplate(
 // como "pendente" (chat_sessions.pyvon_pending_note_text) — só é enviado de
 // verdade se a PRÓXIMA mensagem do cliente for exatamente "Prosseguir" (ver
 // PyvonService.handleWebhook, que também limpa o campo de qualquer forma).
-// A conversa cai pro autor da nota, se ainda não tiver responsável.
+// A conversa cai pro autor da nota quando o cliente responde, mas só se ele
+// estiver online na fila — senão segue o rodízio (ver
+// PyvonService.assignToPendingAuthorIfOnline).
 async function dispatchTicketUpdateTemplate(
   instanceId: string,
   recipient: TicketRecipient,
@@ -402,7 +421,7 @@ export async function dispatchEvent(eventKey: string, ticket: TicketRow, extra: 
         if (eventKey === 'novo_chamado' && r.id === ticket.customer_id && pyvonInstanceId) {
           let sentViaTemplate = false;
           try {
-            sentViaTemplate = await dispatchTicketOpenedTemplate(pyvonInstanceId, r, context.numero_chamado);
+            sentViaTemplate = await dispatchTicketOpenedTemplate(pyvonInstanceId, r, context.numero_chamado, ticket.created_by || null);
           } catch (err: any) {
             console.error('[automation] Falha ao enviar template chamado_aberto:', err?.message || err);
           }

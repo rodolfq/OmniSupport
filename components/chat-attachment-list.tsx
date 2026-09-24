@@ -1,7 +1,7 @@
 'use client';
 
 import React, { useState } from 'react';
-import { File, Image as ImageIcon, Download } from 'lucide-react';
+import { File, Download } from 'lucide-react';
 import { Attachment } from '@/lib/types';
 import { isImageAttachment, isAudioAttachment, isVideoAttachment } from '@/lib/attachment-kind';
 import { AudioPlayer } from '@/components/audio-player';
@@ -33,11 +33,8 @@ export function ChatAttachmentList({ attachments }: ChatAttachmentListProps) {
               onClick={() => setPreviewAttachment(attachment)}
               className="block w-full overflow-hidden rounded-xl border border-[var(--border-default)] bg-[var(--surface-card)] text-left transition-all hover:bg-[var(--surface-pill)]"
             >
+              {/* Só a imagem, sem legenda com o nome do arquivo (mesma regra do chat ao vivo). */}
               <img src={attachment.url} alt={attachment.name} className="max-h-56 w-full object-cover" />
-              <div className="flex items-center gap-2 px-3 py-2 text-[10px] font-semibold uppercase tracking-widest text-[var(--text-tertiary)]">
-                <ImageIcon size={13} />
-                <span className="truncate">{attachment.name}</span>
-              </div>
             </button>
           );
         }

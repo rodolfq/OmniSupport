@@ -36,7 +36,15 @@ async function getClosedTicketStatuses(): Promise<string[]> {
 // dimensões dos chips (responsável, atraso, alta prioridade) ficam de fora
 // daqui porque cada uma delas é justamente o que varia entre os chips.
 function buildBaseWhere(searchParams: URLSearchParams, closedStatuses: string[]) {
-  const q = searchParams.get('query') || '';
+  // Buscar pelo número do chamado é o caso mais comum e o que mais falhava:
+  // a lista mostra "#0172", quem digita cola o "#" junto (ou com espaço
+  // sobrando), e a busca só via texto — "#0172" não casava com nada. Só
+  // dígitos (com "#" opcional) é tratado como número de chamado; qualquer
+  // outra coisa segue como busca de texto normal.
+  const rawQ = (searchParams.get('query') || '').trim();
+  const idMatch = rawQ.match(/^#?\s*(\d{1,15})$/);
+  const exactId = idMatch ? String(parseInt(idMatch[1], 10)) : null;
+  const q = idMatch ? idMatch[1] : rawQ;
   const status = searchParams.get('status') || '';
   const priority = searchParams.get('priority') || '';
   const companyId = searchParams.get('companyId') || '';
@@ -47,21 +55,32 @@ function buildBaseWhere(searchParams: URLSearchParams, closedStatuses: string[])
   let sql = 'WHERE 1=1';
   const params: any[] = [];
   let paramCount = 1;
+  // Posição ($N) do número exato do chamado, quando a busca é um número —
+  // usada pra ordenar esse chamado primeiro (ver ORDER BY em action=tickets).
+  let exactIdParam: number | null = null;
 
   if (q) {
     // Painel de Filtros (modern-search-bar.tsx) promete buscar "chamados,
     // clientes, IDs, descrições" no placeholder, mas isso só olhava o
     // título — buscar pelo nome do cliente, pela descrição ou pelo número
     // do chamado voltava vazio mesmo com o chamado existindo.
-    sql += ` AND (
-      title ILIKE $${paramCount}
-      OR description ILIKE $${paramCount}
-      OR CAST(public_ticket_number AS TEXT) ILIKE $${paramCount}
-      OR EXISTS (SELECT 1 FROM public.profiles cust WHERE cust.id = public.tickets.customer_id AND cust.name ILIKE $${paramCount})
-      OR EXISTS (SELECT 1 FROM public.companies co WHERE co.id = public.tickets.company_id AND co.name ILIKE $${paramCount})
-    )`;
+    const likeParam = paramCount;
+    let searchSql = `title ILIKE $${likeParam}
+      OR description ILIKE $${likeParam}
+      OR CAST(public_ticket_number AS TEXT) ILIKE $${likeParam}
+      OR EXISTS (SELECT 1 FROM public.profiles cust WHERE cust.id = public.tickets.customer_id AND cust.name ILIKE $${likeParam})
+      OR EXISTS (SELECT 1 FROM public.companies co WHERE co.id = public.tickets.company_id AND co.name ILIKE $${likeParam})`;
     params.push(`%${q}%`);
     paramCount++;
+
+    if (exactId) {
+      // "0172" (como a lista exibe) não casa com o número 172 por texto.
+      searchSql += ` OR public_ticket_number = $${paramCount}`;
+      exactIdParam = paramCount;
+      params.push(exactId);
+      paramCount++;
+    }
+    sql += ` AND (${searchSql})`;
   }
 
   if (status) {
@@ -70,7 +89,12 @@ function buildBaseWhere(searchParams: URLSearchParams, closedStatuses: string[])
     paramCount++;
   } else if (!includeClosed) {
     const closedStatusPlaceholders = closedStatuses.map((_, i) => `$${paramCount + i}`).join(',');
-    sql += ` AND status NOT IN (${closedStatusPlaceholders})`;
+    // A base é quase toda de chamados encerrados: quem digita o número de um
+    // chamado antigo quer ele de volta, e não precisa lembrar de marcar
+    // "Mostrar encerrados" antes. Só o número EXATO fura o filtro — o resto
+    // da busca continua escondendo encerrados.
+    const exactIdEscape = exactIdParam ? ` OR public_ticket_number = $${exactIdParam}` : '';
+    sql += ` AND (status NOT IN (${closedStatusPlaceholders})${exactIdEscape})`;
     params.push(...closedStatuses);
     paramCount += closedStatuses.length;
   }
@@ -99,7 +123,7 @@ function buildBaseWhere(searchParams: URLSearchParams, closedStatuses: string[])
     paramCount++;
   }
 
-  return { sql, params, paramCount };
+  return { sql, params, paramCount, exactIdParam };
 }
 
 // Escopo por papel — antes era aplicado no CLIENT (tickets-view.tsx,
@@ -191,7 +215,12 @@ export async function GET(request: Request) {
       const countSql = sql.replace('SELECT *', 'SELECT COUNT(*) AS total');
       const countParams = [...params];
 
-      sql += ` ORDER BY created_at DESC LIMIT $${paramCount} OFFSET $${paramCount + 1}`;
+      // Busca por número: o chamado com aquele número exato vem sempre no
+      // topo, antes de quem só tem os mesmos dígitos numa descrição/título.
+      const orderBy = base.exactIdParam
+        ? `ORDER BY (public_ticket_number = $${base.exactIdParam}) DESC, created_at DESC`
+        : 'ORDER BY created_at DESC';
+      sql += ` ${orderBy} LIMIT $${paramCount} OFFSET $${paramCount + 1}`;
       params.push(pageSize, offset);
 
       const [res, countRes] = await Promise.all([

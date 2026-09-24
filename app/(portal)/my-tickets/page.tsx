@@ -78,6 +78,17 @@ function matchesCustomerStatusFilter(status: string, filter: CustomerStatusFilte
   return getCustomerStatusLabel(status) === filter;
 }
 
+// A caixa "Pesquisar por assunto ou ID..." só olhava o título e o id interno
+// (o hash longo) — o número que aparece no card ("#0431") nunca casava, então
+// digitar 431 não achava o chamado. Aceita "431", "0431" e "#0431".
+function ticketMatchesSearch(t: Ticket, normalQuery: string): boolean {
+  if (!normalQuery) return true;
+  if (normalizeString(t.title).includes(normalQuery) || normalizeString(t.id).includes(normalQuery)) return true;
+  const number = t.ticketNumber ? String(t.ticketNumber).padStart(4, '0') : '';
+  const digits = normalQuery.replace(/^#/, '');
+  return !!number && /^\d+$/.test(digits) && number.includes(digits);
+}
+
 export default function MyTicketsPage() {
   const { currentUser, hasPermission, setIsNewTicketModalOpen, refreshTrigger, navBadges } = useApp();
   const searchParams = useSearchParams();
@@ -201,8 +212,7 @@ export default function MyTicketsPage() {
   const filteredTickets = useMemo(() => {
     const normalQuery = normalizeString(search);
     return allTickets.filter(t => {
-      const matchesSearch = normalizeString(t.title).includes(normalQuery) || 
-                           normalizeString(t.id).includes(normalQuery);
+      const matchesSearch = ticketMatchesSearch(t, normalQuery);
       const matchesStatus = matchesCustomerStatusFilter(t.status, filter);
       return matchesSearch && matchesStatus;
     });
@@ -217,9 +227,7 @@ export default function MyTicketsPage() {
   // O board precisa das 3 colunas sempre, Finalizados incluso.
   const kanbanTickets = useMemo(() => {
     const normalQuery = normalizeString(search);
-    return allTickets.filter(t =>
-      normalizeString(t.title).includes(normalQuery) || normalizeString(t.id).includes(normalQuery)
-    );
+    return allTickets.filter(t => ticketMatchesSearch(t, normalQuery));
   }, [allTickets, search]);
 
   const kanbanGrouped = useMemo(() => {

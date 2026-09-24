@@ -3,7 +3,7 @@ import crypto from 'crypto';
 import { pool, query } from '@/lib/db';
 import { emitChatEvent, emitSessionsChanged, excludeActiveViewers } from '@/lib/chat-events';
 import { notifyUser } from '@/lib/services/push-service';
-import { getChatRecipientIds, getTeamUserIds } from '@/lib/services/notification-recipients';
+import { getChatRecipientIds, getTeamUserIds, isTeamRole } from '@/lib/services/notification-recipients';
 import { pickNextQueueAssignee } from '@/lib/services/queue-routing';
 import { runExclusive } from '@/lib/key-mutex';
 import { getCurrentActionUser, getActorEffectivePermissions } from '@/lib/server-auth';
@@ -55,6 +55,16 @@ export async function POST(request: Request) {
         return NextResponse.json({ error: 'Você não tem permissão para atender a Central de Atendimento.' }, { status: 403 });
       }
       const { sessionId, assigneeId, actingUserId } = body;
+
+      // Só alguém da equipe pode ficar responsável por uma conversa. A tela já
+      // filtra a lista de "Enviar para", mas a rota não conferia nada — um
+      // Cliente/Funcionário logado no portal (que tem presença em analyst_status)
+      // chegou a aparecer como opção de transferência.
+      const assigneeRes = await query('SELECT role FROM public.profiles WHERE id = $1', [assigneeId]);
+      if (!isTeamRole(assigneeRes.rows[0]?.role)) {
+        return NextResponse.json({ error: 'A conversa só pode ser atribuída a um analista da equipe.' }, { status: 400 });
+      }
+
       const sessionRes = await query(
         'SELECT customer_id, assignee_id FROM public.chat_sessions WHERE id = $1',
         [sessionId]
@@ -161,9 +171,13 @@ export async function POST(request: Request) {
       if (!(await actorTemAlgumaPermissao(actor, ['tickets:outside_queue']))) {
         return NextResponse.json({ error: 'Você não tem permissão para atender a Central de Atendimento.' }, { status: 403 });
       }
-      const { sessionId, queueId, actingUserId } = body;
+      const { sessionId, queueId } = body;
+      // Quem clicou vem da sessão, não do corpo da requisição (mesmo motivo
+      // dos achados de 2026-09-23 em app/api/chats/route.ts).
+      const actingUserId: string = actor.id;
       const sessionRes = await query('SELECT customer_id, assignee_id FROM public.chat_sessions WHERE id = $1', [sessionId]);
       if (!sessionRes.rows[0]) return NextResponse.json({ error: 'Atendimento não encontrado.' }, { status: 404 });
+      const previousAssigneeId: string | null = sessionRes.rows[0].assignee_id;
 
       const queueRes = await query('SELECT id, name, member_ids FROM public.queues WHERE id = $1', [queueId]);
       const queue = queueRes.rows[0];
@@ -171,8 +185,19 @@ export async function POST(request: Request) {
 
       // Escolha + gravação sob o MESMO lock por fila: sem isso, duas devoluções
       // quase simultâneas calculam o mesmo "próximo" e caem no mesmo analista.
+      //
+      // Devolver pra fila é passar pro PRÓXIMO: quem devolveu (e quem estava
+      // com a conversa, se não for a mesma pessoa) fica fora da escolha —
+      // antes ele continuava elegível e, sendo o único online (ou caindo na
+      // sua vez do rodízio), a conversa voltava pra ele e parecia que nada
+      // tinha mudado. Sem mais ninguém online, fica 'pending' sem responsável,
+      // aguardando a fila (dispatchPendingChatSessions reatribui quando
+      // alguém ficar online ou o cliente escrever de novo).
       await runExclusive(`queue-assign:${queue.id}`, async () => {
-        const nextAssigneeId = await pickNextQueueAssignee({ id: queue.id, memberIds: queue.member_ids || [] });
+        const nextAssigneeId = await pickNextQueueAssignee(
+          { id: queue.id, memberIds: queue.member_ids || [] },
+          { excludeUserIds: [actingUserId, previousAssigneeId].filter((id): id is string => !!id) }
+        );
         await query(
           `UPDATE public.chat_sessions
               SET assignee_id = $1, queue_id = $2, status = $3, updated_at = NOW()
