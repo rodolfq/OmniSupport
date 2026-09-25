@@ -35,7 +35,7 @@ export default function PortalLayout({ children }: { children: React.ReactNode }
     authInitialized,
     notifications,
     markNotificationRead,
-    whatsappStatus,
+    markNotificationsSeen,
     userStatus,
     userStatusReason,
     lunchSecondsRemaining,
@@ -88,7 +88,9 @@ export default function PortalLayout({ children }: { children: React.ReactNode }
     return null;
   }
 
-  const unreadCount = notifications.filter(n => !n.read).length;
+  // Número do sino = o que ainda não foi lido E não foi visto: abrir o sino
+  // zera (markNotificationsSeen), sem marcar as notificações como lidas.
+  const unreadCount = notifications.filter(n => !n.read && !n.seen).length;
   const isTeam = [UserRole.ADMIN, UserRole.SUPPORT, UserRole.INTERNAL].includes(currentUser.role as UserRole);
   // O widget dá acesso à central de atendimento (filas, assumir/transferir
   // conversa) pra quem é do time — isso é exatamente o que a permissão
@@ -212,23 +214,6 @@ export default function PortalLayout({ children }: { children: React.ReactNode }
                   )}
                 </div>
               )}
-              {/* Status dos canais de WhatsApp — só quem atende a Central de
-                  Atendimento (mesma permissão do widget de chat) tem motivo
-                  pra ver isso; pra quem nunca vai atender um chat externo,
-                  esse indicador não diz nada. */}
-              {isTeam && hasPermission(Permission.OUTSIDE_QUEUE_VIEW) && (
-                <div className="flex items-center gap-2 px-3 py-1.5 bg-[var(--surface-pill)] rounded-full border border-[var(--border-default)] group cursor-default">
-                  <div className={cn(
-                    "w-2.5 h-2.5 rounded-full animate-pulse",
-                    whatsappStatus === 'connected' ? "bg-[var(--text-success)] shadow-[0_0_8px_rgba(16,185,129,0.5)]" :
-                    whatsappStatus === 'disconnected' ? "bg-[var(--text-danger)]" : "bg-[var(--text-warning-strong)]"
-                  )} />
-                  <span className="text-[10px] font-semibold uppercase tracking-tighter text-[var(--text-tertiary)]">
-                    {whatsappStatus === 'connected' ? 'Canais OK' :
-                    whatsappStatus === 'disconnected' ? 'Canais OFF' : 'Conectando...'}
-                  </span>
-                </div>
-              )}
               <button
                 onClick={toggleTheme}
                 className="p-2 rounded-lg transition-all hover:text-[var(--text-secondary)] hover:bg-[var(--surface-pill)]"
@@ -239,7 +224,10 @@ export default function PortalLayout({ children }: { children: React.ReactNode }
               <AiAssistantWidget />
               <div className="relative">
                 <button
-                  onClick={() => setIsNotificationsOpen(!isNotificationsOpen)}
+                  onClick={() => {
+                    if (!isNotificationsOpen) markNotificationsSeen();
+                    setIsNotificationsOpen(!isNotificationsOpen);
+                  }}
                   className={cn(
                     "relative p-2 rounded-lg transition-all",
                     isNotificationsOpen ? "bg-[var(--surface-pill)] text-[var(--accent-text)]" : "hover:text-[var(--text-secondary)] hover:bg-[var(--surface-pill)]"

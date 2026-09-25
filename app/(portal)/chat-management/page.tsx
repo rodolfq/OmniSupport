@@ -281,11 +281,9 @@ const handleDeleteNote = async () => {
 
   const handleAssignAnalyst = async (sessionId: string, targetUserId?: string) => {
     if (!currentUser) return;
+    // Assumir não exige estar Online (pedido do usuário, 2026-09-25): a rota
+    // nunca checou presença, só o cliente bloqueava.
     const assigneeId = targetUserId || currentUser.id;
-    if (!targetUserId && userStatus !== 'online') {
-      toast.error('Você precisa estar Online para assumir atendimentos!');
-      return;
-    }
     const result = await assignChatSession(sessionId, assigneeId, currentUser.id);
 
     if (!('error' in result)) {
@@ -361,10 +359,6 @@ const handleDeleteNote = async () => {
   const handleBulkAssign = async (visibleSessions: ChatSession[], targetUserId?: string) => {
     if (!currentUser) return;
     const assigneeId = targetUserId || currentUser.id;
-    if (!targetUserId && userStatus !== 'online') {
-      toast.error('Você precisa estar Online para assumir atendimentos!');
-      return;
-    }
 
     const idsToAssign = visibleSessions
       .filter(s => selectedSessionIds.has(s.id) && s.status !== 'closed')
@@ -438,41 +432,43 @@ const handleDeleteNote = async () => {
     return map;
   }, [sessions]);
 
-  const onlineAssignTargets = React.useMemo(() => {
+  const assignableTargets = React.useMemo(() => {
     return statuses
       // "Disponível" aqui precisa refletir presença de verdade, não só o
       // último status gravado — sem heartbeat recente (aba fechada sem
       // logout explícito) a pessoa fica presa como "online" pra sempre no
       // banco; ver lib/presence.ts (mesma regra usada em Gestão de Filas).
-      .filter(s => deriveLiveStatus(s) === 'online' && queueMemberIds.has(s.userId))
-      .map(s => analysts.find(a => a.id === s.userId))
-      .filter((a): a is User => !!a)
-      .map(a => ({ id: a.id, name: a.name }));
+      // Ausentes (away) também entram, marcados: dá pra transferir, mas o menu
+      // pede confirmação antes. Offline não entra.
+      .map(s => ({ live: deriveLiveStatus(s), analyst: analysts.find(a => a.id === s.userId), userId: s.userId }))
+      .filter((x): x is { live: 'online' | 'away'; analyst: User; userId: string } =>
+        (x.live === 'online' || x.live === 'away') && !!x.analyst && queueMemberIds.has(x.userId))
+      .map(x => ({ id: x.analyst.id, name: x.analyst.name, away: x.live === 'away' }));
   }, [statuses, analysts, queueMemberIds]);
 
   const queueMenuTargets = React.useMemo(() => {
     return allQueues.map((q: any) => ({ id: q.id, name: q.name }));
   }, [allQueues]);
 
-  // Restringe a lista de "Enviar para" a quem está online E é membro da fila
-  // do próprio chat — sem fila (pool combinado) cai de volta pra todo mundo
-  // online, já que aí não há uma fila única pra filtrar. O próprio usuário
-  // (se online) sempre aparece, mesmo que não seja formalmente membro dessa
-  // fila específica — "puxar" um chat pra si não deveria depender disso.
+  // Restringe a lista de "Enviar para" a quem está online ou ausente E é membro
+  // da fila do próprio chat — sem fila (pool combinado) cai de volta pra todo
+  // mundo disponível, já que aí não há uma fila única pra filtrar. O próprio
+  // usuário sempre aparece, mesmo Offline e mesmo que não seja formalmente
+  // membro dessa fila — "puxar" um chat pra si não depende de presença nem de
+  // fila (e a si mesmo nunca pede confirmação de ausência).
   const getQueueOnlineTargets = React.useCallback((queueId?: string | null) => {
     const base = (() => {
-      if (!queueId) return onlineAssignTargets;
+      if (!queueId) return assignableTargets;
       const queue = allQueues.find((q: any) => q.id === queueId);
-      if (!queue) return onlineAssignTargets;
+      if (!queue) return assignableTargets;
       const memberIds: string[] = queue.member_ids || [];
-      return onlineAssignTargets.filter(t => memberIds.includes(t.id));
+      return assignableTargets.filter(t => memberIds.includes(t.id));
     })();
 
-    if (currentUser && userStatus === 'online' && !base.some(t => t.id === currentUser.id)) {
-      return [...base, { id: currentUser.id, name: currentUser.name }];
-    }
-    return base;
-  }, [onlineAssignTargets, allQueues, currentUser, userStatus]);
+    if (!currentUser) return base;
+    const withoutSelf = base.filter(t => t.id !== currentUser.id);
+    return [...withoutSelf, { id: currentUser.id, name: currentUser.name, away: false }];
+  }, [assignableTargets, allQueues, currentUser]);
 
   const [isBulkFinishConfirmOpen, setIsBulkFinishConfirmOpen] = useState(false);
   const [isBulkFinishing, setIsBulkFinishing] = useState(false);
@@ -637,7 +633,7 @@ const handleDeleteNote = async () => {
               activeTab === 'notes' ? "bg-[var(--surface-card)] text-[var(--accent-text)] shadow-lg" : "text-[var(--text-tertiary)] hover:text-[var(--text-secondary)]"
             )}
           >
-            <Zap size={14} /> Notas Rápidas
+            <Zap size={14} /> Respostas Prontas
           </button>
           <button
             onClick={() => setActiveTab('history')}
@@ -697,8 +693,7 @@ const handleDeleteNote = async () => {
                       <div className="flex items-center gap-2">
                          <AssignChatMenu
                            currentUserId={currentUser?.id}
-                           isCurrentUserOnline={userStatus === 'online'}
-                           onlineTargets={onlineAssignTargets}
+                           onlineTargets={assignableTargets}
                            onAssignToSelf={() => handleBulkAssign(visibleQueueSessions)}
                            onAssignToUser={(userId) => handleBulkAssign(visibleQueueSessions, userId)}
                            queues={queueMenuTargets}
@@ -811,7 +806,6 @@ const handleDeleteNote = async () => {
                                     </button>
                                     <AssignChatMenu
                                       currentUserId={currentUser?.id}
-                                      isCurrentUserOnline={userStatus === 'online'}
                                       onlineTargets={getQueueOnlineTargets(s.queueId)}
                                       onAssignToSelf={() => handleAssignAnalyst(s.id)}
                                       onAssignToUser={(userId) => handleAssignAnalyst(s.id, userId)}
@@ -833,7 +827,6 @@ const handleDeleteNote = async () => {
                                     </button>
                                     <AssignChatMenu
                                       currentUserId={currentUser?.id}
-                                      isCurrentUserOnline={userStatus === 'online'}
                                       onlineTargets={getQueueOnlineTargets(s.queueId)}
                                       onAssignToUser={(userId) => handleAssignAnalyst(s.id, userId)}
                                       queues={queueMenuTargets}
@@ -1148,7 +1141,7 @@ const handleDeleteNote = async () => {
                 onClick={() => handleOpenNoteModal()}
                 className="bg-[var(--accent)] text-white px-6 py-3 rounded-2xl text-[10px] font-semibold uppercase tracking-widest shadow-lg shadow-indigo-100 flex items-center gap-2 hover:bg-[var(--accent-hover)] transition-all"
               >
-                 <Plus size={16} /> Nova Nota Rápida
+                 <Plus size={16} /> Nova Resposta Pronta
               </button>
            </div>
            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
@@ -1157,7 +1150,7 @@ const handleDeleteNote = async () => {
                    <div>
                       <div className="flex items-center justify-between mb-4">
                          <span className="bg-[var(--accent)]/10 text-[var(--accent-text)] px-4 py-1.5 rounded-xl text-[10px] font-semibold uppercase tracking-widest border border-[var(--accent)]/20">
-                            /{note.shortcut}
+                            {note.shortcut}
                          </span>
                          <span className="text-[8px] font-semibold uppercase text-[var(--text-tertiary)] tracking-widest">{note.category}</span>
                       </div>
@@ -1193,19 +1186,19 @@ const handleDeleteNote = async () => {
             >
                <div className="p-8 border-b border-[var(--border-default)] bg-[var(--surface-card)]/50 flex items-center justify-between">
                   <div>
-                    <h3 className="text-2xl font-black text-[var(--text-primary)] tracking-tight">Atalho de Resposta</h3>
-                    <p className="text-sm text-[var(--text-tertiary)] font-medium tracking-tight">Agilize o suporte usando atalhos &quot;/&quot;</p>
+                    <h3 className="text-2xl font-black text-[var(--text-primary)] tracking-tight">Resposta Pronta</h3>
+                    <p className="text-sm text-[var(--text-tertiary)] font-medium tracking-tight">Textos prontos para colar no chat pelo botão de respostas prontas</p>
                   </div>
                   <button onClick={() => setIsNoteModalOpen(false)} className="text-[var(--text-tertiary)] hover:text-[var(--text-secondary)]"><XCircle size={28} /></button>
                </div>
                <div className="p-8 space-y-6">
                   <div className="space-y-1.5">
-                     <label className="text-[10px] font-semibold uppercase text-[var(--text-tertiary)] tracking-widest ml-1">Atalho (sem a barra)</label>
+                     <label className="text-[10px] font-semibold uppercase text-[var(--text-tertiary)] tracking-widest ml-1">Título</label>
                      <input 
                        type="text" 
                        value={noteShortcut}
                        onChange={(e) => setNoteShortcut(e.target.value)}
-                       placeholder="ex: saudacao"
+                       placeholder="ex: Saudação inicial"
                        className="w-full bg-[var(--surface-card)] border border-[var(--border-default)] rounded-2xl px-4 py-3 text-sm font-bold focus:ring-4 focus:ring-[var(--accent)]/10 outline-none transition-all"
                      />
                   </div>
@@ -1346,8 +1339,8 @@ const handleDeleteNote = async () => {
         isOpen={!!deletingNote}
         onClose={() => setDeletingNote(null)}
         onConfirm={handleDeleteNote}
-        title="Excluir Nota Rápida"
-        description="Deseja excluir esta nota rápida? Esta ação não pode ser desfeita."
+        title="Excluir Resposta Pronta"
+        description="Deseja excluir esta resposta pronta? Esta ação não pode ser desfeita."
         confirmLabel="Excluir"
         variant="danger"
       />

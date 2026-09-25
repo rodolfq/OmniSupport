@@ -8,6 +8,19 @@ import { Bell } from 'lucide-react';
 import { AbsenceReasonService, AnalystService } from '@/lib/services/chat-service';
 import { subscribeToPush } from '@/hooks/use-push-subscription';
 
+const NOTIFICATION_TOAST_MS = 6000;
+
+// Cartão de aviso que SEMPRE fecha sozinho. O Sonner pausa o cronômetro
+// enquanto o mouse está sobre o cartão (ou a aba está oculta) — e o cartão
+// nasce no canto superior direito, bem debaixo do sino, onde o mouse costuma
+// ficar parado: o cartão nunca expirava e só saía pelo X. Por isso, além da
+// `duration` do Sonner, um dismiss explícito um pouco depois.
+function showTimedToast(title: string, options: Parameters<typeof toast>[1] = {}, ms = NOTIFICATION_TOAST_MS) {
+  const id = toast(title, { ...options, duration: ms });
+  setTimeout(() => toast.dismiss(id), ms + 500);
+  return id;
+}
+
 export interface AppNotification {
   id: string;
   sourceId?: string;
@@ -18,6 +31,11 @@ export interface AppNotification {
   recipientId: string;
   timestamp: string;
   read: boolean;
+  // "Visto" ≠ "lido": abrir o sino zera o número vermelho dele (visto), mas a
+  // notificação continua não lida — o destaque na lista e o número por
+  // conversa no widget só saem quando a pessoa realmente abre aquilo.
+  // Ausente em notificações guardadas antes deste campo = ainda não vista.
+  seen?: boolean;
   // Dados extras que não cabem em title/message — 'customer_evaluation_prompt'
   // leva o nome da empresa e a sessão de chat de origem até o modal de
   // avaliação; 'calendar_event' leva o link do evento/reunião do Google, que
@@ -84,6 +102,7 @@ interface AppContextType {
   notifications: AppNotification[];
   addNotification: (notification: Omit<AppNotification, 'id' | 'timestamp' | 'read' | 'recipientId'>, recipientId: string) => void;
   markNotificationRead: (id: string | 'all') => void;
+  markNotificationsSeen: () => void;
   markNotificationsAsReadByTarget: (targetId: string) => void;
   clearNotifications: () => void;
   pruneStaleChatNotifications: (validSessionIds: string[]) => void;
@@ -424,9 +443,8 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       // (`richColors`, verde/vermelho/âmbar) porque essas são pra feedback
       // direto de uma ação do próprio usuário (toast.success/error), não pra
       // aviso de evento de terceiro.
-      toast(notif.title, {
+      showTimedToast(notif.title, {
         description: newNotif.message,
-        duration: 4000,
         icon: <Bell size={16} />
       });
 
@@ -580,7 +598,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     const title = 'Fim do horário de almoço';
     const message = 'Seus 60 minutos de almoço terminaram.';
 
-    toast(title, { description: message, duration: 8000 });
+    showTimedToast(title, { description: message }, 8000);
     playSound('system');
 
     // Mesma regra da notificação nativa em addNotification: só dispara quando a
@@ -1029,6 +1047,16 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     });
   }, []);
 
+  // Chamado ao abrir o sino: zera o número vermelho sem marcar nada como lido.
+  const markNotificationsSeen = React.useCallback(() => {
+    setNotifications(prev => {
+      if (!prev.some(n => !n.seen)) return prev;
+      const updated = prev.map(n => n.seen ? n : { ...n, seen: true });
+      localStorage.setItem('omni_notif_history', safeJsonStringify(updated));
+      return updated;
+    });
+  }, []);
+
   const markNotificationsAsReadByTarget = React.useCallback((targetId: string) => {
     setNotifications(prev => {
       const hasUnread = prev.some(n => n.targetId === targetId && !n.read);
@@ -1104,6 +1132,7 @@ return (
       notifications: userNotifications,
       addNotification,
       markNotificationRead,
+      markNotificationsSeen,
       markNotificationsAsReadByTarget,
       clearNotifications,
       pruneStaleChatNotifications,

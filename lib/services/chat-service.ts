@@ -564,6 +564,32 @@ export async function fetchSessionMessages(sessionId: string): Promise<SessionMe
   return res.json();
 }
 
+// Conversa vinculada a um chamado, em versão de LISTA (sem as mensagens).
+export interface LinkedChatSession {
+  id: string;
+  customerName?: string;
+  customerPhone?: string;
+  channel?: string;
+  status: string;
+  conversationNumber?: number | null;
+  assigneeName?: string | null;
+  startedAt: string;
+  lastMessageAt: string;
+  messageCount: number;
+}
+
+// Conversas vinculadas a um chamado (a de origem, as dos chamados mesclados
+// nele e as que apontam pra ele) — usado pela aba "Conversa" do chamado, que
+// mostra a lista e só busca as mensagens (fetchSessionMessages) ao abrir uma.
+export async function fetchTicketSessions(ticketId: string): Promise<LinkedChatSession[]> {
+  const res = await fetch(`/api/chats?action=ticket-sessions&ticketId=${encodeURIComponent(ticketId)}`);
+  if (!res.ok) {
+    const body = await res.json().catch(() => ({}));
+    throw new Error(body.error || 'Não foi possível carregar as conversas vinculadas.');
+  }
+  return res.json();
+}
+
 export interface ChatSummaryResult {
   summary: string;
   generatedAt: string;

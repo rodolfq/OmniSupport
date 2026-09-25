@@ -2,12 +2,15 @@
 
 import React, { useState } from 'react';
 import { motion, AnimatePresence } from 'motion/react';
-import { X, AlertTriangle } from 'lucide-react';
+import { X, AlertTriangle, Loader2 } from 'lucide-react';
 
 interface ConfirmDialogProps {
   isOpen: boolean;
   onClose: () => void;
-  onConfirm: () => void;
+  // Se devolver uma Promise, o diálogo fica aberto com o botão em "carregando"
+  // até ela terminar — assim quem clicou vê que a ação já está em andamento (e
+  // não clica de novo). Callback síncrono (void) fecha na hora, como antes.
+  onConfirm: () => unknown;
   title: string;
   description?: string;
   confirmLabel?: string;
@@ -25,9 +28,26 @@ export function ConfirmDialog({
   cancelLabel = 'Cancelar',
   variant = 'default'
 }: ConfirmDialogProps) {
-  const handleConfirm = () => {
-    onConfirm();
+  const [loading, setLoading] = useState(false);
+
+  const handleConfirm = async () => {
+    if (loading) return;
+    const result = onConfirm();
+    if (result && typeof (result as Promise<unknown>).then === 'function') {
+      setLoading(true);
+      try {
+        await result;
+      } catch (err) {
+        console.error('[ConfirmDialog] Falha na ação confirmada:', err);
+      } finally {
+        setLoading(false);
+      }
+    }
     onClose();
+  };
+
+  const handleClose = () => {
+    if (!loading) onClose();
   };
 
   return (
@@ -38,7 +58,7 @@ export function ConfirmDialog({
             initial={{ opacity: 0 }}
             animate={{ opacity: 1 }}
             exit={{ opacity: 0 }}
-            onClick={onClose}
+            onClick={handleClose}
             className="absolute inset-0 bg-slate-900/60 backdrop-blur-sm"
           />
           <motion.div
@@ -59,19 +79,22 @@ export function ConfirmDialog({
 
             <div className="flex gap-3 justify-end">
               <button
-                onClick={onClose}
-                className="px-4 py-2 rounded-lg text-[var(--text-secondary)] hover:bg-[var(--surface-pill)] transition-all text-sm font-bold"
+                onClick={handleClose}
+                disabled={loading}
+                className="px-4 py-2 rounded-lg text-[var(--text-secondary)] hover:bg-[var(--surface-pill)] transition-all text-sm font-bold disabled:opacity-50"
               >
                 {cancelLabel}
               </button>
               <button
                 onClick={handleConfirm}
-                className={`px-4 py-2 rounded-lg text-white font-bold text-sm transition-all ${
+                disabled={loading}
+                className={`px-4 py-2 rounded-lg text-white font-bold text-sm transition-all flex items-center gap-2 disabled:opacity-70 disabled:cursor-not-allowed ${
                   variant === 'danger'
                     ? 'bg-[var(--text-danger)] hover:bg-[var(--text-danger)]'
                     : 'bg-[var(--text-warning-strong)] hover:bg-[var(--accent-warning-hover)]'
                 }`}
               >
+                {loading && <Loader2 size={14} className="animate-spin" />}
                 {confirmLabel}
               </button>
             </div>

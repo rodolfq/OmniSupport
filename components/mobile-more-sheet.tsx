@@ -34,7 +34,6 @@ export function MobileMoreSheet({ isOpen, onClose }: MobileMoreSheetProps) {
     lunchSecondsRemaining,
     absenceReasons,
     setUserStatus,
-    whatsappStatus,
     dbStatus,
     hasPermission,
     navBadges
@@ -185,16 +184,9 @@ export function MobileMoreSheet({ isOpen, onClose }: MobileMoreSheetProps) {
 
               {isTeam && hasPermission(Permission.OUTSIDE_QUEUE_VIEW) && (
                 <div className="flex items-center justify-between px-4 py-3 rounded-2xl border border-[var(--border-default)]">
-                  <div className="flex items-center gap-2">
-                    <div className={cn(
-                      "w-2.5 h-2.5 rounded-full",
-                      whatsappStatus === 'connected' ? "bg-[var(--text-success)]" :
-                      whatsappStatus === 'disconnected' ? "bg-[var(--text-danger)]" : "bg-[var(--text-warning-strong)]"
-                    )} />
-                    <span className="text-xs font-black uppercase text-[var(--text-secondary)] tracking-tight">
-                      {whatsappStatus === 'connected' ? 'Canais OK' : whatsappStatus === 'disconnected' ? 'Canais OFF' : 'Conectando...'}
-                    </span>
-                  </div>
+                  <span className="text-xs font-black uppercase text-[var(--text-secondary)] tracking-tight">
+                    Banco de dados
+                  </span>
                   <Database size={16} className={cn(
                     dbStatus === 'connected' ? "text-[var(--text-success)]" :
                     dbStatus === 'error' ? "text-[var(--text-danger)]" : "text-[var(--text-tertiary)]"

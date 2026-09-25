@@ -5,12 +5,16 @@ import { createPortal } from 'react-dom';
 import { AnimatePresence, motion } from 'motion/react';
 import { ChevronDown, ListRestart, Send, UserPlus } from 'lucide-react';
 import { cn } from '@/lib/utils';
+import { ConfirmDialog } from './confirm-dialog';
 
 const MENU_WIDTH = 224; // w-56
 
 interface OnlineTarget {
   id: string;
   name: string;
+  // Analista com status Ausente: aparece na lista, mas transferir pra ele pede
+  // confirmação antes (ele pode demorar a ver a conversa).
+  away?: boolean;
 }
 
 interface QueueTarget {
@@ -20,7 +24,8 @@ interface QueueTarget {
 
 interface AssignChatMenuProps {
   currentUserId?: string;
-  isCurrentUserOnline: boolean;
+  /** Sem efeito: assumir/transferir pra si não depende mais de estar Online. */
+  isCurrentUserOnline?: boolean;
   onlineTargets: OnlineTarget[];
   onAssignToSelf?: () => void;
   onAssignToUser: (userId: string) => void;
@@ -35,7 +40,6 @@ interface AssignChatMenuProps {
 
 export function AssignChatMenu({
   currentUserId,
-  isCurrentUserOnline,
   onlineTargets,
   onAssignToSelf,
   onAssignToUser,
@@ -49,6 +53,10 @@ export function AssignChatMenu({
 }: AssignChatMenuProps) {
   const [open, setOpen] = useState(false);
   const [mounted, setMounted] = useState(false);
+  // Confirmação de transferência pra analista Ausente (nome guardado à parte
+  // pra o texto não sumir durante a animação de fechar do diálogo).
+  const [awayTarget, setAwayTarget] = useState<OnlineTarget | null>(null);
+  const [awayConfirmOpen, setAwayConfirmOpen] = useState(false);
   const [position, setPosition] = useState({ top: 0, left: 0, maxHeight: 320 });
   const containerRef = useRef<HTMLDivElement>(null);
 
@@ -92,7 +100,8 @@ export function AssignChatMenu({
   // pra si um chat que está com outra pessoa, direto pela mesma lista de
   // transferência, sem depender do botão "Assumir" (que nem sempre aparece,
   // ex: quando showSelf=false porque o chat já tem responsável).
-  const targets = onlineTargets;
+  // Online primeiro, Ausentes por último (esses pedem confirmação).
+  const targets = [...onlineTargets].sort((a, b) => Number(!!a.away) - Number(!!b.away));
   // Lista todas as filas, incluindo a atual: mesmo pra fila que já é a do
   // chat, "Voltar para fila" tem utilidade (força um novo rodízio/distribuição).
   const queueTargets = queues;
@@ -104,12 +113,11 @@ export function AssignChatMenu({
           <button
             type="button"
             onClick={onAssignToSelf}
-            disabled={!isCurrentUserOnline}
             className={cn(
-              'flex items-center gap-2 bg-[var(--accent)] text-white text-[10px] font-semibold hover:bg-[var(--accent-hover)] transition-all disabled:opacity-50 disabled:cursor-not-allowed',
+              'flex items-center gap-2 bg-[var(--accent)] text-white text-[10px] font-semibold hover:bg-[var(--accent-hover)] transition-all',
               variant === 'full' ? 'px-4 py-2.5' : 'px-2.5 py-2.5'
             )}
-            title={isCurrentUserOnline ? undefined : 'Você precisa estar Online para assumir atendimentos'}
+            title={variant === 'icon' ? selfLabel : undefined}
           >
             <UserPlus size={14} /> {variant === 'full' && selfLabel}
           </button>
@@ -121,7 +129,7 @@ export function AssignChatMenu({
             'flex items-center justify-center bg-[var(--accent)] text-white hover:bg-[var(--accent-hover)] transition-all',
             showSelf ? 'px-2 py-2.5 border-l border-white/20' : 'px-2.5 py-2.5'
           )}
-          title="Enviar para outro usuário online"
+          title="Enviar para outro analista"
         >
           <ChevronDown size={14} />
           {!showSelf && variant === 'full' && <span className="ml-2">Transferir</span>}
@@ -145,7 +153,7 @@ export function AssignChatMenu({
                   Enviar para
                 </p>
                 {targets.length === 0 ? (
-                  <p className="px-4 py-3 text-xs text-[var(--text-tertiary)] italic">Nenhum outro usuário online</p>
+                  <p className="px-4 py-3 text-xs text-[var(--text-tertiary)] italic">Nenhum outro analista disponível</p>
                 ) : (
                   <div className="overflow-y-auto">
                     {targets.map(target => (
@@ -153,12 +161,23 @@ export function AssignChatMenu({
                         key={target.id}
                         type="button"
                         onClick={() => {
-                          onAssignToUser(target.id);
                           setOpen(false);
+                          if (target.away) {
+                            setAwayTarget(target);
+                            setAwayConfirmOpen(true);
+                            return;
+                          }
+                          onAssignToUser(target.id);
                         }}
                         className="w-full flex items-center gap-2 px-4 py-2.5 text-xs font-bold text-[var(--text-secondary)] hover:bg-[var(--accent)]/10 transition-all text-left"
                       >
-                        <Send size={12} className="text-[var(--accent-text)] shrink-0" /> {target.name}
+                        <Send size={12} className="text-[var(--accent-text)] shrink-0" />
+                        <span className="min-w-0 flex-1 truncate">{target.name}</span>
+                        {target.away && (
+                          <span className="shrink-0 rounded-full bg-[var(--surface-warning)] px-2 py-0.5 text-[9px] font-semibold uppercase tracking-wide text-[var(--text-warning)]">
+                            Ausente
+                          </span>
+                        )}
                       </button>
                     ))}
                   </div>
@@ -193,6 +212,19 @@ export function AssignChatMenu({
             </>
           )}
         </AnimatePresence>,
+        document.body,
+      )}
+
+      {mounted && createPortal(
+        <ConfirmDialog
+          isOpen={awayConfirmOpen}
+          onClose={() => setAwayConfirmOpen(false)}
+          onConfirm={() => awayTarget ? onAssignToUser(awayTarget.id) : undefined}
+          title={`${awayTarget?.name ?? 'O analista'} está ausente`}
+          description="Este analista está com o status Ausente e pode demorar a ver a conversa. Deseja transferir mesmo assim?"
+          confirmLabel="Transferir mesmo assim"
+          cancelLabel="Cancelar"
+        />,
         document.body,
       )}
     </div>

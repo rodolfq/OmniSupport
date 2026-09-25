@@ -5,6 +5,7 @@ import { StyledSelect } from '@/components/styled-select';
 import { UserAvatar } from '@/components/user-avatar';
 import { X, User, MessageCircle, Clock, Link2, Paperclip, Save, Maximize2, Minimize2, Send, Lock, History, Download, File, Image as ImageIcon, Film, Loader2, Check, Copy, GitMerge } from 'lucide-react';
 import { motion } from 'motion/react';
+import { createPortal } from 'react-dom';
 import { Ticket, TicketStatus, User as UserType, Message, UserRole, StatusConfig, Company, Attachment, PriorityConfig, CategoryConfig, RequestTypeConfig, ProductConfig, InternalTicket, Permission } from '@/lib/types';
 import { cn, selectableOptions, linkifyPlainUrls } from '@/lib/utils';
 import { useApp } from '@/app/app-context';
@@ -19,7 +20,7 @@ import { ClientTime } from './client-time';
 import { TicketService, MessageService, InternalTicketService } from '@/lib/services/ticket-service';
 import { claimGiroTurnForTicket } from '@/lib/services/giro-client';
 import { duplicateTicket } from '@/lib/services/chat-session-actions';
-import { fetchSessionMessages, SessionMessagesResult } from '@/lib/services/chat-service';
+import { fetchSessionMessages, fetchTicketSessions, SessionMessagesResult, LinkedChatSession } from '@/lib/services/chat-service';
 import { useAutoTranscribeMissingAudio } from '@/hooks/use-auto-transcribe-missing-audio';
 import { UserService } from '@/lib/services/user-service';
 import { CompanyService } from '@/lib/services/company-service';
@@ -99,6 +100,12 @@ export function TicketDetailModal({ ticket, onClose, initialDraft }: TicketDetai
   // States
   const [isFocused, setIsFocused] = useState(false);
   const [activeTab, setActiveTab] = useState<'description' | 'internal' | 'history' | 'attachments' | 'chat'>('description');
+  // Aba "Conversa": a LISTA das conversas vinculadas ao chamado; o histórico
+  // completo (chatSessionData) só é buscado ao clicar em uma delas e aparece
+  // num modal por cima do chamado.
+  const [linkedSessions, setLinkedSessions] = useState<LinkedChatSession[] | null>(null);
+  const [isLoadingLinkedSessions, setIsLoadingLinkedSessions] = useState(false);
+  const [openedSessionId, setOpenedSessionId] = useState<string | null>(null);
   const [chatSessionData, setChatSessionData] = useState<SessionMessagesResult | null>(null);
   const [isLoadingChatSession, setIsLoadingChatSession] = useState(false);
   // Corte de "não lido" pra este chamado (ver efeito de markTicketNotificationsRead
@@ -112,10 +119,22 @@ export function TicketDetailModal({ ticket, onClose, initialDraft }: TicketDetai
   // e outro do mesmo modal. `ticket?.chatSessionId` já é opcional, então mover
   // pra cá não muda o comportamento, só a ordem.
   useAutoTranscribeMissingAudio(
-    ticket?.chatSessionId,
+    openedSessionId || undefined,
     chatSessionData?.messages,
     (updater) => setChatSessionData(prev => prev ? { ...prev, messages: updater(prev.messages) } : prev)
   );
+  // Esc com uma conversa aberta por cima fecha só ela, não o chamado inteiro.
+  useEffect(() => {
+    if (!openedSessionId) return;
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key !== 'Escape') return;
+      e.stopImmediatePropagation();
+      setOpenedSessionId(null);
+      setChatSessionData(null);
+    };
+    window.addEventListener('keydown', onKey, true);
+    return () => window.removeEventListener('keydown', onKey, true);
+  }, [openedSessionId]);
   const [historyTab, setHistoryTab] = useState<'customer' | 'internal' | 'recent-tickets'>('customer');
   const [recentCompanyTickets, setRecentCompanyTickets] = useState<Ticket[]>([]);
   const [loadingRecentCompanyTickets, setLoadingRecentCompanyTickets] = useState(false);
@@ -376,6 +395,8 @@ export function TicketDetailModal({ ticket, onClose, initialDraft }: TicketDetai
       setUnreadSince(null);
     }
     setChatSessionData(null);
+    setLinkedSessions(null);
+    setOpenedSessionId(null);
     setRecentCompanyTickets([]);
 
     // Set default history tab based on role and permissions
@@ -479,18 +500,38 @@ const loadMessages = async () => {
    // Busca sob demanda (só quando a aba "Conversa" é aberta) — a maioria dos
    // chamados nunca chega a ter essa aba clicada, então não faz sentido buscar
    // o histórico do chat vinculado em todo carregamento do modal.
-   const loadChatSessionMessages = async () => {
-     if (!ticket?.chatSessionId || chatSessionData || isLoadingChatSession) return;
+   const loadLinkedSessions = async () => {
+     if (!ticket || linkedSessions || isLoadingLinkedSessions) return;
+     setIsLoadingLinkedSessions(true);
+     try {
+       setLinkedSessions(await fetchTicketSessions(ticket.id));
+     } catch (err) {
+       console.error('Error loading linked chat sessions:', err);
+       toast.error('Erro ao carregar as conversas vinculadas.');
+     } finally {
+       setIsLoadingLinkedSessions(false);
+     }
+   };
+
+   const openLinkedSession = async (sessionId: string) => {
+     if (isLoadingChatSession) return;
+     setOpenedSessionId(sessionId);
+     setChatSessionData(null);
      setIsLoadingChatSession(true);
      try {
-       const data = await fetchSessionMessages(ticket.chatSessionId);
-       setChatSessionData(data);
+       setChatSessionData(await fetchSessionMessages(sessionId));
      } catch (err) {
        console.error('Error loading linked chat session messages:', err);
        toast.error('Erro ao carregar o histórico da conversa.');
+       setOpenedSessionId(null);
      } finally {
        setIsLoadingChatSession(false);
      }
+   };
+
+   const closeLinkedSession = () => {
+     setOpenedSessionId(null);
+     setChatSessionData(null);
    };
 
 
@@ -615,14 +656,19 @@ const loadMessages = async () => {
     // botões (um só salvava + mandava e-mail; outro também forçava um
     // WhatsApp em texto livre, sem template) — unificados aqui num só,
     // porque a automação já cobre os dois canais de forma confiável.
+    // Nota com SÓ anexo é válida (texto vazio): o editor vazio devolve
+    // "<p></p>", que também conta como sem texto.
+    const noteHasText = () => !!message.trim() && message !== '<p></p>';
+    const canSendNote = () => noteHasText() || messageAttachments.length > 0;
+
     const handleSendMessage = async (isInternal: boolean) => {
-      if (!message.trim() || !currentUser || !ticket) return;
+      if (!canSendNote() || !currentUser || !ticket) return;
 
       const newMessage: Message = {
         id: Math.random().toString(36).substr(2, 9),
         ticketId: ticket.id,
         senderId: currentUser.id,
-        text: message,
+        text: noteHasText() ? message : '',
         timestamp: new Date().toISOString(),
         isVisibleToCustomer: !isInternal,
         type: isInternal ? 'internal' : 'text',
@@ -657,13 +703,13 @@ const loadMessages = async () => {
     // não nas mensagens do chamado pai — mesmo padrão usado em
     // app/(portal)/internal-tickets/[id]/page.tsx.
     const handleSendInternalTicketNote = async () => {
-      if (!message.trim() || !currentUser || !selectedInternalTicketId) return;
+      if (!canSendNote() || !currentUser || !selectedInternalTicketId) return;
 
       const newMessage: Message = {
         id: Math.random().toString(36).substr(2, 9),
         ticketId: selectedInternalTicketId,
         senderId: currentUser.id,
-        text: message,
+        text: noteHasText() ? message : '',
         timestamp: new Date().toISOString(),
         isVisibleToCustomer: false,
         type: 'internal',
@@ -947,14 +993,17 @@ const loadMessages = async () => {
   };
 
   const saveMainTicketDescription = async () => {
-    if (ticket.description === ticketDescription) {
+    // Compara com a última versão SALVA (lastSavedRef), não com a prop `ticket`:
+    // a prop só muda quando a lista recarrega, então depois de um 1º salvamento
+    // ela fica velha — e voltar ao texto original passaria por "sem alteração".
+    if ((lastSavedRef.current || ticket).description === ticketDescription) {
       setIsEditingDescription(false);
       return;
     }
 
     setSaveStatus('saving');
     try {
-      const updated: Ticket = { ...ticket, description: ticketDescription, updatedAt: new Date().toISOString() };
+      const updated: Ticket = { ...(lastSavedRef.current || ticket), description: ticketDescription, updatedAt: new Date().toISOString() };
       await TicketService.update(updated);
       lastSavedRef.current = updated;
       // Fica registrado, mas não vira mensagem visível — só entra na aba
@@ -1616,7 +1665,7 @@ const loadMessages = async () => {
                       </button>
                       {ticket.chatSessionId && (
                         <button
-                          onClick={() => { setActiveTab('chat'); loadChatSessionMessages(); }}
+                          onClick={() => { setActiveTab('chat'); loadLinkedSessions(); }}
                           className={cn(
                             "px-6 py-3 text-[11px] font-semibold uppercase tracking-widest border-b-2 transition-all flex items-center gap-2",
                             activeTab === 'chat' ? "border-[var(--accent)] text-[var(--accent-text)]" : "border-transparent text-[var(--text-tertiary)] hover:text-[var(--text-secondary)]"
@@ -1645,7 +1694,7 @@ const loadMessages = async () => {
                            {isEditingDescription ? (
                              <RichEditor content={ticketDescription} onChange={setTicketDescription} minHeight="300px" />
                            ) : (
-                             <div className="text-sm font-medium text-[var(--text-secondary)] leading-relaxed prose prose-sm max-w-none prose-p:my-2 prose-img:rounded-xl prose-img:border" dangerouslySetInnerHTML={{ __html: ticket.description }} />
+                             <div className="text-sm font-medium text-[var(--text-secondary)] leading-relaxed prose prose-sm max-w-none prose-p:my-2 prose-img:rounded-xl prose-img:border" dangerouslySetInnerHTML={{ __html: ticketDescription }} />
                            )}
                        </div>
                      )}
@@ -1658,30 +1707,103 @@ const loadMessages = async () => {
 
                       {activeTab === 'chat' && (
                         <div className="space-y-4 animate-in fade-in slide-in-from-bottom-2 duration-300">
-                          <h3 className="text-xs font-black uppercase text-[var(--text-tertiary)] tracking-widest">Histórico da Conversa</h3>
-                          {isLoadingChatSession ? (
+                          <h3 className="text-xs font-black uppercase text-[var(--text-tertiary)] tracking-widest">
+                            {linkedSessions && linkedSessions.length > 0
+                              ? `${linkedSessions.length} Conversa${linkedSessions.length > 1 ? 's' : ''} Vinculada${linkedSessions.length > 1 ? 's' : ''}`
+                              : 'Conversas Vinculadas'}
+                          </h3>
+                          {isLoadingLinkedSessions ? (
                             <p className="text-sm text-[var(--text-tertiary)] font-medium">Carregando...</p>
-                          ) : !chatSessionData ? (
-                            <p className="text-sm text-[var(--text-tertiary)] font-medium">Não foi possível carregar a conversa vinculada.</p>
-                          ) : chatSessionData.messages.length === 0 ? (
-                            <p className="text-sm text-[var(--text-tertiary)] font-medium">Esse atendimento não tem mensagens registradas.</p>
+                          ) : !linkedSessions ? (
+                            <p className="text-sm text-[var(--text-tertiary)] font-medium">Não foi possível carregar as conversas vinculadas.</p>
+                          ) : linkedSessions.length === 0 ? (
+                            <p className="text-sm text-[var(--text-tertiary)] font-medium">Nenhuma conversa vinculada a este chamado.</p>
                           ) : (
-                            <div className="space-y-3 max-h-[28rem] overflow-y-auto pr-1">
-                              {chatSessionData.messages.map(m => (
-                                <div key={m.id} className="p-4 bg-[var(--surface-card)] border border-[var(--border-default)] rounded-2xl">
-                                  <div className="flex items-center justify-between mb-1">
-                                    <span className="text-[11px] font-black uppercase text-[var(--text-secondary)]">{m.senderName || 'Cliente'}</span>
-                                    <span className="text-[10px] text-[var(--text-tertiary)] font-semibold">
-                                      <ClientTime date={m.timestamp} />
-                                    </span>
-                                  </div>
-                                  <p className="text-sm text-[var(--text-secondary)] leading-relaxed whitespace-pre-wrap break-words">{m.text}</p>
-                                  <ChatAttachmentList attachments={m.attachments || []} />
-                                </div>
-                              ))}
+                            <div className="space-y-2">
+                              {linkedSessions.map(s => {
+                                const channelLabel = s.channel === 'pyvon' ? 'WhatsApp (Pyvon)' : s.channel === 'whatsapp_baileys' ? 'WhatsApp (não-oficial)' : s.channel === 'widget' ? 'Portal (chat)' : null;
+                                const isOpening = isLoadingChatSession && openedSessionId === s.id;
+                                return (
+                                  <button
+                                    key={s.id}
+                                    onClick={() => openLinkedSession(s.id)}
+                                    disabled={isLoadingChatSession}
+                                    className="w-full text-left p-4 bg-[var(--surface-card)] border border-[var(--border-default)] rounded-2xl hover:border-[var(--accent)]/50 hover:bg-[var(--surface-pill)] transition-all disabled:opacity-60 flex items-center justify-between gap-3"
+                                  >
+                                    <div className="min-w-0">
+                                      <div className="flex items-center gap-2 flex-wrap">
+                                        {s.conversationNumber ? (
+                                          <span className="text-[10px] font-black text-[var(--accent-text)]">Conversa #{String(s.conversationNumber).padStart(4, '0')}</span>
+                                        ) : null}
+                                        <span className={cn(
+                                          "text-[9px] font-bold uppercase px-2 py-0.5 rounded-full",
+                                          s.status === 'closed' ? "bg-[var(--surface-pill)] text-[var(--text-tertiary)]" : "bg-[var(--surface-success)] text-[var(--text-success)]"
+                                        )}>
+                                          {s.status === 'closed' ? 'Encerrada' : 'Em andamento'}
+                                        </span>
+                                        {channelLabel && <span className="text-[10px] font-semibold text-[var(--text-tertiary)]">{channelLabel}</span>}
+                                      </div>
+                                      <p className="text-sm font-bold text-[var(--text-primary)] mt-1 truncate">{s.customerName || 'Cliente'}</p>
+                                      <p className="text-[10px] text-[var(--text-tertiary)] font-medium mt-0.5">
+                                        <ClientTime date={s.startedAt} /> · {s.messageCount} mensagem{s.messageCount === 1 ? '' : 's'}{s.assigneeName ? ` · com ${s.assigneeName}` : ''}
+                                      </p>
+                                    </div>
+                                    {isOpening
+                                      ? <Loader2 size={16} className="animate-spin text-[var(--accent-text)] shrink-0" />
+                                      : <span className="text-[10px] font-black uppercase tracking-widest text-[var(--accent-text)] shrink-0">Abrir →</span>}
+                                  </button>
+                                );
+                              })}
                             </div>
                           )}
                         </div>
+                      )}
+
+                      {openedSessionId && typeof document !== 'undefined' && createPortal(
+                        <div className="fixed inset-0 z-[500] flex items-center justify-center p-4">
+                          <div className="absolute inset-0 bg-slate-900/60 backdrop-blur-sm" onClick={closeLinkedSession} />
+                          <div className="relative bg-[var(--surface-card)] w-full max-w-2xl max-h-[88vh] rounded-3xl shadow-2xl flex flex-col overflow-hidden border border-[var(--border-default)]">
+                            <div className="p-5 border-b border-[var(--border-default)] flex items-start justify-between gap-4 shrink-0">
+                              <div className="min-w-0">
+                                <h3 className="text-sm font-black uppercase tracking-tight text-[var(--text-primary)] truncate">
+                                  {linkedSessions?.find(s => s.id === openedSessionId)?.conversationNumber
+                                    ? `Conversa #${String(linkedSessions?.find(s => s.id === openedSessionId)?.conversationNumber).padStart(4, '0')}`
+                                    : 'Conversa'}
+                                  {chatSessionData?.session.customerName ? ` · ${chatSessionData.session.customerName}` : ''}
+                                </h3>
+                                {chatSessionData && (
+                                  <p className="text-[10px] text-[var(--text-tertiary)] font-medium mt-0.5">
+                                    Iniciada em <ClientTime date={chatSessionData.session.startedAt} />
+                                  </p>
+                                )}
+                              </div>
+                              <button onClick={closeLinkedSession} title="Fechar (Esc)" className="text-[var(--text-tertiary)] hover:text-[var(--text-secondary)] transition-colors shrink-0">
+                                <X size={18} />
+                              </button>
+                            </div>
+                            <div className="flex-1 min-h-0 overflow-y-auto p-5 space-y-3 bg-[var(--surface-page)]">
+                              {isLoadingChatSession || !chatSessionData ? (
+                                <p className="text-sm text-[var(--text-tertiary)] font-medium flex items-center gap-2"><Loader2 size={14} className="animate-spin" /> Carregando conversa...</p>
+                              ) : chatSessionData.messages.length === 0 ? (
+                                <p className="text-sm text-[var(--text-tertiary)] font-medium">Esse atendimento não tem mensagens registradas.</p>
+                              ) : (
+                                chatSessionData.messages.map(m => (
+                                  <div key={m.id} className="p-4 bg-[var(--surface-card)] border border-[var(--border-default)] rounded-2xl">
+                                    <div className="flex items-center justify-between mb-1">
+                                      <span className="text-[11px] font-black uppercase text-[var(--text-secondary)]">{m.senderName || 'Cliente'}</span>
+                                      <span className="text-[10px] text-[var(--text-tertiary)] font-semibold">
+                                        <ClientTime date={m.timestamp} />
+                                      </span>
+                                    </div>
+                                    <p className="text-sm text-[var(--text-secondary)] leading-relaxed whitespace-pre-wrap break-words">{m.text}</p>
+                                    <ChatAttachmentList attachments={m.attachments || []} />
+                                  </div>
+                                ))
+                              )}
+                            </div>
+                          </div>
+                        </div>,
+                        document.body
                       )}
 
                       {activeTab === 'internal' && (
@@ -2039,7 +2161,6 @@ const loadMessages = async () => {
                              ref={messageFileInputRef}
                              onChange={handleMessageFileUpload}
                              multiple
-                             accept="image/*,.pdf,.doc,.docx,.txt,.zip,audio/*"
                              className="hidden"
                            />
                            <button
@@ -2053,7 +2174,7 @@ const loadMessages = async () => {
                         </div>
                         <button
                           onClick={handleSendInternalTicketNote}
-                          disabled={!message.trim() || message === '<p></p>'}
+                          disabled={!canSendNote()}
                           className="px-6 py-2 rounded-xl transition-all disabled:opacity-50 shadow-lg text-xs font-black uppercase tracking-widest flex items-center gap-2 bg-[var(--text-warning-strong)] hover:bg-[var(--accent-warning-hover)] text-white shadow-amber-100"
                         >
                            <Send size={16} />
@@ -2231,7 +2352,6 @@ const loadMessages = async () => {
                            ref={messageFileInputRef}
                            onChange={handleMessageFileUpload}
                            multiple
-                           accept="image/*,.pdf,.doc,.docx,.txt,.zip,audio/*"
                            className="hidden"
                          />
                          <button
@@ -2246,7 +2366,7 @@ const loadMessages = async () => {
                       <div className="flex items-center gap-2">
                          <button
                            onClick={() => handleSendMessage(historyTab === 'internal')}
-                           disabled={!message.trim() || message === '<p></p>'}
+                           disabled={!canSendNote()}
                            className={cn(
                              "px-6 py-2 rounded-xl transition-all disabled:opacity-50 shadow-lg text-xs font-black uppercase tracking-widest flex items-center gap-2",
                              historyTab === 'internal' ? "bg-[var(--text-warning-strong)] hover:bg-[var(--accent-warning-hover)] text-white shadow-amber-100" : "bg-[var(--accent)] hover:bg-[var(--accent-hover)] text-white shadow-indigo-100"

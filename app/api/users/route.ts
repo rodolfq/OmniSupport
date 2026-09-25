@@ -603,7 +603,28 @@ export async function POST(request: Request) {
     }
 
     if (action === 'create') {
-      const { email, name, companyId, phones } = body;
+      const { name, companyId, phones } = body;
+      // E-mail é OPCIONAL. Vazio vira NULL, nunca string vazia: '' = '' é
+      // verdadeiro no índice único (profiles_email_key), então o 2º contato
+      // criado sem e-mail estourava "duplicate key" (era o que acontecia em
+      // "Criar e Vincular" no chat, que manda e-mail vazio).
+      const email = typeof body.email === 'string' && body.email.trim() ? body.email.trim() : null;
+      if (email) {
+        const dup = await query(
+          `SELECT p.name, c.name AS company_name
+             FROM public.profiles p
+             LEFT JOIN public.companies c ON c.id = p.company_id
+            WHERE lower(btrim(p.email)) = lower(btrim($1)) LIMIT 1`,
+          [email]
+        );
+        if ((dup.rowCount ?? 0) > 0) {
+          const dono = dup.rows[0];
+          return NextResponse.json(
+            { error: `Este e-mail já está cadastrado${dono.name ? ` para ${dono.name}` : ''}${dono.company_name ? ` (${dono.company_name})` : ''}. Vincule o contato existente em vez de criar outro.` },
+            { status: 409 }
+          );
+        }
+      }
       // Endpoint simplificado — só cria contato de empresa-cliente (usado
       // hoje por "Vincular contato" no chat). Promover alguém a
       // Administrador/Equipe/Time Interno passa exclusivamente pelo fluxo

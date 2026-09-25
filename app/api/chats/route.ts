@@ -48,6 +48,40 @@ async function temPermissaoChatInterno(user: { id: string; role?: string } | nul
   return permissions.includes('chat:internal');
 }
 
+// Quem pode ler o histórico de uma conversa a partir da tela de um chamado.
+// Equipe/Administrador/Time Interno: qualquer uma. Cliente/Funcionário: só a
+// própria conversa, ou a de um chamado que já enxerga (dono, funcionário com
+// acesso, ou toda a empresa quando tem "ver todos os chamados da empresa") —
+// a mesma regra de visibilidade do próprio chamado.
+async function canReadChatSessionFromTicket(
+  actor: { id: string; role?: string; company_id?: string | null } | null,
+  sessionId: string
+): Promise<boolean> {
+  if (!actor?.id) return false;
+  if (isTeamRole(actor.role)) return true;
+  const res = await query(
+    `SELECT 1
+       FROM public.chat_sessions s
+      WHERE s.id = $1
+        AND (
+          s.customer_id = $2
+          OR EXISTS (
+            SELECT 1 FROM public.tickets t
+             WHERE t.chat_session_id = s.id
+               AND (
+                 t.customer_id = $2
+                 OR $2 = ANY(COALESCE(t.employee_ids, '{}'))
+                 OR (t.company_id IS NOT NULL AND t.company_id = $3
+                     AND EXISTS (SELECT 1 FROM public.profiles p WHERE p.id = $2 AND p.view_all_company_tickets))
+               )
+          )
+        )
+      LIMIT 1`,
+    [sessionId, actor.id, actor.company_id || null]
+  );
+  return (res.rowCount ?? 0) > 0;
+}
+
 export async function GET(request: NextRequest) {
   const { searchParams } = new URL(request.url);
   const action = searchParams.get('action');
@@ -207,6 +241,15 @@ export async function GET(request: NextRequest) {
       const sessionId = searchParams.get('sessionId');
       if (!sessionId) return NextResponse.json({ error: 'sessionId é obrigatório' }, { status: 400 });
 
+      // Antes qualquer sessão logada lia QUALQUER conversa por id (e as notas
+      // internas junto). Agora vale a mesma regra do chamado (ver helper acima).
+      const actor = await getCurrentActionUser();
+      if (!actor) return NextResponse.json({ error: 'Não autorizado.' }, { status: 401 });
+      if (!(await canReadChatSessionFromTicket(actor, sessionId))) {
+        return NextResponse.json({ error: 'Sem permissão para ver esta conversa.' }, { status: 403 });
+      }
+      const isTeam = isTeamRole(actor.role);
+
       const sessionRes = await query(
         `SELECT id, customer_name, customer_phone, status, created_at, last_message_at
          FROM public.chat_sessions WHERE id = $1`,
@@ -215,8 +258,12 @@ export async function GET(request: NextRequest) {
       const session = sessionRes.rows[0];
       if (!session) return NextResponse.json({ error: 'Sessão não encontrada' }, { status: 404 });
 
+      // Nota interna e log de sistema são da equipe: quem é da empresa-cliente
+      // vê só a conversa de verdade.
       const messagesRes = await query(
-        `SELECT * FROM public.chat_messages WHERE session_id = $1 ORDER BY created_at ASC`,
+        `SELECT * FROM public.chat_messages
+          WHERE session_id = $1 ${isTeam ? '' : "AND type NOT IN ('internal', 'system_log')"}
+          ORDER BY created_at ASC`,
         [sessionId]
       );
 
@@ -239,6 +286,61 @@ export async function GET(request: NextRequest) {
           attachments: m.metadata?.attachments || []
         }))
       });
+    }
+
+    if (action === 'ticket-sessions') {
+      // Lista (sem mensagens) das conversas vinculadas a um chamado: a conversa
+      // de origem, as dos chamados mesclados nele e as que apontam pra ele.
+      // As mensagens só são buscadas quando uma conversa é aberta
+      // (action=session-messages).
+      const ticketId = searchParams.get('ticketId');
+      if (!ticketId) return NextResponse.json({ error: 'ticketId é obrigatório' }, { status: 400 });
+
+      const actor = await getCurrentActionUser();
+      if (!actor) return NextResponse.json({ error: 'Não autorizado.' }, { status: 401 });
+
+      const ticketRes = await query(
+        `SELECT id, customer_id, company_id, employee_ids FROM public.tickets WHERE id = $1`,
+        [ticketId]
+      );
+      const ticket = ticketRes.rows[0];
+      if (!ticket) return NextResponse.json({ error: 'Chamado não encontrado.' }, { status: 404 });
+
+      if (!isTeamRole(actor.role)) {
+        const viewAll = (await query(`SELECT view_all_company_tickets FROM public.profiles WHERE id = $1`, [actor.id])).rows[0]?.view_all_company_tickets;
+        const canSee =
+          ticket.customer_id === actor.id ||
+          (ticket.employee_ids || []).includes(actor.id) ||
+          (!!viewAll && !!ticket.company_id && ticket.company_id === actor.company_id);
+        if (!canSee) return NextResponse.json({ error: 'Sem permissão para ver este chamado.' }, { status: 403 });
+      }
+
+      const sessionsRes = await query(
+        `SELECT s.id, s.customer_name, s.customer_phone, s.channel, s.status, s.ticket_number,
+                s.created_at, s.last_message_at, p.name AS assignee_name,
+                (SELECT COUNT(*)::int FROM public.chat_messages m
+                  WHERE m.session_id = s.id AND m.type NOT IN ('internal', 'system_log', 'system')) AS message_count
+           FROM public.chat_sessions s
+           LEFT JOIN public.profiles p ON p.id = s.assignee_id
+          WHERE s.id IN (SELECT chat_session_id FROM public.tickets
+                          WHERE (id = $1 OR merged_into_id = $1) AND chat_session_id IS NOT NULL)
+             OR s.ticket_id = $1
+          ORDER BY s.created_at DESC`,
+        [ticketId]
+      );
+
+      return NextResponse.json(sessionsRes.rows.map(s => ({
+        id: s.id,
+        customerName: s.customer_name,
+        customerPhone: s.customer_phone,
+        channel: s.channel || undefined,
+        status: s.status,
+        conversationNumber: s.ticket_number,
+        assigneeName: s.assignee_name,
+        startedAt: s.created_at,
+        lastMessageAt: s.last_message_at || s.created_at,
+        messageCount: s.message_count
+      })));
     }
 
     if (action === 'previous-histories') {

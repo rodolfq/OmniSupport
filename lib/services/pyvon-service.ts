@@ -10,6 +10,7 @@ import { resolveQueueForInstance, resolveQueueById, pickNextQueueAssignee, dispa
 import { storeAttachmentBuffer } from './attachment-storage';
 import { transcribeMessageAudio, isAudioAttachment, isTranscriptionEnabled } from './transcription-service';
 import { isCrisisModeEnabled, recordCrisisModeMessage, getCrisisModeMessage } from './crisis-mode-service';
+import { resolveReplyQuote } from './chat-reply';
 import type { Attachment } from '@/lib/types';
 
 /**
@@ -44,6 +45,15 @@ interface PyvonInboundPayload {
   channel_id?: number;
   channel_name?: string | null;
   media_url?: string | null;
+  // Mensagem que o cliente CITOU ("responder" do WhatsApp) — v1.15 do contrato.
+  // null quando não citou nada. message_id é o id da mensagem citada NO PYVON.
+  quoted?: {
+    message_id: number;
+    content?: string;
+    direction?: 'inbound' | 'outbound';
+    type?: string;
+    sent_by_bot?: boolean;
+  } | null;
 }
 
 const BASE_URLS: Record<string, string> = {
@@ -136,13 +146,48 @@ export class PyvonService {
     const variants = payload.cadastro_phone ? phoneVariants(payload.cadastro_phone) : [];
     const lockKey = variants[0] || `cadastro-${payload.cadastro_id}`;
 
+    // Resposta "1"/"0" à pesquisa de satisfação de uma conversa ENCERRADA: vai
+    // pra própria conversa encerrada (registra a nota) e NÃO abre atendimento
+    // novo. Antes o Pyvon não tratava isso e cada avaliação virava um chat novo.
+    try {
+      if (await this.tryRecordSurveyAnswer(payload, variants, messageIdStr)) return;
+    } catch (err) {
+      console.error('[Pyvon] Falha ao registrar resposta da pesquisa — seguindo o fluxo normal:', err);
+    }
+
+    // Se este contato tem template automático guardado (ver
+    // savePendingOutbound), a conversa que vai nascer já pode nascer com o autor
+    // da nota — em vez de passar pelo rodízio e ser trocada depois.
+    let preferredAssigneeId: string | null = null;
+    try {
+      preferredAssigneeId = await this.peekPendingOutboundAuthor(variants, payload.cadastro_id);
+    } catch (err) {
+      console.error('[Pyvon] Falha ao consultar template pendente do contato:', err);
+    }
+
     const session = await runExclusive(`session:${lockKey}`, () =>
-      this.findOrCreateSession(variants, payload.cadastro_id, name, instanceId)
+      this.findOrCreateSession(variants, payload.cadastro_id, name, instanceId, { preferredAssigneeId })
     );
     if (!session) return;
 
     if (session.pyvon_cadastro_id !== payload.cadastro_id) {
       await query('UPDATE public.chat_sessions SET pyvon_cadastro_id = $1 WHERE id = $2', [payload.cadastro_id, session.id]);
+    }
+
+    // Templates automáticos que ficaram esperando a resposta do cliente entram
+    // agora na conversa (histórico + nota/autor pendentes).
+    try {
+      await this.adoptPendingOutbound(session, variants, payload.cadastro_id);
+    } catch (err) {
+      console.error('[Pyvon] Falha ao trazer o template pendente pra conversa:', err);
+    }
+
+    // A nota pendente mora na conversa que recebeu o template; se ela foi
+    // fechada antes do cliente responder, traz a nota pra esta conversa.
+    try {
+      await this.adoptPendingNoteFromClosedSession(session, variants, payload.cadastro_id);
+    } catch (err) {
+      console.error('[Pyvon] Falha ao recuperar nota pendente da conversa fechada:', err);
     }
 
     let attachment: Attachment | null = null;
@@ -177,10 +222,14 @@ export class PyvonService {
     }
     if (!text && !attachment) return;
 
+    // Citação feita pelo cliente (ver resolveInboundQuote).
+    const replyTo = await this.resolveInboundQuote(session, payload.quoted);
+
     const metadata: Record<string, any> = {
       source: 'pyvon',
       channel_id: payload.channel_id,
-      ...(attachment ? { attachments: [attachment] } : {})
+      ...(attachment ? { attachments: [attachment] } : {}),
+      ...(replyTo ? { replyTo } : {})
     };
 
     // session.customer_name (não a `name` do payload) — é o nome já resolvido
@@ -288,6 +337,65 @@ export class PyvonService {
         });
       }
     }
+  }
+
+  // O template de "chamado atualizado" (ver dispatchTicketUpdateTemplate em
+  // automation-service.ts) nasce numa conversa própria e guarda a NOTA e o AUTOR
+  // pendentes NELA. Se um analista fecha essa conversa antes de o cliente
+  // responder (aconteceu em 2026-09-25: fechada 16s depois, o cliente mandou
+  // "Prosseguir" 20s depois), a resposta cai numa conversa NOVA que não tem a
+  // nota — e ela nunca era enviada, ficando esquecida na conversa fechada.
+  //
+  // Aqui, se a conversa que está recebendo a resposta não tem nada pendente,
+  // busca a conversa FECHADA mais recente do mesmo contato (telefone ou
+  // cadastro) com nota/autor pendente nas últimas 48h e move o pendente pra
+  // cá. O UPDATE ... RETURNING na antiga garante que só UMA resposta adota
+  // (retentativa de webhook ou duas mensagens seguidas não duplicam a nota).
+  // Janela de 48h pra um pendente esquecido não reaparecer dias depois numa
+  // conversa que não tem nada a ver.
+  private static async adoptPendingNoteFromClosedSession(session: any, variants: string[], cadastroId: number): Promise<void> {
+    if (session.pyvon_pending_note_text || session.pyvon_pending_note_author_id) return;
+
+    const params: any[] = [session.id, cadastroId];
+    let phoneClause = '';
+    if (variants.length) {
+      phoneClause = ` OR customer_phone IN (${variants.map((_, i) => `$${i + 3}`).join(',')})`;
+      params.push(...variants);
+    }
+    // A CTE lê os valores ANTIGOS (picked) e só então limpa (cleared): o
+    // RETURNING de um UPDATE devolveria os já anulados.
+    const adoptedRes = await query(
+      `WITH picked AS (
+         SELECT id, pyvon_pending_note_text AS text, pyvon_pending_note_author_id AS author_id
+           FROM public.chat_sessions
+          WHERE id <> $1 AND status = 'closed'
+            AND (pyvon_cadastro_id = $2${phoneClause})
+            AND (pyvon_pending_note_text IS NOT NULL OR pyvon_pending_note_author_id IS NOT NULL)
+            AND COALESCE(pyvon_pending_note_set_at, updated_at) > NOW() - INTERVAL '48 hours'
+          ORDER BY COALESCE(pyvon_pending_note_set_at, updated_at) DESC
+          LIMIT 1
+          FOR UPDATE SKIP LOCKED
+       ), cleared AS (
+         UPDATE public.chat_sessions s
+            SET pyvon_pending_note_text = NULL, pyvon_pending_note_set_at = NULL, pyvon_pending_note_author_id = NULL
+          WHERE s.id IN (SELECT id FROM picked)
+         RETURNING s.id
+       )
+       SELECT p.text, p.author_id FROM picked p JOIN cleared c ON c.id = p.id`,
+      params
+    );
+    const adopted = adoptedRes.rows[0];
+    if (!adopted) return;
+
+    await query(
+      `UPDATE public.chat_sessions
+          SET pyvon_pending_note_text = $1, pyvon_pending_note_set_at = NOW(), pyvon_pending_note_author_id = $2
+        WHERE id = $3`,
+      [adopted.text, adopted.author_id, session.id]
+    );
+    // O resto do handleWebhook lê estes campos direto do objeto da sessão.
+    session.pyvon_pending_note_text = adopted.text;
+    session.pyvon_pending_note_author_id = adopted.author_id;
   }
 
   // Manda a conversa pro autor da nota / de quem abriu o chamado — só se ele
@@ -404,11 +512,56 @@ export class PyvonService {
     await recordCrisisModeMessage(session.id, text);
   }
 
-  // NOTA: diferente de Baileys, ainda não trata a resposta "1"/"0" a uma
-  // pesquisa de satisfação como caso especial (findSurveyableClosedSession) —
-  // vira atendimento novo por ora. Replicar isso é um follow-up, não um
-  // bloqueio pra receber texto/mídia normalmente.
-  static async findOrCreateSession(variants: string[], cadastroId: number, name: string, instanceId: string) {
+  // Cliente respondeu CITANDO uma mensagem (campo quoted do webhook, v1.15). Se a
+  // mensagem citada é uma que o nosso banco conhece (do cliente, ou nossa já com
+  // o id do Pyvon guardado) e é DESTA conversa, a citação sai do banco — mesmo
+  // formato e mesmo vínculo (clicar leva até ela) da citação feita pela equipe.
+  // Senão (ex.: template/mensagem do bot, conversa anterior já encerrada), usa o
+  // que o Pyvon mandou no payload, sem vínculo. Falha aqui nunca derruba o
+  // recebimento da mensagem do cliente.
+  private static async resolveInboundQuote(
+    session: { id: string; customer_name?: string | null },
+    quoted: PyvonInboundPayload['quoted']
+  ): Promise<{ messageId?: string; senderName?: string | null; text?: string; kind?: 'text' | 'image' | 'audio' | 'video' | 'file' } | null> {
+    if (!quoted || quoted.message_id == null) return null;
+
+    try {
+      const found = await query(
+        'SELECT id FROM public.chat_messages WHERE pyvon_message_id = $1 AND session_id = $2',
+        [String(quoted.message_id), session.id]
+      );
+      if (found.rows[0]) {
+        const fromDb = await resolveReplyQuote(session.id, found.rows[0].id);
+        if (fromDb) return fromDb;
+      }
+    } catch (err) {
+      console.error('[Pyvon] Falha ao localizar a mensagem citada pelo cliente:', err);
+    }
+
+    const type = quoted.type || 'text';
+    const kind = type === 'text' ? 'text'
+      : (type === 'image' || type === 'sticker') ? 'image'
+      : type === 'audio' ? 'audio'
+      : type === 'video' ? 'video'
+      : 'file';
+    return {
+      senderName: quoted.direction === 'inbound'
+        ? (session.customer_name || 'Cliente')
+        : (quoted.sent_by_bot ? 'SSX Desk (automático)' : 'Equipe'),
+      text: String(quoted.content || '').trim().slice(0, 200),
+      kind
+    };
+  }
+
+  // (A resposta "1"/"0" à pesquisa de satisfação é tratada ANTES daqui, em
+  // tryRecordSurveyAnswer.)
+  static async findOrCreateSession(
+    variants: string[],
+    cadastroId: number,
+    name: string,
+    instanceId: string,
+    options?: { preferredAssigneeId?: string | null }
+  ) {
     const placeHoldersFor = (arr: string[]) => arr.map((_, i) => `$${i + 1}`).join(',');
 
     if (variants.length) {
@@ -451,7 +604,13 @@ export class PyvonService {
     const queue = await resolveQueueForInstance(instanceId);
 
     const { insertRes } = await runExclusive(`queue-assign:${queue?.id ?? 'combined'}`, async () => {
-      const assigneeId = queue ? await pickNextQueueAssignee(queue) : null;
+      // Autor da nota/de quem abriu o chamado (template guardado): a conversa
+      // nasce direto com ele, mas só se ele puder atender agora (online e da
+      // fila) — senão, o rodízio de sempre. Não gasta a vez de ninguém no rodízio.
+      const preferred = options?.preferredAssigneeId || null;
+      const assigneeId = preferred && (await isOnlineQueueMember(preferred, queue))
+        ? preferred
+        : (queue ? await pickNextQueueAssignee(queue) : null);
       const status = assigneeId ? 'active' : 'pending';
       const insertRes = await query(
         `INSERT INTO public.chat_sessions (customer_id, customer_name, customer_phone, status, queue_id, assignee_id, pyvon_cadastro_id, channel, created_at, updated_at)
@@ -669,6 +828,177 @@ export class PyvonService {
   // e nunca veria essa conversa aparecer no chat, mesmo tendo sido entregue.
   // A resposta do cliente chega depois pelo fluxo normal do webhook (§4), que
   // encontra esta MESMA sessão pelo telefone.
+  // Pesquisa de satisfação (Pyvon): o cliente responde "1" (satisfeito) ou "0"
+  // (poderia melhorar) — mesma regra do WhatsApp não oficial
+  // (findSurveyableClosedSession em whatsapp-service.ts). A resposta é gravada na
+  // conversa ENCERRADA que mandou a pesquisa, enquanto a janela
+  // (awaiting_survey_until, 24h por padrão) está aberta; a nota entra em
+  // chat_histories.rating na escala -1/1 (o "0" do cliente vira -1 — gravar o
+  // dígito cru faria a avaliação ruim virar "neutro" e sumir das contagens).
+  //
+  // Só vale quando o contato NÃO tem conversa aberta: com um atendimento em
+  // curso, um "1" é resposta de conversa ("digite 1 pra opção A"), não nota.
+  // Devolve true quando tratou a mensagem (o chamador não abre conversa).
+  private static async tryRecordSurveyAnswer(payload: PyvonInboundPayload, variants: string[], messageIdStr: string): Promise<boolean> {
+    if (payload.type && payload.type !== 'text') return false;
+    const answer = String(payload.content || '').trim().replace(/[.!]+$/, '');
+    if (answer !== '0' && answer !== '1') return false;
+
+    if (await this.findOpenSession(variants, payload.cadastro_id)) return false;
+
+    const params: any[] = [payload.cadastro_id];
+    let phoneClause = '';
+    if (variants.length) {
+      phoneClause = ` OR customer_phone IN (${variants.map((_, i) => `$${i + 2}`).join(',')})`;
+      params.push(...variants);
+    }
+    const sessionRes = await query(
+      `SELECT id, customer_id, customer_name
+         FROM public.chat_sessions
+        WHERE status = 'closed'
+          AND awaiting_survey_until IS NOT NULL AND awaiting_survey_until > NOW()
+          AND (pyvon_cadastro_id = $1${phoneClause})
+        ORDER BY updated_at DESC
+        LIMIT 1`,
+      params
+    );
+    const session = sessionRes.rows[0];
+    if (!session) return false;
+
+    const senderName = session.customer_name || payload.cadastro_name || 'Contato Pyvon';
+    const metadata = { source: 'pyvon', channel_id: payload.channel_id, survey_response: true };
+    const msgRes = await query(
+      `INSERT INTO public.chat_messages (session_id, sender_id, sender_name, text, type, metadata, pyvon_message_id, created_at)
+       VALUES ($1, $2, $3, $4, 'text', $5, $6, NOW())
+       RETURNING id, created_at`,
+      [session.id, session.customer_id || null, senderName, String(payload.content).trim(), JSON.stringify(metadata), messageIdStr]
+    );
+    await query(
+      `UPDATE public.chat_histories SET rating = $1, rating_at = NOW()
+        WHERE id = (SELECT id FROM public.chat_histories WHERE session_id = $2 ORDER BY created_at DESC LIMIT 1)`,
+      [answer === '1' ? 1 : -1, session.id]
+    );
+    await query('UPDATE public.chat_sessions SET awaiting_survey_until = NULL WHERE id = $1', [session.id]);
+
+    const saved = msgRes.rows[0];
+    if (saved) {
+      emitChatEvent(session.id, {
+        type: 'survey-response',
+        sessionId: session.id,
+        message: {
+          id: saved.id,
+          senderId: session.customer_id || null,
+          senderName,
+          text: String(payload.content).trim(),
+          timestamp: saved.created_at,
+          type: 'text',
+          metadata,
+          attachments: []
+        }
+      });
+    }
+    return true;
+  }
+
+  // Conversa ABERTA do contato (mesma busca de findOrCreateSession, sem criar).
+  static async findOpenSession(variants: string[], cadastroId: number) {
+    if (variants.length) {
+      const res = await query(
+        `SELECT id, customer_phone, customer_id, customer_name, assignee_id, queue_id, pyvon_cadastro_id, pyvon_pending_note_text, pyvon_pending_note_author_id
+           FROM public.chat_sessions
+          WHERE customer_phone IN (${variants.map((_, i) => `$${i + 1}`).join(',')}) AND status != 'closed'
+          ORDER BY updated_at DESC LIMIT 1`,
+        variants
+      );
+      return res.rows[0] || null;
+    }
+    const res = await query(
+      `SELECT id, customer_phone, customer_id, customer_name, assignee_id, queue_id, pyvon_cadastro_id, pyvon_pending_note_text, pyvon_pending_note_author_id
+         FROM public.chat_sessions WHERE pyvon_cadastro_id = $1 AND status != 'closed'
+        ORDER BY updated_at DESC LIMIT 1`,
+      [cadastroId]
+    );
+    return res.rows[0] || null;
+  }
+
+  private static async savePendingOutbound(params: {
+    instanceId: string; phone?: string; cadastroId: number; customerName: string; analystName: string; text: string;
+    pending?: { noteText?: string | null; authorId?: string | null };
+  }, variants: string[]): Promise<void> {
+    await query(
+      `INSERT INTO public.pyvon_pending_outbound (cadastro_id, phone, customer_name, instance_id, template_text, sender_name, note_text, note_author_id)
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $8)`,
+      [params.cadastroId, variants[0] || null, params.customerName, params.instanceId, params.text, params.analystName,
+       params.pending?.noteText || null, params.pending?.authorId || null]
+    );
+  }
+
+  // Filtro das linhas pendentes do contato: pelo cadastro OU pelo telefone.
+  private static pendingOutboundWhere(variants: string[], cadastroId: number): { sql: string; params: any[] } {
+    const params: any[] = [cadastroId];
+    let sql = 'cadastro_id = $1';
+    if (variants.length) {
+      sql += ` OR phone IN (${variants.map((_, i) => `$${i + 2}`).join(',')})`;
+      params.push(...variants);
+    }
+    return { sql, params };
+  }
+
+  // Autor que vale pra conversa que vai nascer: o da nota mais recente; sem
+  // nota, o de quem abriu o chamado mais recente. Só olha as últimas 48h.
+  private static async peekPendingOutboundAuthor(variants: string[], cadastroId: number): Promise<string | null> {
+    const w = this.pendingOutboundWhere(variants, cadastroId);
+    const res = await query(
+      `SELECT note_author_id FROM public.pyvon_pending_outbound
+        WHERE (${w.sql}) AND note_author_id IS NOT NULL AND created_at > NOW() - INTERVAL '48 hours'
+        ORDER BY (note_text IS NOT NULL) DESC, created_at DESC LIMIT 1`,
+      w.params
+    );
+    return res.rows[0]?.note_author_id || null;
+  }
+
+  // O cliente respondeu: consome os templates guardados do contato. O DELETE ...
+  // RETURNING é atômico — só uma resposta leva as linhas (retentativa de
+  // webhook ou duas mensagens seguidas não duplicam nada). Linhas com mais de
+  // 48h são apagadas mas NÃO usadas.
+  //   - cada template vira mensagem da conversa, com a hora em que foi enviado
+  //     (aparece antes da resposta do cliente, como histórico);
+  //   - a nota/autor viram os pendentes da conversa (se ela ainda não tem).
+  private static async adoptPendingOutbound(session: any, variants: string[], cadastroId: number): Promise<void> {
+    const w = this.pendingOutboundWhere(variants, cadastroId);
+    const takenRes = await query(
+      `DELETE FROM public.pyvon_pending_outbound WHERE ${w.sql}
+       RETURNING sender_name, template_text, note_text, note_author_id, created_at,
+                 (created_at > NOW() - INTERVAL '48 hours') AS fresh`,
+      w.params
+    );
+    const rows = takenRes.rows.filter((r: any) => r.fresh).sort((a: any, b: any) => +new Date(a.created_at) - +new Date(b.created_at));
+    if (!rows.length) return;
+
+    for (const r of rows) {
+      await query(
+        `INSERT INTO public.chat_messages (session_id, sender_id, sender_name, text, type, metadata, created_at)
+         VALUES ($1, NULL, $2, $3, 'text', $4, $5)`,
+        [session.id, r.sender_name, r.template_text, JSON.stringify({ source: 'pyvon', template: true }), r.created_at]
+      );
+    }
+
+    if (session.pyvon_pending_note_text || session.pyvon_pending_note_author_id) return;
+    const withNote = [...rows].reverse().find((r: any) => r.note_text);
+    const withAuthor = withNote || [...rows].reverse().find((r: any) => r.note_author_id);
+    if (!withAuthor) return;
+    const text = withNote ? withNote.note_text : null;
+    const authorId = withAuthor.note_author_id || null;
+    await query(
+      `UPDATE public.chat_sessions
+          SET pyvon_pending_note_text = $1, pyvon_pending_note_set_at = CASE WHEN $1::text IS NULL THEN NULL ELSE NOW() END, pyvon_pending_note_author_id = $2
+        WHERE id = $3`,
+      [text, authorId, session.id]
+    );
+    session.pyvon_pending_note_text = text;
+    session.pyvon_pending_note_author_id = authorId;
+  }
+
   static async recordOutboundTemplateMessage(params: {
     instanceId: string;
     phone?: string;
@@ -677,11 +1007,39 @@ export class PyvonService {
     analystId: string | null;
     analystName: string;
     text: string;
-  }): Promise<{ id: string } | null> {
+    // Template AUTOMÁTICO (chamado aberto, nota no chamado, mensagem fora da
+    // janela): se o contato NÃO tem conversa aberta, não cria conversa — guarda
+    // o template (tabela pyvon_pending_outbound) e ele só entra numa conversa
+    // quando o cliente responder. Regra do usuário, 2026-09-25: conversa só
+    // existe se o cliente responder. Sem isto (envio manual por analista,
+    // "iniciar conversa"), cria a conversa como sempre.
+    deferUntilReply?: boolean;
+    // Nota / autor que valem na resposta do cliente (ver handleWebhook).
+    pending?: { noteText?: string | null; authorId?: string | null };
+  }): Promise<{ id: string | null } | null> {
     const variants = params.phone ? phoneVariants(params.phone) : [];
-    const session = await runExclusive(`session:${variants[0] || `cadastro-${params.cadastroId}`}`, () =>
-      this.findOrCreateSession(variants, params.cadastroId, params.customerName, params.instanceId)
-    );
+
+    let session: any = null;
+    if (params.deferUntilReply) {
+      const existing = await this.findOpenSession(variants, params.cadastroId);
+      if (existing) {
+        session = existing;
+      } else {
+        try {
+          await this.savePendingOutbound(params, variants);
+          return { id: null };
+        } catch (err) {
+          // Não perde a nota: cai no comportamento antigo (abre a conversa).
+          console.error('[Pyvon] Falha ao guardar o template pendente — abrindo a conversa como antes:', err);
+        }
+      }
+    }
+
+    if (!session) {
+      session = await runExclusive(`session:${variants[0] || `cadastro-${params.cadastroId}`}`, () =>
+        this.findOrCreateSession(variants, params.cadastroId, params.customerName, params.instanceId)
+      );
+    }
     if (!session) return null;
 
     if (session.pyvon_cadastro_id !== params.cadastroId) {
@@ -699,6 +1057,23 @@ export class PyvonService {
     if (!savedMessage) return null;
 
     await query('UPDATE public.chat_sessions SET last_message_at = NOW(), updated_at = NOW() WHERE id = $1', [session.id]);
+
+    // Nota / autor pendentes NESTA conversa (já existia uma aberta, ou o
+    // fallback acima a criou): a nota vence; só o autor não pisa numa nota.
+    if (params.pending?.noteText) {
+      await query(
+        `UPDATE public.chat_sessions
+            SET pyvon_pending_note_text = $1, pyvon_pending_note_set_at = NOW(), pyvon_pending_note_author_id = $2
+          WHERE id = $3`,
+        [params.pending.noteText, params.pending.authorId || null, session.id]
+      );
+    } else if (params.pending?.authorId) {
+      await query(
+        `UPDATE public.chat_sessions SET pyvon_pending_note_author_id = $1
+          WHERE id = $2 AND pyvon_pending_note_text IS NULL`,
+        [params.pending.authorId, session.id]
+      );
+    }
 
     emitSessionsChanged({ reason: 'message', sessionId: session.id });
     emitChatEvent(session.id, {
@@ -785,7 +1160,7 @@ export class PyvonService {
         analystName: params.actorName,
         text: this.renderTemplateBody(template.body_text, variables) || `[template contato_pos_vendas]`
       });
-      if (!recorded) throw new Error('Falha ao registrar a conversa iniciada.');
+      if (!recorded?.id) throw new Error('Falha ao registrar a conversa iniciada.');
       sessionId = recorded.id;
       usedTemplate = true;
     }

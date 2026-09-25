@@ -1,19 +1,31 @@
 ﻿'use client';
 
+import { useState } from 'react';
 import { AnimatePresence, motion } from 'motion/react';
-import { AlertTriangle, X } from 'lucide-react';
+import { AlertTriangle, Loader2, X } from 'lucide-react';
 
 interface ConfirmModalProps {
   isOpen: boolean;
   title: string;
   message: string;
   error?: string;
-  onConfirm: () => void;
+  // Se devolver uma Promise, o botão fica em "carregando" até ela terminar.
+  onConfirm: () => unknown;
   onCancel: () => void;
 }
 
 export function ConfirmModal({ isOpen, title, message, error, onConfirm, onCancel }: ConfirmModalProps) {
+  const [loading, setLoading] = useState(false);
   if (!isOpen) return null;
+
+  const handleConfirm = async () => {
+    if (loading) return;
+    const result = onConfirm();
+    if (result && typeof (result as Promise<unknown>).then === 'function') {
+      setLoading(true);
+      try { await result; } catch (err) { console.error('[ConfirmModal] Falha na ação confirmada:', err); } finally { setLoading(false); }
+    }
+  };
 
   return (
     <AnimatePresence>
@@ -46,14 +58,17 @@ export function ConfirmModal({ isOpen, title, message, error, onConfirm, onCance
           <div className="p-6 bg-[var(--surface-card)] flex gap-3 justify-end items-center border-t border-[var(--border-default)]">
             <button
               onClick={onCancel}
-              className="px-4 py-2 font-semibold text-[var(--text-secondary)] hover:bg-[var(--border-default)] bg-[var(--surface-pill)] rounded-lg transition-colors"
+              disabled={loading}
+              className="px-4 py-2 font-semibold text-[var(--text-secondary)] hover:bg-[var(--border-default)] bg-[var(--surface-pill)] rounded-lg transition-colors disabled:opacity-50"
             >
               Cancelar
             </button>
             <button
-              onClick={onConfirm}
-              className="px-4 py-2 font-semibold text-white bg-[var(--text-danger)] hover:bg-red-700 rounded-lg transition-colors shadow-sm"
+              onClick={handleConfirm}
+              disabled={loading}
+              className="px-4 py-2 font-semibold text-white bg-[var(--text-danger)] hover:bg-red-700 rounded-lg transition-colors shadow-sm disabled:opacity-70 disabled:cursor-not-allowed flex items-center gap-2"
             >
+              {loading && <Loader2 size={14} className="animate-spin" />}
               Confirmar Exclusão
             </button>
           </div>

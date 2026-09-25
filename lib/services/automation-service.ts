@@ -221,7 +221,8 @@ async function dispatchPyvonAutomationMessage(
     customerName: recipient.name,
     analystId: null, // sem analista real aqui — mensagem automática, "sender" fica anônimo/sistema
     analystName: 'SSX Desk (automático)',
-    text: renderedMessage
+    text: renderedMessage,
+    deferUntilReply: true // sem conversa aberta, só nasce conversa se o cliente responder
   });
   return true;
 }
@@ -269,23 +270,16 @@ async function dispatchTicketOpenedTemplate(
     customerName: recipient.name,
     analystId: null,
     analystName: 'SSX Desk (automático)',
-    text: PyvonService.renderTemplateBody(template.body_text, variables) || '[template chamado_aberto]'
+    text: PyvonService.renderTemplateBody(template.body_text, variables) || '[template chamado_aberto]',
+    // Sem conversa aberta, NÃO cria conversa: o template fica guardado e só
+    // vira conversa se o cliente responder (ver PyvonService.handleWebhook).
+    deferUntilReply: true,
+    // Quem abriu o chamado fica registrado como "autor pendente" — só quando o
+    // cliente RESPONDER a conversa vai pra esse analista, e só se ele estiver
+    // online na fila; senão, rodízio normal. Não pisa numa nota pendente.
+    pending: openerId ? { authorId: openerId } : undefined
   });
-
-  // Quem abriu o chamado fica registrado como "autor pendente" da conversa —
-  // mesma regra da nota (dispatchTicketUpdateTemplate abaixo): só quando o
-  // cliente RESPONDER (PyvonService.handleWebhook) a conversa vai pra esse
-  // analista, e só se ele estiver online na fila; senão, rodízio normal.
-  // Não pisa numa nota pendente: se já existe texto de nota aguardando a
-  // resposta do cliente, o autor dela continua sendo o dono da decisão.
-  if (recorded && openerId) {
-    await query(
-      `UPDATE public.chat_sessions
-       SET pyvon_pending_note_author_id = $1
-       WHERE id = $2 AND pyvon_pending_note_text IS NULL`,
-      [openerId, recorded.id]
-    );
-  }
+  void recorded;
   return true;
 }
 
@@ -298,10 +292,23 @@ async function dispatchTicketOpenedTemplate(
 // A conversa cai pro autor da nota quando o cliente responde, mas só se ele
 // estiver online na fila — senão segue o rodízio (ver
 // PyvonService.assignToPendingAuthorIfOnline).
+// A nota enviada após o "Prosseguir" leva sempre, antes do texto oficial, uma
+// linha em negrito dizendo de qual chamado ela é — o cliente pode ter vários
+// chamados abertos e a nota chega numa conversa de WhatsApp sem contexto. Não
+// vai no template (que é aprovado na Meta e não muda), e sim na própria nota.
+// Asteriscos do título são retirados: quebrariam o negrito do WhatsApp.
+export function withTicketPrefix(ticketNumber: string, ticketTitle: string | null | undefined, noteText: string): string {
+  const number = String(ticketNumber || '').replace(/^#/, '').trim();
+  const title = (ticketTitle || '').replace(/\*/g, '').replace(/\s+/g, ' ').trim();
+  const label = `#${number}${title ? ` - ${title}` : ''}`;
+  return `*Sobre o chamado ${label}:*\n\n${noteText}`;
+}
+
 async function dispatchTicketUpdateTemplate(
   instanceId: string,
   recipient: TicketRecipient,
   ticketNumber: string,
+  ticketTitle: string | null | undefined,
   noteText: string,
   noteAuthorId: string | null
 ): Promise<boolean> {
@@ -332,16 +339,15 @@ async function dispatchTicketUpdateTemplate(
     customerName: recipient.name,
     analystId: null,
     analystName: 'SSX Desk (automático)',
-    text: PyvonService.renderTemplateBody(template.body_text, variables) || '[template atualizacao_chamado]'
+    text: PyvonService.renderTemplateBody(template.body_text, variables) || '[template atualizacao_chamado]',
+    // Sem conversa aberta, NÃO cria conversa (nem atribui a ninguém pelo
+    // rodízio): o template e a nota ficam guardados e só viram conversa se o
+    // cliente responder — aí ela nasce com o autor da nota (regra do usuário,
+    // 2026-09-25).
+    deferUntilReply: true,
+    pending: { noteText: withTicketPrefix(ticketNumber, ticketTitle, noteText), authorId: noteAuthorId }
   });
   if (!recorded) return false;
-
-  await query(
-    `UPDATE public.chat_sessions
-     SET pyvon_pending_note_text = $1, pyvon_pending_note_set_at = NOW(), pyvon_pending_note_author_id = $2
-     WHERE id = $3`,
-    [noteText, noteAuthorId, recorded.id]
-  );
 
   // A conversa NÃO cai pro autor da nota aqui — só quando o cliente de fato
   // responder (decisão do usuário, 2026-09-22: mandar a nota sozinha não
@@ -438,7 +444,7 @@ export async function dispatchEvent(eventKey: string, ticket: TicketRow, extra: 
         if (eventKey === 'resposta_analista' && r.id === ticket.customer_id && pyvonInstanceId) {
           let sentViaTemplate = false;
           try {
-            sentViaTemplate = await dispatchTicketUpdateTemplate(pyvonInstanceId, r, context.numero_chamado, context.nota, extra.autor_id || null);
+            sentViaTemplate = await dispatchTicketUpdateTemplate(pyvonInstanceId, r, context.numero_chamado, ticket.title, context.nota, extra.autor_id || null);
           } catch (err: any) {
             console.error('[automation] Falha ao enviar template atualizacao_chamado:', err?.message || err);
           }

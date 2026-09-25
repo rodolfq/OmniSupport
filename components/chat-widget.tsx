@@ -11,7 +11,7 @@ import {
   Users, 
   User, 
   Hash, 
-  Zap,
+  MessageSquareText,
   MoreVertical,
   ArrowRightLeft,
   Power,
@@ -61,6 +61,8 @@ import {
   TagConfig,
   Permission
 } from '@/lib/types';
+import { MAX_ATTACHMENT_TOTAL_BYTES, MAX_ATTACHMENT_TOTAL_LABEL } from '@/lib/attachment-limits';
+import { QuickRepliesPanel } from './quick-replies-panel';
 import { ChatService, fetchChatSessions, pushChatMessage, createChatSession, saveChatHistory, submitSurveyResponse, transcribeChatAudio, getPreviousChatHistories, fetchSessionMessages, PreviousChatHistoriesResult, SessionMessagesResult } from '@/lib/services/chat-service';
 import { fetchQuickNotes, fetchAnalystStatuses, fetchCompanies, fetchQueues, fetchSurveySettings, ConfigService } from '@/lib/services/config-service';
 import { useProfilesWithAvatarQuery } from '@/lib/query-hooks';
@@ -86,7 +88,11 @@ import { isImageAttachment, isAudioAttachment, isVideoAttachment } from '@/lib/a
 import { useIsMobile } from '@/hooks/use-mobile';
 import { toast } from 'sonner';
 
-const MAX_CHAT_ATTACHMENT_SIZE = 8 * 1024 * 1024;
+// Mesmo teto das demais telas (lib/attachment-limits.ts, alinhado ao Nginx). Era
+// 8MB só aqui — e o servidor também cortava o corpo em 10MB (ver
+// middlewareClientMaxBodySize em next.config.ts), então nem 8MB de arquivo
+// passavam de fato.
+const MAX_CHAT_ATTACHMENT_SIZE = MAX_ATTACHMENT_TOTAL_BYTES;
 
 // Botão flutuante arrastável (clicar e segurar pra mover, ver
 // handleLauncherPointerDown mais abaixo) — tamanho real do botão (w-16 h-16)
@@ -181,6 +187,34 @@ function encodeWav(samples: Float32Array, sampleRate: number): Blob {
   return new Blob([buffer], { type: 'audio/wav' });
 }
 
+// Largura da lista de conversas ("em andamento") no chat MAXIMIZADO — a divisória
+// entre ela e a conversa aberta é arrastável. Preferência só deste navegador
+// (localStorage), igual à posição do botão flutuante.
+const CHAT_LIST_WIDTH_KEY = 'omni_chat_list_width';
+const CHAT_LIST_WIDTH_DEFAULT = 350; // mesma largura da lista em /chat-internal
+const CHAT_LIST_WIDTH_MIN = 260;
+const CHAT_LIST_WIDTH_MAX = 640;
+const CHAT_THREAD_MIN_WIDTH = 460; // a conversa aberta nunca é espremida abaixo disso
+
+function clampChatListWidth(width: number): number {
+  const viewport = typeof window !== 'undefined' ? window.innerWidth : 1600;
+  const max = Math.max(CHAT_LIST_WIDTH_MIN, Math.min(CHAT_LIST_WIDTH_MAX, viewport - CHAT_THREAD_MIN_WIDTH));
+  return Math.round(Math.min(Math.max(width, CHAT_LIST_WIDTH_MIN), max));
+}
+
+// Mensagem que o CLIENTE mandou (não a da equipe, nem mensagem automática do
+// sistema): base do "não lida" da lista. Mensagem automática (template, resposta
+// automática, Modo de Crise) tem sender_id nulo, então o remetente sozinho não
+// distingue — daí olhar também o metadata.
+function isIncomingCustomerMessage(m: ChatMessage, session: { customerId?: string | null }): boolean {
+  if (m.isDeleted) return false;
+  if (m.type === 'internal' || m.type === 'system' || (m.type as string) === 'system_log') return false;
+  const md: any = m.metadata || {};
+  if (md.template || md.auto_reply || md.systemEvent || md.source === 'crisis_mode') return false;
+  if (m.senderId) return !!session.customerId && m.senderId === session.customerId;
+  return md.source === 'pyvon' || md.source === 'whatsapp';
+}
+
 export function ChatWidget() {
   const [mounted, setMounted] = useState(false);
   const [shouldAutoScroll, setShouldAutoScroll] = useState(true);
@@ -253,6 +287,46 @@ export function ChatWidget() {
 
   // Track expanded state locally
   const [isExpanded, setIsExpanded] = useState(false);
+  const [chatListWidth, setChatListWidth] = useState(CHAT_LIST_WIDTH_DEFAULT);
+  const [isResizingList, setIsResizingList] = useState(false);
+  useEffect(() => {
+    try {
+      const saved = Number(window.localStorage.getItem(CHAT_LIST_WIDTH_KEY));
+      if (saved > 0) setChatListWidth(clampChatListWidth(saved));
+    } catch {}
+  }, []);
+  // Janela redimensionada: a lista não pode passar do que sobra pra conversa.
+  useEffect(() => {
+    const onWindowResize = () => setChatListWidth(w => clampChatListWidth(w));
+    window.addEventListener('resize', onWindowResize);
+    return () => window.removeEventListener('resize', onWindowResize);
+  }, []);
+  const saveChatListWidth = (width: number) => {
+    try { window.localStorage.setItem(CHAT_LIST_WIDTH_KEY, String(width)); } catch {}
+  };
+  const startResizeList = (e: React.PointerEvent<HTMLDivElement>) => {
+    e.preventDefault();
+    const handle = e.currentTarget;
+    const startX = e.clientX;
+    const startWidth = chatListWidth;
+    let latest = startWidth;
+    handle.setPointerCapture(e.pointerId);
+    setIsResizingList(true);
+    const onMove = (ev: PointerEvent) => {
+      latest = clampChatListWidth(startWidth + (ev.clientX - startX));
+      setChatListWidth(latest);
+    };
+    const onUp = () => {
+      handle.removeEventListener('pointermove', onMove);
+      handle.removeEventListener('pointerup', onUp);
+      handle.removeEventListener('pointercancel', onUp);
+      setIsResizingList(false);
+      saveChatListWidth(latest);
+    };
+    handle.addEventListener('pointermove', onMove);
+    handle.addEventListener('pointerup', onUp);
+    handle.addEventListener('pointercancel', onUp);
+  };
 
   // Use isOmniChatOpen directly instead of syncing with a local isMinimized state
   const isMinimized = !isOmniChatOpen;
@@ -414,7 +488,7 @@ export function ChatWidget() {
     m.type !== 'system';
 
   // A citação pertence à conversa em que foi escolhida: trocar de conversa a descarta.
-  useEffect(() => { setReplyingTo(null); }, [selectedChatId]);
+  useEffect(() => { setReplyingTo(null); setIsQuickRepliesOpen(false); }, [selectedChatId]);
 
   // Estado de envio de uma mensagem NOSSA no canal Pyvon: 'sending' (1 tique) →
   // 'sent' (2 tiques) → ou 'failed' (mostrado à parte, com o erro). O Pyvon não
@@ -552,24 +626,22 @@ export function ChatWidget() {
     if (isCustomer) return 0;
     return customerSessions.filter(s => {
       if (s.status === 'closed') return false;
+      // Só conversas ASSUMIDAS por quem está logado: o widget lista também as
+      // da fila e as de outros analistas, e o número vermelho do botão não é
+      // pra avisar de atendimento que não é dele.
+      if (s.assigneeId !== currentUser?.id) return false;
       const msgs = s.messages || [];
       if (msgs.length === 0) return false;
       const last = msgs[msgs.length - 1];
       return !last.senderId || last.senderId === s.customerId;
     }).length;
-  }, [customerSessions, isCustomer]);
+  }, [customerSessions, isCustomer, currentUser?.id]);
   const [lastViewedAt, setLastViewedAt] = useState<Record<string, string>>({});
   const [message, setMessage] = useState('');
   const [quickNotes, setQuickNotes] = useState<QuickNote[]>([]);
-  const [showQuickNoteSearch, setShowQuickNoteSearch] = useState(false);
-  // Criar Comando Rápido direto do painel de busca (com '/') — sem isso, só
-  // dava pra cadastrar indo em Chat > Central de Atendimento > Notas
-  // Rápidas, o que quebrava o fluxo de quem já estava no meio de um
-  // atendimento e percebeu que faltava um atalho.
-  const [isCreatingQuickNote, setIsCreatingQuickNote] = useState(false);
-  const [newQuickNoteShortcut, setNewQuickNoteShortcut] = useState('');
-  const [newQuickNoteContent, setNewQuickNoteContent] = useState('');
-  const [savingQuickNote, setSavingQuickNote] = useState(false);
+  // Painel "Respostas prontas" (botão ao lado do anexo/microfone): lista todas
+  // as respostas com o conteúdo e busca por texto.
+  const [isQuickRepliesOpen, setIsQuickRepliesOpen] = useState(false);
   const [analystStatuses, setAnalystStatuses] = useState<AnalystStatus[]>([]);
   const [companies, setCompanies] = useState<Company[]>([]);
   // Usado pra resolver nome/foto de contato (avatar de verdade é renderizado
@@ -619,7 +691,7 @@ export function ChatWidget() {
     // durante o próprio atendimento — inclusive o que nasce desta conversa.
   }, [selectedChatCompanyId, isCustomer, triggerRefresh]);
 
-  const onlineAssignTargets = React.useMemo(() => {
+  const assignableTargets = React.useMemo(() => {
     // deriveLiveStatus, não `s.isOnline` cru: sem heartbeat de verdade,
     // fechar a aba sem trocar pra "Ausente" deixa is_online=true no banco
     // pra sempre — sem esse filtro, um analista sumido há dias continuava
@@ -630,12 +702,14 @@ export function ChatWidget() {
     // "cliente online" no cabeçalho da conversa), e sem este filtro eles
     // apareciam em "Enviar para" como se fossem analistas — em conversa sem
     // fila, que não tem lista de membros pra restringir, era todo mundo online.
+    //
+    // Ausentes (away) também entram, marcados: dá pra transferir pra eles, mas
+    // a tela pede confirmação antes (ver AssignChatMenu). Offline não entra.
     return analystStatuses
-      .filter(s => deriveLiveStatus(s) === 'online')
-      .map(s => allUsers.find(u => u.id === s.userId))
-      .filter((u): u is UserType => !!u)
-      .filter(u => [UserRole.ADMIN, UserRole.SUPPORT, UserRole.INTERNAL].includes(u.role as UserRole))
-      .map(u => ({ id: u.id, name: u.name }));
+      .map(s => ({ live: deriveLiveStatus(s), user: allUsers.find(u => u.id === s.userId) }))
+      .filter((x): x is { live: 'online' | 'away'; user: UserType } => (x.live === 'online' || x.live === 'away') && !!x.user)
+      .filter(x => [UserRole.ADMIN, UserRole.SUPPORT, UserRole.INTERNAL].includes(x.user.role as UserRole))
+      .map(x => ({ id: x.user.id, name: x.user.name, away: x.live === 'away' }));
   }, [analystStatuses, allUsers]);
 
   // Presença real no header da conversa — antes não existia nenhuma (nem
@@ -666,11 +740,9 @@ export function ChatWidget() {
 
   const handleAssignChat = async (sessionId: string, targetUserId?: string) => {
     if (!currentUser) return;
+    // Assumir não exige estar Online (pedido do usuário, 2026-09-25): a rota
+    // nunca checou presença, só o cliente bloqueava.
     const assigneeId = targetUserId || currentUser.id;
-    if (!targetUserId && userStatus !== 'online') {
-      toast.error('Você precisa estar Online para assumir atendimentos!');
-      return;
-    }
     const result = await assignChatSession(sessionId, assigneeId, currentUser.id);
 
     if (!('error' in result)) {
@@ -895,7 +967,7 @@ export function ChatWidget() {
 
   const [isLinkModalOpen, setIsLinkModalOpen] = useState(false);
 
-  const [chatFilter, setChatFilter] = useState<'all' | 'me' | 'queue'>('all');
+  const [chatFilter, setChatFilter] = useState<'all' | 'me'>('all');
   const [chatSearch, setChatSearch] = useState('');
   const [userQueues, setUserQueues] = useState<string[]>([]);
   const [allQueues, setAllQueues] = useState<any[]>([]);
@@ -904,25 +976,25 @@ export function ChatWidget() {
     return allQueues.map((q: any) => ({ id: q.id, name: q.name }));
   }, [allQueues]);
 
-  // Restringe a lista de "Enviar para" a quem está online E é membro da fila
-  // do próprio chat — sem fila (pool combinado) cai de volta pra todo mundo
-  // online, já que aí não há uma fila única pra filtrar. O próprio usuário
-  // (se online) sempre aparece, mesmo que não seja formalmente membro dessa
-  // fila específica — "puxar" um chat pra si não deveria depender disso.
+  // Restringe a lista de "Enviar para" a quem está online ou ausente E é membro
+  // da fila do próprio chat — sem fila (pool combinado) cai de volta pra todo
+  // mundo disponível, já que aí não há uma fila única pra filtrar. O próprio
+  // usuário sempre aparece, mesmo Offline e mesmo que não seja formalmente
+  // membro dessa fila — "puxar" um chat pra si não depende de presença nem de
+  // fila (e a si mesmo nunca pede confirmação de ausência).
   const getQueueOnlineTargets = React.useCallback((queueId?: string | null) => {
     const base = (() => {
-      if (!queueId) return onlineAssignTargets;
+      if (!queueId) return assignableTargets;
       const queue = allQueues.find((q: any) => q.id === queueId);
-      if (!queue) return onlineAssignTargets;
+      if (!queue) return assignableTargets;
       const memberIds: string[] = queue.member_ids || [];
-      return onlineAssignTargets.filter(t => memberIds.includes(t.id));
+      return assignableTargets.filter(t => memberIds.includes(t.id));
     })();
 
-    if (currentUser && userStatus === 'online' && !base.some(t => t.id === currentUser.id)) {
-      return [...base, { id: currentUser.id, name: currentUser.name }];
-    }
-    return base;
-  }, [onlineAssignTargets, allQueues, currentUser, userStatus]);
+    if (!currentUser) return base;
+    const withoutSelf = base.filter(t => t.id !== currentUser.id);
+    return [...withoutSelf, { id: currentUser.id, name: currentUser.name, away: false }];
+  }, [assignableTargets, allQueues, currentUser]);
 
   const getSessionInstanceId = React.useCallback((session?: { queueId?: string }) => {
     const queue = allQueues.find((q: any) => q.id === session?.queueId);
@@ -1041,9 +1113,54 @@ export function ChatWidget() {
     setCustomerSearch('');
   };
 
-  const getSessionUnreadCount = (sessionId: string) => {
-    return notifications.filter(n => !n.read && n.targetId === sessionId).length;
+  // Equipe: só conta nas conversas assumidas por quem está logado (mesma regra
+  // do número do botão flutuante). Cliente só tem a própria conversa.
+  //
+  // Equipe: conta as mensagens do CLIENTE que este usuário ainda não leu
+  // (read_by, gravado ao abrir a conversa) — direto dos dados da conversa, então
+  // aparece na hora em que a mensagem chega e não depende de notificação ligada,
+  // do polling do sino, nem de o toast ter sido suprimido. A conversa aberta na
+  // tela (widget aberto e aba visível) nunca conta: o que chega nela já está sendo lido.
+  const getSessionUnreadCount = (session: ChatSession) => {
+    if (isCustomer) {
+      return notifications.filter(n => !n.read && n.targetId === session.id).length;
+    }
+    if (!currentUser || session.assigneeId !== currentUser.id) return 0;
+    if (session.id === selectedChatId && !isMinimized && isTabVisible) return 0;
+    return (session.messages || []).filter(m =>
+      isIncomingCustomerMessage(m, session) && !(m.readBy || []).includes(currentUser.id)
+    ).length;
   };
+
+  // Aba em primeiro plano? Só então a conversa aberta conta como "lendo".
+  const [isTabVisible, setIsTabVisible] = useState(true);
+  useEffect(() => {
+    const onVisibility = () => setIsTabVisible(document.visibilityState === 'visible');
+    onVisibility();
+    document.addEventListener('visibilitychange', onVisibility);
+    return () => document.removeEventListener('visibilitychange', onVisibility);
+  }, []);
+
+  // Mensagem nova do cliente na conversa que está ABERTA e visível entra já
+  // como lida (antes só era marcada ao abrir a conversa, então o que chegava
+  // depois ficava "não lido" pra sempre e o número reaparecia ao fechar o chat).
+  useEffect(() => {
+    if (isCustomer || !currentUser || !selectedChatId || isMinimized || !isTabVisible) return;
+    const s = customerSessions.find(x => x.id === selectedChatId);
+    if (!s || s.assigneeId !== currentUser.id) return;
+    const hasUnread = (s.messages || []).some(m => isIncomingCustomerMessage(m, s) && !(m.readBy || []).includes(currentUser.id));
+    if (!hasUnread) return;
+    ChatService.markMessagesRead(selectedChatId, currentUser.id);
+    // Atualiza a lista local NA HORA: o aviso de leitura do servidor (evento
+    // "receipt") chega antes de a conexão em tempo real da conversa existir e
+    // se perde, então sem isto o número só sumia no próximo ciclo de 30s. Se o
+    // servidor falhar, a próxima busca traz o read_by real e marca de novo.
+    const uid = currentUser.id;
+    setCustomerSessions(prev => prev.map(x => x.id !== selectedChatId ? x : {
+      ...x,
+      messages: (x.messages || []).map(m => (m.readBy || []).includes(uid) ? m : { ...m, readBy: [...(m.readBy || []), uid] })
+    }));
+  }, [customerSessions, selectedChatId, isMinimized, isTabVisible, isCustomer, currentUser?.id]);
 
   const abortControllerRef = useRef<AbortController | null>(null);
 
@@ -1704,7 +1821,6 @@ useEffect(() => {
       }
     }
     
-    setShowQuickNoteSearch(false);
   };
 
   // Canal Pyvon: decide sozinho (servidor) se abre normal (dentro da janela
@@ -1811,7 +1927,16 @@ useEffect(() => {
     }
   };
 
+  // Qual botão do modal de finalizar/gerar chamado está em andamento ('generate',
+  // 'finish' ou 'spam'). Serve pra mostrar o spinner NO botão clicado e travar
+  // os demais: a operação faz várias idas ao servidor e, sem sinal visual,
+  // dava a impressão de que o clique não tinha pegado (e a pessoa clicava de novo).
+  const [finishingAction, setFinishingAction] = useState<'generate' | 'finish' | 'spam' | null>(null);
+  const finishingRef = useRef(false);
+
   const handleGenerateTicket = async (closeChat: boolean, closeAsSpam: boolean = false, forceNew: boolean = false) => {
+    // Ref (não só o estado): dois cliques no mesmo tick passam pelo state antigo.
+    if (finishingRef.current) return;
     // O título só é exigido quando vai nascer um chamado: finalizar uma conversa
     // que já tem chamado vinculado não usa (nem mostra) o campo de título.
     if (!selectedChat || !currentUser) return;
@@ -1828,6 +1953,8 @@ useEffect(() => {
       return;
     }
 
+    finishingRef.current = true;
+    setFinishingAction(closeAsSpam ? 'spam' : closeChat ? 'finish' : 'generate');
     try {
       const hadExistingTicket = !!selectedChat.ticketId;
 
@@ -1871,17 +1998,50 @@ useEffect(() => {
 
       if (!closeChat) {
         // O vínculo com a conversa em andamento já foi feito dentro de
-        // saveTicketFromChatSession — não há nada a mandar ao cliente aqui.
-        // Gerar chamado pelo chat NÃO envia mais o aviso "Novo chamado gerado
-        // #N + link" (decisão do usuário, 2026-09-24): quem avisa a abertura é
-        // só o chamado aberto na mão, pelo botão de novo chamado (automação
-        // novo_chamado). Sem mexer em status/histórico, já que o atendimento
-        // continua aberto.
+        // saveTicketFromChatSession — aqui só falta avisar o cliente, sem
+        // mexer em status/histórico já que o atendimento continua aberto.
+        //
+        // Avisa dentro da própria conversa que um chamado foi aberto — sempre
+        // registrado no chat e, adicionalmente, encaminhado pelo WhatsApp quando
+        // há telefone. Leva o NÚMERO e o ASSUNTO do chamado. Sem link: o
+        // usuário pediu a mensagem só com essas duas informações (2026-09-25;
+        // a versão anterior mandava "Acompanhe o andamento pelo link abaixo").
+        const ticketNoticeText = [
+          `📄 Novo chamado gerado #${String(createdTicketNumber).padStart(4, '0')}`,
+          ticketTitle.trim() ? `📌 Assunto:\n${ticketTitle.trim()}` : ''
+        ].filter(Boolean).join('\n\n');
+        const ticketNoticeMessage: ChatMessage = {
+          id: crypto.randomUUID(),
+          senderId: currentUser.id,
+          senderName: 'SSX Desk',
+          text: ticketNoticeText,
+          timestamp: new Date().toISOString(),
+          type: 'system'
+        };
+        try {
+          await pushChatMessage(selectedChat.id, ticketNoticeMessage);
+          // Não aguarda — ver comentário equivalente no fluxo de encerramento
+          // mais abaixo: com o WhatsApp desconectado, essa chamada pode levar
+          // quase 1min pra falhar e travava "Gerar Chamado" à toa.
+          forwardMessageToWhatsApp({
+            sessionId: selectedChat.id,
+            messageId: ticketNoticeMessage.id,
+            customerPhone: selectedChat.customerPhone,
+            queueId: selectedChat.queueId,
+            channel: selectedChat.channel,
+            text: ticketNoticeMessage.text
+          });
+        } catch (msgError) {
+          console.error('Failed to notify customer about ticket creation:', msgError);
+        }
+
         setIsFinishModalOpen(false);
         const sessions = await fetchChatSessions();
         setCustomerSessions(sessions);
         setTicketTitle('');
-        toast.success('Chamado criado com sucesso! O atendimento continua em aberto.');
+        toast.success(`Chamado #${String(createdTicketNumber).padStart(4, '0')} criado com sucesso!`, {
+          description: `${ticketTitle ? `${ticketTitle} — ` : ''}O atendimento continua em aberto.`
+        });
         return;
       }
 
@@ -2017,34 +2177,70 @@ useEffect(() => {
       const sessions = await fetchChatSessions();
       setCustomerSessions(sessions);
       setTicketTitle('');
-      toast.success(hadExistingTicket ? `Atendimento finalizado! Chamado #${String(createdTicketNumber).padStart(4, '0')} mantido.` : 'Chamado criado com sucesso!');
+      toast.success(
+        hadExistingTicket
+          ? `Atendimento finalizado! Chamado #${String(createdTicketNumber).padStart(4, '0')} mantido.`
+          : `Chamado #${String(createdTicketNumber).padStart(4, '0')} criado com sucesso!`,
+        hadExistingTicket || !ticketTitle ? undefined : { description: ticketTitle }
+      );
     } catch (error) {
       console.error('Failed to finish chat:', error);
       toast.error('Erro ao criar chamado.');
+    } finally {
+      finishingRef.current = false;
+      setFinishingAction(null);
     }
   };
 
   // Cresce junto com o texto (até um teto, depois rola por dentro) — via
   // efeito ligado a `message` em vez de só onInput, pra também encolher de
-  // volta quando a mensagem é limpa no envio ou preenchida por fora (nota
-  // rápida selecionada via '/', ver selectQuickNote).
-  useEffect(() => {
+  // volta quando a mensagem é limpa no envio ou preenchida por fora (resposta
+  // pronta colada pelo painel, ver insertQuickReply).
+  //
+  // Também reajusta quando a LARGURA do campo muda (maximizar/minimizar o chat,
+  // redimensionar a janela): antes só reagia a mudança de texto, então digitar
+  // no chat minimizado e maximizar (ou o contrário) deixava a altura velha — no
+  // sentido maximizado→minimizado, o texto ficava cortado no campo. Maximizado
+  // tem mais espaço, então o teto é maior (depois dele o campo rola por dentro).
+  const composerMaxHeight = isExpanded ? 200 : 120;
+  const fitComposer = React.useCallback(() => {
     const el = messageInputRef.current;
     if (!el) return;
     el.style.height = 'auto';
-    el.style.height = `${Math.min(el.scrollHeight, 120)}px`;
-  }, [message]);
+    el.style.height = `${Math.min(el.scrollHeight, composerMaxHeight)}px`;
+  }, [composerMaxHeight]);
+
+  useEffect(() => { fitComposer(); }, [message, fitComposer]);
+
+  // Ref por CALLBACK (não useEffect): o campo é recriado ao maximizar/minimizar
+  // (a conversa muda de lugar na árvore), e um observer preso ao elemento
+  // antigo ficava olhando pra nada — o campo novo nascia sem ajuste. Aqui todo
+  // elemento novo já entra medido e observado.
+  const fitComposerRef = useRef(fitComposer);
+  fitComposerRef.current = fitComposer;
+  const composerObserverRef = useRef<ResizeObserver | null>(null);
+  const setComposerRef = React.useCallback((el: HTMLTextAreaElement | null) => {
+    composerObserverRef.current?.disconnect();
+    composerObserverRef.current = null;
+    messageInputRef.current = el;
+    if (!el) return;
+    fitComposerRef.current();
+    if (typeof ResizeObserver === 'undefined') return;
+    let lastWidth = el.clientWidth;
+    // Só a largura interessa: mexer na altura aqui dispararia o observer de
+    // novo em loop.
+    const observer = new ResizeObserver(() => {
+      if (el.clientWidth === lastWidth) return;
+      lastWidth = el.clientWidth;
+      fitComposerRef.current();
+    });
+    observer.observe(el);
+    composerObserverRef.current = observer;
+  }, []);
 
   const handleInputChange = (e: React.ChangeEvent<HTMLTextAreaElement>) => {
     const val = e.target.value;
     setMessage(val);
-    if (val.startsWith('/') && currentUser?.role !== UserRole.EMPLOYEE) {
-      setShowQuickNoteSearch(true);
-    } else {
-      setShowQuickNoteSearch(false);
-      setIsCreatingQuickNote(false);
-    }
-
     if (selectedChatId && currentUser && val.trim()) {
       const now = Date.now();
       if (now - lastTypingSentAtRef.current > 3000) {
@@ -2120,14 +2316,14 @@ useEffect(() => {
   };
 
   // Compartilhado entre o seletor de arquivo (input) e o colar (Ctrl+V) de
-  // print/arquivo — mesmas regras (limite de 8MB, conversão pra data URL)
+  // print/arquivo — mesmas regras (limite compartilhado, conversão pra data URL)
   // pros dois caminhos, pra cliente e operador igual (é o mesmo componente).
   const addFilesAsChatAttachments = async (files: File[]) => {
     for (const file of files) {
       const fileId = crypto.randomUUID();
 
       if (file.size > MAX_CHAT_ATTACHMENT_SIZE) {
-        toast.error(`${file.name || 'Arquivo'} excede o limite de 8 MB.`);
+        toast.error(`${file.name || 'Arquivo'} excede o limite de ${MAX_ATTACHMENT_TOTAL_LABEL} por envio.`);
         continue;
       }
 
@@ -2302,7 +2498,7 @@ useEffect(() => {
     console.log(`[AudioRecording] WAV encoded: size=${wavBlob.size} bytes`);
 
     if (wavBlob.size > MAX_CHAT_ATTACHMENT_SIZE) {
-      toast.error('Áudio excede o limite de 8 MB.');
+      toast.error(`Áudio excede o limite de ${MAX_ATTACHMENT_TOTAL_LABEL}.`);
       releaseRecordingResources();
       return;
     }
@@ -2345,40 +2541,34 @@ useEffect(() => {
     }
   };
 
-  const selectQuickNote = (note: QuickNote) => {
-    setMessage(note.content);
-    setShowQuickNoteSearch(false);
-  };
-
-  const openCreateQuickNote = () => {
-    // O que já foi digitado depois da '/' vira o ponto de partida do atalho
-    // — quem chegou até aqui normalmente buscou algo que não existia ainda.
-    setNewQuickNoteShortcut(message.slice(1));
-    setNewQuickNoteContent('');
-    setIsCreatingQuickNote(true);
-  };
-
-  const cancelCreateQuickNote = () => {
-    setIsCreatingQuickNote(false);
-    setNewQuickNoteShortcut('');
-    setNewQuickNoteContent('');
-  };
-
-  const handleCreateQuickNote = async () => {
-    const shortcut = newQuickNoteShortcut.trim();
-    const content = newQuickNoteContent.trim();
-    if (!shortcut || !content || savingQuickNote) return;
-    setSavingQuickNote(true);
+  // Cola o texto da resposta pronta no campo de digitação (não envia: quem
+  // atende revisa/edita e envia). Com texto já digitado, entra numa linha nova
+  // no fim. (O antigo comando "/atalho" foi aposentado em 2026-09-25 — este
+  // painel é o único caminho pras respostas prontas.)
+  // Cadastra uma resposta pronta nova pelo painel (o título único já vem
+  // resolvido pelo painel) e recarrega a lista.
+  const createQuickReply = async ({ title, content }: { title: string; content: string }) => {
     try {
-      await ConfigService.saveQuickNote({ shortcut, content } as QuickNote);
-      setQuickNotes(await fetchQuickNotes());
-      toast.success('Comando rápido criado.');
-      cancelCreateQuickNote();
+      await ConfigService.saveQuickNote({ shortcut: title, content } as QuickNote);
     } catch {
-      toast.error(`Não foi possível criar "/${shortcut}" — talvez esse atalho já exista.`);
-    } finally {
-      setSavingQuickNote(false);
+      throw new Error('Não foi possível salvar. Tente de novo em instantes.');
     }
+    setQuickNotes(await fetchQuickNotes());
+    toast.success('Resposta pronta cadastrada.');
+  };
+
+  const insertQuickReply = (note: QuickNote) => {
+    setMessage(prev => {
+      const base = prev.replace(/\s+$/, '');
+      return base ? `${base}\n${note.content}` : note.content;
+    });
+    setIsQuickRepliesOpen(false);
+    setTimeout(() => {
+      const el = messageInputRef.current;
+      if (!el) return;
+      el.focus();
+      el.setSelectionRange(el.value.length, el.value.length);
+    }, 0);
   };
 
   if (!mounted || !currentUser) return null;
@@ -2479,11 +2669,15 @@ useEffect(() => {
             <div className="flex-1 flex overflow-hidden bg-[var(--surface-card)]/30 min-w-0">
               {/* Sidebar (List) - Hide for customer */}
               {(!isCustomer && (!selectedChatId || isExpanded)) && (
-                <div className={cn(
-                  "flex flex-col border-r border-[var(--border-default)] bg-[var(--surface-card)]",
-                  // 350px — mesma largura da lista em /chat-internal.
-                  isExpanded ? "w-[350px]" : "w-full"
-                )}>
+                <div
+                  className={cn(
+                    "flex flex-col border-r border-[var(--border-default)] bg-[var(--surface-card)]",
+                    // Maximizado: largura ajustável (padrão 350px, mesma da lista em
+                    // /chat-internal) pela divisória logo abaixo desta coluna.
+                    isExpanded ? "shrink-0" : "w-full"
+                  )}
+                  style={isExpanded ? { width: chatListWidth } : undefined}
+                >
                   <div className="p-3 border-b border-[var(--border-default)] space-y-2">
                     <div className="relative">
                       <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-[var(--text-tertiary)]" size={13} />
@@ -2516,15 +2710,6 @@ useEffect(() => {
                         )}
                       >
                         Todos
-                      </button>
-                      <button
-                        onClick={() => setChatFilter('queue')}
-                        className={cn(
-                          "flex-1 py-1 text-[9px] font-semibold uppercase tracking-widest rounded-lg transition-all",
-                          chatFilter === 'queue' ? "bg-[var(--surface-card)] text-[var(--accent-text)] shadow-sm" : "text-[var(--text-tertiary)]"
-                        )}
-                      >
-                        Fila
                       </button>
                       <button
                         onClick={() => setChatFilter('me')}
@@ -2569,17 +2754,7 @@ useEffect(() => {
                         .filter(matchesSearch)
                         .filter(s => {
                           if (chatFilter === 'all') return true;
-                          if (chatFilter === 'me') return s.assigneeId === currentUser?.id;
-                          // "Fila": todo chat (pendente ou já em atendimento, de
-                          // qualquer analista) que pertence a QUALQUER fila — não
-                          // só as que o usuário logado é formalmente membro
-                          // (ex: um admin que acompanha tudo mas não está
-                          // cadastrado em nenhuma fila específica não pode ver a
-                          // aba inteira vazia). Inclui também os próprios
-                          // chamados do usuário mesmo sem queueId (ex: pool
-                          // combinado).
-                          if (chatFilter === 'queue') return !!s.queueId || s.assigneeId === currentUser?.id;
-                          return true;
+                          return s.assigneeId === currentUser?.id;
                         });
 
                       // Quem mandou a mensagem mais recente decide a seção —
@@ -2599,7 +2774,7 @@ useEffect(() => {
                       const renderRow = (s: ChatSession) => {
                         const contact = findSessionContact(s);
                         const company = contact ? companies.find(c => c.id === contact.companyId) : null;
-                        const sessionUnread = getSessionUnreadCount(s.id);
+                        const sessionUnread = getSessionUnreadCount(s);
                         const rowTags = chatTags.filter(t => (s.tags || []).includes(t.id));
                         const lastMessage = s.messages?.[s.messages.length - 1];
                         const lastMessagePreview = lastMessage
@@ -2636,17 +2811,24 @@ useEffect(() => {
                               </div>
                             )}
                             <div className={cn("flex items-center gap-2.5", rowTags.length > 0 && "pl-1.5")}>
-                              <div className="w-9 h-9 rounded-xl flex items-center justify-center text-[var(--text-success)] relative shrink-0 overflow-hidden bg-[var(--surface-success)]">
-                                {(() => {
-                                  const photo = contact?.avatarUrl || getContactPhoto(s.customerPhone, getSessionInstanceId(s));
-                                  return photo ? (
-                                    <img src={photo} alt={s.customerName} className="w-full h-full object-cover" />
-                                  ) : (
-                                    <User size={16} />
-                                  );
-                                })()}
+                              {/* O avatar tem overflow-hidden (arredonda a foto): o número
+                                  precisa ficar FORA dele, senão o círculo era cortado. */}
+                              <div className="relative shrink-0">
+                                <div className="w-9 h-9 rounded-xl flex items-center justify-center text-[var(--text-success)] overflow-hidden bg-[var(--surface-success)]">
+                                  {(() => {
+                                    const photo = contact?.avatarUrl || getContactPhoto(s.customerPhone, getSessionInstanceId(s));
+                                    return photo ? (
+                                      <img src={photo} alt={s.customerName} className="w-full h-full object-cover" />
+                                    ) : (
+                                      <User size={16} />
+                                    );
+                                  })()}
+                                </div>
                                 {sessionUnread > 0 && (
-                                  <span className="absolute -top-1 -right-1 w-5 h-5 bg-[var(--text-danger)] text-white text-[8px] font-black flex items-center justify-center rounded-full border-2 border-white">
+                                  <span
+                                    className="absolute -top-1.5 -right-1.5 min-w-[18px] h-[18px] px-1 bg-[var(--text-danger)] text-white text-[9px] font-black flex items-center justify-center rounded-full border-2 border-[var(--surface-card)] shadow-sm"
+                                    title={`${sessionUnread} mensage${sessionUnread === 1 ? 'm nova' : 'ns novas'}`}
+                                  >
                                     {sessionUnread > 9 ? '9+' : sessionUnread}
                                   </span>
                                 )}
@@ -2665,7 +2847,7 @@ useEffect(() => {
                                   </p>
                                 )}
                                 {lastMessagePreview && (
-                                  <p className="text-[10px] text-[var(--text-tertiary)] font-medium truncate">{lastMessagePreview}</p>
+                                  <p className={cn("text-[10px] truncate", sessionUnread > 0 ? "text-[var(--text-primary)] font-bold" : "text-[var(--text-tertiary)] font-medium")}>{lastMessagePreview}</p>
                                 )}
                               </div>
                             </div>
@@ -2704,6 +2886,37 @@ useEffect(() => {
                     })()}
                   </div>
                 </div>
+              )}
+
+              {/* Divisória arrastável (só maximizado): redimensiona a lista de
+                  conversas em andamento x a conversa aberta. Duplo clique volta
+                  ao padrão; setas do teclado também ajustam. */}
+              {!isCustomer && isExpanded && (
+                <div
+                  role="separator"
+                  aria-orientation="vertical"
+                  aria-label="Redimensionar lista de conversas"
+                  aria-valuenow={chatListWidth}
+                  aria-valuemin={CHAT_LIST_WIDTH_MIN}
+                  aria-valuemax={CHAT_LIST_WIDTH_MAX}
+                  tabIndex={0}
+                  title="Arraste para redimensionar (duplo clique restaura)"
+                  onPointerDown={startResizeList}
+                  onDoubleClick={() => { setChatListWidth(CHAT_LIST_WIDTH_DEFAULT); saveChatListWidth(CHAT_LIST_WIDTH_DEFAULT); }}
+                  onKeyDown={(e) => {
+                    if (e.key !== 'ArrowLeft' && e.key !== 'ArrowRight') return;
+                    e.preventDefault();
+                    const next = clampChatListWidth(chatListWidth + (e.key === 'ArrowRight' ? 24 : -24));
+                    setChatListWidth(next);
+                    saveChatListWidth(next);
+                  }}
+                  style={{ touchAction: 'none' }}
+                  className={cn(
+                    "w-1.5 shrink-0 -ml-px cursor-col-resize transition-colors outline-none",
+                    "hover:bg-[var(--accent)]/30 focus-visible:bg-[var(--accent)]/40",
+                    isResizingList ? "bg-[var(--accent)]/50" : "bg-transparent"
+                  )}
+                />
               )}
 
               {/* Chat Content */}
@@ -2867,7 +3080,6 @@ useEffect(() => {
                       <div className="flex flex-col items-end gap-1.5 shrink-0">
                         <AssignChatMenu
                           currentUserId={currentUser?.id}
-                          isCurrentUserOnline={userStatus === 'online'}
                           onlineTargets={getQueueOnlineTargets(selectedChat.queueId)}
                           onAssignToSelf={() => handleAssignChat(selectedChat.id)}
                           onAssignToUser={(userId) => handleAssignChat(selectedChat.id, userId)}
@@ -3129,7 +3341,11 @@ useEffect(() => {
                                 type="button"
                                 onClick={(e) => {
                                   e.stopPropagation();
-                                  const target = document.getElementById(`chat-msg-${m.metadata?.replyTo?.messageId}`);
+                                  // Citação sem vínculo (o cliente citou algo que não está
+                                  // no nosso banco, ex.: um template): só mostra o trecho.
+                                  const quotedId = m.metadata?.replyTo?.messageId;
+                                  if (!quotedId) return;
+                                  const target = document.getElementById(`chat-msg-${quotedId}`);
                                   if (!target) {
                                     toast.info('A mensagem original não está carregada nesta conversa.');
                                     return;
@@ -3445,106 +3661,15 @@ useEffect(() => {
                         </motion.button>
                       )}
 
-                      {showQuickNoteSearch && message.startsWith('/') && (
-                        <motion.div
-                          initial={{ opacity: 0, y: 10 }}
-                          animate={{ opacity: 1, y: 0 }}
-                          exit={{ opacity: 0, y: 10 }}
-                          className="absolute bottom-full left-6 right-6 mb-4 bg-[var(--surface-card)] border border-[var(--border-default)] rounded-[2rem] shadow-2xl p-3 max-h-64 overflow-y-auto z-10"
-                        >
-                          {isCreatingQuickNote ? (
-                            <div className="p-2 space-y-3">
-                              <div className="flex items-center justify-between border-b border-[var(--border-default)] pb-2 mb-1">
-                                <p className="text-[10px] font-semibold uppercase text-[var(--text-tertiary)] tracking-widest">Novo Comando Rápido</p>
-                                <button
-                                  type="button"
-                                  onClick={cancelCreateQuickNote}
-                                  className="p-1 rounded-lg text-[var(--text-tertiary)] hover:bg-[var(--surface-pill)] transition-all"
-                                  title="Cancelar"
-                                >
-                                  <X size={14} />
-                                </button>
-                              </div>
-                              <div>
-                                <label className="text-[9px] font-semibold uppercase text-[var(--text-tertiary)] tracking-widest">Atalho</label>
-                                <div className="flex items-center gap-1 mt-1">
-                                  <span className="text-sm font-semibold text-[var(--text-tertiary)]">/</span>
-                                  <input
-                                    autoFocus
-                                    value={newQuickNoteShortcut}
-                                    onChange={(e) => setNewQuickNoteShortcut(e.target.value.replace(/^\/+/, ''))}
-                                    placeholder="ex: rastreadores"
-                                    className="flex-1 bg-[var(--surface-pill)] rounded-lg px-3 py-2 text-xs font-semibold text-[var(--text-primary)] outline-none focus:ring-2 focus:ring-[var(--accent)]/30"
-                                  />
-                                </div>
-                              </div>
-                              <div>
-                                <label className="text-[9px] font-semibold uppercase text-[var(--text-tertiary)] tracking-widest">Mensagem</label>
-                                <textarea
-                                  value={newQuickNoteContent}
-                                  onChange={(e) => setNewQuickNoteContent(e.target.value)}
-                                  placeholder="Texto que será inserido ao usar o comando..."
-                                  rows={3}
-                                  className="w-full mt-1 bg-[var(--surface-pill)] rounded-lg px-3 py-2 text-xs font-medium text-[var(--text-primary)] outline-none focus:ring-2 focus:ring-[var(--accent)]/30 resize-none"
-                                />
-                              </div>
-                              <button
-                                type="button"
-                                onClick={handleCreateQuickNote}
-                                disabled={!newQuickNoteShortcut.trim() || !newQuickNoteContent.trim() || savingQuickNote}
-                                className="w-full flex items-center justify-center gap-2 bg-[var(--accent)] text-white rounded-xl py-2.5 text-[10px] font-semibold uppercase tracking-widest disabled:opacity-50 hover:bg-[var(--accent-hover)] transition-all"
-                              >
-                                {savingQuickNote ? <Loader2 size={14} className="animate-spin" /> : <Check size={14} />}
-                                Salvar Comando
-                              </button>
-                            </div>
-                          ) : (
-                            <>
-                              <div className="flex items-center justify-between border-b border-[var(--border-default)] pb-2 mb-2 px-3 pt-3">
-                                <p className="text-[10px] font-semibold uppercase text-[var(--text-tertiary)] tracking-widest">Comandos Rápidos</p>
-                                <button
-                                  type="button"
-                                  onClick={openCreateQuickNote}
-                                  title="Criar novo Comando Rápido"
-                                  className="p-1.5 rounded-lg text-[var(--accent-text)] hover:bg-[var(--accent)]/10 transition-all"
-                                >
-                                  <Plus size={14} />
-                                </button>
-                              </div>
-                              {message.slice(1).trim() === '' ? (
-                                <p className="px-4 py-6 text-center text-[10px] text-[var(--text-tertiary)] font-medium leading-relaxed">
-                                  Digite algo depois da barra pra buscar um comando,
-                                  <br />ou toque no + acima pra criar um novo.
-                                </p>
-                              ) : (() => {
-                                const results = quickNotes.filter(n => n.shortcut.toLowerCase().includes(message.slice(1).toLowerCase()));
-                                if (results.length === 0) {
-                                  return (
-                                    <p className="px-4 py-6 text-center text-[10px] text-[var(--text-tertiary)] font-medium leading-relaxed">
-                                      Nenhum comando com "/{message.slice(1)}".
-                                      <br />Toque no + acima pra criar um novo com esse nome.
-                                    </p>
-                                  );
-                                }
-                                return results.map(note => (
-                                  <button
-                                    key={note.id}
-                                    onClick={() => selectQuickNote(note)}
-                                    className="w-full text-left p-4 hover:bg-[var(--accent)]/10 rounded-2xl transition-all flex items-center justify-between group"
-                                  >
-                                    <div className="flex flex-col">
-                                      <span className="text-[11px] font-semibold text-[var(--accent-text)] uppercase mb-0.5">/{note.shortcut}</span>
-                                      <span className="text-[10px] text-[var(--text-tertiary)] font-medium truncate w-64">{note.content}</span>
-                                    </div>
-                                    <Zap size={14} className="text-[var(--text-warning)] opacity-0 group-hover:opacity-100" />
-                                  </button>
-                                ));
-                              })()}
-                            </>
-                          )}
-                        </motion.div>
-                      )}
                     </AnimatePresence>
+                    {isQuickRepliesOpen && !isCustomer && (
+                      <QuickRepliesPanel
+                        notes={quickNotes}
+                        onSelect={insertQuickReply}
+                        onCreate={createQuickReply}
+                        onClose={() => { setIsQuickRepliesOpen(false); messageInputRef.current?.focus(); }}
+                      />
+                    )}
                     {replyingTo && canQuoteMessage(replyingTo) && (
                       <div className="mb-3 flex items-center justify-between gap-3 rounded-2xl border border-[var(--border-default)] bg-[var(--surface-pill)] p-3 animate-in slide-in-from-bottom-2">
                         <div className="min-w-0 flex-1 border-l-4 border-[var(--accent)] pl-3">
@@ -3634,7 +3759,6 @@ useEffect(() => {
                         ref={chatFileInputRef}
                         type="file"
                         multiple
-                        accept="image/*,video/*,application/pdf,.doc,.docx"
                         onChange={handleChatFileUpload}
                         className="hidden"
                       />
@@ -3654,8 +3778,24 @@ useEffect(() => {
                       >
                         <Mic size={17} />
                       </button>
+                      {!isCustomer && (
+                        <button
+                          type="button"
+                          onClick={() => setIsQuickRepliesOpen(open => !open)}
+                          className={cn(
+                            "w-11 h-11 shrink-0 rounded-2xl transition-all flex items-center justify-center",
+                            isQuickRepliesOpen
+                              ? "bg-[var(--accent)] text-white"
+                              : "bg-[var(--surface-pill)] text-[var(--text-tertiary)] hover:bg-[var(--border-default)] hover:text-[var(--accent-text)]"
+                          )}
+                          title="Respostas prontas"
+                          aria-expanded={isQuickRepliesOpen}
+                        >
+                          <MessageSquareText size={17} />
+                        </button>
+                      )}
                       <textarea
-                        ref={messageInputRef}
+                        ref={setComposerRef}
                         rows={1}
                         value={message}
                         onChange={handleInputChange}
@@ -3878,7 +4018,7 @@ useEffect(() => {
       <AnimatePresence>
         {isFinishModalOpen && (
           <div className="fixed inset-0 z-[250] flex items-center justify-center p-4">
-             <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} onClick={() => setIsFinishModalOpen(false)} className="absolute inset-0 bg-slate-900/40 backdrop-blur-sm" />
+             <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} onClick={() => !finishingAction && setIsFinishModalOpen(false)} className="absolute inset-0 bg-slate-900/40 backdrop-blur-sm" />
              <motion.div initial={{ scale: 0.9, opacity: 0 }} animate={{ scale: 1, opacity: 1 }} exit={{ scale: 0.9, opacity: 0 }} className="relative bg-[var(--surface-card)] w-full max-w-sm rounded-[2.5rem] shadow-2xl p-8">
                 {selectedChat?.ticketId ? (
                   <>
@@ -3898,9 +4038,11 @@ useEffect(() => {
                     <div className="space-y-4">
                       <button
                         onClick={() => handleGenerateTicket(true)}
-                        className="w-full py-4 bg-slate-900 text-white rounded-2xl text-[11px] font-semibold uppercase tracking-widest shadow-xl hover:bg-slate-800 transition-all"
+                        disabled={!!finishingAction}
+                        className="w-full py-4 bg-slate-900 text-white rounded-2xl text-[11px] font-semibold uppercase tracking-widest shadow-xl hover:bg-slate-800 transition-all disabled:opacity-60 disabled:cursor-not-allowed flex items-center justify-center gap-2"
                       >
-                        Finalizar Conversa
+                        {finishingAction === 'finish' && <Loader2 size={14} className="animate-spin" />}
+                        {finishingAction === 'finish' ? 'Finalizando...' : 'Finalizar Conversa'}
                       </button>
                       <p className="text-[9px] text-[var(--text-tertiary)] font-medium text-center -mt-2">Envia a mensagem de encerramento ao cliente. O chamado não é alterado.</p>
 
@@ -3908,9 +4050,11 @@ useEffect(() => {
                         <>
                           <button
                             onClick={() => handleGenerateTicket(true, true)}
-                            className="w-full py-3.5 bg-[var(--surface-card)] border-2 border-[var(--text-danger)]/20 text-[var(--text-danger)] rounded-2xl text-[10px] font-semibold uppercase tracking-widest hover:bg-[var(--surface-danger)] transition-all"
+                            disabled={!!finishingAction}
+                            className="w-full py-3.5 bg-[var(--surface-card)] border-2 border-[var(--text-danger)]/20 text-[var(--text-danger)] rounded-2xl text-[10px] font-semibold uppercase tracking-widest hover:bg-[var(--surface-danger)] transition-all disabled:opacity-60 disabled:cursor-not-allowed flex items-center justify-center gap-2"
                           >
-                            Fechar como Spam
+                            {finishingAction === 'spam' && <Loader2 size={14} className="animate-spin" />}
+                            {finishingAction === 'spam' ? 'Fechando...' : 'Fechar como Spam'}
                           </button>
                           <p className="text-[9px] text-[var(--text-tertiary)] font-medium text-center -mt-2">Encerra sem enviar nenhuma mensagem ao cliente — use quando um bot dele responder automaticamente à pesquisa e reabrir o chat em loop.</p>
                         </>
@@ -3949,26 +4093,32 @@ useEffect(() => {
 
                    <button
                      onClick={() => handleGenerateTicket(false)}
-                     className="w-full mt-2 py-4 bg-[var(--surface-card)] border-2 border-[var(--border-default)] text-[var(--text-primary)] rounded-2xl text-[11px] font-semibold uppercase tracking-widest hover:border-[var(--accent)]/40 hover:bg-[var(--surface-pill)] transition-all"
+                     disabled={!!finishingAction}
+                     className="w-full mt-2 py-4 bg-[var(--surface-card)] border-2 border-[var(--border-default)] text-[var(--text-primary)] rounded-2xl text-[11px] font-semibold uppercase tracking-widest hover:border-[var(--accent)]/40 hover:bg-[var(--surface-pill)] transition-all disabled:opacity-60 disabled:cursor-not-allowed flex items-center justify-center gap-2"
                    >
-                     Gerar Chamado
+                     {finishingAction === 'generate' && <Loader2 size={14} className="animate-spin" />}
+                     {finishingAction === 'generate' ? 'Gerando chamado...' : 'Gerar Chamado'}
                    </button>
                    <p className="text-[9px] text-[var(--text-tertiary)] font-medium text-center -mt-2">O chat continua aberto, sem enviar mensagem de encerramento.</p>
 
                    <button
                      onClick={() => handleGenerateTicket(true)}
-                     className="w-full py-4 bg-slate-900 text-white rounded-2xl text-[11px] font-semibold uppercase tracking-widest shadow-xl hover:bg-slate-800 transition-all"
+                     disabled={!!finishingAction}
+                     className="w-full py-4 bg-slate-900 text-white rounded-2xl text-[11px] font-semibold uppercase tracking-widest shadow-xl hover:bg-slate-800 transition-all disabled:opacity-60 disabled:cursor-not-allowed flex items-center justify-center gap-2"
                    >
-                     Gerar Chamado & Finalizar
+                     {finishingAction === 'finish' && <Loader2 size={14} className="animate-spin" />}
+                     {finishingAction === 'finish' ? 'Finalizando...' : 'Gerar Chamado & Finalizar'}
                    </button>
 
                    {hasPermission(Permission.CHAT_MARK_SPAM) && (
                      <>
                        <button
                          onClick={() => handleGenerateTicket(true, true)}
-                         className="w-full py-3.5 bg-[var(--surface-card)] border-2 border-[var(--text-danger)]/20 text-[var(--text-danger)] rounded-2xl text-[10px] font-semibold uppercase tracking-widest hover:bg-[var(--surface-danger)] transition-all"
+                         disabled={!!finishingAction}
+                         className="w-full py-3.5 bg-[var(--surface-card)] border-2 border-[var(--text-danger)]/20 text-[var(--text-danger)] rounded-2xl text-[10px] font-semibold uppercase tracking-widest hover:bg-[var(--surface-danger)] transition-all disabled:opacity-60 disabled:cursor-not-allowed flex items-center justify-center gap-2"
                        >
-                         Fechar como Spam
+                         {finishingAction === 'spam' && <Loader2 size={14} className="animate-spin" />}
+                         {finishingAction === 'spam' ? 'Fechando...' : 'Fechar como Spam'}
                        </button>
                        <p className="text-[9px] text-[var(--text-tertiary)] font-medium text-center -mt-2">Gera o chamado e encerra, mas não envia nenhuma mensagem ao cliente — use quando um bot dele responder automaticamente à pesquisa e reabrir o chat em loop.</p>
                      </>
@@ -4148,14 +4298,14 @@ useEffect(() => {
             // notificação foi suprimida enquanto a conversa estava aberta).
             // Pro cliente (só 1 atendimento por vez, sem essa noção de fila),
             // continua sendo "tenho mensagem nova" via unreadCount.
+            // Só entra chat ASSUMIDO por quem está logado — o "!" amarelo de
+            // conversa pendente na fila foi retirado por isso (pendente não
+            // tem responsável, não é de ninguém ainda).
             const badgeCount = isCustomer ? unreadCount : chatsAwaitingResponseCount;
-            if (!(badgeCount > 0 || (!isCustomer && customerSessions.some(s => s.status === 'pending')))) return null;
+            if (badgeCount <= 0) return null;
             return (
-              <span className={cn(
-                "absolute -top-1 -right-1 min-w-[24px] h-6 px-1 text-white text-[10px] font-black flex items-center justify-center rounded-full border-2 border-white",
-                badgeCount > 0 ? "bg-[var(--text-danger)]" : "bg-[var(--text-warning-strong)] animate-pulse"
-              )}>
-                {badgeCount > 0 ? (badgeCount > 9 ? '9+' : badgeCount) : '!'}
+              <span className="absolute -top-1 -right-1 min-w-[24px] h-6 px-1 text-white text-[10px] font-black flex items-center justify-center rounded-full border-2 border-white bg-[var(--text-danger)]">
+                {badgeCount > 9 ? '9+' : badgeCount}
               </span>
             );
           })()}

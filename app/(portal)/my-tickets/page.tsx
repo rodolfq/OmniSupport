@@ -152,11 +152,13 @@ export default function MyTicketsPage() {
       if (currentUser.role === UserRole.EMPLOYEE) {
         return t.customerId === currentUser.id || t.employeeIds?.includes(currentUser.id);
       }
-      // Administrador/Equipe/Time Interno usando "Meus Chamados": só o
-      // que é responsabilidade dele, mais o que ainda não tem responsável
-      // (pra poder assumir) — customerId/employeeIds não fazem sentido
-      // pra esses papéis (são conceito do lado empresa-cliente).
-      return t.assigneeId === currentUser.id || !t.assigneeId;
+      // Equipe/Time Interno usando "Meus Chamados": só o que é
+      // responsabilidade dele. Chamado sem responsável NÃO entra aqui (antes
+      // entrava "pra poder assumir", mas isso enchia a tela de chamado que
+      // não é de ninguém) — ele é assumido pela lista de todos os chamados.
+      // customerId/employeeIds não fazem sentido pra esses papéis (são
+      // conceito do lado empresa-cliente).
+      return t.assigneeId === currentUser.id;
     });
     setAllTickets(filtered);
     return filtered;

@@ -1,9 +1,9 @@
 import { runExclusive } from '../key-mutex';
 
 // Aviso enviado a TODO contato que escreve pelo WhatsApp não oficial (QR Code /
-// Baileys) e não tem uma conversa em atendimento com um analista: o cliente é
+// Baileys), tenha ou não conversa aberta com um analista: o cliente é
 // empurrado pro número novo, que é o do Pyvon (decisão do usuário,
-// 2026-09-24). Nesse caso NÃO nasce conversa nem a mensagem é gravada — o
+// 2026-09-24/25). Nesse caso NÃO nasce conversa nem a mensagem é gravada — o
 // aviso é a única coisa que acontece (ver processIncomingMessage em
 // whatsapp-service.ts). Mesmo texto do Modo de Crise, mas fixo aqui: o Modo de
 // Crise liga/desliga e pode ter o texto editado, este aviso não.

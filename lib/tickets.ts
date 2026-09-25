@@ -16,7 +16,7 @@ export async function fetchAllTickets(signal?: AbortSignal, options?: { includeC
   return remoteTickets;
 }
 
-export async function createTicket(ticket: Ticket): Promise<void> {
+export async function createTicket(ticket: Ticket): Promise<{ id?: string; ticketNumber?: number | null }> {
   let userId = ticket.customerId;
   
   const meRes = await fetch('/api/auth/me');
@@ -37,4 +37,9 @@ export async function createTicket(ticket: Ticket): Promise<void> {
     const errorData = await res.json();
     throw new Error(errorData.error || 'Erro ao criar ticket');
   }
+
+  // O servidor devolve o chamado criado — o número público só existe depois do
+  // INSERT, e é ele que o aviso de "chamado criado" precisa mostrar.
+  const data = await res.json().catch(() => null);
+  return { id: data?.ticket?.id, ticketNumber: data?.ticket?.public_ticket_number };
 }

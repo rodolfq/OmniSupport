@@ -10,9 +10,11 @@ import { AiAssistantWidget } from './ai-assistant-widget';
 import { Permission, UserRole } from '@/lib/types';
 
 export function MobileHeader() {
-  const { currentUser, notifications, markNotificationRead, hasPermission } = useApp();
+  const { currentUser, notifications, markNotificationRead, markNotificationsSeen, hasPermission } = useApp();
   const [isOpen, setIsOpen] = useState(false);
-  const unreadCount = notifications.filter(n => !n.read).length;
+  // Mesma regra do sino do desktop: abrir o painel zera o número (visto), sem
+  // marcar como lido.
+  const unreadCount = notifications.filter(n => !n.read && !n.seen).length;
 
   // Mesma regra do header desktop (ver app/(portal)/layout.tsx): só quem é
   // Equipe/Admin/Time Interno E tem giro:view ou giro:manage enxerga o
@@ -35,7 +37,7 @@ export function MobileHeader() {
           {showGiroButton && <GiroStatusPopover />}
           <AiAssistantWidget />
           <button
-            onClick={() => setIsOpen(true)}
+            onClick={() => { markNotificationsSeen(); setIsOpen(true); }}
             className="relative p-2 rounded-xl text-[var(--text-tertiary)] hover:bg-[var(--surface-pill)] transition-all"
           >
             <Bell size={20} />

@@ -59,7 +59,7 @@ CREATE TABLE public.profiles (
   id UUID PRIMARY KEY DEFAULT (md5(random()::text || clock_timestamp()::text)::uuid),
   company_id UUID REFERENCES public.companies(id) ON DELETE SET NULL,
   name TEXT NOT NULL,
-  email TEXT NOT NULL UNIQUE,
+  email TEXT UNIQUE, -- opcional (migrations/profiles_email_opcional.sql): contato de conversa quase nunca tem e-mail; vazio = NULL, nunca ''
   role TEXT NOT NULL DEFAULT 'Funcionário', -- 'Funcionário', 'Equipe', 'Administrador', 'Cliente', 'Time Interno' — tipo estrutural (portal, FKs), não decide mais permissões
   is_admin BOOLEAN DEFAULT FALSE,
   lives_in_squad BOOLEAN DEFAULT FALSE,
@@ -789,6 +789,24 @@ CREATE TABLE public.pyvon_templates (
   body_text TEXT,
   created_at TIMESTAMP WITH TIME ZONE DEFAULT now() NOT NULL
 );
+
+-- Templates automáticos enviados a contato SEM conversa aberta ficam aqui até o
+-- cliente responder (só então nasce a conversa, já com a nota/autor pendentes)
+-- — ver migrations/pyvon_pending_outbound.sql e PyvonService.handleWebhook.
+CREATE TABLE public.pyvon_pending_outbound (
+  id UUID PRIMARY KEY DEFAULT (md5(random()::text || clock_timestamp()::text)::uuid),
+  cadastro_id INTEGER NOT NULL,
+  phone TEXT,
+  customer_name TEXT,
+  instance_id TEXT NOT NULL,
+  template_text TEXT NOT NULL,
+  sender_name TEXT NOT NULL DEFAULT 'SSX Desk (automático)',
+  note_text TEXT,
+  note_author_id UUID REFERENCES public.profiles(id) ON DELETE SET NULL,
+  created_at TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT now()
+);
+CREATE INDEX idx_pyvon_pending_outbound_cadastro ON public.pyvon_pending_outbound (cadastro_id, created_at);
+CREATE INDEX idx_pyvon_pending_outbound_phone ON public.pyvon_pending_outbound (phone);
 
 -- Template Pyvon usado como fallback quando a automação resolve o canal
 -- Pyvon e a janela de 24h está fechada (bot-response não entrega texto livre

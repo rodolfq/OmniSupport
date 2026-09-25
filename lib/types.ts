@@ -586,7 +586,9 @@ export interface ChatMessage {
 // Trecho da mensagem citada, guardado junto da resposta: fica fixo mesmo que a
 // original seja editada/apagada depois, como no WhatsApp.
 export interface ChatReplyQuote {
-  messageId: string;
+  // Ausente quando a citação não aponta pra uma mensagem que temos no banco
+  // (ex.: cliente citou uma mensagem de template) — aí só mostra o trecho.
+  messageId?: string;
   senderName?: string | null;
   text?: string;
   kind?: 'text' | 'image' | 'audio' | 'video' | 'file';

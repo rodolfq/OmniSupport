@@ -14,7 +14,8 @@ import { useQueuesQuery } from '@/lib/query-hooks';
 import { 
   Search, 
   X,
-  Check
+  Check,
+  Loader2,
 } from 'lucide-react';
 import { cn, normalizeString, maskPhone } from '@/lib/utils';
 import { motion, AnimatePresence } from 'motion/react';
@@ -41,6 +42,15 @@ export function LinkContactModal({
   const [newCompanyId, setNewCompanyId] = useState('');
   const [isCreatingNewCompany, setIsCreatingNewCompany] = useState(false);
   const [newCompanyName, setNewCompanyName] = useState('');
+  // Vincular/criar faz várias idas ao servidor: enquanto roda, os botões ficam
+  // travados e o clicado mostra o spinner (evita o duplo clique e deixa claro
+  // que o clique pegou).
+  const [busy, setBusy] = useState<null | 'create' | string>(null);
+  const runBusy = async (key: string, fn: () => Promise<unknown>) => {
+    if (busy) return;
+    setBusy(key);
+    try { await fn(); } finally { setBusy(null); }
+  };
 
   useEffect(() => {
     if (isOpen) {
@@ -278,11 +288,12 @@ export function LinkContactModal({
                     )}
                   </div>
                   <button
-                    onClick={handleCreateAndLink}
-                    disabled={!newName || (isCreatingNewCompany ? !newCompanyName : !newCompanyId)}
-                    className="w-full py-4 bg-[var(--text-success)] text-white text-[10px] font-semibold uppercase tracking-widest rounded-2xl shadow-xl shadow-emerald-100 hover:bg-emerald-700 transition-all disabled:opacity-50"
+                    onClick={() => runBusy('create', handleCreateAndLink)}
+                    disabled={!!busy || !newName || (isCreatingNewCompany ? !newCompanyName : !newCompanyId)}
+                    className="w-full py-4 bg-[var(--text-success)] text-white text-[10px] font-semibold uppercase tracking-widest rounded-2xl shadow-xl shadow-emerald-100 hover:bg-emerald-700 transition-all disabled:opacity-50 flex items-center justify-center gap-2"
                   >
-                    Criar e Vincular
+                    {busy === 'create' && <Loader2 size={14} className="animate-spin" />}
+                    {busy === 'create' ? 'Vinculando...' : 'Criar e Vincular'}
                   </button>
                 </div>
               ) : (
@@ -302,8 +313,9 @@ export function LinkContactModal({
                     {filteredUsers.map(u => (
                       <button
                         key={u.id}
-                        onClick={() => handleLink(u)}
-                        className="w-full flex items-center justify-between p-3 bg-[var(--surface-card)] border border-[var(--border-default)] rounded-2xl hover:border-[var(--accent)] hover:bg-[var(--accent)]/10 transition-all group"
+                        onClick={() => runBusy(u.id, () => handleLink(u))}
+                        disabled={!!busy}
+                        className="w-full flex items-center justify-between p-3 bg-[var(--surface-card)] border border-[var(--border-default)] rounded-2xl hover:border-[var(--accent)] hover:bg-[var(--accent)]/10 transition-all group disabled:opacity-60 disabled:cursor-not-allowed"
                       >
                         <div className="flex items-center gap-3">
                           <div className="w-8 h-8 rounded-xl bg-[var(--surface-pill)] flex items-center justify-center text-[var(--text-tertiary)] font-bold text-xs uppercase tracking-tighter group-hover:bg-[var(--accent)] group-hover:text-white transition-all">
@@ -316,7 +328,9 @@ export function LinkContactModal({
                             </p>
                           </div>
                         </div>
-                        <Check size={16} className="text-[var(--accent-text)] opacity-0 group-hover:opacity-100" />
+                        {busy === u.id
+                          ? <Loader2 size={16} className="text-[var(--accent-text)] animate-spin" />
+                          : <Check size={16} className="text-[var(--accent-text)] opacity-0 group-hover:opacity-100" />}
                       </button>
                     ))}
                     {filteredUsers.length === 0 && (

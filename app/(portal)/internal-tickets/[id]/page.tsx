@@ -804,7 +804,7 @@ export default function InternalTicketDetailPage() {
               <button onClick={() => fileInputRef.current?.click()} disabled={isUploading} className="px-3 py-1 rounded-lg text-xs font-bold border border-[var(--border-default)] text-[var(--text-secondary)] hover:bg-[var(--surface-card)] flex items-center gap-1 disabled:opacity-50">
                 {isUploading ? <Loader2 size={14} className="animate-spin" /> : <Paperclip size={14} />} {isUploading ? 'ENVIANDO...' : 'ANEXAR'}
               </button>
-              <input ref={fileInputRef} type="file" multiple accept="image/*,.pdf,.doc,.docx,.txt,.zip,audio/*" onChange={handleFileSelect} className="hidden" />
+              <input ref={fileInputRef} type="file" multiple onChange={handleFileSelect} className="hidden" />
               <button onClick={handleSendMessage} disabled={!input.trim() && previewAttachments.length === 0}
                 className="px-4 py-1.5 rounded-lg text-xs font-bold bg-[var(--accent-warning-hover)] text-white hover:opacity-90 disabled:opacity-50 flex items-center gap-1">
                 <Send size={14} /> ENVIAR

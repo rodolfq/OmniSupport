@@ -352,11 +352,14 @@ export function NewTicketModal() {
 
     try {
       // Save directly to Supabase via our new service
-      await createTicket(newTicket);
+      const created = await createTicket(newTicket);
 
       setSaveSuccess(true);
       triggerRefresh();
-      toast.success(`Chamado criado com sucesso!`);
+      // Número e título no próprio cartão: só "criado com sucesso" não dizia
+      // QUAL chamado era.
+      const createdLabel = created.ticketNumber ? `#${String(created.ticketNumber).padStart(4, '0')}` : '';
+      toast.success(`Chamado ${createdLabel} criado com sucesso!`.replace('  ', ' '), { description: title });
 
       setTimeout(() => {
         setSaveSuccess(false);

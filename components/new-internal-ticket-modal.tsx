@@ -91,7 +91,8 @@ export function NewInternalTicketModal({ isOpen, onClose, onCreated, initialTitl
         creatorId: currentUser.id,
         tags: [],
       });
-      toast.success('Ticket interno criado com sucesso!');
+      // ID e título no cartão (savedId vem como "int-0001").
+      toast.success(`Ticket interno ${savedId ? String(savedId).toUpperCase() + ' ' : ''}criado com sucesso!`, { description: title });
       onCreated?.(savedId);
       onClose();
     } catch (error) {

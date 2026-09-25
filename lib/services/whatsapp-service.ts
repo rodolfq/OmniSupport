@@ -1,17 +1,11 @@
-import { makeWASocket, fetchLatestBaileysVersion, DisconnectReason, BufferJSON, downloadContentFromMessage } from '@whiskeysockets/baileys';
+import { makeWASocket, fetchLatestBaileysVersion, DisconnectReason, BufferJSON } from '@whiskeysockets/baileys';
 import pino from 'pino';
 import { Boom } from '@hapi/boom';
 import QRCode from 'qrcode';
-import { v4 as uuidv4 } from 'uuid';
 import { normalizePhone } from '../utils';
 import { useSupabaseAuthState, sessionDataCache } from '../supabase-auth';
 import { whatsappQuery as query } from '../whatsapp-db';
-import { Attachment } from '../types';
-import { emitChatEvent, emitSessionsChanged, excludeActiveViewers } from '../chat-events';
-import { notifyUser } from './push-service';
-import { getChatRecipientIds } from './notification-recipients';
-import { storeAttachmentBuffer } from './attachment-storage';
-import { transcribeMessageAudio, isAudioAttachment, isTranscriptionEnabled } from './transcription-service';
+import { emitChatEvent } from '../chat-events';
 import { sendBaileysRedirectNoticeIfDue } from './baileys-redirect';
 
 const log = pino({ level: (process.env.WHATSAPP_LOG_LEVEL as any) || 'warn' });
@@ -23,7 +17,6 @@ const MAX_RECONNECT_ATTEMPTS = 8;
 const RECONNECT_BASE_DELAY_MS = 3000;
 const RECONNECT_MAX_DELAY_MS = 5 * 60 * 1000;
 const CONNECTING_STALE_MS = 45000;
-const MAX_INCOMING_MEDIA_BYTES = 8 * 1024 * 1024; // mesmo limite usado para anexos enviados pelo agente
 const SEND_RETRY_ATTEMPTS = 3;
 const MAX_CONTACT_PHOTO_BYTES = 2 * 1024 * 1024;
 
@@ -122,10 +115,6 @@ function phoneLookupVariants(jid: string, instanceId = 'default'): string[] {
   return [...variants];
 }
 
-function isLikelyDialablePhone(digits: string): boolean {
-  return digits.startsWith('55') && digits.length >= 12 && digits.length <= 13;
-}
-
 function resolveLidFromPhone(instanceId: string, phoneDigits: string): string | null {
   const sessionData = sessionDataCache.get(instanceId);
   if (!sessionData) return null;
@@ -160,34 +149,6 @@ function expandContactLookupVariants(jid: string, instanceId = 'default'): strin
   }
 
   return [...variants];
-}
-
-async function findChatSessionByPhone(jid: string, instanceId = 'default') {
-  const variants = expandContactLookupVariants(jid, instanceId);
-  if (!variants.length) return null;
-
-  // "Fechada" significa fechada de verdade: uma mensagem nova do mesmo
-  // telefone é sempre outro atendimento, com sessão (e número de conversa)
-  // novos — nunca uma reabertura silenciosa da anterior. A única exceção
-  // (resposta "1"/"0" à pesquisa de satisfação, chegando atrasada) é tratada
-  // à parte em findSurveyableClosedSession, antes deste lookup ser chamado.
-  const placeHolders = variants.map((_, i) => `$${i + 1}`).join(',');
-  const res = await query(
-    `SELECT id, customer_phone, customer_id, customer_name, updated_at, status, awaiting_survey_until, assignee_id, queue_id
-     FROM public.chat_sessions
-     WHERE customer_phone IN (${placeHolders})
-       AND status != 'closed'
-     ORDER BY updated_at DESC`,
-    variants
-  );
-
-  if (res.rowCount === 0) return null;
-
-  const dialable = res.rows.find((session) =>
-    isLikelyDialablePhone(normalizePhone(session.customer_phone || ''))
-  );
-
-  return dialable || res.rows[0];
 }
 
 // Encontra a sessão fechada mais recente deste telefone que ainda está
@@ -698,46 +659,6 @@ export class WhatsAppService {
     }
   }
 
-  private static async downloadIncomingMedia(message: any, type: string): Promise<Attachment | null> {
-    const mediaMessage = message[type];
-    if (!mediaMessage) return null;
-
-    const stream = await downloadContentFromMessage(mediaMessage, type.replace('Message', '') as any);
-    let buffer = Buffer.from([]);
-    for await (const chunk of stream) {
-      buffer = Buffer.concat([buffer, chunk]);
-      if (buffer.length > MAX_INCOMING_MEDIA_BYTES) {
-        console.warn(`[WhatsApp] Mídia recebida excede ${MAX_INCOMING_MEDIA_BYTES} bytes, descartando conteúdo (mantendo apenas o texto).`);
-        return null;
-      }
-    }
-
-    // O WhatsApp reporta mimetypes com parâmetros de codec (ex.: "audio/ogg; codecs=opus"),
-    // com espaço após o ";". Usar isso cru como extensão de arquivo ou dentro de uma data: URL
-    // quebra tanto o nome do arquivo quanto a decodificação do <audio>/<img> no navegador.
-    const rawMimetype = mediaMessage.mimetype || 'application/octet-stream';
-    const baseMimetype = rawMimetype.split(';')[0].trim();
-    const extension = baseMimetype.split('/')[1] || 'bin';
-    const fileName = mediaMessage.fileName || `whatsapp-${Date.now()}.${extension}`;
-
-    // Mídia recebida vai direto pro disco (volume), não como data: URL no
-    // banco — ver lib/services/attachment-storage.ts. Se a gravação falhar,
-    // cai no comportamento antigo (inline) em vez de perder o anexo.
-    try {
-      const stored = await storeAttachmentBuffer(buffer, baseMimetype, fileName);
-      return { id: uuidv4(), name: fileName, type: baseMimetype, url: stored.url, size: stored.size };
-    } catch (err) {
-      console.error('[WhatsApp] Falha ao gravar mídia recebida em disco, mantendo inline:', err);
-      return {
-        id: uuidv4(),
-        name: fileName,
-        type: baseMimetype,
-        url: `data:${baseMimetype};base64,${buffer.toString('base64')}`,
-        size: buffer.length
-      };
-    }
-  }
-
   private static async processIncomingMessage(msg: any, instanceId: string) {
     if (!msg?.message || msg.key?.fromMe) return;
 
@@ -756,7 +677,7 @@ export class WhatsAppService {
       if ((dup.rowCount ?? 0) > 0) return;
     }
 
-    let text =
+    const text =
       msg.message?.conversation ||
       msg.message?.extendedTextMessage?.text ||
       msg.message?.ephemeralMessage?.message?.extendedTextMessage?.text ||
@@ -832,121 +753,21 @@ export class WhatsAppService {
       }
     }
 
-    // WhatsApp NÃO oficial (QR Code): só segue o fluxo normal quem JÁ tem uma
-    // conversa em atendimento com um analista (ex.: conversa que ele iniciou, ou
-    // que já estava em curso). Para todo o resto — contato novo, ou conversa sem
-    // responsável — NÃO nasce conversa, a mensagem NÃO é gravada e nada aparece
-    // no widget: o cliente só recebe o aviso de que o atendimento agora é pelo
-    // número novo, no máximo uma vez a cada 5 minutos (ver baileys-redirect.ts).
-    // Decisão do usuário, 2026-09-24. Feito ANTES de baixar a mídia, pra não
-    // gravar em disco anexo de quem não vai ser atendido aqui.
-    const session = await findChatSessionByPhone(remoteJid, instanceId);
-    if (!session?.id || !session.assignee_id) {
-      const contactKey = normalizePhone(remoteJid.split('@')[0] || remoteJid) || remoteJid;
-      // Não espera: o envio pode demorar com o WhatsApp instável.
-      sendBaileysRedirectNoticeIfDue({
-        contactKey,
-        send: (noticeText) => WhatsAppService.sendMessage(instanceId, remoteJid, noticeText)
-      }).catch(err => console.error(`[WhatsApp:${instanceId}] Falha no aviso de redirecionamento:`, err));
-      return;
-    }
-
-    let mediaData: Attachment | null = null;
-    if (isMediaMessage) {
-      try {
-        mediaData = await this.downloadIncomingMedia(msg.message, messageType);
-        // Sem legenda de verdade (imageMessage.caption etc., já capturada
-        // acima) = sem legenda mostrada — nada de "[Áudio]"/"[Arquivo: nome]"
-        // fabricado aqui; o anexo já aparece sozinho na tela (pedido do
-        // usuário 2026-09-17). Isso só quando a mídia baixou com sucesso —
-        // baixar cai no ramo abaixo, que mantém o rótulo genérico como
-        // diagnóstico de que algo chegou e não pôde ser processado.
-      } catch (err) {
-        console.error(`[WhatsApp:${instanceId}] Falha ao baixar mídia:`, err);
-      }
-      if (!mediaData && !text) {
-        text = messageType === 'audioMessage' ? '[Áudio: falha ao baixar]' : '[Arquivo: falha ao baixar]';
-      }
-    }
-
-    const metadata: Record<string, any> = {
-      whatsapp_jid: remoteJid,
-      source: 'whatsapp',
-      ...(messageId ? { whatsapp_message_id: messageId } : {}),
-      ...(mediaData ? { attachments: [mediaData] } : {})
-    };
-
-    try {
-      // Nome do cadastro (session.customer_name) tem prioridade sobre o nome
-      // salvo no celular do contato (msg.pushName) — sem isso a mensagem, a
-      // notificação e o SSE mostravam o nome do WhatsApp mesmo com a sessão
-      // já corretamente nomeada pelo cadastro (achado em 2026-09-16).
-      const senderName = session.customer_name || msg.pushName || 'Contato WhatsApp';
-      const messageRes = await query(
-        `INSERT INTO public.chat_messages (session_id, sender_id, sender_name, text, type, metadata, created_at)
-         VALUES ($1, $2, $3, $4, $5, $6, NOW())
-         RETURNING id, created_at`,
-        [
-          session.id,
-          session.customer_id || null,
-          senderName,
-          text,
-          mediaData ? 'file' : 'text',
-          JSON.stringify(metadata)
-        ]
-      );
-      const savedMessage = messageRes.rows[0];
-
-      await query(
-        'UPDATE public.chat_sessions SET last_message_at = NOW(), updated_at = NOW() WHERE id = $1',
-        [session.id]
-      );
-
-      // Mesma notificação em tempo real (SSE) e push que uma mensagem enviada
-      // pelo widget web já dispara (app/api/chats/route.ts) — sem isso, uma
-      // mensagem de WhatsApp só aparecia no próximo poll de 30s (ou nunca, com
-      // o app em segundo plano no celular). emitSessionsChanged avisa a LISTA
-      // (sidebar do widget), separado do emitChatEvent abaixo que só chega a
-      // quem já tem esta conversa aberta.
-      if (savedMessage) {
-        emitSessionsChanged({ reason: 'message', sessionId: session.id });
-        emitChatEvent(session.id, {
-          type: 'message',
-          sessionId: session.id,
-          message: {
-            id: savedMessage.id,
-            senderId: session.customer_id || null,
-            senderName,
-            text,
-            timestamp: savedMessage.created_at,
-            type: mediaData ? 'file' : 'text',
-            metadata,
-            attachments: mediaData ? [mediaData] : []
-          }
-        });
-
-        getChatRecipientIds({ customerId: session.customer_id, assigneeId: session.assignee_id, queueId: session.queue_id }, null, false)
-          .then(recipients => excludeActiveViewers(session.id, recipients))
-          .then(recipients => Promise.all(recipients.map(id => notifyUser(id, {
-            title: `Nova mensagem de ${senderName}`,
-            body: text || 'Anexo enviado',
-            url: `/chat?chat=${session.id}`,
-            tag: `chat_message:${savedMessage.id}`
-          }))))
-          .catch(err => console.error(`[WhatsApp:${instanceId}] Falha ao notificar mensagem via push:`, err));
-
-        // Transcrição automática de áudio recebido pelo WhatsApp — mesmo
-        // gatilho fire-and-forget usado em app/api/chats/route.ts pro áudio
-        // enviado pelo widget, pra cobrir os dois lados (enviado/recebido).
-        if (mediaData && isTranscriptionEnabled() && isAudioAttachment(mediaData)) {
-          transcribeMessageAudio({ messageId: savedMessage.id, sessionId: session.id, attachment: mediaData }).catch(err => {
-            console.error(`[WhatsApp:${instanceId}] Falha ao transcrever áudio automaticamente:`, err);
-          });
-        }
-      }
-    } catch (e) {
-      console.error('[WhatsApp:Incoming] Error inserting message in Postgres:', e);
-    }
+    // WhatsApp NÃO oficial (QR Code): ninguém é atendido por aqui. Nem contato
+    // novo, nem quem já tinha conversa aberta com um analista — a todos vale o
+    // mesmo: NÃO nasce conversa, a mensagem NÃO é gravada, nada aparece no widget
+    // e nenhum analista é acionado. O cliente só recebe o aviso de que o
+    // atendimento agora é pelo número novo (o do Pyvon), no máximo uma vez a cada
+    // 5 minutos (ver baileys-redirect.ts). Decisão do usuário, 2026-09-24/25 —
+    // a primeira versão poupava as conversas já atribuídas e isso deixou os
+    // clientes delas conversando pelo QR Code como se nada tivesse mudado.
+    // O envio pelo analista (WhatsAppService.sendMessage) continua funcionando.
+    const contactKey = normalizePhone(remoteJid.split('@')[0] || remoteJid) || remoteJid;
+    // Não espera: o envio pode demorar com o WhatsApp instável.
+    sendBaileysRedirectNoticeIfDue({
+      contactKey,
+      send: (noticeText) => WhatsAppService.sendMessage(instanceId, remoteJid, noticeText)
+    }).catch(err => console.error(`[WhatsApp:${instanceId}] Falha no aviso de redirecionamento:`, err));
   }
 }
 
