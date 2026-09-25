@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { query } from '@/lib/db';
+import { query, withCreationContext, requestMeta } from '@/lib/db';
 import { CLOSED_TICKET_STATUSES } from '@/lib/ticket-status';
 import { verifyJWT } from '@/lib/jwt';
 import { handleTicketCreated, handleTicketUpdated, handleTicketMessageCreated } from '@/lib/services/automation-service';
@@ -438,17 +438,23 @@ export async function POST(request: Request) {
       let userRole = 'Cliente';
       let companyId = ticket.companyId || '11111111-1111-4111-8111-111111111111';
       if (profileCheck.rowCount === 0) {
-        await query(
-          `INSERT INTO public.profiles (id, email, name, role, company_id, password)
-           VALUES ($1, $2, $3, $4, $5, $6)`,
-          [
-            userId,
-            'auto-created@ticket.com',
-            'Usuário Auto-criado',
-            'Cliente',
-            companyId,
-            'auto-created-default-123'
-          ]
+        // Caminho legado que cria um perfil na hora — registrado com o login da
+        // sessão (user_creation_log), como todo caminho de criação de usuário.
+        const creatorSession = await getCurrentActionUser();
+        await withCreationContext(
+          { actorId: creatorSession?.id || null, source: 'chamado-perfil-automatico', ...requestMeta(request) },
+          (client) => client.query(
+            `INSERT INTO public.profiles (id, email, name, role, company_id, password)
+             VALUES ($1, $2, $3, $4, $5, $6)`,
+            [
+              userId,
+              'auto-created@ticket.com',
+              'Usuário Auto-criado',
+              'Cliente',
+              companyId,
+              'auto-created-default-123'
+            ]
+          )
         );
       } else {
         userRole = profileCheck.rows[0].role;

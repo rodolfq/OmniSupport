@@ -206,11 +206,12 @@ export default function CustomersPage() {
   const logoInputRef = useRef<HTMLInputElement>(null);
   const isCompanyPortalUser = [UserRole.CUSTOMER, UserRole.EMPLOYEE].includes(currentUser?.role as UserRole);
   const isCustomerAdmin = currentUser?.role === UserRole.CUSTOMER;
-  // Funcionário "Admin Cliente" (isAdmin=true — mesmo flag do selo "Admin
-  // Cliente" na lista de funcionários, ver companyEmployees abaixo) também
-  // cadastra funcionário da própria empresa, igual ao Cliente dono da conta
-  // — ver app/api/users/route.ts (action=create-full).
-  const canCreateEmployeesAsCompanyAdmin = isCustomerAdmin || (currentUser?.role === UserRole.EMPLOYEE && !!currentUser?.isAdmin);
+  // QUALQUER usuário de empresa-cliente (Cliente ou Funcionário) cadastra
+  // funcionário da própria empresa (decisão do usuário, 2026-09-25 — antes só o
+  // Cliente dono da conta e o Funcionário "Admin Cliente"). Cada criação fica
+  // registrada, com o login de quem criou, em user_creation_log — ver
+  // app/api/users/route.ts (action=create-full).
+  const canCreateEmployeesAsCompanyAdmin = isCustomerAdmin || currentUser?.role === UserRole.EMPLOYEE;
   const canManageCompanies = hasPermission(Permission.CUSTOMERS_WRITE);
   const canCreateEmployees = canManageCompanies || canCreateEmployeesAsCompanyAdmin;
   const canEditEmployees = canManageCompanies || isCustomerAdmin;

@@ -1,4 +1,4 @@
-import { query } from '@/lib/db';
+import { query, withCreationContext, requestMeta } from '@/lib/db';
 import {
   authenticateApiKey,
   isAuthError,
@@ -139,11 +139,16 @@ export async function POST(request: Request) {
     // password = NULL: registro fica sem acesso de login ao portal (decisão
     // confirmada com o usuário) — verifyPassword() em lib/auth-utils.ts
     // retorna false imediatamente para hash nulo.
-    const res = await query(
-      `INSERT INTO public.profiles (name, email, role, company_id, phone, password, must_change_password, is_admin)
-       VALUES ($1, $2, $3, $4, $5, NULL, false, false)
-       RETURNING id, name, email, role, company_id, phone, is_active, created_at`,
-      [name, email, role, companyId || null, phone || null]
+    // Registro rígido (user_creation_log): sem login humano aqui — o autor é a
+    // chave de API, gravada como rótulo junto com IP e origem.
+    const res = await withCreationContext(
+      { actorId: null, source: 'api-integracao', actorLabel: `Integração: ${auth.name}`, ...requestMeta(request) },
+      (client) => client.query(
+        `INSERT INTO public.profiles (name, email, role, company_id, phone, password, must_change_password, is_admin)
+         VALUES ($1, $2, $3, $4, $5, NULL, false, false)
+         RETURNING id, name, email, role, company_id, phone, is_active, created_at`,
+        [name, email, role, companyId || null, phone || null]
+      )
     );
     logAudit({
       actorId: null,

@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { query } from '@/lib/db';
 import { verifyJWT } from '@/lib/jwt';
 import { syncCompaniesFromSheet } from '@/lib/services/customer-sheet-service';
+import { requestMeta } from '@/lib/db';
 
 // Sincronização manual de empresas a partir da planilha de CS (Google
 // Sheets) — botão "Importar Planilha" em app/(portal)/customers/page.tsx.
@@ -34,7 +35,7 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: 'Você não tem permissão para importar empresas.' }, { status: 403 });
     }
 
-    const result = await syncCompaniesFromSheet();
+    const result = await syncCompaniesFromSheet({ actorId: actor.id, ...requestMeta(request) });
     return NextResponse.json(result);
   } catch (error: any) {
     console.error('[integrations/customer-sheet/sync] Erro no POST:', error);

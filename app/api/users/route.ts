@@ -1,6 +1,6 @@
 import { NextResponse } from 'next/server';
 import crypto from 'crypto';
-import { query } from '@/lib/db';
+import { query, withCreationContext, requestMeta } from '@/lib/db';
 import { hashPassword } from '@/lib/auth-utils';
 // Importado de lib/server-auth.ts e não de app/actions.ts: naquele arquivo
 // vale 'use server', onde toda função exportada vira endpoint público — e
@@ -16,6 +16,9 @@ import { Permission } from '@/lib/types';
 // Funcionário nunca deveriam enxergar a lista completa de usuários do
 // sistema nem criar contas por aqui.
 const STAFF_ROLES = ['Administrador', 'Equipe', 'Time Interno'];
+
+// E-mail é opcional, mas quando vem precisa ter cara de e-mail.
+const EMAIL_FORMAT = /^[^\s@]+@[^\s@]+\.[^\s@]{2,}$/;
 
 export async function GET(request: Request) {
   const actor = await getCurrentActionUser();
@@ -422,11 +425,14 @@ export async function POST(request: Request) {
       let finalProfileId: string | null = accessProfileId || null;
       let finalTeamIds: string[] = internalTeamIds || [];
 
-      // Funcionário "Admin Cliente" (is_admin=true, ver customers/page.tsx)
-      // ganha a mesma abertura do Cliente dono da conta: cadastrar só
-      // Funcionário da própria empresa. Continua sem enxergar
-      // view_all_company_tickets/times internos, igual ao Cliente.
-      if (actor.role === 'Cliente' || (actor.role === 'Funcionário' && actor.is_admin)) {
+      // QUALQUER usuário de empresa-cliente (Cliente ou Funcionário — antes só o
+      // Cliente dono da conta e o Funcionário "Admin Cliente") cadastra
+      // Funcionário da própria empresa (decisão do usuário, 2026-09-25). Em
+      // troca, TODA criação é registrada de forma rígida — quem foi criado e por
+      // qual login — no gatilho do banco (migrations/user_creation_log.sql).
+      // Continua sem poder dar view_all_company_tickets nem times internos, e
+      // sem criar outro papel que não Funcionário.
+      if (actor.role === 'Cliente' || actor.role === 'Funcionário') {
         if (role !== 'Funcionário' || companyId !== actor.company_id) {
           return NextResponse.json(
             { error: 'Você só pode criar funcionários da sua própria empresa.' },
@@ -509,17 +515,31 @@ export async function POST(request: Request) {
         }
       }
 
+      if (emailNormalizado && !EMAIL_FORMAT.test(emailNormalizado)) {
+        return NextResponse.json({ error: 'E-mail inválido.' }, { status: 400 });
+      }
+      if (!String(name || '').trim()) {
+        return NextResponse.json({ error: 'Informe o nome.' }, { status: 400 });
+      }
+
       const newId = crypto.randomUUID();
       const defaultPass = hashPassword('Mudar@123');
       const isAdmin = finalRole === 'Administrador';
       const livesInSquad = finalRole === 'Administrador' || finalRole === 'Equipe';
 
-      await query(
-        `INSERT INTO public.profiles (id, email, name, role, company_id, phone, view_all_company_tickets,
-                                      password, is_admin, lives_in_squad, access_profile_id, internal_team_ids)
-         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)`,
-        [newId, emailNormalizado, name, finalRole, companyId || null, phones[0] || null,
-         viewAllCompanyTickets, defaultPass, isAdmin, livesInSquad, finalProfileId, finalTeamIds]
+      // Registro rígido: o INSERT e o log de criação (gatilho) vão na MESMA
+      // transação, com o login de quem está criando — se o log falhar, o usuário
+      // não é criado.
+      const isCompanyActor = actor.role === 'Cliente' || actor.role === 'Funcionário';
+      await withCreationContext(
+        { actorId: actor.id, source: isCompanyActor ? 'portal-cliente' : 'portal-equipe', ...requestMeta(request) },
+        (client) => client.query(
+          `INSERT INTO public.profiles (id, email, name, role, company_id, phone, view_all_company_tickets,
+                                        password, is_admin, lives_in_squad, access_profile_id, internal_team_ids)
+           VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)`,
+          [newId, emailNormalizado, name, finalRole, companyId || null, phones[0] || null,
+           viewAllCompanyTickets, defaultPass, isAdmin, livesInSquad, finalProfileId, finalTeamIds]
+        )
       );
       logAudit({
         actorId: actor.id, actorName: actor.name, action: 'create',
@@ -609,6 +629,9 @@ export async function POST(request: Request) {
       // criado sem e-mail estourava "duplicate key" (era o que acontecia em
       // "Criar e Vincular" no chat, que manda e-mail vazio).
       const email = typeof body.email === 'string' && body.email.trim() ? body.email.trim() : null;
+      if (email && !EMAIL_FORMAT.test(email)) {
+        return NextResponse.json({ error: 'E-mail inválido.' }, { status: 400 });
+      }
       if (email) {
         const dup = await query(
           `SELECT p.name, c.name AS company_name
@@ -635,11 +658,16 @@ export async function POST(request: Request) {
       const hashedPassword = hashPassword(defaultPassword);
       const phone = phones?.[0] || null;
 
-      const res = await query(
-        `INSERT INTO public.profiles (email, password, name, role, company_id, phone, is_admin, lives_in_squad)
-         VALUES ($1, $2, $3, $4, $5, $6, FALSE, FALSE)
-         RETURNING id, name, email, role`,
-        [email, hashedPassword, name, safeRole, companyId || null, phone]
+      // Registro rígido de criação (ver create-full acima): mesma transação do
+      // INSERT, com o login de quem vinculou o contato no chat.
+      const res = await withCreationContext(
+        { actorId: actor.id, source: 'chat-vincular', ...requestMeta(request) },
+        (client) => client.query(
+          `INSERT INTO public.profiles (email, password, name, role, company_id, phone, is_admin, lives_in_squad)
+           VALUES ($1, $2, $3, $4, $5, $6, FALSE, FALSE)
+           RETURNING id, name, email, role`,
+          [email, hashedPassword, name, safeRole, companyId || null, phone]
+        )
       );
 
       const newUser = res.rows[0];
@@ -658,6 +686,11 @@ export async function POST(request: Request) {
     return NextResponse.json({ error: 'Action não suportada.' }, { status: 400 });
   } catch (error: any) {
     console.error('Error in users POST:', error);
+    // 23505 = unique_violation: duas criações simultâneas com o mesmo e-mail (a
+    // checagem prévia não pega a corrida) — mensagem clara em vez do erro cru.
+    if (error?.code === '23505') {
+      return NextResponse.json({ error: 'Este e-mail já está em uso por outro cadastro.' }, { status: 409 });
+    }
     return NextResponse.json({ error: error.message }, { status: 500 });
   }
 }

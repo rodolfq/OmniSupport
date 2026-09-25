@@ -39,6 +39,7 @@ export function LinkContactModal({
   const [searchTerm, setSearchTerm] = useState('');
   const [isCreatingNew, setIsCreatingNew] = useState(false);
   const [newName, setNewName] = useState('');
+  const [newEmail, setNewEmail] = useState('');
   const [newCompanyId, setNewCompanyId] = useState('');
   const [isCreatingNewCompany, setIsCreatingNewCompany] = useState(false);
   const [newCompanyName, setNewCompanyName] = useState('');
@@ -54,6 +55,10 @@ export function LinkContactModal({
 
   useEffect(() => {
     if (isOpen) {
+      // Formulário de "Criar e Vincular" começa limpo a cada abertura (nome e
+      // e-mail do contato anterior não podem sobrar pro próximo).
+      setNewName('');
+      setNewEmail('');
       async function loadData() {
         try {
           const emps = await UserService.getEmployees();
@@ -139,6 +144,14 @@ export function LinkContactModal({
 
   const handleCreateAndLink = async () => {
     if (!session || !newName) return;
+
+    // E-mail é opcional, mas quando preenchido precisa ser válido — e o
+    // contato já nasce com ele (login e avisos por e-mail).
+    const emailToSave = newEmail.trim();
+    if (emailToSave && !/^[^\s@]+@[^\s@]+\.[^\s@]{2,}$/.test(emailToSave)) {
+      toast.error('Informe um e-mail válido ou deixe o campo em branco.');
+      return;
+    }
     
     let finalCompanyId = newCompanyId;
     
@@ -158,7 +171,7 @@ export function LinkContactModal({
         return;
       }
 
-      // Sem e-mail (string vazia vira NULL na action). Antes gerava-se um
+      // E-mail opcional (vazio vira NULL na rota). Antes gerava-se um
       // endereço fictício `contact_${Date.now()}@placeholder.com` só para
       // satisfazer a coluna obrigatória — e como ele nunca se repetia, o
       // sistema NUNCA avisava que a pessoa já estava cadastrada: cada
@@ -166,7 +179,7 @@ export function LinkContactModal({
       // de chamados e conversas entre cadastros diferentes.
       // A coluna passou a ser opcional (migrations/profiles_email_opcional.sql).
       const { id: newUserId, error } = await createUser(
-        '',
+        emailToSave,
         newName,
         UserRole.EMPLOYEE,
         finalCompanyId,
@@ -255,6 +268,18 @@ export function LinkContactModal({
                       value={newName}
                       onChange={(e) => setNewName(e.target.value)}
                       placeholder="Nome completo"
+                      className="w-full bg-[var(--surface-card)] border border-[var(--border-default)] rounded-2xl px-4 py-3 text-sm font-bold focus:ring-4 focus:ring-[var(--accent)]/10 outline-none transition-all"
+                    />
+                  </div>
+                  <div className="space-y-1.5">
+                    <label className="text-[10px] font-semibold uppercase text-[var(--text-tertiary)] tracking-widest ml-1">E-mail (opcional)</label>
+                    <input
+                      type="email"
+                      inputMode="email"
+                      autoComplete="off"
+                      value={newEmail}
+                      onChange={(e) => setNewEmail(e.target.value)}
+                      placeholder="contato@empresa.com.br"
                       className="w-full bg-[var(--surface-card)] border border-[var(--border-default)] rounded-2xl px-4 py-3 text-sm font-bold focus:ring-4 focus:ring-[var(--accent)]/10 outline-none transition-all"
                     />
                   </div>

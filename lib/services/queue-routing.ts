@@ -121,15 +121,10 @@ export async function pickNextQueueAssignee(
     return pickByDailyLoad(fullOrder.filter(id => eligible.has(id) && !excluded.has(id)));
   }
 
+  const queueKey = queue.id ?? 'combined';
   let lastAssignee = options?.lastAssigneeId ?? null;
   if (!lastAssignee) {
-    const lastRes = await query(
-      `SELECT assignee_id FROM public.chat_sessions
-       WHERE assignee_id = ANY($1::uuid[])
-       ORDER BY created_at DESC LIMIT 1`,
-      [memberIds]
-    );
-    lastAssignee = lastRes.rows[0]?.assignee_id ?? null;
+    lastAssignee = await resolveRotationPointer(queueKey, memberIds);
   }
   // O ponteiro anda pela ordem COMPLETA dos membros e só então pula quem não
   // está elegível. Antes andava só pela lista de quem estava online: se o
@@ -141,9 +136,60 @@ export async function pickNextQueueAssignee(
   const lastIndex = lastAssignee ? fullOrder.indexOf(lastAssignee) : -1;
   for (let step = 1; step <= fullOrder.length; step++) {
     const candidate = fullOrder[(lastIndex + step) % fullOrder.length];
-    if (eligible.has(candidate) && !excluded.has(candidate)) return candidate;
+    if (eligible.has(candidate) && !excluded.has(candidate)) {
+      await saveRotationCursor(queueKey, candidate);
+      return candidate;
+    }
   }
   return null;
+}
+
+// "Quem recebeu por último" pro rodízio: o MAIS RECENTE entre (a) o responsável da
+// conversa CRIADA mais recentemente — o critério de sempre, que já cobre criação
+// e pega de conversa nova — e (b) o cursor gravado a cada escolha do rodízio
+// (queue_rotation_cursor). Só (a) falhava numa devolução em sequência: devolver
+// uma conversa ANTIGA não a torna a mais recente por criação, então todas as
+// devoluções recalculavam o mesmo ponteiro e caíam no mesmo analista (17h de
+// 2026-09-25: as 4 conversas do Mauro foram todas pra Bianca). O cursor faz cada
+// escolha andar pra frente. Se a tabela não existir (deploy fora de ordem),
+// cai no critério antigo.
+async function resolveRotationPointer(queueKey: string, memberIds: string[]): Promise<string | null> {
+  const lastRes = await query(
+    `SELECT assignee_id, created_at FROM public.chat_sessions
+     WHERE assignee_id = ANY($1::uuid[])
+     ORDER BY created_at DESC LIMIT 1`,
+    [memberIds]
+  );
+  const bySession = lastRes.rows[0] as { assignee_id: string; created_at: Date } | undefined;
+
+  try {
+    const cursorRes = await query(
+      'SELECT assignee_id, updated_at FROM public.queue_rotation_cursor WHERE queue_key = $1',
+      [queueKey]
+    );
+    const cursor = cursorRes.rows[0] as { assignee_id: string | null; updated_at: Date } | undefined;
+    if (cursor?.assignee_id && memberIds.includes(cursor.assignee_id)
+        && (!bySession || new Date(cursor.updated_at).getTime() > new Date(bySession.created_at).getTime())) {
+      return cursor.assignee_id;
+    }
+  } catch (err) {
+    console.error('[queue-routing] Cursor do rodízio indisponível — usando só a última conversa criada:', (err as Error)?.message);
+  }
+  return bySession?.assignee_id ?? null;
+}
+
+async function saveRotationCursor(queueKey: string, assigneeId: string): Promise<void> {
+  try {
+    await query(
+      `INSERT INTO public.queue_rotation_cursor (queue_key, assignee_id, updated_at)
+       VALUES ($1, $2, NOW())
+       ON CONFLICT (queue_key) DO UPDATE SET assignee_id = EXCLUDED.assignee_id, updated_at = NOW()`,
+      [queueKey, assigneeId]
+    );
+  } catch (err) {
+    // Nunca impede a distribuição: sem o cursor, volta ao critério antigo.
+    console.error('[queue-routing] Falha ao gravar o cursor do rodízio:', (err as Error)?.message);
+  }
 }
 
 // "Esta pessoa entraria no rodízio agora?" — mesma régua de pickNextQueueAssignee

@@ -1,5 +1,9 @@
 import crypto from 'crypto';
-import { query } from '../db';
+import { query, withCreationContext } from '../db';
+
+// Quem disparou a sincronização (login + IP), pro registro rígido de criação de
+// usuário (user_creation_log). Sem isso o autor fica só como a rotina.
+export interface SyncCreationInfo { actorId?: string | null; ip?: string | null; userAgent?: string | null }
 import { hashPassword } from '../auth-utils';
 
 /**
@@ -134,7 +138,8 @@ function digitsOnly(value: string): string {
 async function ensurePrimaryUserFromDecisor(
   companyId: string,
   decisorNome: string,
-  decisorTelefone: string | null
+  decisorTelefone: string | null,
+  creation?: SyncCreationInfo
 ): Promise<boolean> {
   const existing = await query(
     `SELECT id FROM public.profiles WHERE company_id = $1 AND role = 'Cliente' LIMIT 1`,
@@ -153,17 +158,20 @@ async function ensurePrimaryUserFromDecisor(
   }
 
   const tempPassword = crypto.randomBytes(18).toString('base64url');
-  await query(
-    `INSERT INTO public.profiles
-       (name, email, role, company_id, phone, password, is_admin, lives_in_squad,
-        must_change_password, view_all_company_tickets)
-     VALUES ($1, $2, 'Cliente', $3, $4, $5, TRUE, FALSE, TRUE, TRUE)`,
-    [decisorNome, email, companyId, decisorTelefone || null, hashPassword(tempPassword)]
+  await withCreationContext(
+    { actorId: creation?.actorId || null, source: 'sincronizacao-planilha-cs', actorLabel: 'Sincronização da planilha de CS', ip: creation?.ip, userAgent: creation?.userAgent },
+    (client) => client.query(
+      `INSERT INTO public.profiles
+         (name, email, role, company_id, phone, password, is_admin, lives_in_squad,
+          must_change_password, view_all_company_tickets)
+       VALUES ($1, $2, 'Cliente', $3, $4, $5, TRUE, FALSE, TRUE, TRUE)`,
+      [decisorNome, email, companyId, decisorTelefone || null, hashPassword(tempPassword)]
+    )
   );
   return true;
 }
 
-export async function syncCompaniesFromSheet(): Promise<CustomerSheetSyncResult> {
+export async function syncCompaniesFromSheet(creation?: SyncCreationInfo): Promise<CustomerSheetSyncResult> {
   let fetched = 0;
   let created = 0;
   let updated = 0;
@@ -311,7 +319,7 @@ export async function syncCompaniesFromSheet(): Promise<CustomerSheetSyncResult>
         // anterior), não inventa usuário principal nenhum — deixa a empresa
         // sem usuário mesmo, pra não "definir outro responsável" no lugar.
         if (effectiveDecisorNome) {
-          const createdPrimary = await ensurePrimaryUserFromDecisor(companyId, effectiveDecisorNome, effectiveDecisorTelefone);
+          const createdPrimary = await ensurePrimaryUserFromDecisor(companyId, effectiveDecisorNome, effectiveDecisorTelefone, creation);
           if (createdPrimary) primaryUsersCreated++;
         }
       } catch (err: any) {

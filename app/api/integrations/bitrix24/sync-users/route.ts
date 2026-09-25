@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { query } from '@/lib/db';
 import { verifyJWT } from '@/lib/jwt';
+import { requestMeta } from '@/lib/db';
 import { syncUsersFromBitrix24, Bitrix24NotConfiguredError } from '@/lib/services/bitrix24-service';
 
 // Sincronização manual de usuários internos (equipe) via user.get do
@@ -35,7 +36,7 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: 'Você não tem permissão para sincronizar usuários.' }, { status: 403 });
     }
 
-    const result = await syncUsersFromBitrix24();
+    const result = await syncUsersFromBitrix24({ actorId: actor.id, ...requestMeta(request) });
     return NextResponse.json(result);
   } catch (error: any) {
     console.error('[integrations/bitrix24/sync-users] Erro no POST:', error);

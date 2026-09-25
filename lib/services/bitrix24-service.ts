@@ -1,4 +1,4 @@
-import { query } from '@/lib/db';
+import { query, withCreationContext } from '@/lib/db';
 import { hashPassword } from '@/lib/auth-utils';
 import { generateAvatarThumb } from '@/lib/services/avatar-thumb-service';
 
@@ -98,7 +98,7 @@ async function getDefaultEquipeProfileId(): Promise<string | null> {
   return res.rows[0]?.id || null;
 }
 
-export async function syncUsersFromBitrix24(): Promise<Bitrix24SyncResult> {
+export async function syncUsersFromBitrix24(creation?: { actorId?: string | null; ip?: string | null; userAgent?: string | null }): Promise<Bitrix24SyncResult> {
   const users = await fetchActiveUsers();
   const defaultProfileId = await getDefaultEquipeProfileId();
   const defaultPassword = hashPassword('Mudar@123'); // mesmo default de app/actions.ts#createUser
@@ -133,10 +133,13 @@ export async function syncUsersFromBitrix24(): Promise<Bitrix24SyncResult> {
         );
         updated++;
       } else {
-        await query(
-          `INSERT INTO public.profiles (email, name, role, phone, avatar_url, avatar_thumb_url, password, is_admin, lives_in_squad, access_profile_id)
-           VALUES ($1, $2, 'Equipe', $3, $4, $5, $6, false, true, $7)`,
-          [email, name, phone, avatarDataUrl, avatarThumbUrl, defaultPassword, defaultProfileId]
+        await withCreationContext(
+          { actorId: creation?.actorId || null, source: 'sincronizacao-bitrix24', actorLabel: 'Sincronização do Bitrix24', ip: creation?.ip, userAgent: creation?.userAgent },
+          (client) => client.query(
+            `INSERT INTO public.profiles (email, name, role, phone, avatar_url, avatar_thumb_url, password, is_admin, lives_in_squad, access_profile_id)
+             VALUES ($1, $2, 'Equipe', $3, $4, $5, $6, false, true, $7)`,
+            [email, name, phone, avatarDataUrl, avatarThumbUrl, defaultPassword, defaultProfileId]
+          )
         );
         created++;
       }

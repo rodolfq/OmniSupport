@@ -1,6 +1,6 @@
 import { NextResponse } from 'next/server';
 import crypto from 'crypto';
-import { pool, query } from '@/lib/db';
+import { pool, query, applyCreationContext, requestMeta } from '@/lib/db';
 import { hashPassword } from '@/lib/auth-utils';
 import { logAudit } from '@/lib/audit-log';
 import { getCurrentActionUser, getActorEffectivePermissions } from '@/lib/server-auth';
@@ -445,6 +445,9 @@ export async function POST(request: Request) {
       // Empresa e seu administrador nascem JUNTOS: uma falha no meio deixaria
       // uma empresa sem ninguém que consiga entrar nela.
       await client.query('BEGIN');
+      // Registro rígido: o administrador da empresa também é usuário criado por
+      // este login (gatilho de user_creation_log, mesma transação).
+      await applyCreationContext(client, { actorId: actor.id, source: 'cadastro-empresa', ...requestMeta(request) });
       await client.query(
         `INSERT INTO public.companies (id, name, industry, phone, cs_responsavel_id, comercial_responsavel_id)
          VALUES ($1, $2, $3, $4, $5, $6)`,

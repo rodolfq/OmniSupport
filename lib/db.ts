@@ -1,4 +1,4 @@
-import { Pool } from 'pg';
+import { Pool, PoolClient } from 'pg';
 import dotenv from 'dotenv';
 import path from 'path';
 
@@ -47,4 +47,74 @@ if (!global.pgPool) {
 
 export async function query(text: string, params?: any[]) {
   return pool.query(text, params);
+}
+
+// ---------------------------------------------------------------------------
+// Registro rígido de criação de usuário (migrations/user_creation_log.sql)
+//
+// Todo INSERT em public.profiles dispara um gatilho que grava, na MESMA
+// transação, quem foi criado e por qual login. O gatilho lê o autor de
+// variáveis de sessão (app.*) — este helper as define. Elas são locais à
+// transação (set_config ..., true): não vazam pra outra requisição que reuse a
+// conexão do pool. Se o log falhar, a criação inteira é desfeita.
+//
+// Quem cria usuário DEVE passar por aqui pra o registro trazer o login do autor.
+// Um INSERT fora daqui ainda é registrado, mas como source 'desconhecido' e sem
+// autor — por isso, ao criar um caminho novo, use withCreationContext.
+export interface CreationContext {
+  /** Login (profiles.id) de quem está criando. Sem login (sistema/API) = null. */
+  actorId?: string | null;
+  /** Origem da criação: 'portal-cliente', 'portal-equipe', 'chat-vincular', 'api-integracao'... */
+  source: string;
+  /** Descrição quando não há login (ex.: nome da chave de API, nome da rotina de sincronização). */
+  actorLabel?: string | null;
+  ip?: string | null;
+  userAgent?: string | null;
+}
+
+// Define o contexto de criação na transação JÁ ABERTA de um client. Use quando o
+// caminho precisa do próprio BEGIN/COMMIT (ex.: empresa + administrador juntos);
+// senão prefira withCreationContext.
+export async function applyCreationContext(client: PoolClient, ctx: CreationContext): Promise<void> {
+  await client.query(
+    `SELECT set_config('app.actor_id', $1, true),
+            set_config('app.source', $2, true),
+            set_config('app.actor_label', $3, true),
+            set_config('app.ip', $4, true),
+            set_config('app.user_agent', $5, true)`,
+    [
+      ctx.actorId || '',
+      ctx.source,
+      ctx.actorLabel || '',
+      (ctx.ip || '').slice(0, 100),
+      (ctx.userAgent || '').slice(0, 300)
+    ]
+  );
+}
+
+export async function withCreationContext<T>(
+  ctx: CreationContext,
+  fn: (client: PoolClient) => Promise<T>
+): Promise<T> {
+  const client = await pool.connect();
+  try {
+    await client.query('BEGIN');
+    await applyCreationContext(client, ctx);
+    const result = await fn(client);
+    await client.query('COMMIT');
+    return result;
+  } catch (err) {
+    await client.query('ROLLBACK').catch(() => {});
+    throw err;
+  } finally {
+    client.release();
+  }
+}
+
+// IP e navegador de quem fez a requisição, pro registro acima. Atrás do proxy o
+// IP de verdade vem em X-Forwarded-For (primeiro endereço da lista).
+export function requestMeta(request: { headers: Headers }): { ip: string | null; userAgent: string | null } {
+  const forwarded = request.headers.get('x-forwarded-for');
+  const ip = (forwarded ? forwarded.split(',')[0].trim() : request.headers.get('x-real-ip')) || null;
+  return { ip, userAgent: request.headers.get('user-agent') || null };
 }
