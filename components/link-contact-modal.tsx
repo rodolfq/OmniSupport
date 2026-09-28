@@ -21,16 +21,39 @@ import { cn, normalizeString, maskPhone } from '@/lib/utils';
 import { motion, AnimatePresence } from 'motion/react';
 import { toast } from 'sonner';
 
+// Resposta de 'set-history-contact' (ver app/api/chats/route.ts): o que a tela
+// de histórico precisa pra atualizar as linhas sem recarregar tudo.
+export interface HistoryLinkResult {
+  customerId: string;
+  customerProfileName: string;
+  companyId: string | null;
+  companyName: string | null;
+  historyIds: string[];
+}
+
 export function LinkContactModal({ 
   isOpen, 
   onClose, 
   session, 
-  onSuccess 
+  onSuccess,
+  historyId,
+  otherUnlinkedCount = 0,
+  onHistoryLinked
 }: { 
   isOpen: boolean, 
   onClose: () => void, 
   session: ChatSession | null,
-  onSuccess: () => void
+  onSuccess: () => void,
+  // Modo "histórico" (/chat-history): vincula uma conversa JÁ ENCERRADA (linha
+  // de chat_histories) em vez de uma conversa em andamento. `session` só
+  // empresta o telefone/nome pra exibição e pro "Criar Novo".
+  historyId?: string,
+  // Outras conversas do mesmo número ainda sem cliente — habilita a opção de
+  // vincular todas de uma vez (só no modo histórico).
+  otherUnlinkedCount?: number,
+  // Só no modo histórico: recebe o resultado do vínculo (o `onSuccess` de
+  // sempre não é chamado nesse modo — ele recarrega a lista de conversas vivas).
+  onHistoryLinked?: (result: HistoryLinkResult) => void
 }) {
   const [users, setUsers] = useState<User[]>([]);
   const [companies, setCompanies] = useState<Company[]>([]);
@@ -43,6 +66,7 @@ export function LinkContactModal({
   const [newCompanyId, setNewCompanyId] = useState('');
   const [isCreatingNewCompany, setIsCreatingNewCompany] = useState(false);
   const [newCompanyName, setNewCompanyName] = useState('');
+  const [applyToSamePhone, setApplyToSamePhone] = useState(false);
   // Vincular/criar faz várias idas ao servidor: enquanto roda, os botões ficam
   // travados e o clicado mostra o spinner (evita o duplo clique e deixa claro
   // que o clique pegou).
@@ -55,10 +79,22 @@ export function LinkContactModal({
 
   useEffect(() => {
     if (isOpen) {
-      // Formulário de "Criar e Vincular" começa limpo a cada abertura (nome e
-      // e-mail do contato anterior não podem sobrar pro próximo).
+      // O modal fica sempre MONTADO por quem o abre (só o JSX interno depende
+      // de `isOpen` — ver comentário equivalente em edit-employee-modal.tsx),
+      // então nenhum estado daqui zera sozinho ao fechar. Achado em
+      // 2026-09-28: só newName/newEmail/applyToSamePhone eram limpos aqui —
+      // busca digitada, aba "Criar Novo" e a empresa escolhida nela ficavam
+      // do jeito que a última vinculação deixou, e reapareciam ao abrir de
+      // novo pra um contato diferente (parecia "o cliente de antes ainda
+      // selecionado"). Começa limpo a cada abertura, sempre.
       setNewName('');
       setNewEmail('');
+      setApplyToSamePhone(false);
+      setSearchTerm('');
+      setIsCreatingNew(false);
+      setIsCreatingNewCompany(false);
+      setNewCompanyId('');
+      setNewCompanyName('');
       async function loadData() {
         try {
           const emps = await UserService.getEmployees();
@@ -99,6 +135,28 @@ export function LinkContactModal({
     if (!session) return;
 
     try {
+      // Modo histórico: uma ação só no servidor (que já confere a permissão
+      // chat:history_link_contact e completa o telefone do cadastro). Não passa
+      // pelo UserService.save abaixo — quem só tem a permissão de vincular não
+      // teria acesso a editar cadastro, e o vínculo falharia no meio.
+      if (historyId) {
+        const res = await fetch('/api/chats', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            action: 'set-history-contact',
+            historyId,
+            customerId: user.id,
+            applyToSamePhone: applyToSamePhone && otherUnlinkedCount > 0
+          })
+        });
+        const data = await res.json().catch(() => null);
+        if (!res.ok) throw new Error(data?.error || 'Erro ao vincular o contato à conversa.');
+        onHistoryLinked?.(data as HistoryLinkResult);
+        onClose();
+        return;
+      }
+
       const currentPhones = user.phones || (user.phone ? [user.phone] : []);
       const needsPhone = !!session.customerPhone && !currentPhones.includes(session.customerPhone);
 
@@ -238,6 +296,20 @@ export function LinkContactModal({
             </div>
 
             <div className="p-8 space-y-6">
+              {historyId && otherUnlinkedCount > 0 && (
+                <label className="flex items-start gap-3 p-3 bg-[var(--surface-pill)] rounded-2xl cursor-pointer">
+                  <input
+                    type="checkbox"
+                    checked={applyToSamePhone}
+                    onChange={(e) => setApplyToSamePhone(e.target.checked)}
+                    className="mt-0.5 h-4 w-4 accent-[var(--accent)]"
+                  />
+                  <span className="text-xs font-bold text-[var(--text-secondary)] leading-relaxed">
+                    Vincular também as outras {otherUnlinkedCount} {otherUnlinkedCount === 1 ? 'conversa' : 'conversas'} deste número que ainda não têm cliente
+                  </span>
+                </label>
+              )}
+
               <div className="flex bg-[var(--surface-pill)] p-1 rounded-2xl">
                 <button
                   onClick={() => setIsCreatingNew(false)}

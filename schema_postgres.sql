@@ -486,10 +486,14 @@ CREATE TABLE public.automation_dispatches (
   error TEXT,
   send_at TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT now(),
   sent_at TIMESTAMP WITH TIME ZONE,
-  created_at TIMESTAMP WITH TIME ZONE DEFAULT now() NOT NULL
+  created_at TIMESTAMP WITH TIME ZONE DEFAULT now() NOT NULL,
+  -- message_id que o Pyvon devolveu no envio (WhatsApp Pyvon): é o elo com o
+  -- aviso assíncrono de falha de entrega (migrations/pyvon_delivery_status.sql).
+  pyvon_message_id TEXT
 );
 
 CREATE INDEX IF NOT EXISTS idx_automation_dispatches_pending ON public.automation_dispatches(status, send_at) WHERE status = 'pending';
+CREATE INDEX IF NOT EXISTS idx_automation_dispatches_pyvon_message ON public.automation_dispatches(pyvon_message_id) WHERE pyvon_message_id IS NOT NULL;
 CREATE INDEX IF NOT EXISTS idx_automation_dispatches_ticket_event ON public.automation_dispatches(ticket_id, event_key, status);
 
 -- Ticket Messages Table
@@ -803,10 +807,32 @@ CREATE TABLE public.pyvon_pending_outbound (
   sender_name TEXT NOT NULL DEFAULT 'SSX Desk (automático)',
   note_text TEXT,
   note_author_id UUID REFERENCES public.profiles(id) ON DELETE SET NULL,
+  -- message_id que o Pyvon devolveu no bot-template: é o elo com o aviso de
+  -- falha de entrega (migrations/pyvon_delivery_status.sql).
+  pyvon_message_id TEXT,
   created_at TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT now()
 );
 CREATE INDEX idx_pyvon_pending_outbound_cadastro ON public.pyvon_pending_outbound (cadastro_id, created_at);
 CREATE INDEX idx_pyvon_pending_outbound_phone ON public.pyvon_pending_outbound (phone);
+CREATE INDEX idx_pyvon_pending_outbound_message ON public.pyvon_pending_outbound (pyvon_message_id) WHERE pyvon_message_id IS NOT NULL;
+
+-- Tudo o que o Pyvon avisa em POST /api/whatsapp/pyvon-status (falha/entrega
+-- assíncrona de uma mensagem que ele já tinha aceito) — cru + interpretado.
+-- Ver migrations/pyvon_delivery_status.sql e PyvonService.handleDeliveryStatus.
+CREATE TABLE public.pyvon_delivery_events (
+  id UUID PRIMARY KEY DEFAULT (md5(random()::text || clock_timestamp()::text)::uuid),
+  instance_id TEXT,
+  pyvon_message_id TEXT,
+  cadastro_id INTEGER,
+  status TEXT NOT NULL,
+  error_code TEXT,
+  error_message TEXT,
+  handled TEXT,
+  raw JSONB NOT NULL,
+  received_at TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT now()
+);
+CREATE INDEX idx_pyvon_delivery_events_message ON public.pyvon_delivery_events (pyvon_message_id);
+CREATE INDEX idx_pyvon_delivery_events_received ON public.pyvon_delivery_events (received_at DESC);
 
 -- Template Pyvon usado como fallback quando a automação resolve o canal
 -- Pyvon e a janela de 24h está fechada (bot-response não entrega texto livre
@@ -1202,6 +1228,43 @@ ALTER TABLE public.chat_messages ADD COLUMN IF NOT EXISTS deleted_at timestamptz
 ALTER TABLE public.chat_messages ADD COLUMN IF NOT EXISTS deleted_by uuid;
 ALTER TABLE public.chat_messages ADD COLUMN IF NOT EXISTS delivered_by uuid[] DEFAULT '{}'::uuid[];
 ALTER TABLE public.companies ADD COLUMN IF NOT EXISTS is_in_training boolean DEFAULT false NOT NULL;
+-- Empresa em treinamento atribuída pela importação da planilha de CS: origem,
+-- início e ÚLTIMA REMOÇÃO (training_removed_at é o que impede a importação de
+-- devolver o status). O gatilho registra tudo em qualquer caminho de escrita —
+-- ver migrations/company_training_auto.sql.
+ALTER TABLE public.companies ADD COLUMN IF NOT EXISTS training_origin TEXT;
+ALTER TABLE public.companies ADD COLUMN IF NOT EXISTS training_started_at TIMESTAMP WITH TIME ZONE;
+ALTER TABLE public.companies ADD COLUMN IF NOT EXISTS training_removed_at TIMESTAMP WITH TIME ZONE;
+
+CREATE OR REPLACE FUNCTION public.companies_training_track() RETURNS trigger AS $$
+BEGIN
+  IF TG_OP = 'INSERT' THEN
+    IF NEW.is_in_training THEN
+      NEW.training_started_at := COALESCE(NEW.training_started_at, now());
+      NEW.training_origin := COALESCE(NEW.training_origin, 'manual');
+    END IF;
+    RETURN NEW;
+  END IF;
+
+  IF NEW.is_in_training IS DISTINCT FROM OLD.is_in_training THEN
+    IF NEW.is_in_training THEN
+      NEW.training_started_at := now();
+      IF NEW.training_origin IS NOT DISTINCT FROM OLD.training_origin THEN
+        NEW.training_origin := 'manual';
+      END IF;
+    ELSE
+      NEW.training_removed_at := now();
+      NEW.training_origin := NULL;
+    END IF;
+  END IF;
+  RETURN NEW;
+END;
+$$ LANGUAGE plpgsql;
+
+DROP TRIGGER IF EXISTS trg_companies_training_track ON public.companies;
+CREATE TRIGGER trg_companies_training_track
+  BEFORE INSERT OR UPDATE OF is_in_training ON public.companies
+  FOR EACH ROW EXECUTE PROCEDURE public.companies_training_track();
 -- Logo da empresa-cliente (ver migrations/companies_logo.sql) — mesmo padrão
 -- de profiles.avatar_url/avatar_thumb_url.
 ALTER TABLE public.companies ADD COLUMN IF NOT EXISTS logo_url TEXT;
@@ -1459,7 +1522,7 @@ ON CONFLICT (name) DO NOTHING;
 INSERT INTO public.role_permissions (name, role, permissions) VALUES
   ('Administrador', 'Administrador', ARRAY[
     'tickets:read', 'tickets:write', 'tickets:assign',
-    'customers:read', 'customers:write',
+    'customers:read', 'customers:write', 'customers:training',
     'team:read', 'team:write',
     'settings:read', 'settings:write',
     'reports:read',
@@ -1643,3 +1706,40 @@ CREATE TABLE IF NOT EXISTS public.queue_rotation_cursor (
   assignee_id UUID,
   updated_at TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT now()
 );
+
+-- Definição única de "tempo de 1ª resposta" do chat (grava chat_histories.first_response_seconds
+-- e recalcula o histórico) — ver migrations/chat_first_response_seconds.sql para as regras.
+CREATE OR REPLACE FUNCTION public.chat_first_response_seconds(p_session_id uuid)
+RETURNS integer
+LANGUAGE sql
+STABLE
+AS $$
+  WITH cust AS (
+    SELECT MIN(c.created_at) AS at
+      FROM public.chat_messages c
+      LEFT JOIN public.profiles cp ON cp.id = c.sender_id
+     WHERE c.session_id = p_session_id
+       AND c.type NOT IN ('system', 'internal')
+       AND NOT (c.metadata ? 'auto_reply' OR c.metadata ? 'template')
+       AND NOT (c.sender_id IS NULL AND c.sender_name LIKE 'SSX Desk%')
+       AND (
+            COALESCE(c.metadata->>'source', '') IN ('pyvon', 'whatsapp')
+         OR cp.id IS NULL
+         OR cp.role NOT IN ('Administrador', 'Equipe', 'Time Interno')
+       )
+  )
+  SELECT ROUND(EXTRACT(EPOCH FROM (MIN(r.created_at) - cust.at)))::int
+    FROM cust
+    JOIN public.chat_messages r
+      ON r.session_id = p_session_id
+     AND r.created_at > cust.at
+     AND r.type NOT IN ('system', 'internal')
+     AND COALESCE(r.metadata->>'source', '') NOT IN ('pyvon', 'whatsapp', 'crisis_mode')
+     AND NOT (r.metadata ? 'auto_reply' OR r.metadata ? 'template')
+     AND ((r.text IS NOT NULL AND r.text <> '')
+          OR jsonb_array_length(COALESCE(r.metadata->'attachments', '[]'::jsonb)) > 0)
+    JOIN public.profiles rp
+      ON rp.id = r.sender_id
+     AND rp.role IN ('Administrador', 'Equipe', 'Time Interno')
+   GROUP BY cust.at
+$$;

@@ -44,6 +44,17 @@ async function podeGerenciarEmpresas(actor: any): Promise<boolean> {
   return permissions.includes('customers:write');
 }
 
+// Adicionar/remover o status "Em treinamento" da empresa: permissão própria
+// (customers:training, uma só pros dois sentidos), concedida por migration a
+// quem já tinha customers:write (o toggle era dessa permissão). Nunca para
+// Cliente/Funcionário, mesmo que a permissão apareça num perfil deles.
+async function podeGerenciarTreinamento(actor: any): Promise<boolean> {
+  if (!actor || actor.role === 'Cliente' || actor.role === 'Funcionário') return false;
+  if (somenteAdministrador(actor)) return true;
+  const permissions = await getActorEffectivePermissions(actor.id);
+  return permissions.includes('customers:training');
+}
+
 export async function GET(request: Request) {
   const actor = await getCurrentActionUser();
   if (!actor) return NextResponse.json({ error: 'Sessão inválida.' }, { status: 401 });
@@ -160,6 +171,9 @@ export async function GET(request: Request) {
       const res = await query(
         `SELECT id, name, industry, phone,
                 is_in_training AS "isInTraining",
+                training_origin AS "trainingOrigin",
+                training_started_at AS "trainingStartedAt",
+                training_removed_at AS "trainingRemovedAt",
                 is_active AS "isActive",
                 logo_thumb_url AS "logoThumbUrl",
                 cs_responsavel_id AS "csResponsavelId",
@@ -175,7 +189,12 @@ export async function GET(request: Request) {
       const row = res.rows[0];
       // isInTraining é perfil interno: não deve nem trafegar para o navegador
       // de quem é da própria empresa.
-      if (isCompanyUser) delete row.isInTraining;
+      if (isCompanyUser) {
+        delete row.isInTraining;
+        delete row.trainingOrigin;
+        delete row.trainingStartedAt;
+        delete row.trainingRemovedAt;
+      }
       row.logoUrl = row.has_logo ? `/api/companies/${row.id}/logo` : null;
       delete row.has_logo;
       return NextResponse.json(row, { headers: { 'Cache-Control': REFERENCE_CACHE_HEADER } });
@@ -186,7 +205,8 @@ export async function GET(request: Request) {
     // URL, e listar empresas não pode pagar esse peso em toda carga (mesmo
     // problema que avatar_url já causou — ver comentário em /api/users
     // type=lite). logo_thumb_url já nasce pequena, essa pode ir direto.
-    const LIST_COLUMNS = `id, name, industry, phone, created_at, is_in_training, cs_responsavel_id,
+    const LIST_COLUMNS = `id, name, industry, phone, created_at, is_in_training,
+                          training_origin, training_started_at, training_removed_at, cs_responsavel_id,
                           comercial_responsavel_id, id_central, decisor_nome, decisor_telefone,
                           is_active, logo_thumb_url,
                           (logo_url IS NOT NULL AND logo_url <> '') AS has_logo`;
@@ -202,6 +222,10 @@ export async function GET(request: Request) {
         phone: c.phone || '',
         createdAt: c.created_at,
         isInTraining: isCompanyUser ? undefined : (c.is_in_training || false),
+        // Origem/início/última remoção do "em treinamento": perfil interno, como o próprio flag.
+        trainingOrigin: isCompanyUser ? undefined : (c.training_origin || null),
+        trainingStartedAt: isCompanyUser ? undefined : (c.training_started_at || null),
+        trainingRemovedAt: isCompanyUser ? undefined : (c.training_removed_at || null),
         csResponsavelId: c.cs_responsavel_id || undefined,
         comercialResponsavelId: c.comercial_responsavel_id || undefined,
         idCentral: c.id_central || undefined,
@@ -330,16 +354,36 @@ export async function POST(request: Request) {
       // Equipe/Time Interno passava mesmo sem "Gerenciar clientes"
       // (customers:write), diferente do que a tela já dava a entender (o
       // toggle só aparece com essa permissão).
-      if (!(await podeGerenciarEmpresas(actor))) {
-        return NextResponse.json({ error: 'Você não tem permissão para alterar esse dado.' }, { status: 403 });
-      }
+      //
+      // 2026-09-28: agora é permissão própria (customers:training), uma só pra
+      // adicionar e remover. Só é exigida quando o valor MUDA: o modal de
+      // empresa chamava esta ação a cada "Salvar" mesmo sem mexer no toggle, e
+      // quem edita a empresa sem ter a permissão não pode tomar 403 por isso.
       const { companyId, isInTraining } = body;
-      const company = await query('SELECT name FROM public.companies WHERE id = $1', [companyId]);
-      await query('UPDATE public.companies SET is_in_training = $1 WHERE id = $2', [isInTraining, companyId]);
+      if (!companyId || typeof isInTraining !== 'boolean') {
+        return NextResponse.json({ error: 'companyId e isInTraining são obrigatórios.' }, { status: 400 });
+      }
+      const company = await query('SELECT name, is_in_training FROM public.companies WHERE id::text = $1', [String(companyId)]);
+      if (company.rowCount === 0) return NextResponse.json({ error: 'Empresa não encontrada.' }, { status: 404 });
+
+      if (company.rows[0].is_in_training === isInTraining) {
+        return NextResponse.json({ success: true, unchanged: true });
+      }
+      if (!(await podeGerenciarTreinamento(actor))) {
+        return NextResponse.json({ error: 'Você não tem permissão para adicionar ou remover o status "Em treinamento".' }, { status: 403 });
+      }
+      // O gatilho de companies grava training_removed_at na remoção (é o que
+      // impede a importação da planilha de devolver o status) e training_started_at
+      // ao ligar; a origem só é informada aqui quando liga.
+      await query(
+        `UPDATE public.companies SET is_in_training = $1, training_origin = CASE WHEN $1 THEN 'manual' ELSE NULL END
+          WHERE id::text = $2`,
+        [isInTraining, String(companyId)]
+      );
       logAudit({
         actorId: actor.id, actorName: actor.name, action: 'update',
         entityType: 'company', entityId: companyId,
-        entityLabel: company.rows[0]?.name || null, changes: { isInTraining }
+        entityLabel: company.rows[0]?.name || null, changes: { isInTraining, origem: 'manual' }
       });
       return NextResponse.json({ success: true });
     }

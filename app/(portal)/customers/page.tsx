@@ -6,7 +6,7 @@ import { assignChatSession } from '@/lib/services/chat-session-actions';
 import { getUsers } from '@/lib/services/user-actions-service';
 import { getCompanies, setCompanyActive, updateCompanyLogo, deleteCompany } from '@/lib/services/company-service';
 import { Company, User, UserRole, Permission } from '@/lib/types';
-import { Building2, User as UserIcon, Mail, Phone, Plus, MessageCircle, Ticket, ShieldCheck, ShieldOff, Search, X, Check, Pencil, UserPlus, RefreshCw, Headset, Briefcase, Camera, Trash2, ArrowLeft, Loader2, CheckCircle2, Clock } from 'lucide-react';
+import { Building2, User as UserIcon, Mail, Phone, Plus, MessageCircle, Ticket, ShieldCheck, ShieldOff, Search, X, Check, Pencil, UserPlus, RefreshCw, Headset, Briefcase, Camera, Trash2, ArrowLeft, Loader2, CheckCircle2, Clock, GraduationCap } from 'lucide-react';
 import { cn, normalizeString, normalizePhone, maskPhone } from '@/lib/utils';
 import { NewEmployeeModal } from '@/components/new-employee-modal';
 import { EditEmployeeModal } from '@/components/edit-employee-modal';
@@ -286,7 +286,12 @@ if (isCompanyPortalUser) {
       const res = await fetch('/api/integrations/customer-sheet/sync', { method: 'POST' });
       const data = await res.json();
       if (!res.ok) throw new Error(data?.error || 'Falha ao importar a planilha.');
-      toast.success(`Planilha importada: ${data.created} nova(s), ${data.updated} atualizada(s)${data.skipped ? `, ${data.skipped} ignorada(s)` : ''}${data.primaryUsersCreated ? `, ${data.primaryUsersCreated} usuário(s) principal(is) criado(s) a partir do Decisor` : ''}.`);
+      toast.success(`Planilha importada: ${data.created} nova(s), ${data.updated} atualizada(s)${data.skipped ? `, ${data.skipped} ignorada(s)` : ''}${data.primaryUsersCreated ? `, ${data.primaryUsersCreated} usuário(s) principal(is) criado(s) a partir do Decisor` : ''}${data.trainingApplied ? `, ${data.trainingApplied} empresa(s) marcada(s) como Em treinamento (entrada de 2026 em diante)` : ''}.`);
+      // Entrada de 2026 em diante que já foi removida do treinamento: a importação
+      // não devolve — só quem tem a permissão, à mão, no cadastro da empresa.
+      if (data.trainingAlreadyRemoved > 0) {
+        toast.info(`${data.trainingAlreadyRemoved} empresa(s) com entrada de 2026 em diante não voltaram ao treinamento porque já foram removidas dele — só manualmente.`, { duration: 8000 });
+      }
       if (Array.isArray(data.unresolvedCs) && data.unresolvedCs.length > 0) {
         toast.warning(`CS não identificado automaticamente para: ${data.unresolvedCs.join(', ')}. Atribua à mão no cadastro da empresa.`, { duration: 10000 });
       }
@@ -496,8 +501,18 @@ if (isCompanyPortalUser) {
                       (Editar Empresa). A etiqueta de desativada permanece:
                       é o que explica por que a empresa aparece em cinza. */}
                   {inativa && (
-                    <span className="inline-block mt-0.5 text-[9px] font-black uppercase tracking-widest px-1.5 py-0.5 rounded bg-[var(--surface-pill)] text-[var(--text-tertiary)]">
+                    <span className="inline-block mt-0.5 mr-1 text-[9px] font-black uppercase tracking-widest px-1.5 py-0.5 rounded bg-[var(--surface-pill)] text-[var(--text-tertiary)]">
                       Desativada
+                    </span>
+                  )}
+                  {/* Em treinamento: perfil interno — isInTraining nem chega ao
+                      navegador de quem é da própria empresa. */}
+                  {c.isInTraining && (
+                    <span
+                      title="Cliente em treinamento — visível só pra equipe interna"
+                      className="inline-flex items-center gap-1 mt-0.5 text-[9px] font-black uppercase tracking-widest px-1.5 py-0.5 rounded bg-[var(--surface-info)] text-[var(--text-info)]"
+                    >
+                      <GraduationCap size={10} /> Em treinamento
                     </span>
                   )}
                 </div>
@@ -610,6 +625,16 @@ if (isCompanyPortalUser) {
                     "text-xl sm:text-2xl font-black tracking-tight leading-tight break-words",
                     selectedCompany.isActive === false ? "text-[var(--text-tertiary)]" : "text-[var(--text-primary)]"
                   )}>{selectedCompany.name}</h1>
+                  {selectedCompany.isInTraining && (
+                    <span
+                      title={selectedCompany.trainingOrigin === 'planilha'
+                        ? 'Atribuído automaticamente pela importação da planilha de CS'
+                        : 'Cliente em treinamento — visível só pra equipe interna'}
+                      className="inline-flex items-center gap-1.5 mt-2 text-[10px] font-black uppercase tracking-widest px-2.5 py-1 rounded-lg bg-[var(--surface-info)] text-[var(--text-info)]"
+                    >
+                      <GraduationCap size={12} /> Em treinamento
+                    </span>
+                  )}
                   {/* Setor removido do cabeçalho a pedido: continua no cadastro
                       (Editar Empresa) e no card da lista lateral. */}
                 </div>

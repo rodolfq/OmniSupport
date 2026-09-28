@@ -47,6 +47,17 @@ export async function returnChatSessionToQueue(
   );
 }
 
+/**
+ * Pré-checagem de encerramento (não fecha nada): pergunta ao servidor se a
+ * conversa pode ser encerrada agora — hoje, se ela tem a tag obrigatória
+ * (CHAT_TAG_REQUIRED_MESSAGE em lib/chat-close-rules.ts). Use ANTES de qualquer
+ * passo com efeito colateral (criar chamado, gravar histórico), que não dá pra
+ * desfazer se o encerramento for recusado depois.
+ */
+export async function checkChatSessionCanClose(sessionId: string): Promise<{ canClose: true } | Falha> {
+  return post({ action: 'close', sessionId, checkOnly: true }, 'Erro ao verificar o encerramento do atendimento.');
+}
+
 export async function closeChatSessionAfterTicket(
   sessionId: string,
   awaitingSurveyUntil: string | null,

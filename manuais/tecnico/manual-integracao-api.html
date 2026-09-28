@@ -173,6 +173,7 @@ x-api-key: ssx_a1b2c3d4e5f6...</div>
     <tr><td class="scope">tickets:read</td><td>Listar e consultar chamados (com mensagens visíveis ao cliente).</td></tr>
     <tr><td class="scope">tickets:write</td><td>Abrir chamados novos e atualizar status/prioridade/classificação/responsável.</td></tr>
     <tr><td class="scope">conversations:read</td><td>Listar e consultar conversas de chat/WhatsApp.</td></tr>
+    <tr><td class="scope">training-conversations:read</td><td>Só a lista de conversas encerradas com clientes em treinamento (data e motivo) — sem mensagens nem telefone.</td></tr>
   </table>
   <div class="callout info"><span class="ico">i</span><p>Chave criada antes desta versão com o escopo <code>employees:read</code> continua conseguindo ler empresas por compatibilidade — mas para chaves novas, use <code>companies:read</code>, que é o nome certo pra essa permissão.</p></div>
 
@@ -404,6 +405,25 @@ X-RateLimit-Reset: 1786994325 <span class="c">// epoch em segundos</span></div>
       <div class="code-label">Mensagem, dentro de uma conversa específica</div>
       <div class="code-block">{ <span class="k">"id"</span>: <span class="s">"..."</span>, <span class="k">"senderName"</span>: <span class="s">"Jean"</span>, <span class="k">"text"</span>: <span class="s">"Bom dia!"</span>, <span class="k">"type"</span>: <span class="s">"text"</span>,
   <span class="k">"attachments"</span>: [], <span class="k">"createdAt"</span>: <span class="s">"2026-08-17T12:00:00.000Z"</span> }</div>
+    </div>
+  </div>
+
+  <div class="endpoint">
+    <div class="endpoint-head"><span class="method get">GET</span><span class="endpoint-path">/api/integrations/v1/training-conversations</span><span class="endpoint-scope chip">training-conversations:read</span></div>
+    <div class="endpoint-body">
+      <p>Conversas <b>encerradas</b> com clientes de empresas que estão <b>em treinamento</b>, com o dia em que ocorreram e o motivo (as tags da conversa: Problema, Dúvida, Solicitação…). Não devolve telefone nem mensagens. "Em treinamento" é a situação <b>atual</b> da empresa. <code>date</code>, <code>from</code> e <code>to</code> são o dia em que a conversa <b>começou</b>, no horário de Brasília. Uma conversa pode ter várias tags ou nenhuma (<code>tags: []</code>).</p>
+      <table class="ptable">
+        <tr><th>Parâmetro</th><th>Onde</th><th>Descrição</th></tr>
+        <tr><td class="name">from</td><td class="type">query</td><td>AAAA-MM-DD — conversas que começaram neste dia ou depois.</td></tr>
+        <tr><td class="name">to</td><td class="type">query</td><td>AAAA-MM-DD — conversas que começaram neste dia ou antes (inclusive).</td></tr>
+        <tr><td class="name">tag</td><td class="type">query</td><td>Uma ou mais tags separadas por vírgula (qualquer uma basta). Sem diferenciar maiúscula/acento. Tag inexistente devolve 400 com a lista válida.</td></tr>
+        <tr><td class="name">companyId</td><td class="type">query</td><td>Só conversas dessa empresa.</td></tr>
+        <tr><td class="name">limit / offset</td><td class="type">query</td><td>Paginação. Padrão 100, máximo 500.</td></tr>
+      </table>
+      <div class="code-label">Item da lista</div>
+      <div class="code-block">{ <span class="k">"id"</span>: <span class="s">"..."</span>, <span class="k">"date"</span>: <span class="s">"2026-09-28"</span>, <span class="k">"startedAt"</span>: <span class="s">"2026-09-28T17:04:11.000Z"</span>, <span class="k">"finishedAt"</span>: <span class="s">"2026-09-28T17:31:40.000Z"</span>,
+  <span class="k">"company"</span>: { <span class="k">"id"</span>: <span class="s">"..."</span>, <span class="k">"name"</span>: <span class="s">"Transportadora Exemplo"</span>, <span class="k">"isInTraining"</span>: <span class="k">true</span> }, <span class="k">"customerName"</span>: <span class="s">"Maria Souza"</span>,
+  <span class="k">"tags"</span>: [{ <span class="k">"id"</span>: <span class="s">"..."</span>, <span class="k">"label"</span>: <span class="s">"Problema"</span> }] }</div>
     </div>
   </div>
 

@@ -56,7 +56,8 @@ export async function POST(request: Request) {
         customerName: name || 'Cliente',
         analystId: actor.id,
         analystName: actor.name,
-        text: contentPreview || `[template ${templateName.trim()}]`
+        text: contentPreview || `[template ${templateName.trim()}]`,
+        pyvonMessageId: result.message_id
       });
     }
 

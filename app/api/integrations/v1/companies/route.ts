@@ -163,7 +163,11 @@ export async function PUT(request: Request) {
        SET name = COALESCE($1, name),
            industry = COALESCE($2, industry),
            phone = COALESCE($3, phone),
-           is_in_training = COALESCE($4, is_in_training)
+           is_in_training = COALESCE($4, is_in_training),
+           -- Origem do status quando a integração o liga. Remover por aqui também
+           -- vale como remoção: o gatilho de companies grava training_removed_at e
+           -- a importação da planilha deixa de marcar a empresa sozinha.
+           training_origin = CASE WHEN $4::boolean IS TRUE AND NOT is_in_training THEN 'integracao' ELSE training_origin END
        WHERE id = $5`,
       [body.name || null, body.industry || null, body.phone || null, body.isInTraining === undefined ? null : body.isInTraining, id]
     );

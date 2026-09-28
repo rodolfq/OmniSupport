@@ -7,6 +7,8 @@ import { getChatRecipientIds, getTeamUserIds, isTeamRole } from '@/lib/services/
 import { pickNextQueueAssignee } from '@/lib/services/queue-routing';
 import { runExclusive } from '@/lib/key-mutex';
 import { getCurrentActionUser, getActorEffectivePermissions } from '@/lib/server-auth';
+import { logAudit } from '@/lib/audit-log';
+import { CHAT_TAG_REQUIRED_MESSAGE } from '@/lib/chat-close-rules';
 
 // Achado em 2026-09-23 (varredura de permissões): as ações abaixo só
 // checavam "sessão válida" — qualquer papel autenticado atribuía, transferia,
@@ -16,6 +18,25 @@ async function actorTemAlgumaPermissao(actor: any, perms: string[]): Promise<boo
   if (actor?.role === 'Administrador') return true;
   const permissions = await getActorEffectivePermissions(actor.id);
   return perms.some(p => permissions.includes(p));
+}
+
+// Encerrar conversa exige ao menos 1 tag de chat válida (pedido do usuário,
+// 2026-09-28). "Válida" = o id ainda existe em config_tags com domain 'chat' (tag
+// apagada depois não conta). Sem NENHUMA tag de chat cadastrada não há o que
+// exigir — senão ninguém encerraria nenhuma conversa. Devolve null se a conversa
+// não existe.
+async function conversaTemTagParaEncerrar(sessionId: string): Promise<boolean | null> {
+  const sessionRes = await query('SELECT 1 FROM public.chat_sessions WHERE id::text = $1', [String(sessionId)]);
+  if (sessionRes.rowCount === 0) return null;
+  const cadastradas = await query(`SELECT 1 FROM public.config_tags WHERE domain = 'chat' LIMIT 1`);
+  if (cadastradas.rowCount === 0) return true;
+  const comTag = await query(
+    `SELECT 1 FROM public.chat_sessions s
+      WHERE s.id::text = $1
+        AND EXISTS (SELECT 1 FROM public.config_tags t WHERE t.domain = 'chat' AND t.id::text = ANY(s.tags))`,
+    [String(sessionId)]
+  );
+  return (comTag.rowCount ?? 0) > 0;
 }
 
 /**
@@ -327,7 +348,7 @@ export async function POST(request: Request) {
       if (!(await actorTemAlgumaPermissao(actor, ['tickets:outside_queue']))) {
         return NextResponse.json({ error: 'Você não tem permissão para atender a Central de Atendimento.' }, { status: 403 });
       }
-      const { sessionId, awaitingSurveyUntil, isSpam } = body;
+      const { sessionId, awaitingSurveyUntil, isSpam, checkOnly } = body;
       // Achado em 2026-09-23: "Fechar como Spam" nunca tinha sinal nenhum no
       // servidor — a diferença (mandar ou não a pesquisa de satisfação) era
       // decidida só no client, então CHAT_MARK_SPAM nunca era conferida de
@@ -336,6 +357,19 @@ export async function POST(request: Request) {
       if (isSpam && !(await actorTemAlgumaPermissao(actor, ['chat:mark_spam']))) {
         return NextResponse.json({ error: 'Você não tem permissão para marcar conversas como spam.' }, { status: 403 });
       }
+      // Tag obrigatória pra encerrar — vale pra TODO caminho que fecha conversa
+      // (Finalizar, Gerar chamado & Finalizar, Fechar como spam, Duplicar, "Encerrar
+      // e iniciar nova", finalizar em massa na Central), porque todos passam por aqui.
+      const temTag = await conversaTemTagParaEncerrar(sessionId);
+      if (temTag === null) return NextResponse.json({ error: 'Atendimento não encontrado.' }, { status: 404 });
+      if (!temTag) {
+        return NextResponse.json({ error: CHAT_TAG_REQUIRED_MESSAGE, code: 'tag_required' }, { status: 422 });
+      }
+      // Pré-checagem: quem tem passos com efeito ANTES de fechar (criar chamado,
+      // gravar histórico) pergunta primeiro, pra não deixar um chamado criado com
+      // a conversa ainda aberta. Não fecha nada.
+      if (checkOnly === true) return NextResponse.json({ success: true, canClose: true });
+
       await query(
         `UPDATE public.chat_sessions SET status = 'closed', awaiting_survey_until = $1, updated_at = NOW() WHERE id = $2`,
         [awaitingSurveyUntil ?? null, sessionId]
@@ -413,17 +447,102 @@ export async function POST(request: Request) {
     // =====================================================================
     // Vincular a conversa a um chamado JÁ existente
     // =====================================================================
+    // Dois pontos de entrada usam esta ação: o chat ("Vincular chamado existente",
+    // Central de Atendimento) e o próprio chamado (aba Conversa > "Vincular
+    // conversa"). Achado em 2026-09-28: ela só exigia sessão válida — qualquer
+    // papel, inclusive Cliente/Funcionário, vinculava QUALQUER conversa a QUALQUER
+    // chamado, e como quem enxerga o chamado lê a conversa vinculada
+    // (canReadChatSessionFromTicket em app/api/chats/route.ts), isso era leitura de
+    // conversa de outra empresa. Agora: equipe + (tickets:link_chat, a permissão
+    // do chamado, OU tickets:outside_queue, de quem já vinculava pelo chat).
     if (action === 'link-ticket') {
-      const { sessionId, ticketId } = body;
-      const ticketRes = await query('SELECT id, public_ticket_number FROM public.tickets WHERE id = $1', [ticketId]);
+      if (!isTeamRole(actor.role) || !(await actorTemAlgumaPermissao(actor, ['tickets:link_chat', 'tickets:outside_queue']))) {
+        return NextResponse.json({ error: 'Você não tem permissão para vincular conversas a chamados.' }, { status: 403 });
+      }
+      const { sessionId, ticketId, confirmDifferentCompany } = body;
+      if (!sessionId || !ticketId) {
+        return NextResponse.json({ error: 'sessionId e ticketId são obrigatórios.' }, { status: 400 });
+      }
+
+      const ticketRes = await query(
+        `SELECT t.id, t.public_ticket_number, t.title, t.company_id, t.chat_session_id, co.name AS company_name
+           FROM public.tickets t LEFT JOIN public.companies co ON co.id = t.company_id
+          WHERE t.id = $1`,
+        [String(ticketId)]
+      );
       const ticket = ticketRes.rows[0];
       if (!ticket) return NextResponse.json({ error: 'Chamado não encontrado.' }, { status: 404 });
 
-      await query('UPDATE public.tickets SET chat_session_id = $1 WHERE id = $2', [sessionId, ticketId]);
-      await query(
-        'UPDATE public.chat_sessions SET ticket_id = $1, ticket_number = $2 WHERE id = $3',
-        [ticket.id, ticket.public_ticket_number, sessionId]
+      // id::text: um id malformado vira "não encontrada", não erro 500 de uuid.
+      const sessionRes = await query(
+        `SELECT s.id, s.status, s.ticket_id, s.customer_name, s.customer_phone, s.channel, s.created_at,
+                p.company_id AS customer_company_id, cc.name AS customer_company_name
+           FROM public.chat_sessions s
+           LEFT JOIN public.profiles p ON p.id = s.customer_id
+           LEFT JOIN public.companies cc ON cc.id = p.company_id
+          WHERE s.id::text = $1`,
+        [String(sessionId)]
       );
+      const session = sessionRes.rows[0];
+      if (!session) return NextResponse.json({ error: 'Conversa não encontrada.' }, { status: 404 });
+
+      // Empresa diferente: só com confirmação explícita. Vincular a conversa de
+      // uma empresa ao chamado de outra a expõe a quem acompanha esse chamado.
+      // Conversa de contato sem cadastro (sem empresa) não trava — não há como
+      // saber, e é o caso comum de "o cliente ligou de outro número".
+      if (ticket.company_id && session.customer_company_id && ticket.company_id !== session.customer_company_id && confirmDifferentCompany !== true) {
+        return NextResponse.json({
+          error: `Esta conversa é de ${session.customer_company_name || 'outra empresa'} e o chamado é de ${ticket.company_name || 'outra empresa'}. Confirme para vincular mesmo assim.`,
+          code: 'company_mismatch'
+        }, { status: 409 });
+      }
+
+      // Já vinculada exatamente a este chamado: nada a fazer (e nada de log duplicado).
+      if (session.ticket_id === ticket.id && ticket.chat_session_id === session.id) {
+        return NextResponse.json({ ticketId: ticket.id, ticketNumber: ticket.public_ticket_number, alreadyLinked: true });
+      }
+
+      const client = await pool.connect();
+      try {
+        await client.query('BEGIN');
+        await client.query('UPDATE public.tickets SET chat_session_id = $1 WHERE id = $2', [session.id, ticket.id]);
+        // chat_sessions.ticket_id/ticket_number = "chamado mais recente desta
+        // conversa" (o badge do chat); o chamado que ela apontava antes continua
+        // ligado por tickets.chat_session_id.
+        await client.query(
+          'UPDATE public.chat_sessions SET ticket_id = $1, ticket_number = $2 WHERE id = $3',
+          [ticket.id, ticket.public_ticket_number, session.id]
+        );
+        // Registro no histórico do chamado (aba Logs de Alteração), interno.
+        const quando = new Date(session.created_at).toLocaleString('pt-BR', { timeZone: 'America/Sao_Paulo', day: '2-digit', month: '2-digit', year: 'numeric', hour: '2-digit', minute: '2-digit' });
+        await client.query(
+          `INSERT INTO public.ticket_messages (ticket_id, author_id, content, type, is_visible_to_customer)
+           VALUES ($1, $2, $3, 'system', false)`,
+          [ticket.id, actor.id, `Conversa vinculada ao chamado: ${session.customer_name || session.customer_phone || 'contato'} (iniciada em ${quando}).`]
+        );
+        await client.query('COMMIT');
+      } catch (err) {
+        try { await client.query('ROLLBACK'); } catch { /* conexão já caiu */ }
+        throw err;
+      } finally {
+        client.release();
+      }
+
+      await logAudit({
+        actorId: actor.id,
+        actorName: actor.name,
+        action: 'update',
+        entityType: 'ticket',
+        entityId: ticket.id,
+        entityLabel: `#${ticket.public_ticket_number} ${ticket.title || ''}`.trim(),
+        changes: {
+          conversaVinculada: session.id,
+          contato: session.customer_name || session.customer_phone || null,
+          empresaDiferenteConfirmada: !!(ticket.company_id && session.customer_company_id && ticket.company_id !== session.customer_company_id)
+        }
+      });
+      // O badge de chamado na lista de conversas muda.
+      emitSessionsChanged({ reason: 'status', sessionId: session.id });
       return NextResponse.json({ ticketId: ticket.id, ticketNumber: ticket.public_ticket_number });
     }
 

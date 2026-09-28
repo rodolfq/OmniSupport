@@ -12,13 +12,15 @@ import { CompanyService } from '@/lib/services/company-service';
 import { useProfilesLiteQuery } from '@/lib/query-hooks';
 import { parseTranscript } from '@/lib/transcript-format';
 import { ChatAttachmentList } from '@/components/chat-attachment-list';
+import { LinkContactModal, HistoryLinkResult } from '@/components/link-contact-modal';
+import { StartWhatsAppConversationModal } from '@/components/start-whatsapp-conversation-modal';
 import { useAutoTranscribeMissingAudio } from '@/hooks/use-auto-transcribe-missing-audio';
 import {
   Search, Clock, User, MessageSquare, ThumbsUp, ThumbsDown, Minus, Filter,
   ChevronDown, X, FileText, FileDown, Archive, Ticket as TicketIcon, Building2,
-  GripVertical, Columns3, CheckSquare, Square, Shield, Sparkles, RotateCcw
+  GripVertical, Columns3, CheckSquare, Square, Shield, Sparkles, RotateCcw, Link2, MessageCircle, RefreshCw, GraduationCap
 } from 'lucide-react';
-import { cn } from '@/lib/utils';
+import { cn, normalizeBrazilianPhoneDigits } from '@/lib/utils';
 import { motion, AnimatePresence } from 'motion/react';
 import { toast } from 'sonner';
 import {
@@ -49,7 +51,7 @@ interface HistoryColumnDef {
 }
 
 const ALL_HISTORY_COLUMNS: HistoryColumnDef[] = [
-  { id: 'chamado', label: 'Chamado', defaultVisible: true },
+  { id: 'chamado', label: 'Chat', defaultVisible: true },
   { id: 'inicio', label: 'Início', defaultVisible: true },
   { id: 'fim', label: 'Fim', defaultVisible: true },
   { id: 'resposta', label: '1ª Resposta', defaultVisible: true },
@@ -85,7 +87,9 @@ function loadColumnPrefs(): { order: string[]; hidden: string[] } {
 }
 
 function formatDuration(seconds?: number | null) {
-  if (seconds === null || seconds === undefined) return '-';
+  // Tempo negativo nunca é válido (era relógio de navegador atrasado gravado no histórico):
+  // mostra "-" em vez de "-3m 20s" caso algum valor assim ainda apareça.
+  if (seconds === null || seconds === undefined || seconds < 0) return '-';
   const mins = Math.floor(seconds / 60);
   const secs = seconds % 60;
   return `${mins}m ${secs}s`;
@@ -116,7 +120,7 @@ function safeFileNamePart(value: string) {
 }
 
 function historyFileBaseName(h: any) {
-  const ticket = h.ticketNumber ? `chamado_${String(h.ticketNumber).padStart(4, '0')}` : `conversa_${h.id.slice(0, 8)}`;
+  const ticket = h.ticketNumber ? `chat_${String(h.ticketNumber).padStart(4, '0')}` : `conversa_${h.id.slice(0, 8)}`;
   const date = h.finishedAt ? new Date(h.finishedAt).toISOString().slice(0, 10) : 'sem_data';
   const employee = safeFileNamePart(h.customerName || 'contato');
   return `${ticket}_${date}_${employee}`;
@@ -124,7 +128,7 @@ function historyFileBaseName(h: any) {
 
 function buildTxtContent(h: any): string {
   const header = [
-    h.ticketNumber ? `Chamado: #${String(h.ticketNumber).padStart(4, '0')}` : 'Chamado: -',
+    h.ticketNumber ? `Chat: #${String(h.ticketNumber).padStart(4, '0')}` : 'Chat: -',
     `Cliente: ${h.companyName || '-'}`,
     `Funcionário: ${h.customerName || '-'}`,
     `Equipe: ${h.assigneeName || '-'}`,
@@ -169,7 +173,7 @@ async function buildHistoryPdfBlob(h: any, messages?: ChatMessage[]): Promise<Bl
   doc.setFont('helvetica', 'normal');
   doc.setTextColor(60);
   const meta = [
-    `Chamado: ${ticketLabel(h)}`,
+    `Chat: ${ticketLabel(h)}`,
     `Cliente: ${h.companyName || '-'}`,
     `Funcionário: ${h.customerName || '-'}`,
     `Equipe: ${h.assigneeName || '-'}`,
@@ -441,13 +445,28 @@ function SortableColumnHeader({ id, label }: { id: string; label: string }) {
 }
 
 export default function ChatHistoryPage() {
-  const { currentUser, hasPermission, refreshTrigger } = useApp();
+  const { currentUser, hasPermission, refreshTrigger, userStatus, setActiveOmniChatId, setIsOmniChatOpen } = useApp();
   const searchParams = useSearchParams();
   const [histories, setHistories] = useState<any[]>([]);
+  // Botão "Atualizar": a tela só recarregava sozinha quando o app pedia
+  // (refreshTrigger), então conversa que acabou de ser encerrada — ou uma nota
+  // de satisfação que chegou depois — só aparecia recarregando a página inteira.
+  const [isRefreshing, setIsRefreshing] = useState(false);
+  const [lastUpdatedAt, setLastUpdatedAt] = useState<Date | null>(null);
+  const historiesRef = useRef<any[]>([]);
+  historiesRef.current = histories;
   // Só usado em <select> de filtro por nome/papel (sem avatar) — via hook
   // compartilhado "lite" em vez de /api/users?type=all buscado do zero.
-  const { data: usersLiteData } = useProfilesLiteQuery();
+  const { data: usersLiteData, refetch: refetchUsers } = useProfilesLiteQuery();
   const users = useMemo(() => (usersLiteData || []) as any[], [usersLiteData]);
+  // "Equipe" = quem da equipe INTERNA atendeu: Administrador, Equipe e Time
+  // Interno. Antes a lista trazia Funcionário (que é gente do lado do CLIENTE) e
+  // deixava de fora o Time Interno — papel de quase todo o Suporte — então o
+  // filtro nunca achava quem realmente atende. Em ordem alfabética.
+  const teamMembers = useMemo(() => users
+    .filter(u => [UserRole.ADMIN, UserRole.SUPPORT, UserRole.INTERNAL].includes(u.role as UserRole))
+    .sort((a, b) => String(a.name || a.email || '').localeCompare(String(b.name || b.email || ''), 'pt-BR')),
+  [users]);
   const [queues, setQueues] = useState<any[]>([]);
   const [companies, setCompanies] = useState<any[]>([]);
   const [search, setSearch] = useState('');
@@ -455,6 +474,8 @@ export default function ChatHistoryPage() {
   const [dateTo, setDateTo] = useState('');
   const [ratingFilter, setRatingFilter] = useState<'all' | 'liked' | 'disliked' | 'unrated'>('all');
   const [dissatisfactionFilter, setDissatisfactionFilter] = useState<'all' | 'detected' | 'not_detected' | 'unprocessed'>('all');
+  // Conversa com cliente em treinamento ou não (situação ATUAL da empresa).
+  const [trainingFilter, setTrainingFilter] = useState<'all' | 'training' | 'not_training'>('all');
   const [teamFilter, setTeamFilter] = useState<string>('all');
   const [employeeFilter, setEmployeeFilter] = useState<string>('all');
   const [companyFilter, setCompanyFilter] = useState<string>('all');
@@ -481,22 +502,113 @@ export default function ChatHistoryPage() {
   const [columnOrder, setColumnOrder] = useState<string[]>(() => loadColumnPrefs().order);
   const [hiddenColumns, setHiddenColumns] = useState<string[]>(() => loadColumnPrefs().hidden);
   const [isColumnPickerOpen, setIsColumnPickerOpen] = useState(false);
+  // De que lado o painel "Colunas" abre. Na tela larga o botão fica no canto
+  // direito e o painel abre pra esquerda (right-0); em tela estreita a linha
+  // quebra e o botão vai pra esquerda — o mesmo right-0 empurrava o painel pra
+  // dentro da sidebar, e o <main> (overflow-y: auto, que também corta no eixo X)
+  // cortava a metade dele. Decidido ao abrir, pelo espaço real dentro do <main>.
+  const [columnPickerAlign, setColumnPickerAlign] = useState<'right' | 'left'>('right');
+  const [isLinkModalOpen, setIsLinkModalOpen] = useState(false);
+  const [isStartModalOpen, setIsStartModalOpen] = useState(false);
+
+  // Telefone sugerido pro "Iniciar conversa": só se parece um número de verdade
+  // (10 a 13 dígitos, com ou sem 55). Conversa antiga do WhatsApp não oficial
+  // guarda um identificador interno longo no lugar do telefone — sugerir isso
+  // só levaria a um envio que o Pyvon recusa; nesse caso o campo vem em branco
+  // e quem inicia digita o número (ou o cadastro do cliente).
+  const startPhone = useMemo(() => {
+    const digits = String(selectedHistory?.customerPhone || '').replace(/\D/g, '');
+    return digits.length >= 10 && digits.length <= 13 ? digits : '';
+  }, [selectedHistory?.customerPhone]);
+
+  // Quem inicia vira o responsável pela conversa (atribuição no servidor, em
+  // PyvonService.startConversation) — por isso a exigência de estar Online vem
+  // ANTES de abrir o modal, igual ao "Iniciar conversa" de Empresas: barrar
+  // depois deixaria uma conversa criada e atribuída a quem acabou de ser recusado.
+  const handleOpenStartConversation = () => {
+    if (userStatus !== 'online') {
+      toast.error('Você precisa estar Online para assumir atendimentos!');
+      return;
+    }
+    setIsStartModalOpen(true);
+  };
+
+  // Outras conversas do MESMO número, ainda sem cliente — alimenta a opção
+  // "vincular todas" do modal. Compara o número já normalizado (55 + DDD +
+  // assinante), então "85 9..." e "5585 9..." contam como o mesmo.
+  const otherUnlinkedSamePhone = useMemo(() => {
+    if (!selectedHistory?.customerPhone) return [] as any[];
+    const target = normalizeBrazilianPhoneDigits(String(selectedHistory.customerPhone).replace(/\D/g, ''));
+    if (!target) return [] as any[];
+    return histories.filter(h =>
+      h.id !== selectedHistory.id && !h.customerId && h.customerPhone &&
+      normalizeBrazilianPhoneDigits(String(h.customerPhone).replace(/\D/g, '')) === target
+    );
+  }, [histories, selectedHistory]);
+
+  // Depois de vincular no servidor: atualiza as linhas na hora (cliente, empresa
+  // e nome do cadastro) sem recarregar a lista inteira.
+  const handleHistoryLinked = useCallback((result: HistoryLinkResult) => {
+    const ids = new Set(result.historyIds);
+    const patch = {
+      customerId: result.customerId,
+      customerProfileName: result.customerProfileName,
+      companyId: result.companyId,
+      companyName: result.companyName
+    };
+    setHistories(prev => prev.map(h => (ids.has(h.id) ? { ...h, ...patch } : h)));
+    setSelectedHistory((prev: any) => (prev && ids.has(prev.id) ? { ...prev, ...patch } : prev));
+    const extra = result.historyIds.length - 1;
+    toast.success(`Contato vinculado a ${result.customerProfileName}${result.companyName ? ` (${result.companyName})` : ''}${extra > 0 ? ` — mais ${extra} ${extra === 1 ? 'conversa' : 'conversas'} do mesmo número` : ''}.`);
+  }, []);
   const columnPickerRef = useRef<HTMLDivElement>(null);
+  const columnPanelRef = useRef<HTMLDivElement>(null);
 
   const sensors = useSensors(
     useSensor(PointerSensor, { activationConstraint: { distance: 8 } }),
     useSensor(KeyboardSensor, { coordinateGetter: sortableKeyboardCoordinates })
   );
 
+  // Carrega (ou recarrega) a lista de conversas e o que alimenta os filtros
+  // (filas, clientes, equipe). `manual` = veio do botão "Atualizar": mostra o
+  // giro, avisa quantas conversas são novas e recarrega também a lista de equipe.
+  const loadHistories = useCallback(async (manual: boolean) => {
+    if (manual) setIsRefreshing(true);
+    try {
+      const [data] = await Promise.all([
+        getChatHistories(),
+        fetchQueues().then(setQueues).catch(() => {}),
+        CompanyService.getAll().then(setCompanies).catch(() => {}),
+        manual ? refetchUsers().catch(() => {}) : Promise.resolve()
+      ]);
+      // getChatHistories devolve o corpo do erro ({ error }) quando a sessão
+      // expirou ou falta permissão — nunca trocar a lista por isso.
+      if (!Array.isArray(data)) {
+        if (manual) toast.error((data as any)?.error || 'Não foi possível atualizar o histórico.');
+        return;
+      }
+      const knownIds = new Set(historiesRef.current.map(h => h.id));
+      const novas = knownIds.size > 0 ? data.filter(h => !knownIds.has(h.id)).length : 0;
+      setHistories(data);
+      // Detalhe aberto: acompanha o que mudou (nota de satisfação, resumo...).
+      setSelectedHistory((prev: any) => (prev ? (data.find(h => h.id === prev.id) || prev) : prev));
+      setLastUpdatedAt(new Date());
+      if (manual) {
+        toast.success(novas > 0
+          ? `${novas} ${novas === 1 ? 'nova conversa' : 'novas conversas'} no histórico.`
+          : 'Histórico atualizado. Nenhuma conversa nova.');
+      }
+    } catch (err) {
+      console.error('Error loading chat histories:', err);
+      if (manual) toast.error('Não foi possível atualizar o histórico.');
+    } finally {
+      if (manual) setIsRefreshing(false);
+    }
+  }, [refetchUsers]);
+
   useEffect(() => {
     if (!currentUser || !hasPermission(Permission.CHAT_HISTORY_VIEW)) return;
-
-    getChatHistories()
-      .then(setHistories)
-      .catch(err => console.error('Error loading chat histories:', err));
-
-    fetchQueues().then(setQueues).catch(() => {});
-    CompanyService.getAll().then(setCompanies).catch(() => {});
+    loadHistories(false);
   }, [currentUser?.id, refreshTrigger]);
 
   // Deep link vindo de outro relatório (ex.: lista de avaliações negativas
@@ -593,6 +705,17 @@ export default function ChatHistoryPage() {
     (updater) => setSessionMessages(prev => prev ? { ...prev, messages: updater(prev.messages) } : prev)
   );
 
+  // Ao abrir, traz o painel pra dentro da área visível: no celular o botão fica
+  // perto do rodapé e o painel abria por trás da barra de navegação inferior
+  // (scroll-mb-24 no painel reserva o espaço dessa barra).
+  useEffect(() => {
+    if (!isColumnPickerOpen) return;
+    const frame = requestAnimationFrame(() => {
+      columnPanelRef.current?.scrollIntoView({ block: 'nearest', behavior: 'smooth' });
+    });
+    return () => cancelAnimationFrame(frame);
+  }, [isColumnPickerOpen]);
+
   useEffect(() => {
     if (!isColumnPickerOpen) return;
     const handleClickOutside = (e: MouseEvent) => {
@@ -652,6 +775,7 @@ export default function ChatHistoryPage() {
       const searchDigits = search.replace(/\D/g, '');
       const matchesSearch = search === '' ||
         h.customerName?.toLowerCase().includes(search.toLowerCase()) ||
+        h.customerProfileName?.toLowerCase().includes(search.toLowerCase()) ||
         h.companyName?.toLowerCase().includes(search.toLowerCase()) ||
         h.transcript?.toLowerCase().includes(search.toLowerCase()) ||
         h.assigneeName?.toLowerCase().includes(search.toLowerCase()) ||
@@ -677,14 +801,16 @@ export default function ChatHistoryPage() {
       else if (dissatisfactionFilter === 'not_detected') matchesDissatisfaction = h.dissatisfactionProcessedAt != null && h.dissatisfactionDetected !== true;
       else if (dissatisfactionFilter === 'unprocessed') matchesDissatisfaction = h.dissatisfactionProcessedAt == null;
 
+      const matchesTraining = trainingFilter === 'all'
+        || (trainingFilter === 'training' ? h.companyIsInTraining === true : h.companyIsInTraining !== true);
       const matchesTeam = teamFilter === 'all' || h.assigneeId === teamFilter;
       const matchesEmployee = employeeFilter === 'all' || h.customerId === employeeFilter;
       const matchesCompany = companyFilter === 'all' || h.companyId === companyFilter;
       const matchesQueue = queueFilter === 'all' || h.queueId === queueFilter;
 
-      return matchesSearch && matchesDate && matchesRating && matchesDissatisfaction && matchesTeam && matchesEmployee && matchesCompany && matchesQueue;
+      return matchesSearch && matchesDate && matchesRating && matchesDissatisfaction && matchesTraining && matchesTeam && matchesEmployee && matchesCompany && matchesQueue;
     });
-  }, [histories, search, dateFrom, dateTo, ratingFilter, dissatisfactionFilter, teamFilter, employeeFilter, companyFilter, queueFilter]);
+  }, [histories, search, dateFrom, dateTo, ratingFilter, dissatisfactionFilter, trainingFilter, teamFilter, employeeFilter, companyFilter, queueFilter]);
 
   const handleDownloadTxt = (h: any) => {
     downloadBlob(`${historyFileBaseName(h)}.txt`, new Blob([buildTxtContent(h)], { type: 'text/plain;charset=utf-8' }));
@@ -786,9 +912,23 @@ export default function ChatHistoryPage() {
           </td>
         );
       case 'cliente':
-        return <td key="cliente" className="px-5 py-4 text-sm font-bold text-[var(--text-primary)] truncate max-w-[180px]">{h.companyName || '-'}</td>;
+        return (
+          <td key="cliente" className="px-5 py-4 text-sm font-bold text-[var(--text-primary)] max-w-[220px]">
+            <div className="flex items-center gap-1.5 min-w-0">
+              <span className="truncate" title={h.companyName || undefined}>{h.companyName || (h.customerId ? '-' :<span className="text-[var(--text-tertiary)] font-medium italic">Sem vínculo</span>)}</span>
+              {h.companyIsInTraining && (
+                <span
+                  title="Cliente em treinamento"
+                  className="inline-flex items-center gap-1 shrink-0 text-[9px] font-black uppercase tracking-widest px-1.5 py-0.5 rounded bg-[var(--surface-info)] text-[var(--text-info)]"
+                >
+                  <GraduationCap size={10} /> Treinamento
+                </span>
+              )}
+            </div>
+          </td>
+        );
       case 'funcionario':
-        return <td key="funcionario" className="px-5 py-4 text-xs font-bold text-[var(--text-secondary)] truncate max-w-[160px]">{h.customerName || '-'}</td>;
+        return <td key="funcionario" className="px-5 py-4 text-xs font-bold text-[var(--text-secondary)] truncate max-w-[160px]">{h.customerProfileName || h.customerName || '-'}</td>;
       case 'equipe':
         return <td key="equipe" className="px-5 py-4 text-xs font-bold text-[var(--text-secondary)] truncate max-w-[160px]">{h.assigneeName || '-'}</td>;
       case 'telefone':
@@ -817,6 +957,20 @@ export default function ChatHistoryPage() {
           <h2 className="text-3xl font-black text-[var(--text-primary)] uppercase tracking-tight">Histórico de Conversas</h2>
           <p className="text-[var(--text-tertiary)] font-medium mt-1">Acesse todas as conversas finalizadas</p>
         </div>
+        <div className="flex flex-wrap items-center gap-3">
+        {lastUpdatedAt && (
+          <span className="text-[10px] font-semibold uppercase tracking-widest text-[var(--text-tertiary)]">
+            Atualizado às {lastUpdatedAt.toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' })}
+          </span>
+        )}
+        <button
+          onClick={() => loadHistories(true)}
+          disabled={isRefreshing}
+          title="Recarrega as conversas, os filtros (clientes, equipe, filas) e o que estiver aberto"
+          className="flex items-center gap-2 px-5 py-3 bg-[var(--surface-card)] border-2 border-[var(--border-default)] text-[var(--text-primary)] rounded-2xl text-[11px] font-semibold uppercase tracking-widest hover:border-[var(--accent)]/40 hover:bg-[var(--surface-pill)] transition-all disabled:opacity-60"
+        >
+          <RefreshCw size={16} className={cn(isRefreshing && 'animate-spin')} /> {isRefreshing ? 'Atualizando...' : 'Atualizar'}
+        </button>
         <button
           onClick={handleBulkDownloadZip}
           disabled={isBulkDownloading || filteredHistories.length === 0}
@@ -824,6 +978,7 @@ export default function ChatHistoryPage() {
         >
           <Archive size={16} /> {isBulkDownloading ? 'Gerando .zip...' : `Baixar Filtradas (${filteredHistories.length})`}
         </button>
+        </div>
       </div>
 
       {/* Filters */}
@@ -833,7 +988,7 @@ export default function ChatHistoryPage() {
             <Search className="absolute left-4 top-1/2 -translate-y-1/2 text-[var(--text-tertiary)]" size={18} />
             <input
               type="text"
-              placeholder="Buscar por cliente, funcionário, equipe, nº do chamado ou conteúdo..."
+              placeholder="Buscar por cliente, funcionário, equipe, nº do chat ou conteúdo..."
               value={search}
               onChange={e => setSearch(e.target.value)}
               className="w-full bg-[var(--surface-card)] border border-[var(--border-default)] rounded-2xl py-3 pl-12 pr-4 text-sm font-bold focus:ring-4 focus:ring-[var(--accent)]/10 outline-none"
@@ -878,7 +1033,7 @@ export default function ChatHistoryPage() {
               className="pl-9 pr-8 py-2 bg-[var(--surface-card)] border border-[var(--border-default)] rounded-xl text-xs font-bold outline-none focus:ring-4 focus:ring-[var(--accent)]/10 appearance-none cursor-pointer"
             >
               <option value="all">Toda a Equipe</option>
-              {users.filter(u => [UserRole.ADMIN, UserRole.SUPPORT, UserRole.EMPLOYEE].includes(u.role as UserRole)).map(u => (
+              {teamMembers.map(u => (
                 <option key={u.id} value={u.id}>{u.name || u.email}</option>
               ))}
             </StyledSelect>
@@ -985,17 +1140,50 @@ export default function ChatHistoryPage() {
                 </button>
               ))}
             </div>
+
+            <div className="flex items-center gap-2" title="Situação atual da empresa do cliente">
+              <GraduationCap size={16} className="text-[var(--text-tertiary)]" />
+              {[
+                { value: 'all', label: 'Todos' },
+                { value: 'training', label: 'Em treinamento' },
+                { value: 'not_training', label: 'Fora de treinamento' }
+              ].map(opt => (
+                <button
+                  key={opt.value}
+                  onClick={() => setTrainingFilter(opt.value as any)}
+                  className={cn(
+                    "px-3 py-1.5 rounded-lg text-[10px] font-semibold uppercase tracking-widest transition-all",
+                    trainingFilter === opt.value ? "bg-[var(--text-info)] text-white" : "bg-[var(--surface-pill)] text-[var(--text-secondary)] hover:bg-[var(--border-default)]"
+                  )}
+                >
+                  {opt.label}
+                </button>
+              ))}
+            </div>
           </div>
 
           <div className="relative" ref={columnPickerRef}>
             <button
-              onClick={() => setIsColumnPickerOpen(o => !o)}
+              onClick={() => {
+                const wrapper = columnPickerRef.current;
+                if (wrapper && !isColumnPickerOpen) {
+                  const PANEL_WIDTH = 224; // w-56
+                  const button = wrapper.getBoundingClientRect();
+                  const content = (wrapper.closest('main') as HTMLElement | null)?.getBoundingClientRect();
+                  const contentLeft = content?.left ?? 0;
+                  setColumnPickerAlign(button.right - PANEL_WIDTH < contentLeft + 4 ? 'left' : 'right');
+                }
+                setIsColumnPickerOpen(o => !o);
+              }}
               className="flex items-center gap-2 px-4 py-2 bg-[var(--surface-card)] border border-[var(--border-default)] rounded-xl text-[10px] font-semibold uppercase tracking-widest text-[var(--text-secondary)] hover:bg-[var(--surface-pill)] transition-all"
             >
               <Columns3 size={14} /> Colunas
             </button>
             {isColumnPickerOpen && (
-              <div className="absolute right-0 mt-2 w-56 bg-[var(--surface-card)] border border-[var(--border-default)] rounded-2xl shadow-xl p-3 z-20 space-y-0.5">
+              <div ref={columnPanelRef} className={cn(
+                "absolute mt-2 w-56 max-w-[calc(100vw-2rem)] scroll-mb-24 bg-[var(--surface-card)] border border-[var(--border-default)] rounded-2xl shadow-xl p-3 z-20 space-y-0.5",
+                columnPickerAlign === 'left' ? "left-0" : "right-0"
+              )}>
                 <p className="text-[9px] font-semibold uppercase text-[var(--text-tertiary)] tracking-widest px-2 pb-1">Mostrar colunas</p>
                 {columnOrder.map(id => {
                   const col = ALL_HISTORY_COLUMNS.find(c => c.id === id);
@@ -1071,15 +1259,35 @@ export default function ChatHistoryPage() {
             >
               <div className="p-8 border-b border-[var(--border-default)] flex items-start justify-between gap-4 shrink-0">
                 <div>
-                  <h3 className="text-xl font-black text-[var(--text-primary)] tracking-tight uppercase">{selectedHistory.customerName || 'Contato'}</h3>
+                  <h3 className="text-xl font-black text-[var(--text-primary)] tracking-tight uppercase">{selectedHistory.customerProfileName || selectedHistory.customerName || 'Contato'}</h3>
                   <p className="text-[10px] text-[var(--text-tertiary)] font-semibold uppercase tracking-widest mt-1">
-                    Chamado {ticketLabel(selectedHistory)} · {selectedHistory.companyName || 'Sem empresa'} · Equipe: {selectedHistory.assigneeName || 'Sem responsável'}
+                    Chat {ticketLabel(selectedHistory)} · {selectedHistory.companyName || 'Sem empresa'}{selectedHistory.companyIsInTraining ? ' (em treinamento)' : ''} · Equipe: {selectedHistory.assigneeName || 'Sem responsável'}
                   </p>
                   <div className="flex flex-wrap gap-x-4 gap-y-1 mt-3 text-[10px] font-semibold text-[var(--text-tertiary)] uppercase tracking-widest">
                     <span className="flex items-center gap-1"><Clock size={11} /> Início: {formatDateTime(selectedHistory.startedAt)}</span>
                     <span className="flex items-center gap-1"><Clock size={11} /> Fim: {formatDateTime(selectedHistory.finishedAt)}</span>
                     <span className="flex items-center gap-1"><MessageSquare size={11} /> 1ª resposta: {formatDuration(selectedHistory.firstResponseSeconds)}</span>
                   </div>
+                  {(hasPermission(Permission.CHAT_HISTORY_LINK_CONTACT) || hasPermission(Permission.OUTSIDE_QUEUE_VIEW)) && (
+                    <div className="flex flex-wrap items-center gap-2 mt-4">
+                      {hasPermission(Permission.CHAT_HISTORY_LINK_CONTACT) && (
+                        <button
+                          onClick={() => setIsLinkModalOpen(true)}
+                          className="inline-flex items-center gap-2 px-4 py-2 bg-[var(--surface-card)] border-2 border-[var(--border-default)] text-[var(--text-primary)] rounded-xl text-[10px] font-semibold uppercase tracking-widest hover:border-[var(--accent)]/40 hover:bg-[var(--surface-pill)] transition-all"
+                        >
+                          <Link2 size={13} /> {selectedHistory.customerId ? 'Alterar vínculo' : 'Vincular contato'}
+                        </button>
+                      )}
+                      {hasPermission(Permission.OUTSIDE_QUEUE_VIEW) && (
+                        <button
+                          onClick={handleOpenStartConversation}
+                          className="inline-flex items-center gap-2 px-4 py-2 bg-[var(--surface-card)] border-2 border-[var(--border-default)] text-[var(--text-primary)] rounded-xl text-[10px] font-semibold uppercase tracking-widest hover:border-[var(--accent)]/40 hover:bg-[var(--surface-pill)] transition-all"
+                        >
+                          <MessageCircle size={13} /> Iniciar conversa
+                        </button>
+                      )}
+                    </div>
+                  )}
                 </div>
                 <button onClick={() => setSelectedHistory(null)} className="p-2 text-[var(--text-tertiary)] hover:text-[var(--text-danger)] hover:bg-[var(--surface-danger)] rounded-xl transition-all shrink-0">
                   <X size={20} />
@@ -1184,6 +1392,45 @@ export default function ChatHistoryPage() {
           </div>
         )}
       </AnimatePresence>
+
+      {selectedHistory && (
+        <LinkContactModal
+          isOpen={isLinkModalOpen}
+          onClose={() => setIsLinkModalOpen(false)}
+          session={{
+            id: selectedHistory.sessionId,
+            customerId: selectedHistory.customerId || '',
+            customerName: selectedHistory.customerName || '',
+            customerPhone: selectedHistory.customerPhone || undefined,
+            queueId: selectedHistory.queueId || undefined,
+            status: 'closed',
+            messages: [],
+            startedAt: selectedHistory.startedAt,
+            lastMessageAt: selectedHistory.finishedAt
+          }}
+          historyId={selectedHistory.id}
+          otherUnlinkedCount={otherUnlinkedSamePhone.length}
+          onSuccess={() => {}}
+          onHistoryLinked={handleHistoryLinked}
+        />
+      )}
+
+      {selectedHistory && (
+        <StartWhatsAppConversationModal
+          isOpen={isStartModalOpen}
+          onClose={() => setIsStartModalOpen(false)}
+          defaultPhone={startPhone}
+          defaultName={selectedHistory.customerProfileName || selectedHistory.customerName || ''}
+          onSuccess={(sessionId) => {
+            // Abre a conversa no chat flutuante (mesmo caminho do "Iniciar
+            // conversa" de Empresas) e fecha o detalhe do histórico pra ela
+            // não ficar atrás do painel.
+            setActiveOmniChatId(sessionId);
+            setIsOmniChatOpen(true);
+            setSelectedHistory(null);
+          }}
+        />
+      )}
     </div>
   );
 }

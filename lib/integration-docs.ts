@@ -210,7 +210,7 @@ export const INTEGRATION_ENDPOINTS: EndpointDoc[] = [
       { name: 'name', in: 'body', type: 'string', description: 'Novo nome.' },
       { name: 'industry', in: 'body', type: 'string', description: 'Novo ramo/indústria.' },
       { name: 'phone', in: 'body', type: 'string', description: 'Novo telefone.' },
-      { name: 'isInTraining', in: 'body', type: 'boolean', description: 'Marca a empresa como "em treinamento" — mostra um aviso pra equipe interna no chat.', placeholder: 'true' },
+      { name: 'isInTraining', in: 'body', type: 'boolean', description: 'Marca a empresa como "em treinamento" — mostra um aviso pra equipe interna no chat. Enviar false remove o status e conta como a remoção: a importação da planilha de CS não marca a empresa de novo sozinha.', placeholder: 'true' },
     ],
     exampleResponse: JSON.stringify(
       {
@@ -426,5 +426,58 @@ export const INTEGRATION_ENDPOINTS: EndpointDoc[] = [
       2
     ),
     errors: [...AUTH_ERRORS, scopeError('conversations:read'), { status: 400, code: 'VALIDATION_ERROR', description: 'updatedSince não é uma data ISO 8601 válida.' }, { status: 404, code: 'NOT_FOUND', description: 'Conversa não encontrada.' }],
+  },
+  {
+    id: 'training-conversations-list',
+    method: 'GET',
+    path: '/api/integrations/v1/training-conversations',
+    summary: 'Conversas de clientes em treinamento',
+    description: 'Lista as conversas já encerradas com clientes de empresas que estão "em treinamento", com o dia em que ocorreram e o motivo (as tags da conversa: Problema, Dúvida, Solicitação, etc.). Devolve só quando e por quê — sem telefone, sem mensagens. Cada item traz o status da empresa em "company.isInTraining" (hoje sempre true, pois só empresas em treinamento entram na lista). "Em treinamento" é a situação ATUAL da empresa. A data ("date", "from", "to") é o dia em que a conversa começou, no horário de Brasília; a conversa só aparece depois de encerrada. Uma conversa pode ter mais de uma tag, ou nenhuma (tags: []).',
+    scope: 'training-conversations:read',
+    params: [
+      { name: 'from', in: 'query', type: 'AAAA-MM-DD', description: 'Só conversas que começaram neste dia ou depois (horário de Brasília).', placeholder: '2026-09-01' },
+      { name: 'to', in: 'query', type: 'AAAA-MM-DD', description: 'Só conversas que começaram neste dia ou antes (inclusive).', placeholder: '2026-09-30' },
+      { name: 'tag', in: 'query', type: 'string (separado por vírgula)', description: 'Só conversas que tenham QUALQUER uma destas tags. Não diferencia maiúscula nem acento. Nome que não existe no cadastro devolve erro 400 com a lista de tags válidas.', placeholder: 'Problema,Dúvida,Solicitação' },
+      { name: 'companyId', in: 'query', type: 'uuid', description: 'Só conversas dessa empresa (o id vem em "company.id" ou da API de empresas).' },
+      { name: 'limit', in: 'query', type: 'number', description: 'Itens por página. Padrão 100, máximo 500.', placeholder: '100' },
+      { name: 'offset', in: 'query', type: 'number', description: 'Deslocamento para paginação. Padrão 0.', placeholder: '0' },
+    ],
+    examples: [
+      {
+        label: 'Todas as conversas de clientes em treinamento',
+        description: 'Sem filtro: a mais recente primeiro, 100 por página.',
+        query: {},
+      },
+      {
+        label: 'Conversas de setembro',
+        description: 'Período fechado, com os dois extremos incluídos.',
+        query: { from: '2026-09-01', to: '2026-09-30' },
+      },
+      {
+        label: 'Só problemas, dúvidas e solicitações',
+        description: 'Combina com o período: os filtros sempre funcionam em conjunto (E lógico).',
+        query: { tag: 'Problema,Dúvida,Solicitação', from: '2026-09-01' },
+      },
+    ],
+    exampleResponse: JSON.stringify(
+      {
+        data: [
+          {
+            id: 'c5e0...',
+            sessionId: '9a41...',
+            date: '2026-09-28',
+            startedAt: '2026-09-28T17:04:11.000Z',
+            finishedAt: '2026-09-28T17:31:40.000Z',
+            company: { id: 'f302...', name: 'Transportadora Exemplo', isInTraining: true },
+            customerName: 'Maria Souza',
+            tags: [{ id: '2604...', label: 'Problema' }],
+          },
+        ],
+        meta: { limit: 100, offset: 0, total: 1, hasMore: false },
+      },
+      null,
+      2
+    ),
+    errors: [...AUTH_ERRORS, scopeError('training-conversations:read'), { status: 400, code: 'VALIDATION_ERROR', description: 'from/to fora do formato AAAA-MM-DD, from depois de to, ou tag que não existe no cadastro.' }],
   },
 ];

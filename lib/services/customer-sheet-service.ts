@@ -18,6 +18,14 @@ import { hashPassword } from '../auth-utils';
  * fetch começa a falhar com HTML de login em vez de CSV; o erro abaixo tenta
  * deixar isso claro em vez de estourar um parse genérico.
  *
+ * Empresa EM TREINAMENTO (2026-09-28): toda empresa com data de entrada
+ * (coluna D, "4 - Entrada", DD/MM/AAAA) de 2026 em diante entra em treinamento
+ * por aqui — e SÓ por aqui. Uma vez removido o status (por quem tem a permissão
+ * customers:training, ou por qualquer caminho: o gatilho de companies grava
+ * training_removed_at), a importação NUNCA o devolve, por mais que a planilha
+ * seja importada de novo; só volta manualmente. A importação também nunca
+ * REMOVE o status: só adiciona, e só a quem nunca foi removida.
+ *
  * Casamento de empresa por NOME (case-insensitive, mesmo espírito do antigo
  * sync do Bitrix) — id_central NÃO é chave única aqui: duas linhas podem
  * compartilhar o mesmo id_central quando duas marcas/CNPJs usam a mesma conta
@@ -51,6 +59,41 @@ const CS_COLUMN = 'C';
 const COMERCIAL_COLUMN = 'X';
 const DECISOR_COLUMN = 'AE';
 const TELEFONE_COLUMN = 'AF';
+// Coluna D ("4 - Entrada"): data em que o cliente entrou, igual nas duas abas.
+const ENTRY_DATE_COLUMN = 'D';
+// Regra confirmada pelo usuário (2026-09-28): ano de entrada MAIOR OU IGUAL a 2026
+// — qualquer dia de 2026 (a partir de 01/01/2026) ou posterior (o pedido dizia
+// "superior a 2026"). Só o ano conta. Ano de corte numa constante pra ser uma
+// linha só se a regra mudar.
+export const TRAINING_ENTRY_FROM_YEAR = 2026;
+
+/**
+ * Lê a data de entrada da célula. Aceita DD/MM/AAAA (formato da planilha, com ou
+ * sem zero à esquerda) e AAAA-MM-DD. Data inexistente (31/02/2026), vazia ou em
+ * outro formato devolve null — nunca erro e nunca "adivinha" uma data.
+ */
+export function parseSheetEntryDate(raw: string | null | undefined): { year: number; month: number; day: number } | null {
+  const value = (raw || '').trim();
+  if (!value) return null;
+  let d: number, m: number, y: number;
+  let match = value.match(/^(\d{1,2})\/(\d{1,2})\/(\d{4})$/);
+  if (match) {
+    d = Number(match[1]); m = Number(match[2]); y = Number(match[3]);
+  } else {
+    match = value.match(/^(\d{4})-(\d{2})-(\d{2})(?:$|[T ])/);
+    if (!match) return null;
+    y = Number(match[1]); m = Number(match[2]); d = Number(match[3]);
+  }
+  const check = new Date(Date.UTC(y, m - 1, d));
+  if (check.getUTCFullYear() !== y || check.getUTCMonth() !== m - 1 || check.getUTCDate() !== d) return null;
+  return { year: y, month: m, day: d };
+}
+
+/** Entrada de 2026 em diante = a importação coloca a empresa em treinamento. */
+export function entersTrainingByEntryDate(raw: string | null | undefined): boolean {
+  const date = parseSheetEntryDate(raw);
+  return !!date && date.year >= TRAINING_ENTRY_FROM_YEAR;
+}
 
 function columnLetterToIndex(letter: string): number {
   let n = 0;
@@ -121,6 +164,12 @@ export interface CustomerSheetSyncResult {
   /** Quantas empresas ganharam usuário principal (Admin Cliente) criado
    *  automaticamente a partir do Decisor, por não terem nenhum ainda. */
   primaryUsersCreated: number;
+  /** Empresas que entraram em treinamento NESTA importação (entrada de 2026 em
+   *  diante e nunca removidas do status). */
+  trainingApplied: number;
+  /** Empresas com entrada de 2026 em diante que estão FORA do treinamento porque
+   *  já foram removidas uma vez — a importação não as devolve, só manualmente. */
+  trainingAlreadyRemoved: number;
 }
 
 function digitsOnly(value: string): string {
@@ -177,6 +226,8 @@ export async function syncCompaniesFromSheet(creation?: SyncCreationInfo): Promi
   let updated = 0;
   let skipped = 0;
   let primaryUsersCreated = 0;
+  let trainingApplied = 0;
+  const trainingAlreadyRemovedIds = new Set<string>();
   const errors: string[] = [];
   const unresolvedCsSet = new Set<string>();
   const unresolvedComercialSet = new Set<string>();
@@ -250,6 +301,7 @@ export async function syncCompaniesFromSheet(creation?: SyncCreationInfo): Promi
     const comercialIdx = columnLetterToIndex(COMERCIAL_COLUMN);
     const decisorIdx = columnLetterToIndex(DECISOR_COLUMN);
     const telefoneIdx = columnLetterToIndex(TELEFONE_COLUMN);
+    const entryDateIdx = columnLetterToIndex(ENTRY_DATE_COLUMN);
     const idCentralIdx = columnLetterToIndex(sheet.idCentralColumn);
 
     for (const row of rows.slice(1)) {
@@ -265,13 +317,14 @@ export async function syncCompaniesFromSheet(creation?: SyncCreationInfo): Promi
       const comercialName = (row[comercialIdx] || '').trim();
       const decisorNome = (row[decisorIdx] || '').trim() || null;
       const decisorTelefone = (row[telefoneIdx] || '').trim() || null;
+      const entersTraining = entersTrainingByEntryDate(row[entryDateIdx]);
 
       try {
         const csProfileId = csName ? await resolveProfileIdByName(csName, unresolvedCsSet) : null;
         const comercialProfileId = comercialName ? await resolveProfileIdByName(comercialName, unresolvedComercialSet) : null;
 
         const existing = await query(
-          'SELECT id, decisor_nome, decisor_telefone FROM public.companies WHERE lower(name) = lower($1)',
+          'SELECT id, decisor_nome, decisor_telefone, is_in_training, training_removed_at FROM public.companies WHERE lower(name) = lower($1)',
           [name]
         );
 
@@ -299,17 +352,36 @@ export async function syncCompaniesFromSheet(creation?: SyncCreationInfo): Promi
             [idCentral, csProfileId, comercialProfileId, decisorNome, decisorTelefone, companyId]
           );
           updated++;
+          // Treinamento: só ADICIONA, e só a quem nunca foi removida. O UPDATE
+          // repete as duas condições pra ser atômico (duas linhas da planilha
+          // pra mesma empresa, ou uma remoção no meio da importação).
+          if (entersTraining && !existing.rows[0].is_in_training) {
+            if (existing.rows[0].training_removed_at) {
+              trainingAlreadyRemovedIds.add(companyId);
+            } else {
+              const marked = await query(
+                `UPDATE public.companies SET is_in_training = true, training_origin = 'planilha'
+                  WHERE id = $1 AND is_in_training = false AND training_removed_at IS NULL
+                  RETURNING id`,
+                [companyId]
+              );
+              if ((marked.rowCount ?? 0) > 0) trainingApplied++;
+            }
+          }
           effectiveDecisorNome = decisorNome || existing.rows[0].decisor_nome || null;
           effectiveDecisorTelefone = decisorTelefone || existing.rows[0].decisor_telefone || null;
         } else {
           const inserted = await query(
             `INSERT INTO public.companies
-               (name, id_central, cs_responsavel_id, comercial_responsavel_id, decisor_nome, decisor_telefone)
-             VALUES ($1, $2, $3, $4, $5, $6)
+               (name, id_central, cs_responsavel_id, comercial_responsavel_id, decisor_nome, decisor_telefone,
+                is_in_training, training_origin)
+             VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
              RETURNING id`,
-            [name, idCentral, csProfileId, comercialProfileId, decisorNome, decisorTelefone]
+            [name, idCentral, csProfileId, comercialProfileId, decisorNome, decisorTelefone,
+             entersTraining, entersTraining ? 'planilha' : null]
           );
           created++;
+          if (entersTraining) trainingApplied++;
           companyId = inserted.rows[0].id;
           effectiveDecisorNome = decisorNome;
           effectiveDecisorTelefone = decisorTelefone;
@@ -333,5 +405,7 @@ export async function syncCompaniesFromSheet(creation?: SyncCreationInfo): Promi
     unresolvedCs: [...unresolvedCsSet].sort(),
     unresolvedComercial: [...unresolvedComercialSet].sort(),
     primaryUsersCreated,
+    trainingApplied,
+    trainingAlreadyRemoved: trainingAlreadyRemovedIds.size,
   };
 }

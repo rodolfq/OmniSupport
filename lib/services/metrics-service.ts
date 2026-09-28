@@ -39,9 +39,15 @@ import {
 //   (e sender_id IS NOT NULL, pra não contar uma linha de sistema sem
 //   remetente). NÃO usamos automation_dispatches: aquela tabela é uma fila
 //   de notificação por CHAMADO (ticket_id), sem session_id — não tem como
-//   ligar a uma conversa. O critério acima é o mesmo que o código já usa
-//   hoje (client-side, em chat-widget.tsx) pra popular
-//   chat_histories.first_response_seconds ao fechar um atendimento.
+//   ligar a uma conversa.
+//   ATENÇÃO (2026-09-28): o valor gravado em chat_histories.first_response_seconds
+//   (tela Histórico de Conversas, relatório de satisfação) NÃO usa mais este critério
+//   — vem de public.chat_first_response_seconds (migrations/chat_first_response_seconds.sql),
+//   que mede a partir da 1ª mensagem do cliente, exclui nota interna e automação e
+//   aceita resposta só com anexo. As consultas abaixo seguem com o critério antigo, então
+//   a mediana daqui pode divergir um pouco da que se obtém dos valores do histórico — alinhar trocando o CTE
+//   first_response destas consultas pela função é uma mudança de números do dashboard e
+//   depende de decisão do usuário.
 //
 // - Tempo é sempre MEDIANA (percentile_cont(0.5)), nunca média — média some
 //   com outlier (um chat esquecido aberto por 3 dias não pode distorcer o

@@ -1,10 +1,10 @@
-﻿'use client';
+'use client';
 
 import React, { useState } from 'react';
 import { X, Building2, Phone, Mail, Lock, UserPlus, RefreshCw, Eye, EyeOff, GraduationCap, ShieldAlert, AlertTriangle, ShieldOff, ShieldCheck, Headset, Briefcase, Trash2, Hash } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import { saveCompany, getCustomerEvaluationSummary, updateCompanyTraining, saveCustomerEvaluation } from '@/lib/services/company-service';
-import { Company, User, type CustomerEvaluationScores, type CustomerEvaluationSummary, type CustomerProfileTag, MIN_RELIABLE_EVALUATION_COUNT } from '@/lib/types';
+import { Company, User, Permission, type CustomerEvaluationScores, type CustomerEvaluationSummary, type CustomerProfileTag, MIN_RELIABLE_EVALUATION_COUNT } from '@/lib/types';
 import { maskPhone, cn } from '@/lib/utils';
 import { useApp } from '@/app/app-context';
 import { StarRating } from '@/components/star-rating';
@@ -41,8 +41,16 @@ const EMPTY_EVAL_SCORES: CustomerEvaluationScores = {
   communicationScore: null
 };
 
+// DD/MM/AAAA (padrão brasileiro), no fuso do Brasil.
+function formatDateBr(iso: string) {
+  return new Date(iso).toLocaleDateString('pt-BR', { timeZone: 'America/Sao_Paulo', day: '2-digit', month: '2-digit', year: 'numeric' });
+}
+
 export function NewCompanyModal({ isOpen, onClose, onSuccess, company, showInternalSection = false, onRequestDeactivate, onRequestDelete }: { isOpen: boolean, onClose: () => void, onSuccess?: () => void, company?: Company | null, showInternalSection?: boolean, onRequestDeactivate?: () => void, onRequestDelete?: () => void }) {
-  const { currentUser } = useApp();
+  const { currentUser, hasPermission } = useApp();
+  // Adicionar/remover "Em treinamento" tem permissão própria (a checagem de
+  // verdade é no servidor, action 'training' de /api/companies).
+  const canManageTraining = hasPermission(Permission.CUSTOMERS_TRAINING);
   const [name, setName] = useState('');
   const [phone, setPhone] = useState('');
   const [adminName, setAdminName] = useState('');
@@ -166,7 +174,13 @@ export function NewCompanyModal({ isOpen, onClose, onSuccess, company, showInter
       }
 
       if (isEditing && showInternalSection && company) {
-        await updateCompanyTraining(company.id, isInTraining);
+        // Só quando o toggle MUDOU e quem salva pode mexer nele: a ação exige
+        // customers:training no servidor, e quem edita a empresa sem essa
+        // permissão não pode tomar erro num "Salvar" comum.
+        if (canManageTraining && isInTraining !== !!company.isInTraining) {
+          const trainingResult = await updateCompanyTraining(company.id, isInTraining);
+          if ('error' in trainingResult && trainingResult.error) throw new Error(trainingResult.error);
+        }
 
         const scoresChanged = JSON.stringify(evalScores) !== JSON.stringify(baselineScores);
         const tagChanged = evalTag !== baselineTag;
@@ -459,14 +473,39 @@ export function NewCompanyModal({ isOpen, onClose, onSuccess, company, showInter
                       <div>
                         <p className="text-[11px] font-black text-[var(--text-primary)] uppercase tracking-wider">Cliente em Treinamento</p>
                         <p className="text-[10px] text-[var(--text-tertiary)] font-bold uppercase tracking-widest">Mostra um aviso pra equipe no chat com a empresa</p>
+                        {/* De onde veio o status — a importação da planilha marca sozinha
+                            (entrada de 2026 em diante) e, depois de removido, nunca devolve. */}
+                        {isInTraining && company?.trainingOrigin === 'planilha' && (
+                          <p className="text-[10px] text-[var(--text-info)] font-semibold mt-1">
+                            Atribuído automaticamente pela importação da planilha{company.trainingStartedAt ? ` em ${formatDateBr(company.trainingStartedAt)}` : ''}.
+                          </p>
+                        )}
+                        {isInTraining && company?.trainingOrigin === 'manual' && (
+                          <p className="text-[10px] text-[var(--text-tertiary)] font-semibold mt-1">
+                            Marcado manualmente{company.trainingStartedAt ? ` em ${formatDateBr(company.trainingStartedAt)}` : ''}.
+                          </p>
+                        )}
+                        {!isInTraining && company?.trainingRemovedAt && (
+                          <p className="text-[10px] text-[var(--text-warning)] font-semibold mt-1">
+                            Removido em {formatDateBr(company.trainingRemovedAt)} — a importação da planilha não marca de novo; só manualmente.
+                          </p>
+                        )}
+                        {!canManageTraining && (
+                          <p className="text-[10px] text-[var(--text-tertiary)] font-semibold mt-1">Você não tem permissão para alterar este status.</p>
+                        )}
                       </div>
                     </div>
-                    <div
+                    <button
+                      type="button"
+                      role="switch"
+                      aria-checked={isInTraining}
+                      aria-label="Cliente em treinamento"
+                      disabled={!canManageTraining}
                       onClick={() => setIsInTraining(!isInTraining)}
-                      className={`w-12 h-6 rounded-full p-1 cursor-pointer transition-all shrink-0 ${isInTraining ? 'bg-[var(--accent)]' : 'bg-[var(--border-default)]'}`}
+                      className={`w-12 h-6 rounded-full p-1 transition-all shrink-0 disabled:opacity-50 ${isInTraining ? 'bg-[var(--accent)]' : 'bg-[var(--border-default)]'}`}
                     >
                       <div className={`w-4 h-4 rounded-full bg-[var(--surface-card)] shadow-sm transition-transform ${isInTraining ? 'translate-x-6' : 'translate-x-0'}`} />
-                    </div>
+                    </button>
                   </div>
 
                   <div className="h-px bg-[var(--border-default)] w-full" />

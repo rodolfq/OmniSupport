@@ -14,6 +14,7 @@ import { toast } from 'sonner';
 import { RichEditor } from './rich-editor';
 import { AttachmentGallery, AttachmentPreviewModal, AttachmentChipThumb, isImageAttachment, openAttachmentInNewTab } from './attachment-gallery';
 import { LinkInternalTicketModal } from './link-internal-ticket-modal';
+import { LinkSessionToTicketModal } from './link-session-to-ticket-modal';
 import { ChatAttachmentList } from './chat-attachment-list';
 import { ConfirmDialog } from './confirm-dialog';
 import { ClientTime } from './client-time';
@@ -81,6 +82,9 @@ export function TicketDetailModal({ ticket, onClose, initialDraft }: TicketDetai
   // espelhado no servidor, app/api/tickets/route.ts).
   const canChangeStatus = hasPermission(Permission.TICKETS_WRITE) || hasPermission(Permission.TICKETS_STATUS_CHANGE);
   const canDuplicateTicket = hasPermission(Permission.TICKETS_DUPLICATE);
+  // "Vincular conversa" (aba Conversa): a checagem de verdade é no servidor
+  // ('link-ticket'); aqui só esconde o botão de quem não pode.
+  const canLinkChat = !isCompanyUser && hasPermission(Permission.TICKETS_LINK_CHAT);
 
   // As 9 buscas de config/referência abaixo eram feitas do zero (Promise.all)
   // toda vez que este modal abria — hoje vêm de queries com cache
@@ -106,6 +110,11 @@ export function TicketDetailModal({ ticket, onClose, initialDraft }: TicketDetai
   const [linkedSessions, setLinkedSessions] = useState<LinkedChatSession[] | null>(null);
   const [isLoadingLinkedSessions, setIsLoadingLinkedSessions] = useState(false);
   const [openedSessionId, setOpenedSessionId] = useState<string | null>(null);
+  // Vincular conversa a partir do chamado: o `ticket` que chega por prop só
+  // ganha chatSessionId quando a lista recarrega, então a aba Conversa precisa
+  // aparecer já no momento em que a primeira conversa é vinculada.
+  const [isLinkSessionOpen, setIsLinkSessionOpen] = useState(false);
+  const [justLinkedSession, setJustLinkedSession] = useState(false);
   const [chatSessionData, setChatSessionData] = useState<SessionMessagesResult | null>(null);
   const [isLoadingChatSession, setIsLoadingChatSession] = useState(false);
   // Corte de "não lido" pra este chamado (ver efeito de markTicketNotificationsRead
@@ -397,6 +406,8 @@ export function TicketDetailModal({ ticket, onClose, initialDraft }: TicketDetai
     setChatSessionData(null);
     setLinkedSessions(null);
     setOpenedSessionId(null);
+    setIsLinkSessionOpen(false);
+    setJustLinkedSession(false);
     setRecentCompanyTickets([]);
 
     // Set default history tab based on role and permissions
@@ -511,6 +522,24 @@ const loadMessages = async () => {
      } finally {
        setIsLoadingLinkedSessions(false);
      }
+   };
+
+   // Depois de vincular uma conversa: recarrega a lista (sem o "já carregou" do
+   // loadLinkedSessions), abre a aba e pede pra lista de chamados recarregar.
+   const handleSessionLinked = async () => {
+     if (!ticket) return;
+     setJustLinkedSession(true);
+     setActiveTab('chat');
+     setIsLoadingLinkedSessions(true);
+     try {
+       setLinkedSessions(await fetchTicketSessions(ticket.id));
+     } catch (err) {
+       console.error('Error reloading linked chat sessions:', err);
+       setLinkedSessions(null);
+     } finally {
+       setIsLoadingLinkedSessions(false);
+     }
+     triggerRefresh();
    };
 
    const openLinkedSession = async (sessionId: string) => {
@@ -1663,7 +1692,7 @@ const loadMessages = async () => {
                       >
                         <Paperclip size={12} /> {allAttachments.length > 0 && <span className="w-1.5 h-1.5 rounded-full bg-[var(--accent)] animate-pulse" />} Anexos
                       </button>
-                      {ticket.chatSessionId && (
+                      {(ticket.chatSessionId || justLinkedSession || canLinkChat) && (
                         <button
                           onClick={() => { setActiveTab('chat'); loadLinkedSessions(); }}
                           className={cn(
@@ -1707,17 +1736,29 @@ const loadMessages = async () => {
 
                       {activeTab === 'chat' && (
                         <div className="space-y-4 animate-in fade-in slide-in-from-bottom-2 duration-300">
-                          <h3 className="text-xs font-black uppercase text-[var(--text-tertiary)] tracking-widest">
-                            {linkedSessions && linkedSessions.length > 0
-                              ? `${linkedSessions.length} Conversa${linkedSessions.length > 1 ? 's' : ''} Vinculada${linkedSessions.length > 1 ? 's' : ''}`
-                              : 'Conversas Vinculadas'}
-                          </h3>
+                          <div className="flex items-center justify-between gap-3">
+                            <h3 className="text-xs font-black uppercase text-[var(--text-tertiary)] tracking-widest">
+                              {linkedSessions && linkedSessions.length > 0
+                                ? `${linkedSessions.length} Conversa${linkedSessions.length > 1 ? 's' : ''} Vinculada${linkedSessions.length > 1 ? 's' : ''}`
+                                : 'Conversas Vinculadas'}
+                            </h3>
+                            {canLinkChat && (
+                              <button
+                                onClick={() => setIsLinkSessionOpen(true)}
+                                className="inline-flex items-center gap-2 px-3 py-1.5 bg-[var(--surface-card)] border-2 border-[var(--border-default)] text-[var(--text-primary)] rounded-xl text-[10px] font-semibold uppercase tracking-widest hover:border-[var(--accent)]/40 hover:bg-[var(--surface-pill)] transition-all shrink-0"
+                              >
+                                <Link2 size={12} /> Vincular conversa
+                              </button>
+                            )}
+                          </div>
                           {isLoadingLinkedSessions ? (
                             <p className="text-sm text-[var(--text-tertiary)] font-medium">Carregando...</p>
                           ) : !linkedSessions ? (
                             <p className="text-sm text-[var(--text-tertiary)] font-medium">Não foi possível carregar as conversas vinculadas.</p>
                           ) : linkedSessions.length === 0 ? (
-                            <p className="text-sm text-[var(--text-tertiary)] font-medium">Nenhuma conversa vinculada a este chamado.</p>
+                            <p className="text-sm text-[var(--text-tertiary)] font-medium">
+                              Nenhuma conversa vinculada a este chamado.{canLinkChat ? ' Use "Vincular conversa" para associar uma.' : ''}
+                            </p>
                           ) : (
                             <div className="space-y-2">
                               {linkedSessions.map(s => {
@@ -1757,6 +1798,15 @@ const loadMessages = async () => {
                             </div>
                           )}
                         </div>
+                      )}
+
+                      {canLinkChat && (
+                        <LinkSessionToTicketModal
+                          isOpen={isLinkSessionOpen}
+                          onClose={() => setIsLinkSessionOpen(false)}
+                          ticketId={ticket.id}
+                          onLinked={handleSessionLinked}
+                        />
                       )}
 
                       {openedSessionId && typeof document !== 'undefined' && createPortal(

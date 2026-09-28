@@ -172,25 +172,39 @@ async function resolveTicketRecipients(ticket: TicketRow): Promise<{ recipients:
   return { recipients, missingPhone };
 }
 
+// Resultado de um disparo pelo Pyvon: false = nada saiu; objeto = aceito pelo
+// Pyvon, com o message_id que ele devolveu. O id é guardado no log de disparos
+// (automation_dispatches.pyvon_message_id) porque a falha de entrega só chega
+// depois, de forma assíncrona, e vem identificada apenas por ele — ver
+// lib/services/pyvon-delivery-status.ts.
+type PyvonDispatchOutcome = { messageId: number | null } | false;
+
 // Envia a mensagem de automação pelo canal Pyvon: texto livre quando a
 // janela de 24h está aberta, ou o template configurado como fallback quando
 // não está. A mensagem inteira (já renderizada, sem variáveis do template
 // Meta) vai na PRIMEIRA variável do template — por isso o template usado
 // aqui precisa ter exatamente uma variável, pensada pra caber um texto
 // livre; não há como mapear automaticamente pra um template com várias
-// variáveis nomeadas específicas. Devolve true se algo foi de fato
-// entregue/aceito, false se não havia como (janela fechada sem template).
+// variáveis nomeadas específicas. Devolve o message_id do Pyvon se algo foi de
+// fato aceito, false se não havia como (janela fechada sem template).
 async function dispatchPyvonAutomationMessage(
   instanceId: string,
   recipient: TicketRecipient,
   renderedMessage: string,
   pyvonTemplateId: string | null
-): Promise<boolean> {
+): Promise<PyvonDispatchOutcome> {
   const ctx = await PyvonService.resolveOutboundContext(recipient.phone);
 
   if (ctx.cadastroId && ctx.withinWindow) {
     const result = await PyvonService.sendMessage(instanceId, { cadastroId: ctx.cadastroId }, renderedMessage);
-    return !result.skipped;
+    if (result.skipped) return false;
+    // bot-response responde 200 mesmo quando o envio ao provedor falhou na hora;
+    // delivery/delivery_error é o único sinal. Antes isso era contado como
+    // "sent" no log de disparos.
+    if (result.delivery && result.delivery !== 'sent') {
+      throw new Error(`Pyvon não entregou a mensagem: ${result.delivery_error || result.delivery}`);
+    }
+    return { messageId: result.message_id ?? null };
   }
 
   if (!pyvonTemplateId) return false;
@@ -222,9 +236,10 @@ async function dispatchPyvonAutomationMessage(
     analystId: null, // sem analista real aqui — mensagem automática, "sender" fica anônimo/sistema
     analystName: 'SSX Desk (automático)',
     text: renderedMessage,
-    deferUntilReply: true // sem conversa aberta, só nasce conversa se o cliente responder
+    deferUntilReply: true, // sem conversa aberta, só nasce conversa se o cliente responder
+    pyvonMessageId: result.message_id
   });
-  return true;
+  return { messageId: result.message_id ?? null };
 }
 
 // chamado_aberto: confirmação de abertura, SEMPRE via template (nunca texto
@@ -241,7 +256,7 @@ async function dispatchTicketOpenedTemplate(
   recipient: TicketRecipient,
   ticketNumber: string,
   openerId: string | null
-): Promise<boolean> {
+): Promise<PyvonDispatchOutcome> {
   const templateRes = await query(
     `SELECT body_text FROM public.pyvon_templates WHERE template_name = 'chamado_aberto' AND is_active = true LIMIT 1`
   );
@@ -277,10 +292,11 @@ async function dispatchTicketOpenedTemplate(
     // Quem abriu o chamado fica registrado como "autor pendente" — só quando o
     // cliente RESPONDER a conversa vai pra esse analista, e só se ele estiver
     // online na fila; senão, rodízio normal. Não pisa numa nota pendente.
-    pending: openerId ? { authorId: openerId } : undefined
+    pending: openerId ? { authorId: openerId } : undefined,
+    pyvonMessageId: result.message_id
   });
   void recorded;
-  return true;
+  return { messageId: result.message_id ?? null };
 }
 
 // atualizacao_chamado: aviso de nota no "Histórico Cliente", SEMPRE via
@@ -311,7 +327,7 @@ async function dispatchTicketUpdateTemplate(
   ticketTitle: string | null | undefined,
   noteText: string,
   noteAuthorId: string | null
-): Promise<boolean> {
+): Promise<PyvonDispatchOutcome> {
   if (!noteText.trim()) return false; // nota vazia não tem o que enviar depois do "Prosseguir"
 
   const templateRes = await query(
@@ -345,7 +361,8 @@ async function dispatchTicketUpdateTemplate(
     // cliente responder — aí ela nasce com o autor da nota (regra do usuário,
     // 2026-09-25).
     deferUntilReply: true,
-    pending: { noteText: withTicketPrefix(ticketNumber, ticketTitle, noteText), authorId: noteAuthorId }
+    pending: { noteText: withTicketPrefix(ticketNumber, ticketTitle, noteText), authorId: noteAuthorId },
+    pyvonMessageId: result.message_id
   });
   if (!recorded) return false;
 
@@ -356,20 +373,38 @@ async function dispatchTicketUpdateTemplate(
   // guardado acima é consumido em PyvonService.handleWebhook, que atribui só
   // na próxima mensagem inbound.
 
-  return true;
+  return { messageId: result.message_id ?? null };
 }
 
 async function logDispatch(fields: {
   eventKey: string; ticketId: string; recipientId?: string | null; recipientName?: string;
   channel?: 'whatsapp' | 'email'; recipientPhone?: string; recipientEmail?: string; subject?: string;
   message: string; status: 'sent' | 'failed' | 'skipped'; error?: string;
+  // message_id do Pyvon: liga este disparo ao aviso assíncrono de falha de entrega.
+  pyvonMessageId?: number | null;
 }): Promise<void> {
+  const base = [fields.eventKey, fields.ticketId, fields.recipientId || null, fields.recipientName || '', fields.channel || 'whatsapp',
+    fields.recipientPhone || '', fields.recipientEmail || null, fields.subject || null, fields.message, fields.status, fields.error || null];
+  if (fields.pyvonMessageId != null) {
+    try {
+      await query(
+        `INSERT INTO public.automation_dispatches
+           (event_key, ticket_id, recipient_id, recipient_name, channel, recipient_phone, recipient_email, subject, message, status, error, send_at, sent_at, pyvon_message_id)
+         VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11, now(), CASE WHEN $10 = 'sent' THEN now() ELSE NULL END, $12)`,
+        [...base, String(fields.pyvonMessageId)]
+      );
+      return;
+    } catch (err: any) {
+      // 42703 = coluna inexistente: código publicado antes da migration
+      // pyvon_delivery_status.sql. Registra o disparo sem o id em vez de perdê-lo.
+      if (err?.code !== '42703') throw err;
+    }
+  }
   await query(
     `INSERT INTO public.automation_dispatches
        (event_key, ticket_id, recipient_id, recipient_name, channel, recipient_phone, recipient_email, subject, message, status, error, send_at, sent_at)
      VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11, now(), CASE WHEN $10 = 'sent' THEN now() ELSE NULL END)`,
-    [fields.eventKey, fields.ticketId, fields.recipientId || null, fields.recipientName || '', fields.channel || 'whatsapp',
-     fields.recipientPhone || '', fields.recipientEmail || null, fields.subject || null, fields.message, fields.status, fields.error || null]
+    base
   );
 }
 
@@ -425,14 +460,14 @@ export async function dispatchEvent(eventKey: string, ticket: TicketRow, extra: 
         // qualquer motivo, cai no comportamento padrão abaixo — nunca deixa o
         // solicitante sem nenhuma notificação por causa disso.
         if (eventKey === 'novo_chamado' && r.id === ticket.customer_id && pyvonInstanceId) {
-          let sentViaTemplate = false;
+          let sentViaTemplate: PyvonDispatchOutcome = false;
           try {
             sentViaTemplate = await dispatchTicketOpenedTemplate(pyvonInstanceId, r, context.numero_chamado, ticket.created_by || null);
           } catch (err: any) {
             console.error('[automation] Falha ao enviar template chamado_aberto:', err?.message || err);
           }
           if (sentViaTemplate) {
-            await logDispatch({ eventKey, ticketId: ticket.id, recipientId: r.id, recipientName: r.name, channel: 'whatsapp', recipientPhone: r.phone, message: renderedMessage, status: 'sent' });
+            await logDispatch({ eventKey, ticketId: ticket.id, recipientId: r.id, recipientName: r.name, channel: 'whatsapp', recipientPhone: r.phone, message: renderedMessage, status: 'sent', pyvonMessageId: sentViaTemplate.messageId });
             continue;
           }
         }
@@ -442,14 +477,14 @@ export async function dispatchEvent(eventKey: string, ticket: TicketRow, extra: 
         // extra.autor_id/extra.nota (buildPlaceholderContext já expõe
         // context.nota; autor_id só existe em extra, não é placeholder).
         if (eventKey === 'resposta_analista' && r.id === ticket.customer_id && pyvonInstanceId) {
-          let sentViaTemplate = false;
+          let sentViaTemplate: PyvonDispatchOutcome = false;
           try {
             sentViaTemplate = await dispatchTicketUpdateTemplate(pyvonInstanceId, r, context.numero_chamado, ticket.title, context.nota, extra.autor_id || null);
           } catch (err: any) {
             console.error('[automation] Falha ao enviar template atualizacao_chamado:', err?.message || err);
           }
           if (sentViaTemplate) {
-            await logDispatch({ eventKey, ticketId: ticket.id, recipientId: r.id, recipientName: r.name, channel: 'whatsapp', recipientPhone: r.phone, message: renderedMessage, status: 'sent' });
+            await logDispatch({ eventKey, ticketId: ticket.id, recipientId: r.id, recipientName: r.name, channel: 'whatsapp', recipientPhone: r.phone, message: renderedMessage, status: 'sent', pyvonMessageId: sentViaTemplate.messageId });
             continue;
           }
         }
@@ -466,7 +501,7 @@ export async function dispatchEvent(eventKey: string, ticket: TicketRow, extra: 
         if (pyvonInstanceId) {
           try {
             const sent = await dispatchPyvonAutomationMessage(pyvonInstanceId, r, renderedMessage, setting.pyvon_template_id);
-            await logDispatch({ eventKey, ticketId: ticket.id, recipientId: r.id, recipientName: r.name, channel: 'whatsapp', recipientPhone: r.phone, message: renderedMessage, status: sent ? 'sent' : 'failed', error: sent ? undefined : 'Janela de 24h fechada e sem template Pyvon configurado para este evento' });
+            await logDispatch({ eventKey, ticketId: ticket.id, recipientId: r.id, recipientName: r.name, channel: 'whatsapp', recipientPhone: r.phone, message: renderedMessage, status: sent ? 'sent' : 'failed', error: sent ? undefined : 'Janela de 24h fechada e sem template Pyvon configurado para este evento', pyvonMessageId: sent ? sent.messageId : undefined });
           } catch (err: any) {
             await logDispatch({ eventKey, ticketId: ticket.id, recipientId: r.id, recipientName: r.name, channel: 'whatsapp', recipientPhone: r.phone, message: renderedMessage, status: 'failed', error: err?.message || String(err) });
           }

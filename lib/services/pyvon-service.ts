@@ -1,7 +1,7 @@
 import axios from 'axios';
 import crypto from 'crypto';
 import { query } from '../db';
-import { normalizePhone } from '../utils';
+import { normalizePhone, normalizeBrazilianPhoneDigits } from '../utils';
 import { runExclusive } from '../key-mutex';
 import { emitChatEvent, emitSessionsChanged, excludeActiveViewers } from '../chat-events';
 import { notifyUser } from './push-service';
@@ -27,11 +27,17 @@ import type { Attachment } from '@/lib/types';
  *
  * `bot-response` (envio) sempre responde 200 como "aceito e registrado" —
  * nunca "entregue". Se a entrega ao WhatsApp falhar depois (ex.: janela de
- * 24h fechada), o Pyvon marca como falha só no histórico DELE; não existe
- * hoje um jeito de sabermos disso pelo contrato. Por isso decisões de
- * "dentro ou fora da janela de 24h" (fase 3+) precisam ser calculadas do
- * nosso lado, olhando a última mensagem inbound já registrada, em vez de
- * reagir a um erro que o Pyvon nunca vai nos mandar.
+ * 24h fechada), o Pyvon marca como falha só no histórico DELE; o contrato
+ * v1.15 não avisava o nosso lado. Por isso decisões de "dentro ou fora da
+ * janela de 24h" (fase 3+) são calculadas do nosso lado, olhando a última
+ * mensagem inbound já registrada, em vez de reagir a um erro.
+ *
+ * Desde 2026-09-28 o Pyvon passa a avisar a falha assíncrona (a Meta só
+ * recusa depois) numa URL nossa: POST /api/whatsapp/pyvon-status, tratada em
+ * pyvon-delivery-status.ts. O elo é o message_id que o bot-template/
+ * bot-response devolve — por isso ele é guardado em chat_messages,
+ * pyvon_pending_outbound e automation_dispatches. A decisão da janela de 24h
+ * continua sendo nossa: o aviso é para o que passou pelo Pyvon e falhou depois.
  */
 
 interface PyvonInboundPayload {
@@ -560,7 +566,12 @@ export class PyvonService {
     cadastroId: number,
     name: string,
     instanceId: string,
-    options?: { preferredAssigneeId?: string | null }
+    options?: {
+      preferredAssigneeId?: string | null;
+      // Quem INICIOU a conversa (analista que mandou o template): fica com ela
+      // sempre, sem passar pelo rodízio e sem exigir estar online na fila.
+      forceAssigneeId?: string | null;
+    }
   ) {
     const placeHoldersFor = (arr: string[]) => arr.map((_, i) => `$${i + 1}`).join(',');
 
@@ -608,9 +619,19 @@ export class PyvonService {
       // nasce direto com ele, mas só se ele puder atender agora (online e da
       // fila) — senão, o rodízio de sempre. Não gasta a vez de ninguém no rodízio.
       const preferred = options?.preferredAssigneeId || null;
-      const assigneeId = preferred && (await isOnlineQueueMember(preferred, queue))
-        ? preferred
-        : (queue ? await pickNextQueueAssignee(queue) : null);
+      // Conversa iniciada por um analista (Novo WhatsApp, Empresas > funcionário
+      // > WhatsApp, envio manual de template) é DELE: o rodízio só vale pra
+      // conversa que ninguém escolheu. Antes ela nascia atribuída pelo rodízio
+      // e o claimSessionIfUnassigned de startConversation (que só assume conversa
+      // SEM responsável) não fazia nada — o template saía em nome de um analista
+      // e a conversa caía em outro (caso Leonardo, 2026-09-28: Rafael Leal enviou,
+      // Pedro Soares recebeu). Não mexe no cursor do rodízio: ninguém foi sorteado.
+      const forced = options?.forceAssigneeId || null;
+      const assigneeId = forced
+        ? forced
+        : preferred && (await isOnlineQueueMember(preferred, queue))
+          ? preferred
+          : (queue ? await pickNextQueueAssignee(queue) : null);
       const status = assigneeId ? 'active' : 'pending';
       const insertRes = await query(
         `INSERT INTO public.chat_sessions (customer_id, customer_name, customer_phone, status, queue_id, assignee_id, pyvon_cadastro_id, channel, created_at, updated_at)
@@ -747,12 +768,16 @@ export class PyvonService {
     contentPreview?: string;
   }): Promise<{ ok: boolean; cadastro_id?: number; created?: boolean; message_id?: number; skipped?: string }> {
     const { secret, baseUrl, channelId } = await this.getCredentials(instanceId);
+    // O contrato pede E.164 sem "+" (com DDI). Os telefones daqui vêm sem o
+    // 55 e/ou com máscara — completa e limpa num lugar só, pra todo template
+    // (automação, iniciar conversa, envio manual) sair no mesmo formato.
+    const phone = params.phone ? normalizeBrazilianPhoneDigits(normalizePhone(params.phone)) : undefined;
     const res = await axios.post(
       `${baseUrl}/api/webhook/bot-template`,
       {
         template_name: params.templateName,
         cadastro_id: params.cadastroId,
-        phone: params.phone,
+        phone,
         name: params.name,
         language: params.language || 'pt_BR',
         variables: params.variables,
@@ -763,6 +788,11 @@ export class PyvonService {
       },
       { headers: { 'X-Pyvon-Secret': secret } }
     );
+    // Não guardamos o corpo das requisições — esta linha é o único rastro de
+    // COMO o contato foi identificado (por cadastro ou por telefone) e do id
+    // que o Pyvon devolveu, o que já foi necessário pra investigar falha de
+    // entrega (#3394). Telefone só pelos 4 últimos dígitos.
+    console.info(`[Pyvon] bot-template ${params.templateName}: ${params.cadastroId ? `cadastro_id=${params.cadastroId}` : `phone=…${(phone || '').slice(-4)}`} → cadastro_id=${res.data?.cadastro_id ?? '?'} created=${res.data?.created ?? '?'} message_id=${res.data?.message_id ?? '?'}${res.data?.skipped ? ` skipped=${res.data.skipped}` : ''}`);
     if (res.data?.skipped) {
       // Desde a v1.6.1 do contrato: bot-template também pode responder 200
       // com `skipped` em vez de `201`+message_id (bot-debug-mode ou
@@ -794,20 +824,51 @@ export class PyvonService {
    * relacionamento Pyvon conhecido (cadastro_id) e se a janela de 24h está
    * aberta — calculada aqui, não reagindo a erro do Pyvon (ver comentário no
    * topo do arquivo: bot-response nunca avisa quando a entrega falha).
+   *
+   * O cadastro só é reaproveitado se ele ainda vale pro número ATUAL do
+   * contato. O Pyvon grava no cadastro o telefone com que ele nasceu e usa
+   * esse telefone em todo envio por cadastro_id — se o número do contato foi
+   * corrigido depois (chamado #3394, 2026-09: perfil tinha um 9 a mais, foi
+   * corrigido, e os templates seguiram indo pro número velho do cadastro
+   * 10409), reaproveitar o cadastro repete o erro pra sempre. O Pyvon não
+   * limita a quantidade de cadastros, então quando o número não bate devolve
+   * cadastroId null e quem chamou envia pelo telefone (achando/criando o
+   * cadastro certo).
+   *
+   * "Bate" = mesmo número (o "55" na frente não conta). A diferença de 9º
+   * dígito só é tolerada num cadastro CONFIRMADO — o cliente já escreveu por
+   * ele, então aquele número é real e a variação é só de representação
+   * (o WhatsApp entrega muito número BR sem o 9); trocar o cadastro dele
+   * perderia a janela de 24h e duplicaria o contato à toa. Cadastro que só
+   * nós digitamos (nunca houve resposta) não tem esse benefício: o 9 a mais
+   * do #3394 era exatamente esse caso.
    */
   static async resolveOutboundContext(phone: string): Promise<{ sessionId: string | null; cadastroId: number | null; withinWindow: boolean }> {
     const variants = phoneVariants(phone);
     if (!variants.length) return { sessionId: null, cadastroId: null, withinWindow: false };
 
     const placeHolders = variants.map((_, i) => `$${i + 1}`).join(',');
-    const sessionRes = await query(
-      `SELECT id, pyvon_cadastro_id FROM public.chat_sessions
+    const candidatesRes = await query(
+      `SELECT id, customer_phone, pyvon_cadastro_id FROM public.chat_sessions
         WHERE customer_phone IN (${placeHolders}) AND pyvon_cadastro_id IS NOT NULL
-        ORDER BY updated_at DESC LIMIT 1`,
+        ORDER BY updated_at DESC LIMIT 10`,
       variants
     );
-    const session = sessionRes.rows[0];
-    if (!session) return { sessionId: null, cadastroId: null, withinWindow: false };
+    const candidates = candidatesRes.rows as { id: string; customer_phone: string; pyvon_cadastro_id: number }[];
+    if (!candidates.length) return { sessionId: null, cadastroId: null, withinWindow: false };
+
+    const target = normalizeBrazilianPhoneDigits(normalizePhone(phone));
+    let session = candidates.find(c => normalizeBrazilianPhoneDigits(normalizePhone(c.customer_phone)) === target);
+    if (!session) {
+      for (const c of candidates) {
+        if (await this.isCadastroConfirmed(c.pyvon_cadastro_id)) { session = c; break; }
+      }
+    }
+    if (!session) {
+      const old = normalizeBrazilianPhoneDigits(normalizePhone(candidates[0].customer_phone));
+      console.info(`[Pyvon] Telefone atual (${target.length} dígitos, final ${target.slice(-4)}) difere do gravado no cadastro ${candidates[0].pyvon_cadastro_id} (${old.length} dígitos, final ${old.slice(-4)}) e o cliente nunca respondeu por ele — o envio vai pelo telefone, sem reaproveitar o cadastro.`);
+      return { sessionId: null, cadastroId: null, withinWindow: false };
+    }
 
     // Última mensagem GENUINAMENTE recebida do cliente por este canal (não
     // conta o próprio disparo de template, marcado com metadata.template).
@@ -821,6 +882,22 @@ export class PyvonService {
     const withinWindow = !!lastInbound && (Date.now() - new Date(lastInbound).getTime()) < 24 * 3600 * 1000;
 
     return { sessionId: session.id, cadastroId: session.pyvon_cadastro_id, withinWindow };
+  }
+
+  // Cadastro "confirmado" = o cliente já escreveu por ele alguma vez (mensagem
+  // genuinamente recebida, mesmo critério da janela de 24h: source 'pyvon' e
+  // não é o nosso template). Vale pra qualquer conversa do cadastro, não só a
+  // mais recente — a conversa antiga pode estar encerrada.
+  private static async isCadastroConfirmed(cadastroId: number): Promise<boolean> {
+    const res = await query(
+      `SELECT 1 FROM public.chat_messages m
+         JOIN public.chat_sessions s ON s.id = m.session_id
+        WHERE s.pyvon_cadastro_id = $1 AND m.metadata->>'source' = 'pyvon'
+          AND COALESCE(m.metadata->>'template', 'false') <> 'true'
+        LIMIT 1`,
+      [cadastroId]
+    );
+    return (res.rowCount ?? 0) > 0;
   }
 
   // Depois de iniciar conversa via template (bot-template), registra a
@@ -924,13 +1001,26 @@ export class PyvonService {
   private static async savePendingOutbound(params: {
     instanceId: string; phone?: string; cadastroId: number; customerName: string; analystName: string; text: string;
     pending?: { noteText?: string | null; authorId?: string | null };
+    pyvonMessageId?: number | string | null;
   }, variants: string[]): Promise<void> {
-    await query(
-      `INSERT INTO public.pyvon_pending_outbound (cadastro_id, phone, customer_name, instance_id, template_text, sender_name, note_text, note_author_id)
-       VALUES ($1, $2, $3, $4, $5, $6, $7, $8)`,
-      [params.cadastroId, variants[0] || null, params.customerName, params.instanceId, params.text, params.analystName,
-       params.pending?.noteText || null, params.pending?.authorId || null]
-    );
+    const base = [params.cadastroId, variants[0] || null, params.customerName, params.instanceId, params.text, params.analystName,
+      params.pending?.noteText || null, params.pending?.authorId || null];
+    try {
+      await query(
+        `INSERT INTO public.pyvon_pending_outbound (cadastro_id, phone, customer_name, instance_id, template_text, sender_name, note_text, note_author_id, pyvon_message_id)
+         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)`,
+        [...base, params.pyvonMessageId != null ? String(params.pyvonMessageId) : null]
+      );
+    } catch (err: any) {
+      // 42703 = coluna inexistente: código publicado antes da migration
+      // pyvon_delivery_status.sql — guarda sem o id em vez de perder o template.
+      if (err?.code !== '42703') throw err;
+      await query(
+        `INSERT INTO public.pyvon_pending_outbound (cadastro_id, phone, customer_name, instance_id, template_text, sender_name, note_text, note_author_id)
+         VALUES ($1, $2, $3, $4, $5, $6, $7, $8)`,
+        base
+      );
+    }
   }
 
   // Filtro das linhas pendentes do contato: pelo cadastro OU pelo telefone.
@@ -968,18 +1058,22 @@ export class PyvonService {
     const w = this.pendingOutboundWhere(variants, cadastroId);
     const takenRes = await query(
       `DELETE FROM public.pyvon_pending_outbound WHERE ${w.sql}
-       RETURNING sender_name, template_text, note_text, note_author_id, created_at,
-                 (created_at > NOW() - INTERVAL '48 hours') AS fresh`,
+       RETURNING *, (created_at > NOW() - INTERVAL '48 hours') AS fresh`,
       w.params
     );
     const rows = takenRes.rows.filter((r: any) => r.fresh).sort((a: any, b: any) => +new Date(a.created_at) - +new Date(b.created_at));
     if (!rows.length) return;
 
     for (const r of rows) {
+      // Leva o id do Pyvon junto: é ele que permite marcar esta mensagem como
+      // "não entregue" se a Meta avisar a falha depois (handleDeliveryStatus).
+      // ON CONFLICT: o índice do id é único; um id repetido não pode derrubar
+      // a chegada da resposta do cliente.
       await query(
-        `INSERT INTO public.chat_messages (session_id, sender_id, sender_name, text, type, metadata, created_at)
-         VALUES ($1, NULL, $2, $3, 'text', $4, $5)`,
-        [session.id, r.sender_name, r.template_text, JSON.stringify({ source: 'pyvon', template: true }), r.created_at]
+        `INSERT INTO public.chat_messages (session_id, sender_id, sender_name, text, type, metadata, pyvon_message_id, created_at)
+         VALUES ($1, NULL, $2, $3, 'text', $4, $5, $6)
+         ON CONFLICT DO NOTHING`,
+        [session.id, r.sender_name, r.template_text, JSON.stringify({ source: 'pyvon', template: true }), r.pyvon_message_id || null, r.created_at]
       );
     }
 
@@ -1016,6 +1110,10 @@ export class PyvonService {
     deferUntilReply?: boolean;
     // Nota / autor que valem na resposta do cliente (ver handleWebhook).
     pending?: { noteText?: string | null; authorId?: string | null };
+    // message_id que o Pyvon devolveu no bot-template. Guardado junto da
+    // mensagem/linha pendente pra casar com o aviso de falha de entrega, que
+    // chega depois e só traz esse id (handleDeliveryStatus).
+    pyvonMessageId?: number | string | null;
   }): Promise<{ id: string | null } | null> {
     const variants = params.phone ? phoneVariants(params.phone) : [];
 
@@ -1036,8 +1134,11 @@ export class PyvonService {
     }
 
     if (!session) {
+      // analystId preenchido = um analista de verdade mandou este template
+      // (envio manual): se a conversa nascer agora, nasce com ele. Automação
+      // (analystId null) segue o rodízio / autor da nota, como antes.
       session = await runExclusive(`session:${variants[0] || `cadastro-${params.cadastroId}`}`, () =>
-        this.findOrCreateSession(variants, params.cadastroId, params.customerName, params.instanceId)
+        this.findOrCreateSession(variants, params.cadastroId, params.customerName, params.instanceId, { forceAssigneeId: params.analystId })
       );
     }
     if (!session) return null;
@@ -1048,10 +1149,12 @@ export class PyvonService {
 
     const metadata = { source: 'pyvon', template: true };
     const messageRes = await query(
-      `INSERT INTO public.chat_messages (session_id, sender_id, sender_name, text, type, metadata, created_at)
-       VALUES ($1, $2, $3, $4, 'text', $5, NOW())
+      `INSERT INTO public.chat_messages (session_id, sender_id, sender_name, text, type, metadata, pyvon_message_id, created_at)
+       VALUES ($1, $2, $3, $4, 'text', $5, $6, NOW())
+       ON CONFLICT DO NOTHING
        RETURNING id, created_at`,
-      [session.id, params.analystId, params.analystName, params.text, JSON.stringify(metadata)]
+      [session.id, params.analystId, params.analystName, params.text, JSON.stringify(metadata),
+       params.pyvonMessageId != null ? String(params.pyvonMessageId) : null]
     );
     const savedMessage = messageRes.rows[0];
     if (!savedMessage) return null;
@@ -1137,9 +1240,12 @@ export class PyvonService {
       }
 
       const variables = { '1': customerName };
+      // Contrato do bot-template: cadastro_id OU phone (um só). Cadastro só
+      // quando ainda vale pro número atual (resolveOutboundContext); senão,
+      // pelo telefone.
       const sendResult = await this.sendTemplate(instanceId, {
         templateName: 'contato_pos_vendas',
-        phone: params.phone,
+        phone: context.cadastroId ? undefined : params.phone,
         name: customerName,
         cadastroId: context.cadastroId || undefined,
         variables
@@ -1158,7 +1264,8 @@ export class PyvonService {
         customerName,
         analystId: params.actorId,
         analystName: params.actorName,
-        text: this.renderTemplateBody(template.body_text, variables) || `[template contato_pos_vendas]`
+        text: this.renderTemplateBody(template.body_text, variables) || `[template contato_pos_vendas]`,
+        pyvonMessageId: sendResult.message_id
       });
       if (!recorded?.id) throw new Error('Falha ao registrar a conversa iniciada.');
       sessionId = recorded.id;

@@ -63,6 +63,7 @@ export function PyvonChannelForm({
   const [defaultChannelId, setDefaultChannelId] = useState(instance?.pyvonChannelId != null ? String(instance.pyvonChannelId) : '');
 
   const webhookUrl = typeof window !== 'undefined' ? `${window.location.origin}/api/whatsapp/pyvon-webhook` : '';
+  const statusUrl = typeof window !== 'undefined' ? `${window.location.origin}/api/whatsapp/pyvon-status` : '';
 
   const handleSave = async () => {
     if (!name.trim()) {
@@ -254,6 +255,14 @@ export function PyvonChannelForm({
         <CopyField label="" value={webhookUrl} />
         <p className="text-[10px] text-[var(--text-tertiary)] font-medium leading-relaxed">
           Peça pra Pyvon cadastrar esta URL como o &quot;bot&quot; do tenant, com o bot ligado e o plugin de bot ativo — sem isso, mensagens do cliente nunca chegam aqui.
+        </p>
+      </div>
+
+      <div className="p-4 bg-[var(--accent)]/5 border border-[var(--accent)]/15 rounded-2xl space-y-3">
+        <p className="text-[10px] font-black text-[var(--accent-text)] uppercase tracking-widest">URL de aviso de entrega/falha a cadastrar no Pyvon</p>
+        <CopyField label="" value={statusUrl} />
+        <p className="text-[10px] text-[var(--text-tertiary)] font-medium leading-relaxed">
+          O Pyvon aceita o envio na hora e a Meta só recusa depois. Com esta URL cadastrada, o Pyvon avisa a falha (com o motivo) e o SSX Desk marca a mensagem como não entregue, atualiza o registro do disparo e avisa quem enviou. Usa o mesmo segredo (X-Pyvon-Secret) do canal.
         </p>
       </div>
 

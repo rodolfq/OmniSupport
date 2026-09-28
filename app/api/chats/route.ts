@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { cookies } from 'next/headers';
-import { query } from '@/lib/db';
+import { query, pool } from '@/lib/db';
+import { logAudit } from '@/lib/audit-log';
 import { verifyJWT } from '@/lib/jwt';
 import { emitChatEvent, emitSessionsChanged, excludeActiveViewers, emitInternalChatEvent } from '@/lib/chat-events';
 import { notifyUser } from '@/lib/services/push-service';
@@ -343,6 +344,104 @@ export async function GET(request: NextRequest) {
       })));
     }
 
+    if (action === 'sessions-for-ticket-link') {
+      // Candidatas do "Vincular conversa" DENTRO do chamado (aba Conversa): sem
+      // busca, as conversas da EMPRESA do chamado (contato do chamado, funcionários
+      // dele, qualquer contato da empresa); com busca (2+ letras / 4+ dígitos), qualquer
+      // conversa por nome, empresa, telefone ou nº do chamado — o caso "o cliente
+      // ligou de outro número" — com as da empresa do chamado primeiro. Só metadados
+      // (nada de mensagem). Mesma autorização de 'link-ticket'.
+      const actor = await getCurrentActionUser();
+      if (!actor) return NextResponse.json({ error: 'Não autorizado.' }, { status: 401 });
+      if (!isTeamRole(actor.role)) {
+        return NextResponse.json({ error: 'Sem permissão para vincular conversas a chamados.' }, { status: 403 });
+      }
+      if (actor.role !== 'Administrador') {
+        const permissions = await getActorEffectivePermissions(actor.id);
+        if (!permissions.includes('tickets:link_chat') && !permissions.includes('tickets:outside_queue')) {
+          return NextResponse.json({ error: 'Sem permissão para vincular conversas a chamados.' }, { status: 403 });
+        }
+      }
+
+      const ticketId = searchParams.get('ticketId');
+      if (!ticketId) return NextResponse.json({ error: 'ticketId é obrigatório.' }, { status: 400 });
+      const ticketRes = await query(
+        `SELECT t.id, t.public_ticket_number, t.company_id, t.customer_id, t.employee_ids, co.name AS company_name
+           FROM public.tickets t LEFT JOIN public.companies co ON co.id = t.company_id
+          WHERE t.id = $1`,
+        [ticketId]
+      );
+      const ticket = ticketRes.rows[0];
+      if (!ticket) return NextResponse.json({ error: 'Chamado não encontrado.' }, { status: 404 });
+
+      const q = (searchParams.get('q') || '').trim().slice(0, 80);
+      const qDigits = q.replace(/\D/g, '');
+      const knownIds = [ticket.customer_id, ...(ticket.employee_ids || [])].filter(Boolean);
+      const params: any[] = [ticket.id, ticket.company_id || null, knownIds];
+
+      let where: string;
+      if (q.length >= 2 || qDigits.length >= 4) {
+        const conds: string[] = [];
+        if (q.length >= 2) {
+          params.push(`%${q.toLowerCase()}%`);
+          conds.push(`lower(coalesce(s.customer_name, '')) LIKE $${params.length}`, `lower(coalesce(co.name, '')) LIKE $${params.length}`);
+        }
+        if (qDigits.length >= 4) {
+          params.push(`%${qDigits}%`);
+          conds.push(`regexp_replace(coalesce(s.customer_phone, ''), '\\D', '', 'g') LIKE $${params.length}`);
+          params.push(qDigits);
+          conds.push(`s.ticket_number::text = $${params.length}`);
+        }
+        where = `(${conds.join(' OR ')})`;
+      } else {
+        where = `(s.customer_id = ANY($3::uuid[]) OR ($2::uuid IS NOT NULL AND p.company_id = $2::uuid))`;
+      }
+
+      const rowsRes = await query(
+        `SELECT x.*,
+                (SELECT COUNT(*)::int FROM public.chat_messages m
+                  WHERE m.session_id = x.id AND m.type NOT IN ('internal', 'system_log', 'system')) AS message_count
+           FROM (
+             SELECT s.id, s.customer_name, s.customer_phone, s.channel, s.status, s.ticket_id, s.ticket_number,
+                    s.created_at, s.last_message_at, a.name AS assignee_name,
+                    p.company_id AS customer_company_id, co.name AS customer_company_name,
+                    (s.customer_id = ANY($3::uuid[]) OR ($2::uuid IS NOT NULL AND p.company_id = $2::uuid)) AS same_scope,
+                    (s.ticket_id = $1 OR s.id = (SELECT chat_session_id FROM public.tickets WHERE id = $1)) AS linked_here
+               FROM public.chat_sessions s
+               LEFT JOIN public.profiles p ON p.id = s.customer_id
+               LEFT JOIN public.companies co ON co.id = p.company_id
+               LEFT JOIN public.profiles a ON a.id = s.assignee_id
+              WHERE ${where}
+                AND (s.customer_phone IS NULL OR length(regexp_replace(s.customer_phone, '\\D', '', 'g')) <= 15)
+              ORDER BY same_scope DESC, COALESCE(s.last_message_at, s.created_at) DESC
+              LIMIT 30
+           ) x
+          ORDER BY x.same_scope DESC, COALESCE(x.last_message_at, x.created_at) DESC`,
+        params
+      );
+
+      return NextResponse.json({
+        ticket: { id: ticket.id, number: ticket.public_ticket_number, companyId: ticket.company_id, companyName: ticket.company_name || null },
+        sessions: rowsRes.rows.map((r: any) => ({
+          id: r.id,
+          customerName: r.customer_name,
+          customerPhone: r.customer_phone,
+          channel: r.channel || undefined,
+          status: r.status,
+          startedAt: r.created_at,
+          lastMessageAt: r.last_message_at || r.created_at,
+          assigneeName: r.assignee_name || undefined,
+          messageCount: r.message_count,
+          companyId: r.customer_company_id || null,
+          companyName: r.customer_company_name || null,
+          // Badge atual da conversa (chamado mais recente dela), se for de OUTRO chamado.
+          otherTicketNumber: r.ticket_number && r.ticket_id !== ticket.id ? r.ticket_number : null,
+          linkedHere: !!r.linked_here,
+          differentCompany: !!(ticket.company_id && r.customer_company_id && ticket.company_id !== r.customer_company_id)
+        }))
+      });
+    }
+
     if (action === 'previous-histories') {
       // Atendimentos anteriores do MESMO contato, pra exibir como resumo
       // (expansível) dentro do chat em andamento — ver chat-widget.tsx. Contato
@@ -507,7 +606,8 @@ export async function GET(request: NextRequest) {
       // nem com "Equipe", que é quem da equipe interna atendeu (assignee_name).
       const res = await query(
         `SELECT h.*, p1.name as customer_profile_name, p1.company_id as customer_company_id,
-                co.name as company_name, p2.name as assignee_profile_name,
+                co.name as company_name, co.is_in_training as company_is_in_training,
+                p2.name as assignee_profile_name,
                 s.ticket_id, s.ticket_number, s.queue_id, q.name as queue_name
          FROM public.chat_histories h
          LEFT JOIN public.profiles p1 ON h.customer_id = p1.id
@@ -523,9 +623,16 @@ export async function GET(request: NextRequest) {
         sessionId: h.session_id,
         customerId: h.customer_id,
         customerName: h.customer_name || h.customer_profile_name,
+        // Nome do CADASTRO vinculado (customerName segue sendo o da conversa,
+        // que a tela usa pra saber quais balões são do cliente).
+        customerProfileName: h.customer_profile_name || undefined,
         customerPhone: h.customer_phone,
         companyId: h.customer_company_id,
         companyName: h.company_name,
+        // Situação ATUAL da empresa do contato (perfil interno — esta listagem só
+        // serve a equipe com "Histórico de Conversas"). Conversa sem cliente
+        // vinculado (sem empresa) conta como fora de treinamento.
+        companyIsInTraining: h.company_is_in_training === true,
         assigneeId: h.assignee_id,
         assigneeName: h.assignee_profile_name,
         startedAt: h.started_at,
@@ -872,6 +979,26 @@ export async function POST(request: Request) {
       // contato"). Ação focada em vez de reaproveitar save-session: aquele
       // faz upsert da linha inteira, e chamá-lo com um objeto parcial
       // apagaria responsável, fila e vínculo com chamado.
+      //
+      // Autorização (achado em 2026-09-28): a ação só exigia sessão válida —
+      // qualquer papel, inclusive Cliente/Funcionário, vinculava qualquer
+      // conversa a qualquer cadastro chamando a rota direto (o botão só existe
+      // na Central de Atendimento, mas esconder o botão não protege a rota).
+      // Mesma regra das demais ações da Central (ver app/api/chat-sessions/route.ts):
+      // equipe com a permissão "Central de Atendimento" (tickets:outside_queue);
+      // Administrador passa direto.
+      const actor = await getCurrentActionUser();
+      if (!actor) return NextResponse.json({ error: 'Não autorizado.' }, { status: 401 });
+      if (!isTeamRole(actor.role)) {
+        return NextResponse.json({ error: 'Sem permissão para vincular contatos.' }, { status: 403 });
+      }
+      if (actor.role !== 'Administrador') {
+        const permissions = await getActorEffectivePermissions(actor.id);
+        if (!permissions.includes('tickets:outside_queue')) {
+          return NextResponse.json({ error: 'Sem permissão para vincular contatos.' }, { status: 403 });
+        }
+      }
+
       const { sessionId, customerId, customerName } = body;
       if (!sessionId) return NextResponse.json({ error: 'sessionId é obrigatório.' }, { status: 400 });
 
@@ -895,6 +1022,123 @@ export async function POST(request: Request) {
       }
       if (res.rowCount === 0) return NextResponse.json({ error: 'Conversa não encontrada.' }, { status: 404 });
       return NextResponse.json({ success: true });
+    }
+
+    if (action === 'set-history-contact') {
+      // Vincula uma conversa ENCERRADA (linha de chat_histories) a um
+      // cliente/funcionário cadastrado, direto em /chat-history. Muda a que
+      // EMPRESA a conversa pertence (a empresa vem de profiles.company_id do
+      // customer_id) — por isso exige a permissão própria e, como a tela é do
+      // histórico, também a de ver o histórico. A checagem é aqui, não só no
+      // botão: esconder o botão não protege a rota.
+      const actor = await getCurrentActionUser();
+      if (!actor) return NextResponse.json({ error: 'Não autorizado.' }, { status: 401 });
+      if (!isTeamRole(actor.role)) {
+        return NextResponse.json({ error: 'Sem permissão para vincular contatos no histórico de conversas.' }, { status: 403 });
+      }
+      if (actor.role !== 'Administrador') {
+        const permissions = await getActorEffectivePermissions(actor.id);
+        if (!permissions.includes('chat:history') || !permissions.includes('chat:history_link_contact')) {
+          return NextResponse.json({ error: 'Sem permissão para vincular contatos no histórico de conversas.' }, { status: 403 });
+        }
+      }
+
+      const { historyId, customerId, applyToSamePhone } = body;
+      if (!historyId || !customerId) {
+        return NextResponse.json({ error: 'historyId e customerId são obrigatórios.' }, { status: 400 });
+      }
+
+      const historyRes = await query(
+        'SELECT id, session_id, customer_id, customer_name, customer_phone FROM public.chat_histories WHERE id::text = $1',
+        [String(historyId)]
+      );
+      const history = historyRes.rows[0];
+      if (!history) return NextResponse.json({ error: 'Conversa não encontrada no histórico.' }, { status: 404 });
+
+      const profileRes = await query(
+        `SELECT p.id, p.name, p.role, p.phone, p.company_id, co.name AS company_name
+           FROM public.profiles p LEFT JOIN public.companies co ON co.id = p.company_id
+          WHERE p.id::text = $1`,
+        [String(customerId)]
+      );
+      const profile = profileRes.rows[0];
+      if (!profile) return NextResponse.json({ error: 'Cliente não encontrado.' }, { status: 404 });
+      if (profile.role !== 'Cliente' && profile.role !== 'Funcionário') {
+        return NextResponse.json({ error: 'Só é possível vincular a um cliente ou funcionário de empresa-cliente.' }, { status: 400 });
+      }
+
+      // NÃO mexe em chat_histories.customer_name (nem em chat_sessions.customer_name):
+      // a tela de histórico decide quem é o cliente e quem é o analista de cada
+      // balão comparando o nome do remetente da mensagem com esse campo — trocar
+      // pelo nome do cadastro faria as falas do cliente virarem "analista".
+      // O nome do cadastro aparece por customerProfileName na listagem.
+      const client = await pool.connect();
+      let historyIds: string[] = [history.id];
+      try {
+        await client.query('BEGIN');
+
+        // Opcional: as outras conversas do MESMO número que ainda não têm
+        // cliente (nunca sobrescreve um vínculo que já existe).
+        if (applyToSamePhone === true) {
+          const variants = phoneLookupVariants(history.customer_phone);
+          if (variants.length > 0) {
+            const others = await client.query(
+              `SELECT id FROM public.chat_histories
+                WHERE id <> $1 AND customer_id IS NULL AND customer_phone = ANY($2::text[])`,
+              [history.id, variants]
+            );
+            historyIds = [history.id, ...others.rows.map((r: { id: string }) => r.id)];
+          }
+        }
+
+        await client.query(
+          'UPDATE public.chat_histories SET customer_id = $2 WHERE id = ANY($1::uuid[])',
+          [historyIds, profile.id]
+        );
+        // A conversa em si (já encerrada) fica coerente com o histórico. Só as
+        // encerradas: uma que reabriu é atendimento vivo, não é daqui que se mexe.
+        await client.query(
+          `UPDATE public.chat_sessions SET customer_id = $2
+            WHERE status = 'closed'
+              AND id IN (SELECT session_id FROM public.chat_histories WHERE id = ANY($1::uuid[]) AND session_id IS NOT NULL)`,
+          [historyIds, profile.id]
+        );
+        // Mesma regra do "Vincular" do chat: o telefone da conversa vira o do
+        // cadastro só quando o cadastro ainda não tem nenhum (nunca troca um existente).
+        if (history.customer_phone && !String(profile.phone || '').trim()) {
+          await client.query('UPDATE public.profiles SET phone = $2 WHERE id = $1', [profile.id, history.customer_phone]);
+        }
+        await client.query('COMMIT');
+      } catch (err) {
+        try { await client.query('ROLLBACK'); } catch { /* conexão já caiu */ }
+        throw err;
+      } finally {
+        client.release();
+      }
+
+      await logAudit({
+        actorId: actor.id,
+        actorName: actor.name,
+        action: 'update',
+        entityType: 'chat_history',
+        entityId: history.id,
+        entityLabel: `Conversa de ${history.customer_name || history.customer_phone || 'contato sem nome'}`,
+        changes: {
+          customerId: { from: history.customer_id, to: profile.id },
+          customer: profile.name,
+          company: profile.company_name || null,
+          conversasAtualizadas: historyIds.length
+        }
+      });
+
+      return NextResponse.json({
+        success: true,
+        customerId: profile.id,
+        customerProfileName: profile.name,
+        companyId: profile.company_id,
+        companyName: profile.company_name || null,
+        historyIds
+      });
     }
 
     if (action === 'save-session') {
@@ -2070,24 +2314,41 @@ export async function POST(request: Request) {
 
     if (action === 'save-history') {
       const { history } = body;
-      await query(
+      // Fim, duração e 1ª resposta são decididos AQUI, não pelo que o navegador manda
+      // (history.finishedAt / durationSeconds / firstResponseSeconds são ignorados).
+      // Achado em 2026-09-28: o relógio do navegador de alguns analistas está 3-4 min
+      // atrasado, então o fim gravado ficava ANTES do início (duração negativa), e o
+      // tempo de 1ª resposta, calculado no navegador sobre as mensagens da tela, dava
+      // vazio ou negativo (contava a mensagem do próprio cliente e a de template
+      // enviada antes da conversa). Fim = relógio do banco; início nunca no futuro;
+      // 1ª resposta = public.chat_first_response_seconds (migrations/chat_first_response_seconds.sql).
+      const insertHistory = (firstResponseExpr: string) => query(
         `INSERT INTO public.chat_histories (session_id, customer_id, customer_name, customer_phone, assignee_id, started_at, finished_at, duration_seconds, first_response_seconds, rating, transcript)
-         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)`,
+         SELECT $1::uuid, $2::uuid, $3::text, $4::text, $5::uuid,
+                x.started_at, NOW(), GREATEST(0, EXTRACT(EPOCH FROM (NOW() - x.started_at)))::int,
+                ${firstResponseExpr}, $6::int, $7::text
+           FROM (SELECT LEAST(COALESCE($8::timestamptz, NOW()), NOW()) AS started_at) x`,
         [
           history.sessionId,
           history.customerId || null,
           history.customerName || null,
           history.customerPhone || null,
           history.assigneeId || null,
-          history.startedAt,
-          history.finishedAt,
-          history.durationSeconds || null,
-          history.firstResponseSeconds || null,
           // ?? e não || : rating 0 ("neutro") é valor válido e virava null aqui.
           history.rating ?? null,
-          history.transcript || ''
+          history.transcript || '',
+          history.startedAt || null
         ]
       );
+      try {
+        await insertHistory('public.chat_first_response_seconds($1::uuid)');
+      } catch (err: any) {
+        // 42883 = função inexistente: código publicado antes da migration. Grava sem o
+        // tempo de 1ª resposta (que é recalculável depois) em vez de perder o histórico.
+        if (err?.code !== '42883') throw err;
+        console.error('[save-history] public.chat_first_response_seconds ausente — aplique migrations/chat_first_response_seconds.sql');
+        await insertHistory('NULL::int');
+      }
       return NextResponse.json({ success: true });
     }
 

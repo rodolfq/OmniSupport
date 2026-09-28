@@ -8,6 +8,7 @@ import { ClientTime } from '@/components/client-time';
 import { NewEmployeeModal } from '@/components/new-employee-modal';
 import { ContactConversationsModal } from '@/components/contact-conversations-modal';
 import { getContactLookup, resolveChatSessionForPhone, closeAndStartFreshSession, ContactLookupResult } from '@/lib/services/chat-service';
+import { CHAT_TAG_REQUIRED_MESSAGE } from '@/lib/chat-close-rules';
 
 interface PhoneContactPanelProps {
   // null/undefined = painel fechado. Cada clique num telefone (ver
@@ -82,7 +83,10 @@ export function PhoneContactPanel({ phone, onClose, onOpenChat, currentUserId }:
       onClose();
     } catch (err) {
       console.error('Erro ao encerrar/iniciar conversa:', err);
-      toast.error('Erro ao encerrar a conversa anterior.');
+      // Sem tag a conversa anterior não pode ser encerrada: explica o motivo em vez do erro genérico.
+      toast.error(err instanceof Error && err.message === CHAT_TAG_REQUIRED_MESSAGE
+        ? 'A conversa anterior está sem tag. Abra-a, selecione ao menos 1 tag e encerre (ou use "Ver conversas").'
+        : 'Erro ao encerrar a conversa anterior.');
     } finally {
       setStarting(false);
     }

@@ -1,5 +1,6 @@
 import { ChatSession, ChatMessage, AnalystStatus, UserStatusHistory, AbsenceReason, User, InternalGroup } from '../types';
-import { closeChatSessionAfterTicket } from './chat-session-actions';
+import { closeChatSessionAfterTicket, checkChatSessionCanClose } from './chat-session-actions';
+import { CHAT_TAG_REQUIRED_MESSAGE, isChatTagRequiredError } from '../chat-close-rules';
 import { normalizeBrazilianPhoneDigits } from '../utils';
 
 export class ChatService {
@@ -360,6 +361,11 @@ export async function closeAndStartFreshSession(
   session: { id: string; customerId?: string | null; customerName?: string | null; customerPhone?: string | null; assigneeId?: string | null; startedAt: string },
   currentUserId: string
 ): Promise<string> {
+  // Encerrar exige tag: pergunta ANTES de gravar o histórico (que não dá pra
+  // desfazer se o fechamento for recusado depois e o analista tentar de novo).
+  const pre = await checkChatSessionCanClose(session.id);
+  if ('error' in pre) throw new Error(isChatTagRequiredError(pre) ? CHAT_TAG_REQUIRED_MESSAGE : pre.error);
+
   const { messages } = await fetchSessionMessages(session.id);
 
   const formattedChatLog = messages.map(m => {
@@ -372,16 +378,6 @@ export async function closeAndStartFreshSession(
   const finishedAt = new Date();
   const durationSeconds = Math.floor((finishedAt.getTime() - startedAt.getTime()) / 1000);
 
-  const firstAnalystMsg = messages.find(m =>
-    m.senderId !== session.customerId &&
-    m.type !== 'system' &&
-    m.text &&
-    !m.text.includes('criou o grupo')
-  );
-  const firstResponseSeconds = firstAnalystMsg?.timestamp
-    ? Math.floor((new Date(firstAnalystMsg.timestamp).getTime() - startedAt.getTime()) / 1000)
-    : undefined;
-
   await saveChatHistory({
     sessionId: session.id,
     customerId: session.customerId,
@@ -391,7 +387,6 @@ export async function closeAndStartFreshSession(
     startedAt: startedAt.toISOString(),
     finishedAt: finishedAt.toISOString(),
     durationSeconds,
-    firstResponseSeconds,
     transcript: chatHistoryText
   });
 
@@ -442,6 +437,9 @@ export async function createChatSession(session: ChatSession): Promise<string> {
   return data.id;
 }
 
+// Fim, duração e 1ª resposta enviados por quem chama são IGNORADOS: o servidor os recalcula
+// ao gravar (action 'save-history' em app/api/chats/route.ts) — o relógio do navegador
+// atrasado dava duração negativa, e o cálculo no navegador dava 1ª resposta vazia/negativa.
 export async function saveChatHistory(history: any): Promise<void> {
   const res = await fetch('/api/chats', {
     method: 'POST',

@@ -31,11 +31,26 @@ export enum Permission {
   // qualquer papel conseguia chamar a rota direto.
   TICKETS_MERGE = 'tickets:merge',
   TICKETS_DUPLICATE = 'tickets:duplicate',
+  // Botão "Vincular conversa" DENTRO do chamado (aba Conversa): associa ao
+  // chamado uma conversa do chat que não o gerou (chamado aberto fora de uma
+  // conversa, mas relacionado a uma). Sensível porque quem acompanha o chamado
+  // passa a poder ler a conversa (sem as notas internas) — ver
+  // canReadChatSessionFromTicket em app/api/chats/route.ts. No servidor
+  // ('link-ticket', app/api/chat-sessions/route.ts) vale também
+  // tickets:outside_queue, que é quem já vinculava pelo chat.
+  TICKETS_LINK_CHAT = 'tickets:link_chat',
   // /chat-history — antes travado por role (Administrador/Equipe) direto no
   // componente, sem nenhuma permissão correspondente (achado em 2026-09-17):
   // um perfil de Time Interno customizado não tinha como ganhar acesso, por
   // mais permissões que o admin marcasse nele.
   CHAT_HISTORY_VIEW = 'chat:history',
+  // Botão "Vincular contato" no detalhe da conversa em /chat-history: associa
+  // uma conversa já encerrada (contato sem cadastro, ou cadastro errado) a um
+  // cliente/funcionário — muda a que empresa a conversa é atribuída nos
+  // relatórios e no histórico da empresa, por isso é separada de só ver o
+  // histórico. Exige também CHAT_HISTORY_VIEW no servidor (ver
+  // action 'set-history-contact' em app/api/chats/route.ts).
+  CHAT_HISTORY_LINK_CONTACT = 'chat:history_link_contact',
   // Botão "Fechar como Spam" no encerramento da Central de Atendimento —
   // separado de OUTSIDE_QUEUE_VIEW porque é uma ação mais sensível (some com
   // a mensagem de encerramento/pesquisa, sem avisar o cliente).
@@ -53,6 +68,13 @@ export enum Permission {
   // interno (Administrador/Equipe/Time Interno) sempre podia avaliar, sem
   // permissão própria pra restringir.
   CUSTOMERS_EVALUATE = 'customers:evaluate',
+  // Adicionar E remover o status "Em treinamento" de uma empresa (uma só
+  // permissão pros dois sentidos, pedido do usuário 2026-09-28). O status entra
+  // sozinho pela importação da planilha de CS (entrada de 2026 em diante) e, uma
+  // vez removido, a importação nunca o devolve — só volta por quem tem esta
+  // permissão. Antes o toggle era de customers:write; a migration
+  // company_training_auto.sql concede esta a quem já tinha aquela.
+  CUSTOMERS_TRAINING = 'customers:training',
   // Redefinir a senha de outro usuário (equipe OU cliente/funcionário) — a
   // ação mais sensível do sistema (equivale a assumir a conta). Antes ficava
   // sob CUSTOMERS_WRITE no servidor mesmo pra redefinir senha de ANALISTA,
@@ -248,6 +270,13 @@ export interface Company {
   // (ver components/chat-widget.tsx). Ver CustomerEvaluation acima para o
   // histórico de avaliações por trás da média mostrada no cadastro.
   isInTraining?: boolean;
+  // Como o "em treinamento" atual começou ('planilha' = importação automática,
+  // 'manual', 'integracao'), quando começou e quando foi REMOVIDO pela última
+  // vez — training_removed_at preenchido significa que a importação nunca mais
+  // marca esta empresa sozinha (só manualmente). Só pra equipe interna.
+  trainingOrigin?: 'planilha' | 'manual' | 'integracao' | null;
+  trainingStartedAt?: string | null;
+  trainingRemovedAt?: string | null;
   // CS e Comercial responsáveis pela empresa — hoje atribuídos manualmente a
   // um usuário da equipe interna (Administrador/Equipe/Time Interno);
   // pensados para vir de uma API externa no futuro.

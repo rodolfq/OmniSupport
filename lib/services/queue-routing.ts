@@ -144,38 +144,45 @@ export async function pickNextQueueAssignee(
   return null;
 }
 
-// "Quem recebeu por último" pro rodízio: o MAIS RECENTE entre (a) o responsável da
-// conversa CRIADA mais recentemente — o critério de sempre, que já cobre criação
-// e pega de conversa nova — e (b) o cursor gravado a cada escolha do rodízio
-// (queue_rotation_cursor). Só (a) falhava numa devolução em sequência: devolver
-// uma conversa ANTIGA não a torna a mais recente por criação, então todas as
-// devoluções recalculavam o mesmo ponteiro e caíam no mesmo analista (17h de
-// 2026-09-25: as 4 conversas do Mauro foram todas pra Bianca). O cursor faz cada
-// escolha andar pra frente. Se a tabela não existir (deploy fora de ordem),
-// cai no critério antigo.
+// "Quem recebeu por último" pro rodízio = o CURSOR (queue_rotation_cursor), gravado
+// a cada escolha do próprio rodízio (criação, devolução, redistribuição). Só ele:
+// o ponteiro NÃO pode depender de quem é o responsável atual de nenhuma conversa.
+//
+// História: primeiro o ponteiro era "o responsável da conversa CRIADA mais
+// recentemente" — que falhava numa devolução em sequência (devolver conversa
+// ANTIGA não a torna a mais recente, e as devoluções caíam todas no mesmo
+// analista: 17h de 2026-09-25, as 4 do Mauro pra Bianca). O cursor resolveu isso,
+// mas ficou combinado com aquele critério (valia o mais recente dos dois) — e como
+// a escolha do rodízio é gravada ANTES da conversa ser criada, o critério antigo
+// quase sempre vencia. Efeito colateral (2026-09-28): qualquer troca de responsável
+// da conversa mais recente movia a fila. Transferir A→C fazia a próxima conversa
+// pular a vez do B e, depois, a do próprio C (que recebeu a transferência); "assumir"
+// e conversa iniciada por analista (não passa pelo rodízio) faziam o mesmo. Regra do
+// usuário: transferir NÃO pula a vez de quem recebeu — a fila só anda por escolha
+// do rodízio.
+//
+// Só cai no critério antigo (responsável da conversa criada mais recentemente) quando
+// não existe cursor utilizável: fila nova, cursor de quem saiu da fila, ou tabela
+// ausente (deploy fora de ordem). Daí em diante o cursor manda.
 async function resolveRotationPointer(queueKey: string, memberIds: string[]): Promise<string | null> {
+  try {
+    const cursorRes = await query(
+      'SELECT assignee_id FROM public.queue_rotation_cursor WHERE queue_key = $1',
+      [queueKey]
+    );
+    const cursor = cursorRes.rows[0] as { assignee_id: string | null } | undefined;
+    if (cursor?.assignee_id && memberIds.includes(cursor.assignee_id)) return cursor.assignee_id;
+  } catch (err) {
+    console.error('[queue-routing] Cursor do rodízio indisponível — usando a última conversa criada:', (err as Error)?.message);
+  }
+
   const lastRes = await query(
-    `SELECT assignee_id, created_at FROM public.chat_sessions
+    `SELECT assignee_id FROM public.chat_sessions
      WHERE assignee_id = ANY($1::uuid[])
      ORDER BY created_at DESC LIMIT 1`,
     [memberIds]
   );
-  const bySession = lastRes.rows[0] as { assignee_id: string; created_at: Date } | undefined;
-
-  try {
-    const cursorRes = await query(
-      'SELECT assignee_id, updated_at FROM public.queue_rotation_cursor WHERE queue_key = $1',
-      [queueKey]
-    );
-    const cursor = cursorRes.rows[0] as { assignee_id: string | null; updated_at: Date } | undefined;
-    if (cursor?.assignee_id && memberIds.includes(cursor.assignee_id)
-        && (!bySession || new Date(cursor.updated_at).getTime() > new Date(bySession.created_at).getTime())) {
-      return cursor.assignee_id;
-    }
-  } catch (err) {
-    console.error('[queue-routing] Cursor do rodízio indisponível — usando só a última conversa criada:', (err as Error)?.message);
-  }
-  return bySession?.assignee_id ?? null;
+  return (lastRes.rows[0]?.assignee_id as string | undefined) ?? null;
 }
 
 async function saveRotationCursor(queueKey: string, assigneeId: string): Promise<void> {

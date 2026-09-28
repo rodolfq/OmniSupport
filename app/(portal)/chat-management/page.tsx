@@ -50,7 +50,8 @@ import { fetchChatSessions, saveChatHistory } from '@/lib/services/chat-service'
 import { renderLinkedText } from '@/components/linked-chat-text';
 import { PhoneContactPanel } from '@/components/phone-contact-panel';
 import { fetchUsers, ConfigService } from '@/lib/services/config-service';
-import { saveTicketFromChatSession, closeChatSessionAfterTicket, assignChatSession, returnChatSessionToQueue } from '@/lib/services/chat-session-actions';
+import { saveTicketFromChatSession, closeChatSessionAfterTicket, checkChatSessionCanClose, assignChatSession, returnChatSessionToQueue } from '@/lib/services/chat-session-actions';
+import { isChatTagRequiredError } from '@/lib/chat-close-rules';
 import { getCompanies } from '@/lib/services/company-service';
 import { getAnalysts, updateUserStatus } from '@/lib/services/user-actions-service';
 
@@ -473,8 +474,18 @@ const handleDeleteNote = async () => {
   const [isBulkFinishConfirmOpen, setIsBulkFinishConfirmOpen] = useState(false);
   const [isBulkFinishing, setIsBulkFinishing] = useState(false);
 
-  const finishSession = async (session: ChatSession): Promise<boolean> => {
+  // 'no_tag' = a conversa não tem a tag obrigatória e NÃO foi mexida em nada.
+  // Pergunta ao servidor antes de gravar o que quer que seja: o chamado (criado
+  // logo abaixo) não pode ficar de pé com a conversa ainda aberta.
+  const finishSession = async (session: ChatSession): Promise<boolean | 'no_tag'> => {
     try {
+      const pre = await checkChatSessionCanClose(session.id);
+      if ('error' in pre) {
+        if (isChatTagRequiredError(pre)) return 'no_tag';
+        console.error('Error checking session before finishing', session.id, pre.error);
+        return false;
+      }
+
       // Histórico em texto puro só pro registro de métricas em chat_histories —
       // o chamado em si não recebe cópia da conversa (ver saveTicketFromChatSession
       // em app/actions.ts): ele só guarda a referência, e quem quiser ver a
@@ -506,22 +517,6 @@ const handleDeleteNote = async () => {
       const finishedAt = new Date();
       const durationSeconds = Math.floor((finishedAt.getTime() - startedAt.getTime()) / 1000);
 
-      // Mensagens automáticas (type 'system': apresentação do operador, aviso
-      // de chamado, encerramento/pesquisa) não contam como resposta real do
-      // analista pra essa métrica.
-      let firstResponseSeconds: number | undefined;
-      if (session.messages && session.messages.length > 0) {
-        const firstAnalystMsg = session.messages.find(m =>
-          m.senderId !== session.customerId &&
-          m.type !== 'system' &&
-          m.text &&
-          !m.text.includes('criou o grupo')
-        );
-        if (firstAnalystMsg?.timestamp) {
-          firstResponseSeconds = Math.floor((new Date(firstAnalystMsg.timestamp).getTime() - startedAt.getTime()) / 1000);
-        }
-      }
-
       await saveChatHistory({
         sessionId: session.id,
         customerId: session.customerId,
@@ -531,7 +526,6 @@ const handleDeleteNote = async () => {
         startedAt: startedAt.toISOString(),
         finishedAt: finishedAt.toISOString(),
         durationSeconds,
-        firstResponseSeconds,
         transcript: chatHistoryText
       }).catch(err => console.error('Non-critical error saving chat history:', session.id, err));
 
@@ -557,19 +551,34 @@ const handleDeleteNote = async () => {
 
     setIsBulkFinishing(true);
     let successCount = 0;
+    const semTag: string[] = [];
     for (const session of targets) {
-      const ok = await finishSession(session);
-      if (ok) successCount++;
+      const result = await finishSession(session);
+      if (result === 'no_tag') semTag.push(session.customerName || 'Cliente');
+      else if (result) successCount++;
     }
     setIsBulkFinishing(false);
 
     setSelectedSessionIds(new Set());
     refreshData();
 
-    if (successCount === targets.length) {
+    // Tag é obrigatória pra encerrar: quem está sem ela fica de fora (nem chamado
+    // é criado) e o analista é avisado de quais são — dá pra marcar a tag em cada
+    // uma abrindo a conversa. Aplicar uma tag em massa aqui classificaria conversas
+    // que ninguém olhou.
+    if (semTag.length > 0) {
+      toast.warning(
+        `${semTag.length} atendimento(s) sem tag não foram encerrados: ${semTag.slice(0, 5).join(', ')}${semTag.length > 5 ? ` e mais ${semTag.length - 5}` : ''}. Abra cada um, selecione ao menos 1 tag e finalize.`,
+        { duration: 12000 }
+      );
+    }
+    const tentados = targets.length - semTag.length;
+    if (tentados === 0) {
+      // só sem tag: o aviso acima já explica
+    } else if (successCount === tentados) {
       toast.success(`${successCount} atendimento(s) encerrado(s) com sucesso!`);
     } else if (successCount > 0) {
-      toast.warning(`${successCount} de ${targets.length} atendimento(s) encerrado(s). Alguns falharam — veja o console.`);
+      toast.warning(`${successCount} de ${tentados} atendimento(s) encerrado(s). Alguns falharam — veja o console.`);
     } else {
       toast.error('Erro ao encerrar os atendimentos selecionados.');
     }
@@ -1350,7 +1359,7 @@ const handleDeleteNote = async () => {
         onClose={() => setIsBulkFinishConfirmOpen(false)}
         onConfirm={() => handleBulkFinish(visibleQueueSessions)}
         title="Encerrar atendimentos selecionados"
-        description={`Deseja encerrar ${selectedSessionIds.size} atendimento(s)? Um chamado será criado automaticamente para cada um, com o histórico da conversa.`}
+        description={`Deseja encerrar ${selectedSessionIds.size} atendimento(s)? Um chamado será criado automaticamente para cada um, com o histórico da conversa. Atendimentos sem tag não serão encerrados: a tag é obrigatória.`}
         confirmLabel="Encerrar"
         variant="danger"
       />

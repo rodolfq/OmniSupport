@@ -718,17 +718,34 @@ export async function PUT(request: Request) {
       target = check.target;
     }
 
-    // role / is_admin / equipes internas / empresa só mudam de verdade se
-    // quem está editando for Administrador do sistema — autoedição (ou
-    // gerenciar um Funcionário/Cliente da própria empresa) nunca deveria
-    // conseguir promover ninguém, nem a si mesmo, a um papel mais
-    // privilegiado. Sem essa trava, qualquer usuário autenticado podia virar
-    // Administrador só chamando este endpoint com {role:'Administrador'}.
+    // role / is_admin / equipes internas só mudam de verdade se quem está
+    // editando for Administrador do sistema — autoedição (ou gerenciar um
+    // Funcionário/Cliente da própria empresa) nunca deveria conseguir
+    // promover ninguém, nem a si mesmo, a um papel mais privilegiado. Sem
+    // essa trava, qualquer usuário autenticado podia virar Administrador só
+    // chamando este endpoint com {role:'Administrador'}.
     const isSystemAdmin = actor.role === 'Administrador';
     const role = isSystemAdmin ? (user.role ?? target.role) : target.role;
     const isAdmin = isSystemAdmin ? (user.isAdmin ?? target.is_admin) : target.is_admin;
     const internalTeamIds = isSystemAdmin ? (user.internalTeamIds ?? target.internal_team_ids) : target.internal_team_ids;
-    const companyId = isSystemAdmin ? (user.companyId ?? target.company_id) : target.company_id;
+    // Empresa é um caso à parte: mudar de empresa um Cliente/Funcionário não é
+    // escalação de privilégio (não é o campo que decide o que a pessoa PODE
+    // fazer, como role/isAdmin/internalTeamIds acima) — é dado de cadastro, a
+    // mesma coisa que assertUserManageable já libera pra quem tem
+    // "Gerenciar clientes" (customers:write) sobre Cliente/Funcionário de
+    // QUALQUER empresa (ver lib/server-auth.ts). Achado em 2026-09-28
+    // reaproveitando o mesmo modal no widget do chat: o combobox de empresa
+    // mudava na tela e "Salvo!" aparecia, mas para quem NÃO é Administrador
+    // do sistema — o público mais comum de components/edit-employee-modal.tsx,
+    // tanto em Empresas quanto no widget — a troca era descartada em silêncio
+    // aqui, sem erro nenhum. Autoedição (branch acima, actor.id === user.id)
+    // continua sem poder se mudar de empresa sozinho.
+    const actorCanReassignCompany = isSystemAdmin || (
+      actor.id !== user.id &&
+      ['Cliente', 'Funcionário'].includes(target.role) &&
+      (await getActorEffectivePermissions(actor.id)).includes(Permission.CUSTOMERS_WRITE)
+    );
+    const companyId = actorCanReassignCompany ? (user.companyId ?? target.company_id) : target.company_id;
 
     // A LISTAGEM devolve avatarUrl como o endereço de /api/users/<id>/avatar,
     // não mais o base64 (ver o comentário dessa rota). Telas que gravam

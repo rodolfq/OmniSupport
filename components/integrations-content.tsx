@@ -36,6 +36,7 @@ const SCOPE_OPTIONS: { value: string; label: string; description: string }[] = [
   { value: 'tickets:read', label: 'Chamados — Leitura', description: 'Consultar chamados e mensagens visíveis ao cliente' },
   { value: 'tickets:write', label: 'Chamados — Escrita', description: 'Abrir novos chamados e atualizar status, prioridade, classificação e responsável' },
   { value: 'conversations:read', label: 'Conversas — Leitura', description: 'Consultar conversas (WhatsApp) e mensagens' },
+  { value: 'training-conversations:read', label: 'Conversas de clientes em treinamento — Leitura', description: 'Só a lista de conversas encerradas com clientes em treinamento (data e motivo) — sem mensagens nem telefone' },
   { value: 'companies:read', label: 'Empresas — Leitura', description: 'Listar/consultar empresas (inclui isInTraining e avaliações)' },
   { value: 'companies:write', label: 'Empresas — Escrita', description: 'Atualizar dados da empresa (nome, indústria, telefone, cliente em treinamento) — já inclui leitura' },
 ];
@@ -361,12 +362,13 @@ export function IntegrationsContent() {
             <Zap size={16} className="text-[var(--accent-text)]" /> Tarefas Comuns
           </h4>
           <p className="text-xs text-[var(--text-tertiary)] font-medium mt-1 max-w-2xl">
-            As 4 ações mais usadas por quem está integrando. Clique numa delas pra ir direto ao endpoint certo, já com o passo a passo abaixo.
+            As ações mais usadas por quem está integrando. Clique numa delas pra ir direto ao endpoint certo, já com o passo a passo abaixo.
           </p>
         </div>
         <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
           {[
             { id: 'conversations-list' as const, label: 'Listar conversas', desc: 'Ver o histórico de conversas (chat/WhatsApp) de um cliente ou de todos.', scope: 'conversations:read' },
+            { id: 'training-conversations-list' as const, label: 'Conversas de clientes em treinamento', desc: 'Ver as conversas encerradas com clientes em treinamento, com a data e o motivo (tags).', scope: 'training-conversations:read' },
             { id: 'tickets-list' as const, label: 'Listar chamados', desc: 'Ver os chamados abertos por um cliente ou de todos, com filtro por status.', scope: 'tickets:read' },
             { id: 'tickets-create' as const, label: 'Abrir chamado', desc: 'Criar um chamado novo em nome de uma empresa/cliente diretamente pela API.', scope: 'tickets:write' },
             { id: 'companies-list' as const, label: 'Listar clientes', desc: 'Ver as empresas cadastradas — use antes de cadastrar/atualizar um funcionário.', scope: 'companies:read' },

@@ -44,7 +44,8 @@ import {
   RotateCw,
   CheckCircle2,
   Clock,
-  Info
+  Info,
+  UserCog
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import {
@@ -67,7 +68,9 @@ import { ChatService, fetchChatSessions, pushChatMessage, createChatSession, sav
 import { fetchQuickNotes, fetchAnalystStatuses, fetchCompanies, fetchQueues, fetchSurveySettings, ConfigService } from '@/lib/services/config-service';
 import { useProfilesWithAvatarQuery } from '@/lib/query-hooks';
 import { TicketService } from '@/lib/services/ticket-service';
-import { saveTicketFromChatSession, closeChatSessionAfterTicket, assignChatSession, returnChatSessionToQueue, setChatSessionTags } from '@/lib/services/chat-session-actions';
+import { saveTicketFromChatSession, closeChatSessionAfterTicket, checkChatSessionCanClose, assignChatSession, returnChatSessionToQueue, setChatSessionTags } from '@/lib/services/chat-session-actions';
+import { RequiredChatTags } from '@/components/required-chat-tags';
+import { chatHasRequiredTag, isChatTagRequiredError, CHAT_TAG_REQUIRED_MESSAGE } from '@/lib/chat-close-rules';
 import { checkPyvonOutboundStatus, startPyvonConversation } from '@/lib/services/pyvon-template-service';
 import { ChatTagPicker, tagAccentBgClass } from '@/components/chat-tag-picker';
 import { cn, maskPhone, matchPhones, safeJsonStringify, normalizeString, normalizePhone } from '@/lib/utils';
@@ -76,6 +79,7 @@ import { isEvaluationSnoozed } from '@/lib/evaluation-snooze';
 import { deriveLiveStatus } from '@/lib/presence';
 import { useSearchParams, usePathname, useRouter } from 'next/navigation';
 import { LinkContactModal } from '@/components/link-contact-modal';
+import { EditEmployeeModal } from '@/components/edit-employee-modal';
 import { renderLinkedText } from '@/components/linked-chat-text';
 import { PhoneContactPanel } from '@/components/phone-contact-panel';
 import { ClientTime } from '@/components/client-time';
@@ -487,6 +491,13 @@ export function ChatWidget() {
     m.type !== 'internal' &&
     m.type !== 'system';
 
+  // O rascunho (texto digitado e anexo ainda não enviados) pertence à conversa
+  // em que foi composto — igual à citação abaixo. Achado em 2026-09-28: só a
+  // citação era descartada ao trocar de conversa; texto e anexo staged
+  // ficavam no estado (message/chatAttachments não são por conversa) e
+  // apareciam na caixa da conversa SEGUINTE, prontos pra ir parar no
+  // destinatário errado se a pessoa nem notasse e mandasse enviar.
+  useEffect(() => { setMessage(''); setChatAttachments([]); }, [selectedChatId]);
   // A citação pertence à conversa em que foi escolhida: trocar de conversa a descarta.
   useEffect(() => { setReplyingTo(null); setIsQuickRepliesOpen(false); }, [selectedChatId]);
 
@@ -948,8 +959,31 @@ export function ChatWidget() {
   // toda vez que a conversa está aberta. "Com {responsável}" continua na
   // LISTA de conversas (fora de uma conversa aberta), sem mudança.
   const [isChatInfoModalOpen, setIsChatInfoModalOpen] = useState(false);
+  // Editar cadastro do contato (funcionário/cliente da empresa) direto pelo
+  // widget — reaproveita o MESMO modal de components/(portal)/customers,
+  // com a mesma autorização do servidor (assertUserManageable em
+  // lib/server-auth.ts: Equipe/Time Interno com customers:write administra
+  // Cliente/Funcionário de qualquer empresa; Administrador sempre pode).
+  const [isEditContactModalOpen, setIsEditContactModalOpen] = useState(false);
   // Só domain==='chat' — cadastradas em Configurações > Gestão de Tags.
   const [chatTags, setChatTags] = useState<TagConfig[]>([]);
+  // Encerrar conversa exige ao menos 1 tag (o servidor barra em 'close'). Estes
+  // flags mantêm o seletor obrigatório DENTRO do modal depois que a 1ª tag é
+  // marcada (ele não some no meio do clique); enquanto a conversa está sem tag o
+  // seletor aparece por si só (`!sessionHasRequiredTag`), então não depende de as
+  // tags de chat já terem carregado no instante em que o modal abre.
+  const [finishTagBlockVisible, setFinishTagBlockVisible] = useState(false);
+  const [duplicateTagBlockVisible, setDuplicateTagBlockVisible] = useState(false);
+  const sessionHasRequiredTag = (s?: { tags?: string[] } | null) => chatHasRequiredTag(s?.tags, chatTags.map(tag => tag.id));
+  // Se as tags de chat terminam de carregar DEPOIS de o modal abrir, o seletor
+  // aparece pela regra derivada, mas o flag ficaria falso e o bloco sumiria no
+  // instante em que a 1ª tag fosse marcada (sem mostrar o "Tag selecionada").
+  // Enquanto o modal está aberto e a conversa sem tag, o flag liga aqui.
+  useEffect(() => {
+    if (!selectedChat || sessionHasRequiredTag(selectedChat)) return;
+    if (isFinishModalOpen) setFinishTagBlockVisible(true);
+    if (isDuplicateModalOpen) setDuplicateTagBlockVisible(true);
+  }, [isFinishModalOpen, isDuplicateModalOpen, selectedChat?.tags, chatTags]);
   const [chatAttachments, setChatAttachments] = useState<Attachment[]>([]);
   const [previewAttachment, setPreviewAttachment] = useState<Attachment | null>(null);
 
@@ -1437,6 +1471,37 @@ export function ChatWidget() {
     }
   }, [isMinimized]);
 
+  // Presença da equipe (quem está Online/Ausente) pra lista de "Enviar para" —
+  // achado em 2026-09-28: o efeito acima só busca de novo quando o widget sai
+  // de minimizado, então quem fica com o chat aberto vê a mesma lista de
+  // analistas por tempo indefinido (alguém entra, sai, fica Ausente — nada
+  // disso chega aqui sem fechar/reabrir o widget ou recarregar a página).
+  // Mesmo padrão do poll de 30s de customerSessions logo acima (rede de
+  // segurança gated por visibilidade da aba), mas só pra presença: mais barato
+  // que reconsultar notas/empresas junto, que mudam bem menos.
+  useEffect(() => {
+    if (isMinimized) return;
+    let cancelled = false;
+    const loadStatuses = async () => {
+      try {
+        const statuses = await fetchAnalystStatuses();
+        if (!cancelled) setAnalystStatuses(statuses);
+      } catch (e) {
+        console.error('Erro ao atualizar presença dos analistas:', e);
+      }
+    };
+    const loadWhenVisible = () => {
+      if (document.visibilityState === 'visible') loadStatuses();
+    };
+    const interval = setInterval(loadWhenVisible, 30000);
+    document.addEventListener('visibilitychange', loadWhenVisible);
+    return () => {
+      cancelled = true;
+      clearInterval(interval);
+      document.removeEventListener('visibilitychange', loadWhenVisible);
+    };
+  }, [isMinimized]);
+
   useEffect(() => {
     const currentCount = selectedChat?.messages?.length || 0;
     const hasNewMessage = currentCount > prevMessageCountRef.current;
@@ -1862,6 +1927,14 @@ useEffect(() => {
   // mesmo contato se encontrar uma, então a ordem importa.
   const handleDuplicateChat = async () => {
     if (!selectedChat || !currentUser || isDuplicatingChat) return;
+    // Duplicar ENCERRA a conversa atual — mesma regra da tag obrigatória, checada
+    // antes de gravar o histórico (que não dá pra desfazer se o fechamento for recusado).
+    const pre = await checkChatSessionCanClose(selectedChat.id);
+    if ('error' in pre) {
+      if (isChatTagRequiredError(pre)) setDuplicateTagBlockVisible(true);
+      toast.error(isChatTagRequiredError(pre) ? CHAT_TAG_REQUIRED_MESSAGE : pre.error);
+      return;
+    }
 
     setIsDuplicatingChat(true);
     try {
@@ -1878,19 +1951,6 @@ useEffect(() => {
       const finishedAt = new Date();
       const durationSeconds = Math.floor((finishedAt.getTime() - startedAt.getTime()) / 1000);
 
-      let firstResponseSeconds: number | undefined;
-      if (selectedChat.messages && selectedChat.messages.length > 0) {
-        const firstAnalystMsg = selectedChat.messages.find(m =>
-          m.senderId !== selectedChat.customerId &&
-          m.type !== 'system' &&
-          m.text &&
-          !m.text.includes('criou o grupo')
-        );
-        if (firstAnalystMsg?.timestamp) {
-          firstResponseSeconds = Math.floor((new Date(firstAnalystMsg.timestamp).getTime() - startedAt.getTime()) / 1000);
-        }
-      }
-
       await saveChatHistory({
         sessionId: selectedChat.id,
         customerId: selectedChat.customerId,
@@ -1900,7 +1960,6 @@ useEffect(() => {
         startedAt: startedAt.toISOString(),
         finishedAt: finishedAt.toISOString(),
         durationSeconds,
-        firstResponseSeconds,
         transcript: chatHistoryText
       });
 
@@ -1956,6 +2015,16 @@ useEffect(() => {
     finishingRef.current = true;
     setFinishingAction(closeAsSpam ? 'spam' : closeChat ? 'finish' : 'generate');
     try {
+      // Encerrar exige tag. Pergunta ANTES de criar o chamado: se o servidor
+      // recusasse só no fim, sobraria um chamado criado com a conversa aberta.
+      if (closeChat) {
+        const pre = await checkChatSessionCanClose(selectedChat.id);
+        if ('error' in pre) {
+          if (isChatTagRequiredError(pre)) setFinishTagBlockVisible(true);
+          toast.error(isChatTagRequiredError(pre) ? CHAT_TAG_REQUIRED_MESSAGE : pre.error);
+          return;
+        }
+      }
       const hadExistingTicket = !!selectedChat.ticketId;
 
       // Histórico em texto puro só pro registro de métricas em chat_histories
@@ -2050,26 +2119,6 @@ useEffect(() => {
       const finishedAt = new Date();
       const durationSeconds = Math.floor((finishedAt.getTime() - startedAt.getTime()) / 1000);
       
-      // Find first response time (first non-system, non-same-user message) —
-      // mensagens automáticas (apresentação do operador, aviso de chamado,
-      // encerramento/pesquisa) têm type 'system' e não contam como resposta
-      // real do analista, senão o tempo de 1ª resposta ficaria artificialmente
-      // baixo (ou zerado) sempre que essas mensagens automáticas dispararem
-      // antes de o analista digitar algo de fato.
-      let firstResponseSeconds: number | undefined;
-      if (selectedChat.messages && selectedChat.messages.length > 0) {
-        const firstAnalystMsg = selectedChat.messages.find(m =>
-          m.senderId !== selectedChat.customerId &&
-          m.type !== 'system' &&
-          m.text &&
-          !m.text.includes('criou o grupo')
-        );
-        if (firstAnalystMsg?.timestamp) {
-          const firstMsgTime = new Date(firstAnalystMsg.timestamp);
-          firstResponseSeconds = Math.floor((firstMsgTime.getTime() - startedAt.getTime()) / 1000);
-        }
-      }
-
 // Save chat history for internal team access (non-blocking - continue even if fails)
       saveChatHistory({
         sessionId: selectedChat.id,
@@ -2080,7 +2129,6 @@ useEffect(() => {
         startedAt: startedAt.toISOString(),
         finishedAt: finishedAt.toISOString(),
         durationSeconds,
-        firstResponseSeconds,
         transcript: chatHistoryText
       }).catch(historyErr => {
         console.error('Non-critical error saving chat history:', historyErr);
@@ -2148,7 +2196,8 @@ useEffect(() => {
       const closeResult = await closeChatSessionAfterTicket(selectedChat.id, awaitingSurveyUntil, closeAsSpam);
       if ('error' in closeResult) {
         console.error('Error closing session:', closeResult.error);
-        toast.error('Erro ao fechar conversa.');
+        if (isChatTagRequiredError(closeResult)) setFinishTagBlockVisible(true);
+        toast.error(isChatTagRequiredError(closeResult) ? CHAT_TAG_REQUIRED_MESSAGE : 'Erro ao fechar conversa.');
         return;
       }
 
@@ -3111,7 +3160,7 @@ useEffect(() => {
                                   <Info size={14} /> Ver informações
                                 </button>
                                 <button
-                                  onClick={() => { setIsMoreActionsOpen(false); setIsDuplicateModalOpen(true); }}
+                                  onClick={() => { setIsMoreActionsOpen(false); setDuplicateTagBlockVisible(!sessionHasRequiredTag(selectedChat)); setIsDuplicateModalOpen(true); }}
                                   className="w-full flex items-center gap-2.5 px-4 py-2.5 text-xs font-semibold text-[var(--text-secondary)] hover:bg-[var(--surface-pill)] transition-all"
                                 >
                                   <Copy size={14} /> Duplicar conversa
@@ -3131,6 +3180,7 @@ useEffect(() => {
                               const datePrefix = now.toLocaleDateString('pt-BR');
                               const timePrefix = now.toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' });
                               setTicketTitle(`Atendimento ${datePrefix} ${timePrefix}: ${selectedChat?.customerName}`);
+                              setFinishTagBlockVisible(!sessionHasRequiredTag(selectedChat));
                               setIsFinishModalOpen(true);
                             }}
                             className={cn(
@@ -3579,6 +3629,18 @@ useEffect(() => {
                                 >
                                   <RotateCw size={10} /> reenviar
                                 </button>
+                              </span>
+                            )}
+                            {/* Mensagem de outro remetente (ex.: template automático do
+                                sistema) que o Pyvon avisou depois não ter sido entregue
+                                (POST /api/whatsapp/pyvon-status). Sem "reenviar": não é
+                                mensagem do analista logado. */}
+                            {!isOwnMessage && m.whatsappStatus === 'failed' && (
+                              <span
+                                className="flex items-center gap-1 text-[var(--text-danger)] cursor-default"
+                                title={m.whatsappError ? `Não entregue pelo WhatsApp: ${m.whatsappError}` : 'Não entregue pelo WhatsApp'}
+                              >
+                                <AlertCircle size={11} /> não entregue
                               </span>
                             )}
                             {isOwnMessage && selectedChat?.channel !== 'pyvon' && (!m.whatsappStatus || m.whatsappStatus === 'sent') && (() => {
@@ -4035,10 +4097,21 @@ useEffect(() => {
                       vinculado. Ela será encerrada sem gerar outro chamado.
                     </p>
 
+                    {(finishTagBlockVisible || !sessionHasRequiredTag(selectedChat)) && selectedChat && (
+                      <div className="mb-5">
+                        <RequiredChatTags
+                          tags={chatTags}
+                          selectedIds={selectedChat.tags || []}
+                          onChange={ids => handleChatTagsChange(selectedChat.id, ids)}
+                          disabled={!!finishingAction}
+                        />
+                      </div>
+                    )}
+
                     <div className="space-y-4">
                       <button
                         onClick={() => handleGenerateTicket(true)}
-                        disabled={!!finishingAction}
+                        disabled={!!finishingAction || !sessionHasRequiredTag(selectedChat)}
                         className="w-full py-4 bg-slate-900 text-white rounded-2xl text-[11px] font-semibold uppercase tracking-widest shadow-xl hover:bg-slate-800 transition-all disabled:opacity-60 disabled:cursor-not-allowed flex items-center justify-center gap-2"
                       >
                         {finishingAction === 'finish' && <Loader2 size={14} className="animate-spin" />}
@@ -4050,7 +4123,7 @@ useEffect(() => {
                         <>
                           <button
                             onClick={() => handleGenerateTicket(true, true)}
-                            disabled={!!finishingAction}
+                            disabled={!!finishingAction || !sessionHasRequiredTag(selectedChat)}
                             className="w-full py-3.5 bg-[var(--surface-card)] border-2 border-[var(--text-danger)]/20 text-[var(--text-danger)] rounded-2xl text-[10px] font-semibold uppercase tracking-widest hover:bg-[var(--surface-danger)] transition-all disabled:opacity-60 disabled:cursor-not-allowed flex items-center justify-center gap-2"
                           >
                             {finishingAction === 'spam' && <Loader2 size={14} className="animate-spin" />}
@@ -4065,6 +4138,17 @@ useEffect(() => {
                 <>
                 <h3 className="text-xl font-black text-[var(--text-primary)] uppercase tracking-tight mb-2">Gerar Chamado</h3>
                 <p className="text-xs text-[var(--text-tertiary)] font-medium mb-6">Transforme esta conversa em um chamado para Histórico.</p>
+
+                {(finishTagBlockVisible || !sessionHasRequiredTag(selectedChat)) && selectedChat && (
+                  <div className="mb-5">
+                    <RequiredChatTags
+                      tags={chatTags}
+                      selectedIds={selectedChat.tags || []}
+                      onChange={ids => handleChatTagsChange(selectedChat.id, ids)}
+                      disabled={!!finishingAction}
+                    />
+                  </div>
+                )}
 
                 <div className="space-y-4">
                    <div className="space-y-1.5">
@@ -4103,7 +4187,7 @@ useEffect(() => {
 
                    <button
                      onClick={() => handleGenerateTicket(true)}
-                     disabled={!!finishingAction}
+                     disabled={!!finishingAction || !sessionHasRequiredTag(selectedChat)}
                      className="w-full py-4 bg-slate-900 text-white rounded-2xl text-[11px] font-semibold uppercase tracking-widest shadow-xl hover:bg-slate-800 transition-all disabled:opacity-60 disabled:cursor-not-allowed flex items-center justify-center gap-2"
                    >
                      {finishingAction === 'finish' && <Loader2 size={14} className="animate-spin" />}
@@ -4114,7 +4198,7 @@ useEffect(() => {
                      <>
                        <button
                          onClick={() => handleGenerateTicket(true, true)}
-                         disabled={!!finishingAction}
+                         disabled={!!finishingAction || !sessionHasRequiredTag(selectedChat)}
                          className="w-full py-3.5 bg-[var(--surface-card)] border-2 border-[var(--text-danger)]/20 text-[var(--text-danger)] rounded-2xl text-[10px] font-semibold uppercase tracking-widest hover:bg-[var(--surface-danger)] transition-all disabled:opacity-60 disabled:cursor-not-allowed flex items-center justify-center gap-2"
                        >
                          {finishingAction === 'spam' && <Loader2 size={14} className="animate-spin" />}
@@ -4182,6 +4266,25 @@ useEffect(() => {
                       </p>
                     </div>
                   )}
+                  {/* Editar cadastro direto daqui — pedido do usuário
+                      (2026-09-28). Só quando a conversa está vinculada a um
+                      cadastro de Cliente/Funcionário (contato sem cadastro
+                      não tem o que editar) e quem está atendendo pode
+                      gerenciar cadastro de empresa-cliente (mesma permissão
+                      que já libera "Editar" em Empresas — o servidor confere
+                      de novo em app/api/users PUT via assertUserManageable,
+                      esta checagem aqui é só pra não oferecer o botão à toa). */}
+                  {selectedChatContact && [UserRole.CUSTOMER, UserRole.EMPLOYEE].includes(selectedChatContact.role as UserRole) && hasPermission(Permission.CUSTOMERS_WRITE) && (
+                    <div>
+                      <p className="text-[10px] font-semibold uppercase tracking-widest text-[var(--text-tertiary)] mb-1">Cadastro</p>
+                      <button
+                        onClick={() => { setIsChatInfoModalOpen(false); setIsEditContactModalOpen(true); }}
+                        className="w-full flex items-center justify-center gap-2 py-3 rounded-xl bg-[var(--accent)]/10 text-[var(--accent-text)] text-xs font-black uppercase tracking-widest hover:bg-[var(--accent)]/20 transition-all"
+                      >
+                        <UserCog size={14} /> Editar cadastro de {selectedChatContact.name}
+                      </button>
+                    </div>
+                  )}
                 </div>
                 <button
                   onClick={() => setIsChatInfoModalOpen(false)}
@@ -4203,10 +4306,20 @@ useEffect(() => {
                 <p className="text-xs text-[var(--text-tertiary)] font-medium mb-6">
                    A conversa atual será arquivada (fica disponível em "Carregar histórico anterior") e um novo atendimento será aberto para o mesmo contato, para tratar um assunto separado. O cliente não recebe nenhum aviso — a conversa continua normalmente, só que numa sessão nova.
                 </p>
+                {(duplicateTagBlockVisible || !sessionHasRequiredTag(selectedChat)) && selectedChat && (
+                  <div className="mb-5">
+                    <RequiredChatTags
+                      tags={chatTags}
+                      selectedIds={selectedChat.tags || []}
+                      onChange={ids => handleChatTagsChange(selectedChat.id, ids)}
+                      disabled={isDuplicatingChat}
+                    />
+                  </div>
+                )}
                 <div className="space-y-3">
                    <button
                      onClick={handleDuplicateChat}
-                     disabled={isDuplicatingChat}
+                     disabled={isDuplicatingChat || !sessionHasRequiredTag(selectedChat)}
                      className="w-full py-4 bg-slate-900 text-white rounded-2xl text-[11px] font-semibold uppercase tracking-widest shadow-xl hover:bg-slate-800 transition-all disabled:opacity-50 flex items-center justify-center gap-2"
                    >
                      {isDuplicatingChat ? <Loader2 size={14} className="animate-spin" /> : <Copy size={14} />}
@@ -4242,6 +4355,18 @@ useEffect(() => {
           refetchAllUsers();
           fetchChatSessions().then(setCustomerSessions);
         }}
+      />
+
+      {/* Mesmo modal de edição usado em Empresas (components/edit-employee-modal.tsx) —
+          reaproveitado aqui de propósito, em vez de um formulário próprio, pra não ter
+          duas telas de edição de cadastro com regras diferentes (ver comentário acima,
+          no botão "Editar cadastro"). refetchAllUsers() atualiza selectedChatContact
+          (nome/telefone/empresa) na hora, sem precisar recarregar o widget. */}
+      <EditEmployeeModal
+        isOpen={isEditContactModalOpen}
+        onClose={() => setIsEditContactModalOpen(false)}
+        user={selectedChatContact ?? null}
+        onSuccess={() => refetchAllUsers()}
       />
 
       <LinkTicketModal

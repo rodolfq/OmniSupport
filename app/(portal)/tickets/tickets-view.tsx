@@ -139,7 +139,7 @@ function SortableHeader({
           <GripVertical size={10} />
         </div>
         <div
-          className="flex-1 flex items-center gap-2"
+          className={cn("flex-1 flex items-center gap-2", column.sortable && "cursor-pointer")}
           onClick={() => column.sortable && onSort(column.id)}
         >
           {column.label}
@@ -1353,7 +1353,7 @@ export function TicketsView({
                   onClick={() => setSelectedTicket(t)}
                   onMouseEnter={prefetchTicketModal}
                   className={cn(
-                    "px-5 py-4 active:bg-[var(--surface-card)]/80 transition-colors",
+                    "px-5 py-4 cursor-pointer active:bg-[var(--surface-card)]/80 transition-colors",
                     sla.isOverdue && "bg-[var(--surface-danger)]/30"
                   )}
                 >

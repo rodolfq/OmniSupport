@@ -68,8 +68,10 @@ const permissionGroups = [
       { id: Permission.TICKETS_STATUS_CHANGE, label: 'Alterar status', desc: 'Permite mudar o status/sub-status de um chamado (detalhe e Kanban) sem precisar de "Responder/Editar chamados" para os demais campos' },
       { id: Permission.TICKETS_MERGE, label: 'Mesclar chamados', desc: 'Permite absorver um chamado em outro (o mesclado vira status "Mesclado", sem notificar o cliente)' },
       { id: Permission.TICKETS_DUPLICATE, label: 'Duplicar chamado', desc: 'Permite criar uma cópia de um chamado existente' },
+      { id: Permission.TICKETS_LINK_CHAT, label: 'Vincular conversa ao chamado', desc: 'Permite associar uma conversa do chat a um chamado, direto na aba "Conversa" do chamado. Quem acompanha o chamado passa a ler a conversa (sem as notas internas)' },
       { id: Permission.OUTSIDE_QUEUE_VIEW, label: 'Central de Atendimento', desc: 'Permite ver e atender a fila de chats do WhatsApp — widget flutuante e /chat-management' },
       { id: Permission.CHAT_HISTORY_VIEW, label: 'Histórico de Conversas', desc: 'Permite ver conversas encerradas de qualquer cliente (/chat-history), com filtros, resumo por IA e exportação' },
+      { id: Permission.CHAT_HISTORY_LINK_CONTACT, label: 'Vincular contato no Histórico de Conversas', desc: 'Permite associar uma conversa encerrada a um cliente/funcionário direto no Histórico (/chat-history) — muda a empresa a que a conversa pertence nos relatórios. Precisa também de "Histórico de Conversas"' },
       { id: Permission.CHAT_MARK_SPAM, label: 'Marcar conversa como spam', desc: 'Permite usar "Fechar como Spam" ao encerrar um atendimento — sem enviar mensagem de encerramento/pesquisa ao cliente' },
     ]
   },
@@ -88,6 +90,7 @@ const permissionGroups = [
     permissions: [
       { id: Permission.CUSTOMERS_READ, label: 'Visualizar clientes', desc: 'Permite ver a lista de empresas e contatos (/customers)' },
       { id: Permission.CUSTOMERS_WRITE, label: 'Gerenciar clientes', desc: 'Permite criar, editar, desativar e remover empresas clientes' },
+      { id: Permission.CUSTOMERS_TRAINING, label: 'Status "Em treinamento" da empresa', desc: 'Permite adicionar e remover o status "Em treinamento" no cadastro da empresa. O status entra sozinho pela importação da planilha (entrada de 2026 em diante) e, depois de removido, a importação não o devolve — só volta manualmente, por quem tem esta permissão' },
       { id: Permission.CUSTOMERS_EVALUATE, label: 'Avaliar cliente', desc: 'Permite registrar a avaliação interna de uma empresa-cliente (ao encerrar um chat, pelo sino ou em Atividades)' },
     ]
   },

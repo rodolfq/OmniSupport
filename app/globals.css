@@ -164,6 +164,65 @@ body {
   }
 }
 
+/* Cursor de "clique" (mãozinha) em tudo que é clicável. O Tailwind v4 deixou
+   de pôr cursor: pointer nos botões (o preflight usa a seta padrão), então sem
+   esta regra cada botão teria que carregar `cursor-pointer` na mão — e os que
+   esquecem parecem "mortos". Fica em @layer base de propósito: qualquer
+   utilitária (cursor-default, cursor-grab, cursor-wait, cursor-not-allowed…)
+   continua ganhando, então alça de arrastar, botão em carregamento e afins
+   seguem com o cursor que já definiram. Elemento que não é button/a/role mas
+   tem onClick (div, tr, card…) não dá pra pegar por CSS — esses levam
+   `cursor-pointer` na própria classe. */
+@layer base {
+  button:not(:disabled),
+  [role="button"]:not([aria-disabled="true"]),
+  [role="tab"]:not([aria-disabled="true"]),
+  [role="menuitem"]:not([aria-disabled="true"]),
+  [role="menuitemcheckbox"]:not([aria-disabled="true"]),
+  [role="menuitemradio"]:not([aria-disabled="true"]),
+  [role="option"]:not([aria-disabled="true"]),
+  [role="switch"]:not([aria-disabled="true"]),
+  [role="checkbox"]:not([aria-disabled="true"]),
+  [role="radio"]:not([aria-disabled="true"]),
+  [role="link"],
+  a[href],
+  summary,
+  select:not(:disabled),
+  label[for],
+  label:has(> input[type="checkbox"]:not(:disabled)),
+  label:has(> input[type="radio"]:not(:disabled)),
+  input[type="checkbox"]:not(:disabled),
+  input[type="radio"]:not(:disabled),
+  input[type="submit"]:not(:disabled),
+  input[type="button"]:not(:disabled),
+  input[type="reset"]:not(:disabled),
+  input[type="file"]:not(:disabled),
+  input[type="color"]:not(:disabled),
+  input[type="file"]:not(:disabled)::file-selector-button,
+  input[type="date"]::-webkit-calendar-picker-indicator,
+  input[type="time"]::-webkit-calendar-picker-indicator,
+  input[type="datetime-local"]::-webkit-calendar-picker-indicator,
+  input[type="month"]::-webkit-calendar-picker-indicator,
+  input[type="week"]::-webkit-calendar-picker-indicator {
+    cursor: pointer;
+  }
+
+  /* Desabilitado deixa de parecer clicável (mesmo motivo, no sentido inverso). */
+  button:disabled,
+  [role="button"][aria-disabled="true"],
+  [role="tab"][aria-disabled="true"],
+  [role="menuitem"][aria-disabled="true"],
+  [role="option"][aria-disabled="true"],
+  select:disabled,
+  input[type="checkbox"]:disabled,
+  input[type="radio"]:disabled,
+  input[type="submit"]:disabled,
+  input[type="button"]:disabled,
+  input[type="file"]:disabled {
+    cursor: not-allowed;
+  }
+}
+
 /* Barra de rolagem minimalista para todo o sistema: fina, trilho invisível,
    sem seta/borda, e usando as variáveis de tema (--border-default/-strong)
    em vez de cor fixa — já se adapta sozinha ao dark mode via :root.dark,
