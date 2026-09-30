@@ -411,7 +411,7 @@ X-RateLimit-Reset: 1786994325 <span class="c">// epoch em segundos</span></div>
   <div class="endpoint">
     <div class="endpoint-head"><span class="method get">GET</span><span class="endpoint-path">/api/integrations/v1/training-conversations</span><span class="endpoint-scope chip">training-conversations:read</span></div>
     <div class="endpoint-body">
-      <p>Conversas <b>encerradas</b> com clientes de empresas que estão <b>em treinamento</b>, com o dia em que ocorreram e o motivo (as tags da conversa: Problema, Dúvida, Solicitação…). Não devolve telefone nem mensagens. "Em treinamento" é a situação <b>atual</b> da empresa. <code>date</code>, <code>from</code> e <code>to</code> são o dia em que a conversa <b>começou</b>, no horário de Brasília. Uma conversa pode ter várias tags ou nenhuma (<code>tags: []</code>).</p>
+      <p>Conversas <b>encerradas</b> com clientes de empresas que estão <b>em treinamento</b>, com o dia em que ocorreram e o motivo (as tags da conversa: Problema, Dúvida, Solicitação…). Não devolve telefone nem mensagens. "Em treinamento" é a situação <b>atual</b> da empresa. <code>date</code>, <code>from</code> e <code>to</code> são o dia em que a conversa <b>começou</b>, no horário de Brasília. Uma conversa pode ter várias tags ou nenhuma (<code>tags: []</code>). <code>company.idCentral</code> é o id do cliente no sistema Central (pode ser <code>null</code>; não é único). <code>summary</code> é o resumo da conversa gerado por IA, quando já processado (pode ser <code>null</code> — é um job assíncrono, nem toda conversa foi processada ainda).</p>
       <table class="ptable">
         <tr><th>Parâmetro</th><th>Onde</th><th>Descrição</th></tr>
         <tr><td class="name">from</td><td class="type">query</td><td>AAAA-MM-DD — conversas que começaram neste dia ou depois.</td></tr>
@@ -422,7 +422,8 @@ X-RateLimit-Reset: 1786994325 <span class="c">// epoch em segundos</span></div>
       </table>
       <div class="code-label">Item da lista</div>
       <div class="code-block">{ <span class="k">"id"</span>: <span class="s">"..."</span>, <span class="k">"date"</span>: <span class="s">"2026-09-28"</span>, <span class="k">"startedAt"</span>: <span class="s">"2026-09-28T17:04:11.000Z"</span>, <span class="k">"finishedAt"</span>: <span class="s">"2026-09-28T17:31:40.000Z"</span>,
-  <span class="k">"company"</span>: { <span class="k">"id"</span>: <span class="s">"..."</span>, <span class="k">"name"</span>: <span class="s">"Transportadora Exemplo"</span>, <span class="k">"isInTraining"</span>: <span class="k">true</span> }, <span class="k">"customerName"</span>: <span class="s">"Maria Souza"</span>,
+  <span class="k">"company"</span>: { <span class="k">"id"</span>: <span class="s">"..."</span>, <span class="k">"name"</span>: <span class="s">"Transportadora Exemplo"</span>, <span class="k">"isInTraining"</span>: <span class="k">true</span>, <span class="k">"idCentral"</span>: <span class="s">"1042"</span> }, <span class="k">"customerName"</span>: <span class="s">"Maria Souza"</span>,
+  <span class="k">"summary"</span>: <span class="s">"O cliente relatou instabilidade no rastreador..."</span>, <span class="k">"summaryGeneratedAt"</span>: <span class="s">"2026-09-28T18:13:19.988Z"</span>,
   <span class="k">"tags"</span>: [{ <span class="k">"id"</span>: <span class="s">"..."</span>, <span class="k">"label"</span>: <span class="s">"Problema"</span> }] }</div>
     </div>
   </div>

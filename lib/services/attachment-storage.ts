@@ -1,6 +1,9 @@
 import { promises as fs } from 'fs';
 import path from 'path';
 import crypto from 'crypto';
+import os from 'os';
+import { spawn } from 'child_process';
+import ffmpegPath from 'ffmpeg-static';
 import type { Attachment } from '@/lib/types';
 
 // Armazenamento físico de anexos.
@@ -26,6 +29,90 @@ export function getAttachmentsDir(): string {
 }
 
 export const ATTACHMENT_URL_PREFIX = '/api/files/';
+
+// Mesma resolução de binário de lib/services/transcription-service.ts.
+const FFMPEG_BIN = process.env.FFMPEG_PATH || (ffmpegPath as unknown as string) || 'ffmpeg';
+const REMUX_TIMEOUT_MS = 15000;
+
+// Áudio de voz que chega de fora (WhatsApp via Pyvon) às vezes vem num
+// OGG/Opus sem cabeçalho de duração/posição de busca corretos — o Chrome não
+// sabe pular/voltar dentro dele (mesmo bug relatado pro player de vídeo em
+// 2026-09-29, mas ali o problema era o SERVIDOR não aceitar Range; aqui o
+// servidor já aceita — ver app/api/files/[...path]/route.ts —, o problema é
+// o ARQUIVO em si não ter posição de granule/duração que o navegador
+// consiga usar pra calcular onde buscar). Reencodar com ffmpeg SEMPRE
+// finaliza esse cabeçalho direito, resolvendo na raiz em vez de só mascarar
+// sintoma (o "truque" em components/audio-player.tsx de forçar a duração
+// buscando pro fim do arquivo continua existindo como rede de segurança,
+// mas some de fato em áudio remuxado por aqui).
+//
+// Falha graciosamente: ffmpeg ausente/travado ou áudio corrompido devolve
+// null, e quem chama grava o buffer ORIGINAL — o áudio chega com o bug de
+// busca de sempre, mas a mensagem nunca deixa de ser salva por causa disto.
+export async function remuxAudioForSeeking(buffer: Buffer): Promise<Buffer | null> {
+  if (FFMPEG_BIN !== 'ffmpeg') {
+    try {
+      await fs.access(FFMPEG_BIN);
+    } catch {
+      console.error(`[attachment-storage] ffmpeg não encontrado em ${FFMPEG_BIN} — áudio salvo sem remux (busca pode não funcionar).`);
+      return null;
+    }
+  }
+
+  const tmpDir = os.tmpdir();
+  const jobId = crypto.randomUUID();
+  const inputPath = path.join(tmpDir, `remux-in-${jobId}`);
+  const outputPath = path.join(tmpDir, `remux-out-${jobId}.ogg`);
+
+  await fs.writeFile(inputPath, buffer);
+
+  try {
+    await new Promise<void>((resolve, reject) => {
+      const ffmpeg = spawn(FFMPEG_BIN, [
+        '-hide_banner', '-loglevel', 'error',
+        '-y',
+        '-i', inputPath,
+        '-c:a', 'libopus',
+        '-b:a', '32k',
+        outputPath
+      ]);
+      let stderr = '';
+      let settled = false;
+
+      const timer = setTimeout(() => {
+        if (settled) return;
+        settled = true;
+        ffmpeg.kill('SIGKILL');
+        reject(new Error(`ffmpeg excedeu ${REMUX_TIMEOUT_MS / 1000}s remuxando o áudio`));
+      }, REMUX_TIMEOUT_MS);
+
+      ffmpeg.stderr.on('data', (chunk) => { stderr += chunk.toString(); });
+      ffmpeg.on('error', (err) => {
+        if (settled) return;
+        settled = true;
+        clearTimeout(timer);
+        reject(err);
+      });
+      ffmpeg.on('close', (code) => {
+        if (settled) return;
+        settled = true;
+        clearTimeout(timer);
+        if (code === 0) resolve();
+        else reject(new Error(`ffmpeg saiu com código ${code}: ${stderr.slice(0, 500)}`));
+      });
+    });
+
+    return await fs.readFile(outputPath);
+  } catch (error) {
+    console.error('[attachment-storage] Falha ao remuxar áudio, salvando original:', error);
+    return null;
+  } finally {
+    await Promise.all([
+      fs.unlink(inputPath).catch(() => {}),
+      fs.unlink(outputPath).catch(() => {})
+    ]);
+  }
+}
 
 // Extensão a partir do MIME, com fallback pelo nome original. Só é usada pra
 // deixar o arquivo reconhecível em disco — quem manda no Content-Type servido
@@ -145,6 +232,22 @@ export function resolveAttachmentPath(relativePath: string): string | null {
   const absolute = path.resolve(root, relativePath);
   if (absolute !== root && !absolute.startsWith(root + path.sep)) return null;
   return absolute;
+}
+
+/**
+ * Tamanho do arquivo no disco, sem carregar o conteúdo — quem serve o anexo
+ * por streaming, com suporte a Range (ver app/api/files/[...path]/route.ts),
+ * precisa saber o tamanho total ANTES de decidir o trecho a devolver.
+ */
+export async function statAttachmentFile(relativePath: string): Promise<{ absolutePath: string; size: number } | null> {
+  const absolute = resolveAttachmentPath(relativePath);
+  if (!absolute) return null;
+  try {
+    const stats = await fs.stat(absolute);
+    return { absolutePath: absolute, size: stats.size };
+  } catch {
+    return null;
+  }
 }
 
 export async function readAttachmentFile(relativePath: string): Promise<Buffer | null> {

@@ -63,6 +63,7 @@ import {
   Permission
 } from '@/lib/types';
 import { MAX_ATTACHMENT_TOTAL_BYTES, MAX_ATTACHMENT_TOTAL_LABEL } from '@/lib/attachment-limits';
+import { uploadAttachment } from '@/lib/attachment-upload';
 import { QuickRepliesPanel } from './quick-replies-panel';
 import { ChatService, fetchChatSessions, pushChatMessage, createChatSession, saveChatHistory, submitSurveyResponse, transcribeChatAudio, getPreviousChatHistories, fetchSessionMessages, PreviousChatHistoriesResult, SessionMessagesResult } from '@/lib/services/chat-service';
 import { fetchQuickNotes, fetchAnalystStatuses, fetchCompanies, fetchQueues, fetchSurveySettings, ConfigService } from '@/lib/services/config-service';
@@ -141,15 +142,6 @@ function getChannelLabel(channel?: string): string | null {
     case 'widget': return 'Portal (chat)';
     default: return null;
   }
-}
-
-function fileToDataUrl(file: Blob): Promise<string> {
-  return new Promise((resolve, reject) => {
-    const reader = new FileReader();
-    reader.onload = () => resolve(String(reader.result || ''));
-    reader.onerror = () => reject(reader.error || new Error('Erro ao ler arquivo'));
-    reader.readAsDataURL(file);
-  });
 }
 
 // Codifica um WAV PCM 16-bit mono a partir das amostras capturadas via Web Audio API.
@@ -985,6 +977,12 @@ export function ChatWidget() {
     if (isDuplicateModalOpen) setDuplicateTagBlockVisible(true);
   }, [isFinishModalOpen, isDuplicateModalOpen, selectedChat?.tags, chatTags]);
   const [chatAttachments, setChatAttachments] = useState<Attachment[]>([]);
+  // Upload de anexo agora é de verdade (multipart, ver lib/attachment-upload.ts)
+  // em vez de ler o arquivo inteiro na memória da aba — o que significa que
+  // pode demorar de verdade num arquivo grande. Trava o "Enviar" enquanto
+  // estiver em andamento, pra não mandar a mensagem sem o anexo ainda ter
+  // terminado de subir.
+  const [isUploadingAttachment, setIsUploadingAttachment] = useState(false);
   const [previewAttachment, setPreviewAttachment] = useState<Attachment | null>(null);
 
   // Histórico da conversa sob demanda: resumos dos atendimentos ANTERIORES do
@@ -1005,6 +1003,10 @@ export function ChatWidget() {
   const [chatSearch, setChatSearch] = useState('');
   const [userQueues, setUserQueues] = useState<string[]>([]);
   const [allQueues, setAllQueues] = useState<any[]>([]);
+  // Só true depois do primeiro fetchQueues (ver loadData abaixo) — usado por
+  // getSessionInstanceId pra nunca "chutar" a instância antes de saber a de
+  // verdade (ver comentário ali).
+  const [queuesLoaded, setQueuesLoaded] = useState(false);
 
   const queueMenuTargets = React.useMemo(() => {
     return allQueues.map((q: any) => ({ id: q.id, name: q.name }));
@@ -1030,10 +1032,24 @@ export function ChatWidget() {
     return [...withoutSelf, { id: currentUser.id, name: currentUser.name, away: false }];
   }, [assignableTargets, allQueues, currentUser]);
 
+  // Achado em 2026-09-30 (conversa com o Rafael Leal/APOVEL): antes das Filas
+  // carregarem, esta função "chutava" 'default' pra QUALQUER sessão (fallback
+  // de quem ainda não sabia a fila de verdade) — e como um contato específico
+  // tinha uma foto de perfil ANTIGA persistida sob instance_id='default' (de
+  // quando este número passava pelo WhatsApp não-oficial/Baileys, antes da
+  // migração pro Pyvon), a foto aparecia por uma fração de segundo e depois
+  // sumia assim que as Filas terminavam de carregar e a instância de verdade
+  // (aqui, 'pyvon') era resolvida — sem foto salva pra ela, porque o Pyvon/Meta
+  // Cloud API oficial não expõe foto de perfil (só o protocolo do WhatsApp
+  // Web, que o Baileys imita, consegue isso). Retornar undefined enquanto
+  // `queuesLoaded` for false evita essa pisca: sem instanceId, getContactPhoto/
+  // ensureContactPhoto (app-context.tsx) não fazem nada, e só buscam de
+  // verdade quando já dá pra confiar no resultado.
   const getSessionInstanceId = React.useCallback((session?: { queueId?: string }) => {
+    if (!queuesLoaded) return undefined;
     const queue = allQueues.find((q: any) => q.id === session?.queueId);
     return queue?.whatsapp_instance_id || queue?.whatsappInstanceId || 'default';
-  }, [allQueues]);
+  }, [allQueues, queuesLoaded]);
 
   // Cache de foto de contato compartilhado com as demais telas (ex: /chat-management)
   useEffect(() => {
@@ -1080,6 +1096,7 @@ export function ChatWidget() {
 
         const queues = await fetchQueues(controller.signal).catch(e => { console.error('queues fetch error:', e); return [] as any; });
         setAllQueues(queues || []);
+        setQueuesLoaded(true);
         if (currentUser) {
             const myQueues = queues.filter((q: any) => q.member_ids?.includes?.(currentUser.id) || q.memberIds?.includes?.(currentUser.id)).map((q: any) => q.id);
             setUserQueues(myQueues || []);
@@ -2365,33 +2382,28 @@ useEffect(() => {
   };
 
   // Compartilhado entre o seletor de arquivo (input) e o colar (Ctrl+V) de
-  // print/arquivo — mesmas regras (limite compartilhado, conversão pra data URL)
+  // print/arquivo — mesmas regras (limite compartilhado, upload de verdade)
   // pros dois caminhos, pra cliente e operador igual (é o mesmo componente).
   const addFilesAsChatAttachments = async (files: File[]) => {
-    for (const file of files) {
-      const fileId = crypto.randomUUID();
+    if (files.length === 0) return;
+    setIsUploadingAttachment(true);
+    try {
+      for (const file of files) {
+        if (file.size > MAX_CHAT_ATTACHMENT_SIZE) {
+          toast.error(`${file.name || 'Arquivo'} excede o limite de ${MAX_ATTACHMENT_TOTAL_LABEL} por envio.`);
+          continue;
+        }
 
-      if (file.size > MAX_CHAT_ATTACHMENT_SIZE) {
-        toast.error(`${file.name || 'Arquivo'} excede o limite de ${MAX_ATTACHMENT_TOTAL_LABEL} por envio.`);
-        continue;
+        try {
+          const attachment = await uploadAttachment(file, file.name || `colado-${Date.now()}.png`);
+          setChatAttachments(prev => [...prev, attachment]);
+        } catch (error) {
+          console.error('Error uploading chat attachment:', error);
+          toast.error(`Erro ao anexar ${file.name || 'arquivo'}`);
+        }
       }
-
-      let dataUrl = '';
-      try {
-        dataUrl = await fileToDataUrl(file);
-      } catch (error) {
-        console.error('Error reading chat attachment:', error);
-        toast.error(`Erro ao anexar ${file.name || 'arquivo'}`);
-        continue;
-      }
-
-      setChatAttachments(prev => [...prev, {
-        id: fileId,
-        name: file.name || `colado-${Date.now()}.png`,
-        type: file.type || 'application/octet-stream',
-        url: dataUrl,
-        size: file.size
-      }]);
+    } finally {
+      setIsUploadingAttachment(false);
     }
   };
 
@@ -2553,14 +2565,8 @@ useEffect(() => {
     }
 
     try {
-      const dataUrl = await fileToDataUrl(wavBlob);
-      setChatAttachments(prev => [...prev, {
-        id: crypto.randomUUID(),
-        name: `audio-${Date.now()}.wav`,
-        type: 'audio/wav',
-        url: dataUrl,
-        size: wavBlob.size
-      }]);
+      const attachment = await uploadAttachment(wavBlob, `audio-${Date.now()}.wav`);
+      setChatAttachments(prev => [...prev, attachment]);
       console.log('[AudioRecording] Audio attachment added to chatAttachments successfully.');
     } catch (error: any) {
       console.error('[AudioRecording] Error processing recorded audio:', { message: error?.message, stack: error?.stack });
@@ -3200,7 +3206,7 @@ useEffect(() => {
                   <div
                     ref={scrollRef}
                     onScroll={handleScroll}
-                    className="flex-1 overflow-y-auto px-4 py-4 space-y-2 bg-[var(--surface-page)] scroll-smooth"
+                    className="flex-1 overflow-y-auto px-4 py-4 space-y-2 bg-[var(--surface-page)]"
                   >
                     {(previousHistoriesContact?.customerId || previousHistoriesContact?.customerPhone) && !(previousHistoriesOffset > 0 && previousHistoriesOffset >= previousHistoriesTotal) && (
                       <div className="flex justify-center pb-2">
@@ -3756,6 +3762,12 @@ useEffect(() => {
                         </button>
                       </div>
                     )}
+                    {isUploadingAttachment && (
+                      <div className="mb-3 flex items-center gap-2 text-[10px] font-semibold uppercase tracking-widest text-[var(--text-tertiary)]">
+                        <Loader2 size={12} className="animate-spin" />
+                        Enviando anexo...
+                      </div>
+                    )}
                     {chatAttachments.length > 0 && (
                       <div className="mb-3 flex flex-wrap gap-2">
                         {chatAttachments.map((attachment) => (
@@ -3876,7 +3888,8 @@ useEffect(() => {
                       />
                       <button
                         type="submit"
-                        disabled={!message.trim() && chatAttachments.length === 0}
+                        disabled={(!message.trim() && chatAttachments.length === 0) || isUploadingAttachment}
+                        title={isUploadingAttachment ? 'Aguarde o anexo terminar de enviar' : undefined}
                         className="w-11 h-11 shrink-0 bg-[var(--accent)] text-white rounded-2xl hover:bg-[var(--accent-hover)] transition-all shadow-sm flex items-center justify-center disabled:opacity-50 disabled:cursor-not-allowed"
                       >
                         <Send size={17} />
@@ -4084,17 +4097,24 @@ useEffect(() => {
              <motion.div initial={{ scale: 0.9, opacity: 0 }} animate={{ scale: 1, opacity: 1 }} exit={{ scale: 0.9, opacity: 0 }} className="relative bg-[var(--surface-card)] w-full max-w-sm rounded-[2.5rem] shadow-2xl p-8">
                 {selectedChat?.ticketId ? (
                   <>
-                    {/* Já existe um chamado desta conversa: só ela é encerrada, sem
-                        gerar outro. Quem ainda não gerou o chamado vê o modal de
-                        sempre (abaixo) — e gerar pelo botão "Gerar Chamado", que
-                        mantém o chat aberto, é o que libera este encerramento. */}
+                    {/* Já existe um chamado desta conversa: não é obrigatório abrir
+                        outro pra encerrar — "Finalizar Conversa" abaixo fecha sem
+                        mexer no chamado existente. Mas o atendimento pode precisar
+                        de MAIS de um chamado (ex.: segundo assunto tratado na mesma
+                        conversa) — "Gerar Chamado" aqui permanece disponível mesmo
+                        já havendo um, e aciona o mesmo `forceNew` (com o popup de
+                        confirmação) que o botão homônimo já usa quando a conversa
+                        ainda não tem chamado nenhum. O novo chamado herda
+                        chat_session_id da mesma conversa (ver create-ticket em
+                        app/api/chat-sessions/route.ts) — os dois ficam vinculados
+                        a ela, só o badge do chat passa a apontar pro mais recente. */}
                     <h3 className="text-xl font-black text-[var(--text-primary)] uppercase tracking-tight mb-2">Finalizar Conversa</h3>
                     <p className="text-xs text-[var(--text-tertiary)] font-medium mb-6">
                       Esta conversa já possui o chamado{' '}
                       <span className="font-black text-[var(--text-primary)]">
                         {selectedChat.ticketNumber ? `#${String(selectedChat.ticketNumber).padStart(4, '0')}` : ''}
                       </span>{' '}
-                      vinculado. Ela será encerrada sem gerar outro chamado.
+                      vinculado.
                     </p>
 
                     {(finishTagBlockVisible || !sessionHasRequiredTag(selectedChat)) && selectedChat && (
@@ -4109,6 +4129,16 @@ useEffect(() => {
                     )}
 
                     <div className="space-y-4">
+                      <button
+                        onClick={() => handleGenerateTicket(false)}
+                        disabled={!!finishingAction}
+                        className="w-full py-4 bg-[var(--surface-card)] border-2 border-[var(--border-default)] text-[var(--text-primary)] rounded-2xl text-[11px] font-semibold uppercase tracking-widest hover:border-[var(--accent)]/40 hover:bg-[var(--surface-pill)] transition-all disabled:opacity-60 disabled:cursor-not-allowed flex items-center justify-center gap-2"
+                      >
+                        {finishingAction === 'generate' && <Loader2 size={14} className="animate-spin" />}
+                        {finishingAction === 'generate' ? 'Gerando chamado...' : 'Gerar Chamado'}
+                      </button>
+                      <p className="text-[9px] text-[var(--text-tertiary)] font-medium text-center -mt-2">Abre outro chamado separado para esta conversa (confirmação a seguir). O chat continua aberto.</p>
+
                       <button
                         onClick={() => handleGenerateTicket(true)}
                         disabled={!!finishingAction || !sessionHasRequiredTag(selectedChat)}
@@ -4361,12 +4391,21 @@ useEffect(() => {
           reaproveitado aqui de propósito, em vez de um formulário próprio, pra não ter
           duas telas de edição de cadastro com regras diferentes (ver comentário acima,
           no botão "Editar cadastro"). refetchAllUsers() atualiza selectedChatContact
-          (nome/telefone/empresa) na hora, sem precisar recarregar o widget. */}
+          (nome/telefone/empresa) na hora, sem precisar recarregar o widget.
+          fetchChatSessions() é o que falta pra além disso: o NOME MOSTRADO no cabeçalho
+          e na lista de conversas (customerName) vem de chat_sessions, não de
+          selectedChatContact — sem recarregar a lista, o "Ver informações" já mostrava o
+          nome novo, mas a conversa em si continuava com o antigo (achado 2026-09-30). O
+          servidor (PUT /api/users) já propaga o nome pra chat_sessions.customer_name das
+          conversas abertas desse contato — aqui só falta buscar de novo. */}
       <EditEmployeeModal
         isOpen={isEditContactModalOpen}
         onClose={() => setIsEditContactModalOpen(false)}
         user={selectedChatContact ?? null}
-        onSuccess={() => refetchAllUsers()}
+        onSuccess={() => {
+          refetchAllUsers();
+          fetchChatSessions().then(setCustomerSessions);
+        }}
       />
 
       <LinkTicketModal

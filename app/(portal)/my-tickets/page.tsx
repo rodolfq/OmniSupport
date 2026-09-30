@@ -16,7 +16,8 @@ import {
   List as ListIcon,
   Tag,
   FolderKanban,
-  Kanban
+  Kanban,
+  Star
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import { cn, normalizeString } from '@/lib/utils';
@@ -24,6 +25,8 @@ import { TicketDetailModal } from '@/components/ticket-detail-modal';
 import { CustomerDashboardPanel } from '@/components/customer-dashboard-panel';
 import { isClosedTicketStatus, getCustomerStatusLabel } from '@/lib/ticket-status';
 import { useSearchParams, useRouter } from 'next/navigation';
+import { ConfigService } from '@/lib/services/config-service';
+import { findStatusColor } from '@/lib/status-colors';
 
 interface InternalTicketItem extends InternalTicket {
   uuid: string;
@@ -48,14 +51,35 @@ const CUSTOMER_STATUS_FILTERS: Array<{ value: CustomerStatusFilter; label: strin
   { value: 'Finalizado', label: 'Finalizado' },
 ];
 
-// Board Kanban de "Meus Chamados" — mesmo modelo do Dashboard (coluna de
-// largura fixa, altura fixa por coluna com scroll interno, ver
-// app/(portal)/dashboard/page.tsx), só que travado nos 3 estados que o
-// cliente/funcionário já enxerga em todo o resto desta tela (getCustomerStatusLabel).
-const MY_TICKETS_KANBAN_COLUMNS: Array<{ status: 'Novo' | 'Em Andamento' | 'Finalizado'; title: string }> = [
-  { status: 'Novo', title: 'Novos' },
-  { status: 'Em Andamento', title: 'Em Andamento' },
-  { status: 'Finalizado', title: 'Finalizados' },
+// Board Kanban de "Meus Chamados" — mesmo visual do Kanban de "Todos os
+// Chamados" (app/(portal)/tickets/tickets-view.tsx: coluna com barra de cor
+// no topo + ponto no cabeçalho, card com estrelas de prioridade e tags) e
+// sem arrastar-e-soltar — aqui não faz sentido o cliente mudar status do
+// próprio chamado arrastando o card, e o card de dnd-kit da outra tela é
+// reaproveitado só no visual.
+//
+// As COLUNAS variam por quem está olhando (decisão do usuário, 2026-09-29):
+// Cliente/Funcionário continuam travados nos 3 estados que já enxergam em
+// todo o resto desta tela (getCustomerStatusLabel esconde sub-status/
+// "Aguardando Cliente" etc — não deve virar 4+ colunas granulares pra quem
+// nunca teve acesso a esse detalhe). Equipe/Administrador/Time Interno
+// (isInternalRole) veem as MESMAS colunas de "Todos os Chamados" — o
+// cadastro real de Configurações > Status, carregado abaixo.
+interface KanbanStatusMeta { value: string; label: string; dot: string; accent: string; isClosed: boolean }
+
+const MY_TICKETS_KANBAN_COLUMNS: Array<{ status: 'Novo' | 'Em Andamento' | 'Finalizado'; title: string; dot: string; accent: string }> = [
+  { status: 'Novo', title: 'Novos', dot: 'bg-[var(--text-info)]', accent: '#2563EB' },
+  { status: 'Em Andamento', title: 'Em Andamento', dot: 'bg-[var(--text-warning-strong)]', accent: '#D97706' },
+  { status: 'Finalizado', title: 'Finalizados', dot: 'bg-[var(--text-success)]', accent: '#16A34A' },
+];
+
+// Mesmo default de tickets-view.tsx, pro board não ficar em branco enquanto
+// o cadastro real ainda carrega (ou se a chamada falhar).
+const DEFAULT_INTERNAL_KANBAN_STATUSES: KanbanStatusMeta[] = [
+  { value: 'Novo', label: 'Novo', dot: 'bg-[var(--text-info)]', accent: '#2563EB', isClosed: false },
+  { value: 'Em Atendimento', label: 'Em Atendimento', dot: 'bg-[var(--text-warning-strong)]', accent: '#D97706', isClosed: false },
+  { value: 'Aguardando Cliente', label: 'Aguardando Cliente', dot: 'bg-[var(--text-secondary)]', accent: '#64748B', isClosed: false },
+  { value: 'Concluído', label: 'Concluído', dot: 'bg-[var(--text-success)]', accent: '#16A34A', isClosed: true },
 ];
 
 // Mesmo número do ícone "Meus Chamados" na sidebar (ver NavBadges em
@@ -116,6 +140,45 @@ export default function MyTicketsPage() {
   ));
   const [internalTickets, setInternalTickets] = useState<InternalTicketItem[]>([]);
   const [loadingInternal, setLoadingInternal] = useState(false);
+
+  // Colunas do Kanban pra quem é da equipe interna — mesmo cadastro
+  // (Configurações > Geral > Status) usado no board de "Todos os Chamados".
+  // Cliente/Funcionário nunca chamam isto (ver isInternalRole abaixo);
+  // ninguém troca isso via drag-and-drop aqui, então status arquivado ou de
+  // sub-status (parentStatusId) não faz diferença prática pro board — só os
+  // de topo, igual à outra tela.
+  const [internalKanbanStatuses, setInternalKanbanStatuses] = useState<KanbanStatusMeta[]>(DEFAULT_INTERNAL_KANBAN_STATUSES);
+  // "Mostrar chamados encerrados" — mesmo padrão de "Todos os Chamados"
+  // (tickets-view.tsx, 2026-09-29): por padrão só mostra as colunas ABERTAS;
+  // marcado, mostra só as FECHADAS (hoje só "Concluído", já que "Mesclado"
+  // nunca vira coluna — ver filtro abaixo).
+  const [showClosedKanban, setShowClosedKanban] = useState(false);
+  useEffect(() => {
+    if (!isInternalRole) return;
+    let cancelled = false;
+    ConfigService.getStatuses('ticket').then(data => {
+      if (cancelled) return;
+      // "Mesclado" nunca vira coluna aqui (pedido do usuário, 2026-09-30) —
+      // mesclar é operação de bastidor (SQL direto, fora do PATCH normal),
+      // não um passo do fluxo que alguém arrastaria um card pra dentro/fora.
+      const topLevel = data.filter(s => !s.parentStatusId && s.label !== 'Mesclado');
+      if (topLevel.length > 0) {
+        setInternalKanbanStatuses(topLevel.map(s => {
+          const c = findStatusColor(s.color);
+          return { value: s.label, label: s.label, dot: c.dot, accent: c.accent, isClosed: !!s.isClosed };
+        }));
+      }
+    }).catch(error => console.error('Error loading ticket statuses for kanban:', error));
+    return () => { cancelled = true; };
+  }, [isInternalRole]);
+
+  // Colunas efetivamente exibidas: abertas por padrão, só fechadas quando o
+  // checkbox está marcado — nunca as duas categorias juntas (mesmo padrão de
+  // "Todos os Chamados").
+  const displayedInternalKanbanStatuses = useMemo(
+    () => internalKanbanStatuses.filter(s => (showClosedKanban ? s.isClosed : !s.isClosed)),
+    [internalKanbanStatuses, showClosedKanban]
+  );
 
   useEffect(() => {
     if (!canSeeTickets && canSeeInternal) setTicketMode('internal');
@@ -233,13 +296,21 @@ export default function MyTicketsPage() {
   }, [allTickets, search]);
 
   const kanbanGrouped = useMemo(() => {
+    if (isInternalRole) {
+      const groups: Record<string, Ticket[]> = {};
+      internalKanbanStatuses.forEach(s => { groups[s.value] = []; });
+      kanbanTickets.forEach(t => {
+        if (groups[t.status]) groups[t.status].push(t);
+      });
+      return groups;
+    }
     const groups: Record<string, Ticket[]> = { 'Novo': [], 'Em Andamento': [], 'Finalizado': [] };
     kanbanTickets.forEach(t => {
       const label = getCustomerStatusLabel(t.status);
       if (groups[label]) groups[label].push(t);
     });
     return groups;
-  }, [kanbanTickets]);
+  }, [kanbanTickets, isInternalRole, internalKanbanStatuses]);
 
   const filteredInternalTickets = useMemo(() => {
     const normalQuery = normalizeString(search);
@@ -454,12 +525,20 @@ export default function MyTicketsPage() {
               </div>
 
               {filteredInternalTickets.length > visibleCount && (
-                <div className="text-center py-6">
+                <div className="text-center py-6 flex items-center justify-center gap-4">
                   <button
                     onClick={() => setVisibleCount(prev => prev + 12)}
                     className="bg-[var(--surface-card)] border border-[var(--border-default)] text-[var(--text-secondary)] px-6 py-2.5 rounded-xl text-[10px] font-semibold uppercase tracking-widest hover:border-[var(--text-warning-strong)]/40 hover:text-[var(--text-warning)] transition-all shadow-sm group active:scale-95"
                   >
                     Carregar mais tickets <span className="text-[var(--text-warning)] ml-1">({filteredInternalTickets.length - visibleCount})</span>
+                  </button>
+                  {/* Mesmo motivo do botão em "Meus Chamados" acima (achado
+                      2026-09-29) — dados já carregados, só o render era limitado. */}
+                  <button
+                    onClick={() => setVisibleCount(filteredInternalTickets.length)}
+                    className="text-[10px] font-semibold uppercase tracking-widest text-[var(--text-tertiary)] hover:text-[var(--text-warning)] underline underline-offset-2 transition-all"
+                  >
+                    Carregar todos
                   </button>
                 </div>
               )}
@@ -481,37 +560,69 @@ export default function MyTicketsPage() {
             </div>
           )
         ) : view === 'kanban' ? (
-          // Mesmo modelo do Dashboard: coluna de largura fixa, altura fixa
-          // por coluna (acompanha a tela, clamp) com scroll interno — a
-          // barra já é fina/minimalista por padrão (ver app/globals.css).
-          <div className="flex flex-col gap-6 md:flex-row md:items-start md:gap-4 md:overflow-x-auto md:scrollbar-thin md:pb-4">
-            {MY_TICKETS_KANBAN_COLUMNS.map(col => {
-              const colTickets = kanbanGrouped[col.status] || [];
+          // Mesmo visual do Kanban de "Todos os Chamados" (colunas com barra
+          // de cor no topo + card com estrelas/tags). Cliente/Funcionário
+          // usam as 3 colunas simplificadas de sempre (MY_TICKETS_KANBAN_COLUMNS);
+          // Equipe/Administrador/Time Interno usam o cadastro real de Status
+          // (displayedInternalKanbanStatuses) — mesmas colunas de "Todos os
+          // Chamados", incluindo o checkbox "Mostrar chamados encerrados"
+          // (2026-09-30): por padrão só as colunas abertas aparecem; marcado,
+          // só a(s) fechada(s) (hoje só "Concluído" — "Mesclado" nunca vira
+          // coluna, em nenhum dos dois estados).
+          <>
+            {isInternalRole && (
+              <label className="flex items-center gap-2 mb-4 cursor-pointer w-fit select-none">
+                <input
+                  type="checkbox"
+                  checked={showClosedKanban}
+                  onChange={(e) => setShowClosedKanban(e.target.checked)}
+                  className="w-4 h-4 rounded border-[var(--border-default)] accent-[var(--accent)] cursor-pointer"
+                />
+                <span className="text-[10px] font-semibold uppercase tracking-widest text-[var(--text-tertiary)]">
+                  Mostrar chamados encerrados
+                </span>
+              </label>
+            )}
+            <div className="flex flex-col gap-6 md:flex-row md:items-start md:gap-4 md:overflow-x-auto md:scrollbar-thin md:pb-4">
+            {(isInternalRole
+              ? displayedInternalKanbanStatuses.map(s => ({ key: s.value, title: s.label, dot: s.dot, accent: s.accent }))
+              : MY_TICKETS_KANBAN_COLUMNS.map(c => ({ key: c.status, title: c.title, dot: c.dot, accent: c.accent }))
+            ).map(col => {
+              const colTickets = kanbanGrouped[col.key] || [];
               return (
-                <div key={col.status} className="flex flex-col gap-3 md:w-[260px] md:shrink-0">
-                  <div className="flex items-center justify-between px-1">
-                    <h3 className="text-[10px] font-semibold uppercase tracking-[0.2em] text-[var(--text-tertiary)]">{col.title}</h3>
-                    <span className="bg-[var(--border-default)] text-[var(--text-secondary)] text-[10px] font-bold px-2 py-0.5 rounded-full">
+                <div
+                  key={col.key}
+                  className="rounded-2xl border-t-4 bg-[var(--surface-card)] overflow-hidden md:w-[280px] md:shrink-0"
+                  style={{ borderTopColor: col.accent }}
+                >
+                  <div className="flex items-center gap-2 px-4 py-3 border-b border-[var(--border-default)]">
+                    <span className={cn("w-2 h-2 rounded-full", col.dot)} />
+                    <h3 className="text-xs font-black uppercase tracking-wide text-[var(--text-secondary)]">{col.title}</h3>
+                    <span className="text-[10px] font-bold text-[var(--text-tertiary)] ml-auto bg-[var(--surface-pill)] px-2 py-0.5 rounded-full">
                       {colTickets.length}
                     </span>
                   </div>
-                  <div className="bg-[var(--surface-pill)]/50 rounded-2xl p-3 space-y-3 border border-dashed border-[var(--border-default)] md:h-[clamp(280px,calc(100vh_-_460px),640px)] md:overflow-y-auto">
-                    {colTickets.map(ticket => (
-                      <MyTicketKanbanCard
-                        key={ticket.id}
-                        ticket={ticket}
-                        notificationCount={navBadges.myTicketsUnreadByTicket[ticket.id] || 0}
-                        onClick={() => setSelectedTicket(ticket)}
-                      />
-                    ))}
-                    {colTickets.length === 0 && (
-                      <p className="text-center text-[11px] font-semibold text-[var(--text-tertiary)] py-6">Nenhum chamado</p>
+                  <div className="p-3 space-y-2.5 min-h-[120px] md:h-[clamp(280px,calc(100vh_-_460px),640px)] md:overflow-y-auto">
+                    {colTickets.length === 0 ? (
+                      <div className="text-center py-8 rounded-xl border-2 border-dashed border-[var(--border-default)]">
+                        <p className="text-[10px] text-[var(--text-tertiary)] font-medium uppercase tracking-wide">Nenhum chamado por aqui</p>
+                      </div>
+                    ) : (
+                      colTickets.map(ticket => (
+                        <MyTicketKanbanCard
+                          key={ticket.id}
+                          ticket={ticket}
+                          notificationCount={navBadges.myTicketsUnreadByTicket[ticket.id] || 0}
+                          onClick={() => setSelectedTicket(ticket)}
+                        />
+                      ))
                     )}
                   </div>
                 </div>
               );
             })}
-          </div>
+            </div>
+          </>
         ) : visibleTickets.length > 0 ? (
           <>
             <div className={cn(
@@ -589,12 +700,25 @@ export default function MyTicketsPage() {
             </div>
 
             {filteredTickets.length > visibleCount && (
-              <div className="text-center py-6">
+              <div className="text-center py-6 flex items-center justify-center gap-4">
                 <button
                   onClick={() => setVisibleCount(prev => prev + 12)}
                   className="bg-[var(--surface-card)] border border-[var(--border-default)] text-[var(--text-secondary)] px-6 py-2.5 rounded-xl text-[10px] font-semibold uppercase tracking-widest hover:border-[var(--accent)]/40 hover:text-[var(--accent-text)] transition-all shadow-sm group active:scale-95"
                 >
                   Carregar mais chamados <span className="text-[var(--accent-text)] ml-1">({filteredTickets.length - visibleCount})</span>
+                </button>
+                {/* Achado 2026-09-29 (chamado #1858, Ana Julia): quem tem muitos
+                    chamados atribuídos (aqui, 578) precisava clicar "Carregar
+                    mais" dezenas de vezes pra um chamado antigo aparecer — a
+                    busca por número já resolvia na hora (sem precisar disto),
+                    mas só pra quem já sabe o número. Um clique único carrega o
+                    resto: os dados já estão todos no navegador (só o
+                    RENDER era limitado), não pede nada novo ao servidor. */}
+                <button
+                  onClick={() => setVisibleCount(filteredTickets.length)}
+                  className="text-[10px] font-semibold uppercase tracking-widest text-[var(--text-tertiary)] hover:text-[var(--accent-text)] underline underline-offset-2 transition-all"
+                >
+                  Carregar todos
                 </button>
               </div>
             )}
@@ -630,25 +754,56 @@ export default function MyTicketsPage() {
   );
 }
 
-// Card compacto do modo Kanban — a coluna já diz o status, então só o
-// essencial: número, data e título (o resto — tags, descrição — continua só
-// no card do grid/lista e no modal de detalhe).
+// Card do modo Kanban — mesmo desenho do TicketKanbanCard de "Todos os
+// Chamados" (número + estrelas de prioridade, título em itálico, tags,
+// rodapé com a data), só sem o cursor de arrastar (aqui o card não é
+// draggable — ver comentário de MY_TICKETS_KANBAN_COLUMNS).
+const KANBAN_PRIORITY_LABELS = ['Baixa', 'Média', 'Alta', 'Urgente'];
+
 function MyTicketKanbanCard({ ticket, notificationCount = 0, onClick }: { ticket: Ticket; notificationCount?: number; onClick: () => void }) {
+  const currentPriority = KANBAN_PRIORITY_LABELS.indexOf(ticket.priority as string) + 1;
+
   return (
     <div
       onClick={onClick}
-      className="relative bg-[var(--surface-card)] p-3 rounded-xl border border-[var(--border-default)] cursor-pointer transition-all hover:shadow-md hover:border-[var(--accent)]/40 shadow-sm"
+      className="relative bg-[var(--surface-card)] rounded-xl p-3.5 border border-[var(--border-default)] cursor-pointer transition-all hover:shadow-md hover:border-[var(--accent)]/40 group"
     >
       <TicketNotificationBadge count={notificationCount} />
-      <div className="flex items-center justify-between mb-2">
-        <span className="text-[10px] font-semibold text-[var(--text-tertiary)] uppercase tracking-wider">
+      <div className="flex items-start justify-between mb-2">
+        <span className="text-[10px] font-mono font-semibold text-[var(--accent-text)]">
           #{ticket.ticketNumber ? String(ticket.ticketNumber).padStart(4, '0') : ticket.id.slice(0, 8)}
         </span>
-        <span className="text-[9px] text-[var(--text-tertiary)] font-semibold uppercase">
+        <div className="flex items-center gap-0.5">
+          {[1, 2, 3, 4].map(star => (
+            <Star
+              key={star}
+              size={10}
+              className={cn(star <= currentPriority ? "fill-amber-400 text-[var(--text-warning)]" : "text-slate-200")}
+            />
+          ))}
+        </div>
+      </div>
+
+      <h4 className="font-bold text-[var(--text-primary)] text-sm mb-2 line-clamp-2 leading-snug italic" title={ticket.title}>
+        {ticket.title}
+      </h4>
+
+      {ticket.tags && ticket.tags.length > 0 && (
+        <div className="flex flex-wrap gap-1 mb-2.5">
+          {ticket.tags.slice(0, 3).map(tag => (
+            <span key={tag} className="bg-[var(--surface-pill)] text-[var(--text-tertiary)] px-1.5 py-0.5 rounded-md text-[9px] font-semibold uppercase tracking-wide">
+              {tag}
+            </span>
+          ))}
+        </div>
+      )}
+
+      <div className="flex items-center gap-1.5 text-[var(--text-tertiary)]">
+        <Clock size={11} />
+        <span className="text-[10px] font-semibold uppercase">
           {new Date(ticket.createdAt).toLocaleDateString('pt-BR')}
         </span>
       </div>
-      <h4 className="text-xs font-semibold text-[var(--text-primary)] leading-snug line-clamp-2">{ticket.title}</h4>
     </div>
   );
 }

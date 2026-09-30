@@ -51,7 +51,7 @@ test.describe('POST /api/tickets?action=create', () => {
 test.describe('PUT /api/tickets — edição', () => {
   test('sem sessão retorna 401', async ({ request }) => {
     const res = await request.put('/api/tickets?id=id-inexistente', {
-      data: { status: 'Fechado' },
+      data: { status: 'Concluído' },
       headers: { cookie: '' },
     });
     expect(res.status()).toBe(401);

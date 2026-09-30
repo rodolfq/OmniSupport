@@ -33,11 +33,22 @@ const SCOPES: { value: Scope; label: string }[] = [
   { value: 'internal_ticket', label: 'Tickets Internos' },
 ];
 
-export function StatusManager() {
+interface StatusManagerProps {
+  // Restringe quais escopos aparecem no toggle — usado em Configurações >
+  // Geral (2026-09-30, divisão Chamados/Tickets Internos por permissão):
+  // quem só tem uma das duas permissões novas (settings:system_tickets /
+  // settings:system_internal) só deve ver o escopo correspondente, sem
+  // alternar pro outro escondido atrás do toggle. `undefined` = os dois
+  // (comportamento de sempre, pra quem tem settings:system "cheio").
+  allowedScopes?: Scope[];
+}
+
+export function StatusManager({ allowedScopes }: StatusManagerProps = {}) {
   const { currentUser } = useApp();
   const isAdmin = currentUser?.role === UserRole.ADMIN;
+  const visibleScopes = allowedScopes ? SCOPES.filter(s => allowedScopes.includes(s.value)) : SCOPES;
 
-  const [scope, setScope] = useState<Scope>('ticket');
+  const [scope, setScope] = useState<Scope>(visibleScopes[0]?.value || 'ticket');
   const [statuses, setStatuses] = useState<StatusConfig[]>([]);
   const [loading, setLoading] = useState(true);
   const [expanded, setExpanded] = useState<Set<string>>(new Set());
@@ -218,8 +229,9 @@ export function StatusManager() {
           </p>
         </div>
 
+        {visibleScopes.length > 1 && (
         <div className="flex bg-[var(--surface-pill)] p-1 rounded-2xl gap-1 self-start">
-          {SCOPES.map((s) => (
+          {visibleScopes.map((s) => (
             <button
               key={s.value}
               onClick={() => setScope(s.value)}
@@ -232,6 +244,7 @@ export function StatusManager() {
             </button>
           ))}
         </div>
+        )}
       </div>
 
       {isAdmin && (

@@ -86,13 +86,14 @@ interface TicketKanbanStatusMeta {
   color: string;
   dot: string;
   accent: string;
+  isClosed: boolean;
 }
 
 const DEFAULT_TICKET_KANBAN_STATUSES: TicketKanbanStatusMeta[] = [
-  { value: "Novo", label: "Novo", color: "bg-[var(--surface-info)] text-[var(--text-info)]", dot: "bg-[var(--text-info)]", accent: "#2563EB" },
-  { value: "Em Atendimento", label: "Em Atendimento", color: "bg-[var(--surface-warning)] text-[var(--text-warning)]", dot: "bg-[var(--text-warning-strong)]", accent: "#D97706" },
-  { value: "Aguardando Cliente", label: "Aguardando Cliente", color: "bg-[var(--surface-pill)] text-[var(--text-secondary)]", dot: "bg-[var(--text-secondary)]", accent: "#64748B" },
-  { value: "Concluído", label: "Concluído", color: "bg-[var(--surface-success)] text-[var(--text-success)]", dot: "bg-[var(--text-success)]", accent: "#16A34A" },
+  { value: "Novo", label: "Novo", color: "bg-[var(--surface-info)] text-[var(--text-info)]", dot: "bg-[var(--text-info)]", accent: "#2563EB", isClosed: false },
+  { value: "Em Atendimento", label: "Em Atendimento", color: "bg-[var(--surface-warning)] text-[var(--text-warning)]", dot: "bg-[var(--text-warning-strong)]", accent: "#D97706", isClosed: false },
+  { value: "Aguardando Cliente", label: "Aguardando Cliente", color: "bg-[var(--surface-pill)] text-[var(--text-secondary)]", dot: "bg-[var(--text-secondary)]", accent: "#64748B", isClosed: false },
+  { value: "Concluído", label: "Concluído", color: "bg-[var(--surface-success)] text-[var(--text-success)]", dot: "bg-[var(--text-success)]", accent: "#16A34A", isClosed: true },
 ];
 
 function SortableHeader({
@@ -202,6 +203,14 @@ export function TicketsView({
   const [totalPages, setTotalPages] = useState(1);
   const [totalCount, setTotalCount] = useState(0);
   const [pageSize] = useState(10);
+  // Kanban não pagina por número de página como Tabela/Cards — mostra um
+  // LOTE (sempre a partir do começo) que só cresce com "Carregar mais"/
+  // "Carregar todos", igual ao padrão já usado em Meus Chamados/Tickets
+  // Internos. Antes o board pedia o mesmo pageSize=10 da tabela (o servidor
+  // também travava em 10, ver app/api/search/route.ts) e nunca tinha como
+  // ver o resto — só 10 chamados no total, espalhados pelas colunas.
+  const KANBAN_BATCH_SIZE = 60;
+  const [kanbanPageSize, setKanbanPageSize] = useState(KANBAN_BATCH_SIZE);
   const [searchFilters, setSearchFilters] = useState<SearchFilters>({});
   // Atalhos rápidos do cabeçalho (Todos/Minhas/Sem responsável/Atrasadas/
   // Alta prioridade) — dimensão independente do painel de Filtros avançados
@@ -346,7 +355,12 @@ export function TicketsView({
       // WHERE, antes da paginação. Fazer de novo aqui client-side, depois de
       // já ter só os `pageSize` da página atual, era o bug: podia sobrar
       // menos itens que o anunciado (ou nenhum) mesmo havendo mais páginas.
-      const result = await searchTickets(effectiveFilters, currentPage, pageSize);
+      // Kanban sempre busca a partir da página 1, com o LOTE crescente de
+      // kanbanPageSize (ver comentário na declaração do state) — Tabela/Cards
+      // continuam com a paginação numerada de sempre.
+      const result = viewMode === "kanban"
+        ? await searchTickets(effectiveFilters, 1, kanbanPageSize)
+        : await searchTickets(effectiveFilters, currentPage, pageSize);
 
       setFilteredTickets(result.tickets);
       setTotalCount(result.total);
@@ -361,24 +375,34 @@ export function TicketsView({
   const handleSearch = async (filters: SearchFilters, page: number) => {
     setSearchFilters(filters);
     setCurrentPage(page);
+    setKanbanPageSize(KANBAN_BATCH_SIZE);
   };
 
   const handleQuickFilterChange = (key: typeof quickFilter) => {
     setQuickFilter(key);
     setCurrentPage(1);
+    setKanbanPageSize(KANBAN_BATCH_SIZE);
   };
 
   const handlePagination = (newPage: number) => {
     setCurrentPage(newPage);
   };
 
+  // Mesmo teto de 500 do servidor (app/api/search/route.ts) — sem isso o
+  // botão prometeria "todos" e a resposta viria cortada em silêncio.
+  const KANBAN_MAX_PAGE_SIZE = 500;
+  const handleKanbanLoadMore = () => setKanbanPageSize(prev => Math.min(prev + KANBAN_BATCH_SIZE, KANBAN_MAX_PAGE_SIZE));
+  const handleKanbanLoadAll = () => setKanbanPageSize(Math.min(Math.max(totalCount, KANBAN_BATCH_SIZE), KANBAN_MAX_PAGE_SIZE));
+
   useEffect(() => {
     if (!currentUser?.id) return;
-    const requestKey = `${currentUser.id}:${currentPage}:${JSON.stringify(effectiveFilters)}:${refreshTrigger}`;
+    const requestKey = viewMode === "kanban"
+      ? `${currentUser.id}:kanban:${kanbanPageSize}:${JSON.stringify(effectiveFilters)}:${refreshTrigger}`
+      : `${currentUser.id}:${currentPage}:${JSON.stringify(effectiveFilters)}:${refreshTrigger}`;
     if (lastAutomaticRequestKeyRef.current === requestKey) return;
     lastAutomaticRequestKeyRef.current = requestKey;
     loadTickets();
-  }, [currentUser?.id, currentPage, effectiveFilters, refreshTrigger]);
+  }, [currentUser?.id, currentPage, viewMode, kanbanPageSize, effectiveFilters, refreshTrigger]);
 
   // Contagens dos chips — independem de qual chip está ativo (mostram as 5
   // colunas de uma vez), só acompanham os Filtros avançados/busca de texto.
@@ -458,15 +482,19 @@ export function TicketsView({
 
   // Status pra montar as colunas do Kanban — mesmo cadastro (Configurações >
   // Geral > Status) usado no board de Tickets Internos e no Dashboard.
+  // "Mesclado" nunca vira coluna (pedido do usuário, 2026-09-29): mesclar é
+  // uma operação de bastidor (SQL direto, sem passar pelo PATCH normal — ver
+  // seção 15 do CLAUDE.md), não um passo do fluxo que alguém arrastaria um
+  // card para dentro/fora.
   useEffect(() => {
     async function loadKanbanStatuses() {
       try {
         const data = await ConfigService.getStatuses('ticket');
-        const topLevel = data.filter(s => !s.parentStatusId);
+        const topLevel = data.filter(s => !s.parentStatusId && s.label !== 'Mesclado');
         if (topLevel.length > 0) {
           setKanbanStatuses(topLevel.map(s => {
             const c = findStatusColor(s.color);
-            return { value: s.label, label: s.label, color: `${c.bg} ${c.text}`, dot: c.dot, accent: c.accent };
+            return { value: s.label, label: s.label, color: `${c.bg} ${c.text}`, dot: c.dot, accent: c.accent, isClosed: !!s.isClosed };
           }));
         }
       } catch (error) {
@@ -475,6 +503,16 @@ export function TicketsView({
     }
     loadKanbanStatuses();
   }, []);
+
+  // Coluna de status fechado (hoje só "Concluído", já que "Mesclado" foi
+  // excluído acima) só aparece quando "Mostrar chamados encerrados" está
+  // marcado no painel de Filtros — e, marcado, vira a ÚNICA coluna (pedido do
+  // usuário, 2026-09-29): sem isso, o board sempre carregava/mostrava chamado
+  // fechado misturado com os em aberto, mesmo com o filtro desmarcado.
+  const displayedKanbanStatuses = useMemo(
+    () => kanbanStatuses.filter(s => (effectiveFilters.includeClosed ? s.isClosed : !s.isClosed)),
+    [kanbanStatuses, effectiveFilters.includeClosed]
+  );
 
   const internalLinksByTicket = useMemo(() => {
     const map = new Map<string, InternalLinkRow[]>();
@@ -1161,13 +1199,42 @@ export function TicketsView({
       </div>
 
       {viewMode === "kanban" ? (
-        <TicketKanbanBoard
-          tickets={visibleTickets}
-          statuses={kanbanStatuses}
-          loading={loading}
-          onEdit={setSelectedTicket}
-          onStatusChange={handleSingleStatusChange}
-        />
+        <>
+          <TicketKanbanBoard
+            tickets={visibleTickets}
+            statuses={displayedKanbanStatuses}
+            loading={loading}
+            onEdit={setSelectedTicket}
+            onStatusChange={handleSingleStatusChange}
+          />
+          {/* Sem isso o board mostrava sempre só os primeiros
+              KANBAN_BATCH_SIZE chamados no total (espalhados pelas colunas),
+              sem nenhum jeito de ver o resto — mesmo padrão de "Carregar
+              mais"/"Carregar todos" de Meus Chamados e Tickets Internos. */}
+          {!loading && totalCount > visibleTickets.length && kanbanPageSize < KANBAN_MAX_PAGE_SIZE && (
+            <div className="text-center py-6 flex items-center justify-center gap-4">
+              <button
+                onClick={handleKanbanLoadMore}
+                className="bg-[var(--surface-card)] border border-[var(--border-default)] text-[var(--text-secondary)] px-6 py-2.5 rounded-xl text-[10px] font-semibold uppercase tracking-widest hover:border-[var(--accent)]/40 hover:text-[var(--accent-text)] transition-all shadow-sm group active:scale-95"
+              >
+                Carregar mais chamados <span className="text-[var(--accent-text)] ml-1">({totalCount - visibleTickets.length})</span>
+              </button>
+              <button
+                onClick={handleKanbanLoadAll}
+                className="text-[10px] font-semibold uppercase tracking-widest text-[var(--text-tertiary)] hover:text-[var(--accent-text)] underline underline-offset-2 transition-all"
+              >
+                Carregar todos
+              </button>
+            </div>
+          )}
+          {/* Chegou no teto de 500 e ainda sobra chamado — avisa em vez de
+              deixar os botões sumirem sem explicação nenhuma. */}
+          {!loading && totalCount > visibleTickets.length && kanbanPageSize >= KANBAN_MAX_PAGE_SIZE && (
+            <p className="text-center text-[10px] font-semibold uppercase tracking-widest text-[var(--text-tertiary)] py-4">
+              Mostrando os {visibleTickets.length} mais recentes de {totalCount} — refine os filtros para ver o restante.
+            </p>
+          )}
+        </>
       ) : viewMode === "cards" ? (
         <>
           {loading ? (
@@ -1608,7 +1675,7 @@ export function TicketsView({
                   { value: TicketStatus.NEW, label: 'Novo', color: 'bg-[var(--surface-info)] text-[var(--text-info)]' },
                   { value: TicketStatus.IN_PROGRESS, label: 'Em Atendimento', color: 'bg-[var(--surface-warning)] text-[var(--text-warning)]' },
                   { value: 'Aguardando Cliente', label: 'Aguardando Cliente', color: 'bg-[var(--surface-pill)] text-[var(--text-secondary)]' },
-                  { value: TicketStatus.CLOSED, label: 'Concluído/Fechado', color: 'bg-[var(--surface-success)] text-[var(--text-success)]' },
+                  { value: TicketStatus.CLOSED, label: 'Concluído', color: 'bg-[var(--surface-success)] text-[var(--text-success)]' },
                 ].map(status => (
                   <button
                     key={status.value}

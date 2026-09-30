@@ -2,7 +2,7 @@
 
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import Link from 'next/link';
-import { RefreshCw, Mail, CheckCircle2, ArrowRight, Loader2, X, Video, CalendarRange } from 'lucide-react';
+import { RefreshCw, Mail, CheckCircle2, ArrowRight, Loader2, X, Video, CalendarRange, Utensils } from 'lucide-react';
 import { toast } from 'sonner';
 import { motion, AnimatePresence } from 'motion/react';
 import { cn } from '@/lib/utils';
@@ -327,6 +327,14 @@ export function GiroStatusPopover() {
                     </p>
                     <p className="text-sm font-black text-[var(--text-primary)] truncate">{current?.userName}</p>
                   </div>
+                  {/* Só acontece se TODO MUNDO estiver em almoço agora (ver isCurrent
+                      em giro-service.ts) — aí não há pra quem pular, e esta pessoa
+                      aparece como "na vez" mesmo em almoço; o ícone explica por quê. */}
+                  {current?.isAwayForLunch && (
+                    <span title="Em almoço agora — só ela na lista, por isso continua na vez" className="shrink-0">
+                      <Utensils size={14} className="text-[var(--text-warning)]" />
+                    </span>
+                  )}
                   {current && current.serviceType !== 'Chamado' && (
                     <span className="px-2.5 py-1 rounded-lg bg-[var(--surface-warning)] text-[var(--text-warning)] text-[9px] font-black uppercase tracking-widest shrink-0">
                       {current.serviceType}
@@ -349,9 +357,12 @@ export function GiroStatusPopover() {
                   )}
                 </div>
 
-                {/* fila do dia */}
+                {/* fila do dia — quem NÃO é "current" agora, não simplesmente
+                    "todo mundo menos o índice 0": current pula quem está em
+                    almoço (ver isCurrent em lib/services/giro-service.ts), então
+                    o "na vez" pode estar em qualquer posição da lista. */}
                 <div className="max-h-[220px] overflow-y-auto p-2.5 space-y-1.5">
-                  {summary.rows.slice(1).map(row => (
+                  {summary.rows.filter(row => row.id !== current?.id).map(row => (
                     <div key={row.id} className="flex items-center gap-2.5 px-3 py-2 rounded-xl hover:bg-[var(--surface-pill)]/60 transition-colors group">
                       <span className="w-6 text-center text-[10px] font-black tabular-nums text-[var(--text-tertiary)] shrink-0">
                         {row.position}
@@ -364,6 +375,11 @@ export function GiroStatusPopover() {
                       {row.isHandoff && (
                         <span title="Responsável pela passagem de turno por e-mail" className="shrink-0">
                           <Mail size={11} className="text-[var(--accent-text)]" />
+                        </span>
+                      )}
+                      {row.isAwayForLunch && (
+                        <span title="Em almoço agora — fora da vez até voltar" className="shrink-0">
+                          <Utensils size={11} className="text-[var(--text-warning)]" />
                         </span>
                       )}
                       {row.serviceType !== 'Chamado' && (

@@ -33,7 +33,7 @@ import {
 import { isClosedTicketStatus, registerClosedStatusLabels, getCustomerStatusLabel } from '@/lib/ticket-status';
 import { addBusinessHours } from '@/lib/sla';
 import { FieldChange, formatChangeMessage } from '@/lib/ticket-diff';
-import { fileToBase64 } from '@/lib/image-utils';
+import { uploadAttachment } from '@/lib/attachment-upload';
 import { splitAttachmentsByBudget, MAX_ATTACHMENT_TOTAL_LABEL } from '@/lib/attachment-limits';
 
 interface TicketDetailModalProps {
@@ -56,7 +56,6 @@ function internalStatusMeta(status?: string | null) {
       return { label: status, color: 'bg-[var(--surface-pill)] text-[var(--text-secondary)]' };
     case 'Concluído':
     case 'Resolvido':
-    case 'Fechado':
     case 'Encerrado':
       return { label: status, color: 'bg-[var(--surface-success)] text-[var(--text-success)]' };
     case 'Cancelado':
@@ -165,6 +164,9 @@ export function TicketDetailModal({ ticket, onClose, initialDraft }: TicketDetai
   // nasce certo.
   const [message, setMessage] = useState(() => initialDraft?.text || '');
    const [messageAttachments, setMessageAttachments] = useState<Attachment[]>(() => initialDraft?.attachments || []);
+   // Upload de anexo agora é de verdade (multipart, ver lib/attachment-upload.ts),
+   // então pode demorar num arquivo grande — trava o "Enviar Nota" até terminar.
+   const [isUploadingAttachment, setIsUploadingAttachment] = useState(false);
    const [previewAttachment, setPreviewAttachment] = useState<Attachment | null>(null);
    const messageFileInputRef = useRef<HTMLInputElement>(null);
   const [messages, setMessages] = useState<Message[]>([]);
@@ -335,18 +337,19 @@ export function TicketDetailModal({ ticket, onClose, initialDraft }: TicketDetai
       // (Cliente), não tem nada a ver com o papel Administrador daqui —
       // depender dela pra incluir Administrador excluía quem tivesse essa
       // flag falsa, e via de regra é sempre falsa pra papel interno.
-      if (currentUser?.role === 'Time Interno' && currentUser?.internalTeamIds) {
-        // Time Interno: só enxerga os colegas de Time Interno do PRÓPRIO
-        // time (não vê Time Interno de outros times) — Equipe/Administrador
-        // continuam inteiros.
-        const userTeams = currentUser.internalTeamIds;
-        setAnalysts(profiles.filter((u: any) =>
-          u.role === 'Equipe' || u.role === 'Administrador' ||
-          (u.role === 'Time Interno' && u.internalTeamIds?.some((t: string) => userTeams.includes(t)))
-        ) as any);
-      } else {
-        setAnalysts(profiles.filter((u: any) => u.role === 'Equipe' || u.role === 'Administrador' || u.role === 'Time Interno') as any);
-      }
+      //
+      // Achado em 2026-09-29 (Bianca Oliveira — Time Interno/Suporte — não
+      // encontrava o próprio nome como responsável): até aqui, um viewer Time
+      // Interno via só os colegas de Time Interno do PRÓPRIO time, além de
+      // Equipe/Administrador inteiros — inconsistente com o parágrafo acima,
+      // que é justamente o argumento de por que NÃO restringir por time (quem
+      // decide é a Fila). Resultado prático: alguém de outro time interno
+      // (Desenvolvimento/Hardware/Treinamento/CRC-CS) nunca via ninguém do
+      // Suporte na lista, e vice-versa — mesmo estando os dois na mesma Fila.
+      // Sem essa restrição, Time Interno passa a enxergar TODO mundo, igual
+      // Equipe/Administrador; `assignableAnalysts` continua sendo o filtro
+      // que importa de verdade.
+      setAnalysts(profiles.filter((u: any) => u.role === 'Equipe' || u.role === 'Administrador' || u.role === 'Time Interno') as any);
     }
     const statusList = statusesQuery.data;
     if (statusList) {
@@ -688,7 +691,7 @@ const loadMessages = async () => {
     // Nota com SÓ anexo é válida (texto vazio): o editor vazio devolve
     // "<p></p>", que também conta como sem texto.
     const noteHasText = () => !!message.trim() && message !== '<p></p>';
-    const canSendNote = () => noteHasText() || messageAttachments.length > 0;
+    const canSendNote = () => (noteHasText() || messageAttachments.length > 0) && !isUploadingAttachment;
 
     const handleSendMessage = async (isInternal: boolean) => {
       if (!canSendNote() || !currentUser || !ticket) return;
@@ -804,12 +807,12 @@ const loadMessages = async () => {
 
     // Compartilhado entre o seletor de arquivo ("Anexar") e o colar
     // (Ctrl+V) de imagem no editor da nota — mesmas regras (teto de
-    // tamanho, conversão pra data URL) pros dois caminhos.
+    // tamanho, upload de verdade) pros dois caminhos.
     const addMessageAttachments = async (selected: File[]) => {
       if (selected.length === 0) return;
 
-      // Barra ANTES de ler o arquivo (fileToBase64) — sem isso, o erro só
-      // aparecia no console na hora de ENVIAR a nota (413 do proxy, ver
+      // Barra ANTES de subir o arquivo — sem isso, o erro só aparecia no
+      // console na hora de ENVIAR a nota (413 do proxy, ver
       // guia-implementacao-servidor.html), sem nenhum aviso em tela.
       const existingBytes = messageAttachments.reduce((sum, a) => sum + (a.size || 0), 0);
       const { accepted: files, rejected } = splitAttachmentsByBudget(selected, existingBytes);
@@ -820,30 +823,18 @@ const loadMessages = async () => {
       }
       if (files.length === 0) return;
 
-      for (const file of files) {
-        const fileId = Math.random().toString(36).substr(2, 9);
-
-        // lib/supabase.ts é um shim de compatibilidade que só imita a API do
-        // Supabase (ver CLAUDE.md) — o storage.upload dele nunca escreveu o
-        // arquivo em lugar nenhum, só devolvia uma URL /uploads/... que não
-        // existe. Mesmo padrão já usado em new-ticket-modal.tsx e no chat:
-        // guarda o arquivo como data: URL (base64) direto na coluna
-        // attachments_data, sem depender de storage externo.
-        let dataUrl: string;
-        try {
-          dataUrl = await fileToBase64(file);
-        } catch {
-          toast.error(`Erro ao fazer upload de ${file.name}`);
-          continue;
+      setIsUploadingAttachment(true);
+      try {
+        for (const file of files) {
+          try {
+            const attachment = await uploadAttachment(file);
+            setMessageAttachments(prev => [...prev, attachment]);
+          } catch {
+            toast.error(`Erro ao fazer upload de ${file.name}`);
+          }
         }
-
-        setMessageAttachments(prev => [...prev, {
-          id: fileId,
-          name: file.name,
-          type: file.type,
-          url: dataUrl,
-          size: file.size
-        }]);
+      } finally {
+        setIsUploadingAttachment(false);
       }
     };
 
@@ -1619,7 +1610,10 @@ const loadMessages = async () => {
                              >
                                 <option value="">+ Adicionar</option>
                                 {allUsers
-                                  .filter(u => (u.role === UserRole.EMPLOYEE) && !employeeIds.includes(u.id))
+                                  // Escopado pela empresa do CHAMADO (companyId), não a lista inteira —
+                                  // achado 2026-09-30: mostrava funcionário de qualquer empresa-cliente,
+                                  // não só da empresa selecionada aqui.
+                                  .filter(u => u.role === UserRole.EMPLOYEE && u.companyId === companyId && !employeeIds.includes(u.id))
                                   .map(u => <option key={u.id} value={u.id}>{u.name}</option>)}
                              </StyledSelect>
                           </div>
@@ -2216,10 +2210,11 @@ const loadMessages = async () => {
                            <button
                              type="button"
                              onClick={() => messageFileInputRef.current?.click()}
-                             className="px-3 py-1.5 rounded-lg border border-[var(--border-default)] text-[var(--text-secondary)] hover:bg-[var(--surface-card)] transition-colors text-[10px] font-semibold uppercase tracking-widest flex items-center gap-1"
+                             disabled={isUploadingAttachment}
+                             className="px-3 py-1.5 rounded-lg border border-[var(--border-default)] text-[var(--text-secondary)] hover:bg-[var(--surface-card)] transition-colors text-[10px] font-semibold uppercase tracking-widest flex items-center gap-1 disabled:opacity-50"
                            >
-                             <Paperclip size={12} />
-                             Anexar
+                             {isUploadingAttachment ? <Loader2 size={12} className="animate-spin" /> : <Paperclip size={12} />}
+                             {isUploadingAttachment ? 'Enviando...' : 'Anexar'}
                            </button>
                         </div>
                         <button
@@ -2407,10 +2402,11 @@ const loadMessages = async () => {
                          <button
                            type="button"
                            onClick={() => messageFileInputRef.current?.click()}
-                           className="px-3 py-1.5 rounded-lg border border-[var(--border-default)] text-[var(--text-secondary)] hover:bg-[var(--surface-card)] transition-colors text-[10px] font-semibold uppercase tracking-widest flex items-center gap-1"
+                           disabled={isUploadingAttachment}
+                           className="px-3 py-1.5 rounded-lg border border-[var(--border-default)] text-[var(--text-secondary)] hover:bg-[var(--surface-card)] transition-colors text-[10px] font-semibold uppercase tracking-widest flex items-center gap-1 disabled:opacity-50"
                          >
-                           <Paperclip size={12} />
-                           Anexar
+                           {isUploadingAttachment ? <Loader2 size={12} className="animate-spin" /> : <Paperclip size={12} />}
+                           {isUploadingAttachment ? 'Enviando...' : 'Anexar'}
                          </button>
                       </div>
                       <div className="flex items-center gap-2">

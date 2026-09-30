@@ -470,6 +470,22 @@ export async function POST(request: Request) {
         }
       }
 
+      // Mesma trava de colaboradores da edição (PUT, abaixo) — o client
+      // (new-ticket-modal.tsx) já escopa por empresa, mas isso é só o
+      // client; sem checar aqui, chamar a rota direto ainda vazaria o
+      // chamado pra funcionário de outra empresa (employee_ids concede
+      // visibilidade, ver app/api/search/route.ts).
+      if (Array.isArray(ticket.employeeIds) && ticket.employeeIds.length > 0) {
+        const validRes = await query(
+          `SELECT id FROM public.profiles WHERE id = ANY($1::uuid[]) AND role = 'Funcionário' AND company_id = $2`,
+          [ticket.employeeIds, companyId]
+        );
+        const validIds = new Set(validRes.rows.map((r: any) => r.id));
+        if (ticket.employeeIds.some((eid: string) => !validIds.has(eid))) {
+          return NextResponse.json({ error: 'Um ou mais colaboradores não pertencem à empresa deste chamado.' }, { status: 400 });
+        }
+      }
+
       // Anexo chega do client como data: URL e é gravado em disco aqui (ver
       // lib/services/attachment-storage.ts) — no banco fica só a URL curta.
       const ticketAttachments = await persistAttachments(ticket.attachments || []);
@@ -626,6 +642,38 @@ export async function PUT(request: NextRequest) {
     const oldRes = await query('SELECT * FROM public.tickets WHERE id = $1', [id]);
     const oldTicket = oldRes.rows[0];
 
+    // Status/sub-status contra o cadastro ATUAL de config_statuses — achado
+    // em 2026-09-30: esta rota nunca validou o valor (tickets.status é TEXT
+    // livre, sem CHECK/FK), diferente da API de integração externa
+    // (app/api/integrations/v1/tickets/route.ts), que já faz essa checagem.
+    // Depois de remover o status "Fechado" do cadastro (merge_fechado_into_concluido.sql,
+    // 2026-09-29), chamados continuaram nascendo com status='Fechado' em
+    // produção — rastreado a uma aba com o dropdown carregado ANTES da
+    // remoção (a lista fica em memória no React, não é revalidada sozinha):
+    // sem essa trava, o servidor aceitava o valor obsoleto de bom grado.
+    if ('status' in ticket && ticket.status) {
+      const statusCatalogRes = await query(
+        `SELECT id, label, parent_status_id FROM public.config_statuses WHERE scope = 'ticket'`
+      );
+      const statusCatalog = statusCatalogRes.rows;
+      const statusRow = statusCatalog.find((s: any) => s.label === ticket.status && !s.parent_status_id);
+      if (!statusRow) {
+        return NextResponse.json(
+          { error: `O status "${ticket.status}" não existe mais em Configurações. Atualize a página (F5) e tente de novo.` },
+          { status: 400 }
+        );
+      }
+      if ('subStatus' in ticket && ticket.subStatus) {
+        const subRow = statusCatalog.find((s: any) => s.label === ticket.subStatus && s.parent_status_id === statusRow.id);
+        if (!subRow) {
+          return NextResponse.json(
+            { error: `O sub-status "${ticket.subStatus}" não existe mais em Configurações (ou não pertence a "${ticket.status}"). Atualize a página (F5) e tente de novo.` },
+            { status: 400 }
+          );
+        }
+      }
+    }
+
     // SET dinâmico a partir das chaves REALMENTE enviadas. É o que reproduz a
     // semântica que o shim tinha e que a tela de detalhe depende:
     //   chave ausente  -> coluna não é tocada
@@ -664,6 +712,32 @@ export async function PUT(request: NextRequest) {
     // quebrando trocar responsável e responder no chamado (o campo ia junto no
     // spread do objeto, mesmo sem ninguém ter editado a descrição).
     const NOT_NULL_FIELDS = new Set(['title', 'description', 'status', 'priority']);
+
+    // Colaboradores (employeeIds) só podem ser Funcionário da MESMA empresa
+    // do chamado — achado 2026-09-30: o seletor no client (ticket-detail-modal.tsx)
+    // listava funcionário de qualquer empresa-cliente, e como employee_ids
+    // concede visibilidade do chamado (ver app/api/search/route.ts, `$1 = ANY
+    // (employee_ids)`), isso não era só cosmético — vazava o chamado pra
+    // funcionário de OUTRA empresa se alguém chamasse a rota direto. A empresa
+    // de referência é a EFETIVA desta gravação: se `companyId` está mudando
+    // no mesmo payload, usa o valor novo; senão, a que já está no banco.
+    if (Array.isArray(ticket.employeeIds) && ticket.employeeIds.length > 0) {
+      const effectiveCompanyId = 'companyId' in ticket && ticket.companyId !== undefined
+        ? (ticket.companyId || null)
+        : (oldTicket?.company_id || null);
+      if (!effectiveCompanyId) {
+        return NextResponse.json({ error: 'Chamado sem empresa definida — não é possível adicionar colaboradores.' }, { status: 400 });
+      }
+      const validRes = await query(
+        `SELECT id FROM public.profiles WHERE id = ANY($1::uuid[]) AND role = 'Funcionário' AND company_id = $2`,
+        [ticket.employeeIds, effectiveCompanyId]
+      );
+      const validIds = new Set(validRes.rows.map((r: any) => r.id));
+      const invalid = ticket.employeeIds.filter((eid: string) => !validIds.has(eid));
+      if (invalid.length > 0) {
+        return NextResponse.json({ error: 'Um ou mais colaboradores não pertencem à empresa deste chamado.' }, { status: 400 });
+      }
+    }
 
     const sets: string[] = [];
     const params: any[] = [];

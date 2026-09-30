@@ -7,7 +7,7 @@ import { emitChatEvent, emitSessionsChanged, excludeActiveViewers } from '../cha
 import { notifyUser } from './push-service';
 import { getChatRecipientIds } from './notification-recipients';
 import { resolveQueueForInstance, resolveQueueById, pickNextQueueAssignee, dispatchPendingChatSessions, isOnlineQueueMember } from './queue-routing';
-import { storeAttachmentBuffer } from './attachment-storage';
+import { storeAttachmentBuffer, remuxAudioForSeeking } from './attachment-storage';
 import { transcribeMessageAudio, isAudioAttachment, isTranscriptionEnabled } from './transcription-service';
 import { isCrisisModeEnabled, recordCrisisModeMessage, getCrisisModeMessage } from './crisis-mode-service';
 import { resolveReplyQuote } from './chat-reply';
@@ -574,6 +574,28 @@ export class PyvonService {
     }
   ) {
     const placeHoldersFor = (arr: string[]) => arr.map((_, i) => `$${i + 1}`).join(',');
+    // `forceAssigneeId` só era aplicado na INSERÇÃO de uma sessão nova — os dois
+    // `return` abaixo (sessão já existente, ainda aberta) e o de "perdeu a
+    // corrida" mais adiante devolviam a linha como estava, ignorando quem
+    // forçou. Achado em 2026-09-29 (chamado #3767: Pablo Arregue clicou "Novo
+    // WhatsApp", a conversa nasceu pro Mauro Paula) — o "forçar" precisa valer
+    // em TODO caminho que devolve uma sessão, não só no de criar. Mesma regra
+    // de sempre (claimSessionIfUnassigned): só reivindica se ainda ESTIVER sem
+    // responsável — nunca tira atendimento de quem já está atendendo de fato.
+    const claimIfUnassigned = async (row: any) => {
+      if (!row || !options?.forceAssigneeId || row.assignee_id) return row;
+      const claimed = await query(
+        `UPDATE public.chat_sessions SET assignee_id = $1, status = 'active', updated_at = NOW()
+          WHERE id = $2 AND assignee_id IS NULL
+          RETURNING id, customer_phone, customer_id, customer_name, assignee_id, queue_id, pyvon_cadastro_id, pyvon_pending_note_text, pyvon_pending_note_author_id`,
+        [options.forceAssigneeId, row.id]
+      );
+      if (claimed.rows[0]) {
+        emitSessionsChanged({ reason: 'assigned', sessionId: row.id });
+        return claimed.rows[0];
+      }
+      return row;
+    };
 
     if (variants.length) {
       const existing = await query(
@@ -583,7 +605,7 @@ export class PyvonService {
           ORDER BY updated_at DESC LIMIT 1`,
         variants
       );
-      if (existing.rows[0]) return existing.rows[0];
+      if (existing.rows[0]) return await claimIfUnassigned(existing.rows[0]);
     } else {
       // Canal sem telefone exposto (ex.: Instagram) — casa só pelo cadastro_id.
       const existing = await query(
@@ -593,7 +615,7 @@ export class PyvonService {
           ORDER BY updated_at DESC LIMIT 1`,
         [cadastroId]
       );
-      if (existing.rows[0]) return existing.rows[0];
+      if (existing.rows[0]) return await claimIfUnassigned(existing.rows[0]);
     }
 
     const digits = variants[0] || null;
@@ -654,7 +676,9 @@ export class PyvonService {
       return newSession;
     }
 
-    // Perdeu a corrida contra outro processo — usa a sessão que venceu.
+    // Perdeu a corrida contra outro processo — usa a sessão que venceu, mas
+    // ainda reivindica pra quem forçou se a vencedora tiver nascido sem
+    // responsável (ex.: rodízio sem ninguém online na fila).
     if (variants.length) {
       const retryRes = await query(
         `SELECT id, customer_phone, customer_id, customer_name, assignee_id, queue_id, pyvon_cadastro_id, pyvon_pending_note_text, pyvon_pending_note_author_id
@@ -662,7 +686,7 @@ export class PyvonService {
           ORDER BY updated_at DESC LIMIT 1`,
         variants
       );
-      return retryRes.rows[0] || null;
+      return retryRes.rows[0] ? await claimIfUnassigned(retryRes.rows[0]) : null;
     }
     return null;
   }
@@ -681,10 +705,21 @@ export class PyvonService {
         validateStatus: () => true
       });
       if (res.status === 200) {
-        const mimeType = (res.headers['content-type'] as string) || 'application/octet-stream';
+        let mimeType = (res.headers['content-type'] as string) || 'application/octet-stream';
         const disposition = (res.headers['content-disposition'] as string) || '';
         const fileName = disposition.match(/filename="?([^"]+)"?/)?.[1];
-        const buffer = Buffer.from(res.data);
+        let buffer = Buffer.from(res.data);
+        // Áudio de voz (OGG/Opus) reencodado na entrada — sem isso o Chrome não
+        // sabe pular/voltar dentro do áudio no widget (ver comentário de
+        // remuxAudioForSeeking). Se o ffmpeg falhar, segue com o buffer
+        // original — pior o áudio herda o bug de busca, não deixa de chegar.
+        if (mimeType.startsWith('audio/')) {
+          const remuxed = await remuxAudioForSeeking(buffer);
+          if (remuxed) {
+            buffer = remuxed;
+            mimeType = 'audio/ogg';
+          }
+        }
         const stored = await storeAttachmentBuffer(buffer, mimeType, fileName);
         return { id: crypto.randomUUID(), name: fileName || `pyvon-${pyvonMessageId}`, type: mimeType, url: stored.url, size: stored.size };
       }

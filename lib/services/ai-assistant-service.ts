@@ -82,7 +82,7 @@ const tools: ChatCompletionTool[] = [
         properties: {
           query: { type: 'string', description: 'Palavra-chave no título/descrição' },
           companyName: { type: 'string' },
-          status: { type: 'string', description: 'Ex: "Novo", "Em Atendimento", "Fechado"' },
+          status: { type: 'string', description: 'Ex: "Novo", "Em Atendimento", "Concluído"' },
           ticketNumber: { type: ['number', 'string'] },
           limit: { type: ['number', 'string'] }
         }

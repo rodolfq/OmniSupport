@@ -17,6 +17,7 @@ import { getCompanies } from '@/lib/services/company-service';
 import { searchTeamMembers, createUser, updateUser, deleteUser } from '@/lib/services/user-actions-service';
 // Já migrado para rota HTTP (/api/permissions) — ver lib/services/permission-service.ts.
 import { getRolePermissions } from '@/lib/services/permission-service';
+import { getInternalTeamsPageData, applyTeamMembership, type InternalTeamRecord, type InternalTeamPageUser } from '@/lib/services/internal-team-service';
 import { Permission, UserRole, type User, type RolePermission } from '@/lib/types';
 import { useInternalTeamsQuery } from '@/lib/query-hooks';
 import { toast } from 'sonner';
@@ -75,6 +76,23 @@ export function TeamContent() {
   const [accessProfileId, setAccessProfileId] = useState<string>('');
   const [isSyncingBitrix24, setIsSyncingBitrix24] = useState(false);
 
+  // "Adicionar Operador" — pedido do usuário (2026-09-30): quem administra
+  // uma equipe precisa poder trazer pra ela alguém SEM equipe ou de OUTRA
+  // equipe, não só quem já é membro (a listagem principal desta tela, via
+  // searchTeamMembers, já é escopada à(s) equipe(s) administrada(s) — por
+  // isso a pessoa nunca aparecia aqui pra ser "editada"). A pessoa passa a
+  // pertencer às DUAS equipes (internal_team_ids é array, decisão do
+  // usuário) — nada é removido da equipe antiga. O endpoint por trás
+  // (POST /api/internal-teams, action=membership) já aceita adicionar
+  // QUALQUER usuário à equipe-alvo, bastava um ponto de entrada na tela.
+  const [isAddOperatorModalOpen, setIsAddOperatorModalOpen] = useState(false);
+  const [addOperatorSearch, setAddOperatorSearch] = useState('');
+  const [addOperatorTeams, setAddOperatorTeams] = useState<InternalTeamRecord[]>([]);
+  const [addOperatorAllUsers, setAddOperatorAllUsers] = useState<InternalTeamPageUser[]>([]);
+  const [addOperatorTargetTeamId, setAddOperatorTargetTeamId] = useState('');
+  const [isLoadingAddOperator, setIsLoadingAddOperator] = useState(false);
+  const [addingOperatorId, setAddingOperatorId] = useState<string | null>(null);
+
   const { data: teamsData } = useInternalTeamsQuery();
   const teams = React.useMemo(
     () => ([...(teamsData || [])] as TeamOption[]).sort((a, b) => a.name.localeCompare(b.name)),
@@ -130,6 +148,56 @@ export function TeamContent() {
   // sistema (inclusive cada cliente/funcionário de cada empresa) só para
   // filtrar 3 papéis no client. Agora o filtro de papel, a busca por nome/
   // e-mail e o recorte por equipe administrada já saem prontos do banco.
+  const handleOpenAddOperator = async () => {
+    setIsAddOperatorModalOpen(true);
+    setAddOperatorSearch('');
+    setIsLoadingAddOperator(true);
+    try {
+      const { teams, users } = await getInternalTeamsPageData();
+      // Time Interno/Equipe que administra equipe só pode mirar a(s)
+      // própria(s) — Administrador do sistema administra qualquer uma.
+      const manageable = isSystemAdmin ? teams : teams.filter(t => myAdminTeamIds.includes(t.id));
+      setAddOperatorTeams(manageable);
+      setAddOperatorAllUsers(users);
+      setAddOperatorTargetTeamId(prev => manageable.some(t => t.id === prev) ? prev : (manageable[0]?.id || ''));
+    } catch (e) {
+      console.error('Erro ao carregar dados de equipes:', e);
+      toast.error('Não foi possível carregar as equipes.');
+    } finally {
+      setIsLoadingAddOperator(false);
+    }
+  };
+
+  const handleAddOperatorToTeam = async (userId: string) => {
+    const targetTeam = addOperatorTeams.find(t => t.id === addOperatorTargetTeamId);
+    if (!targetTeam) return;
+    setAddingOperatorId(userId);
+    try {
+      const result = await applyTeamMembership(targetTeam.id, {
+        add: [userId],
+        remove: [],
+        // SEMPRE reenvia os admins atuais — o endpoint SUBSTITUI admin_ids
+        // pelo que vier aqui; mandar vazio apagaria os admins da equipe.
+        adminIds: targetTeam.adminIds
+      });
+      if (result?.error) {
+        toast.error(result.error);
+        return;
+      }
+      const addedUser = addOperatorAllUsers.find(u => u.id === userId);
+      toast.success(`${addedUser?.name || 'Operador'} adicionado à equipe.`);
+      // Atualiza a lista local (pra sumir da lista de candidatos) e a
+      // listagem principal da tela (a pessoa pode passar a aparecer nela,
+      // já que agora pertence a uma equipe administrada por quem está vendo).
+      setAddOperatorTeams(prev => prev.map(t => t.id === targetTeam.id ? { ...t, memberIds: [...t.memberIds, userId] } : t));
+      fetchAnalystsPage(page, debouncedSearch);
+    } catch (e: any) {
+      toast.error(e?.message || 'Erro ao adicionar operador à equipe.');
+    } finally {
+      setAddingOperatorId(null);
+    }
+  };
+
   const fetchAnalystsPage = async (targetPage: number, query: string) => {
     setIsLoadingAnalysts(true);
     try {
@@ -404,6 +472,16 @@ export function TeamContent() {
             >
               <RefreshCw size={14} className={cn(isSyncingBitrix24 && 'animate-spin')} />
               Sincronizar Bitrix24
+            </button>
+          )}
+          {canManageTeam && (
+            <button
+              onClick={handleOpenAddOperator}
+              title="Traz alguém que já existe no sistema (sem equipe ou de outra equipe) pra sua equipe"
+              className="bg-[var(--surface-card)] border border-[var(--border-default)] hover:border-[var(--accent)]/40 text-[var(--text-secondary)] px-6 py-3 rounded-2xl text-sm font-black uppercase tracking-widest shadow-sm transition-all flex items-center gap-2"
+            >
+              <UserPlus size={18} />
+              Adicionar Operador
             </button>
           )}
           {canManageTeam && (
@@ -875,6 +953,94 @@ export function TeamContent() {
         confirmLabel="Remover"
         variant="danger"
       />
+
+      {/* Adicionar Operador — traz alguém sem equipe ou de OUTRA equipe pra
+          esta equipe (fica nas duas, internal_team_ids é array). Diferente
+          de "Adicionar Analista" (cria usuário NOVO): aqui é sempre gente
+          que já existe no sistema. */}
+      {isAddOperatorModalOpen && (
+        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-[200] p-4" onClick={() => setIsAddOperatorModalOpen(false)}>
+          <div className="bg-[var(--surface-card)] rounded-2xl p-6 max-w-lg w-full max-h-[80vh] flex flex-col" onClick={(e) => e.stopPropagation()}>
+            <h3 className="text-lg font-black text-[var(--text-primary)] mb-1 uppercase">Adicionar Operador</h3>
+            <p className="text-xs text-[var(--text-tertiary)] mb-4">
+              Traz alguém sem equipe ou de outra equipe pra cá — ela passa a pertencer às duas, nada é removido da equipe atual dela.
+            </p>
+
+            {addOperatorTeams.length > 1 && (
+              <div className="mb-3">
+                <label className="text-[10px] font-semibold uppercase tracking-widest text-[var(--text-tertiary)] mb-1 block">Adicionar na equipe</label>
+                <StyledSelect
+                  value={addOperatorTargetTeamId}
+                  onChange={(e) => setAddOperatorTargetTeamId(e.target.value)}
+                  className="w-full px-3 py-2 rounded-lg border border-[var(--border-default)] text-sm font-bold"
+                >
+                  {addOperatorTeams.map(t => <option key={t.id} value={t.id}>{t.name}</option>)}
+                </StyledSelect>
+              </div>
+            )}
+
+            <div className="relative mb-4">
+              <Search size={16} className="absolute left-3 top-1/2 -translate-y-1/2 text-[var(--text-tertiary)]" />
+              <input
+                autoFocus
+                type="text"
+                placeholder="Buscar por nome ou e-mail..."
+                value={addOperatorSearch}
+                onChange={(e) => setAddOperatorSearch(e.target.value)}
+                className="w-full pl-9 pr-3 py-2 rounded-lg border border-[var(--border-default)] text-sm focus:border-[var(--accent)] outline-none"
+              />
+            </div>
+
+            <div className="flex-1 overflow-y-auto -mx-2 px-2">
+              {isLoadingAddOperator ? (
+                <p className="text-center py-8 text-[var(--text-tertiary)]">Carregando...</p>
+              ) : !addOperatorTargetTeamId ? (
+                <p className="text-center py-8 text-[var(--text-tertiary)]">Você não administra nenhuma equipe.</p>
+              ) : (
+                (() => {
+                  const targetTeam = addOperatorTeams.find(t => t.id === addOperatorTargetTeamId);
+                  const q = addOperatorSearch.trim().toLowerCase();
+                  const candidates = addOperatorAllUsers.filter(u =>
+                    !targetTeam?.memberIds.includes(u.id) &&
+                    (!q || u.name?.toLowerCase().includes(q) || u.email?.toLowerCase().includes(q))
+                  );
+                  if (candidates.length === 0) {
+                    return <p className="text-center py-8 text-[var(--text-tertiary)]">Ninguém encontrado fora desta equipe.</p>;
+                  }
+                  return (
+                    <div className="space-y-2">
+                      {candidates.map(u => (
+                        <div key={u.id} className="flex items-center gap-3 p-2.5 rounded-xl border border-[var(--border-default)]">
+                          <UserAvatar name={u.name} thumbUrl={u.avatarThumbUrl} size={28} />
+                          <div className="min-w-0 flex-1">
+                            <p className="font-bold text-[var(--text-primary)] text-sm truncate">{u.name}</p>
+                            <p className="text-[10px] text-[var(--text-tertiary)] truncate">
+                              {u.role}{u.internalTeamIds.length > 0 ? ` · já em ${u.internalTeamIds.length} equipe(s)` : ' · sem equipe'}
+                            </p>
+                          </div>
+                          <button
+                            onClick={() => handleAddOperatorToTeam(u.id)}
+                            disabled={addingOperatorId === u.id}
+                            className="shrink-0 px-3 py-1.5 rounded-lg text-[10px] font-black uppercase tracking-widest bg-[var(--accent)] text-white hover:bg-[var(--accent-hover)] transition-all disabled:opacity-50"
+                          >
+                            {addingOperatorId === u.id ? 'Adicionando...' : '+ Adicionar'}
+                          </button>
+                        </div>
+                      ))}
+                    </div>
+                  );
+                })()
+              )}
+            </div>
+
+            <div className="flex justify-end mt-4 pt-4 border-t border-[var(--border-default)]">
+              <button onClick={() => setIsAddOperatorModalOpen(false)} className="px-4 py-2 rounded-lg border border-[var(--border-default)] text-[var(--text-secondary)] hover:bg-[var(--surface-pill)] transition-all text-sm font-bold">
+                Fechar
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

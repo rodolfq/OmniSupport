@@ -148,9 +148,9 @@ Sua avaliação é muito importante para melhorarmos continuamente nossos atendi
   {
     key: 'chamado_finalizado',
     label: 'Chamado finalizado',
-    description: 'Disparado quando o status muda para o status configurado abaixo (padrão: "Fechado").',
+    description: 'Disparado quando o status muda para o status configurado abaixo (padrão: "Concluído").',
     statusConfigurable: true,
-    defaultTriggerStatus: 'Fechado',
+    defaultTriggerStatus: 'Concluído',
     defaultMessage: `✅ Chamado finalizado
 
 Seu chamado nº {{numero_chamado}} foi encerrado com sucesso.

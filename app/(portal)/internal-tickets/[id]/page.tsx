@@ -6,7 +6,7 @@ import { useParams, useRouter } from 'next/navigation';
 import { useApp } from '@/app/app-context';
 import { InternalTicket, Message, User, Hotfix, EffortConfig, OutcomeConfig } from '@/lib/types';
 import { MessageService, InternalTicketService } from '@/lib/services/ticket-service';
-import { getHotfixes } from '@/lib/services/queue-service';
+import { getHotfixes, saveHotfix } from '@/lib/services/queue-service';
 import { cn, selectableOptions } from '@/lib/utils';
 import {
   Paperclip,
@@ -19,9 +19,12 @@ import {
   X,
   History,
   Rocket,
-  Copy
+  Copy,
+  Maximize2,
+  Minimize2
 } from 'lucide-react';
 import { RichEditor } from '@/components/rich-editor';
+import { motion } from 'motion/react';
 import { toast } from 'sonner';
 import { ClientTime } from '@/components/client-time';
 import { FieldChange, formatChangeMessage } from '@/lib/ticket-diff';
@@ -29,7 +32,7 @@ import { INTERNAL_PRIORITY_LABELS, computeInternalTicketSla } from '@/lib/sla';
 import { fetchPriorities, ConfigService } from '@/lib/services/config-service';
 import { useAnalystsQuery, useConfigEffortsQuery, useConfigOutcomesQuery } from '@/lib/query-hooks';
 import { findStatusColor } from '@/lib/status-colors';
-import { fileToBase64 } from '@/lib/image-utils';
+import { uploadAttachment } from '@/lib/attachment-upload';
 import { splitAttachmentsByBudget, MAX_ATTACHMENT_TOTAL_LABEL } from '@/lib/attachment-limits';
 
 interface Attachment {
@@ -98,6 +101,13 @@ export default function InternalTicketDetailPage() {
   const [previewAttachments, setPreviewAttachments] = useState<Attachment[]>([]);
   const [activeTab, setActiveTab] = useState<'description' | 'linked' | 'attachments' | 'history'>('description');
   const fileInputRef = React.useRef<HTMLInputElement>(null);
+  // Mesmo botão "tela cheia" do chamado do cliente (ticket-detail-modal.tsx).
+  // Lá o padrão é ~90vw (sobra uma tira da lista atrás) e "focar" expande pra
+  // w-full; aqui o painel sempre ocupa a tela inteira (testado: o md:max-w-
+  // [90vw] "herdado" do cliente renderizava estreito demais nesta tela, por
+  // algum conflito de layout específico deste arquivo não investigado a
+  // fundo) — o botão fica só pela paridade de interação com o chamado.
+  const [isFocused, setIsFocused] = useState(false);
 
   const [formTitle, setFormTitle] = useState('');
   const [formDescription, setFormDescription] = useState('');
@@ -130,6 +140,15 @@ export default function InternalTicketDetailPage() {
     () => statuses.some(s => s.value === formStatus && s.isClosed),
     [statuses, formStatus]
   );
+
+  // Criar hotfix na hora, sem sair do ticket interno — pedido do usuário
+  // (2026-09-30): antes só dava pra escolher um hotfix já cadastrado em
+  // Configurações/Hotfixes; quando o hotfix certo ainda não existia, o
+  // analista tinha que abrir outra tela, cadastrar lá e voltar.
+  const [showCreateHotfixModal, setShowCreateHotfixModal] = useState(false);
+  const [newHotfixName, setNewHotfixName] = useState('');
+  const [newHotfixDate, setNewHotfixDate] = useState('');
+  const [isCreatingHotfix, setIsCreatingHotfix] = useState(false);
 
   // Vincular chamado existente a este ticket interno
   const [showLinkTicketModal, setShowLinkTicketModal] = useState(false);
@@ -266,16 +285,10 @@ export default function InternalTicketDetailPage() {
     setIsUploading(true);
     try {
       for (const file of files) {
-        const fileId = Math.random().toString(36).substr(2, 9);
-        // Mesmo padrão de new-ticket-modal.tsx / chat: guarda o arquivo como
-        // data: URL (base64) direto na coluna, sem storage externo — o
-        // supabase.storage do shim (lib/supabase.ts) é um stub que nunca
-        // escreveu o arquivo em lugar nenhum.
-        let dataUrl: string;
         try {
-          dataUrl = await fileToBase64(file);
-        } catch { toast.error(`Erro ao fazer upload de ${file.name}`); continue; }
-        setPreviewAttachments(prev => [...prev, { id: fileId, name: file.name, type: file.type, url: dataUrl, size: file.size }]);
+          const attachment = await uploadAttachment(file);
+          setPreviewAttachments(prev => [...prev, attachment]);
+        } catch { toast.error(`Erro ao fazer upload de ${file.name}`); }
       }
     } catch (error) { toast.error('Erro no upload'); }
     finally { setIsUploading(false); if (fileInputRef.current) fileInputRef.current.value = ''; }
@@ -456,189 +469,397 @@ export default function InternalTicketDetailPage() {
     }
   };
 
+  // Fecha igual ao chamado do cliente (ticket-detail-modal.tsx):
+  // backdrop/Esc/X chamam o mesmo caminho, sempre de volta pra lista de
+  // Tickets Internos — não é router.back() de propósito, porque quem chegou
+  // aqui por um link direto (notificação, e-mail, "Copiar para Chamado") não
+  // tem uma tela anterior própria desta sessão pra voltar.
+  const handleRequestClose = useCallback(() => {
+    router.push('/tickets?mode=internal');
+  }, [router]);
+
+  useEffect(() => {
+    const handleKeyDown = (event: KeyboardEvent) => {
+      if (event.key !== 'Escape') return;
+      // Um sub-modal aberto por cima (criar hotfix, vincular chamado, picker
+      // de cópia) consome o Esc só pra ele — sem esta guarda, apertar Esc com
+      // um deles aberto fechava o TICKET INTEIRO por baixo, em vez de só o
+      // modal de cima (achado ao testar o "+ Criar novo hotfix" na lista).
+      if (showCreateHotfixModal) { setShowCreateHotfixModal(false); return; }
+      if (showLinkTicketModal) { setShowLinkTicketModal(false); return; }
+      if (copyPickerFor) { setCopyPickerFor(null); return; }
+      handleRequestClose();
+    };
+    document.addEventListener('keydown', handleKeyDown);
+    return () => document.removeEventListener('keydown', handleKeyDown);
+  }, [handleRequestClose, showCreateHotfixModal, showLinkTicketModal, copyPickerFor]);
+
+  // Link direto pro ticket interno, mesmo padrão do "Copiar link" do chamado
+  // do cliente (handleCopyTicketLink, ticket-detail-modal.tsx) — a rota
+  // /internal-tickets/<id> já existe e é justamente esta página.
+  const handleCopyTicketLink = async () => {
+    if (!ticket) return;
+    const link = `${window.location.origin}/internal-tickets/${ticket.uuid}`;
+    try {
+      await navigator.clipboard.writeText(link);
+      toast.success('Link do ticket interno copiado!');
+    } catch (err) {
+      console.error('Erro ao copiar link:', err);
+      toast.error('Não foi possível copiar o link.');
+    }
+  };
+
+  const handleCreateHotfix = async () => {
+    if (!newHotfixName.trim() || !newHotfixDate) {
+      toast.error('Preencha nome e data prevista do hotfix.');
+      return;
+    }
+    setIsCreatingHotfix(true);
+    try {
+      const result = await saveHotfix(null, newHotfixName.trim(), null, null, newHotfixDate);
+      if ('error' in result) {
+        toast.error(result.error);
+        return;
+      }
+      await fetchHotfixList();
+      // saveHotfix não devolve o id do novo registro — busca pelo nome+data
+      // recém-criados na lista atualizada pra já deixar selecionado.
+      const created = (await getHotfixes()).find(h => h.name === newHotfixName.trim() && h.expectedDate === newHotfixDate);
+      if (created) {
+        setFormHotfixId(created.id);
+        setFormExpectedPublish(created.expectedDate);
+        setTimeout(() => handleUpdateTicket({}), 0);
+      }
+      toast.success('Hotfix criado.');
+      setShowCreateHotfixModal(false);
+      setNewHotfixName('');
+      setNewHotfixDate('');
+    } catch (error) {
+      toast.error('Erro ao criar hotfix.');
+    } finally {
+      setIsCreatingHotfix(false);
+    }
+  };
+
   if (loading || !ticket) {
-    return <div className="h-full flex items-center justify-center"><Loader2 className="w-8 h-8 text-[var(--text-warning-strong)] animate-spin" /></div>;
+    return (
+      <div className="fixed inset-0 z-[110] flex items-center justify-center bg-slate-900/40 backdrop-blur-sm">
+        <Loader2 className="w-8 h-8 text-[var(--text-warning-strong)] animate-spin" />
+      </div>
+    );
   }
 
   return (
-    <div className="h-full flex flex-col">
-      {/* Header superior */}
-      <div className="h-15 bg-[var(--surface-card)] border-b border-[var(--border-default)] flex items-center justify-between px-6">
-        <div className="text-sm font-bold text-[var(--text-primary)]">#{ticket.id} / <span className="text-[var(--text-warning)]">Chamado Interno</span></div>
-        <div className="flex items-center gap-1">
-          {statuses.map((status) => (
-            <button key={status.value} onClick={() => { setFormStatus(status.value); handleUpdateTicket({ status: status.value }); }}
-              className={cn("px-3 py-1 rounded-full text-[10px] font-bold uppercase transition-all", formStatus === status.value ? "bg-[var(--accent-warning-hover)] text-white" : "bg-[var(--surface-pill)] text-[var(--text-secondary)] hover:bg-[var(--border-default)]")}>
-              {status.label}
-            </button>
-          ))}
+    // Mesmo "modo de abertura" do chamado do cliente (ticket-detail-modal.tsx):
+    // overlay fixo cobrindo a tela inteira (inclusive a sidebar), com backdrop
+    // que fecha ao clicar fora e painel deslizando da direita — não mais uma
+    // página normal dentro do shell do portal. Design copiado, não os campos.
+    <div className="fixed inset-0 z-[110] flex items-center justify-end">
+      <motion.div
+        initial={{ opacity: 0 }}
+        animate={{ opacity: 1 }}
+        exit={{ opacity: 0 }}
+        onClick={handleRequestClose}
+        className="absolute inset-0 bg-slate-900/40 backdrop-blur-sm"
+      />
+      <motion.div
+        initial={{ x: '100%' }}
+        animate={{ x: 0 }}
+        exit={{ x: '100%' }}
+        transition={{ type: 'spring', damping: 25, stiffness: 200 }}
+        onClick={(e) => e.stopPropagation()}
+        className="relative bg-[var(--surface-card)] h-full w-full shadow-2xl border-l border-[var(--border-default)] flex flex-col"
+      >
+      {/* Header superior — mesma estrutura do chamado do cliente
+          (ticket-detail-modal.tsx): linha 1 identidade+ações, linha 2
+          "Criado em", linha 3 status. Campos específicos de ticket interno
+          continuam os mesmos (Equipe em vez de Fila, etc.), só o CHROME
+          (classes, ordem, agrupamento) foi copiado, pedido do usuário
+          2026-09-30. */}
+      <div className="border-b border-[var(--border-default)] bg-[var(--surface-card)]/50">
+        <div className="px-8 pt-4 pb-2 flex items-center justify-between gap-6">
+          <div className="flex items-center gap-3 min-w-0 flex-1">
+            <span className="text-xs font-black text-[var(--text-danger)] bg-[var(--surface-danger)] px-2 py-0.5 rounded tracking-widest shrink-0">#{ticket.id}</span>
+            <span className="text-[var(--text-tertiary)] font-bold shrink-0">/</span>
+            <span className="text-sm font-bold text-[var(--text-primary)] truncate min-w-0">{ticket.title}</span>
+          </div>
+          <div className="flex items-center gap-3 shrink-0">
+            <div className="flex items-center gap-2 pr-3 border-r border-[var(--border-default)]">
+              {!formAssignee && (
+                <button
+                  onClick={() => { if (currentUser) { setFormAssignee(currentUser.id); handleUpdateTicket({ assigneeId: currentUser.id }); } }}
+                  className="px-4 py-2 bg-[var(--text-warning-strong)] hover:bg-[var(--accent-warning-hover)] text-white rounded-xl text-xs font-black uppercase tracking-widest shadow-lg transition-all"
+                >
+                  Assumir
+                </button>
+              )}
+              <button
+                onClick={() => { setFormStatus('Concluído'); handleUpdateTicket({ status: 'Concluído' }); }}
+                className="px-4 py-2 bg-[var(--text-success)] hover:bg-emerald-700 text-white rounded-xl text-xs font-black uppercase tracking-widest shadow-lg transition-all"
+              >
+                Finalizar
+              </button>
+              <button
+                onClick={() => handleUpdateTicket()}
+                className="flex items-center gap-2 px-4 py-2 bg-[var(--text-warning-strong)] hover:bg-[var(--accent-warning-hover)] text-white rounded-xl text-xs font-black uppercase tracking-widest shadow-lg transition-all"
+              >
+                Salvar
+              </button>
+            </div>
+            <div className="flex items-center gap-1">
+              <button
+                onClick={handleCopyTicketLink}
+                title="Copiar link do ticket interno"
+                className="p-2 hover:bg-[var(--border-default)] rounded-xl transition-all text-[var(--text-tertiary)]"
+              >
+                <Link2 size={18} />
+              </button>
+              <button onClick={() => setIsFocused(!isFocused)} className="p-2 hover:bg-[var(--border-default)] rounded-xl transition-all text-[var(--text-tertiary)]">
+                {isFocused ? <Minimize2 size={18} /> : <Maximize2 size={18} />}
+              </button>
+              <button onClick={handleRequestClose} title="Fechar (Esc)" className="p-2 hover:bg-[var(--surface-danger)] rounded-xl transition-all text-[var(--text-tertiary)] hover:text-[var(--text-danger)]">
+                <X size={18} />
+              </button>
+            </div>
+          </div>
         </div>
-        <div className="flex items-center gap-2">
-          <button onClick={() => { if (currentUser) { setFormAssignee(currentUser.id); handleUpdateTicket({ assigneeId: currentUser.id }); } }} className="px-3 py-1.5 rounded-lg text-xs font-bold border border-[var(--border-default)] hover:bg-[var(--surface-card)]">ASSUMIR</button>
-          <button onClick={() => { setFormStatus('Concluído'); handleUpdateTicket({ status: 'Concluído' }); }} className="px-3 py-1.5 rounded-lg text-xs font-bold bg-[var(--text-success)] text-white hover:bg-emerald-700">FINALIZAR</button>
-          <button onClick={() => handleUpdateTicket()} className="px-3 py-1.5 rounded-lg text-xs font-bold bg-[var(--text-warning-strong)] text-white hover:bg-[var(--accent-warning-hover)]">SALVAR</button>
-          <button onClick={() => router.push('/tickets?mode=internal')} className="p-1.5 rounded-lg text-[var(--text-tertiary)] hover:text-[var(--text-secondary)]">
-            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M18 6 6 18"/><path d="m6 6 12 12"/></svg>
-          </button>
-        </div>
-      </div>
 
-      {/* Título do ticket */}
-      <div className="px-6 py-4">
-        <input
-          value={formTitle}
-          onChange={(e) => setFormTitle(e.target.value)}
-          onBlur={() => handleUpdateTicket()}
-          className="text-2xl font-black text-[var(--text-primary)] bg-transparent border-none outline-none w-full focus:bg-[var(--surface-pill)] rounded-lg px-1 -ml-1"
-        />
+        {/* Linha de criação — igual ao chamado do cliente (data + quem abriu) */}
+        <div className="px-8 pb-2 -mt-1">
+          <span className="text-[10px] font-medium text-[var(--text-tertiary)]">
+            Criado em <ClientTime date={ticket.createdAt} showDate showTime />
+            {ticket.creatorName && <> · por {ticket.creatorName}</>}
+          </span>
+        </div>
+
+        {/* Status — mesmo agrupamento em pill do chamado do cliente */}
+        <div className="px-8 pb-3">
+          {statuses.length > 0 ? (
+            <div className="inline-flex bg-[var(--surface-pill)] p-0.5 rounded-lg">
+              {statuses.map((status) => (
+                <button
+                  key={status.value}
+                  onClick={() => { setFormStatus(status.value); handleUpdateTicket({ status: status.value }); }}
+                  className={cn(
+                    "px-3 py-1 text-[10px] font-semibold uppercase rounded-md transition-all whitespace-nowrap",
+                    formStatus === status.value ? "bg-[var(--surface-card)] text-[var(--text-warning)] shadow-sm" : "text-[var(--text-tertiary)] hover:bg-[var(--border-default)]/50"
+                  )}
+                >
+                  {status.label}
+                </button>
+              ))}
+            </div>
+          ) : (
+            <div className="inline-flex items-center gap-1.5 px-2 py-1.5 rounded-lg bg-[var(--surface-pill)] animate-pulse">
+              <div className="w-9 h-3 rounded bg-[var(--border-default)]" />
+              <div className="w-9 h-3 rounded bg-[var(--border-default)]" />
+              <div className="w-9 h-3 rounded bg-[var(--border-default)]" />
+            </div>
+          )}
+        </div>
       </div>
 
       {/* Área principal */}
       <div className="flex-1 flex overflow-hidden">
         {/* Conteúdo principal */}
-        <div className="flex-1 min-w-0 bg-[var(--surface-card)] p-6 overflow-auto">
-          {/* Grid único (não mais dois <div> de 2 colunas fixas com 4/7 itens
-              cada) — o desbalanço entre "poucos campos, muito espaço" à
-              esquerda e "muitos campos, apertado" à direita vinha exatamente
-              de forçar esse corte fixo. Deixando os 11 campos fluírem juntos
-              num grid responsivo, o navegador preenche as colunas de forma
-              equilibrada sozinho. */}
-          <div className="grid grid-cols-2 md:grid-cols-3 gap-x-4 gap-y-2.5 mb-4 max-w-2xl">
-              <div><p className="text-[10px] text-[var(--text-tertiary)] font-bold uppercase mb-0.5">Equipe</p>
-                <StyledSelect value={formTeam} onChange={(e) => { setFormTeam(e.target.value); setTimeout(() => handleUpdateTicket(), 0); }} className="w-full bg-[var(--surface-card)] border border-[var(--border-default)] rounded-lg px-3 py-1.5 text-xs font-bold text-[var(--text-primary)]">
-                  {TEAM_OPTIONS.map(t => <option key={t.value} value={t.value}>{t.label}</option>)}
-                </StyledSelect></div>
-              <div><p className="text-[10px] text-[var(--text-tertiary)] font-bold uppercase mb-0.5">Responsável</p>
-                <StyledSelect value={formAssignee} onChange={(e) => handleUpdateTicket({ assigneeId: e.target.value })} className="w-full bg-[var(--surface-card)] border border-[var(--border-default)] rounded-lg px-3 py-1.5 text-xs font-bold text-[var(--text-primary)]">
-                  <option value="">Não atribuído</option>
-                  {analysts.map(a => <option key={a.id} value={a.id}>{a.name}</option>)}
-                </StyledSelect></div>
-              <div>
-                <p className="text-[10px] text-[var(--text-danger)] font-black uppercase mb-0.5 flex items-center gap-1">
-                  <Rocket size={11} /> Hotfix
-                </p>
-                <StyledSelect
-                  value={formHotfixId}
-                  onChange={(e) => {
-                    const nextHotfixId = e.target.value;
-                    setFormHotfixId(nextHotfixId);
-                    const selected = hotfixes.find(h => h.id === nextHotfixId);
-                    if (selected) setFormExpectedPublish(selected.expectedDate);
-                    setTimeout(() => handleUpdateTicket(), 0);
-                  }}
-                  className="w-full bg-[var(--surface-card)] border border-[var(--border-default)] rounded-lg px-3 py-1.5 text-xs font-bold text-[var(--text-primary)]"
-                >
-                  <option value="">Nenhum</option>
-                  {/* Hotfix já publicado não aparece mais aqui, nem o que este
-                      chamado já usa — uma vez sincronizado, sai da lista. */}
-                  {hotfixes.filter(h => !h.publishedAt).map(h => (
-                    <option key={h.id} value={h.id}>
-                      {new Date(`${h.expectedDate}T00:00:00`).toLocaleDateString('pt-BR')} — {h.name}
-                    </option>
-                  ))}
-                </StyledSelect>
-                {formHotfixId && hotfixes.find(h => h.id === formHotfixId) && (
-                  <p className="text-[10px] font-black text-[var(--text-danger)] mt-1">
-                    📅 Previsto: {new Date(`${hotfixes.find(h => h.id === formHotfixId)!.expectedDate}T00:00:00`).toLocaleDateString('pt-BR')}
-                  </p>
-                )}
+        <div className="flex-1 min-w-0 bg-[var(--surface-card)] overflow-y-auto">
+          <div className="px-8 py-8 space-y-6">
+            {/* Título grande, igual ao chamado do cliente */}
+            <input
+              value={formTitle}
+              onChange={(e) => setFormTitle(e.target.value)}
+              onBlur={() => handleUpdateTicket()}
+              onKeyDown={(e) => { if (e.key === 'Enter') (e.target as HTMLInputElement).blur(); }}
+              className="w-full text-3xl font-black text-[var(--text-primary)] tracking-tight leading-tight bg-transparent border border-transparent rounded-lg -mx-2 px-2 hover:border-[var(--border-default)] focus:border-[var(--accent)] focus:outline-none transition-colors"
+            />
+
+            {/* Grade de identificação (Odoo style) — mesmas classes do chamado
+                do cliente (grid-cols-1 sm:grid-cols-2, label w-24), com os
+                campos PRÓPRIOS de ticket interno no lugar dos de chamado
+                (Equipe em vez de Fila, Hotfix/Esforço/Desfecho em vez de
+                Categoria/Tipo/Produto, sem Cliente/Contato/Colaboradores). */}
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-x-12 gap-y-4">
+              <div className="space-y-3">
+                <div className="flex items-start gap-4">
+                  <span className="text-[11px] font-semibold uppercase text-[var(--text-tertiary)] w-24 pt-0.5">Equipe</span>
+                  <StyledSelect value={formTeam} onChange={(e) => { setFormTeam(e.target.value); setTimeout(() => handleUpdateTicket(), 0); }} className="flex-1 bg-transparent border-none outline-none text-sm font-bold text-[var(--text-primary)] cursor-pointer hover:underline">
+                    {TEAM_OPTIONS.map(t => <option key={t.value} value={t.value}>{t.label}</option>)}
+                  </StyledSelect>
+                </div>
+                <div className="flex items-start gap-4">
+                  <span className="text-[11px] font-semibold uppercase text-[var(--text-tertiary)] w-24 pt-0.5">Responsável</span>
+                  <StyledSelect value={formAssignee} onChange={(e) => handleUpdateTicket({ assigneeId: e.target.value })} className="flex-1 bg-transparent border-none outline-none text-sm font-bold text-[var(--text-primary)] cursor-pointer hover:underline">
+                    <option value="">Não atribuído</option>
+                    {analysts.map(a => <option key={a.id} value={a.id}>{a.name}</option>)}
+                  </StyledSelect>
+                </div>
+                <div className="flex items-start gap-4">
+                  <span className="text-[11px] font-semibold uppercase text-[var(--text-danger)] w-24 pt-0.5 flex items-center gap-1"><Rocket size={11} /> Hotfix</span>
+                  <div className="flex-1 min-w-0">
+                    {/* "Criar novo hotfix" vive DENTRO da própria lista (pedido
+                        do usuário, 2026-09-30) — antes era um botão separado
+                        ao lado do <select>. Sentinela "__new__" nunca colide
+                        com um id de hotfix de verdade (uuid); escolhida, abre
+                        o modal de criar em vez de gravar no ticket. */}
+                    <StyledSelect
+                      value={formHotfixId}
+                      onChange={(e) => {
+                        const nextHotfixId = e.target.value;
+                        if (nextHotfixId === '__new__') {
+                          setShowCreateHotfixModal(true);
+                          return;
+                        }
+                        setFormHotfixId(nextHotfixId);
+                        const selected = hotfixes.find(h => h.id === nextHotfixId);
+                        if (selected) setFormExpectedPublish(selected.expectedDate);
+                        setTimeout(() => handleUpdateTicket(), 0);
+                      }}
+                      className="w-full bg-transparent border-none outline-none text-sm font-bold text-[var(--text-primary)] cursor-pointer hover:underline"
+                    >
+                      <option value="">Nenhum</option>
+                      {/* Hotfix já publicado não aparece mais aqui, nem o que
+                          este chamado já usa — uma vez sincronizado, sai da lista. */}
+                      {hotfixes.filter(h => !h.publishedAt).map(h => (
+                        <option key={h.id} value={h.id}>
+                          {new Date(`${h.expectedDate}T00:00:00`).toLocaleDateString('pt-BR')} — {h.name}
+                        </option>
+                      ))}
+                      <option value="__new__">+ Criar novo hotfix...</option>
+                    </StyledSelect>
+                    {formHotfixId && hotfixes.find(h => h.id === formHotfixId) && (
+                      <p className="text-[10px] font-black text-[var(--text-danger)] mt-0.5">
+                        📅 Previsto: {new Date(`${hotfixes.find(h => h.id === formHotfixId)!.expectedDate}T00:00:00`).toLocaleDateString('pt-BR')}
+                      </p>
+                    )}
+                  </div>
+                </div>
+                <div className="flex items-start gap-4">
+                  <span className="text-[11px] font-semibold uppercase text-[var(--text-tertiary)] w-24 pt-0.5">Marcadores</span>
+                  <input
+                    value={formTags}
+                    onChange={(e) => setFormTags(e.target.value)}
+                    onBlur={() => handleUpdateTicket()}
+                    placeholder="separadas por vírgula..."
+                    className="flex-1 bg-transparent border-b border-transparent hover:border-[var(--border-default)] focus:border-[var(--accent)] outline-none text-sm font-bold text-[var(--text-primary)] transition-colors"
+                  />
+                </div>
               </div>
-              {/* Classificação da solução. Fica visível o tempo todo (e não
-                  só ao concluir) porque quem está resolvendo às vezes já sabe
-                  o desfecho no meio do caminho; o selo "falta" só aparece
-                  quando o ticket já está concluído sem preencher — cobrar
-                  desde a abertura viraria ruído e o campo acabaria preenchido
-                  no automático, que é pior do que vazio. */}
-              <div>
-                <p className="text-[10px] text-[var(--text-tertiary)] font-bold uppercase mb-0.5 flex items-center gap-1">
-                  Esforço
-                  {needsClassification && !formEffortId && (
-                    <span className="text-[8px] font-black px-1.5 py-0.5 rounded-full bg-[var(--surface-warning)] text-[var(--text-warning-strong)]">falta</span>
+              <div className="space-y-3">
+                {/* Classificação da solução. Fica visível o tempo todo (e não
+                    só ao concluir) porque quem está resolvendo às vezes já
+                    sabe o desfecho no meio do caminho; o selo "falta" só
+                    aparece quando o ticket já está concluído sem preencher —
+                    cobrar desde a abertura viraria ruído e o campo acabaria
+                    preenchido no automático, que é pior do que vazio. */}
+                <div className="flex items-start gap-4">
+                  <span className="text-[11px] font-semibold uppercase text-[var(--text-tertiary)] w-24 pt-0.5 flex items-center gap-1">
+                    Esforço
+                    {needsClassification && !formEffortId && (
+                      <span className="text-[8px] font-black px-1.5 py-0.5 rounded-full bg-[var(--surface-warning)] text-[var(--text-warning-strong)]">falta</span>
+                    )}
+                  </span>
+                  <StyledSelect
+                    value={formEffortId}
+                    onChange={(e) => { setFormEffortId(e.target.value); setTimeout(() => handleUpdateTicket(), 0); }}
+                    className="flex-1 bg-transparent border-none outline-none text-sm font-bold text-[var(--text-primary)] cursor-pointer hover:underline"
+                  >
+                    <option value="">Não classificado</option>
+                    {/* Nível arquivado sai da lista, exceto o que este ticket já
+                        usa — senão o <select> cairia em "Não classificado" e a
+                        próxima gravação apagaria a classificação. */}
+                    {selectableOptions(efforts, formEffortId).map(e => (
+                      <option key={e.id} value={e.id}>{e.label}{e.isArchived ? ' (arquivado)' : ''}</option>
+                    ))}
+                  </StyledSelect>
+                </div>
+                <div className="flex items-start gap-4">
+                  <span className="text-[11px] font-semibold uppercase text-[var(--text-tertiary)] w-24 pt-0.5 flex items-center gap-1">
+                    Desfecho
+                    {needsClassification && !formOutcomeId && (
+                      <span className="text-[8px] font-black px-1.5 py-0.5 rounded-full bg-[var(--surface-warning)] text-[var(--text-warning-strong)]">falta</span>
+                    )}
+                  </span>
+                  <StyledSelect
+                    value={formOutcomeId}
+                    onChange={(e) => { setFormOutcomeId(e.target.value); setTimeout(() => handleUpdateTicket(), 0); }}
+                    className="flex-1 bg-transparent border-none outline-none text-sm font-bold text-[var(--text-primary)] cursor-pointer hover:underline"
+                  >
+                    <option value="">Não classificado</option>
+                    {selectableOptions(outcomes, formOutcomeId).map(o => (
+                      <option key={o.id} value={o.id}>{o.label}{o.isArchived ? ' (arquivado)' : ''}</option>
+                    ))}
+                  </StyledSelect>
+                </div>
+                {/* Prioridade / Vencimento são só CONSULTA — não têm um
+                    <select>/<input> de edição direta (Prioridade muda por
+                    estrela, não por campo; Vencimento é calculado). */}
+                <div className="flex items-start gap-4">
+                  <span className="text-[11px] font-semibold uppercase text-[var(--text-tertiary)] w-24 pt-0.5">Prioridade</span>
+                  <div className="flex items-center gap-1">{[1, 2, 3, 4].map(star => (
+                    <button key={star} onClick={() => { setFormPriority(star); setTimeout(() => handleUpdateTicket(), 0); }}>
+                      <Star size={16} className={cn(star <= formPriority ? "fill-amber-400 text-[var(--text-warning)]" : "text-slate-300")} />
+                    </button>
+                  ))}</div>
+                </div>
+                <div className="flex items-start gap-4">
+                  <span className="text-[11px] font-semibold uppercase text-[var(--text-tertiary)] w-24 pt-0.5">Vencimento</span>
+                  {(() => {
+                    const computedSla = computeInternalTicketSla(formPriority, ticket.createdAt || new Date().toISOString(), priorities);
+                    const overdue = computedSla && new Date(computedSla) < new Date();
+                    return (
+                      <span className={cn("text-sm font-medium", overdue ? "text-[var(--text-danger)]" : "text-[var(--text-tertiary)]")} title="Calculado a partir da prioridade e do SLA configurado em Configurações">
+                        {computedSla ? new Date(computedSla).toLocaleString('pt-BR', { day: '2-digit', month: '2-digit', year: 'numeric', hour: '2-digit', minute: '2-digit' }) : 'Sem SLA configurado'}
+                      </span>
+                    );
+                  })()}
+                </div>
+              </div>
+            </div>
+
+            {/* Abas — mesmo padrão visual do chamado do cliente (underline,
+                Histórico só com ícone, Anexos com badge de ponto). */}
+            <div className="mt-12 border-t border-[var(--border-default)]">
+              <div className="flex border-b border-[var(--border-default)]">
+                <button
+                  onClick={() => setActiveTab('description')}
+                  className={cn(
+                    "px-6 py-3 text-[11px] font-semibold uppercase tracking-widest border-b-2 transition-all",
+                    activeTab === 'description' ? "border-[var(--text-warning-strong)] text-[var(--text-warning)]" : "border-transparent text-[var(--text-tertiary)] hover:text-[var(--text-secondary)]"
                   )}
-                </p>
-                <StyledSelect
-                  value={formEffortId}
-                  onChange={(e) => { setFormEffortId(e.target.value); setTimeout(() => handleUpdateTicket(), 0); }}
-                  className="w-full bg-[var(--surface-card)] border border-[var(--border-default)] rounded-lg px-3 py-1.5 text-xs font-bold text-[var(--text-primary)]"
                 >
-                  <option value="">Não classificado</option>
-                  {/* Nível arquivado sai da lista, exceto o que este ticket já
-                      usa — senão o <select> cairia em "Não classificado" e a
-                      próxima gravação apagaria a classificação. */}
-                  {selectableOptions(efforts, formEffortId).map(e => (
-                    <option key={e.id} value={e.id}>{e.label}{e.isArchived ? ' (arquivado)' : ''}</option>
-                  ))}
-                </StyledSelect>
-              </div>
-              <div>
-                <p className="text-[10px] text-[var(--text-tertiary)] font-bold uppercase mb-0.5 flex items-center gap-1">
-                  Desfecho
-                  {needsClassification && !formOutcomeId && (
-                    <span className="text-[8px] font-black px-1.5 py-0.5 rounded-full bg-[var(--surface-warning)] text-[var(--text-warning-strong)]">falta</span>
+                  Descrição
+                </button>
+                <button
+                  onClick={() => setActiveTab('linked')}
+                  className={cn(
+                    "px-6 py-3 text-[11px] font-semibold uppercase tracking-widest border-b-2 transition-all flex items-center gap-2",
+                    activeTab === 'linked' ? "border-[var(--text-warning-strong)] text-[var(--text-warning)]" : "border-transparent text-[var(--text-tertiary)] hover:text-[var(--text-secondary)]"
                   )}
-                </p>
-                <StyledSelect
-                  value={formOutcomeId}
-                  onChange={(e) => { setFormOutcomeId(e.target.value); setTimeout(() => handleUpdateTicket(), 0); }}
-                  className="w-full bg-[var(--surface-card)] border border-[var(--border-default)] rounded-lg px-3 py-1.5 text-xs font-bold text-[var(--text-primary)]"
                 >
-                  <option value="">Não classificado</option>
-                  {selectableOptions(outcomes, formOutcomeId).map(o => (
-                    <option key={o.id} value={o.id}>{o.label}{o.isArchived ? ' (arquivado)' : ''}</option>
-                  ))}
-                </StyledSelect>
+                  <Link2 size={12} /> Chamados Vinculados {linkedTickets.length > 0 && `(${linkedTickets.length})`}
+                </button>
+                <button
+                  onClick={() => setActiveTab('attachments')}
+                  className={cn(
+                    "px-6 py-3 text-[11px] font-semibold uppercase tracking-widest border-b-2 transition-all flex items-center gap-2",
+                    activeTab === 'attachments' ? "border-[var(--text-warning-strong)] text-[var(--text-warning)]" : "border-transparent text-[var(--text-tertiary)] hover:text-[var(--text-secondary)]"
+                  )}
+                >
+                  <Paperclip size={12} /> {messages.some(m => (m.attachments || []).length > 0) && <span className="w-1.5 h-1.5 rounded-full bg-[var(--text-warning-strong)] animate-pulse" />} Anexos
+                </button>
+                <button
+                  onClick={() => setActiveTab('history')}
+                  className={cn(
+                    "relative px-4 py-3 border-b-2 transition-all flex items-center justify-center",
+                    activeTab === 'history' ? "border-slate-500 text-[var(--text-secondary)] bg-[var(--surface-card)]/50" : "border-transparent text-[var(--text-tertiary)] hover:text-[var(--text-secondary)]"
+                  )}
+                  title="Histórico de alterações"
+                >
+                  <History size={16} />
+                </button>
               </div>
-              <div><p className="text-[10px] text-[var(--text-tertiary)] font-bold uppercase mb-0.5">Marcadores</p>
-                <input
-                  value={formTags}
-                  onChange={(e) => setFormTags(e.target.value)}
-                  onBlur={() => handleUpdateTicket()}
-                  placeholder="separadas por vírgula..."
-                  className="w-full bg-[var(--surface-card)] border border-[var(--border-default)] rounded-lg px-3 py-1.5 text-xs font-bold text-[var(--text-primary)]"
-                />
-              </div>
-              {/* Criado por / Prioridade / Vencimento agrupados de propósito:
-                  os três são só CONSULTA — não têm um <select>/<input> de
-                  edição direta como o resto da grade (Prioridade muda por
-                  estrela, não por campo; Vencimento é calculado). */}
-              <div><p className="text-[10px] text-[var(--text-tertiary)] font-bold uppercase mb-0.5">Criado por</p>
-                <p className="text-xs font-bold text-[var(--text-primary)] py-1.5">{ticket.creatorName || '—'}</p></div>
-              <div><p className="text-[10px] text-[var(--text-tertiary)] font-bold uppercase mb-0.5">Prioridade</p>
-                <div className="flex items-center gap-1 py-1.5">{[1, 2, 3, 4].map(star => (
-                  <button key={star} onClick={() => { setFormPriority(star); setTimeout(() => handleUpdateTicket(), 0); }}>
-                    <Star size={16} className={cn(star <= formPriority ? "fill-amber-400 text-[var(--text-warning)]" : "text-slate-300")} />
-                  </button>
-                ))}</div></div>
-              <div><p className="text-[10px] text-[var(--text-tertiary)] font-bold uppercase mb-0.5">Vencimento</p>
-                {(() => {
-                  const computedSla = computeInternalTicketSla(formPriority, ticket.createdAt || new Date().toISOString(), priorities);
-                  const overdue = computedSla && new Date(computedSla) < new Date();
-                  return (
-                    <p className={cn("text-xs font-bold py-1.5", overdue ? "text-[var(--text-danger)]" : "text-[var(--text-primary)]")} title="Calculado a partir da prioridade e do SLA configurado em Configurações">
-                      {computedSla ? new Date(computedSla).toLocaleString('pt-BR', { day: '2-digit', month: '2-digit', year: 'numeric', hour: '2-digit', minute: '2-digit' }) : 'Sem SLA configurado'}
-                    </p>
-                  );
-                })()}
-              </div>
-          </div>
 
-          <div className="border-t border-[var(--border-default)]"></div>
-
-          <div className="flex items-center gap-6 px-6 py-3 border-b border-[var(--border-default)]">
-            {[
-              { key: 'description', label: 'DESCRIÇÃO' },
-              { key: 'linked', label: 'CHAMADOS VINCULADOS', icon: Link2 },
-              { key: 'attachments', label: 'ANEXOS', icon: Paperclip },
-              { key: 'history', label: 'HISTÓRICO', icon: History }
-            ].map(tab => {
-              const TabIcon = tab.icon;
-              return (<button key={tab.key} onClick={() => setActiveTab(tab.key as any)} className={cn("text-[10px] font-bold uppercase pb-2 border-b-2 transition-all flex items-center gap-1", activeTab === tab.key ? "text-[var(--text-warning)] border-[var(--text-warning-strong)]" : "text-[var(--text-tertiary)] border-transparent hover:text-[var(--text-secondary)]")}>
-                {TabIcon && <TabIcon size={14} />}{tab.label}{tab.key === 'linked' && linkedTickets.length > 0 && ` (${linkedTickets.length})`}
-              </button>);
-            })}
-          </div>
-
-          <div className="p-6">
+              <div className="py-8">
             {activeTab === 'description' && (
               <div onBlur={() => handleUpdateTicket()}>
                 <h2 className="text-xs font-semibold text-[var(--text-tertiary)] uppercase mb-4">DESCRIÇÃO DO CHAMADO</h2>
@@ -734,6 +955,8 @@ export default function InternalTicketDetailPage() {
                 })()}
               </div>
             )}
+              </div>
+            </div>
           </div>
         </div>
 
@@ -805,7 +1028,7 @@ export default function InternalTicketDetailPage() {
                 {isUploading ? <Loader2 size={14} className="animate-spin" /> : <Paperclip size={14} />} {isUploading ? 'ENVIANDO...' : 'ANEXAR'}
               </button>
               <input ref={fileInputRef} type="file" multiple onChange={handleFileSelect} className="hidden" />
-              <button onClick={handleSendMessage} disabled={!input.trim() && previewAttachments.length === 0}
+              <button onClick={handleSendMessage} disabled={(!input.trim() && previewAttachments.length === 0) || isUploading}
                 className="px-4 py-1.5 rounded-lg text-xs font-bold bg-[var(--accent-warning-hover)] text-white hover:opacity-90 disabled:opacity-50 flex items-center gap-1">
                 <Send size={14} /> ENVIAR
               </button>
@@ -813,6 +1036,53 @@ export default function InternalTicketDetailPage() {
           </div>
         </div>
       </div>
+
+      {/* Modal: criar hotfix na hora */}
+      {showCreateHotfixModal && (
+        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-[200] p-4" onClick={() => setShowCreateHotfixModal(false)}>
+          <div className="bg-[var(--surface-card)] rounded-2xl p-6 max-w-md w-full" onClick={(e) => e.stopPropagation()}>
+            <h3 className="text-lg font-black text-[var(--text-primary)] mb-4 uppercase flex items-center gap-2">
+              <Rocket size={18} className="text-[var(--text-danger)]" /> Criar Hotfix
+            </h3>
+            <div className="space-y-3">
+              <div>
+                <p className="text-[10px] text-[var(--text-tertiary)] font-bold uppercase mb-1">Nome</p>
+                <input
+                  autoFocus
+                  value={newHotfixName}
+                  onChange={(e) => setNewHotfixName(e.target.value)}
+                  placeholder="Ex: Correção do relatório de vendas"
+                  className="w-full px-3 py-2 rounded-lg border border-[var(--border-default)] text-sm focus:border-[var(--text-warning-strong)] outline-none"
+                />
+              </div>
+              <div>
+                <p className="text-[10px] text-[var(--text-tertiary)] font-bold uppercase mb-1">Data prevista</p>
+                <input
+                  type="date"
+                  value={newHotfixDate}
+                  onChange={(e) => setNewHotfixDate(e.target.value)}
+                  className="w-full px-3 py-2 rounded-lg border border-[var(--border-default)] text-sm focus:border-[var(--text-warning-strong)] outline-none"
+                />
+              </div>
+              <p className="text-[10px] text-[var(--text-tertiary)]">
+                Responsável e produto ficam em branco por aqui — dá pra completar depois em Hotfixes.
+              </p>
+            </div>
+            <div className="flex justify-end gap-2 mt-5 pt-4 border-t border-[var(--border-default)]">
+              <button onClick={() => setShowCreateHotfixModal(false)} className="px-4 py-2 rounded-lg border border-[var(--border-default)] text-[var(--text-secondary)] hover:bg-[var(--surface-pill)] transition-all text-sm font-bold">
+                Cancelar
+              </button>
+              <button
+                onClick={handleCreateHotfix}
+                disabled={isCreatingHotfix}
+                className="px-4 py-2 rounded-lg bg-[var(--text-danger)] text-white hover:opacity-90 transition-all text-sm font-bold disabled:opacity-50 flex items-center gap-2"
+              >
+                {isCreatingHotfix && <Loader2 size={14} className="animate-spin" />} Criar
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* Modal: vincular chamado existente */}
       {showLinkTicketModal && (
@@ -876,6 +1146,7 @@ export default function InternalTicketDetailPage() {
           </div>
         </div>
       )}
+      </motion.div>
     </div>
   );
 }

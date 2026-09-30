@@ -207,6 +207,21 @@ export class InternalTicketService {
     return res.json();
   }
 
+  // Edição em massa (2026-09-30, pedido do usuário) — mesmo padrão de
+  // bulkUpdateTickets em tickets-view.tsx, mas reaproveitando a MESMA action
+  // 'update' de sempre (agora aceita `ids` além de `id`, ver a rota).
+  static async bulkUpdate(ids: string[], fields: Partial<{ status: string; assigneeId: string; teamId: string; priority: number }>): Promise<void> {
+    const res = await fetch('/api/internal-tickets', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ action: 'update', ids, fields })
+    });
+    if (!res.ok) {
+      const body = await res.json().catch(() => null);
+      throw new Error(body?.error || 'Erro na atualização em massa.');
+    }
+  }
+
   // Vincula um ticket interno já existente (criado solto ou por outro
   // chamado) a mais um chamado — é o que sustenta o N:N: um ticket interno
   // pode cobrir vários chamados, e este é o segundo (ou terceiro...) vínculo.

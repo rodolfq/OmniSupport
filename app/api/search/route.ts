@@ -176,7 +176,12 @@ export async function GET(request: Request) {
       const highPriority = searchParams.get('highPriority') === 'true';
       const page = Math.max(1, parseInt(searchParams.get('page') || '1', 10));
       const requestedPageSize = parseInt(searchParams.get('pageSize') || '10', 10);
-      const pageSize = Math.min(10, Math.max(1, requestedPageSize));
+      // Tabela/Cards continuam pedindo 10 (paginação numerada de sempre); o
+      // Kanban de "Todos os Chamados" (app/(portal)/tickets/tickets-view.tsx)
+      // pede lotes maiores pro "Carregar mais"/"Carregar todos" — sem esse
+      // teto mais alto, o board sempre mostrava só 10 chamados no total,
+      // espalhados pelas colunas, sem nenhum jeito de ver o resto.
+      const pageSize = Math.min(500, Math.max(1, requestedPageSize));
 
       const offset = (page - 1) * pageSize;
 

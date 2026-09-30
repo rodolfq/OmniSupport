@@ -453,12 +453,15 @@ export async function POST(request: NextRequest) {
     }
 
     if (action === 'update') {
-      // Edição pela tela de detalhe. SET dinâmico pelas chaves enviadas:
-      // ausente não toca a coluna, null limpa — mesma semântica do PUT de
-      // chamado. `save` não serve aqui porque não cobre status, prazo,
-      // hotfix nem a classificação.
-      const { id, fields } = body;
-      if (!id || !fields) return NextResponse.json({ error: 'id e fields são obrigatórios.' }, { status: 400 });
+      // Edição pela tela de detalhe (um id) OU edição em massa (array de ids,
+      // 2026-09-30 — mesmos 4 campos que "Todos os Chamados" já deixava
+      // alterar em lote: Status/Responsável/Equipe/Prioridade). SET dinâmico
+      // pelas chaves enviadas: ausente não toca a coluna, null limpa — mesma
+      // semântica do PUT de chamado. `save` não serve aqui porque não cobre
+      // status, prazo, hotfix nem a classificação.
+      const { id, ids, fields } = body;
+      const targetIds: string[] = Array.isArray(ids) && ids.length > 0 ? ids : (id ? [id] : []);
+      if (targetIds.length === 0 || !fields) return NextResponse.json({ error: 'id(s) e fields são obrigatórios.' }, { status: 400 });
 
       const COLUMNS: Record<string, string> = {
         title: 'title',
@@ -488,13 +491,13 @@ export async function POST(request: NextRequest) {
       if (sets.length === 0) return NextResponse.json({ error: 'Nenhum campo informado.' }, { status: 400 });
 
       sets.push('updated_at = NOW()');
-      params.push(id);
+      params.push(targetIds);
       const res = await query(
-        `UPDATE public.internal_tickets SET ${sets.join(', ')} WHERE id = $${params.length} RETURNING id`,
+        `UPDATE public.internal_tickets SET ${sets.join(', ')} WHERE id = ANY($${params.length}::text[]) RETURNING id`,
         params
       );
       if (res.rowCount === 0) return NextResponse.json({ error: 'Ticket interno não encontrado.' }, { status: 404 });
-      return NextResponse.json({ success: true });
+      return NextResponse.json({ success: true, updated: res.rowCount });
     }
 
     if (action === 'link') {

@@ -1434,7 +1434,6 @@ INSERT INTO public.config_statuses (label, color, scope, is_closed, sort_order) 
 ('Aguardando Cliente', 'bg-amber-100 text-amber-700', 'ticket', false, 3),
 ('Aguardando Aprovação', 'bg-purple-100 text-purple-700', 'ticket', false, 4),
 ('Resolvido', 'bg-emerald-50 text-emerald-700', 'ticket', false, 5),
-('Fechado', 'bg-slate-100 text-slate-500', 'ticket', true, 6),
 ('Mesclado', 'bg-slate-200 text-slate-500', 'ticket', true, 7),
 ('Concluído', 'bg-emerald-100 text-emerald-700', 'ticket', true, 100)
 ON CONFLICT (label, scope) DO NOTHING;

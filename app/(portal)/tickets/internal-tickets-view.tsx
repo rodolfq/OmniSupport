@@ -16,7 +16,8 @@ import { MultiSelectFilter } from "@/components/multi-select-filter";
 import { toast } from "sonner";
 import {
   Plus, Search, Filter, Clock, Edit3, Loader2,
-  MessageCircle, Link2, User as UserIcon, Inbox, AlertTriangle, Flame
+  MessageCircle, Link2, User as UserIcon, Inbox, AlertTriangle, Flame,
+  CheckSquare, Square, X
 } from "lucide-react";
 import { useRouter } from "next/navigation";
 import {
@@ -249,6 +250,16 @@ export function InternalTicketsView({
   const [currentPage, setCurrentPage] = useState(1);
   const [totalPages, setTotalPages] = useState(1);
 
+  // Edição em massa (2026-09-30, pedido do usuário) — seleção só na visão
+  // Tabela (ver TicketTable). Campos editáveis em lote: Status, Responsável,
+  // Equipe e Prioridade, mesmos 4 que o usuário pediu pra esta tela.
+  const [selectedIds, setSelectedIds] = useState<string[]>([]);
+  const [isBulkStatusOpen, setIsBulkStatusOpen] = useState(false);
+  const [isBulkAssigneeOpen, setIsBulkAssigneeOpen] = useState(false);
+  const [isBulkTeamOpen, setIsBulkTeamOpen] = useState(false);
+  const [isBulkPriorityOpen, setIsBulkPriorityOpen] = useState(false);
+  const [isBulkSaving, setIsBulkSaving] = useState(false);
+
 // Filters
   const [searchTerm, setSearchTerm] = useState(FILTROS_PADRAO.searchTerm);
   // Várias equipes de uma vez: o normal é acompanhar a própria E as vizinhas
@@ -452,6 +463,35 @@ export function InternalTicketsView({
     if (!hidratado) return; // espera a restauração dos filtros salvos
     fetchTickets(1);
   }, [hidratado, fetchTickets, triggerRefresh]);
+
+  // Edição em massa — troca o campo de todos os selecionados numa chamada só
+  // (InternalTicketService.bulkUpdate → POST /api/internal-tickets,
+  // action=update com `ids`) e recarrega a lista.
+  const handleBulkFieldChange = async (fields: Partial<{ status: string; assigneeId: string; teamId: string; priority: number }>, successMessage: string) => {
+    if (selectedIds.length === 0) return;
+    setIsBulkSaving(true);
+    try {
+      await InternalTicketService.bulkUpdate(selectedIds, fields);
+      toast.success(successMessage);
+      setSelectedIds([]);
+      setIsBulkStatusOpen(false);
+      setIsBulkAssigneeOpen(false);
+      setIsBulkTeamOpen(false);
+      setIsBulkPriorityOpen(false);
+      fetchTickets(currentPage);
+    } catch (error: any) {
+      toast.error(error?.message || "Erro na atualização em massa.");
+    } finally {
+      setIsBulkSaving(false);
+    }
+  };
+
+  const toggleSelectTicket = (uuid: string) => {
+    setSelectedIds(prev => prev.includes(uuid) ? prev.filter(id => id !== uuid) : [...prev, uuid]);
+  };
+  const toggleSelectAllTickets = () => {
+    setSelectedIds(prev => prev.length === displayTickets.length ? [] : displayTickets.map(t => t.uuid!).filter(Boolean));
+  };
 
   // Troca de responsável direto no card, sem abrir o ticket. Otimista, com
   // desfazer em caso de recusa — mesma escolha da lista de chamados.
@@ -798,14 +838,45 @@ const openEditModal = (ticket: InternalTicketItem) => {
           ))}
         </div>
       ) : viewMode === "table" ? (
-        <TicketTable
-          tickets={displayTickets}
-          onEdit={openEditModal}
-          teams={teams}
-          statuses={statuses}
-          assignableUsers={assignableUsers}
-          onReassign={reassignInternalTicket}
-        />
+        <>
+          {/* Barra de ações em massa — só aparece com algo selecionado, mesmo
+              padrão de "Todos os Chamados" (tickets-view.tsx). */}
+          {selectedIds.length > 0 && (
+            <div className="flex items-center gap-3 bg-[var(--surface-card)] border border-[var(--accent)]/30 rounded-2xl px-4 py-3 flex-wrap">
+              <span className="text-xs font-bold text-[var(--text-primary)] uppercase tracking-widest">
+                {selectedIds.length} selecionado{selectedIds.length !== 1 ? "s" : ""}
+              </span>
+              <div className="flex items-center gap-2 flex-wrap">
+                <button onClick={() => setIsBulkStatusOpen(true)} className="px-3 py-1.5 rounded-lg text-[10px] font-bold uppercase tracking-widest border border-[var(--border-default)] text-[var(--text-secondary)] hover:bg-[var(--surface-pill)] transition-all">
+                  Alterar Status
+                </button>
+                <button onClick={() => setIsBulkAssigneeOpen(true)} className="px-3 py-1.5 rounded-lg text-[10px] font-bold uppercase tracking-widest border border-[var(--border-default)] text-[var(--text-secondary)] hover:bg-[var(--surface-pill)] transition-all">
+                  Transferir
+                </button>
+                <button onClick={() => setIsBulkTeamOpen(true)} className="px-3 py-1.5 rounded-lg text-[10px] font-bold uppercase tracking-widest border border-[var(--border-default)] text-[var(--text-secondary)] hover:bg-[var(--surface-pill)] transition-all">
+                  Mudar Equipe
+                </button>
+                <button onClick={() => setIsBulkPriorityOpen(true)} className="px-3 py-1.5 rounded-lg text-[10px] font-bold uppercase tracking-widest border border-[var(--border-default)] text-[var(--text-secondary)] hover:bg-[var(--surface-pill)] transition-all">
+                  Alterar Prioridade
+                </button>
+              </div>
+              <button onClick={() => setSelectedIds([])} className="ml-auto p-1.5 rounded-lg text-[var(--text-tertiary)] hover:text-[var(--text-danger)] hover:bg-[var(--surface-danger)] transition-all" title="Limpar seleção">
+                <X size={14} />
+              </button>
+            </div>
+          )}
+          <TicketTable
+            tickets={displayTickets}
+            onEdit={openEditModal}
+            teams={teams}
+            statuses={statuses}
+            assignableUsers={assignableUsers}
+            onReassign={reassignInternalTicket}
+            selectedIds={selectedIds}
+            onToggleSelect={toggleSelectTicket}
+            onToggleSelectAll={toggleSelectAllTickets}
+          />
+        </>
       ) : (
         <KanbanBoard tickets={displayTickets} onEdit={openEditModal} onStatusChange={handleStatusChange} statuses={statuses} assignableUsers={assignableUsers} onReassign={reassignInternalTicket} />
       )}
@@ -816,6 +887,96 @@ const openEditModal = (ticket: InternalTicketItem) => {
         onClose={() => setShowNewModal(false)}
         onCreated={() => fetchTickets(1)}
       />
+
+      {/* Modais de edição em massa — mesmo padrão visual do "Alterar Status"
+          de tickets-view.tsx: grid de opções, fecha ao clicar fora. */}
+      {isBulkStatusOpen && (
+        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-[200] p-4" onClick={() => setIsBulkStatusOpen(false)}>
+          <div className="bg-[var(--surface-card)] rounded-2xl p-6 max-w-md w-full" onClick={(e) => e.stopPropagation()}>
+            <h3 className="text-lg font-black text-[var(--text-primary)] mb-1 uppercase">Alterar Status</h3>
+            <p className="text-sm text-[var(--text-tertiary)] mb-4">{selectedIds.length} ticket(s) selecionado(s)</p>
+            <div className="grid grid-cols-2 gap-3">
+              {statuses.map(s => (
+                <button
+                  key={s.value}
+                  disabled={isBulkSaving}
+                  onClick={() => handleBulkFieldChange({ status: s.value }, `${selectedIds.length} ticket(s) atualizado(s) para "${s.label}"`)}
+                  className={cn("py-3 rounded-xl text-[10px] font-semibold uppercase tracking-widest border transition-all disabled:opacity-50", s.color)}
+                >
+                  {s.label}
+                </button>
+              ))}
+            </div>
+          </div>
+        </div>
+      )}
+      {isBulkAssigneeOpen && (
+        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-[200] p-4" onClick={() => setIsBulkAssigneeOpen(false)}>
+          <div className="bg-[var(--surface-card)] rounded-2xl p-6 max-w-md w-full max-h-[80vh] flex flex-col" onClick={(e) => e.stopPropagation()}>
+            <h3 className="text-lg font-black text-[var(--text-primary)] mb-1 uppercase">Transferir</h3>
+            <p className="text-sm text-[var(--text-tertiary)] mb-4">{selectedIds.length} ticket(s) selecionado(s)</p>
+            <div className="flex-1 overflow-y-auto space-y-2">
+              <button
+                disabled={isBulkSaving}
+                onClick={() => handleBulkFieldChange({ assigneeId: "" }, `${selectedIds.length} ticket(s) sem responsável`)}
+                className="w-full p-3 text-left border border-[var(--border-default)] rounded-lg hover:bg-[var(--surface-pill)] transition-all text-sm font-bold text-[var(--text-tertiary)] disabled:opacity-50"
+              >
+                Não atribuído
+              </button>
+              {assignableUsers.map(u => (
+                <button
+                  key={u.id}
+                  disabled={isBulkSaving}
+                  onClick={() => handleBulkFieldChange({ assigneeId: u.id }, `${selectedIds.length} ticket(s) transferido(s) para ${u.name}`)}
+                  className="w-full p-3 text-left border border-[var(--border-default)] rounded-lg hover:bg-[var(--surface-pill)] transition-all text-sm font-bold text-[var(--text-primary)] disabled:opacity-50"
+                >
+                  {u.name}
+                </button>
+              ))}
+            </div>
+          </div>
+        </div>
+      )}
+      {isBulkTeamOpen && (
+        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-[200] p-4" onClick={() => setIsBulkTeamOpen(false)}>
+          <div className="bg-[var(--surface-card)] rounded-2xl p-6 max-w-md w-full" onClick={(e) => e.stopPropagation()}>
+            <h3 className="text-lg font-black text-[var(--text-primary)] mb-1 uppercase">Mudar Equipe</h3>
+            <p className="text-sm text-[var(--text-tertiary)] mb-4">{selectedIds.length} ticket(s) selecionado(s)</p>
+            <div className="grid grid-cols-2 gap-3">
+              {teams.map(t => (
+                <button
+                  key={t.value}
+                  disabled={isBulkSaving}
+                  onClick={() => handleBulkFieldChange({ teamId: t.value }, `${selectedIds.length} ticket(s) movido(s) para ${t.label}`)}
+                  className={cn("py-3 rounded-xl text-[10px] font-semibold uppercase tracking-widest border transition-all disabled:opacity-50", t.color)}
+                >
+                  {t.label}
+                </button>
+              ))}
+            </div>
+          </div>
+        </div>
+      )}
+      {isBulkPriorityOpen && (
+        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-[200] p-4" onClick={() => setIsBulkPriorityOpen(false)}>
+          <div className="bg-[var(--surface-card)] rounded-2xl p-6 max-w-md w-full" onClick={(e) => e.stopPropagation()}>
+            <h3 className="text-lg font-black text-[var(--text-primary)] mb-1 uppercase">Alterar Prioridade</h3>
+            <p className="text-sm text-[var(--text-tertiary)] mb-4">{selectedIds.length} ticket(s) selecionado(s)</p>
+            <div className="grid grid-cols-2 gap-3">
+              {[1, 2, 3, 4].map(p => (
+                <button
+                  key={p}
+                  disabled={isBulkSaving}
+                  onClick={() => handleBulkFieldChange({ priority: p }, `${selectedIds.length} ticket(s) com prioridade atualizada`)}
+                  className="py-3 rounded-xl text-xs font-bold border border-[var(--border-default)] hover:bg-[var(--surface-pill)] transition-all flex items-center justify-center gap-1 disabled:opacity-50"
+                >
+                  <PriorityBars priority={p} />
+                </button>
+              ))}
+            </div>
+          </div>
+        </div>
+      )}
         </div>
       );
     }
@@ -929,7 +1090,7 @@ function TicketCard({
 // Ticket Table Component
 function TicketTable({
   tickets, onEdit, teams = DEFAULT_TEAM_OPTIONS, statuses = DEFAULT_KANBAN_STATUSES,
-  assignableUsers = [], onReassign
+  assignableUsers = [], onReassign, selectedIds, onToggleSelect, onToggleSelectAll
 }: {
   tickets: InternalTicketItem[];
   onEdit: (t: InternalTicketItem) => void;
@@ -937,12 +1098,30 @@ function TicketTable({
   statuses?: KanbanStatusMeta[];
   assignableUsers?: { id: string; name: string; avatarThumbUrl?: string | null }[];
   onReassign?: (ticketUuid: string, assigneeId: string | null) => Promise<void>;
+  // Edição em massa (2026-09-30) — seleção fica só na visão Tabela, mesma
+  // decisão de escopo do padrão já usado em "Todos os Chamados"
+  // (tickets-view.tsx): é a visão de gestão em lista, onde selecionar linha a
+  // linha faz sentido; Cards/Kanban continuam sem checkbox.
+  selectedIds?: string[];
+  onToggleSelect?: (uuid: string) => void;
+  onToggleSelectAll?: () => void;
 }) {
   return (
     <div className="bg-[var(--surface-card)] rounded-2xl border border-[var(--border-default)] overflow-hidden">
       <table className="w-full">
         <thead className="bg-[var(--surface-card)]/50 border-b border-[var(--border-default)]">
           <tr>
+            {onToggleSelect && (
+              <th className="px-4 py-3 w-10">
+                <button onClick={(e) => { e.stopPropagation(); onToggleSelectAll?.(); }} className="flex items-center justify-center">
+                  {selectedIds && selectedIds.length === tickets.length && tickets.length > 0 ? (
+                    <CheckSquare size={16} className="text-[var(--accent-text)]" />
+                  ) : (
+                    <Square size={16} className="text-[var(--text-tertiary)]" />
+                  )}
+                </button>
+              </th>
+            )}
             <th className="px-4 py-3 text-left text-[10px] font-semibold uppercase text-[var(--text-tertiary)]">Número</th>
             <th className="px-4 py-3 text-left text-[10px] font-semibold uppercase text-[var(--text-tertiary)]">Título</th>
             <th className="px-4 py-3 text-left text-[10px] font-semibold uppercase text-[var(--text-tertiary)]">Status</th>
@@ -957,8 +1136,16 @@ function TicketTable({
           {tickets.map((it) => {
             const teamOpt = teams.find((t) => t.value === it.teamId) || teams[0];
             const statusMeta = statuses.find(s => s.value === (it.status || "Novo")) || statuses[0];
+            const isSelected = !!selectedIds?.includes(it.uuid!);
             return (
-              <tr key={it.id} className="hover:bg-[var(--surface-card)]/50 transition-colors cursor-pointer group" onClick={() => onEdit(it)}>
+              <tr key={it.id} className={cn("hover:bg-[var(--surface-card)]/50 transition-colors cursor-pointer group", isSelected && "bg-[var(--accent)]/5")} onClick={() => onEdit(it)}>
+                {onToggleSelect && (
+                  <td className="px-4 py-3" onClick={(e) => e.stopPropagation()}>
+                    <button onClick={() => onToggleSelect(it.uuid!)} className="flex items-center justify-center">
+                      {isSelected ? <CheckSquare size={16} className="text-[var(--accent-text)]" /> : <Square size={16} className="text-[var(--text-tertiary)]" />}
+                    </button>
+                  </td>
+                )}
                 <td className="px-4 py-3">
                   <div className="flex items-center gap-2">
                     <span className="w-1 h-4 rounded-full shrink-0" style={{ backgroundColor: statusMeta.accent }} />

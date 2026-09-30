@@ -9,6 +9,7 @@ import { runExclusive } from '@/lib/key-mutex';
 import { getCurrentActionUser, getActorEffectivePermissions } from '@/lib/server-auth';
 import { logAudit } from '@/lib/audit-log';
 import { CHAT_TAG_REQUIRED_MESSAGE } from '@/lib/chat-close-rules';
+import { TicketStatus } from '@/lib/types';
 
 // Achado em 2026-09-23 (varredura de permissões): as ações abaixo só
 // checavam "sessão válida" — qualquer papel autenticado atribuía, transferia,
@@ -51,7 +52,7 @@ async function conversaTemTagParaEncerrar(sessionId: string): Promise<boolean | 
  * 1. mergeTickets e duplicateTicket gravam SQL direto, sem passar pelo PATCH
  *    de /api/tickets. É de propósito: aquele caminho dispara automação e
  *    notifica o cliente, e nem mesclar nem duplicar são eventos que o cliente
- *    deva receber. Mesclar também usa o status 'Mesclado' em vez de 'Fechado'
+ *    deva receber. Mesclar também usa o status 'Mesclado' em vez de 'Concluído'
  *    justamente para não acionar a automação de encerramento.
  *
  * 2. saveTicketFromChatSession NÃO copia o histórico da conversa para
@@ -396,7 +397,7 @@ export async function POST(request: Request) {
       // que quer outro (forceNew, ver o popup em chat-widget.tsx).
       if (session.ticket_id && !forceNew) {
         if (closeTicketImmediately) {
-          await query(`UPDATE public.tickets SET status = 'Fechado', updated_at = NOW() WHERE id = $1`, [session.ticket_id]);
+          await query(`UPDATE public.tickets SET status = $2, updated_at = NOW() WHERE id = $1`, [session.ticket_id, TicketStatus.CLOSED]);
         }
         return NextResponse.json({ ticketId: session.ticket_id, ticketNumber: session.ticket_number });
       }
@@ -416,7 +417,7 @@ export async function POST(request: Request) {
            RETURNING id, public_ticket_number`,
           [
             ticketTitle,
-            closeTicketImmediately ? 'Fechado' : 'Novo',
+            closeTicketImmediately ? TicketStatus.CLOSED : 'Novo',
             companyId,
             session.customer_id || null,
             session.assignee_id || actor.id,

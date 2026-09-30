@@ -1,8 +1,7 @@
 import { TicketStatus } from './types';
 
 export const CLOSED_TICKET_STATUSES = [
-  TicketStatus.CLOSED,
-  'Concluído',
+  TicketStatus.CLOSED, // 'Concluído' — 'Fechado' foi removido em 2026-09-29 (redundante)
   'Encerrado',
   'Mesclado',
 ] as const;

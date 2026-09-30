@@ -1,5 +1,6 @@
 import { pool, query } from '../db';
 import { getTodaySP, toDateOnly } from '../report-period';
+import { deriveLiveStatus } from '../presence';
 import type {
   GiroDay,
   GiroRow,
@@ -251,32 +252,59 @@ async function loadRows(dayId: string, handoffUserId: string | null): Promise<Gi
   // é o mesmo motivo documentado em app/api/users/route.ts. `has_avatar`
   // vira só um link pra rota que serve a imagem sob demanda
   // (/api/users/[id]/avatar), e a miniatura (~1,3kB) continua embutida.
+  //
+  // LEFT JOIN com analyst_status (presença ao vivo, mesma tabela do botão de
+  // status no cabeçalho) — pedido do usuário (2026-09-28): quem está na vez e
+  // marca "Ausente > Almoço" não conta como "na vez" enquanto durar. LEFT, não
+  // JOIN: nem todo participante necessariamente já teve uma linha gravada ali
+  // (heartbeat nunca rodou), e nesse caso é tratado como não-ausente.
   const res = await query(
     `SELECT r.*, p.name, p.avatar_thumb_url,
-            (p.avatar_url IS NOT NULL AND p.avatar_url <> '') AS has_avatar
+            (p.avatar_url IS NOT NULL AND p.avatar_url <> '') AS has_avatar,
+            a.status AS presence_status, a.is_online AS presence_is_online,
+            a.last_active AS presence_last_active, a.current_reason AS presence_reason
        FROM public.giro_day_rows r
        JOIN public.profiles p ON p.id = r.user_id
+       LEFT JOIN public.analyst_status a ON a.user_id = r.user_id
       WHERE r.day_id = $1
       ORDER BY r.position ASC`,
     [dayId]
   );
-  return res.rows.map(r => ({
-    id: r.id,
-    userId: r.user_id,
-    userName: r.name,
-    avatarUrl: r.has_avatar ? `/api/users/${r.user_id}/avatar` : null,
-    avatarThumbUrl: r.avatar_thumb_url,
-    position: r.position,
-    serviceType: r.service_type as GiroServiceType,
-    serviceTime: r.service_time,
-    note: r.note,
-    lunchTime: r.lunch_time,
-    checklist: r.checklist || {},
-    workSchedule: r.work_schedule,
-    isFixed: r.is_fixed,
-    isHandoff: r.user_id === handoffUserId,
-    completedCount: r.completed_count
-  }));
+  const rows = res.rows.map(r => {
+    const live = deriveLiveStatus({
+      status: r.presence_status,
+      isOnline: r.presence_is_online,
+      lastActive: r.presence_last_active
+    });
+    return {
+      id: r.id as string,
+      userId: r.user_id as string,
+      userName: r.name as string,
+      avatarUrl: r.has_avatar ? `/api/users/${r.user_id}/avatar` : null,
+      avatarThumbUrl: r.avatar_thumb_url,
+      position: r.position as number,
+      serviceType: r.service_type as GiroServiceType,
+      serviceTime: r.service_time,
+      note: r.note,
+      lunchTime: r.lunch_time,
+      checklist: r.checklist || {},
+      workSchedule: r.work_schedule,
+      isFixed: r.is_fixed,
+      isHandoff: r.user_id === handoffUserId,
+      completedCount: r.completed_count,
+      isAwayForLunch: live === 'away' && r.presence_reason === 'Almoço',
+      isCurrent: false // decidido abaixo, depois de ver a lista inteira
+    };
+  });
+
+  // "Na vez" = primeiro (por position, já é a ordem da query) que não está em
+  // almoço agora — pula quantos estiverem em almoço em sequência, não só um.
+  // Se todo mundo estiver (caso raro), volta pra position 1: melhor destacar
+  // alguém do que ninguém.
+  const current = rows.find(r => !r.isAwayForLunch) ?? rows[0];
+  if (current) current.isCurrent = true;
+
+  return rows;
 }
 
 async function loadHistory(dayId: string): Promise<GiroHistoryEntry[]> {
@@ -1350,7 +1378,9 @@ export async function getTodaySummary(currentUserId: string): Promise<GiroSummar
   return {
     date: today,
     exists: day.exists,
-    current: day.rows[0] ?? null,
+    // isCurrent já pula quem está em almoço agora (ver loadRows) — não é mais
+    // simplesmente "o primeiro da lista".
+    current: day.rows.find(r => r.isCurrent) ?? day.rows[0] ?? null,
     handoffName: day.rows.find(r => r.userId === day.handoffUserId)?.userName ?? null,
     rows: day.rows,
     history: day.history,

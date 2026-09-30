@@ -11,6 +11,7 @@ import {
   FileText,
   Music,
   Trash2,
+  Loader2,
 } from "lucide-react";
 import { motion, AnimatePresence } from "motion/react";
 import { selectableOptions } from "@/lib/utils";
@@ -27,7 +28,7 @@ import {
   UserRole,
 } from "@/lib/types";
 import { cn } from "@/lib/utils";
-import { fileToBase64 } from "@/lib/image-utils";
+import { uploadAttachment } from "@/lib/attachment-upload";
 import { splitAttachmentsByBudget, MAX_ATTACHMENT_TOTAL_LABEL } from "@/lib/attachment-limits";
 import { toast } from "sonner";
 import { useQueryClient } from "@tanstack/react-query";
@@ -99,6 +100,9 @@ export function NewTicketModal() {
   }
 
   const [attachments, setAttachments] = useState<Attachment[]>([]);
+  // Upload de anexo agora é de verdade (multipart, ver lib/attachment-upload.ts)
+  // — trava o envio do chamado até terminar.
+  const [isUploadingAttachment, setIsUploadingAttachment] = useState(false);
   const [previewAttachment, setPreviewAttachment] = useState<Attachment | null>(null);
   const [isDragging, setIsDragging] = useState(false);
   const [assigneeId, setAssigneeId] = useState("");
@@ -294,16 +298,19 @@ export function NewTicketModal() {
     }
     if (accepted.length === 0) return;
 
-    const newAttachments: Attachment[] = await Promise.all(
-      accepted.map(async (file) => ({
-        id: Math.random().toString(36).substr(2, 9),
-        name: file.name,
-        type: file.type,
-        url: await fileToBase64(file),
-        size: file.size,
-      })),
-    );
-    setAttachments([...attachments, ...newAttachments]);
+    setIsUploadingAttachment(true);
+    try {
+      for (const file of accepted) {
+        try {
+          const attachment = await uploadAttachment(file);
+          setAttachments(prev => [...prev, attachment]);
+        } catch {
+          toast.error(`Erro ao fazer upload de ${file.name}`);
+        }
+      }
+    } finally {
+      setIsUploadingAttachment(false);
+    }
   };
 
   const handlePaste = (e: React.ClipboardEvent) => {
@@ -745,9 +752,13 @@ export function NewTicketModal() {
                   )}
                   onClick={() => fileInputRef.current?.click()}
                 >
-                  <Paperclip className="text-[var(--text-tertiary)]" size={24} />
+                  {isUploadingAttachment ? (
+                    <Loader2 className="text-[var(--text-tertiary)] animate-spin" size={24} />
+                  ) : (
+                    <Paperclip className="text-[var(--text-tertiary)]" size={24} />
+                  )}
                   <p className="text-xs font-bold text-[var(--text-tertiary)]">
-                    Clique ou arraste arquivos aqui
+                    {isUploadingAttachment ? 'Enviando anexo...' : 'Clique ou arraste arquivos aqui'}
                   </p>
                   <p className="text-[10px] text-[var(--text-tertiary)]">
                     Suporta múltiplos arquivos e imagens do clipboard
@@ -819,7 +830,7 @@ export function NewTicketModal() {
                 </button>
                 <button
                   type="submit"
-                  disabled={loading || saveSuccess}
+                  disabled={loading || saveSuccess || isUploadingAttachment}
                   className={cn(
                     "flex-1 px-6 py-3 rounded-xl text-sm font-black uppercase tracking-widest shadow-lg transition-all flex items-center justify-center gap-2 disabled:opacity-70 disabled:cursor-not-allowed",
                     saveSuccess

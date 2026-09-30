@@ -57,6 +57,7 @@ import EmojiPicker, { Theme as EmojiTheme } from 'emoji-picker-react';
 import Cropper, { Area } from 'react-easy-crop';
 import { Scissors } from 'lucide-react';
 import { fileToBase64 } from '@/lib/image-utils';
+import { uploadAttachment } from '@/lib/attachment-upload';
 import { MAX_ATTACHMENT_TOTAL_BYTES, MAX_ATTACHMENT_TOTAL_LABEL } from '@/lib/attachment-limits';
 import { toast } from 'sonner';
 import { useIsMobile } from '@/hooks/use-mobile';
@@ -157,6 +158,10 @@ export default function ChatInternalPage() {
   const [showEmojiPicker, setShowEmojiPicker] = useState(false);
   const [showStickerPicker, setShowStickerPicker] = useState(false);
   const [showGifSearch, setShowGifSearch] = useState(false);
+  // Upload de anexo agora é de verdade (multipart, ver lib/attachment-upload.ts)
+  // — trava o botão de anexar enquanto sobe, pra não disparar dois uploads
+  // em cima do outro clicando rápido demais.
+  const [isUploadingFile, setIsUploadingFile] = useState(false);
   const [stickerContextMenu, setStickerContextMenu] = useState<{ x: number, y: number, index: number } | null>(null);
   const [gifQuery, setGifQuery] = useState('');
   const [isCreatingGroup, setIsCreatingGroup] = useState(false);
@@ -619,17 +624,24 @@ export default function ChatInternalPage() {
       return;
     }
 
-    // Simulate upload
-    const base64 = await fileToBase64(file);
-    const metadata = {
-      fileName: file.name,
-      fileSize: file.size,
-      fileUrl: base64
-    };
+    setIsUploadingFile(true);
+    try {
+      const attachment = await uploadAttachment(file);
+      const metadata = {
+        fileName: attachment.name,
+        fileSize: attachment.size,
+        fileUrl: attachment.url
+      };
 
-    // Imagem ganha preview inline (bolha própria, ver renderização de
-    // msg.type === 'image') em vez do card genérico de arquivo.
-    handleSendMessage(file.type.startsWith('image/') ? 'image' : 'file', undefined, metadata);
+      // Imagem ganha preview inline (bolha própria, ver renderização de
+      // msg.type === 'image') em vez do card genérico de arquivo.
+      handleSendMessage(file.type.startsWith('image/') ? 'image' : 'file', undefined, metadata);
+    } catch {
+      toast.error(`Erro ao fazer upload de ${file.name}`);
+    } finally {
+      setIsUploadingFile(false);
+      if (e.target) e.target.value = '';
+    }
   };
 
   const handleDeleteMessage = async (messageId: string) => {
@@ -2120,10 +2132,21 @@ export default function ChatInternalPage() {
                     </button>
                     <button
                       onClick={() => fileInputRef.current?.click()}
-                      className="p-1.5 sm:p-2 text-[var(--text-tertiary)] hover:text-[var(--accent-text)] transition-all"
+                      disabled={isUploadingFile}
+                      className="p-1.5 sm:p-2 text-[var(--text-tertiary)] hover:text-[var(--accent-text)] transition-all disabled:opacity-50"
+                      title={isUploadingFile ? 'Enviando anexo...' : undefined}
                     >
-                      <Paperclip size={20} className="sm:hidden" />
-                      <Paperclip size={24} className="hidden sm:block" />
+                      {isUploadingFile ? (
+                        <>
+                          <Loader2 size={20} className="sm:hidden animate-spin" />
+                          <Loader2 size={24} className="hidden sm:block animate-spin" />
+                        </>
+                      ) : (
+                        <>
+                          <Paperclip size={20} className="sm:hidden" />
+                          <Paperclip size={24} className="hidden sm:block" />
+                        </>
+                      )}
                     </button>
                     <input
                       type="file"

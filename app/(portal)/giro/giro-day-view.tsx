@@ -3,7 +3,7 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   ChevronLeft, ChevronRight, CalendarDays, RotateCcw, Download, Trash2,
-  CheckCircle2, GripVertical, Mail, MailX, Lock, Loader2, History, UserPlus, X, Check
+  CheckCircle2, GripVertical, Mail, MailX, Lock, Loader2, History, UserPlus, X, Check, Utensils
 } from 'lucide-react';
 import { DndContext, closestCenter, PointerSensor, useSensor, useSensors, DragEndEvent } from '@dnd-kit/core';
 import { arrayMove, SortableContext, verticalListSortingStrategy, useSortable } from '@dnd-kit/sortable';
@@ -703,9 +703,11 @@ function GiroRowCard({
           <span className="w-[14px] shrink-0" />
         )}
 
-        <span className={cn(
+        <span
+          title={row.isCurrent ? 'Na vez agora' : (row.isAwayForLunch ? 'Em almoço agora — fora da vez até voltar' : undefined)}
+          className={cn(
           'w-7 h-7 rounded-lg flex items-center justify-center text-xs font-black tabular-nums shrink-0',
-          row.position === 1
+          row.isCurrent
             ? 'bg-[var(--accent)] text-white'
             : 'bg-[var(--surface-pill)] text-[var(--text-secondary)] border border-[var(--border-default)]'
         )}>
@@ -720,6 +722,15 @@ function GiroRowCard({
             {row.isHandoff && (
               <span title="Responsável pela passagem de turno por e-mail" className="shrink-0">
                 <Mail size={11} className="text-[var(--accent-text)]" />
+              </span>
+            )}
+            {/* Presença ao vivo (cabeçalho), não o campo "Almoço" manual da própria
+                linha — pedido do usuário (2026-09-28): quem está em almoço agora
+                não conta como "na vez" (badge acima não fica destacado nela), e
+                este ícone explica o motivo pra quem estranhar. */}
+            {row.isAwayForLunch && (
+              <span title="Em almoço agora — fora da vez até voltar" className="shrink-0">
+                <Utensils size={11} className="text-[var(--text-warning)]" />
               </span>
             )}
           </div>

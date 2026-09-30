@@ -34,11 +34,18 @@ export function FilterBar({ onFilterChange, originalTickets }: FilterBarProps) {
   // que modern-search-bar.tsx usa, então só o primeiro dos dois a montar
   // de fato busca. useProfilesLiteQuery (sem avatar_url — a tabela profiles
   // tem ~51MB de fotos em base64) é a versão certa aqui, já que só
-  // filtramos por role/is_admin, não mostramos foto nenhuma.
+  // filtramos por role, não mostramos foto nenhuma.
   const { data: companies = [] } = useCompaniesQuery();
   const { data: profiles = [] } = useProfilesLiteQuery();
+  // Analista responsável = qualquer papel de equipe (Administrador/Equipe/
+  // Time Interno) — antes só pegava 'Equipe' + isAdmin (flag de "Admin
+  // Cliente", do lado da empresa-cliente, sem relação nenhuma com a role
+  // Administrador), o que excluía todo o Time Interno (ex.: toda a equipe de
+  // Suporte) da lista de analista responsável.
   const analysts = useMemo<User[]>(
-    () => (profiles as any[]).filter((u: any) => u.role === 'Equipe' || u.isAdmin),
+    () => (profiles as any[]).filter((u: any) =>
+      u.role === UserRole.ADMIN || u.role === UserRole.SUPPORT || u.role === UserRole.INTERNAL
+    ),
     [profiles]
   );
   const [savedFilters, setSavedFilters] = useState<SavedFilter[]>([]);

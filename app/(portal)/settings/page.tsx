@@ -56,6 +56,13 @@ export default function SettingsPage() {
   // Registro de criação de usuários: mesma restrição do Log de Alterações
   // (Administrador, reports:audit_log ou settings:system) — a API reforça.
   const canViewUserCreationLog = hasPermission(Permission.REPORTS_AUDIT_LOG) || hasPermission(Permission.SETTINGS_SYSTEM);
+  // Divisão Chamados / Tickets Internos da aba "Sistema" (2026-09-30) —
+  // settings:system continua valendo pros dois grupos (é a permissão
+  // "cheia", ninguém perde acesso); as duas novas permitem conceder só um
+  // dos grupos, sem o resto que settings:system também libera em outras
+  // telas (Integrações, Log de Auditoria...).
+  const canManageTicketConfig = hasPermission(Permission.SETTINGS_SYSTEM) || hasPermission(Permission.SETTINGS_SYSTEM_TICKETS);
+  const canManageInternalConfig = hasPermission(Permission.SETTINGS_SYSTEM) || hasPermission(Permission.SETTINGS_SYSTEM_INTERNAL);
   // A aba WhatsApp usa WhatsAppChannelManager: canal Baileys fixo (QR Code,
   // 'default', igual ao que já funcionava em /whatsapp) + lista de canais
   // Meta Cloud API (0..N, criados/editados na própria tela — ver
@@ -200,9 +207,9 @@ export default function SettingsPage() {
               </SettingsNavGroup>
             )}
 
-            {(hasPermission(Permission.SETTINGS_SYSTEM) || hasPermission(Permission.SETTINGS_AI) || hasPermission(Permission.SETTINGS_AUTOMATION) || hasPermission(Permission.SETTINGS_INTEGRATIONS) || hasPermission(Permission.SETTINGS_EMAIL) || canViewUserCreationLog) && (
+            {(canManageTicketConfig || canManageInternalConfig || hasPermission(Permission.SETTINGS_AI) || hasPermission(Permission.SETTINGS_AUTOMATION) || hasPermission(Permission.SETTINGS_INTEGRATIONS) || hasPermission(Permission.SETTINGS_EMAIL) || canViewUserCreationLog) && (
               <SettingsNavGroup title="Sistema">
-                {hasPermission(Permission.SETTINGS_SYSTEM) && (
+                {(canManageTicketConfig || canManageInternalConfig) && (
                   <SettingsNavLink icon={<Database size={16} />} label="Geral do Sistema" active={activeTab === 'system'} onClick={() => setActiveTab('system')} />
                 )}
                 {(hasPermission(Permission.SETTINGS_AI) || hasPermission(Permission.SETTINGS_SYSTEM)) && (
@@ -238,23 +245,42 @@ export default function SettingsPage() {
           {activeTab === 'hotfixes' && hasPermission(Permission.HOTFIXES_MANAGE) && <HotfixesContent />}
           {activeTab === 'user-creation-log' && canViewUserCreationLog && <UserCreationLogContent />}
 
-{activeTab === 'system' && hasPermission(Permission.SETTINGS_SYSTEM) && (
+{activeTab === 'system' && (canManageTicketConfig || canManageInternalConfig) && (
              <div className="space-y-6 animate-in fade-in slide-in-from-bottom-4 duration-300">
-                <SystemConfigContent
-                  categories={categories}
-                  requestTypes={requestTypes}
-                  products={products}
-                  priorities={priorities}
-                  setCategories={setCategories}
-                  setRequestTypes={setRequestTypes}
-                  setProducts={setProducts}
-                  setPriorities={setPriorities}
-                  surveySettings={surveySettings}
-                  setSurveySettings={setSurveySettings}
-                />
-                <StatusManager />
-                <TicketClassificationManager />
-                <TagManager />
+                {/* Divisão Chamados / Tickets Internos (2026-09-30, pedido do
+                    usuário: "Tipos de Solicitação não existe no ticket
+                    interno") — cada grupo só renderiza pra quem tem a
+                    permissão correspondente (ou settings:system, que cobre os
+                    dois). Prioridades fica do lado de Chamados mesmo
+                    alimentando o SLA de ticket interno também (decisão do
+                    usuário) — é o cadastro que o time de Chamados realmente
+                    mexe. */}
+                {canManageTicketConfig && (
+                  <>
+                    <h3 className="text-xs font-black uppercase tracking-widest text-[var(--text-tertiary)] px-1">Configurações de Chamados</h3>
+                    <SystemConfigContent
+                      categories={categories}
+                      requestTypes={requestTypes}
+                      products={products}
+                      priorities={priorities}
+                      setCategories={setCategories}
+                      setRequestTypes={setRequestTypes}
+                      setProducts={setProducts}
+                      setPriorities={setPriorities}
+                      surveySettings={surveySettings}
+                      setSurveySettings={setSurveySettings}
+                    />
+                    <StatusManager allowedScopes={['ticket']} />
+                    <TagManager />
+                  </>
+                )}
+                {canManageInternalConfig && (
+                  <>
+                    <h3 className="text-xs font-black uppercase tracking-widest text-[var(--text-tertiary)] px-1 pt-2">Configurações de Tickets Internos</h3>
+                    <StatusManager allowedScopes={['internal_ticket']} />
+                    <TicketClassificationManager />
+                  </>
+                )}
              </div>
            )}
            {activeTab === 'ai-assistant' && (hasPermission(Permission.SETTINGS_AI) || hasPermission(Permission.SETTINGS_SYSTEM)) && (

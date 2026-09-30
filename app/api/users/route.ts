@@ -842,6 +842,22 @@ export async function PUT(request: Request) {
       ]
     );
 
+    // O nome do CONTATO no chat (cabeçalho, lista de conversas, título de
+    // notificação — tudo que lê `chat_sessions.customer_name`) é um
+    // SNAPSHOT gravado na sessão, não resolvido ao vivo contra `profiles`.
+    // Achado 2026-09-30: editar o nome do cliente/funcionário pelo "Ver
+    // informações" do widget não refletia no chat — o cadastro mudava, mas
+    // a conversa continuava mostrando o nome antigo. Propaga pra toda
+    // conversa ainda ABERTA desse contato (nunca pra `closed`, no mesmo
+    // espírito de "nunca reescreve customer_name" do vínculo de Histórico —
+    // ali é retrato de uma transcrição encerrada; aqui é atendimento vivo).
+    if (typeof user.name === 'string' && user.name.trim()) {
+      await query(
+        `UPDATE public.chat_sessions SET customer_name = $1 WHERE customer_id = $2 AND status <> 'closed'`,
+        [user.name.trim(), user.id]
+      );
+    }
+
     return NextResponse.json({ success: true });
   } catch (error: any) {
     console.error('Error in users PUT:', error);

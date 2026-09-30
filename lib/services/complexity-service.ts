@@ -120,12 +120,17 @@ export interface InternalTicketComplexityRow extends ComplexityBreakdown {
   priority: number;
   assigneeId: string | null;
   assigneeName: string | null;
+  teamId: string | null;
   teamName: string | null;
+  hotfixId: string | null;
   hotfixName: string | null;
+  effortId: string | null;
   effortLabel: string | null;
   effortWeight: number | null;
+  outcomeId: string | null;
   outcomeLabel: string | null;
   countsAsDefect: boolean;
+  tags: string[];
   slaLimit: string | null;
   createdAt: string;
   updatedAt: string;
@@ -147,7 +152,11 @@ export async function getInternalTicketComplexity(
             i.priority,
             i.assignee_id,
             i.internal_team_id,
+            i.hotfix_id,
+            i.effort_id,
+            i.outcome_id,
             i.sla_limit,
+            i.tags,
             i.created_at,
             i.updated_at,
             p.name  AS assignee_name,
@@ -204,12 +213,17 @@ export async function getInternalTicketComplexity(
       priority: Number(r.priority) || 1,
       assigneeId: r.assignee_id || null,
       assigneeName: r.assignee_name || null,
+      teamId: r.internal_team_id || null,
       teamName: r.team_name || null,
+      hotfixId: r.hotfix_id || null,
       hotfixName: r.hotfix_name || null,
+      effortId: r.effort_id || null,
       effortLabel: r.effort_label || null,
       effortWeight: r.effort_weight !== null && r.effort_weight !== undefined ? Number(r.effort_weight) : null,
+      outcomeId: r.outcome_id || null,
       outcomeLabel: r.outcome_label || null,
       countsAsDefect: !!r.counts_as_defect,
+      tags: Array.isArray(r.tags) ? r.tags : [],
       slaLimit: r.sla_limit ? new Date(r.sla_limit).toISOString() : null,
       createdAt: new Date(r.created_at).toISOString(),
       updatedAt: new Date(r.updated_at).toISOString()

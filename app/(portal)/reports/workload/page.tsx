@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useMemo, useState } from 'react';
+import React, { useEffect, useMemo, useState } from 'react';
 import { Lock, Gauge, AlertTriangle, Layers, Bug, Link2, Timer } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { useApp } from '@/app/app-context';
@@ -17,7 +17,15 @@ import { useReportFetch } from '@/components/reports/use-report-fetch';
 import { ReportExportConfig, PageExportPdfButton } from '@/components/reports/export-menu';
 import { ReportBackLink } from '@/components/reports/report-back-link';
 import { UserAvatar } from '@/components/user-avatar';
-import { useProfilesLiteQuery } from '@/lib/query-hooks';
+import { StyledSelect } from '@/components/styled-select';
+import {
+  useProfilesLiteQuery,
+  useInternalTeamsQuery,
+  useAnalystsQuery,
+  useConfigEffortsQuery,
+  useConfigOutcomesQuery
+} from '@/lib/query-hooks';
+import { getHotfixes } from '@/lib/services/queue-service';
 
 // R7 — "Carga e Complexidade", sobre TICKETS INTERNOS (trabalho do time de
 // desenvolvimento). Mesmo padrão estrutural dos R1-R6.
@@ -87,6 +95,7 @@ interface WorkloadReport {
   topComplex: ComplexTicketRow[];
   effortDistribution: { label: string; count: number }[];
   outcomeDistribution: { label: string; count: number }[];
+  tagDistribution: { label: string; count: number }[];
 }
 
 const BAND_CLASSES: Record<Band, string> = {
@@ -142,10 +151,38 @@ export default function ReportWorkloadPage() {
   const ready = isMetricsFilterReady(filter);
   const filterQs = useMemo(() => metricsFilterToQueryString(filter), [filter]);
 
+  // Filtros PRÓPRIOS de ticket interno (2026-09-30, pedido do usuário) — no
+  // lugar de Fila/Instância/Empresa do MetricsFilterBar, que nunca se
+  // aplicavam aqui (ticket interno não tem nenhum dos três).
+  const [teamFilter, setTeamFilter] = useState('');
+  const [assigneeFilter, setAssigneeFilter] = useState('');
+  const [hotfixFilter, setHotfixFilter] = useState('');
+  const [effortFilter, setEffortFilter] = useState('');
+  const [outcomeFilter, setOutcomeFilter] = useState('');
+  const { data: internalTeamsData } = useInternalTeamsQuery();
+  const internalTeams = useMemo(() => (internalTeamsData || []) as any[], [internalTeamsData]);
+  const { data: analystsData } = useAnalystsQuery();
+  const analysts = useMemo(() => (analystsData || []) as any[], [analystsData]);
+  const { data: effortsData } = useConfigEffortsQuery();
+  const efforts = useMemo(() => (effortsData || []) as any[], [effortsData]);
+  const { data: outcomesData } = useConfigOutcomesQuery();
+  const outcomes = useMemo(() => (outcomesData || []) as any[], [outcomesData]);
+  const [hotfixes, setHotfixes] = useState<any[]>([]);
+  useEffect(() => { getHotfixes().then(setHotfixes); }, []);
+  const extraQs = useMemo(() => {
+    const params = new URLSearchParams();
+    if (teamFilter) params.set('teamId', teamFilter);
+    if (assigneeFilter) params.set('assigneeId', assigneeFilter);
+    if (hotfixFilter) params.set('hotfixId', hotfixFilter);
+    if (effortFilter) params.set('effortId', effortFilter);
+    if (outcomeFilter) params.set('outcomeId', outcomeFilter);
+    return params.toString();
+  }, [teamFilter, assigneeFilter, hotfixFilter, effortFilter, outcomeFilter]);
+
   // Uma busca alimenta as três seções: todas saem do mesmo cálculo de sinais
   // por ticket, e separar em actions faria o servidor refazer a mesma
   // varredura a cada carga de tela.
-  const report = useReportFetch<WorkloadReport>(REPORT_ENDPOINT, 'overview', filterQs, ready);
+  const report = useReportFetch<WorkloadReport>(REPORT_ENDPOINT, 'overview', filterQs, ready, extraQs);
 
   const kpis = report.data?.kpis;
   const assignees = report.data?.assignees ?? [];
@@ -209,7 +246,67 @@ export default function ReportWorkloadPage() {
         />
       </div>
 
-      <MetricsFilterBar value={filter} onChange={setFilter} onFilterSummaryChange={setFilterSummary} />
+      {/* Fila/Instância/Empresa desligados (showScopeFilters=false) — ticket
+          interno não tem nenhuma das três dimensões, eram seletores que
+          nunca filtravam nada (achado 2026-09-30). No lugar, os filtros
+          PRÓPRIOS de ticket interno entram via `children`. */}
+      <MetricsFilterBar value={filter} onChange={setFilter} onFilterSummaryChange={setFilterSummary} showScopeFilters={false}>
+        <div className="space-y-1.5">
+          <label className="text-[10px] font-semibold uppercase text-[var(--text-tertiary)] tracking-widest ml-1">Equipe</label>
+          <StyledSelect
+            value={teamFilter}
+            onChange={(e) => setTeamFilter(e.target.value)}
+            className="min-w-[160px] bg-[var(--surface-card)] border border-[var(--border-default)] rounded-xl px-4 py-2.5 text-sm font-bold focus:ring-2 focus:ring-[var(--accent)]/20 outline-none"
+          >
+            <option value="">Todas</option>
+            {internalTeams.map((t: any) => <option key={t.id} value={t.id}>{t.name}</option>)}
+          </StyledSelect>
+        </div>
+        <div className="space-y-1.5">
+          <label className="text-[10px] font-semibold uppercase text-[var(--text-tertiary)] tracking-widest ml-1">Responsável</label>
+          <StyledSelect
+            value={assigneeFilter}
+            onChange={(e) => setAssigneeFilter(e.target.value)}
+            className="min-w-[160px] bg-[var(--surface-card)] border border-[var(--border-default)] rounded-xl px-4 py-2.5 text-sm font-bold focus:ring-2 focus:ring-[var(--accent)]/20 outline-none"
+          >
+            <option value="">Todos</option>
+            {analysts.map((a: any) => <option key={a.id} value={a.id}>{a.name}</option>)}
+          </StyledSelect>
+        </div>
+        <div className="space-y-1.5">
+          <label className="text-[10px] font-semibold uppercase text-[var(--text-tertiary)] tracking-widest ml-1">Hotfix</label>
+          <StyledSelect
+            value={hotfixFilter}
+            onChange={(e) => setHotfixFilter(e.target.value)}
+            className="min-w-[160px] bg-[var(--surface-card)] border border-[var(--border-default)] rounded-xl px-4 py-2.5 text-sm font-bold focus:ring-2 focus:ring-[var(--accent)]/20 outline-none"
+          >
+            <option value="">Todos</option>
+            {hotfixes.map((h: any) => <option key={h.id} value={h.id}>{h.name}</option>)}
+          </StyledSelect>
+        </div>
+        <div className="space-y-1.5">
+          <label className="text-[10px] font-semibold uppercase text-[var(--text-tertiary)] tracking-widest ml-1">Esforço</label>
+          <StyledSelect
+            value={effortFilter}
+            onChange={(e) => setEffortFilter(e.target.value)}
+            className="min-w-[160px] bg-[var(--surface-card)] border border-[var(--border-default)] rounded-xl px-4 py-2.5 text-sm font-bold focus:ring-2 focus:ring-[var(--accent)]/20 outline-none"
+          >
+            <option value="">Todos</option>
+            {efforts.map((e: any) => <option key={e.id} value={e.id}>{e.label}</option>)}
+          </StyledSelect>
+        </div>
+        <div className="space-y-1.5">
+          <label className="text-[10px] font-semibold uppercase text-[var(--text-tertiary)] tracking-widest ml-1">Desfecho</label>
+          <StyledSelect
+            value={outcomeFilter}
+            onChange={(e) => setOutcomeFilter(e.target.value)}
+            className="min-w-[160px] bg-[var(--surface-card)] border border-[var(--border-default)] rounded-xl px-4 py-2.5 text-sm font-bold focus:ring-2 focus:ring-[var(--accent)]/20 outline-none"
+          >
+            <option value="">Todos</option>
+            {outcomes.map((o: any) => <option key={o.id} value={o.id}>{o.label}</option>)}
+          </StyledSelect>
+        </div>
+      </MetricsFilterBar>
 
       {kpis && (
         <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
@@ -406,9 +503,9 @@ export default function ReportWorkloadPage() {
 
       <ReportSection
         title="Distribuição da classificação"
-        subtitle="O que o time declarou sobre esforço e desfecho no período."
-        info="Desfechos marcados como defeito em Configurações são os que alimentam a taxa de defeito. Uma fatia grande de “Orientação/dúvida” costuma indicar lacuna de documentação, não falha de produto."
-        status={report.status === 'ready' && (report.data?.effortDistribution.length || 0) + (report.data?.outcomeDistribution.length || 0) === 0 ? 'empty' : report.status}
+        subtitle="O que o time declarou sobre esforço, desfecho e marcadores no período."
+        info="Desfechos marcados como defeito em Configurações são os que alimentam a taxa de defeito. Uma fatia grande de “Orientação/dúvida” costuma indicar lacuna de documentação, não falha de produto. Marcadores contam por TAG, não por ticket — um ticket com 3 tags soma 1 em cada uma."
+        status={report.status === 'ready' && (report.data?.effortDistribution.length || 0) + (report.data?.outcomeDistribution.length || 0) + (report.data?.tagDistribution.length || 0) === 0 ? 'empty' : report.status}
         errorMessage={report.error || undefined}
         onRetry={report.retry}
         emptyMessage="Nenhum ticket classificado no período — os dois campos são preenchidos na conclusão do ticket interno."
@@ -416,9 +513,10 @@ export default function ReportWorkloadPage() {
         reportLabel={REPORT_LABEL}
         filterSummary={filterSummary}
       >
-        <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+        <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
           <Distribution title="Esforço" rows={report.data?.effortDistribution ?? []} />
           <Distribution title="Desfecho" rows={report.data?.outcomeDistribution ?? []} />
+          <Distribution title="Marcadores" rows={report.data?.tagDistribution ?? []} />
         </div>
       </ReportSection>
     </div>

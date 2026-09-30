@@ -129,7 +129,9 @@ const permissionGroups = [
     id: 'settings',
     title: 'Configurações do Sistema',
     permissions: [
-      { id: Permission.SETTINGS_SYSTEM, label: 'Geral do sistema', desc: 'Categorias, prioridades, SLAs e marcadores globais' },
+      { id: Permission.SETTINGS_SYSTEM, label: 'Geral do sistema (completo)', desc: 'Todo o cadastro de Chamados E Tickets Internos, de uma vez — categorias, tipos, produtos, prioridades, SLAs, marcadores, status e classificação de solução' },
+      { id: Permission.SETTINGS_SYSTEM_TICKETS, label: 'Geral do sistema — Chamados', desc: 'Só o cadastro de Chamados: categorias, tipos de solicitação, produtos, prioridades, marcadores e status de chamado' },
+      { id: Permission.SETTINGS_SYSTEM_INTERNAL, label: 'Geral do sistema — Tickets Internos', desc: 'Só o cadastro de Tickets Internos: esforço, desfecho e status de ticket interno' },
       { id: Permission.SETTINGS_AUTOMATION, label: 'Mensagens automáticas', desc: 'Configurar respostas e disparos automáticos' },
       { id: Permission.SETTINGS_INTEGRATIONS, label: 'Integrações', desc: 'Gerenciar chaves e integrações externas' },
       { id: Permission.SETTINGS_EMAIL, label: 'E-mail (SMTP)', desc: 'Configurar servidor de envio de e-mail e testar conexão' },

@@ -31,6 +31,18 @@ import {
 //    não ter que deduzir o status pelo fato de a conversa estar na lista.
 //  - Não devolve telefone, transcrição nem mensagens: o pedido é só quando e
 //    por quê. Tag apagada do cadastro depois deixa de aparecer na conversa.
+//  - `company.idCentral` (companies.id_central) — id do cliente no sistema
+//    "Central", vindo da Planilha de CS (ver seção 10 do CLAUDE.md). Pode vir
+//    `null`: nem toda empresa tem a célula preenchida na planilha (2026-09-29:
+//    4 das 79 em treinamento). NÃO É ÚNICO — duas empresas podem compartilhar o
+//    mesmo id_central quando são marcas/CNPJs diferentes na mesma conta
+//    central; quem consome não deve tratá-lo como chave primária.
+//  - `summary`/`summaryGeneratedAt` — resumo da conversa gerado por IA (Groq),
+//    o mesmo texto que aparece no Histórico de Conversas. Só existe quando o
+//    detector de insatisfação está ligado (ENABLE_DISSATISFACTION_DETECTOR) E
+//    já processou aquela conversa — por isso ambos vêm `null` com frequência
+//    (2026-09-29: 17 de 18 conversas de empresas em treinamento já têm resumo,
+//    mas é um job assíncrono, não roda no instante em que a conversa termina).
 
 const ISO_DAY = /^\d{4}-\d{2}-\d{2}$/;
 
@@ -123,7 +135,8 @@ export async function GET(request: Request) {
     const res = await query(
       `SELECT h.id, h.session_id, h.customer_name, h.started_at, h.finished_at,
               (COALESCE(h.started_at, h.created_at) AT TIME ZONE 'America/Sao_Paulo')::date::text AS chat_date,
-              p.name AS customer_profile_name, co.id AS company_id, co.name AS company_name, co.is_in_training AS company_is_in_training, s.tags AS session_tags
+              p.name AS customer_profile_name, co.id AS company_id, co.name AS company_name, co.is_in_training AS company_is_in_training,
+              co.id_central, h.summary, h.summary_generated_at, s.tags AS session_tags
        ${baseFrom}
        ORDER BY COALESCE(h.started_at, h.created_at) DESC, h.id
        LIMIT $${listParams.length - 1} OFFSET $${listParams.length}`,
@@ -136,8 +149,10 @@ export async function GET(request: Request) {
       date: row.chat_date,
       startedAt: row.started_at,
       finishedAt: row.finished_at,
-      company: { id: row.company_id, name: row.company_name, isInTraining: row.company_is_in_training === true },
+      company: { id: row.company_id, name: row.company_name, isInTraining: row.company_is_in_training === true, idCentral: row.id_central },
       customerName: row.customer_profile_name || row.customer_name || null,
+      summary: row.summary,
+      summaryGeneratedAt: row.summary_generated_at,
       tags: ((row.session_tags || []) as string[])
         .filter(id => labelById.has(id))
         .map(id => ({ id, label: labelById.get(id) as string }))

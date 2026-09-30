@@ -65,8 +65,23 @@ export async function GET(request: NextRequest) {
     const { startDate, endDate } = await resolvePeriod(searchParams);
     // queueId/instanceId/companyId do MetricsFilterBar não se aplicam: ticket
     // interno não tem fila, canal nem empresa — ele nasce do time, não do
-    // cliente. Só o período é lido.
-    const rows = await getInternalTicketComplexity(startDate, endDate);
+    // cliente (por isso a tela usa showScopeFilters={false} nesses três).
+    // Os filtros de verdade pra este relatório são os PRÓPRIOS de ticket
+    // interno (2026-09-30, pedido do usuário): equipe, responsável, hotfix,
+    // esforço e desfecho — aplicados aqui em cima do resultado já buscado
+    // (o volume por período é pequeno o bastante pra não justificar refazer
+    // o WHERE da query principal).
+    let rows = await getInternalTicketComplexity(startDate, endDate);
+    const teamIdFilter = searchParams.get('teamId');
+    const assigneeIdFilter = searchParams.get('assigneeId');
+    const hotfixIdFilter = searchParams.get('hotfixId');
+    const effortIdFilter = searchParams.get('effortId');
+    const outcomeIdFilter = searchParams.get('outcomeId');
+    if (teamIdFilter) rows = rows.filter(r => r.teamId === teamIdFilter);
+    if (assigneeIdFilter) rows = rows.filter(r => r.assigneeId === assigneeIdFilter);
+    if (hotfixIdFilter) rows = rows.filter(r => r.hotfixId === hotfixIdFilter);
+    if (effortIdFilter) rows = rows.filter(r => r.effortId === effortIdFilter);
+    if (outcomeIdFilter) rows = rows.filter(r => r.outcomeId === outcomeIdFilter);
 
     // Peso de fallback para ticket sem classificação de esforço: a MEDIANA
     // dos pesos cadastrados. Sem fallback, a carga ponderada ficaria zerada
@@ -140,9 +155,15 @@ export async function GET(request: NextRequest) {
     // ------------------------------------------------ Distribuições
     const effortDistribution = new Map<string, number>();
     const outcomeDistribution = new Map<string, number>();
+    // Marcadores (tags): um ticket pode ter várias, então conta uma vez por
+    // tag (não por ticket) — igual à contagem de tags nos outros relatórios.
+    const tagDistribution = new Map<string, number>();
     for (const r of rows) {
       if (r.effortLabel) effortDistribution.set(r.effortLabel, (effortDistribution.get(r.effortLabel) || 0) + 1);
       if (r.outcomeLabel) outcomeDistribution.set(r.outcomeLabel, (outcomeDistribution.get(r.outcomeLabel) || 0) + 1);
+      for (const tag of r.tags) {
+        tagDistribution.set(tag, (tagDistribution.get(tag) || 0) + 1);
+      }
     }
 
     const classifiedCount = rows.filter(r => r.effortLabel || r.outcomeLabel).length;
@@ -196,6 +217,7 @@ export async function GET(request: NextRequest) {
       topComplex,
       effortDistribution: Array.from(effortDistribution, ([label, count]) => ({ label, count })),
       outcomeDistribution: Array.from(outcomeDistribution, ([label, count]) => ({ label, count })),
+      tagDistribution: Array.from(tagDistribution, ([label, count]) => ({ label, count })).sort((a, b) => b.count - a.count),
       // A fórmula viaja junto para a tela poder explicar o número sem
       // duplicar as constantes no client.
       formula: { weights: COMPLEXITY_WEIGHTS, caps: COMPLEXITY_CAPS },

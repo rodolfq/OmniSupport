@@ -9,7 +9,7 @@ import { getCurrentActionUser, getActorEffectivePermissions } from '@/lib/server
 //   fechado (SLA, dashboards, relatórios); mergeTickets grava 'Mesclado';
 //   o botão FINALIZAR do ticket interno grava 'Concluído'.
 // Para liberá-los seria preciso antes tornar essas regras dinâmicas.
-const RESERVED_STATUS_LABELS = ['Concluído', 'Fechado', 'Encerrado', 'Mesclado'];
+const RESERVED_STATUS_LABELS = ['Concluído', 'Encerrado', 'Mesclado'];
 
 // Só nas listas de referência que mudam raramente (editadas manualmente em
 // Configurações, não a cada minuto) — NUNCA em analyst-statuses (presença

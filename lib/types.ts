@@ -3,7 +3,12 @@ export enum TicketStatus {
   IN_PROGRESS = 'Em Atendimento',
   AWAITING_INTERNAL = 'Aguardando Equipe interna',
   AWAITING_CUSTOMER = 'Aguardando Cliente',
-  CLOSED = 'Fechado'
+  // Era 'Fechado' — removido em 2026-09-29 (pedido do usuário: redundante
+  // com 'Concluído', os dois fechavam o chamado). Migration
+  // merge_fechado_into_concluido.sql reescreveu tickets.status/
+  // automation_settings.trigger_status e apagou o cadastro em
+  // config_statuses; nenhum código deve voltar a gravar 'Fechado'.
+  CLOSED = 'Concluído'
 }
 
 /* eslint-disable @typescript-eslint/no-duplicate-enum-values */
@@ -92,6 +97,19 @@ export enum Permission {
   TEAM_STATUS_MANAGE = 'team:status',
   SETTINGS_WRITE = 'settings:write',
   SETTINGS_SYSTEM = 'settings:system',
+  // Divisão de Configurações > Geral do Sistema por domínio (2026-09-30,
+  // pedido do usuário: "Tipos de Solicitação não existe no ticket interno").
+  // ADITIVAS a SETTINGS_SYSTEM, não uma substituição — quem já tem
+  // settings:system continua vendo os dois grupos (é a permissão "cheia"),
+  // sem precisar de backfill. Servem pra conceder só UM dos dois grupos
+  // (ex.: alguém que só deve mexer no cadastro de ticket interno, sem
+  // ganhar de bônus a aba de Integrações/Log de Auditoria que settings:system
+  // também libera em outras telas).
+  // "Chamados": Categorias, Tipos de Solicitação, Produtos, Prioridades,
+  // Pesquisa de Satisfação, Marcadores, e o escopo "Chamados" de Status.
+  SETTINGS_SYSTEM_TICKETS = 'settings:system_tickets',
+  // "Tickets Internos": Esforço, Desfecho, e o escopo "Tickets Internos" de Status.
+  SETTINGS_SYSTEM_INTERNAL = 'settings:system_internal',
   // Mensagens Automáticas e Integrações eram cobertas pela mesma permissão
   // de SETTINGS_SYSTEM — separadas pra dar controle fino de verdade.
   SETTINGS_AUTOMATION = 'settings:automation',
@@ -1111,6 +1129,22 @@ export interface GiroRow {
   isHandoff: boolean;
   /** Quantos atendimentos esta pessoa já concluiu hoje — quem tem menos vai na frente. */
   completedCount: number;
+  /**
+   * Presença ATUAL (analyst_status) é "Ausente" com motivo "Almoço" — não é o
+   * `serviceType` manual da própria linha do Giro (que é outro campo, opcional
+   * e não relacionado). Pedido do usuário (2026-09-28): quem está na vez e
+   * entra em almoço não deve continuar marcado como "na vez" — ver `isCurrent`.
+   */
+  isAwayForLunch: boolean;
+  /**
+   * Primeiro da ordem (por `position`) que NÃO está em almoço agora
+   * (`isAwayForLunch`) — "pular pro próximo até ele voltar": não mexe em
+   * `position` nem em nada gravado, é recalculado a cada leitura a partir da
+   * presença ao vivo. Se todo mundo estiver em almoço, cai de volta pra
+   * `position === 1` (alguém precisa estar marcado; melhor um em almoço do
+   * que ninguém). Único no dia — sempre exatamente uma linha com `true`.
+   */
+  isCurrent: boolean;
 }
 
 export interface GiroHistoryEntry {
