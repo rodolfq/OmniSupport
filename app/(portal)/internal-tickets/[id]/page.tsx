@@ -115,6 +115,10 @@ export default function InternalTicketDetailPage() {
   const [formPriority, setFormPriority] = useState(1);
   const [formAssignee, setFormAssignee] = useState('');
   const [formStatus, setFormStatus] = useState('Novo');
+  const [formSubStatus, setFormSubStatus] = useState<string | null>(null);
+  const [formQaRejected, setFormQaRejected] = useState(false);
+  // Sub-status por status principal (ex.: 'Resolvido' -> ['Aguardando Publicação', 'Aguardando Data de Hotfix']).
+  const [subStatusMap, setSubStatusMap] = useState<Record<string, string[]>>({});
   const [formTags, setFormTags] = useState('');
   const [formExpectedPublish, setFormExpectedPublish] = useState('');
   const [formHotfixId, setFormHotfixId] = useState('');
@@ -197,6 +201,10 @@ export default function InternalTicketDetailPage() {
         effortId: data.effort_id,
         outcomeId: data.outcome_id,
         status: data.status || 'Novo',
+        subStatus: data.sub_status ?? null,
+        resolvedAt: data.resolved_at ?? null,
+        qaRejected: !!data.qa_rejected,
+        lateDelivery: !!data.late_delivery,
         assigneeName: detail.assigneeName,
         creatorName: detail.creatorName,
       });
@@ -206,6 +214,8 @@ export default function InternalTicketDetailPage() {
       setFormPriority(data.priority || 1);
       setFormAssignee(data.assignee_id || '');
       setFormStatus(data.status || 'Novo');
+      setFormSubStatus(data.sub_status || null);
+      setFormQaRejected(!!data.qa_rejected);
       setFormTags((data.tags || []).join(', '));
       setFormExpectedPublish(toDateOnly(data.expected_publish_date));
       setFormHotfixId(data.hotfix_id || '');
@@ -228,6 +238,14 @@ export default function InternalTicketDetailPage() {
   const fetchStatusConfig = useCallback(async () => {
     const data = await ConfigService.getStatuses('internal_ticket');
     const topLevel = data.filter(s => !s.parentStatusId);
+    const porId = new Map(data.map(s => [s.id, s]));
+    const mapa: Record<string, string[]> = {};
+    for (const s of data) {
+      if (!s.parentStatusId) continue;
+      const pai = porId.get(s.parentStatusId);
+      if (pai) (mapa[pai.label] ??= []).push(s.label);
+    }
+    setSubStatusMap(mapa);
     if (topLevel.length > 0) {
       setStatuses(topLevel.map(s => {
         const c = findStatusColor(s.color);
@@ -305,9 +323,11 @@ export default function InternalTicketDetailPage() {
   // valor antigo por causa do closure do React não ter visto o setState
   // anterior ainda — foi assim que o botão de status ficava "um clique
   // atrasado" antes desta correção.
-  const handleUpdateTicket = async (overrides: Partial<{ status: string; assigneeId: string }> = {}) => {
+  const handleUpdateTicket = async (overrides: Partial<{ status: string; assigneeId: string; subStatus: string | null; qaRejected: boolean }> = {}) => {
     if (!ticket) return;
     const nextStatus = overrides.status ?? formStatus;
+    const nextSubStatus = 'subStatus' in overrides ? (overrides.subStatus ?? null) : formSubStatus;
+    const nextQaRejected = 'qaRejected' in overrides ? !!overrides.qaRejected : formQaRejected;
     const nextAssignee = 'assigneeId' in overrides ? (overrides.assigneeId || '') : formAssignee;
     const tags = formTags.split(',').map(s => s.trim()).filter(Boolean);
     // Vencimento nunca é digitado — reflete a prioridade atual, calculada a
@@ -330,6 +350,8 @@ export default function InternalTicketDetailPage() {
             priority: formPriority,
             assigneeId: nextAssignee || null,
             status: nextStatus,
+            subStatus: nextSubStatus,
+            qaRejected: nextQaRejected,
             tags,
             slaLimit: slaIso,
             expectedPublishDate: expectedPublishIso,
@@ -639,7 +661,7 @@ export default function InternalTicketDetailPage() {
               {statuses.map((status) => (
                 <button
                   key={status.value}
-                  onClick={() => { setFormStatus(status.value); handleUpdateTicket({ status: status.value }); }}
+                  onClick={() => { setFormStatus(status.value); setFormSubStatus(null); handleUpdateTicket({ status: status.value, subStatus: null }); }}
                   className={cn(
                     "px-3 py-1 text-[10px] font-semibold uppercase rounded-md transition-all whitespace-nowrap",
                     formStatus === status.value ? "bg-[var(--surface-card)] text-[var(--text-warning)] shadow-sm" : "text-[var(--text-tertiary)] hover:bg-[var(--border-default)]/50"
@@ -656,6 +678,48 @@ export default function InternalTicketDetailPage() {
               <div className="w-9 h-3 rounded bg-[var(--border-default)]" />
             </div>
           )}
+        </div>
+
+        {/* Sub-status do status escolhido (ex.: Resolvido > Aguardando Publicação) */}
+        {(subStatusMap[formStatus] ?? []).length > 0 && (
+          <div className="px-8 pb-3 flex flex-wrap items-center gap-1.5">
+            <span className="text-[10px] font-bold uppercase tracking-widest text-[var(--text-tertiary)] mr-1">{formStatus} &gt;</span>
+            {(subStatusMap[formStatus] ?? []).map(sub => (
+              <button
+                key={sub}
+                type="button"
+                onClick={() => { setFormSubStatus(sub); handleUpdateTicket({ status: formStatus, subStatus: sub }); }}
+                className={cn(
+                  "px-2.5 py-1 text-[10px] font-semibold rounded-md transition-all",
+                  formSubStatus === sub ? "bg-[var(--accent)] text-white" : "bg-[var(--surface-pill)] text-[var(--text-secondary)] hover:bg-[var(--border-default)]/50"
+                )}
+              >
+                {sub}
+              </button>
+            ))}
+          </div>
+        )}
+
+        {/* Entrega Real (automática), Atraso (automático) e Reprovação de QA (manual, sem pontuação) */}
+        <div className="px-8 pb-3 flex flex-wrap items-center gap-x-6 gap-y-2 text-xs">
+          <label className="inline-flex items-center gap-2 cursor-pointer select-none font-semibold text-[var(--text-secondary)]">
+            <input
+              type="checkbox"
+              checked={formQaRejected}
+              onChange={e => { setFormQaRejected(e.target.checked); handleUpdateTicket({ qaRejected: e.target.checked }); }}
+              className="h-4 w-4 accent-[var(--accent)]"
+            />
+            Reprovação de QA
+          </label>
+          <span className="text-[var(--text-tertiary)]">
+            Entrega real:{' '}
+            <strong className="tabular-nums text-[var(--text-primary)]">
+              {ticket.resolvedAt ? new Date(ticket.resolvedAt).toLocaleString('pt-BR', { timeZone: 'America/Sao_Paulo', day: '2-digit', month: '2-digit', year: 'numeric', hour: '2-digit', minute: '2-digit', hour12: false }) : '—'}
+            </strong>
+          </span>
+          <span className={cn('font-bold', ticket.lateDelivery ? 'text-[var(--text-danger)]' : 'text-[var(--text-tertiary)]')}>
+            {ticket.resolvedAt ? (ticket.lateDelivery ? 'Entregue com atraso' : 'Entregue no prazo') : 'Ainda não resolvido'}
+          </span>
         </div>
       </div>
 

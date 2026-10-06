@@ -1129,6 +1129,9 @@ function TicketTable({
             <th className="px-4 py-3 text-left text-[10px] font-semibold uppercase text-[var(--text-tertiary)]">Prioridade</th>
             <th className="px-4 py-3 text-left text-[10px] font-semibold uppercase text-[var(--text-tertiary)]">Responsável</th>
             <th className="px-4 py-3 text-left text-[10px] font-semibold uppercase text-[var(--text-tertiary)]">SLA</th>
+            <th className="px-4 py-3 text-left text-[10px] font-semibold uppercase text-[var(--text-tertiary)] whitespace-nowrap">Entrega real</th>
+            <th className="px-4 py-3 text-left text-[10px] font-semibold uppercase text-[var(--text-tertiary)]">QA</th>
+            <th className="px-4 py-3 text-left text-[10px] font-semibold uppercase text-[var(--text-tertiary)]">Atraso</th>
             <th className="px-4 py-3 text-left text-[10px] font-semibold uppercase text-[var(--text-tertiary)]"><MessageCircle size={12} /></th>
           </tr>
         </thead>
@@ -1158,6 +1161,9 @@ function TicketTable({
                     <span className={cn("w-1.5 h-1.5 rounded-full", statusMeta.dot)} />
                     {statusMeta.label}
                   </span>
+                  {it.subStatus && (
+                    <span className="block mt-1 text-[10px] text-[var(--text-tertiary)]">{it.subStatus}</span>
+                  )}
                 </td>
                 <td className="px-4 py-3">
                   <span className={cn("text-[10px] font-semibold px-2 py-1 rounded-full uppercase", teamOpt.color)}>
@@ -1187,6 +1193,21 @@ function TicketTable({
                 <td className={cn("px-4 py-3 text-[10px] font-bold whitespace-nowrap",
                   it.slaRemaining === "Expirado" ? "text-[var(--text-danger)]" : "text-[var(--text-secondary)]")}>
                   {it.slaRemaining || "-"}
+                </td>
+                <td className="px-4 py-3 text-[10px] font-bold whitespace-nowrap text-[var(--text-secondary)]">
+                  {it.resolvedAt ? new Date(it.resolvedAt).toLocaleDateString("pt-BR", { timeZone: "America/Sao_Paulo" }) : "-"}
+                </td>
+                <td className="px-4 py-3">
+                  {it.qaRejected ? (
+                    <span className="text-[10px] font-semibold px-2 py-1 rounded-full uppercase bg-[var(--surface-danger)] text-[var(--text-danger)] whitespace-nowrap">Reprovado</span>
+                  ) : "-"}
+                </td>
+                <td className="px-4 py-3">
+                  {!it.resolvedAt ? "-" : it.lateDelivery ? (
+                    <span className="text-[10px] font-semibold px-2 py-1 rounded-full uppercase bg-[var(--surface-danger)] text-[var(--text-danger)] whitespace-nowrap">Com atraso</span>
+                  ) : (
+                    <span className="text-[10px] font-semibold px-2 py-1 rounded-full uppercase bg-[var(--surface-success)] text-[var(--text-success)] whitespace-nowrap">No prazo</span>
+                  )}
                 </td>
                 <td className="px-4 py-3 text-sm text-[var(--text-tertiary)]">
                   {it.commentCount ? (

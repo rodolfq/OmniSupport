@@ -142,6 +142,10 @@ export enum Permission {
   // isso altera o ranking de todo o time, por isso é permissão própria, separada de ver
   // relatórios. Administrador tem sempre.
   REPORTS_RANKING_CONFIG = 'reports:ranking_config',
+  // Relatório completo de tickets internos (Desempenho > Ticket interno).
+  REPORTS_INTERNAL = 'reports:internal',
+  // Regras do ticket interno (estrelas e dias para a regra de 2 dias), em Configurações > Pontuação do Ranking.
+  INTERNAL_RULES_CONFIG = 'internal:rules_config',
   // Widget flutuante do Agente de IA (busca em chat com cliente, chat de
   // grupo interno, chamados e tickets internos) — concedida por padrão aos
   // perfis de Equipe/Time Interno na migration que introduziu o agente (ver
@@ -411,6 +415,10 @@ export enum TicketPriority {
 }
 
 export interface InternalTicket {
+  subStatus?: string | null;      // sub-status do status principal (ex.: Resolvido > Aguardando Publicação)
+  resolvedAt?: string | null;     // Entrega Real: primeira vez que virou Resolvido
+  qaRejected?: boolean;           // Reprovação de QA (manual, sem pontuação)
+  lateDelivery?: boolean;         // Atraso na entrega: resolvido depois do prazo
   id?: string; // Formatted ID like "int-0001"
   uuid?: string; // Real UUID from database
   parentTicketId?: string;

@@ -190,7 +190,7 @@ export default function SettingsPage() {
               </SettingsNavGroup>
             )}
 
-            {hasPermission(Permission.REPORTS_RANKING_CONFIG) && (
+            {(hasPermission(Permission.REPORTS_RANKING_CONFIG) || hasPermission(Permission.INTERNAL_RULES_CONFIG)) && (
               <SettingsNavGroup title="Relatórios">
                 <SettingsNavLink icon={<Award size={16} />} label="Pontuação do Ranking" active={activeTab === 'ranking-points'} onClick={() => setActiveTab('ranking-points')} />
               </SettingsNavGroup>
@@ -253,7 +253,9 @@ export default function SettingsPage() {
           {activeTab === 'weekend-schedule' && canViewGiro && <WeekendScheduleContent />}
           {activeTab === 'hotfixes' && hasPermission(Permission.HOTFIXES_MANAGE) && <HotfixesContent />}
           {activeTab === 'user-creation-log' && canViewUserCreationLog && <UserCreationLogContent />}
-          {activeTab === 'ranking-points' && hasPermission(Permission.REPORTS_RANKING_CONFIG) && <RankingSettingsHub />}
+          {activeTab === 'ranking-points' && (hasPermission(Permission.REPORTS_RANKING_CONFIG) || hasPermission(Permission.INTERNAL_RULES_CONFIG)) && (
+            <RankingSettingsHub canRanking={hasPermission(Permission.REPORTS_RANKING_CONFIG)} canInternal={hasPermission(Permission.INTERNAL_RULES_CONFIG)} />
+          )}
 
 {activeTab === 'system' && (canManageTicketConfig || canManageInternalConfig) && (
              <div className="space-y-6 animate-in fade-in slide-in-from-bottom-4 duration-300">

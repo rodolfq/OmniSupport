@@ -40,7 +40,7 @@ import type { Attachment } from '@/lib/types';
  * continua sendo nossa: o aviso é para o que passou pelo Pyvon e falhou depois.
  */
 
-interface PyvonInboundPayload {
+export interface PyvonInboundPayload {
   cadastro_id: number;
   cadastro_name?: string;
   cadastro_phone?: string | null;
@@ -174,7 +174,10 @@ export class PyvonService {
     const session = await runExclusive(`session:${lockKey}`, () =>
       this.findOrCreateSession(variants, payload.cadastro_id, name, instanceId, { preferredAssigneeId })
     );
-    if (!session) return;
+    // Sem sessão não há onde gravar a mensagem. Lançar (em vez de sair em
+    // silêncio) deixa o evento como 'failed' em pyvon_inbound_events e o
+    // agendador tenta de novo — a mensagem não se perde.
+    if (!session) throw new Error(`Não foi possível abrir a conversa do contato ${payload.cadastro_id}.`);
 
     if (session.pyvon_cadastro_id !== payload.cadastro_id) {
       await query('UPDATE public.chat_sessions SET pyvon_cadastro_id = $1 WHERE id = $2', [payload.cadastro_id, session.id]);
@@ -655,11 +658,23 @@ export class PyvonService {
           ? preferred
           : (queue ? await pickNextQueueAssignee(queue) : null);
       const status = assigneeId ? 'active' : 'pending';
+      // Sem alvo no ON CONFLICT de propósito. O alvo (customer_phone, channel)
+      // dependia de um índice único PARCIAL com predicado idêntico; se o índice
+      // estivesse ausente ou com outra definição (banco sem a migration
+      // chat_sessions_open_phone_per_channel.sql), o Postgres recusava o INSERT
+      // com "there is no unique or exclusion constraint matching the ON CONFLICT
+      // specification" e a conversa não nascia — 422 na tela e, no webhook, a
+      // mensagem do cliente se perdia. O NOT EXISTS faz a checagem de conversa
+      // aberta do mesmo telefone pelo canal, sem depender de índice; o ON CONFLICT
+      // sem alvo só cobre a corrida entre processos quando o índice existe.
       const insertRes = await query(
         `INSERT INTO public.chat_sessions (customer_id, customer_name, customer_phone, status, queue_id, assignee_id, pyvon_cadastro_id, channel, created_at, updated_at)
-         VALUES ($1, $2, $3, $4, $5, $6, $7, 'pyvon', NOW(), NOW())
-         ON CONFLICT (customer_phone, channel) WHERE status <> 'closed' AND customer_phone IS NOT NULL
-         DO NOTHING
+         SELECT $1::uuid, $2::text, $3::text, $4::text, $5::text, $6::uuid, $7::integer, 'pyvon', NOW(), NOW()
+          WHERE NOT EXISTS (
+            SELECT 1 FROM public.chat_sessions
+             WHERE channel = 'pyvon' AND status <> 'closed' AND customer_phone = $3::text
+          )
+         ON CONFLICT DO NOTHING
          RETURNING id, customer_phone, customer_id, customer_name, assignee_id, queue_id, pyvon_cadastro_id, pyvon_pending_note_text, pyvon_pending_note_author_id`,
         [profile?.id || null, customerName, digits, status, queue?.id || null, assigneeId, cadastroId]
       );

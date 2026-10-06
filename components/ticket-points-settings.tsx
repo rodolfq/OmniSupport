@@ -30,7 +30,7 @@ function paraDraft(c: TicketConfigValues): Draft {
 
 function deDraft(d: Draft): { config: TicketConfigValues; invalidos: Set<string> } {
   const invalidos = new Set<string>();
-  const bruto: Record<string, Record<string, number>> = { metas: {}, regras: {}, pontos: {} };
+  const bruto: Record<string, Record<string, number>> = { metas: {}, regras: {}, pontos: {}, interno: {} };
   for (const f of TICKET_CONFIG_FIELDS) {
     const k = chave(f.grupo, f.campo);
     const n = Number((d[k] ?? '').replace(',', '.'));

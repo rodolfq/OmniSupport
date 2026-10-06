@@ -6,6 +6,7 @@ import { startHotfixScheduler } from './lib/services/hotfix-scheduler';
 import { startGoogleCalendarScheduler } from './lib/services/google-calendar-scheduler';
 import { startEmbeddingScheduler } from './lib/services/embedding-scheduler';
 import { startDissatisfactionScheduler } from './lib/services/dissatisfaction-scheduler';
+import { startPyvonInboundRetryScheduler } from './lib/services/pyvon-inbound-events';
 import { SHOULD_RUN_BACKGROUND_JOBS, SERVICE_ROLE } from './lib/runtime-config';
 
 (async () => {
@@ -42,4 +43,7 @@ import { SHOULD_RUN_BACKGROUND_JOBS, SERVICE_ROLE } from './lib/runtime-config';
   startEmbeddingScheduler();
   startDissatisfactionScheduler();
   startGoogleCalendarScheduler();
+  // Reprocessa mensagens recebidas do Pyvon que falharam (pyvon_inbound_events).
+  // Fica com os outros schedulers: dono único, por SERVICE_ROLE.
+  startPyvonInboundRetryScheduler();
 })();

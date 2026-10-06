@@ -3,7 +3,7 @@
 import React from 'react';
 import Link from 'next/link';
 import { AreaChart, Area, XAxis, YAxis, Tooltip, ResponsiveContainer, PieChart, Pie, Cell } from 'recharts';
-import { TrendingUp, Clock, Calendar, Users, ThumbsUp, ThumbsDown, MessageSquareText, Lock, Star, ClipboardList, AlertTriangle, History, Search, ChevronLeft, ChevronRight, PlusCircle, Pencil, Trash2, Rocket, Download, Gauge, Building2 } from 'lucide-react';
+import { TrendingUp, Clock, Calendar, Users, ThumbsUp, ThumbsDown, MessageSquareText, Lock, Star, ClipboardList, AlertTriangle, History, Search, ChevronLeft, ChevronRight, PlusCircle, Pencil, Trash2, Rocket, Download, Gauge, Building2, Ticket } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { useTheme } from '@/app/theme-provider';
 import { useApp } from '@/app/app-context';
@@ -94,14 +94,15 @@ const ORIGIN_LABELS: Record<'chat_close' | 'manual', string> = {
   manual: 'Manual'
 };
 
-const REPORT_LINKS = [
+const REPORT_LINKS: { href: string; title: string; description: string; icon: React.ReactNode; permission?: Permission }[] = [
   { href: '/reports/overview', title: 'Atendimento — Visão Geral', description: 'Volume, 1ª resposta, duração, abandono e quebra por fila/instância/canal/empresa.', icon: <TrendingUp size={18} /> },
   { href: '/reports/analysts', title: 'Desempenho por Analista', description: 'Chats por hora online, tempo de resposta, satisfação — sempre contra a mediana do time.', icon: <Users size={18} /> },
   { href: '/reports/capacity', title: 'Carga e Capacidade', description: 'A escala cobre a demanda? Carga simultânea x analistas online, por faixa horária.', icon: <Gauge size={18} /> },
   { href: '/reports/satisfaction', title: 'Satisfação e Qualidade', description: 'Avaliações negativas com link pra conversa, tendência e cruzamento com tempo de resposta.', icon: <Star size={18} /> },
   { href: '/reports/accounts', title: 'Conta/Cliente', description: 'Visão comercial da carteira — recorrência, minutos consumidos e sinal de risco por empresa.', icon: <Building2 size={18} /> },
   { href: '/reports/hotfixes', title: 'Hotfixes', description: 'Janela de release: publicado no prazo ou com atraso, responsável, anotações e chamados que cada hotfix carregava.', icon: <Rocket size={18} /> },
-  { href: '/reports/workload', title: 'Carga e Complexidade', description: 'Tickets internos: carga ponderada por esforço, índice objetivo de complexidade e taxa de defeito de produto.', icon: <Gauge size={18} /> }
+  { href: '/reports/workload', title: 'Carga e Complexidade', description: 'Tickets internos: carga ponderada por esforço, índice objetivo de complexidade e taxa de defeito de produto.', icon: <Gauge size={18} /> },
+  { href: '/reports/internal-tickets', title: 'Tickets Internos', description: 'Entrega no prazo, atrasos, reprovações de QA e a regra de 2 dias do time de desenvolvimento.', icon: <Ticket size={18} />, permission: Permission.REPORTS_INTERNAL }
 ];
 
 const TAG_LABELS: Record<'technical' | 'beginner' | 'challenging', string> = {
@@ -215,7 +216,7 @@ export default function ReportsPage() {
           alcançáveis por URL direta. Cada card leva pra sua própria página,
           com filtro, exportação e drill-down próprios. */}
       <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
-        {REPORT_LINKS.map((r) => (
+        {REPORT_LINKS.filter((r) => !r.permission || hasPermission(r.permission)).map((r) => (
           <Link
             key={r.href}
             href={r.href}

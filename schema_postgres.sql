@@ -1295,6 +1295,10 @@ CREATE TABLE public.internal_tickets (
   -- Desfecho = natureza da solução. Base do relatório de Carga e Complexidade.
   effort_id UUID REFERENCES public.config_effort_levels(id) ON DELETE SET NULL,
   outcome_id UUID REFERENCES public.config_outcomes(id) ON DELETE SET NULL,
+  sub_status TEXT, -- sub-status do status principal (migrations/internal_ticket_resolution.sql)
+  resolved_at TIMESTAMP WITH TIME ZONE, -- Entrega Real: gravada na 1ª vez que vira Resolvido
+  qa_rejected BOOLEAN NOT NULL DEFAULT false, -- Reprovação de QA (manual, sem pontuação)
+  late_delivery BOOLEAN NOT NULL DEFAULT false, -- Atraso na entrega: resolvido depois do prazo (horas úteis)
   -- Full-text search (Agente de IA, search_internal_tickets) — ver
   -- comentário equivalente em public.tickets.
   search_vector TSVECTOR GENERATED ALWAYS AS (to_tsvector('portuguese', coalesce(title, '') || ' ' || coalesce(description, ''))) STORED
@@ -1406,6 +1410,25 @@ CREATE TABLE public.pyvon_delivery_events (
   raw JSONB NOT NULL,
   received_at TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT now()
 );
+
+-- Mensagens recebidas do Pyvon guardadas cruas antes do processamento
+-- (migrations/pyvon_inbound_events.sql; reprocessamento em
+-- lib/services/pyvon-inbound-events.ts). Nenhum evento se perde por falha ao abrir conversa.
+CREATE TABLE IF NOT EXISTS public.pyvon_inbound_events (
+  id BIGSERIAL PRIMARY KEY,
+  instance_id TEXT,
+  pyvon_message_id TEXT,
+  payload JSONB NOT NULL,
+  status TEXT NOT NULL DEFAULT 'pending'
+    CHECK (status IN ('pending', 'processed', 'failed', 'ignored', 'dead')),
+  attempts INTEGER NOT NULL DEFAULT 0,
+  last_error TEXT,
+  received_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+  updated_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+  processed_at TIMESTAMPTZ
+);
+CREATE INDEX IF NOT EXISTS idx_pyvon_inbound_events_status ON public.pyvon_inbound_events (status, updated_at);
+CREATE INDEX IF NOT EXISTS idx_pyvon_inbound_events_message ON public.pyvon_inbound_events (pyvon_message_id);
 CREATE INDEX idx_pyvon_delivery_events_message ON public.pyvon_delivery_events (pyvon_message_id);
 CREATE INDEX idx_pyvon_delivery_events_received ON public.pyvon_delivery_events (received_at DESC);
 
@@ -2018,7 +2041,14 @@ INSERT INTO public.config_statuses (label, color, scope, is_closed, sort_order) 
 ('Novo', 'bg-blue-100 text-blue-700', 'internal_ticket', false, 0),
 ('Em Andamento', 'bg-amber-100 text-amber-700', 'internal_ticket', false, 1),
 ('Em Espera', 'bg-slate-100 text-slate-700', 'internal_ticket', false, 2),
-('Concluído', 'bg-emerald-100 text-emerald-700', 'internal_ticket', true, 3)
+('Resolvido', 'bg-teal-100 text-teal-700', 'internal_ticket', false, 3),
+('Concluído', 'bg-emerald-100 text-emerald-700', 'internal_ticket', true, 4)
+ON CONFLICT (label, scope) DO NOTHING;
+
+INSERT INTO public.config_statuses (label, color, scope, is_closed, sort_order, parent_status_id)
+SELECT s.label, 'bg-teal-50 text-teal-700', 'internal_ticket', false, s.ord, p.id
+  FROM (VALUES ('Aguardando Publicação', 0), ('Aguardando Data de Hotfix', 1)) AS s(label, ord)
+  CROSS JOIN LATERAL (SELECT id FROM public.config_statuses WHERE label = 'Resolvido' AND scope = 'internal_ticket' AND parent_status_id IS NULL) p
 ON CONFLICT (label, scope) DO NOTHING;
 
 -- Seed Default Categories

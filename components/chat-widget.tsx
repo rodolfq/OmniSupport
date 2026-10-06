@@ -110,6 +110,8 @@ const MAX_CHAT_ATTACHMENT_SIZE = MAX_ATTACHMENT_TOTAL_BYTES;
 // botão), persistida no localStorage — é preferência só deste navegador,
 // não precisa ir pro banco.
 const CHAT_LAUNCHER_SIZE = 64;
+// Janela aberta fica ao lado do botão (não acima): a folga é a largura do botão + 16px de respiro.
+const CHAT_PANEL_GAP_PX = CHAT_LAUNCHER_SIZE + 16;
 const CHAT_LAUNCHER_EDGE_MARGIN = 8;
 const CHAT_LAUNCHER_POS_KEY = 'omni-chat-launcher-pos';
 
@@ -2694,13 +2696,13 @@ useEffect(() => {
               width: isFullScreen
                 ? '100vw'
                 : (isSidePanelOpen && !!selectedChatId)
-                  ? `min(${480 + chatListWidth}px, calc(100vw - 2rem))`
-                  : 'min(480px, calc(100vw - 2rem))',
+                  ? `min(${480 + chatListWidth}px, calc(100vw - 8rem))`
+                  : 'min(480px, calc(100vw - 8rem))',
               height: isFullScreen ? '100dvh' : 'min(700px, calc(100vh - 4rem))',
-              right: isFullScreen ? 0 : (anchorPanelRight ? '0' : 'auto'),
-              left: isFullScreen ? 'auto' : (anchorPanelRight ? 'auto' : '0'),
-              bottom: isFullScreen ? 0 : (openPanelUp ? '80px' : 'auto'),
-              top: isFullScreen ? 'auto' : (openPanelUp ? 'auto' : '80px'),
+              right: isFullScreen ? 0 : (anchorPanelRight ? `${CHAT_PANEL_GAP_PX}px` : 'auto'),
+              left: isFullScreen ? 'auto' : (anchorPanelRight ? 'auto' : `${CHAT_PANEL_GAP_PX}px`),
+              bottom: isFullScreen ? 0 : (openPanelUp ? '0px' : 'auto'),
+              top: isFullScreen ? 'auto' : (openPanelUp ? 'auto' : '0px'),
             }}
             exit={{ opacity: 0, y: 50, scale: 0.9 }}
             className={cn(

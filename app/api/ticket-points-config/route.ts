@@ -8,6 +8,7 @@ import { getTicketConfig, saveTicketConfig, getTicketConfigHistory } from '@/lib
 // Mesma permissão da configuração do chat (reports:ranking_config). Administrador tem sempre.
 
 const PERMISSION = 'reports:ranking_config';
+const PERMISSION_INTERNO = 'internal:rules_config';
 
 async function getActor(request: NextRequest) {
   const token = request.cookies.get('token')?.value;
@@ -28,10 +29,15 @@ function canConfig(actor: any): boolean {
   return actor?.role === 'Administrador' || (actor?.permissions || []).includes(PERMISSION);
 }
 
+// Regras do ticket interno: quem tem só essa permissão altera apenas o grupo 'interno' (ver PUT).
+function canConfigInterno(actor: any): boolean {
+  return actor?.role === 'Administrador' || (actor?.permissions || []).includes(PERMISSION_INTERNO);
+}
+
 export async function GET(request: NextRequest) {
   try {
     const actor = await getActor(request);
-    if (!actor || !canConfig(actor)) {
+    if (!actor || (!canConfig(actor) && !canConfigInterno(actor))) {
       return NextResponse.json({ error: 'Você não tem permissão para ver esta configuração.' }, { status: 403 });
     }
     if (new URL(request.url).searchParams.get('history') === '1') {
@@ -48,7 +54,9 @@ export async function GET(request: NextRequest) {
 export async function PUT(request: NextRequest) {
   try {
     const actor = await getActor(request);
-    if (!actor || !canConfig(actor)) {
+    const podeRanking = !!actor && canConfig(actor);
+    const podeInterno = !!actor && canConfigInterno(actor);
+    if (!podeRanking && !podeInterno) {
       return NextResponse.json({ error: 'Você não tem permissão para alterar a pontuação de chamados.' }, { status: 403 });
     }
     const body = await request.json().catch(() => null);
@@ -56,7 +64,13 @@ export async function PUT(request: NextRequest) {
     if (!parsed.ok) {
       return NextResponse.json({ error: parsed.error }, { status: 400 });
     }
-    const saved = await saveTicketConfig(parsed.value, { id: actor.id, name: actor.name ?? 'Usuário' });
+    // Sem a permissão do ranking, só a regra do ticket interno é gravada; o resto volta como estava.
+    let aGravar = parsed.value;
+    if (!podeRanking) {
+      const atual = await getTicketConfig();
+      aGravar = { ...atual.config, interno: parsed.value.interno };
+    }
+    const saved = await saveTicketConfig(aGravar, { id: actor!.id, name: actor!.name ?? 'Usuário' });
     return NextResponse.json({ config: saved.config, updatedAt: saved.updatedAt, isDefault: saved.isDefault });
   } catch (error: any) {
     if (error?.code === '42P01') {

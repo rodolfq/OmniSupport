@@ -25,10 +25,16 @@ export interface TicketPontos {
   reabertura: number; // por reabertura
 }
 
+export interface TicketInternoRegra {
+  estrelasMinimas: number; // a partir de qual prioridade (estrelas) o ticket interno entra na regra
+  diasUteis: number;      // dias úteis sem ficar Resolvido antes de sinalizar
+}
+
 export interface TicketConfigValues {
   metas: TicketMetas;
   regras: TicketRegras;
   pontos: TicketPontos;
+  interno: TicketInternoRegra;
 }
 
 export const DEFAULT_TICKET_CONFIG: TicketConfigValues = {
@@ -38,6 +44,7 @@ export const DEFAULT_TICKET_CONFIG: TicketConfigValues = {
   metas: { slaPct: 90, primeiraRespostaMin: 60, resolucaoPrimeiroContatoPct: 70, backlogMax: 20, reaberturaPct: 5 },
   regras: { backlogHorasUteis: 48, amostraMinima: 10 },
   pontos: { slaCumprido: 10, slaDescumprido: -15, primeiraRespostaNoPrazo: 5, primeiraRespostaForaPrazo: -5, resolvidoPrimeiroContato: 10, backlog: -2, reabertura: -10 },
+  interno: { estrelasMinimas: 2, diasUteis: 2 },
 };
 
 // Campos da configuração, na ordem da tela. A chave "grupo.campo" é usada no histórico.
@@ -56,10 +63,15 @@ export const TICKET_CONFIG_FIELDS: { grupo: keyof TicketConfigValues; campo: str
   { grupo: 'pontos', campo: 'resolvidoPrimeiroContato', label: 'Nasce resolvido (por chamado)', tipo: 'ponto', referencia: 'Chamado que nasce já resolvido.' },
   { grupo: 'pontos', campo: 'backlog', label: 'Em backlog (por chamado)', tipo: 'ponto', referencia: 'Por chamado aberto além do limite de horas úteis. Valor de exemplo: −2.' },
   { grupo: 'pontos', campo: 'reabertura', label: 'Reaberto (por reabertura)', tipo: 'ponto', referencia: 'Por reabertura de chamado já concluído.' },
+  { grupo: 'interno', campo: 'estrelasMinimas', label: 'Estrelas mínimas para a regra de 2 dias (1 a 4)', tipo: 'regra', referencia: 'Ticket com estrelas (prioridade) a partir deste valor entra na regra. Padrão: 2 (valores 2, 3 e 4).' },
+  { grupo: 'interno', campo: 'diasUteis', label: 'Dias úteis até ser marcado Resolvido', tipo: 'regra', referencia: 'Dias úteis sem Resolvido antes de sinalizar o ticket. Padrão: 2 dias (horário comercial, 8h às 18h).' },
 ];
 
 function numeroOu(v: unknown, padrao: number): number {
-  const n = typeof v === 'number' ? v : Number(String(v ?? '').replace(',', '.'));
+  // Campo ausente vira o padrão. Antes, undefined virava '' e depois 0 (Number('') === 0),
+  // e uma configuração sem o grupo interno ficava com 0 dias e 0 estrelas em silêncio.
+  if (v === undefined || v === null || v === '') return padrao;
+  const n = typeof v === 'number' ? v : Number(String(v).replace(',', '.'));
   return Number.isFinite(n) ? n : padrao;
 }
 
@@ -67,7 +79,7 @@ function numeroOu(v: unknown, padrao: number): number {
 export function normalizeTicketConfig(raw: unknown): TicketConfigValues {
   const src = (raw && typeof raw === 'object' ? raw : {}) as Record<string, Record<string, unknown>>;
   const out = {} as TicketConfigValues;
-  for (const grupo of ['metas', 'regras', 'pontos'] as const) {
+  for (const grupo of ['metas', 'regras', 'pontos', 'interno'] as const) {
     const padroes = DEFAULT_TICKET_CONFIG[grupo] as unknown as Record<string, number>;
     const atual = (src[grupo] ?? {}) as Record<string, unknown>;
     const linha: Record<string, number> = {};
@@ -89,6 +101,12 @@ export function validateTicketConfigInput(input: unknown): { ok: true; value: Ti
     }
     if (f.tipo === 'meta' && (n < 0 || (f.campo.endsWith('Pct') && n > 100))) {
       return { ok: false, error: `"${f.label}" precisa estar entre 0 e 100.` };
+    }
+    if (f.campo === 'estrelasMinimas' && (!Number.isInteger(n) || n < 1 || n > 4)) {
+      return { ok: false, error: `"${f.label}" precisa ser um número inteiro de 1 a 4.` };
+    }
+    if (f.campo === 'diasUteis' && (!Number.isInteger(n) || n < 0)) {
+      return { ok: false, error: `"${f.label}" precisa ser um número inteiro, sem negativo.` };
     }
     if (f.campo === 'primeiraRespostaMin' || f.campo === 'backlogMax' || f.campo === 'backlogHorasUteis' || f.campo === 'amostraMinima') {
       if (n < 0) return { ok: false, error: `"${f.label}" não pode ser negativo.` };

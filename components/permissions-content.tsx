@@ -82,6 +82,7 @@ const permissionGroups = [
       { id: Permission.INTERNAL_TICKETS_VIEW, label: 'Visualizar ticket interno', desc: 'Permite ver tickets de operação interna da própria equipe — também libera a chave "Tickets Internos" no Dashboard Geral e em Meus Chamados' },
       { id: Permission.INTERNAL_TICKETS_EDIT, label: 'Criar/Editar ticket interno', desc: 'Permite criar tickets internos e editar os existentes' },
       { id: Permission.INTERNAL_TICKETS_VIEW_ALL, label: 'Ver de todas as equipes', desc: 'Sem isso, só vê tickets internos da(s) própria(s) equipe(s) — use para Suporte/Administração' },
+      { id: Permission.INTERNAL_RULES_CONFIG, label: 'Configurar regras do ticket interno', desc: 'Altera a regra de 2 dias (estrelas mínimas e dias úteis) em Configurações > Pontuação do Ranking' },
     ]
   },
   {
@@ -149,6 +150,7 @@ const permissionGroups = [
       { id: Permission.DASHBOARD_MANAGEMENT, label: 'Dashboard Gerencial', desc: 'Acesso à visão gerencial de métricas de atendimento (/dashboard/management) — nível acima do dashboard de time' },
       { id: Permission.REPORTS_INDIVIDUAL, label: 'Dados nominais por analista', desc: 'Permite ver relatórios com nome do analista associado, não só números agregados do time' },
       { id: Permission.REPORTS_EXPORT, label: 'Exportar relatórios', desc: 'Permite exportar relatórios em CSV/PDF' },
+      { id: Permission.REPORTS_INTERNAL, label: 'Relatório de tickets internos', desc: 'Permite ver o relatório completo de tickets internos (entregas, atrasos, reprovações de QA e regra de 2 dias)' },
       { id: Permission.REPORTS_RANKING_CONFIG, label: 'Configurar pontuação do ranking', desc: 'Altera os pesos do ranking de analistas (itens, tags e bad). Afeta o ranking de todo o time' },
       { id: Permission.REPORTS_AUDIT_LOG, label: 'Log de Auditoria', desc: 'Permite ver o histórico de ações de todos os usuários — dado mais sensível que o resto de Relatórios' },
     ]

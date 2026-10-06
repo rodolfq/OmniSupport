@@ -138,6 +138,14 @@ export async function POST(request: Request) {
 
     return NextResponse.json(result);
   } catch (error: any) {
+    // Erro de banco (SQLSTATE de 5 caracteres, ex.: 42P10, 23505): não é culpa
+    // do contato nem do analista. Antes ia ao toast como texto cru do Postgres
+    // ("there is no unique or exclusion constraint...") com 422. Mensagem comum
+    // na tela; o detalhe fica no log.
+    if (typeof error?.code === 'string' && /^[0-9A-Z]{5}$/.test(error.code)) {
+      console.error('[api/whatsapp/pyvon/start-conversation] Erro de banco:', error.code, error.message);
+      return NextResponse.json({ error: 'Não foi possível abrir a conversa agora. Tente novamente em instantes.' }, { status: 500 });
+    }
     const status = error?.response?.status;
     const data = error?.response?.data;
     // data.error às vezes é BOOLEANO no contrato do Pyvon (flag, não

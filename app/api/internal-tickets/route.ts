@@ -39,7 +39,11 @@ function toInternalTicket(row: any, parentTicketId?: string) {
     expectedPublishDate: row.expected_publish_date,
     hotfixId: row.hotfix_id,
     effortId: row.effort_id,
-    outcomeId: row.outcome_id
+    outcomeId: row.outcome_id,
+    subStatus: row.sub_status ?? null,
+    resolvedAt: row.resolved_at ?? null,
+    qaRejected: !!row.qa_rejected,
+    lateDelivery: !!row.late_delivery
   };
 }
 
@@ -476,7 +480,9 @@ export async function POST(request: NextRequest) {
         expectedPublishDate: 'expected_publish_date',
         hotfixId: 'hotfix_id',
         effortId: 'effort_id',
-        outcomeId: 'outcome_id'
+        outcomeId: 'outcome_id',
+        subStatus: 'sub_status',
+        qaRejected: 'qa_rejected'
       };
       const ARRAY_FIELDS = new Set(['tags']);
 
@@ -489,6 +495,25 @@ export async function POST(request: NextRequest) {
         sets.push(`${column} = $${params.length}`);
       }
       if (sets.length === 0) return NextResponse.json({ error: 'Nenhum campo informado.' }, { status: 400 });
+
+      // Sub-status só vale dentro do status escolhido (ex.: Resolvido > Aguardando Publicação).
+      if (fields.subStatus && fields.status) {
+        const pertence = await query(
+          `SELECT 1 FROM public.config_statuses c JOIN public.config_statuses p ON p.id = c.parent_status_id
+            WHERE c.label = $1 AND c.scope = 'internal_ticket' AND p.label = $2 AND p.scope = 'internal_ticket'`,
+          [fields.subStatus, fields.status]
+        );
+        if (pertence.rowCount === 0) {
+          return NextResponse.json({ error: 'Sub-status não pertence a este status.' }, { status: 400 });
+        }
+      }
+
+      // Entrega Real: gravada na 1ª vez que o ticket vira Resolvido e fica fixa depois. Atraso: resolvido
+      // depois do prazo (sla_limit). Mesmo momento, no próprio UPDATE (SET usa os valores antigos da linha).
+      if (fields.status === 'Resolvido') {
+        sets.push('resolved_at = COALESCE(resolved_at, NOW())');
+        sets.push('late_delivery = COALESCE(COALESCE(resolved_at, NOW()) > sla_limit, false)');
+      }
 
       sets.push('updated_at = NOW()');
       params.push(targetIds);
