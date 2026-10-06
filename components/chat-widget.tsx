@@ -74,7 +74,8 @@ import { TicketService } from '@/lib/services/ticket-service';
 import { saveTicketFromChatSession, closeChatSessionAfterTicket, checkChatSessionCanClose, assignChatSession, returnChatSessionToQueue, setChatSessionTags } from '@/lib/services/chat-session-actions';
 import { RequiredChatTags } from '@/components/required-chat-tags';
 import { chatHasRequiredTag, isChatTagRequiredError, CHAT_TAG_REQUIRED_MESSAGE } from '@/lib/chat-close-rules';
-import { checkPyvonOutboundStatus, startPyvonConversation } from '@/lib/services/pyvon-template-service';
+import { checkPyvonOutboundStatus, startPyvonConversation, PyvonStartChannel } from '@/lib/services/pyvon-template-service';
+import { PyvonChannelChoice, PortalEligibility } from '@/components/pyvon-channel-choice';
 import { ChatTagPicker, tagAccentBgClass } from '@/components/chat-tag-picker';
 import { cn, maskPhone, matchPhones, safeJsonStringify, normalizeString, normalizePhone } from '@/lib/utils';
 import { useApp } from '@/app/app-context';
@@ -928,6 +929,9 @@ export function ChatWidget() {
   // cadastrado que só este modal tem. Quem decide de verdade é sempre o
   // servidor (startPyvonConversation), isto aqui é só preview.
   const [newChatWindowStatus, setNewChatWindowStatus] = useState<'unknown' | 'checking' | 'open' | 'closed'>('unknown');
+  // Canal do novo atendimento: WhatsApp (padrão) ou portal (só se o contato já usa o portal).
+  const [newChatChannel, setNewChatChannel] = useState<PyvonStartChannel>('whatsapp');
+  const [newChatEligibility, setNewChatEligibility] = useState<PortalEligibility | null>(null);
   const [isStartingNewChat, setIsStartingNewChat] = useState(false);
   const newChatCheckSeqRef = useRef(0);
   useEffect(() => {
@@ -1923,7 +1927,12 @@ useEffect(() => {
     if (!newChatNumber || isStartingNewChat) return;
     setIsStartingNewChat(true);
     try {
-      const result = await startPyvonConversation({ phone: newChatNumber, name: newChatName || undefined });
+      const result = await startPyvonConversation({
+        phone: newChatNumber,
+        name: newChatName || undefined,
+        channel: newChatChannel,
+        profileId: newChatChannel === 'portal' ? newChatEligibility?.portalProfileId : undefined
+      });
       if ('error' in result) {
         toast.error(result.error);
         return;
@@ -4090,7 +4099,15 @@ useEffect(() => {
                    {/* Transparência da janela de 24h (canal Pyvon) — nunca
                        decide nada aqui, só antecipa o que o servidor vai
                        decidir ao clicar (ver handleStartNewChat). */}
-                   {newChatWindowStatus !== 'unknown' && (
+                   <PyvonChannelChoice
+                     phone={newChatNumber}
+                     value={newChatChannel}
+                     onChange={setNewChatChannel}
+                     onEligibility={setNewChatEligibility}
+                     disabled={isStartingNewChat}
+                   />
+
+                   {newChatChannel === 'whatsapp' && newChatWindowStatus !== 'unknown' && (
                      <div className={cn(
                        "flex items-start gap-2.5 p-3.5 rounded-2xl text-xs font-semibold leading-snug",
                        newChatWindowStatus === 'checking' && "bg-[var(--surface-pill)] text-[var(--text-tertiary)]",
@@ -4114,7 +4131,7 @@ useEffect(() => {
                      className="w-full mt-4 py-4 bg-[var(--accent)] text-white rounded-2xl text-[11px] font-semibold uppercase tracking-widest shadow-xl shadow-indigo-100 hover:bg-[var(--accent-hover)] disabled:opacity-50 disabled:cursor-not-allowed transition-all flex items-center justify-center gap-2"
                    >
                      {isStartingNewChat && <Loader2 size={14} className="animate-spin" />}
-                     {newChatWindowStatus === 'closed' ? 'Enviar Mensagem e Abrir Conversa' : 'Iniciar Conversa'}
+                     {newChatChannel === 'portal' ? 'Abrir Conversa no Portal' : newChatWindowStatus === 'closed' ? 'Enviar Mensagem e Abrir Conversa' : 'Iniciar Conversa'}
                    </button>
                 </div>
              </motion.div>

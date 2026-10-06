@@ -79,9 +79,23 @@ export async function checkPyvonOutboundStatus(phone: string): Promise<{ withinW
  * abre normal ou se precisa do template contato_pos_vendas antes (ver
  * app/api/whatsapp/pyvon/start-conversation/route.ts).
  */
+// Canal escolhido pela equipe: 'whatsapp' (padrão) abre no WhatsApp via Pyvon;
+// 'portal' abre o chat do portal com o perfil do contato (profileId).
+export type PyvonStartChannel = 'whatsapp' | 'portal';
+
+export async function getPyvonPortalEligibility(phone: string): Promise<{ portalProfileId: string | null; portalEligible: boolean; portalProfileName: string | null } | { error: string }> {
+  try {
+    return await apiJson<{ portalProfileId: string | null; portalEligible: boolean; portalProfileName: string | null }>(`/api/whatsapp/pyvon/start-conversation?phone=${encodeURIComponent(phone)}`);
+  } catch (err: any) {
+    return { error: err?.message || 'Erro ao verificar o uso do portal.' };
+  }
+}
+
 export async function startPyvonConversation(params: {
   phone: string;
   name?: string;
+  channel?: PyvonStartChannel;
+  profileId?: string | null;
 }): Promise<{ sessionId: string; usedTemplate: boolean } | { error: string }> {
   try {
     return await apiJson<{ sessionId: string; usedTemplate: boolean }>('/api/whatsapp/pyvon/start-conversation', {

@@ -3,7 +3,8 @@
 import React, { useEffect, useRef, useState } from 'react';
 import { X, MessageCircle, Loader2, CheckCircle2, Clock } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
-import { checkPyvonOutboundStatus, startPyvonConversation } from '@/lib/services/pyvon-template-service';
+import { checkPyvonOutboundStatus, startPyvonConversation, PyvonStartChannel } from '@/lib/services/pyvon-template-service';
+import { PyvonChannelChoice, PortalEligibility } from '@/components/pyvon-channel-choice';
 import { toast } from 'sonner';
 import { cn } from '@/lib/utils';
 
@@ -35,6 +36,8 @@ export function StartWhatsAppConversationModal({
   const [name, setName] = useState('');
   const [windowStatus, setWindowStatus] = useState<WindowStatus>('unknown');
   const [isSending, setIsSending] = useState(false);
+  const [channel, setChannel] = useState<PyvonStartChannel>('whatsapp');
+  const [eligibility, setEligibility] = useState<PortalEligibility | null>(null);
   const checkTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const checkSeqRef = useRef(0);
 
@@ -44,6 +47,7 @@ export function StartWhatsAppConversationModal({
     setName(defaultName || '');
     setWindowStatus('unknown');
     setIsSending(false);
+    setChannel('whatsapp');
   }, [isOpen, defaultPhone, defaultName]);
 
   // Checa a janela 500ms depois de parar de digitar — só com dígito
@@ -79,7 +83,12 @@ export function StartWhatsAppConversationModal({
     }
     setIsSending(true);
     try {
-      const result = await startPyvonConversation({ phone: phone.trim(), name: name.trim() || undefined });
+      const result = await startPyvonConversation({
+        phone: phone.trim(),
+        name: name.trim() || undefined,
+        channel,
+        profileId: channel === 'portal' ? eligibility?.portalProfileId : undefined
+      });
       if ('error' in result) throw new Error(result.error);
       toast.success(result.usedTemplate
         ? 'Fora da janela de 24h — mensagem inicial enviada e conversa aberta.'
@@ -147,7 +156,15 @@ export function StartWhatsAppConversationModal({
 
               {/* Transparência do que vai acontecer ao clicar em enviar — nunca
                   decide nada aqui, só antecipa o que o servidor vai decidir. */}
-              {windowStatus !== 'unknown' && (
+              <PyvonChannelChoice
+                phone={phone}
+                value={channel}
+                onChange={setChannel}
+                onEligibility={setEligibility}
+                disabled={isSending}
+              />
+
+              {channel === 'whatsapp' && windowStatus !== 'unknown' && (
                 <div className={cn(
                   "flex items-start gap-2.5 p-3.5 rounded-xl text-xs font-semibold leading-snug",
                   windowStatus === 'checking' && "bg-[var(--surface-pill)] text-[var(--text-tertiary)]",
@@ -172,7 +189,7 @@ export function StartWhatsAppConversationModal({
                 className="w-full py-3 bg-[var(--accent)] text-white rounded-xl text-xs font-black uppercase tracking-widest shadow-md hover:bg-[var(--accent-hover)] transition-all disabled:opacity-60 flex items-center justify-center gap-2"
               >
                 {isSending ? <Loader2 size={14} className="animate-spin" /> : <MessageCircle size={14} />}
-                {windowStatus === 'closed' ? 'Enviar Mensagem e Abrir Conversa' : 'Iniciar Conversa'}
+                {channel === 'portal' ? 'Abrir Conversa no Portal' : windowStatus === 'closed' ? 'Enviar Mensagem e Abrir Conversa' : 'Iniciar Conversa'}
               </button>
             </div>
           </motion.div>

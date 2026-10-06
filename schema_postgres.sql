@@ -652,13 +652,14 @@ CREATE INDEX IF NOT EXISTS idx_chat_sessions_queue_id ON public.chat_sessions(qu
 CREATE INDEX IF NOT EXISTS idx_chat_sessions_assignee_id ON public.chat_sessions(assignee_id);
 CREATE INDEX IF NOT EXISTS idx_chat_sessions_customer_id ON public.chat_sessions(customer_id);
 CREATE INDEX IF NOT EXISTS idx_chat_sessions_ticket_id ON public.chat_sessions(ticket_id);
--- Uma conversa aberta por telefone (WhatsApp/Pyvon: pyvon-service.ts e
--- whatsapp-service.ts dependem deste índice no ON CONFLICT) e uma por cliente
--- logado no widget. O de customer_id vale SÓ pro canal 'widget': a mesma pessoa
--- pode ter conversas abertas em canais/números diferentes (migrations/
--- chat_sessions_unique_open_phone.sql e chat_sessions_open_customer_widget_only.sql).
+-- Uma conversa aberta por telefone POR CANAL (WhatsApp/Pyvon 'pyvon' e portal
+-- 'widget' podem estar abertas ao mesmo tempo pro mesmo número — ver
+-- migrations/chat_sessions_open_phone_per_channel.sql; pyvon-service.ts depende
+-- deste índice no ON CONFLICT) e uma por cliente logado no widget. O de
+-- customer_id vale SÓ pro canal 'widget' (migrations/
+-- chat_sessions_open_customer_widget_only.sql).
 CREATE UNIQUE INDEX IF NOT EXISTS uq_chat_sessions_open_phone
-  ON public.chat_sessions (customer_phone)
+  ON public.chat_sessions (customer_phone, channel)
   WHERE status <> 'closed' AND customer_phone IS NOT NULL;
 CREATE UNIQUE INDEX IF NOT EXISTS uq_chat_sessions_open_customer
   ON public.chat_sessions (customer_id)

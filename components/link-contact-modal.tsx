@@ -108,7 +108,13 @@ export function LinkContactModal({
       loadData();
       setNewName(session?.customerName || '');
     }
-  }, [isOpen, session]);
+    // Só reinicia ao ABRIR (depende de isOpen, não de session). O objeto
+    // `session` vem de customerSessions.find(...) no chat-widget, e essa lista
+    // é recriada a cada atualização (polling de 30s e eventos em tempo real) —
+    // com `session` nas dependências, cada atualização zerava o que a pessoa
+    // estava digitando (nome, busca, aba "Criar Novo") e voltava pra primeira
+    // aba. Achado em 2026-10-06.
+  }, [isOpen]);
 
   // Foto de perfil do WhatsApp do contato, para sincronizar com o cadastro
   // (profiles.avatar_url) assim que ele é vinculado/criado.

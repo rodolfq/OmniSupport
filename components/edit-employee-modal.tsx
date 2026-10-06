@@ -38,19 +38,23 @@ export function EditEmployeeModal({ isOpen, onClose, user, onSuccess }: { isOpen
   const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
   const [deleteLoading, setDeleteLoading] = useState(false);
 
+  // Reinicia o formulário ao ABRIR ou ao trocar de pessoa — não a cada nova
+  // referência de `user`. O chat-widget recria esse objeto a cada atualização
+  // da lista de usuários, e com `user` nas dependências isso apagava o que a
+  // pessoa estava editando (mesmo problema do link-contact-modal, 2026-10-06).
   useEffect(() => {
-    if (user) {
+    if (isOpen && user) {
       setName(user.name || '');
       setEmail(user.email || '');
       setRole(user.role as any || UserRole.EMPLOYEE);
       setCompanyId(user.companyId || '');
-      
+
       const userPhones = user.phones || (user.phone ? [user.phone] : []);
       setPhones(userPhones);
-      
+
       setIsActive(user.isActive ?? true);
     }
-  }, [user]);
+  }, [isOpen, user?.id]);
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();

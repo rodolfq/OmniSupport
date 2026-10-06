@@ -15,7 +15,8 @@ import { StartWhatsAppConversationModal } from '@/components/start-whatsapp-conv
 import { ConfirmModal } from '@/components/confirm-modal';
 import { useIsMobile } from '@/hooks/use-mobile';
 import { UserService } from '@/lib/services/user-service';
-import { checkPyvonOutboundStatus, startPyvonConversation } from '@/lib/services/pyvon-template-service';
+import { checkPyvonOutboundStatus, startPyvonConversation, PyvonStartChannel } from '@/lib/services/pyvon-template-service';
+import { PyvonChannelChoice, PortalEligibility } from '@/components/pyvon-channel-choice';
 import { useApp } from '@/app/app-context';
 import { motion, AnimatePresence } from 'motion/react';
 import { toast } from 'sonner';
@@ -51,6 +52,9 @@ function WhatsAppNumberModal({
   const { currentUser, setIsOmniChatOpen, setActiveOmniChatId, userStatus } = useApp();
   const [windowStatusByPhone, setWindowStatusByPhone] = useState<Record<string, PhoneWindowStatus>>({});
   const [sendingPhone, setSendingPhone] = useState<string | null>(null);
+  // Canal escolhido para este funcionário: WhatsApp (padrão) ou portal (só se já usa o portal).
+  const [channel, setChannel] = useState<PyvonStartChannel>('whatsapp');
+  const [eligibility, setEligibility] = useState<PortalEligibility | null>(null);
   const phones = user?.phones || (user?.phone ? [user.phone] : []);
 
   useEffect(() => {
@@ -73,6 +77,25 @@ function WhatsAppNumberModal({
     // por aqui vira o responsável (a atribuição é feita no servidor, em
     // lib/services/pyvon-service.ts), então barrar depois deixaria uma
     // conversa criada e atribuída a alguém que a tela acabou de recusar.
+    if (channel === 'portal') {
+      if (!eligibility?.portalProfileId) {
+        toast.error('Este contato ainda não usa o portal — use o canal WhatsApp.');
+        return;
+      }
+      setSendingPhone(n);
+      try {
+        const result = await startPyvonConversation({ phone: n, name: user.name, channel: 'portal', profileId: eligibility.portalProfileId });
+        if ('error' in result) { toast.error(result.error); return; }
+        toast.success('Conversa aberta no portal.');
+        setActiveOmniChatId(result.sessionId);
+        setIsOmniChatOpen(true);
+        onClose();
+      } finally {
+        setSendingPhone(null);
+      }
+      return;
+    }
+
     const isPortalUser = currentUser
       && [UserRole.CUSTOMER, UserRole.EMPLOYEE].includes(currentUser.role as UserRole);
     if (!isPortalUser && userStatus !== 'online') {
@@ -125,6 +148,13 @@ function WhatsAppNumberModal({
             <p className="text-xs font-bold text-[var(--text-tertiary)] uppercase tracking-widest mb-4 font-black">Central de Atendimento</p>
 
             <div className="space-y-2">
+              <PyvonChannelChoice
+                phone={phones[0] || ''}
+                value={channel}
+                onChange={setChannel}
+                onEligibility={setEligibility}
+                disabled={!!sendingPhone}
+              />
               {phones.length > 0 ? phones.map((n, idx) => {
                 const status = windowStatusByPhone[n] || 'checking';
                 const isSending = sendingPhone === n;

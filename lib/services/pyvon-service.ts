@@ -374,7 +374,7 @@ export class PyvonService {
       `WITH picked AS (
          SELECT id, pyvon_pending_note_text AS text, pyvon_pending_note_author_id AS author_id
            FROM public.chat_sessions
-          WHERE id <> $1 AND status = 'closed'
+          WHERE id <> $1 AND status = 'closed' AND channel = 'pyvon'
             AND (pyvon_cadastro_id = $2${phoneClause})
             AND (pyvon_pending_note_text IS NOT NULL OR pyvon_pending_note_author_id IS NOT NULL)
             AND COALESCE(pyvon_pending_note_set_at, updated_at) > NOW() - INTERVAL '48 hours'
@@ -601,7 +601,7 @@ export class PyvonService {
       const existing = await query(
         `SELECT id, customer_phone, customer_id, customer_name, assignee_id, queue_id, pyvon_cadastro_id, pyvon_pending_note_text, pyvon_pending_note_author_id
            FROM public.chat_sessions
-          WHERE customer_phone IN (${placeHoldersFor(variants)}) AND status != 'closed'
+          WHERE customer_phone IN (${placeHoldersFor(variants)}) AND channel = 'pyvon' AND status != 'closed'
           ORDER BY updated_at DESC LIMIT 1`,
         variants
       );
@@ -611,7 +611,7 @@ export class PyvonService {
       const existing = await query(
         `SELECT id, customer_phone, customer_id, customer_name, assignee_id, queue_id, pyvon_cadastro_id, pyvon_pending_note_text, pyvon_pending_note_author_id
            FROM public.chat_sessions
-          WHERE pyvon_cadastro_id = $1 AND status != 'closed'
+          WHERE pyvon_cadastro_id = $1 AND channel = 'pyvon' AND status != 'closed'
           ORDER BY updated_at DESC LIMIT 1`,
         [cadastroId]
       );
@@ -658,7 +658,7 @@ export class PyvonService {
       const insertRes = await query(
         `INSERT INTO public.chat_sessions (customer_id, customer_name, customer_phone, status, queue_id, assignee_id, pyvon_cadastro_id, channel, created_at, updated_at)
          VALUES ($1, $2, $3, $4, $5, $6, $7, 'pyvon', NOW(), NOW())
-         ON CONFLICT (customer_phone) WHERE status <> 'closed' AND customer_phone IS NOT NULL
+         ON CONFLICT (customer_phone, channel) WHERE status <> 'closed' AND customer_phone IS NOT NULL
          DO NOTHING
          RETURNING id, customer_phone, customer_id, customer_name, assignee_id, queue_id, pyvon_cadastro_id, pyvon_pending_note_text, pyvon_pending_note_author_id`,
         [profile?.id || null, customerName, digits, status, queue?.id || null, assigneeId, cadastroId]
@@ -682,7 +682,7 @@ export class PyvonService {
     if (variants.length) {
       const retryRes = await query(
         `SELECT id, customer_phone, customer_id, customer_name, assignee_id, queue_id, pyvon_cadastro_id, pyvon_pending_note_text, pyvon_pending_note_author_id
-           FROM public.chat_sessions WHERE customer_phone IN (${placeHoldersFor(variants)})
+           FROM public.chat_sessions WHERE channel = 'pyvon' AND customer_phone IN (${placeHoldersFor(variants)})
           ORDER BY updated_at DESC LIMIT 1`,
         variants
       );
@@ -885,7 +885,7 @@ export class PyvonService {
     const placeHolders = variants.map((_, i) => `$${i + 1}`).join(',');
     const candidatesRes = await query(
       `SELECT id, customer_phone, pyvon_cadastro_id FROM public.chat_sessions
-        WHERE customer_phone IN (${placeHolders}) AND pyvon_cadastro_id IS NOT NULL
+        WHERE channel = 'pyvon' AND customer_phone IN (${placeHolders}) AND pyvon_cadastro_id IS NOT NULL
         ORDER BY updated_at DESC LIMIT 10`,
       variants
     );
@@ -967,7 +967,7 @@ export class PyvonService {
     const sessionRes = await query(
       `SELECT id, customer_id, customer_name
          FROM public.chat_sessions
-        WHERE status = 'closed'
+        WHERE status = 'closed' AND channel = 'pyvon'
           AND awaiting_survey_until IS NOT NULL AND awaiting_survey_until > NOW()
           AND (pyvon_cadastro_id = $1${phoneClause})
         ORDER BY updated_at DESC
@@ -1018,7 +1018,7 @@ export class PyvonService {
       const res = await query(
         `SELECT id, customer_phone, customer_id, customer_name, assignee_id, queue_id, pyvon_cadastro_id, pyvon_pending_note_text, pyvon_pending_note_author_id
            FROM public.chat_sessions
-          WHERE customer_phone IN (${variants.map((_, i) => `$${i + 1}`).join(',')}) AND status != 'closed'
+          WHERE channel = 'pyvon' AND customer_phone IN (${variants.map((_, i) => `$${i + 1}`).join(',')}) AND status != 'closed'
           ORDER BY updated_at DESC LIMIT 1`,
         variants
       );
@@ -1026,7 +1026,7 @@ export class PyvonService {
     }
     const res = await query(
       `SELECT id, customer_phone, customer_id, customer_name, assignee_id, queue_id, pyvon_cadastro_id, pyvon_pending_note_text, pyvon_pending_note_author_id
-         FROM public.chat_sessions WHERE pyvon_cadastro_id = $1 AND status != 'closed'
+         FROM public.chat_sessions WHERE pyvon_cadastro_id = $1 AND channel = 'pyvon' AND status != 'closed'
         ORDER BY updated_at DESC LIMIT 1`,
       [cadastroId]
     );
