@@ -33,7 +33,7 @@ import { GiroContent } from '@/components/giro-content';
 import { WeekendScheduleContent } from '@/components/weekend-schedule-content';
 import { HotfixesContent } from '@/components/hotfixes-content';
 import { UserCreationLogContent } from '@/components/user-creation-log-content';
-import { RankingPointsSettings } from '@/components/ranking-points-settings';
+import { RankingSettingsHub } from '@/components/ranking-settings-hub';
 
 type Tab =
   | 'profile' | 'security' | 'notifications'
@@ -253,7 +253,7 @@ export default function SettingsPage() {
           {activeTab === 'weekend-schedule' && canViewGiro && <WeekendScheduleContent />}
           {activeTab === 'hotfixes' && hasPermission(Permission.HOTFIXES_MANAGE) && <HotfixesContent />}
           {activeTab === 'user-creation-log' && canViewUserCreationLog && <UserCreationLogContent />}
-          {activeTab === 'ranking-points' && hasPermission(Permission.REPORTS_RANKING_CONFIG) && <RankingPointsSettings />}
+          {activeTab === 'ranking-points' && hasPermission(Permission.REPORTS_RANKING_CONFIG) && <RankingSettingsHub />}
 
 {activeTab === 'system' && (canManageTicketConfig || canManageInternalConfig) && (
              <div className="space-y-6 animate-in fade-in slide-in-from-bottom-4 duration-300">

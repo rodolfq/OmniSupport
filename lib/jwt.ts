@@ -1,5 +1,11 @@
 const encoder = new TextEncoder();
 
+// Sessão deslizante: o cookie vale SESSION_TTL_SECONDS sem uso. Enquanto a pessoa usa o sistema,
+// o token é reemitido a cada SESSION_RENEW_AFTER_SECONDS (ver middleware.ts), então quem trabalha
+// o dia todo não é deslogado no meio do expediente.
+export const SESSION_TTL_SECONDS = 7 * 24 * 3600;
+export const SESSION_RENEW_AFTER_SECONDS = 3600;
+
 function arrayBufferToBase64Url(buffer: ArrayBuffer | Uint8Array): string {
   const bytes = new Uint8Array(buffer);
   let binary = '';

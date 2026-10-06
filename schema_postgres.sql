@@ -12,6 +12,8 @@ DROP TABLE IF EXISTS public.chat_sessions CASCADE;
 DROP TABLE IF EXISTS public.chat_histories CASCADE;
 DROP TABLE IF EXISTS public.chat_assignments CASCADE;
 DROP TABLE IF EXISTS public.analyst_points_config CASCADE;
+DROP TABLE IF EXISTS public.ticket_points_config CASCADE;
+DROP TABLE IF EXISTS public.ticket_status_history CASCADE;
 DROP TABLE IF EXISTS public.analyst_status CASCADE;
 DROP TABLE IF EXISTS public.user_status_history CASCADE;
 DROP TABLE IF EXISTS public.absence_reasons CASCADE;
@@ -514,6 +516,94 @@ CREATE TABLE public.ticket_messages (
 -- WHERE ticket_id = $1 ORDER BY created_at — toda abertura de chamado bate
 -- nisso.
 CREATE INDEX IF NOT EXISTS idx_ticket_messages_ticket_id ON public.ticket_messages(ticket_id, created_at);
+
+-- Minutos úteis do SLA/backlog de chamado (migrations/ticket_business_minutes.sql).
+CREATE OR REPLACE FUNCTION public.ticket_business_minutes(p_from timestamptz, p_to timestamptz)
+RETURNS numeric
+LANGUAGE plpgsql
+STABLE
+AS $$
+DECLARE
+  d date;
+  day_start timestamptz;
+  day_end timestamptz;
+  total numeric := 0;
+BEGIN
+  IF p_from IS NULL OR p_to IS NULL OR p_to <= p_from THEN
+    RETURN 0;
+  END IF;
+  FOR d IN
+    SELECT gs::date
+      FROM generate_series(
+        (p_from AT TIME ZONE 'America/Sao_Paulo')::date,
+        (p_to AT TIME ZONE 'America/Sao_Paulo')::date,
+        interval '1 day'
+      ) AS gs
+  LOOP
+    CONTINUE WHEN EXTRACT(ISODOW FROM d) > 5;
+    day_start := (d + time '08:00') AT TIME ZONE 'America/Sao_Paulo';
+    day_end := (d + time '18:00') AT TIME ZONE 'America/Sao_Paulo';
+    total := total + GREATEST(0, EXTRACT(EPOCH FROM (LEAST(day_end, p_to) - GREATEST(day_start, p_from)))) / 60;
+  END LOOP;
+  RETURN total;
+END;
+$$;
+
+-- Histórico de status de chamado e gatilho (migrations/ticket_status_history.sql).
+CREATE TABLE IF NOT EXISTS public.ticket_status_history (
+  id UUID PRIMARY KEY DEFAULT (md5(random()::text || clock_timestamp()::text)::uuid),
+  ticket_id TEXT NOT NULL REFERENCES public.tickets(id) ON DELETE CASCADE,
+  from_status TEXT,          -- NULL = criação do chamado (from_status vazio quer dizer "nasceu com este status")
+  to_status TEXT NOT NULL,
+  changed_at TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT now(),
+  changed_by UUID REFERENCES public.profiles(id) ON DELETE SET NULL
+);
+
+CREATE INDEX IF NOT EXISTS idx_ticket_status_history_ticket ON public.ticket_status_history(ticket_id, changed_at);
+CREATE INDEX IF NOT EXISTS idx_ticket_status_history_changed_at ON public.ticket_status_history(changed_at);
+
+CREATE OR REPLACE FUNCTION public.track_ticket_status()
+RETURNS trigger
+LANGUAGE plpgsql
+AS $$
+BEGIN
+  IF TG_OP = 'INSERT' THEN
+    INSERT INTO public.ticket_status_history (ticket_id, from_status, to_status, changed_at, changed_by)
+    VALUES (NEW.id, NULL, NEW.status, NEW.created_at, NEW.created_by);
+  ELSIF NEW.status IS DISTINCT FROM OLD.status THEN
+    INSERT INTO public.ticket_status_history (ticket_id, from_status, to_status, changed_at, changed_by)
+    VALUES (NEW.id, OLD.status, NEW.status, now(), NEW.updated_by);
+  END IF;
+  RETURN NEW;
+END;
+$$;
+
+DROP TRIGGER IF EXISTS trg_tickets_status_history ON public.tickets;
+CREATE TRIGGER trg_tickets_status_history
+  AFTER INSERT OR UPDATE OF status ON public.tickets
+  FOR EACH ROW EXECUTE FUNCTION public.track_ticket_status();
+
+-- Configuração de metas e pontos de chamados (migrations/ticket_points_config.sql).
+CREATE TABLE IF NOT EXISTS public.ticket_points_config (
+  id SMALLINT PRIMARY KEY CHECK (id = 1),
+  config JSONB NOT NULL,
+  updated_at TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT now(),
+  updated_by UUID REFERENCES public.profiles(id) ON DELETE SET NULL
+);
+
+INSERT INTO public.ticket_points_config (id, config)
+VALUES (1, '{
+  "metas": {"slaPct": 95, "primeiraRespostaMin": 10, "resolucaoPrimeiroContatoPct": 80, "backlogMax": 20, "reaberturaPct": 5},
+  "regras": {"backlogHorasUteis": 48, "amostraMinima": 10},
+  "pontos": {"slaCumprido": 10, "slaDescumprido": -15, "primeiraRespostaNoPrazo": 5, "primeiraRespostaForaPrazo": -5, "resolvidoPrimeiroContato": 10, "backlog": -5, "reabertura": -10}
+}'::jsonb)
+ON CONFLICT (id) DO NOTHING;
+
+-- Valores de exemplo da configuração de chamados (migrations/ticket_points_config_valores_iniciais.sql).
+UPDATE public.ticket_points_config
+   SET config = '{"metas":{"slaPct":90,"primeiraRespostaMin":60,"resolucaoPrimeiroContatoPct":70,"backlogMax":20,"reaberturaPct":5},"regras":{"backlogHorasUteis":48,"amostraMinima":10},"pontos":{"slaCumprido":10,"slaDescumprido":-15,"primeiraRespostaNoPrazo":5,"primeiraRespostaForaPrazo":-5,"resolvidoPrimeiroContato":10,"backlog":-2,"reabertura":-10}}'::jsonb,
+       updated_at = now()
+ WHERE id = 1 AND updated_by IS NULL;
 
 -- Chat Sessions
 CREATE TABLE public.chat_sessions (

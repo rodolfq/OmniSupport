@@ -33,6 +33,7 @@ export default function PortalLayout({ children }: { children: React.ReactNode }
   const {
     currentUser,
     authInitialized,
+    authUnavailable,
     notifications,
     markNotificationRead,
     markNotificationsSeen,
@@ -54,10 +55,10 @@ export default function PortalLayout({ children }: { children: React.ReactNode }
   }, []);
 
   React.useEffect(() => {
-    if (!currentUser && authInitialized) {
+    if (!currentUser && authInitialized && !authUnavailable) {
       router.replace('/login');
     }
-  }, [currentUser, authInitialized, router]);
+  }, [currentUser, authInitialized, authUnavailable, router]);
 
   // Cliente/Funcionário nunca usam o dashboard analítico — vão direto pra
   // Meus Chamados. Time Interno NÃO tem mais bounce automático pra
@@ -85,6 +86,17 @@ export default function PortalLayout({ children }: { children: React.ReactNode }
   }
 
   if (!currentUser) {
+    if (authUnavailable) {
+      return (
+        <div className="min-h-screen flex items-center justify-center bg-[var(--surface-page)] p-6">
+          <div className="max-w-sm text-center space-y-4">
+            <p className="text-lg font-bold text-[var(--text-primary)]">Não foi possível conectar ao servidor</p>
+            <p className="text-sm text-[var(--text-tertiary)]">Sua sessão continua válida. Verifique a conexão e tente de novo.</p>
+            <button type="button" onClick={() => window.location.reload()} className="rounded-xl bg-[var(--accent)] px-5 py-2.5 text-sm font-bold text-white">Tentar de novo</button>
+          </div>
+        </div>
+      );
+    }
     return null;
   }
 

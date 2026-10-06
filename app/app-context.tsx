@@ -70,6 +70,9 @@ interface AppContextType {
    // type-checka com a assinatura completa do dispatcher.
    setCurrentUser: React.Dispatch<React.SetStateAction<User | null>>;
    authInitialized: boolean;
+  // Verdadeiro quando o servidor não respondeu (falha de rede ou 5xx). Não é sessão expirada: a tela
+  // mostra "tentar de novo" em vez de mandar a pessoa para o login.
+  authUnavailable: boolean;
    hasPermission: (permission: Permission) => boolean;
   isNewTicketModalOpen: boolean;
   setIsNewTicketModalOpen: (open: boolean) => void;
@@ -218,9 +221,28 @@ function stripNotificationHtml(value: string) {
     .trim();
 }
 
+// /api/auth/me pode falhar por instantes (rede do celular trocando de antena, reinício do servidor).
+// Erro passageiro não é sessão expirada: repete antes de desistir. Só 401 de verdade é 'não logado'.
+async function fetchSessionComRetentativa(): Promise<Response> {
+  let ultimo: Response | null = null;
+  for (let tentativa = 0; tentativa < 3; tentativa++) {
+    try {
+      const res = await fetch('/api/auth/me', { credentials: 'include', cache: 'no-store' });
+      if (res.ok || res.status === 401) return res;
+      ultimo = res;
+    } catch (err) {
+      if (tentativa === 2) throw err;
+    }
+    await new Promise(r => setTimeout(r, 800 * (tentativa + 1)));
+  }
+  if (ultimo) return ultimo;
+  throw new Error('Sem resposta de /api/auth/me');
+}
+
 export function AppProvider({ children }: { children: React.ReactNode }) {
   const [currentUser, setCurrentUser] = useState<User | null>(null);
   const [authInitialized, setAuthInitialized] = useState(false);
+  const [authUnavailable, setAuthUnavailable] = useState(false);
   const [isNewTicketModalOpen, setIsNewTicketModalOpen] = useState(false);
   const [preselectedUserId, setPreselectedUserId] = useState<string | null>(null);
   const [preselectedCompanyId, setPreselectedCompanyId] = useState<string | null>(null);
@@ -677,7 +699,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     const initAuth = async () => {
       console.log('🔐 AppContext: Inicializando Auth Nativo...');
       try {
-        const res = await fetch('/api/auth/me', { credentials: 'include' });
+        const res = await fetchSessionComRetentativa();
         if (!isMounted) return;
 
         if (res.ok) {
@@ -702,6 +724,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
               }
             }
             initialStatusLoadedRef.current = true;
+            setAuthUnavailable(false);
             setCurrentUser({
               id: data.user.id,
               name: data.user.name,
@@ -725,13 +748,16 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
           } else {
             setCurrentUser(null);
           }
-        } else {
+        } else if (res.status === 401) {
           setCurrentUser(null);
+        } else {
+          // 5xx ou indisponível: o servidor não respondeu. Não é sessão expirada.
+          setAuthUnavailable(true);
         }
       } catch (err) {
         setDbStatus('error');
         console.error('❌ AppContext: Erro na inicialização do Auth Nativo:', err);
-        if (isMounted) setCurrentUser(null);
+        if (isMounted) setAuthUnavailable(true);
       } finally {
         if (isMounted) setAuthInitialized(true);
       }
@@ -1108,6 +1134,7 @@ return (
       currentUser, 
       setCurrentUser,
       authInitialized,
+      authUnavailable,
       hasPermission,
       isNewTicketModalOpen, 
       setIsNewTicketModalOpen,

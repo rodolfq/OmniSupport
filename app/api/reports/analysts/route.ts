@@ -5,6 +5,9 @@ import { resolvePeriod, buildMetricsFilter } from '@/lib/report-period';
 import { anonymizeAnalystRows } from '@/lib/report-anonymize';
 import { AnalystPerformanceRow } from '@/lib/types';
 import { getPointsConfig } from '@/lib/services/analyst-points-service';
+import { getTicketConfig } from '@/lib/services/ticket-points-service';
+import { getTicketPerformance, getTicketBacklog } from '@/lib/services/ticket-metrics-service';
+import { computeTicketPoints, TicketCounts } from '@/lib/ticket-points';
 import { aggregatePoints, dataQuality } from '@/lib/analyst-points';
 import {
   getDesempenhoPorAnalista,
@@ -96,6 +99,100 @@ export async function GET(request: NextRequest) {
         pointsDataQuality: quality,
         pointsConfigUpdatedAt: pointsConfig.updatedAt,
         pointsConfigIsDefault: pointsConfig.isDefault,
+      });
+    }
+
+    if (action === 'tickets') {
+      // Visão de CHAMADO do mesmo relatório: SLA, 1ª resposta (com interação do cliente), nasce resolvido,
+      // reabertura e backlog. O chat continua na ação 'performance', sem mudança.
+      const cfg = await getTicketConfig();
+      const [perf, backlog] = await Promise.all([
+        getTicketPerformance(filter, cfg.config.metas.primeiraRespostaMin),
+        getTicketBacklog(cfg.config.regras.backlogHorasUteis),
+      ]);
+      const pct = (a: number, b: number) => (b > 0 ? (a / b) * 100 : null);
+      const teamRow = perf.find(r => r.analystId === null) ?? null;
+      const merged = perf.filter(r => r.analystId !== null).map(r => {
+        const counts: TicketCounts = {
+          slaOk: r.slaOk,
+          slaMiss: r.slaMiss,
+          frNoPrazo: r.frNoPrazo,
+          frForaPrazo: r.frForaPrazo,
+          nasceramResolvidos: r.nasceramResolvidos,
+          backlog: backlog.porAnalista.get(r.analystId as string) ?? 0,
+          reaberturas: r.reaberturas,
+        };
+        return {
+          analystId: r.analystId as string,
+          analystName: r.analystName,
+          avatarUrl: r.avatarUrl,
+          chamados: r.chamados,
+          amostraInsuficiente: r.chamados < cfg.config.regras.amostraMinima,
+          slaPct: r.slaOk + r.slaMiss >= cfg.config.regras.amostraMinima ? pct(r.slaOk, r.slaOk + r.slaMiss) : null,
+          slaMiss: r.slaMiss,
+          slaPendentes: r.slaPendentes,
+          slaOk: r.slaOk,
+          frNoPrazo: r.frNoPrazo,
+          frForaPrazo: r.frForaPrazo,
+          nasceram: r.nasceramResolvidos,
+          comHistorico: r.comHistorico,
+          fechados: r.fechados,
+          reabertos: r.reabertos,
+          frMedianaMin: r.frMedianaMin,
+          frAmostra: r.frAmostra,
+          nasceramPct: r.comHistorico >= cfg.config.regras.amostraMinima ? pct(r.nasceramResolvidos, r.comHistorico) : null,
+          reaberturaPct: r.fechados >= cfg.config.regras.amostraMinima ? pct(r.reabertos, r.fechados) : null,
+          backlog: counts.backlog,
+          reaberturas: r.reaberturas,
+          points: computeTicketPoints(counts, cfg.config.pontos),
+        };
+      });
+      const rows = canSeeIndividual(actor) ? merged.map(r => ({ ...r, isSelf: r.analystId === actor.id })) : await anonymizeAnalystRows(actor.id, merged);
+
+      const t = teamRow;
+      const metas = cfg.config.metas;
+      // Indicador sem amostra mínima não mostra valor: 2 casos de 1ª resposta não viram uma média.
+      const minimo = cfg.config.regras.amostraMinima;
+      const medidos = t ? t.slaOk + t.slaMiss : 0;
+      const objetivos = [
+        { id: 'prazo', objetivo: 'Atender no prazo', kpi: '% chamados no SLA', unidade: '%', sentido: '>=', meta: metas.slaPct,
+          atual: medidos >= minimo ? pct(t!.slaOk, medidos) : null, amostra: medidos, dono: 'Gestor Suporte', freq: 'Diária' },
+        { id: 'espera', objetivo: 'Reduzir espera', kpi: 'Mediana da 1ª resposta', unidade: 'min', sentido: '<=', meta: metas.primeiraRespostaMin,
+          atual: t && t.frAmostra >= minimo ? t.frMedianaMin : null, amostra: t ? t.frAmostra : 0, dono: 'Coordenação', freq: 'Diária' },
+        { id: 'resolver', objetivo: 'Resolver melhor', kpi: '% nasce resolvido', unidade: '%', sentido: '>=', meta: metas.resolucaoPrimeiroContatoPct,
+          atual: t && t.comHistorico >= minimo ? pct(t.nasceramResolvidos, t.comHistorico) : null, amostra: t ? t.comHistorico : 0, dono: 'Gestor Suporte', freq: 'Semanal' },
+        { id: 'backlog', objetivo: 'Evitar backlog', kpi: `Chamados > ${cfg.config.regras.backlogHorasUteis}h úteis`, unidade: 'chamados', sentido: '<=', meta: metas.backlogMax,
+          atual: backlog.total, amostra: t ? t.chamados : 0, dono: 'Coordenação', freq: 'Diária' },
+        { id: 'qualidade', objetivo: 'Melhorar qualidade', kpi: '% reabertura de chamados', unidade: '%', sentido: '<=', meta: metas.reaberturaPct,
+          atual: t && t.fechados >= minimo ? pct(t.reabertos, t.fechados) : null, amostra: t ? t.fechados : 0, dono: 'Líderes', freq: 'Semanal' },
+      ].map(o => ({
+        ...o,
+        gap: o.atual === null ? null : o.atual - o.meta,
+        atingiu: o.atual === null ? null : (o.sentido === '>=' ? o.atual >= o.meta : o.atual <= o.meta),
+      }));
+
+      return NextResponse.json({
+        rows,
+        time: t ? {
+          chamados: t.chamados,
+          slaOk: t.slaOk,
+          slaMiss: t.slaMiss,
+          frNoPrazo: t.frNoPrazo,
+          frForaPrazo: t.frForaPrazo,
+          nasceram: t.nasceramResolvidos,
+          comHistorico: t.comHistorico,
+          fechados: t.fechados,
+          reabertos: t.reabertos,
+          frAmostra: t.frAmostra,
+          semInteracaoCliente: t.chamados - t.frAmostra,
+          slaSemHistorico: t.slaSemHistorico,
+          slaPendentes: t.slaPendentes,
+          backlog: backlog.total,
+        } : null,
+        objetivos,
+        configIsDefault: cfg.isDefault,
+        configUpdatedAt: cfg.updatedAt,
+        config: cfg.config,
       });
     }
 

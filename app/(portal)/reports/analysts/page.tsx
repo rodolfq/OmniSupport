@@ -6,7 +6,7 @@ import { Lock, User, Gauge } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { useTheme } from '@/app/theme-provider';
 import { useApp } from '@/app/app-context';
-import { Permission, AnalystPerformanceRow, AnalystAbsenceBreakdown, TeamMedians, MIN_ANALYST_SAMPLE } from '@/lib/types';
+import { Permission, AnalystPerformanceRow, AnalystAbsenceBreakdown, TeamMedians, MIN_ANALYST_SAMPLE, TicketAnalystRow, TicketObjetivo, TicketTimeTotals } from '@/lib/types';
 import { formatSeconds, formatPercentage, formatMinutes, formatCount, formatAverage, formatHours } from '@/lib/report-format';
 import {
   MetricsPeriodPreset,
@@ -21,6 +21,9 @@ import { useReportFetch } from '@/components/reports/use-report-fetch';
 import { ReportExportConfig, PageExportPdfButton, SectionExportButton } from '@/components/reports/export-menu';
 import { ReportBackLink } from '@/components/reports/report-back-link';
 import { AnalystDashboard } from '@/components/reports/analyst-dashboard';
+import { AnalystViewSwitch, AnalystView } from '@/components/reports/analyst-view-switch';
+import { TicketAnalystDashboard } from '@/components/reports/ticket-analyst-dashboard';
+import { GeneralAnalystDashboard } from '@/components/reports/general-analyst-dashboard';
 import { AnalystPresencePanel, PresenceAnalyst } from '@/components/reports/analyst-presence-panel';
 import { DEFAULT_POINTS_WEIGHTS, PointsWeights, PointsDataQuality, rankPoints, formatPointsBr } from '@/lib/analyst-points';
 
@@ -82,6 +85,7 @@ export default function ReportAnalystsPage() {
 
   const [filter, setFilter] = useState<MetricsFilterState>(DEFAULT_METRICS_FILTER_STATE);
   const [filterSummary, setFilterSummary] = useState('');
+  const [view, setView] = useState<AnalystView>('chat');
   const ready = isMetricsFilterReady(filter);
   const filterQs = useMemo(() => metricsFilterToQueryString(filter), [filter]);
 
@@ -94,6 +98,8 @@ export default function ReportAnalystsPage() {
     pointsDataQuality: PointsDataQuality;
   }>(REPORT_ENDPOINT, 'performance', filterQs, ready);
   const absences = useReportFetch<{ rows: AbsenceRow[] }>(REPORT_ENDPOINT, 'absences', filterQs, ready);
+  // Visão de chamado: só busca quando a tela está nela (ou na geral, que usa os dois).
+  const tickets = useReportFetch<{ rows: TicketAnalystRow[]; time: TicketTimeTotals | null; objetivos: TicketObjetivo[]; config: { pontos: Record<string, number>; regras?: { amostraMinima: number } }; configIsDefault: boolean }>(REPORT_ENDPOINT, 'tickets', filterQs, ready && view !== 'chat');
 
   const rows = useMemo(() => {
     const list = performance.data?.rows ?? [];
@@ -203,6 +209,39 @@ export default function ReportAnalystsPage() {
       </div>
 
       <MetricsFilterBar value={filter} onChange={setFilter} onFilterSummaryChange={setFilterSummary} periods={ANALYST_PERIODS} />
+
+      <div className="flex justify-end">
+        <AnalystViewSwitch view={view} onChange={setView} />
+      </div>
+
+      {view === 'chamado' && (
+        <TicketAnalystDashboard
+          rows={tickets.data?.rows ?? []}
+          time={tickets.data?.time ?? null}
+          objetivos={tickets.data?.objetivos ?? []}
+          pontos={tickets.data?.config?.pontos ?? {}}
+          amostraMinima={tickets.data?.config?.regras?.amostraMinima ?? 10}
+          status={tickets.status}
+          onRetry={tickets.retry}
+          canConfig={currentUser?.role === 'Administrador' || hasPermission(Permission.REPORTS_RANKING_CONFIG)}
+          periodTitle={`Chamados · ${PERIOD_LABEL[filter.period] ?? 'Período'}`}
+          filterSummary={filterSummary}
+        />
+      )}
+
+      {view === 'geral' && (
+        <GeneralAnalystDashboard
+          chatRows={performance.data?.rows ?? []}
+          weights={performance.data?.pointsWeights ?? DEFAULT_POINTS_WEIGHTS}
+          ticketRows={tickets.data?.rows ?? []}
+          status={performance.status === 'ready' && tickets.status === 'ready' ? 'ready' : (performance.status === 'error' || tickets.status === 'error' ? 'error' : 'loading')}
+          onRetry={() => { performance.retry(); tickets.retry(); }}
+          periodTitle={`Geral · ${PERIOD_LABEL[filter.period] ?? 'Período'}`}
+          filterSummary={filterSummary}
+        />
+      )}
+
+      {view === 'chat' && (<>
 
       <AnalystDashboard
         rows={rows}
@@ -336,6 +375,7 @@ export default function ReportAnalystsPage() {
       </ReportSection>
 
       <AnalystPresencePanel analysts={presenceAnalysts} filterQs={filterQs} ready={ready} />
+      </>)}
     </div>
   );
 }
@@ -345,6 +385,15 @@ const ABSENCE_COLORS = ['#f59e0b', '#ef4444', '#6366f1', '#22c55e', '#0ea5e9', '
 // Presets oferecidos nesta tela. Ficam explícitos porque 'ano' e 'todos' não entram no
 // padrão dos relatórios de chat (varrem muitos dados). Testar o tempo de resposta com 'ano'.
 const ANALYST_PERIODS: MetricsPeriodPreset[] = ['today', 'week', 'month', 'last_month', 'year', 'custom'];
+
+// Nome curto do período, usado nos cabeçalhos das visões de chamado e geral.
+const PERIOD_LABEL: Partial<Record<MetricsPeriodPreset, string>> = {
+  today: "Hoje",
+  week: "Esta semana",
+  month: "Este mês",
+  last_month: "Mês passado",
+  year: "Este ano",
+};
 
 // Título do pódio por período. Períodos não listados caem no genérico.
 const PODIUM_TITLES: Partial<Record<MetricsPeriodPreset, string>> = {

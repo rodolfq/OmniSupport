@@ -1,6 +1,6 @@
 import { NextResponse, type NextRequest } from 'next/server'
-import { verifyJWT } from '@/lib/jwt'
-import { isOriginAllowed, CORS_ALLOWED_ORIGINS } from '@/lib/runtime-config'
+import { verifyJWT, signJWT, SESSION_TTL_SECONDS, SESSION_RENEW_AFTER_SECONDS } from '@/lib/jwt'
+import { isOriginAllowed, CORS_ALLOWED_ORIGINS, sessionCookieOptions } from '@/lib/runtime-config'
 
 // Camada global de autenticação — roda antes de qualquer página ou rota de
 // API. Sem isso, cada rota é seu próprio ponto único de falha: uma que
@@ -107,7 +107,17 @@ export async function middleware(request: NextRequest) {
     return NextResponse.redirect(new URL('/login', request.url));
   }
 
-  return applyCors(request, NextResponse.next());
+  return applyCors(request, await renovarSessao(NextResponse.next(), session));
+}
+
+// Sessão deslizante: reemite o token quando ele já tem mais de SESSION_RENEW_AFTER_SECONDS. O prazo
+// recomeça a cada uso; só expira depois de SESSION_TTL_SECONDS sem nenhuma requisição.
+async function renovarSessao(response: NextResponse, session: Record<string, any>): Promise<NextResponse> {
+  const agora = Math.floor(Date.now() / 1000);
+  if (typeof session.iat !== 'number' || agora - session.iat < SESSION_RENEW_AFTER_SECONDS) return response;
+  const novo = await signJWT({ id: session.id, email: session.email, role: session.role }, SESSION_TTL_SECONDS);
+  response.cookies.set('token', novo, sessionCookieOptions(SESSION_TTL_SECONDS));
+  return response;
 }
 
 export const config = {

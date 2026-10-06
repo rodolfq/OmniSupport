@@ -9,7 +9,8 @@ import { createPortal } from 'react-dom';
 import { Ticket, TicketStatus, User as UserType, Message, UserRole, StatusConfig, Company, Attachment, PriorityConfig, CategoryConfig, RequestTypeConfig, ProductConfig, InternalTicket, Permission } from '@/lib/types';
 import { cn, selectableOptions, linkifyPlainUrls } from '@/lib/utils';
 import { useApp } from '@/app/app-context';
-import { Star } from 'lucide-react';
+import { Star, MoreHorizontal } from 'lucide-react';
+import { TicketMergeModal } from './ticket-merge-modal';
 import { toast } from 'sonner';
 import { RichEditor } from './rich-editor';
 import { AttachmentGallery, AttachmentPreviewModal, AttachmentChipThumb, isImageAttachment, openAttachmentInNewTab } from './attachment-gallery';
@@ -81,6 +82,20 @@ export function TicketDetailModal({ ticket, onClose, initialDraft }: TicketDetai
   // espelhado no servidor, app/api/tickets/route.ts).
   const canChangeStatus = hasPermission(Permission.TICKETS_WRITE) || hasPermission(Permission.TICKETS_STATUS_CHANGE);
   const canDuplicateTicket = hasPermission(Permission.TICKETS_DUPLICATE);
+  const canMergeTicket = hasPermission(Permission.TICKETS_MERGE);
+  const [isActionsMenuOpen, setIsActionsMenuOpen] = useState(false);
+  const [isMergeOpen, setIsMergeOpen] = useState(false);
+  const actionsMenuRef = useRef<HTMLDivElement>(null);
+
+  // Menu '...': fecha ao clicar fora e com Esc.
+  useEffect(() => {
+    if (!isActionsMenuOpen) return;
+    const onDown = (e: MouseEvent) => { if (actionsMenuRef.current && !actionsMenuRef.current.contains(e.target as Node)) setIsActionsMenuOpen(false); };
+    const onKey = (e: KeyboardEvent) => { if (e.key === 'Escape') setIsActionsMenuOpen(false); };
+    document.addEventListener('mousedown', onDown);
+    document.addEventListener('keydown', onKey);
+    return () => { document.removeEventListener('mousedown', onDown); document.removeEventListener('keydown', onKey); };
+  }, [isActionsMenuOpen]);
   // "Vincular conversa" (aba Conversa): a checagem de verdade é no servidor
   // ('link-ticket'); aqui só esconde o botão de quem não pode.
   const canLinkChat = !isCompanyUser && hasPermission(Permission.TICKETS_LINK_CHAT);
@@ -1211,23 +1226,52 @@ const loadMessages = async () => {
                   </div>
                 )}
                 <div className="flex items-center gap-1">
-                  <button
-                    onClick={handleCopyTicketLink}
-                    title="Copiar link do chamado"
-                    className="p-2 hover:bg-[var(--border-default)] rounded-xl transition-all text-[var(--text-tertiary)]"
-                  >
-                    <Link2 size={18} />
-                  </button>
-                  {!isCompanyUser && canDuplicateTicket && (
+                  <div ref={actionsMenuRef} className="relative">
                     <button
-                      onClick={() => setIsDuplicateConfirmOpen(true)}
-                      disabled={isDuplicatingTicket}
-                      title="Duplicar chamado"
-                      className="p-2 hover:bg-[var(--border-default)] rounded-xl transition-all text-[var(--text-tertiary)] disabled:opacity-50"
+                      type="button"
+                      onClick={() => setIsActionsMenuOpen(v => !v)}
+                      aria-haspopup="menu"
+                      aria-expanded={isActionsMenuOpen}
+                      aria-label="Mais ações do chamado"
+                      title="Mais ações"
+                      className="p-2 hover:bg-[var(--border-default)] rounded-xl transition-all text-[var(--text-tertiary)]"
                     >
-                      {isDuplicatingTicket ? <Loader2 size={18} className="animate-spin" /> : <Copy size={18} />}
+                      <MoreHorizontal size={18} />
                     </button>
-                  )}
+                    {isActionsMenuOpen && (
+                      <div role="menu" className="absolute right-0 top-full mt-1 z-[125] w-60 rounded-xl border border-[var(--border-default)] bg-[var(--surface-card)] shadow-xl p-1">
+                        <button
+                          type="button"
+                          role="menuitem"
+                          onClick={() => { setIsActionsMenuOpen(false); handleCopyTicketLink(); }}
+                          className="w-full flex items-center gap-2.5 px-3 py-2 rounded-lg text-left text-sm text-[var(--text-primary)] hover:bg-[var(--surface-pill)]"
+                        >
+                          <Link2 size={15} aria-hidden /> Copiar link do chamado
+                        </button>
+                        {!isCompanyUser && canDuplicateTicket && (
+                          <button
+                            type="button"
+                            role="menuitem"
+                            disabled={isDuplicatingTicket}
+                            onClick={() => { setIsActionsMenuOpen(false); setIsDuplicateConfirmOpen(true); }}
+                            className="w-full flex items-center gap-2.5 px-3 py-2 rounded-lg text-left text-sm text-[var(--text-primary)] hover:bg-[var(--surface-pill)] disabled:opacity-50"
+                          >
+                            {isDuplicatingTicket ? <Loader2 size={15} className="animate-spin" aria-hidden /> : <Copy size={15} aria-hidden />} Duplicar chamado
+                          </button>
+                        )}
+                        {!isCompanyUser && canMergeTicket && (
+                          <button
+                            type="button"
+                            role="menuitem"
+                            onClick={() => { setIsActionsMenuOpen(false); setIsMergeOpen(true); }}
+                            className="w-full flex items-center gap-2.5 px-3 py-2 rounded-lg text-left text-sm text-[var(--text-primary)] hover:bg-[var(--surface-pill)]"
+                          >
+                            <GitMerge size={15} aria-hidden /> Mesclar chamado
+                          </button>
+                        )}
+                      </div>
+                    )}
+                  </div>
                   <button onClick={() => setIsFocused(!isFocused)} className="p-2 hover:bg-[var(--border-default)] rounded-xl transition-all text-[var(--text-tertiary)]">
                     {isFocused ? <Minimize2 size={18} /> : <Maximize2 size={18} />}
                   </button>
@@ -2446,6 +2490,14 @@ const loadMessages = async () => {
       confirmLabel="Duplicar chamado"
       cancelLabel="Cancelar"
     />
+    {isMergeOpen && ticket && (
+      <TicketMergeModal
+        source={{ id: ticket.id, ticketNumber: (ticket as any).ticketNumber ?? null, title: ticket.title, companyId: (ticket as any).companyId ?? null }}
+        onClose={() => setIsMergeOpen(false)}
+        beforeMerge={async () => { await Promise.resolve(flushTicketSave()); }}
+        onMerged={() => { setIsMergeOpen(false); triggerRefresh(); onClose(); }}
+      />
+    )}
   </>
   );
 }

@@ -1026,6 +1026,24 @@ export interface AccountSummaryRow {
   responseRate: number | null;
   avaliacaoInternaMedia: number | null; // customer_evaluations, critério em branco não entra na média
   sinalRisco: boolean; // queda de satisfação vs. período anterior + recorrência alta — calculado na rota
+  risco: AccountRiskCriteria; // valores de cada critério, para explicar o sinal ao expandir a conta
+}
+
+// Critérios do sinal de risco. Os dois precisam ser atendidos para o sinal aparecer.
+export interface AccountRiskCriteria {
+  queda: {
+    satisfacaoAnterior: number | null;
+    satisfacaoAtual: number | null;
+    quedaPontos: number | null; // anterior − atual, em pontos percentuais
+    limitePontos: number;
+    atende: boolean | null;     // null = sem dado para comparar (empresa sem avaliação no período anterior)
+  };
+  recorrencia: {
+    atual: number | null;
+    limite: number;
+    atende: boolean | null;
+  };
+  criteriosAtendidos: number; // de 2
 }
 
 export interface AccountTopContact {
@@ -1185,4 +1203,73 @@ export interface GiroDay {
   isReadOnly: boolean;
   /** `false` quando a data é passada e nunca teve giro — a tela mostra vazio. */
   exists: boolean;
+}
+
+// Visão de CHAMADO do Desempenho por Analista (app/api/reports/analysts action=tickets).
+export interface TicketPointsBreakdownRow {
+  sla: number;
+  primeiraResposta: number;
+  resolvidoPrimeiroContato: number;
+  backlog: number;
+  reabertura: number;
+  total: number;
+}
+
+export interface TicketAnalystRow {
+  analystId: string;
+  analystName: string;
+  avatarUrl: string | null;
+  isSelf?: boolean;
+  chamados: number;
+  amostraInsuficiente: boolean;
+  slaPct: number | null;       // % dos chamados medidos dentro do SLA
+  slaMiss: number;
+  slaPendentes: number;
+  frMedianaMin: number | null; // mediana da 1ª resposta com interação do cliente, em minutos
+  frAmostra: number;
+  nasceramPct: number | null;  // % dos chamados com histórico que nasceram resolvidos
+  reaberturaPct: number | null;
+  backlog: number;
+  reaberturas: number;
+  points: TicketPointsBreakdownRow;
+  // Contagens que embasam os percentuais (para os cards de detalhe).
+  slaOk: number;
+  frNoPrazo: number;
+  frForaPrazo: number;
+  nasceram: number;
+  comHistorico: number;
+  fechados: number;
+  reabertos: number;
+}
+
+export interface TicketObjetivo {
+  id: string;
+  objetivo: string;
+  kpi: string;
+  unidade: '%' | 'min' | 'chamados';
+  sentido: '>=' | '<=';
+  meta: number;
+  atual: number | null; // null = sem dado ou amostra insuficiente
+  amostra: number;
+  dono: string;
+  freq: string;
+  gap: number | null;
+  atingiu: boolean | null;
+}
+
+export interface TicketTimeTotals {
+  chamados: number;
+  slaOk: number;
+  slaMiss: number;
+  frNoPrazo: number;
+  frForaPrazo: number;
+  nasceram: number;
+  comHistorico: number;
+  fechados: number;
+  reabertos: number;
+  frAmostra: number;
+  semInteracaoCliente: number;
+  slaSemHistorico: number;
+  slaPendentes: number;
+  backlog: number;
 }

@@ -10,7 +10,7 @@ import {
 } from '@/lib/analyst-points';
 import { formatSeconds, formatPercentage, formatAverage, formatCount, formatDecimalBr } from '@/lib/report-format';
 import { ReportSectionStatus } from '@/components/reports/report-section';
-import { AnalystPodium } from '@/components/reports/analyst-podium';
+import { PodiumStage, PodiumItem } from '@/components/reports/podium-stage';
 import { AnalystAvatar } from '@/components/reports/analyst-avatar';
 import {
   chartColors, FirstResponseBars, ChatsBars, GoodsBadsBars, PointsBreakdownChart, EmptyChart,
@@ -101,6 +101,25 @@ export function AnalystDashboard({
 
   return (
     <div className="space-y-8">
+      {/* Pódio */}
+      <PodiumStage
+        titulo={periodTitle}
+        subtitulo={`${filterSummary || 'Período selecionado'} · pontuação pela configuração do ranking`}
+        items={podium.map((e): PodiumItem => ({
+          id: e.row.analystId,
+          nome: e.row.analystName,
+          avatarUrl: e.row.analystAvatarUrl ?? null,
+          principal: formatPointsBr(e.breakdown.total),
+          principalRotulo: 'pontos',
+          detalhes: [
+            { rotulo: '1ª resposta', valor: formatSeconds(e.row.firstResponseMedianSeconds) },
+            { rotulo: 'Satisfação', valor: formatPercentage(e.row.satisfactionPositiveRate) },
+            { rotulo: 'Chats/h', valor: formatAverage(e.row.chatsPorHoraOnline, 2) },
+          ],
+          isSelf: e.row.isSelf,
+        }))}
+      />
+
       {/* Indicadores do time */}
       <section aria-label="Indicadores do time" className="grid grid-cols-2 md:grid-cols-3 xl:grid-cols-6 gap-3">
         <KpiTile icon={Users} label="No ranking" value={`${eligibleRanking.length}`} hint={`de ${rows.length} analistas · mín. ${MIN_ANALYST_SAMPLE} chats`} />
@@ -110,13 +129,6 @@ export function AnalystDashboard({
         <KpiTile icon={ThumbsUp} label="Goods" value={formatCount(totals.positivas)} hint="avaliações positivas" tone="good" />
         <KpiTile icon={ThumbsDown} label="Bads" value={formatCount(totals.negativas)} hint="avaliações negativas" tone="bad" />
       </section>
-
-      {/* Pódio */}
-      <AnalystPodium
-        podium={podium}
-        title={periodTitle}
-        subtitle={`${filterSummary || 'Período selecionado'} · pontuação pela configuração do ranking`}
-      />
 
       {/* Ranking + detalhe do analista selecionado */}
       <div className="grid grid-cols-1 lg:grid-cols-5 gap-6">

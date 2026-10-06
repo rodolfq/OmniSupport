@@ -1760,7 +1760,7 @@ export async function getSatisfacaoPorFaixaTempo(filter: MetricsFilter): Promise
 // ANALYZE contra o volume de produção; se ficar lenta, considerar limitar a
 // uma janela "período + 72h de antecedência" em vez da tabela inteira.
 
-export async function getContasResumo(filter: MetricsFilter): Promise<Omit<AccountSummaryRow, 'sinalRisco'>[]> {
+export async function getContasResumo(filter: MetricsFilter): Promise<Omit<AccountSummaryRow, 'sinalRisco' | 'risco'>[]> {
   const bounds = await getPeriodBounds(filter);
   const params = [bounds.startUtc, bounds.endUtcExclusive, filter.companyId ?? null];
 

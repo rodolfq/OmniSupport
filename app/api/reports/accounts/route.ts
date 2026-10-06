@@ -63,14 +63,25 @@ export async function GET(request: NextRequest) {
 
       const rows: AccountSummaryRow[] = current.map(r => {
         const prev = previousByCompany.get(r.companyId);
-        const satisfactionDropped = prev?.positiveRate !== null && prev?.positiveRate !== undefined
-          && r.positiveRate !== null
-          && (prev.positiveRate - r.positiveRate) > thresholds.dropPoints;
-        const highRecurrence = r.recorrenciaRate !== null && r.recorrenciaRate > thresholds.recurrenceWarning;
-        return { ...r, sinalRisco: !!(satisfactionDropped && highRecurrence) };
+        const satisfacaoAnterior = prev?.positiveRate ?? null;
+        const satisfacaoAtual = r.positiveRate ?? null;
+        const quedaPontos = satisfacaoAnterior !== null && satisfacaoAtual !== null ? satisfacaoAnterior - satisfacaoAtual : null;
+        const atendeQueda = quedaPontos === null ? null : quedaPontos > thresholds.dropPoints;
+        const atendeRecorrencia = r.recorrenciaRate === null ? null : r.recorrenciaRate > thresholds.recurrenceWarning;
+        const criteriosAtendidos = [atendeQueda, atendeRecorrencia].filter(x => x === true).length;
+        return {
+          ...r,
+          // Mesma regra de antes: os dois critérios precisam ser atendidos.
+          sinalRisco: atendeQueda === true && atendeRecorrencia === true,
+          risco: {
+            queda: { satisfacaoAnterior, satisfacaoAtual, quedaPontos, limitePontos: thresholds.dropPoints, atende: atendeQueda },
+            recorrencia: { atual: r.recorrenciaRate, limite: thresholds.recurrenceWarning, atende: atendeRecorrencia },
+            criteriosAtendidos,
+          },
+        };
       });
 
-      return NextResponse.json({ rows });
+      return NextResponse.json({ rows, periodoAnterior: previousPeriod });
     }
 
     if (action === 'detail') {

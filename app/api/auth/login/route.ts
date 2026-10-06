@@ -1,7 +1,7 @@
 import { NextResponse } from 'next/server';
 import { query } from '@/lib/db';
 import { verifyPassword } from '@/lib/auth-utils';
-import { signJWT } from '@/lib/jwt';
+import { signJWT, SESSION_TTL_SECONDS } from '@/lib/jwt';
 import {
   buildLoginKeys,
   checkLoginThrottle,
@@ -102,7 +102,7 @@ export async function POST(request: Request) {
       id: user.id,
       email: user.email,
       role: user.role
-    });
+    }, SESSION_TTL_SECONDS);
 
     const response = NextResponse.json({
       success: true,
@@ -130,7 +130,7 @@ export async function POST(request: Request) {
     // front/back (subdomínios exigem Domain; domínios distintos exigem
     // SameSite=none). Logout usa exatamente as mesmas opções: se divergirem, o
     // cookie não é apagado.
-    response.cookies.set('token', token, sessionCookieOptions(86400)); // 1 dia
+    response.cookies.set('token', token, sessionCookieOptions(SESSION_TTL_SECONDS)); // 7 dias sem uso, renovada enquanto usa
 
     return response;
   } catch (error: any) {
