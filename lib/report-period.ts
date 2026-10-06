@@ -26,7 +26,7 @@ export function addDaysUTC(d: Date, days: number): Date {
   return copy;
 }
 
-export type PeriodPreset = 'today' | 'week' | 'month' | 'year' | 'all' | 'custom';
+export type PeriodPreset = 'today' | 'week' | 'month' | 'last_month' | 'year' | 'all' | 'custom';
 
 // Início usado pelo preset 'all'. Data fixa e bem anterior a qualquer registro
 // em vez de MIN(created_at): evita uma consulta extra só pra descobrir o
@@ -85,6 +85,13 @@ export async function resolvePeriod(
   }
   if (preset === 'all') {
     return { startDate: ALL_TIME_START, endDate: extend ? ALL_TIME_END : toDateOnly(today) };
+  }
+  if (preset === 'last_month') {
+    // Mês anterior inteiro. Dia 0 do mês atual = último dia do mês anterior.
+    // Período já fechado: não estende para o futuro, mesmo com extendToPeriodEnd.
+    const lastMonthStart = new Date(Date.UTC(today.getUTCFullYear(), today.getUTCMonth() - 1, 1));
+    const lastMonthEnd = new Date(Date.UTC(today.getUTCFullYear(), today.getUTCMonth(), 0));
+    return { startDate: toDateOnly(lastMonthStart), endDate: toDateOnly(lastMonthEnd) };
   }
   // 'month'
   const monthStart = new Date(Date.UTC(today.getUTCFullYear(), today.getUTCMonth(), 1));

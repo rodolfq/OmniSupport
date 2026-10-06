@@ -16,7 +16,7 @@ import { getWhatsappInstances } from '@/lib/services/whatsapp-instance-service';
 // dezenas de linhas por ano). NÃO entram na lista padrão de propósito — nos
 // relatórios de chat, "todo o período" varre chat_messages inteiro e a tela
 // trava sem avisar. Quem quiser esses dois passa `periods` explicitamente.
-export type MetricsPeriodPreset = 'today' | 'week' | 'month' | 'year' | 'all' | 'custom';
+export type MetricsPeriodPreset = 'today' | 'week' | 'month' | 'last_month' | 'year' | 'all' | 'custom';
 
 export const DEFAULT_PERIOD_PRESETS: MetricsPeriodPreset[] = ['today', 'week', 'month', 'custom'];
 
@@ -63,7 +63,8 @@ const PERIOD_LABELS: Record<MetricsPeriodPreset, string> = {
   today: 'Hoje',
   week: 'Semana',
   month: 'Mês',
-  year: 'Ano',
+  last_month: 'Mês passado',
+  year: 'Este ano',
   all: 'Todos',
   custom: 'Intervalo customizado'
 };

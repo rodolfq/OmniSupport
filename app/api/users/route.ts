@@ -6,7 +6,7 @@ import { hashPassword } from '@/lib/auth-utils';
 // vale 'use server', onde toda função exportada vira endpoint público — e
 // ajudante de autorização não deve ser chamável de fora.
 import { getCurrentActionUser, assertUserManageable, getAdminTeamIds, getActorEffectivePermissions } from '@/lib/server-auth';
-import { generateAvatarThumb } from '@/lib/services/avatar-thumb-service';
+import { generateAvatarThumb, generateAvatarMedium } from '@/lib/services/avatar-thumb-service';
 import { canForceOthersOffline } from '@/lib/services/presence-authorization';
 import { logAudit } from '@/lib/audit-log';
 import { Permission } from '@/lib/types';
@@ -793,6 +793,7 @@ export async function PUT(request: Request) {
     const incomingAvatar: string | null = typeof user.avatarUrl === 'string' ? user.avatarUrl : null;
     const isNewImage = !!incomingAvatar && incomingAvatar.startsWith('data:');
     const avatarThumbUrl = isNewImage ? await generateAvatarThumb(incomingAvatar) : null;
+    const avatarMediumUrl = isNewImage ? await generateAvatarMedium(incomingAvatar) : null;
 
     // E-mail é opcional (migrations/profiles_email_opcional.sql). Campo
     // esvaziado na tela vira NULL, nunca string vazia: '' = '' é verdadeiro no
@@ -821,7 +822,8 @@ export async function PUT(request: Request) {
            avatar_url = CASE WHEN $14::boolean THEN $9 ELSE avatar_url END,
            internal_team_ids = $10,
            is_active = COALESCE($11, is_active),
-           avatar_thumb_url = CASE WHEN $14::boolean THEN $13 ELSE avatar_thumb_url END
+           avatar_thumb_url = CASE WHEN $14::boolean THEN $13 ELSE avatar_thumb_url END,
+           avatar_medium_url = CASE WHEN $14::boolean THEN $16 ELSE avatar_medium_url END
        WHERE id = $12`,
       [
         user.name,
@@ -838,7 +840,8 @@ export async function PUT(request: Request) {
         user.id,
         avatarThumbUrl,
         isNewImage,
-        limpandoEmail
+        limpandoEmail,
+        avatarMediumUrl
       ]
     );
 

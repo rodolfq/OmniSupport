@@ -19,6 +19,8 @@ import {
   Plus,
   Maximize2,
   Minimize2,
+  PanelLeftOpen,
+  PanelLeftClose,
   MessageCircle,
   Phone,
   Ticket as TicketIcon,
@@ -283,6 +285,14 @@ export function ChatWidget() {
 
   // Track expanded state locally
   const [isExpanded, setIsExpanded] = useState(false);
+  // Pedido do usuário (2026-10-01): ver a lista de conversas "em andamento"
+  // sem precisar maximizar o widget pra tela cheia (isExpanded) enquanto já
+  // está numa conversa específica — o widget flutuante normal só mostra ou a
+  // lista ou a conversa, nunca os dois. Isso só alarga o painel flutuante pra
+  // caber as duas colunas, sem virar tela cheia (isFullScreen continua
+  // dependendo só de isExpanded/mobile). Reaproveita chatListWidth (mesma
+  // largura ajustável de quando maximizado) em vez de um estado novo.
+  const [isSidePanelOpen, setIsSidePanelOpen] = useState(false);
   const [chatListWidth, setChatListWidth] = useState(CHAT_LIST_WIDTH_DEFAULT);
   const [isResizingList, setIsResizingList] = useState(false);
   useEffect(() => {
@@ -2635,6 +2645,10 @@ useEffect(() => {
   // 90vw/85vh de antes. Mesmo tratamento do fullscreen mobile, só que também
   // disparado no desktop por isExpanded.
   const isFullScreen = isMobileFullScreen || isExpanded;
+  // Lista "em andamento" visível como coluna ao lado da conversa — maximizado
+  // (isExpanded, sempre tela cheia) ou pelo toggle novo do painel flutuante
+  // (isSidePanelOpen, só faz sentido com uma conversa selecionada).
+  const listPanelVisible = isExpanded || (isSidePanelOpen && !!selectedChatId);
 
   // Com o botão arrastado (launcherPos preenchido, fora do fullscreen), o
   // painel abre sempre pro lado com mais espaço na tela em vez do canto fixo
@@ -2668,7 +2682,11 @@ useEffect(() => {
               opacity: 1,
               y: 0,
               scale: 1,
-              width: isFullScreen ? '100vw' : 'min(480px, calc(100vw - 2rem))',
+              width: isFullScreen
+                ? '100vw'
+                : (isSidePanelOpen && !!selectedChatId)
+                  ? `min(${480 + chatListWidth}px, calc(100vw - 2rem))`
+                  : 'min(480px, calc(100vw - 2rem))',
               height: isFullScreen ? '100dvh' : 'min(700px, calc(100vh - 4rem))',
               right: isFullScreen ? 0 : (anchorPanelRight ? '0' : 'auto'),
               left: isFullScreen ? 'auto' : (anchorPanelRight ? 'auto' : '0'),
@@ -2700,6 +2718,19 @@ useEffect(() => {
                 </div>
               </div>
               <div className="flex items-center gap-1">
+                {/* Mostra a lista de conversas "em andamento" ao lado da
+                    conversa aberta sem precisar maximizar pra tela cheia
+                    (isExpanded já cobre isso, por isso só aparece sem ele) —
+                    só existe conversa selecionada pra alargar ao lado de. */}
+                {!isCustomer && !!selectedChatId && !isExpanded && (
+                  <button
+                    onClick={() => setIsSidePanelOpen(!isSidePanelOpen)}
+                    className="hidden md:block p-1.5 hover:bg-white/10 rounded-lg transition-all"
+                    title={isSidePanelOpen ? 'Ocultar lista de conversas' : 'Mostrar lista de conversas ao lado'}
+                  >
+                    {isSidePanelOpen ? <PanelLeftClose size={16} /> : <PanelLeftOpen size={16} />}
+                  </button>
+                )}
                 <button
                   onClick={() => setIsExpanded(!isExpanded)}
                   className="hidden md:block p-1.5 hover:bg-white/10 rounded-lg transition-all"
@@ -2723,15 +2754,16 @@ useEffect(() => {
 
             <div className="flex-1 flex overflow-hidden bg-[var(--surface-card)]/30 min-w-0">
               {/* Sidebar (List) - Hide for customer */}
-              {(!isCustomer && (!selectedChatId || isExpanded)) && (
+              {(!isCustomer && (!selectedChatId || listPanelVisible)) && (
                 <div
                   className={cn(
                     "flex flex-col border-r border-[var(--border-default)] bg-[var(--surface-card)]",
-                    // Maximizado: largura ajustável (padrão 350px, mesma da lista em
-                    // /chat-internal) pela divisória logo abaixo desta coluna.
-                    isExpanded ? "shrink-0" : "w-full"
+                    // Maximizado ou painel lateral aberto: largura ajustável
+                    // (padrão 350px, mesma da lista em /chat-internal) pela
+                    // divisória logo abaixo desta coluna.
+                    listPanelVisible ? "shrink-0" : "w-full"
                   )}
-                  style={isExpanded ? { width: chatListWidth } : undefined}
+                  style={listPanelVisible ? { width: chatListWidth } : undefined}
                 >
                   <div className="p-3 border-b border-[var(--border-default)] space-y-2">
                     <div className="relative">
@@ -2943,10 +2975,11 @@ useEffect(() => {
                 </div>
               )}
 
-              {/* Divisória arrastável (só maximizado): redimensiona a lista de
-                  conversas em andamento x a conversa aberta. Duplo clique volta
-                  ao padrão; setas do teclado também ajustam. */}
-              {!isCustomer && isExpanded && (
+              {/* Divisória arrastável (maximizado ou painel lateral aberto):
+                  redimensiona a lista de conversas em andamento x a conversa
+                  aberta. Duplo clique volta ao padrão; setas do teclado
+                  também ajustam. */}
+              {!isCustomer && listPanelVisible && (
                 <div
                   role="separator"
                   aria-orientation="vertical"
@@ -2992,7 +3025,7 @@ useEffect(() => {
                       shrink-0, sempre na mesma linha, colados à direita. */}
                   <div className="px-5 py-3 bg-[var(--surface-card)] border-b border-[var(--border-default)] flex items-center justify-between gap-2">
                     <div className="flex items-center gap-2 min-w-0 flex-1">
-                      {!isCustomer && !isExpanded && (
+                      {!isCustomer && !listPanelVisible && (
                         <button onClick={() => setSelectedChatId(null)} className="text-[var(--accent-text)] p-1.5 hover:bg-[var(--accent)]/10 rounded-xl transition-all shrink-0">
                           <ChevronDown size={18} className="rotate-90" />
                         </button>

@@ -13,10 +13,24 @@ function parseDataUrl(dataUrl: string): Buffer | null {
   return Buffer.from(match[1], 'base64');
 }
 
+// Miniatura média para o Desempenho por Analista (ranking e pódio). 192px cobre o avatar
+// de 96px em tela 2x com folga; a miniatura de 48px ficou nítida demais no pódio. Fica em
+// avatar_medium_url, separada da thumb, para não aumentar o peso das listas de chamados.
+const MEDIUM_DIM = 192;
+const MEDIUM_QUALITY = 82;
+
 // Aceita tanto `data:` URL (padrão usado hoje pra avatar_url) quanto http(s)
 // — falha em gerar a miniatura não deve derrubar o fluxo que chamou (login,
 // sync do Bitrix24, etc.), só retorna null e quem chamou decide o que fazer.
 export async function generateAvatarThumb(avatarUrl: string | null | undefined): Promise<string | null> {
+  return renderAvatar(avatarUrl, THUMB_DIM, THUMB_QUALITY);
+}
+
+export async function generateAvatarMedium(avatarUrl: string | null | undefined): Promise<string | null> {
+  return renderAvatar(avatarUrl, MEDIUM_DIM, MEDIUM_QUALITY);
+}
+
+async function renderAvatar(avatarUrl: string | null | undefined, dim: number, quality: number): Promise<string | null> {
   if (!avatarUrl) return null;
 
   try {
@@ -34,14 +48,14 @@ export async function generateAvatarThumb(avatarUrl: string | null | undefined):
     }
 
     const resized = await sharp(buffer)
-      .resize(THUMB_DIM, THUMB_DIM, { fit: 'cover' })
+      .resize(dim, dim, { fit: 'cover' })
       .flatten({ background: '#ffffff' })
-      .jpeg({ quality: THUMB_QUALITY })
+      .jpeg({ quality })
       .toBuffer();
 
     return `data:image/jpeg;base64,${resized.toString('base64')}`;
   } catch (err) {
-    console.error('Error generating avatar thumb:', err);
+    console.error('Error generating avatar image:', err);
     return null;
   }
 }

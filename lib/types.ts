@@ -138,6 +138,10 @@ export enum Permission {
   // futura da granularidade de /reports.
   REPORTS_INDIVIDUAL = 'reports:individual',
   REPORTS_EXPORT = 'reports:export',
+  // Configurar a pontuação do ranking de analistas (pesos por item, peso por tag). Mudar
+  // isso altera o ranking de todo o time, por isso é permissão própria, separada de ver
+  // relatórios. Administrador tem sempre.
+  REPORTS_RANKING_CONFIG = 'reports:ranking_config',
   // Widget flutuante do Agente de IA (busca em chat com cliente, chat de
   // grupo interno, chamados e tickets internos) — concedida por padrão aos
   // perfis de Equipe/Time Interno na migration que introduziu o agente (ver
@@ -912,6 +916,19 @@ export interface AnalystPerformanceRow {
   simultaneidadePico: number | null;
   horasOnline: number | null;
   chatsPorHoraOnline: number | null; // indicador principal do relatório — null quando horasOnline = 0
+  // Goods/Bads (pesquisa de satisfação): avaliacoes = respostas recebidas no período,
+  // positivas = rating 1 (bom), negativas = rating -1 (ruim). Opcionais: só o R2 preenche.
+  avaliacoes?: number;
+  positivas?: number;
+  negativas?: number;
+  // Miniatura do perfil (data URL). null = sem foto; a tela mostra as iniciais.
+  analystAvatarUrl?: string | null;
+  // Intervalo entre a mensagem do cliente e a resposta da equipe (mediana, em segundos). Só
+  // informativo: não entra na pontuação. null = nenhum turno do cliente respondido no período.
+  intervaloRespostaMedianSeconds?: number | null;
+  intervaloRespostaTurnos?: number;
+  // Contagens para o ranking por pontos (lib/analyst-points.ts). Os pesos não entram aqui.
+  points?: { volume: number; volumePoints: number; good: number; bad: number; lt1: number; lt3: number; gt3: number };
 }
 
 export interface TeamMedians {

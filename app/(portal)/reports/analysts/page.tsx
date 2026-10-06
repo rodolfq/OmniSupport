@@ -9,6 +9,7 @@ import { useApp } from '@/app/app-context';
 import { Permission, AnalystPerformanceRow, AnalystAbsenceBreakdown, TeamMedians, MIN_ANALYST_SAMPLE } from '@/lib/types';
 import { formatSeconds, formatPercentage, formatMinutes, formatCount, formatAverage, formatHours } from '@/lib/report-format';
 import {
+  MetricsPeriodPreset,
   MetricsFilterBar,
   MetricsFilterState,
   DEFAULT_METRICS_FILTER_STATE,
@@ -17,8 +18,11 @@ import {
 } from '@/components/reports/metrics-filter-bar';
 import { ReportSection, ReportSectionStatus } from '@/components/reports/report-section';
 import { useReportFetch } from '@/components/reports/use-report-fetch';
-import { ReportExportConfig, PageExportPdfButton } from '@/components/reports/export-menu';
+import { ReportExportConfig, PageExportPdfButton, SectionExportButton } from '@/components/reports/export-menu';
 import { ReportBackLink } from '@/components/reports/report-back-link';
+import { AnalystDashboard } from '@/components/reports/analyst-dashboard';
+import { AnalystPresencePanel, PresenceAnalyst } from '@/components/reports/analyst-presence-panel';
+import { DEFAULT_POINTS_WEIGHTS, PointsWeights, PointsDataQuality, rankPoints, formatPointsBr } from '@/lib/analyst-points';
 
 // R2 — "Desempenho por Analista", mesmo padrão estrutural do R1. Nunca é um
 // ranking 1º-ao-último: cada linha compara contra a MEDIANA do time (linha
@@ -43,7 +47,29 @@ const PERFORMANCE_EXPORT_COLUMNS: ReportExportConfig<any>['columns'] = [
   { key: 'msgsEnviadas', label: 'Msgs enviadas', format: (v) => formatAverage(v as number | null) },
   { key: 'satisfactionPositiveRate', label: '% Satisfação', format: (v) => formatPercentage(v as number | null) },
   { key: 'simultaneidadeMedia', label: 'Simultaneidade média', format: (v) => formatAverage(v as number | null, 2) },
-  { key: 'simultaneidadePico', label: 'Pico', format: (v) => formatAverage(v as number | null, 0) }
+  { key: 'simultaneidadePico', label: 'Pico', format: (v) => formatAverage(v as number | null, 0) },
+  { key: 'intervaloRespostaMedianSeconds', label: 'Intervalo cliente → resposta (s)', format: (v) => formatSeconds(v as number | null) }
+];
+
+// Ranking por pontos, na ordem do pódio. Os pontos saem com os pesos vigentes (mesma conta da tela).
+const RANKING_EXPORT_COLUMNS: ReportExportConfig<any>['columns'] = [
+  { key: 'posicao', label: 'Posição' },
+  { key: 'analista', label: 'Analista' },
+  { key: 'noRanking', label: 'No ranking' },
+  { key: 'pontos', label: 'Pontos', format: (v) => formatPointsBr(v as number) },
+  { key: 'pontosVolume', label: 'Pontos de volume', format: (v) => formatPointsBr(v as number) },
+  { key: 'good', label: 'Good' },
+  { key: 'bad', label: 'Bad' },
+  { key: 'lt1', label: 'Resposta < 1 min' },
+  { key: 'lt3', label: 'Resposta 1 a 3 min' },
+  { key: 'gt3', label: 'Resposta > 3 min' },
+  { key: 'chats', label: 'Chats atendidos' },
+  { key: 'avaliadas', label: 'Chats avaliados' },
+  { key: 'satisfacao', label: '% Satisfação', format: (v) => formatPercentage(v as number | null) },
+  { key: 'primeiraResposta', label: '1ª resposta mediana (s)', format: (v) => formatSeconds(v as number | null) },
+  { key: 'intervalo', label: 'Intervalo cliente → resposta (s)', format: (v) => formatSeconds(v as number | null) },
+  { key: 'horas', label: 'Horas online', format: (v) => formatHours(v as number | null) },
+  { key: 'chatsH', label: 'Chats/h online', format: (v) => formatAverage(v as number | null, 2) }
 ];
 
 export default function ReportAnalystsPage() {
@@ -59,7 +85,14 @@ export default function ReportAnalystsPage() {
   const ready = isMetricsFilterReady(filter);
   const filterQs = useMemo(() => metricsFilterToQueryString(filter), [filter]);
 
-  const performance = useReportFetch<{ rows: PerformanceRow[]; teamMedians: TeamMedians }>(REPORT_ENDPOINT, 'performance', filterQs, ready);
+  const performance = useReportFetch<{
+    rows: PerformanceRow[];
+    teamMedians: TeamMedians;
+    pointsWeights: PointsWeights;
+    pointsConfigUpdatedAt: string | null;
+    pointsConfigIsDefault: boolean;
+    pointsDataQuality: PointsDataQuality;
+  }>(REPORT_ENDPOINT, 'performance', filterQs, ready);
   const absences = useReportFetch<{ rows: AbsenceRow[] }>(REPORT_ENDPOINT, 'absences', filterQs, ready);
 
   const rows = useMemo(() => {
@@ -82,6 +115,44 @@ export default function ReportAnalystsPage() {
     });
     return Array.from(byAnalyst.values());
   }, [absences.data]);
+
+  // Analistas do detalhe de presença: junta quem aparece em desempenho (com foto) e em ausência.
+  const presenceAnalysts = useMemo<PresenceAnalyst[]>(() => {
+    const map = new Map<string, PresenceAnalyst>();
+    (performance.data?.rows ?? []).forEach(r => map.set(r.analystId, { id: r.analystId, name: r.analystName, avatarUrl: r.analystAvatarUrl ?? null }));
+    (absences.data?.rows ?? []).forEach(r => {
+      if (!map.has(r.analystId)) map.set(r.analystId, { id: r.analystId, name: r.analystName, avatarUrl: null });
+    });
+    return Array.from(map.values()).sort((a, b) => a.name.localeCompare(b.name, 'pt-BR'));
+  }, [performance.data, absences.data]);
+
+  const rankingExport: ReportExportConfig = useMemo(() => {
+    const weights = performance.data?.pointsWeights ?? DEFAULT_POINTS_WEIGHTS;
+    const ranked = rankPoints(rows, weights);
+    return {
+      title: 'Ranking por pontos',
+      columns: RANKING_EXPORT_COLUMNS,
+      rows: ranked.map((p, i) => ({
+        posicao: i + 1,
+        analista: p.row.analystName,
+        noRanking: p.eligible ? 'Sim' : 'Não (abaixo do mínimo de chats)',
+        pontos: p.breakdown.total,
+        pontosVolume: p.breakdown.volume,
+        good: p.row.points?.good ?? 0,
+        bad: p.row.points?.bad ?? 0,
+        lt1: p.row.points?.lt1 ?? 0,
+        lt3: p.row.points?.lt3 ?? 0,
+        gt3: p.row.points?.gt3 ?? 0,
+        chats: p.row.chatsAtendidos,
+        avaliadas: p.row.avaliacoes ?? 0,
+        satisfacao: p.row.satisfactionPositiveRate,
+        primeiraResposta: p.row.firstResponseMedianSeconds,
+        intervalo: p.row.intervaloRespostaMedianSeconds ?? null,
+        horas: p.row.horasOnline,
+        chatsH: p.row.chatsPorHoraOnline,
+      })),
+    };
+  }, [rows, performance.data]);
 
   const performanceExport: ReportExportConfig = useMemo(() => {
     const medians = performance.data?.teamMedians;
@@ -116,7 +187,7 @@ export default function ReportAnalystsPage() {
   const absenceEmpty = absences.data ? absences.data.rows.length === 0 : false;
   const absenceStatus: ReportSectionStatus = absences.status === 'ready' && absenceEmpty ? 'empty' : absences.status;
   const medians = performance.data?.teamMedians;
-  const allSections = [performanceExport, absencesExport];
+  const allSections = [rankingExport, performanceExport, absencesExport];
 
   return (
     <div className="space-y-8">
@@ -125,16 +196,33 @@ export default function ReportAnalystsPage() {
           <ReportBackLink />
           <h1 className="text-3xl font-black text-[var(--text-primary)] tracking-tight">Desempenho por Analista</h1>
           <p className="text-sm text-[var(--text-tertiary)] mt-1">
-            Cada linha compara contra a mediana do time — não é um ranking. Analistas com menos de {MIN_ANALYST_SAMPLE} chats no período têm amostra marcada como insuficiente.
+            Ranking e pódio pelo índice provisório de desempenho. A tabela detalhada compara cada linha com a mediana do time. Analistas com menos de {MIN_ANALYST_SAMPLE} chats no período ficam de fora do ranking.
           </p>
         </div>
         <PageExportPdfButton sections={allSections} reportId={REPORT_ID} reportLabel={REPORT_LABEL} filterSummary={filterSummary} />
       </div>
 
-      <MetricsFilterBar value={filter} onChange={setFilter} onFilterSummaryChange={setFilterSummary} />
+      <MetricsFilterBar value={filter} onChange={setFilter} onFilterSummaryChange={setFilterSummary} periods={ANALYST_PERIODS} />
+
+      <AnalystDashboard
+        rows={rows}
+        teamMedians={medians ?? null}
+        status={performanceStatus}
+        onRetry={performance.retry}
+        periodTitle={PODIUM_TITLES[filter.period] ?? 'Pódio do período'}
+        filterSummary={filterSummary}
+        theme={theme}
+        weights={performance.data?.pointsWeights ?? DEFAULT_POINTS_WEIGHTS}
+        weightsIsDefault={performance.data?.pointsConfigIsDefault ?? true}
+        dataQuality={performance.data?.pointsDataQuality ?? null}
+        canConfigRanking={currentUser?.role === 'Administrador' || hasPermission(Permission.REPORTS_RANKING_CONFIG)}
+        rankingActions={
+          <SectionExportButton config={rankingExport} reportId={REPORT_ID} reportLabel={REPORT_LABEL} filterSummary={filterSummary} />
+        }
+      />
 
       <ReportSection
-        title="Chats por hora online — indicador principal"
+        title="Tabela detalhada — chats por hora online"
         subtitle="Normaliza volume pelo tempo realmente disponível de cada analista"
         status={performanceStatus}
         onRetry={performance.retry}
@@ -246,8 +334,23 @@ export default function ReportAnalystsPage() {
           </ResponsiveContainer>
         </div>
       </ReportSection>
+
+      <AnalystPresencePanel analysts={presenceAnalysts} filterQs={filterQs} ready={ready} />
     </div>
   );
 }
 
 const ABSENCE_COLORS = ['#f59e0b', '#ef4444', '#6366f1', '#22c55e', '#0ea5e9', '#a855f7'];
+
+// Presets oferecidos nesta tela. Ficam explícitos porque 'ano' e 'todos' não entram no
+// padrão dos relatórios de chat (varrem muitos dados). Testar o tempo de resposta com 'ano'.
+const ANALYST_PERIODS: MetricsPeriodPreset[] = ['today', 'week', 'month', 'last_month', 'year', 'custom'];
+
+// Título do pódio por período. Períodos não listados caem no genérico.
+const PODIUM_TITLES: Partial<Record<MetricsPeriodPreset, string>> = {
+  today: 'Pódio de hoje',
+  week: 'Pódio da semana',
+  month: 'Pódio do mês',
+  last_month: 'Pódio do mês passado',
+  year: 'Pódio do ano',
+};

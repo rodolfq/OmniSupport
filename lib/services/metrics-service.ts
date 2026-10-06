@@ -1,4 +1,5 @@
 import { query } from '../db';
+import type { SessionPointsInput } from '@/lib/analyst-points';
 import {
   MetricsFilter,
   CountResult,
@@ -139,6 +140,14 @@ function scopeParams(bounds: PeriodBounds, filter: MetricsFilter): any[] {
     filter.analystId ?? null
   ];
 }
+
+// Regra de presença (aprovada pelo usuário em 2026-10-05): o "online" de um registro só vale
+// até o próximo registro se ele vier em até 15 min. Quando passa disso, a aba quase sempre
+// foi fechada sem gravar "offline", e o trecho não conta. Sem essa regra, 83% das horas online
+// de setembro/2026 vinham de trechos sem registro por mais de 10 h (ver a verificação externa).
+// A condição é usada com status_intervals/com_fim, que têm as colunas started_at e ended_at.
+const PRESENCE_MAX_GAP_MINUTES = 15;
+const PRESENCE_MAX_GAP_SQL = `(ended_at - started_at) <= interval '${PRESENCE_MAX_GAP_MINUTES} minutes'`;
 
 const SCOPED_SESSIONS_JOIN = `
   FROM public.chat_sessions s
@@ -857,7 +866,9 @@ export async function getDesempenhoPorAnalista(filter: MetricsFilter): Promise<A
      msgs_sent AS (
        SELECT sc.id, COUNT(m.id) AS sent_count
        FROM scoped sc
-       LEFT JOIN public.chat_messages m ON m.session_id = sc.id AND m.sender_id = sc.assignee_id
+       -- Mensagem de sistema (ex.: "Sua conversa foi finalizada...") sai com o nome do analista
+       -- mas não foi escrita por ele: fica de fora da contagem (decisão do usuário, 2026-10-05).
+       LEFT JOIN public.chat_messages m ON m.session_id = sc.id AND m.sender_id = sc.assignee_id AND m.type <> 'system'
        GROUP BY sc.id
      ),
      closed AS (
@@ -871,18 +882,22 @@ export async function getDesempenhoPorAnalista(filter: MetricsFilter): Promise<A
      SELECT
        sc.assignee_id,
        p.name AS analyst_name,
+       COALESCE(p.avatar_medium_url, p.avatar_thumb_url) AS analyst_avatar,
        COUNT(DISTINCT sc.id)::int AS chats_atendidos,
        percentile_cont(0.5) WITHIN GROUP (ORDER BY fr.seconds) AS first_response_median_seconds,
        percentile_cont(0.5) WITHIN GROUP (ORDER BY cl.duration_seconds) / 60.0 AS duration_median_minutes,
        AVG(ms.sent_count) AS msgs_enviadas,
-       (COUNT(*) FILTER (WHERE cl.rating = 1))::float / NULLIF(COUNT(*) FILTER (WHERE cl.rating IS NOT NULL), 0) * 100 AS satisfaction_positive_rate
+       (COUNT(*) FILTER (WHERE cl.rating = 1))::float / NULLIF(COUNT(*) FILTER (WHERE cl.rating IS NOT NULL), 0) * 100 AS satisfaction_positive_rate,
+       COUNT(*) FILTER (WHERE cl.rating IS NOT NULL)::int AS avaliacoes,
+       COUNT(*) FILTER (WHERE cl.rating = 1)::int AS positivas,
+       COUNT(*) FILTER (WHERE cl.rating = -1)::int AS negativas
      FROM scoped sc
      JOIN public.profiles p ON p.id = sc.assignee_id
      LEFT JOIN first_response fr ON fr.id = sc.id
      LEFT JOIN msgs_sent ms ON ms.id = sc.id
      LEFT JOIN closed cl ON cl.id = sc.id
      WHERE ${analystQueueFilter('p.id', '$3')}
-     GROUP BY sc.assignee_id, p.name
+     GROUP BY sc.assignee_id, p.name, p.avatar_medium_url, p.avatar_thumb_url
      ORDER BY chats_atendidos DESC`,
     scopeParams(bounds, filter)
   );
@@ -890,6 +905,7 @@ export async function getDesempenhoPorAnalista(filter: MetricsFilter): Promise<A
   return res.rows.map(r => ({
     analystId: r.assignee_id,
     analystName: r.analyst_name,
+    analystAvatarUrl: r.analyst_avatar ?? null,
     isSelf: false, // decidido pela rota
     amostraInsuficiente: r.chats_atendidos < MIN_ANALYST_SAMPLE,
     chatsAtendidos: r.chats_atendidos,
@@ -897,12 +913,89 @@ export async function getDesempenhoPorAnalista(filter: MetricsFilter): Promise<A
     durationMedianMinutes: r.duration_median_minutes !== null ? Number(r.duration_median_minutes) : null,
     msgsEnviadas: r.msgs_enviadas !== null ? Number(r.msgs_enviadas) : null,
     satisfactionPositiveRate: r.satisfaction_positive_rate !== null ? Number(r.satisfaction_positive_rate) : null,
+    avaliacoes: Number(r.avaliacoes ?? 0),
+    positivas: Number(r.positivas ?? 0),
+    negativas: Number(r.negativas ?? 0),
     // preenchidos por quem chama, a partir de getSimultaneidadePorAnalista/getHorasOnlinePorAnalista
     simultaneidadeMedia: null,
     simultaneidadePico: null,
     horasOnline: null,
     chatsPorHoraOnline: null
   }));
+}
+
+// --- getIntervaloRespostaPorAnalista ----------------------------------------
+// Informativo: NÃO entra na pontuação (decisão do usuário, 2026-10-05). Para cada "turno" do
+// cliente (a 1ª mensagem dele depois de uma resposta da equipe, ou a 1ª da conversa), mede o
+// tempo até a resposta humana da equipe. O analista é quem respondeu. Mediana, como no resto
+// do relatório: média deixa um chat esquecido por 3 dias dominar o número. Usa as mesmas regras
+// de cliente e de resposta humana de chat_first_response_seconds, para não divergir da 1ª resposta.
+export async function getIntervaloRespostaPorAnalista(filter: MetricsFilter): Promise<Map<string, { median: number | null; turnos: number }>> {
+  const bounds = await getPeriodBounds(filter);
+  const res = await query(
+    `WITH scoped AS (
+       SELECT s.id
+       ${SCOPED_SESSIONS_JOIN}
+       WHERE s.assignee_id IS NOT NULL AND ${scopeByStartWhere()}
+     ),
+     msgs AS (
+       SELECT c.session_id, c.id, c.created_at, c.sender_id,
+         (c.type NOT IN ('system', 'internal')
+          AND NOT (c.metadata ? 'auto_reply' OR c.metadata ? 'template')
+          AND NOT (c.sender_id IS NULL AND c.sender_name LIKE 'SSX Desk%')
+          AND (COALESCE(c.metadata->>'source', '') IN ('pyvon', 'whatsapp')
+               OR COALESCE(cp.role, '') NOT IN ('Administrador', 'Equipe', 'Time Interno'))) AS is_client,
+         (COALESCE(cp.role, '') IN ('Administrador', 'Equipe', 'Time Interno')
+          AND COALESCE(c.metadata->>'source', '') NOT IN ('pyvon', 'whatsapp', 'crisis_mode')
+          AND c.type NOT IN ('system', 'internal')
+          AND NOT (c.metadata ? 'auto_reply' OR c.metadata ? 'template')
+          AND ((c.text IS NOT NULL AND c.text <> '')
+               OR jsonb_array_length(COALESCE(c.metadata->'attachments', '[]'::jsonb)) > 0)) AS is_team
+       FROM public.chat_messages c
+       LEFT JOIN public.profiles cp ON cp.id = c.sender_id
+       WHERE c.session_id IN (SELECT id FROM scoped)
+     ),
+     seq AS (
+       SELECT session_id, id, created_at, sender_id, is_client, is_team
+       FROM msgs
+       WHERE is_client OR is_team
+     ),
+     turnos AS (
+       SELECT session_id, created_at AS client_at
+       FROM (
+         SELECT session_id, created_at, is_client,
+                LAG(is_client) OVER (PARTITION BY session_id ORDER BY created_at, id) AS prev_client
+         FROM seq
+       ) x
+       WHERE is_client AND (prev_client IS NULL OR prev_client = false)
+     ),
+     respostas AS (
+       SELECT t.session_id, t.client_at, r.created_at AS reply_at, r.sender_id AS analyst_id
+       FROM turnos t
+       JOIN LATERAL (
+         SELECT s2.created_at, s2.sender_id
+           FROM seq s2
+          WHERE s2.session_id = t.session_id AND s2.is_team AND s2.created_at > t.client_at
+          ORDER BY s2.created_at
+          LIMIT 1
+       ) r ON true
+     )
+     SELECT analyst_id,
+       percentile_cont(0.5) WITHIN GROUP (ORDER BY EXTRACT(EPOCH FROM (reply_at - client_at)))::float AS median_seconds,
+       COUNT(*)::int AS turnos
+     FROM respostas
+     GROUP BY analyst_id`,
+    scopeParams(bounds, filter)
+  );
+
+  const map = new Map<string, { median: number | null; turnos: number }>();
+  for (const r of res.rows) {
+    map.set(r.analyst_id, {
+      median: r.median_seconds !== null ? Number(r.median_seconds) : null,
+      turnos: Number(r.turnos),
+    });
+  }
+  return map;
 }
 
 // --- getSimultaneidadePorAnalista ------------------------------------------
@@ -934,18 +1027,67 @@ export async function getSimultaneidadePorAnalista(filter: MetricsFilter): Promi
        FROM events
      ),
      weighted AS (
-       SELECT assignee_id, concurrent,
-         GREATEST(EXTRACT(EPOCH FROM (
-           LEAST(COALESCE(LEAD(ts) OVER (PARTITION BY assignee_id ORDER BY ts), $2::timestamptz), $2::timestamptz)
-           - GREATEST(ts, $1::timestamptz)
-         )), 0) AS duration_seconds
+       SELECT assignee_id, concurrent, ts AS seg_start,
+         LEAST(COALESCE(LEAD(ts) OVER (PARTITION BY assignee_id ORDER BY ts), $2::timestamptz), $2::timestamptz) AS seg_end
        FROM running
+     ),
+     -- Numerador: conversas abertas em TODO o tempo, online ou não (um chat aberto com o analista
+     -- offline entra). Denominador: tempo em que ele estava online OU com conversa aberta, a união
+     -- dos dois. Assim as duas partes usam a mesma base. Online segue a regra de PRESENCE_MAX_GAP_SQL.
+     clipped AS (
+       SELECT assignee_id, concurrent,
+              GREATEST(seg_start, $1::timestamptz) AS a,
+              seg_end AS b
+       FROM weighted
+       WHERE seg_end > $1::timestamptz AND seg_start < $2::timestamptz
+     ),
+     status_intervals AS (
+       SELECT user_id, status, timestamp AS started_at,
+              COALESCE(LEAD(timestamp) OVER (PARTITION BY user_id ORDER BY timestamp), NOW()) AS ended_at
+       FROM public.user_status_history
+       WHERE user_id IN (SELECT DISTINCT assignee_id FROM scoped)
+     ),
+     online AS (
+       SELECT user_id, GREATEST(started_at, $1::timestamptz) AS a, LEAST(ended_at, $2::timestamptz) AS b
+       FROM status_intervals
+       WHERE status = 'online' AND started_at < $2 AND ended_at > $1
+         AND ${PRESENCE_MAX_GAP_SQL}
+     ),
+     numer AS (
+       SELECT assignee_id,
+              SUM(concurrent * EXTRACT(EPOCH FROM (b - a))) AS weighted_secs,
+              SUM(EXTRACT(EPOCH FROM (b - a))) FILTER (WHERE concurrent > 0) AS chat_secs
+       FROM clipped
+       WHERE b > a
+       GROUP BY assignee_id
+     ),
+     online_secs AS (
+       SELECT user_id AS assignee_id, SUM(EXTRACT(EPOCH FROM (b - a))) AS secs
+       FROM online
+       GROUP BY user_id
+     ),
+     both_secs AS (
+       SELECT c.assignee_id, SUM(EXTRACT(EPOCH FROM (LEAST(c.b, o.b) - GREATEST(c.a, o.a)))) AS secs
+       FROM clipped c
+       JOIN online o ON o.user_id = c.assignee_id AND o.a < c.b AND o.b > c.a
+       WHERE c.concurrent > 0
+       GROUP BY c.assignee_id
+     ),
+     peaks AS (
+       SELECT assignee_id, MAX(concurrent)::int AS peak_concurrent FROM weighted GROUP BY assignee_id
+     ),
+     avgs AS (
+       SELECT n.assignee_id,
+              n.weighted_secs / NULLIF(
+                COALESCE(n.chat_secs, 0) + COALESCE(o.secs, 0) - COALESCE(b.secs, 0), 0
+              ) AS avg_concurrent
+       FROM numer n
+       LEFT JOIN online_secs o ON o.assignee_id = n.assignee_id
+       LEFT JOIN both_secs b ON b.assignee_id = n.assignee_id
      )
-     SELECT assignee_id,
-       MAX(concurrent)::int AS peak_concurrent,
-       SUM(concurrent * duration_seconds) / NULLIF(SUM(duration_seconds), 0) AS avg_concurrent
-     FROM weighted
-     GROUP BY assignee_id`,
+     SELECT p.assignee_id, p.peak_concurrent, a.avg_concurrent
+     FROM peaks p
+     LEFT JOIN avgs a ON a.assignee_id = p.assignee_id`,
     scopeParams(bounds, filter)
   );
 
@@ -981,6 +1123,7 @@ export async function getHorasOnlinePorAnalista(filter: MetricsFilter): Promise<
          LEAST(ended_at, $2::timestamptz) AS clipped_end
        FROM status_intervals
        WHERE status = 'online' AND started_at < $2 AND ended_at > $1
+         AND ${PRESENCE_MAX_GAP_SQL}
      )
      SELECT user_id, SUM(EXTRACT(EPOCH FROM (clipped_end - clipped_start))) / 3600.0 AS hours
      FROM online
@@ -1014,6 +1157,7 @@ export async function getTempoAusentePorMotivo(filter: MetricsFilter): Promise<A
          LEAST(ended_at, $2::timestamptz) AS clipped_end
        FROM status_intervals
        WHERE status = 'away' AND started_at < $2 AND ended_at > $1
+         AND ${PRESENCE_MAX_GAP_SQL}
      )
      SELECT away.user_id, p.name AS analyst_name, away.reason,
        SUM(EXTRACT(EPOCH FROM (away.clipped_end - away.clipped_start))) / 3600.0 AS hours
@@ -1025,6 +1169,169 @@ export async function getTempoAusentePorMotivo(filter: MetricsFilter): Promise<A
   );
 
   return res.rows.map(r => ({ analystId: r.user_id, analystName: r.analyst_name ?? 'Removido', reason: r.reason, hours: Number(r.hours) }));
+}
+
+// --- getPontosSessoes (ranking por pontos) ----------------------------------
+// Contagens brutas por analista para a pontuação: conversas atendidas, avaliações
+// positivas (good) e negativas (bad), e quantas conversas caem em cada faixa de 1ª
+// resposta. Usa o histórico mais recente de cada conversa, igual ao R2. Os pesos não
+// entram aqui: a conta de pontos é feita depois (lib/analyst-points.ts), para trocar um
+// peso não precisar consultar o banco de novo.
+// Uma linha por conversa do período, para a conta de pontos (lib/analyst-points.ts).
+// As tags vêm como ids; a nota e a 1ª resposta vêm do histórico mais recente da conversa;
+// as mensagens da equipe dizem quanto cada analista participou.
+export async function getPontosSessoes(filter: MetricsFilter): Promise<SessionPointsInput[]> {
+  const bounds = await getPeriodBounds(filter);
+  const res = await query(
+    `WITH scoped AS (
+       SELECT s.id, s.assignee_id, COALESCE(s.tags, '{}'::text[]) AS tags
+       ${SCOPED_SESSIONS_JOIN}
+       -- Só responsável que está em alguma fila: é o mesmo conjunto das linhas do ranking.
+       -- Sem isso, a qualidade contava conversas de quem não entra no ranking (decisão 2026-10-05).
+       WHERE s.assignee_id IS NOT NULL AND ${scopeByStartWhere()}
+         AND s.assignee_id = ANY(SELECT DISTINCT unnest(member_ids) FROM public.queues)
+     ),
+     hist AS (
+       SELECT DISTINCT ON (h.session_id) h.session_id, h.first_response_seconds, h.rating
+         FROM public.chat_histories h
+        WHERE h.session_id IN (SELECT id FROM scoped)
+        ORDER BY h.session_id, h.created_at DESC
+     ),
+     msgs AS (
+       SELECT c.session_id, c.sender_id, COUNT(*)::int AS n
+         FROM public.chat_messages c
+         JOIN public.profiles mp ON mp.id = c.sender_id
+        WHERE c.session_id IN (SELECT id FROM scoped)
+          AND mp.role IN ('Administrador', 'Equipe', 'Time Interno')
+          AND c.type NOT IN ('system', 'internal')
+          AND NOT (c.metadata ? 'auto_reply' OR c.metadata ? 'template')
+          AND ((c.text IS NOT NULL AND c.text <> '')
+               OR jsonb_array_length(COALESCE(c.metadata->'attachments', '[]'::jsonb)) > 0)
+        GROUP BY c.session_id, c.sender_id
+     )
+     SELECT sc.id, sc.assignee_id, sc.tags, hi.rating, hi.first_response_seconds,
+       COALESCE(
+         (SELECT json_agg(json_build_object('analystId', m.sender_id, 'n', m.n))
+            FROM msgs m WHERE m.session_id = sc.id),
+         '[]'::json
+       ) AS team_messages
+     FROM scoped sc
+     LEFT JOIN hist hi ON hi.session_id = sc.id
+     ORDER BY sc.id`,
+    scopeParams(bounds, filter)
+  );
+  return res.rows.map(r => ({
+    sessionId: r.id,
+    assigneeId: r.assignee_id,
+    tags: r.tags ?? [],
+    rating: r.rating === null || r.rating === undefined ? null : Number(r.rating),
+    firstResponseSeconds: r.first_response_seconds === null || r.first_response_seconds === undefined ? null : Number(r.first_response_seconds),
+    teamMessages: (r.team_messages ?? []).map((m: any) => ({ analystId: m.analystId, n: Number(m.n) })),
+  }));
+}
+
+// --- getPresenceTimeline (detalhe do "Tempo online × ausente") ---------------
+// Cada linha de user_status_history marca o INÍCIO de um status, que vale até a linha
+// seguinte. O sistema grava uma linha a cada atualização de presença, mesmo sem mudança
+// de status: por isso linhas seguidas com o mesmo status e motivo são unidas aqui, senão
+// um turno de horas vira centenas de pedaços. O trecho é recortado no período, e a última
+// linha vale até o fim do período ou até agora, o que vier antes.
+export interface PresenceSegment {
+  status: string;
+  reason: string | null;
+  startedAt: string; // ISO (UTC)
+  endedAt: string;   // ISO (UTC)
+  seconds: number;
+  rawRows: number;   // quantas linhas do banco foram unidas neste trecho
+}
+
+export async function getPresenceTimeline(analystId: string, filter: MetricsFilter): Promise<PresenceSegment[]> {
+  const bounds = await getPeriodBounds(filter);
+  const res = await query(
+    `WITH janela AS (
+       SELECT h.timestamp, h.status, h.reason
+         FROM public.user_status_history h
+        WHERE h.user_id = $1
+          -- Começa na última linha ANTES do período: é ela que dá o status vigente no início.
+          AND h.timestamp >= COALESCE(
+                (SELECT MAX(x.timestamp) FROM public.user_status_history x
+                  WHERE x.user_id = $1 AND x.timestamp <= $2::timestamptz),
+                '-infinity'::timestamptz)
+          AND h.timestamp < $3::timestamptz
+     ),
+     com_fim AS (
+       SELECT j.status, j.reason, j.timestamp AS started_at,
+              COALESCE(LEAD(j.timestamp) OVER (ORDER BY j.timestamp),
+                       LEAST($3::timestamptz, NOW())) AS ended_at
+         FROM janela j
+     ),
+     -- Mesma regra de getHorasOnlinePorAnalista: "online" sem registro seguinte em até
+     -- PRESENCE_MAX_GAP_MINUTES vira "sem registro" (aba fechada sem gravar "offline").
+     classificado AS (
+       SELECT
+         CASE WHEN status NOT IN ('online', 'away') OR ${PRESENCE_MAX_GAP_SQL} THEN status ELSE 'sem_registro' END AS status,
+         CASE WHEN status NOT IN ('online', 'away') OR ${PRESENCE_MAX_GAP_SQL} THEN reason ELSE NULL END AS reason,
+         started_at, ended_at
+         FROM com_fim
+     )
+     SELECT status, reason, started_at, ended_at
+       FROM classificado
+      WHERE ended_at > $2::timestamptz
+      ORDER BY started_at`,
+    [analystId, bounds.startUtc, bounds.endUtcExclusive]
+  );
+
+  const periodStart = new Date(bounds.startUtc).getTime();
+  const periodEnd = new Date(bounds.endUtcExclusive).getTime();
+
+  // Recorta nas bordas e une trechos contíguos com o mesmo status e motivo.
+  const merged: PresenceSegment[] = [];
+  for (const r of res.rows) {
+    const start = Math.max(new Date(r.started_at).getTime(), periodStart);
+    const end = Math.min(new Date(r.ended_at).getTime(), periodEnd);
+    if (end <= start) continue;
+    const reason: string | null = r.reason ?? null;
+    const last = merged[merged.length - 1];
+    if (last && last.status === r.status && last.reason === reason && new Date(last.endedAt).getTime() === start) {
+      last.endedAt = new Date(end).toISOString();
+      last.seconds = (end - new Date(last.startedAt).getTime()) / 1000;
+      last.rawRows += 1;
+    } else {
+      merged.push({
+        status: r.status,
+        reason,
+        startedAt: new Date(start).toISOString(),
+        endedAt: new Date(end).toISOString(),
+        seconds: (end - start) / 1000,
+        rawRows: 1,
+      });
+    }
+  }
+  // Buracos sem nenhuma linha no histórico viram trechos "sem_registro". Não são online nem
+  // ausência: o sistema simplesmente não tem o dado. Só conta até agora, nunca o futuro.
+  const nowMs = Date.now();
+  const cappedEnd = Math.min(periodEnd, nowMs);
+  const withGaps: PresenceSegment[] = [];
+  let cursor = periodStart;
+  const pushGap = (from: number, to: number) => {
+    if (to - from <= 0) return;
+    withGaps.push({
+      status: 'sem_registro',
+      reason: null,
+      startedAt: new Date(from).toISOString(),
+      endedAt: new Date(to).toISOString(),
+      seconds: (to - from) / 1000,
+      rawRows: 0,
+    });
+  };
+  for (const seg of merged) {
+    const segStart = new Date(seg.startedAt).getTime();
+    if (segStart > cursor) pushGap(cursor, Math.min(segStart, cappedEnd));
+    withGaps.push(seg);
+    cursor = Math.max(cursor, new Date(seg.endedAt).getTime());
+  }
+  if (cursor < cappedEnd) pushGap(cursor, cappedEnd);
+  return withGaps;
 }
 
 // --- getTeamMedians ---------------------------------------------------------

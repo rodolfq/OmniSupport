@@ -166,7 +166,20 @@ export class UserStatusHistoryService {
 export class AbsenceReasonService {
   static async getAll(): Promise<AbsenceReason[]> {
     const res = await fetch('/api/chats?action=absence-reasons');
-    return res.json();
+    const data = await res.json();
+    // Achado em 2026-10-01: sem esta checagem, uma falha do servidor (ex.:
+    // instabilidade passageira de banco, catch genérico da rota devolvendo
+    // `{error: '...'}`) não rejeita — fetch() resolve pra qualquer status
+    // HTTP, e res.json() faz parse do corpo de erro com sucesso. O objeto de
+    // erro seguia direto pra setAbsenceReasons (app-context.tsx) e ficava
+    // PRESO no estado, sem nenhum retry automático, até a página recarregar.
+    // O crash só aparecia bem depois, ao ABRIR o menu de status em
+    // app/(portal)/layout.tsx — único lugar que chama absenceReasons.map —,
+    // bem longe da causa real: TypeError porque `.map` não existe num objeto.
+    if (!res.ok || !Array.isArray(data)) {
+      throw new Error(data?.error || 'Resposta inesperada ao buscar motivos de ausência.');
+    }
+    return data;
   }
 
   static async save(reason: { label: string }): Promise<void> {

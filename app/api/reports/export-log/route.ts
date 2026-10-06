@@ -38,8 +38,8 @@ export async function POST(request: NextRequest) {
 
     const body = await request.json();
     const { reportId, reportLabel, format, filter } = body || {};
-    if (!reportId || !reportLabel || (format !== 'csv' && format !== 'pdf')) {
-      return NextResponse.json({ error: 'reportId, reportLabel e format (csv|pdf) são obrigatórios.' }, { status: 400 });
+    if (!reportId || !reportLabel || (format !== 'csv' && format !== 'pdf' && format !== 'xls')) {
+      return NextResponse.json({ error: 'reportId, reportLabel e format (csv|pdf|xls) são obrigatórios.' }, { status: 400 });
     }
 
     await logAudit({

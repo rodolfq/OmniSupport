@@ -4,7 +4,8 @@ import React, { useState, useEffect } from 'react';
 import { useSearchParams } from 'next/navigation';
 import {
   User, Lock, Save, Plus, Key, Globe, Bell, Database, Loader2, Clock, MessageCircleMore, Plug, Mail, Bot,
-  UserCog, ShieldCheck, Library, RefreshCw as RefreshCwIcon, Rocket, CalendarRange, UserPlus
+  UserCog, ShieldCheck, Library, RefreshCw as RefreshCwIcon, Rocket, CalendarRange, UserPlus,
+  Award
 } from 'lucide-react';
 import { cn, maskPhone } from '@/lib/utils';
 import { Permission, UserRole } from '@/lib/types';
@@ -32,18 +33,20 @@ import { GiroContent } from '@/components/giro-content';
 import { WeekendScheduleContent } from '@/components/weekend-schedule-content';
 import { HotfixesContent } from '@/components/hotfixes-content';
 import { UserCreationLogContent } from '@/components/user-creation-log-content';
+import { RankingPointsSettings } from '@/components/ranking-points-settings';
 
 type Tab =
   | 'profile' | 'security' | 'notifications'
   | 'team' | 'permissions' | 'history'
   | 'queues' | 'giro' | 'weekend-schedule' | 'whatsapp' | 'hotfixes'
-  | 'system' | 'ai-assistant' | 'automated-messages' | 'integrations' | 'email' | 'user-creation-log';
+  | 'system' | 'ai-assistant' | 'automated-messages' | 'integrations' | 'email' | 'user-creation-log'
+  | 'ranking-points';
 
 const VALID_TABS: Tab[] = [
   'profile', 'security', 'notifications',
   'team', 'permissions', 'history',
   'queues', 'giro', 'weekend-schedule', 'whatsapp', 'hotfixes',
-  'system', 'ai-assistant', 'automated-messages', 'integrations', 'email', 'user-creation-log'
+  'system', 'ai-assistant', 'automated-messages', 'integrations', 'email', 'user-creation-log', 'ranking-points'
 ];
 
 export default function SettingsPage() {
@@ -187,6 +190,12 @@ export default function SettingsPage() {
               </SettingsNavGroup>
             )}
 
+            {hasPermission(Permission.REPORTS_RANKING_CONFIG) && (
+              <SettingsNavGroup title="Relatórios">
+                <SettingsNavLink icon={<Award size={16} />} label="Pontuação do Ranking" active={activeTab === 'ranking-points'} onClick={() => setActiveTab('ranking-points')} />
+              </SettingsNavGroup>
+            )}
+
             {(hasPermission(Permission.QUEUES_MANAGE) || canViewGiro || hasPermission(Permission.WHATSAPP_MANAGE) || hasPermission(Permission.HOTFIXES_MANAGE)) && (
               <SettingsNavGroup title="Atendimento">
                 {hasPermission(Permission.QUEUES_MANAGE) && (
@@ -244,6 +253,7 @@ export default function SettingsPage() {
           {activeTab === 'weekend-schedule' && canViewGiro && <WeekendScheduleContent />}
           {activeTab === 'hotfixes' && hasPermission(Permission.HOTFIXES_MANAGE) && <HotfixesContent />}
           {activeTab === 'user-creation-log' && canViewUserCreationLog && <UserCreationLogContent />}
+          {activeTab === 'ranking-points' && hasPermission(Permission.REPORTS_RANKING_CONFIG) && <RankingPointsSettings />}
 
 {activeTab === 'system' && (canManageTicketConfig || canManageInternalConfig) && (
              <div className="space-y-6 animate-in fade-in slide-in-from-bottom-4 duration-300">

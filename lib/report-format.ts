@@ -15,11 +15,13 @@ export function formatPercentage(pct: number | null): string {
   return `${pct.toFixed(0)}%`;
 }
 
+// Abaixo de 1 minuto mostra só segundos ("24s"), nunca "0m 24s" nem "0,4 min".
 export function formatMinutes(min: number | null): string {
   if (min === null || Number.isNaN(min)) return '—';
   const totalSeconds = Math.round(min * 60);
   const m = Math.floor(totalSeconds / 60);
   const s = totalSeconds % 60;
+  if (m === 0) return `${s}s`;
   return s > 0 ? `${m}m ${s}s` : `${m}m`;
 }
 
@@ -36,4 +38,11 @@ export function formatAverage(n: number | null, decimals = 1): string {
 export function formatHours(hours: number | null, decimals = 1): string {
   if (hours === null || Number.isNaN(hours)) return '—';
   return `${hours.toFixed(decimals)}h`;
+}
+
+// Decimal no padrão brasileiro (vírgula), como manda o CLAUDE.md. Usado pelo dashboard
+// de analistas; os formatadores acima continuam como estão, para não mudar as outras telas.
+export function formatDecimalBr(n: number | null, decimals = 1): string {
+  if (n === null || Number.isNaN(n)) return '—';
+  return n.toLocaleString('pt-BR', { minimumFractionDigits: decimals, maximumFractionDigits: decimals });
 }

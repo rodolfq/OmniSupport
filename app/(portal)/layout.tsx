@@ -140,7 +140,7 @@ export default function PortalLayout({ children }: { children: React.ReactNode }
                 <div className="relative">
                   <button
                     onClick={() => setIsStatusMenuOpen(!isStatusMenuOpen)}
-                    className="flex items-center gap-2 px-3 py-1.5 bg-[var(--surface-pill)] rounded-full border border-[var(--border-default)] hover:bg-[var(--border-default)]/40 transition-all cursor-pointer"
+                    className="flex items-center gap-2 px-3 py-1.5 bg-[var(--surface-pill)] rounded-full border border-[var(--border-default)] hover:border-[var(--accent)]/60 transition-all cursor-pointer"
                   >
                     <div className={cn(
                       "w-2.5 h-2.5 rounded-full",

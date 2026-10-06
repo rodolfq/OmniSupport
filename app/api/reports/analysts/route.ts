@@ -4,11 +4,16 @@ import { verifyJWT } from '@/lib/jwt';
 import { resolvePeriod, buildMetricsFilter } from '@/lib/report-period';
 import { anonymizeAnalystRows } from '@/lib/report-anonymize';
 import { AnalystPerformanceRow } from '@/lib/types';
+import { getPointsConfig } from '@/lib/services/analyst-points-service';
+import { aggregatePoints, dataQuality } from '@/lib/analyst-points';
 import {
   getDesempenhoPorAnalista,
+  getIntervaloRespostaPorAnalista,
   getSimultaneidadePorAnalista,
   getHorasOnlinePorAnalista,
   getTempoAusentePorMotivo,
+  getPresenceTimeline,
+  getPontosSessoes,
   computeTeamMedians
 } from '@/lib/services/metrics-service';
 
@@ -52,19 +57,29 @@ export async function GET(request: NextRequest) {
     const filter = buildMetricsFilter(searchParams, startDate, endDate);
 
     if (action === 'performance') {
-      const [rows, concurrency, hoursOnline] = await Promise.all([
+      const [rows, concurrency, hoursOnline, pointsSessions, pointsConfig, intervalo] = await Promise.all([
         getDesempenhoPorAnalista(filter),
         getSimultaneidadePorAnalista(filter),
-        getHorasOnlinePorAnalista(filter)
+        getHorasOnlinePorAnalista(filter),
+        getPontosSessoes(filter),
+        getPointsConfig(),
+        getIntervaloRespostaPorAnalista(filter)
       ]);
+      // Conta por conversa, com os pesos vigentes (volume por tag, bad, good, faixas).
+      const countsByAnalyst = aggregatePoints(pointsSessions, pointsConfig.weights);
+      const quality = dataQuality(pointsSessions);
 
       const merged: AnalystPerformanceRow[] = rows.map(r => {
         const conc = concurrency.get(r.analystId);
         const horasOnline = hoursOnline.get(r.analystId) ?? null;
+        const c = countsByAnalyst.get(r.analystId);
         return {
           ...r,
+          points: { volume: c?.volume ?? 0, volumePoints: c?.volumePoints ?? 0, good: c?.good ?? 0, bad: c?.bad ?? 0, lt1: c?.lt1 ?? 0, lt3: c?.lt3 ?? 0, gt3: c?.gt3 ?? 0 },
           simultaneidadeMedia: conc?.media ?? null,
           simultaneidadePico: conc?.pico ?? null,
+          intervaloRespostaMedianSeconds: intervalo.get(r.analystId)?.median ?? null,
+          intervaloRespostaTurnos: intervalo.get(r.analystId)?.turnos ?? 0,
           horasOnline,
           chatsPorHoraOnline: horasOnline && horasOnline > 0 ? r.chatsAtendidos / horasOnline : null
         };
@@ -74,13 +89,34 @@ export async function GET(request: NextRequest) {
 
       const finalRows = canSeeIndividual(actor) ? merged.map(r => ({ ...r, isSelf: r.analystId === actor.id })) : await anonymizeAnalystRows(actor.id, merged);
 
-      return NextResponse.json({ rows: finalRows, teamMedians });
+      return NextResponse.json({
+        rows: finalRows,
+        teamMedians,
+        pointsWeights: pointsConfig.weights,
+        pointsDataQuality: quality,
+        pointsConfigUpdatedAt: pointsConfig.updatedAt,
+        pointsConfigIsDefault: pointsConfig.isDefault,
+      });
     }
 
     if (action === 'absences') {
       const rows = await getTempoAusentePorMotivo(filter);
       const finalRows = canSeeIndividual(actor) ? rows.map(r => ({ ...r, isSelf: r.analystId === actor.id })) : await anonymizeAnalystRows(actor.id, rows);
       return NextResponse.json({ rows: finalRows });
+    }
+
+    if (action === 'presence-timeline') {
+      // Detalhe de um analista: cada trecho de status com início, fim e motivo.
+      // Sem reports:individual, o ator só vê a própria linha do tempo.
+      const analystId = searchParams.get('analystId');
+      if (!analystId) {
+        return NextResponse.json({ error: 'analystId é obrigatório.' }, { status: 400 });
+      }
+      if (!canSeeIndividual(actor) && analystId !== actor.id) {
+        return NextResponse.json({ error: 'Não autorizado.' }, { status: 403 });
+      }
+      const segments = await getPresenceTimeline(analystId, filter);
+      return NextResponse.json({ segments, period: { startDate, endDate } });
     }
 
     return NextResponse.json({ error: 'Action não suportada.' }, { status: 400 });

@@ -29,8 +29,16 @@ declare global {
 export const pool = global.pgPool ?? new Pool({
   connectionString,
   max: 20, // Limite de conexões concorrentes no pool
-  idleTimeoutMillis: 30000, // Tempo limite de conexões inativas
+  // Conexões ociosas são fechadas antes de 10 s. Com 30 s, uma conexão parada ficava
+  // no pool por tempo suficiente para a rede/NAT derrubá-la sem avisar; a próxima
+  // consulta que reaproveitava esse socket morto falhava com "Connection terminated
+  // unexpectedly".
+  idleTimeoutMillis: 10000,
   connectionTimeoutMillis: 5000, // Tempo limite de conexão inicial
+  // Keepalive de TCP: mantém o socket vivo enquanto a conexão está no pool, e detecta
+  // queda de rede antes de a consulta chegar nele.
+  keepAlive: true,
+  keepAliveInitialDelayMillis: 10000,
 });
 
 if (!global.pgPool) {
@@ -45,8 +53,38 @@ if (!global.pgPool) {
   });
 }
 
+// Erro de conexão perdida: a conexão foi derrubada pela rede ou pelo banco, não é um erro
+// da consulta em si. Quem recebe isso pode tentar de novo.
+const LOST_CONNECTION_CODES = new Set(['ECONNRESET', 'EPIPE', 'ETIMEDOUT', '57P01', '08000', '08003', '08006']);
+const LOST_CONNECTION_MESSAGE = /Connection terminated|Client has encountered a connection error|connection (was )?closed|socket hang up/i;
+
+export function isConnectionLostError(err: unknown): boolean {
+  if (!err || typeof err !== 'object') return false;
+  const e = err as { code?: unknown; message?: unknown };
+  if (typeof e.code === 'string' && LOST_CONNECTION_CODES.has(e.code)) return true;
+  return typeof e.message === 'string' && LOST_CONNECTION_MESSAGE.test(e.message);
+}
+
+// Só leitura pode ser repetida sem risco. Um INSERT/UPDATE/DELETE repetido poderia gravar
+// duas vezes, então esses nunca são repetidos.
+export function isReadOnlySql(text: string): boolean {
+  const head = text.trimStart().slice(0, 6).toUpperCase();
+  if (!(head.startsWith('SELECT') || head.startsWith('WITH'))) return false;
+  return !/\b(INSERT|UPDATE|DELETE|MERGE|CREATE|ALTER|DROP|TRUNCATE|FOR UPDATE)\b/i.test(text);
+}
+
+// Uma consulta de leitura que falha porque a conexão reaproveitada do pool caiu é
+// repetida UMA vez. O pool já descarta o cliente quebrado, então a segunda tentativa
+// abre uma conexão nova. Escrita e erros de SQL seguem sem repetição.
 export async function query(text: string, params?: any[]) {
-  return pool.query(text, params);
+  try {
+    return await pool.query(text, params);
+  } catch (err) {
+    if (isConnectionLostError(err) && isReadOnlySql(text)) {
+      return pool.query(text, params);
+    }
+    throw err;
+  }
 }
 
 // ---------------------------------------------------------------------------

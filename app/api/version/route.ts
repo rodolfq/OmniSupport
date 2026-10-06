@@ -11,7 +11,12 @@ export async function GET() {
   try {
     const buildId = (await readFile(path.join(process.cwd(), '.next', 'BUILD_ID'), 'utf8')).trim();
     return NextResponse.json({ buildId }, { headers: { 'Cache-Control': 'no-store' } });
-  } catch (error) {
+  } catch (error: any) {
+    // Em `next dev` não existe .next/BUILD_ID: não é erro, é o modo de desenvolvimento.
+    // Responde uma versão fixa, para o banner de nova versão não disparar à toa.
+    if (error?.code === 'ENOENT') {
+      return NextResponse.json({ buildId: 'development' }, { headers: { 'Cache-Control': 'no-store' } });
+    }
     console.error('[version] Falha ao ler BUILD_ID:', error);
     return NextResponse.json({ error: 'Não foi possível determinar a versão.' }, { status: 500 });
   }

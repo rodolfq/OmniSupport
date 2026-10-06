@@ -1,6 +1,6 @@
 import { query, withCreationContext } from '@/lib/db';
 import { hashPassword } from '@/lib/auth-utils';
-import { generateAvatarThumb } from '@/lib/services/avatar-thumb-service';
+import { generateAvatarThumb, generateAvatarMedium } from '@/lib/services/avatar-thumb-service';
 
 // Sincronização manual (botão "Sincronizar agora", sem job em segundo
 // plano — decisão explícita) com o Bitrix24: usuários internos (equipe do
@@ -122,23 +122,24 @@ export async function syncUsersFromBitrix24(creation?: { actorId?: string | null
       // Só gera miniatura nova quando baixou foto nova — evita reprocessar
       // à toa quem já tinha avatar_thumb_url e não mudou de foto no Bitrix.
       const avatarThumbUrl = avatarDataUrl ? await generateAvatarThumb(avatarDataUrl) : null;
+      const avatarMediumUrl = avatarDataUrl ? await generateAvatarMedium(avatarDataUrl) : null;
 
       const existing = await query('SELECT id FROM public.profiles WHERE email = $1', [email]);
       if (existing.rows.length > 0) {
         // COALESCE na foto: se o download falhou ou não tinha foto nova,
-        // mantém a que já estava salva em vez de apagar (idem miniatura).
+        // mantém a que já estava salva em vez de apagar (idem miniaturas).
         await query(
-          `UPDATE public.profiles SET name = $1, phone = $2, avatar_url = COALESCE($3, avatar_url), avatar_thumb_url = COALESCE($5, avatar_thumb_url) WHERE id = $4`,
-          [name, phone, avatarDataUrl, existing.rows[0].id, avatarThumbUrl]
+          `UPDATE public.profiles SET name = $1, phone = $2, avatar_url = COALESCE($3, avatar_url), avatar_thumb_url = COALESCE($5, avatar_thumb_url), avatar_medium_url = COALESCE($6, avatar_medium_url) WHERE id = $4`,
+          [name, phone, avatarDataUrl, existing.rows[0].id, avatarThumbUrl, avatarMediumUrl]
         );
         updated++;
       } else {
         await withCreationContext(
           { actorId: creation?.actorId || null, source: 'sincronizacao-bitrix24', actorLabel: 'Sincronização do Bitrix24', ip: creation?.ip, userAgent: creation?.userAgent },
           (client) => client.query(
-            `INSERT INTO public.profiles (email, name, role, phone, avatar_url, avatar_thumb_url, password, is_admin, lives_in_squad, access_profile_id)
-             VALUES ($1, $2, 'Equipe', $3, $4, $5, $6, false, true, $7)`,
-            [email, name, phone, avatarDataUrl, avatarThumbUrl, defaultPassword, defaultProfileId]
+            `INSERT INTO public.profiles (email, name, role, phone, avatar_url, avatar_thumb_url, avatar_medium_url, password, is_admin, lives_in_squad, access_profile_id)
+             VALUES ($1, $2, 'Equipe', $3, $4, $5, $6, $7, false, true, $8)`,
+            [email, name, phone, avatarDataUrl, avatarThumbUrl, avatarMediumUrl, defaultPassword, defaultProfileId]
           )
         );
         created++;
