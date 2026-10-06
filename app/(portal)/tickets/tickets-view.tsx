@@ -1671,12 +1671,11 @@ export function TicketsView({
               </div>
 
               <div className="p-8 grid grid-cols-2 gap-3">
-                {[
-                  { value: TicketStatus.NEW, label: 'Novo', color: 'bg-[var(--surface-info)] text-[var(--text-info)]' },
-                  { value: TicketStatus.IN_PROGRESS, label: 'Em Atendimento', color: 'bg-[var(--surface-warning)] text-[var(--text-warning)]' },
-                  { value: 'Aguardando Cliente', label: 'Aguardando Cliente', color: 'bg-[var(--surface-pill)] text-[var(--text-secondary)]' },
-                  { value: TicketStatus.CLOSED, label: 'Concluído', color: 'bg-[var(--surface-success)] text-[var(--text-success)]' },
-                ].map(status => (
+                {/* Um botão por status de topo do cadastro (Configurações > Status),
+                    o mesmo conjunto dos blocos do kanban — novo status cadastrado
+                    aparece aqui sem mexer no código. Sub-status fica de fora (ele
+                    é escolhido dentro do status pai, nunca direto). */}
+                {kanbanStatuses.map(status => (
                   <button
                     key={status.value}
                     onClick={() => {
