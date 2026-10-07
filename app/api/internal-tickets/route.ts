@@ -4,6 +4,7 @@ import { verifyJWT } from '@/lib/jwt';
 import { computeInternalTicketSla } from '@/lib/sla';
 import { persistAttachments } from '@/lib/services/attachment-storage';
 import { getActorEffectivePermissions } from '@/lib/server-auth';
+import { getTicketConfig } from '@/lib/services/ticket-points-service';
 
 // Rota dos tickets internos — criada para tirar o InternalTicketService do
 // shim de compatibilidade Supabase (ver lib/services/ticket-service.ts).
@@ -43,6 +44,7 @@ function toInternalTicket(row: any, parentTicketId?: string) {
     subStatus: row.sub_status ?? null,
     resolvedAt: row.resolved_at ?? null,
     qaRejected: !!row.qa_rejected,
+    environmentRejected: !!row.environment_rejected,
     lateDelivery: !!row.late_delivery
   };
 }
@@ -286,6 +288,18 @@ export async function GET(request: NextRequest) {
       if (ticketRes.rowCount === 0) return NextResponse.json({ error: 'Ticket interno não encontrado.' }, { status: 404 });
       const row = ticketRes.rows[0];
 
+      // Prazo do Desenvolvimento: N dias úteis desde a criação, com a regra do ticket interno
+      // (Configurações > Pontuação do Ranking > Ticket interno). Vale a partir de N estrelas.
+      const { config: ticketConfig } = await getTicketConfig();
+      const regraDev = ticketConfig.interno;
+      const prazoRes = await query('SELECT ticket_business_deadline($1::timestamptz, $2::int) AS prazo', [row.created_at, regraDev.diasUteis]);
+      const devDeadline = {
+        at: prazoRes.rows[0]?.prazo ? new Date(prazoRes.rows[0].prazo).toISOString() : null,
+        days: regraDev.diasUteis,
+        minStars: regraDev.estrelasMinimas,
+        applies: Number(row.priority ?? 1) >= regraDev.estrelasMinimas
+      };
+
       const [linkedRes, profilesRes] = await Promise.all([
         query(
           `SELECT t.id, t.title, t.public_ticket_number
@@ -302,6 +316,7 @@ export async function GET(request: NextRequest) {
       const names = new Map(profilesRes.rows.map((p: any) => [p.id, p.name]));
       return NextResponse.json({
         ticket: row,
+        devDeadline,
         linkedTickets: linkedRes.rows.map((t: any) => ({
           id: t.id,
           title: t.title,
@@ -482,7 +497,8 @@ export async function POST(request: NextRequest) {
         effortId: 'effort_id',
         outcomeId: 'outcome_id',
         subStatus: 'sub_status',
-        qaRejected: 'qa_rejected'
+        qaRejected: 'qa_rejected',
+        environmentRejected: 'environment_rejected'
       };
       const ARRAY_FIELDS = new Set(['tags']);
 
@@ -508,11 +524,9 @@ export async function POST(request: NextRequest) {
         }
       }
 
-      // Entrega Real: gravada na 1ª vez que o ticket vira Resolvido e fica fixa depois. Atraso: resolvido
-      // depois do prazo (sla_limit). Mesmo momento, no próprio UPDATE (SET usa os valores antigos da linha).
+      // Entrega Real: gravada na 1ª vez que o ticket vira Resolvido e fica fixa depois.
       if (fields.status === 'Resolvido') {
         sets.push('resolved_at = COALESCE(resolved_at, NOW())');
-        sets.push('late_delivery = COALESCE(COALESCE(resolved_at, NOW()) > sla_limit, false)');
       }
 
       sets.push('updated_at = NOW()');
@@ -522,6 +536,18 @@ export async function POST(request: NextRequest) {
         params
       );
       if (res.rowCount === 0) return NextResponse.json({ error: 'Ticket interno não encontrado.' }, { status: 404 });
+
+      // Atraso na entrega = resolvido depois do prazo de desenvolvimento, só para tickets dentro da regra
+      // (prioridade a partir de N estrelas). Fica fixo depois de resolvido, a não ser que a prioridade mude.
+      if (fields.status === 'Resolvido' || fields.priority !== undefined) {
+        const { config: ticketConfig } = await getTicketConfig();
+        await query(
+          `UPDATE public.internal_tickets
+              SET late_delivery = (COALESCE(priority, 1) >= $2 AND resolved_at > ticket_business_deadline(created_at, $3::int))
+            WHERE id = ANY($1::text[]) AND resolved_at IS NOT NULL`,
+          [targetIds, ticketConfig.interno.estrelasMinimas, ticketConfig.interno.diasUteis]
+        );
+      }
       return NextResponse.json({ success: true, updated: res.rowCount });
     }
 

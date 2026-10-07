@@ -23,6 +23,12 @@ export const STATUS_COLOR_PALETTE: StatusColor[] = [
   { key: 'indigo', label: 'Índigo', bg: 'bg-indigo-100', text: 'text-indigo-700', dot: 'bg-indigo-500', accent: '#4F46E5' },
   { key: 'orange', label: 'Laranja', bg: 'bg-orange-100', text: 'text-orange-700', dot: 'bg-orange-500', accent: '#EA580C' },
   { key: 'pink', label: 'Rosa Choque', bg: 'bg-pink-100', text: 'text-pink-700', dot: 'bg-pink-500', accent: '#DB2777' },
+  { key: 'sky', label: 'Céu', bg: 'bg-sky-100', text: 'text-sky-700', dot: 'bg-sky-500', accent: '#0284C7' },
+  { key: 'teal', label: 'Verde-água', bg: 'bg-teal-100', text: 'text-teal-700', dot: 'bg-teal-500', accent: '#0D9488' },
+  { key: 'lime', label: 'Lima', bg: 'bg-lime-100', text: 'text-lime-700', dot: 'bg-lime-500', accent: '#65A30D' },
+  { key: 'red', label: 'Vermelho', bg: 'bg-red-100', text: 'text-red-700', dot: 'bg-red-500', accent: '#DC2626' },
+  { key: 'yellow', label: 'Amarelo', bg: 'bg-yellow-100', text: 'text-yellow-700', dot: 'bg-yellow-500', accent: '#CA8A04' },
+  { key: 'violet', label: 'Violeta', bg: 'bg-violet-100', text: 'text-violet-700', dot: 'bg-violet-500', accent: '#7C3AED' },
 ];
 
 export function findStatusColor(colorClasses?: string | null): StatusColor {

@@ -66,6 +66,8 @@ export default function SettingsPage() {
   // telas (Integrações, Log de Auditoria...).
   const canManageTicketConfig = hasPermission(Permission.SETTINGS_SYSTEM) || hasPermission(Permission.SETTINGS_SYSTEM_TICKETS);
   const canManageInternalConfig = hasPermission(Permission.SETTINGS_SYSTEM) || hasPermission(Permission.SETTINGS_SYSTEM_INTERNAL);
+  // Chave Chamados / Ticket interno da aba Sistema: mostra um grupo por vez quando o usuário tem os dois.
+  const [systemGroup, setSystemGroup] = useState<'tickets' | 'internal'>('tickets');
   // A aba WhatsApp usa WhatsAppChannelManager: canal Baileys fixo (QR Code,
   // 'default', igual ao que já funcionava em /whatsapp) + lista de canais
   // Meta Cloud API (0..N, criados/editados na própria tela — ver
@@ -87,7 +89,6 @@ export default function SettingsPage() {
   const [previewUrl, setPreviewUrl] = useState<string | null>(null);
   const [isUploading, setIsUploading] = useState(false);
 
-  const [categories, setCategories] = useState<any[]>([]);
   const [requestTypes, setRequestTypes] = useState<any[]>([]);
   const [products, setProducts] = useState<any[]>([]);
   const [priorities, setPriorities] = useState<any[]>([]);
@@ -102,17 +103,15 @@ export default function SettingsPage() {
   useEffect(() => {
     const fetchSystemConfig = async () => {
       // Uma busca por lista, em paralelo, pelas rotas de configuração.
-      const [cat, reqType, prod, prio, survey] = await Promise.all([
+      const [reqType, prod, prio, survey] = await Promise.all([
         // usage=1: esta é a única tela que precisa saber quantos registros
         // usam cada item — é o que decide se o botão oferecido é "arquivar"
         // ou "excluir definitivamente".
-        ConfigService.getSimpleList('categories', true),
         ConfigService.getSimpleList('request-types', true),
         ConfigService.getSimpleList('products', true),
         ConfigService.getPriorities(),
         ConfigService.getSurveySettings()
       ]);
-      setCategories(cat || []);
       setRequestTypes(reqType || []);
       setProducts(prod || []);
       setPriorities(prio || []);
@@ -267,15 +266,31 @@ export default function SettingsPage() {
                     alimentando o SLA de ticket interno também (decisão do
                     usuário) — é o cadastro que o time de Chamados realmente
                     mexe. */}
-                {canManageTicketConfig && (
+                {canManageTicketConfig && canManageInternalConfig && (
+                  <div role="tablist" aria-label="Tipo de configuração" className="inline-flex self-start bg-[var(--surface-pill)] p-1 rounded-xl">
+                    {([['tickets', 'Chamados'], ['internal', 'Ticket interno']] as const).map(([value, label]) => (
+                      <button
+                        key={value}
+                        type="button"
+                        role="tab"
+                        aria-selected={systemGroup === value}
+                        onClick={() => setSystemGroup(value)}
+                        className={cn(
+                          "px-4 py-1.5 rounded-lg text-xs font-black uppercase tracking-widest transition-all",
+                          systemGroup === value ? "bg-[var(--surface-card)] text-[var(--text-primary)] shadow-sm" : "text-[var(--text-tertiary)] hover:text-[var(--text-secondary)]"
+                        )}
+                      >
+                        {label}
+                      </button>
+                    ))}
+                  </div>
+                )}
+                {canManageTicketConfig && (!canManageInternalConfig || systemGroup === 'tickets') && (
                   <>
-                    <h3 className="text-xs font-black uppercase tracking-widest text-[var(--text-tertiary)] px-1">Configurações de Chamados</h3>
                     <SystemConfigContent
-                      categories={categories}
                       requestTypes={requestTypes}
                       products={products}
                       priorities={priorities}
-                      setCategories={setCategories}
                       setRequestTypes={setRequestTypes}
                       setProducts={setProducts}
                       setPriorities={setPriorities}
@@ -286,9 +301,8 @@ export default function SettingsPage() {
                     <TagManager />
                   </>
                 )}
-                {canManageInternalConfig && (
+                {canManageInternalConfig && (!canManageTicketConfig || systemGroup === 'internal') && (
                   <>
-                    <h3 className="text-xs font-black uppercase tracking-widest text-[var(--text-tertiary)] px-1 pt-2">Configurações de Tickets Internos</h3>
                     <StatusManager allowedScopes={['internal_ticket']} />
                     <TicketClassificationManager />
                   </>

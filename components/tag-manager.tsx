@@ -16,6 +16,14 @@ const TAG_COLORS = [
   { bg: 'bg-rose-100 dark:bg-[var(--surface-danger)]', text: 'text-rose-700 dark:text-[var(--text-danger)]', label: 'Rosa' },
   { bg: 'bg-cyan-100 dark:bg-cyan-500/20', text: 'text-cyan-700 dark:text-cyan-300', label: 'Ciano' },
   { bg: 'bg-violet-100 dark:bg-violet-500/20', text: 'text-violet-700 dark:text-violet-300', label: 'Violeta' },
+  { bg: 'bg-blue-100 dark:bg-blue-500/20', text: 'text-blue-700 dark:text-blue-300', label: 'Azul' },
+  { bg: 'bg-red-100 dark:bg-red-500/20', text: 'text-red-700 dark:text-red-300', label: 'Vermelho' },
+  { bg: 'bg-orange-100 dark:bg-orange-500/20', text: 'text-orange-700 dark:text-orange-300', label: 'Laranja' },
+  { bg: 'bg-purple-100 dark:bg-purple-500/20', text: 'text-purple-700 dark:text-purple-300', label: 'Roxo' },
+  { bg: 'bg-teal-100 dark:bg-teal-500/20', text: 'text-teal-700 dark:text-teal-300', label: 'Verde-água' },
+  { bg: 'bg-lime-100 dark:bg-lime-500/20', text: 'text-lime-700 dark:text-lime-300', label: 'Lima' },
+  { bg: 'bg-fuchsia-100 dark:bg-fuchsia-500/20', text: 'text-fuchsia-700 dark:text-fuchsia-300', label: 'Fúcsia' },
+  { bg: 'bg-sky-100 dark:bg-sky-500/20', text: 'text-sky-700 dark:text-sky-300', label: 'Céu' },
 ];
 
 export function TagManager() {

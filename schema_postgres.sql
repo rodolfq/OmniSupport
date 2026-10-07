@@ -549,6 +549,52 @@ BEGIN
 END;
 $$;
 
+
+CREATE OR REPLACE FUNCTION public.ticket_business_deadline(p_from timestamptz, p_days integer)
+RETURNS timestamptz
+LANGUAGE plpgsql
+STABLE
+AS $$
+DECLARE
+  restante numeric := COALESCE(p_days, 0) * 600;
+  cursor_local timestamp;
+  d date;
+  janela_ini timestamp;
+  janela_fim timestamp;
+  inicio timestamp;
+  disponivel numeric;
+BEGIN
+  IF p_from IS NULL THEN
+    RETURN NULL;
+  END IF;
+  IF restante <= 0 THEN
+    RETURN p_from;
+  END IF;
+
+  cursor_local := p_from AT TIME ZONE 'America/Sao_Paulo';
+  LOOP
+    d := cursor_local::date;
+    IF EXTRACT(ISODOW FROM d) > 5 THEN
+      cursor_local := (d + 1) + time '08:00';
+      CONTINUE;
+    END IF;
+
+    janela_ini := d + time '08:00';
+    janela_fim := d + time '18:00';
+    inicio := GREATEST(cursor_local, janela_ini);
+    IF inicio < janela_fim THEN
+      disponivel := EXTRACT(EPOCH FROM (janela_fim - inicio)) / 60;
+      IF restante <= disponivel THEN
+        RETURN (inicio + restante::double precision * interval '1 minute') AT TIME ZONE 'America/Sao_Paulo';
+      END IF;
+      restante := restante - disponivel;
+    END IF;
+
+    cursor_local := (d + 1) + time '08:00';
+  END LOOP;
+END;
+$$;
+
 -- Histórico de status de chamado e gatilho (migrations/ticket_status_history.sql).
 CREATE TABLE IF NOT EXISTS public.ticket_status_history (
   id UUID PRIMARY KEY DEFAULT (md5(random()::text || clock_timestamp()::text)::uuid),
@@ -1299,6 +1345,7 @@ CREATE TABLE public.internal_tickets (
   resolved_at TIMESTAMP WITH TIME ZONE, -- Entrega Real: gravada na 1ª vez que vira Resolvido
   qa_rejected BOOLEAN NOT NULL DEFAULT false, -- Reprovação de QA (manual, sem pontuação)
   late_delivery BOOLEAN NOT NULL DEFAULT false, -- Atraso na entrega: resolvido depois do prazo (horas úteis)
+  environment_rejected BOOLEAN NOT NULL DEFAULT false, -- Ambiente reprovado (manual, sem pontuação; migrations/internal_ticket_environment_rejected.sql)
   -- Full-text search (Agente de IA, search_internal_tickets) — ver
   -- comentário equivalente em public.tickets.
   search_vector TSVECTOR GENERATED ALWAYS AS (to_tsvector('portuguese', coalesce(title, '') || ' ' || coalesce(description, ''))) STORED

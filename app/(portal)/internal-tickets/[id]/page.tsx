@@ -101,12 +101,8 @@ export default function InternalTicketDetailPage() {
   const [previewAttachments, setPreviewAttachments] = useState<Attachment[]>([]);
   const [activeTab, setActiveTab] = useState<'description' | 'linked' | 'attachments' | 'history'>('description');
   const fileInputRef = React.useRef<HTMLInputElement>(null);
-  // Mesmo botão "tela cheia" do chamado do cliente (ticket-detail-modal.tsx).
-  // Lá o padrão é ~90vw (sobra uma tira da lista atrás) e "focar" expande pra
-  // w-full; aqui o painel sempre ocupa a tela inteira (testado: o md:max-w-
-  // [90vw] "herdado" do cliente renderizava estreito demais nesta tela, por
-  // algum conflito de layout específico deste arquivo não investigado a
-  // fundo) — o botão fica só pela paridade de interação com o chamado.
+  // Mesmo painel e mesmo botão do chamado do cliente (ticket-detail-modal.tsx):
+  // abre em ~90vw e o botão expande para tela cheia.
   const [isFocused, setIsFocused] = useState(false);
 
   const [formTitle, setFormTitle] = useState('');
@@ -117,6 +113,7 @@ export default function InternalTicketDetailPage() {
   const [formStatus, setFormStatus] = useState('Novo');
   const [formSubStatus, setFormSubStatus] = useState<string | null>(null);
   const [formQaRejected, setFormQaRejected] = useState(false);
+  const [formEnvironmentRejected, setFormEnvironmentRejected] = useState(false);
   // Sub-status por status principal (ex.: 'Resolvido' -> ['Aguardando Publicação', 'Aguardando Data de Hotfix']).
   const [subStatusMap, setSubStatusMap] = useState<Record<string, string[]>>({});
   const [formTags, setFormTags] = useState('');
@@ -204,6 +201,8 @@ export default function InternalTicketDetailPage() {
         subStatus: data.sub_status ?? null,
         resolvedAt: data.resolved_at ?? null,
         qaRejected: !!data.qa_rejected,
+        environmentRejected: !!data.environment_rejected,
+        devDeadline: detail.devDeadline ?? null,
         lateDelivery: !!data.late_delivery,
         assigneeName: detail.assigneeName,
         creatorName: detail.creatorName,
@@ -216,6 +215,7 @@ export default function InternalTicketDetailPage() {
       setFormStatus(data.status || 'Novo');
       setFormSubStatus(data.sub_status || null);
       setFormQaRejected(!!data.qa_rejected);
+      setFormEnvironmentRejected(!!data.environment_rejected);
       setFormTags((data.tags || []).join(', '));
       setFormExpectedPublish(toDateOnly(data.expected_publish_date));
       setFormHotfixId(data.hotfix_id || '');
@@ -323,11 +323,12 @@ export default function InternalTicketDetailPage() {
   // valor antigo por causa do closure do React não ter visto o setState
   // anterior ainda — foi assim que o botão de status ficava "um clique
   // atrasado" antes desta correção.
-  const handleUpdateTicket = async (overrides: Partial<{ status: string; assigneeId: string; subStatus: string | null; qaRejected: boolean }> = {}) => {
+  const handleUpdateTicket = async (overrides: Partial<{ status: string; assigneeId: string; subStatus: string | null; qaRejected: boolean; environmentRejected: boolean }> = {}) => {
     if (!ticket) return;
     const nextStatus = overrides.status ?? formStatus;
     const nextSubStatus = 'subStatus' in overrides ? (overrides.subStatus ?? null) : formSubStatus;
     const nextQaRejected = 'qaRejected' in overrides ? !!overrides.qaRejected : formQaRejected;
+    const nextEnvironmentRejected = 'environmentRejected' in overrides ? !!overrides.environmentRejected : formEnvironmentRejected;
     const nextAssignee = 'assigneeId' in overrides ? (overrides.assigneeId || '') : formAssignee;
     const tags = formTags.split(',').map(s => s.trim()).filter(Boolean);
     // Vencimento nunca é digitado — reflete a prioridade atual, calculada a
@@ -352,6 +353,7 @@ export default function InternalTicketDetailPage() {
             status: nextStatus,
             subStatus: nextSubStatus,
             qaRejected: nextQaRejected,
+            environmentRejected: nextEnvironmentRejected,
             tags,
             slaLimit: slaIso,
             expectedPublishDate: expectedPublishIso,
@@ -590,7 +592,10 @@ export default function InternalTicketDetailPage() {
         exit={{ x: '100%' }}
         transition={{ type: 'spring', damping: 25, stiffness: 200 }}
         onClick={(e) => e.stopPropagation()}
-        className="relative bg-[var(--surface-card)] h-full w-full shadow-2xl border-l border-[var(--border-default)] flex flex-col"
+        className={cn(
+          "relative bg-[var(--surface-card)] h-full shadow-2xl border-l border-[var(--border-default)] flex flex-col transition-all duration-500 ease-in-out",
+          isFocused ? "w-full" : "w-full md:max-w-[90vw]"
+        )}
       >
       {/* Header superior — mesma estrutura do chamado do cliente
           (ticket-detail-modal.tsx): linha 1 identidade+ações, linha 2
@@ -700,27 +705,6 @@ export default function InternalTicketDetailPage() {
           </div>
         )}
 
-        {/* Entrega Real (automática), Atraso (automático) e Reprovação de QA (manual, sem pontuação) */}
-        <div className="px-8 pb-3 flex flex-wrap items-center gap-x-6 gap-y-2 text-xs">
-          <label className="inline-flex items-center gap-2 cursor-pointer select-none font-semibold text-[var(--text-secondary)]">
-            <input
-              type="checkbox"
-              checked={formQaRejected}
-              onChange={e => { setFormQaRejected(e.target.checked); handleUpdateTicket({ qaRejected: e.target.checked }); }}
-              className="h-4 w-4 accent-[var(--accent)]"
-            />
-            Reprovação de QA
-          </label>
-          <span className="text-[var(--text-tertiary)]">
-            Entrega real:{' '}
-            <strong className="tabular-nums text-[var(--text-primary)]">
-              {ticket.resolvedAt ? new Date(ticket.resolvedAt).toLocaleString('pt-BR', { timeZone: 'America/Sao_Paulo', day: '2-digit', month: '2-digit', year: 'numeric', hour: '2-digit', minute: '2-digit', hour12: false }) : '—'}
-            </strong>
-          </span>
-          <span className={cn('font-bold', ticket.lateDelivery ? 'text-[var(--text-danger)]' : 'text-[var(--text-tertiary)]')}>
-            {ticket.resolvedAt ? (ticket.lateDelivery ? 'Entregue com atraso' : 'Entregue no prazo') : 'Ainda não resolvido'}
-          </span>
-        </div>
       </div>
 
       {/* Área principal */}
@@ -736,6 +720,80 @@ export default function InternalTicketDetailPage() {
               onKeyDown={(e) => { if (e.key === 'Enter') (e.target as HTMLInputElement).blur(); }}
               className="w-full text-3xl font-black text-[var(--text-primary)] tracking-tight leading-tight bg-transparent border border-transparent rounded-lg -mx-2 px-2 hover:border-[var(--border-default)] focus:border-[var(--accent)] focus:outline-none transition-colors"
             />
+
+            {/* Controle de entrega, logo abaixo do titulo. Prazo e entrega sao automaticos;
+                Reprovacao de QA e Ambiente reprovado sao marcacoes manuais, sem pontuacao. */}
+            {(() => {
+              const prazo = ticket.devDeadline;
+              const prazoAt = prazo?.at ? new Date(prazo.at) : null;
+              const entregaAt = ticket.resolvedAt ? new Date(ticket.resolvedAt) : null;
+              let situacaoPrazo: { texto: string; perigo: boolean } | null = null;
+              if (prazo?.applies && prazoAt) {
+                if (entregaAt) {
+                  situacaoPrazo = entregaAt.getTime() <= prazoAt.getTime()
+                    ? { texto: 'Resolvido no prazo', perigo: false }
+                    : { texto: 'Resolvido após o prazo', perigo: true };
+                } else {
+                  situacaoPrazo = Date.now() > prazoAt.getTime()
+                    ? { texto: 'Passou do prazo', perigo: true }
+                    : { texto: 'Dentro do prazo', perigo: false };
+                }
+              }
+              const fmt = (d: Date) => d.toLocaleString('pt-BR', { timeZone: 'America/Sao_Paulo', day: '2-digit', month: '2-digit', year: 'numeric', hour: '2-digit', minute: '2-digit', hour12: false });
+              return (
+                <div className="rounded-xl border border-[var(--border-default)] bg-[var(--surface-pill)]/40 p-4 space-y-3">
+                  <p className="text-[10px] font-black uppercase tracking-widest text-[var(--text-tertiary)]">Controle de entrega</p>
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-x-12 gap-y-3 text-xs">
+                    <div className="flex items-start gap-3">
+                      <span className="text-[11px] font-semibold uppercase text-[var(--text-tertiary)] w-40 shrink-0 pt-0.5">Prazo do desenvolvimento</span>
+                      <div className="flex flex-col gap-0.5 min-w-0">
+                        <span className="font-bold tabular-nums text-[var(--text-primary)]">
+                          {!prazo
+                            ? '—'
+                            : !prazo.applies
+                              ? 'Não se aplica'
+                              : prazoAt ? fmt(prazoAt) : '—'}
+                        </span>
+                        {situacaoPrazo && (
+                          <span className={cn('text-[10px] font-bold', situacaoPrazo.perigo ? 'text-[var(--text-danger)]' : 'text-[var(--text-success)]')}>
+                            {situacaoPrazo.texto}
+                          </span>
+                        )}
+                      </div>
+                    </div>
+                    <div className="flex items-start gap-3">
+                      <span className="text-[11px] font-semibold uppercase text-[var(--text-tertiary)] w-40 shrink-0 pt-0.5">Entrega real</span>
+                      <div className="flex flex-col gap-0.5 min-w-0">
+                        <span className="font-bold tabular-nums text-[var(--text-primary)]">{entregaAt ? fmt(entregaAt) : '—'}</span>
+                        {entregaAt && (
+                          <span className={cn('text-[10px] font-bold', ticket.lateDelivery ? 'text-[var(--text-danger)]' : 'text-[var(--text-tertiary)]')}>
+                            {ticket.lateDelivery ? 'Entregue com atraso' : 'Entregue no prazo'}
+                          </span>
+                        )}
+                      </div>
+                    </div>
+                    <label className="inline-flex items-center gap-2 cursor-pointer select-none font-semibold text-[var(--text-secondary)]">
+                      <input
+                        type="checkbox"
+                        checked={formQaRejected}
+                        onChange={e => { setFormQaRejected(e.target.checked); handleUpdateTicket({ qaRejected: e.target.checked }); }}
+                        className="h-4 w-4 accent-[var(--accent)]"
+                      />
+                      Reprovação de QA
+                    </label>
+                    <label className="inline-flex items-center gap-2 cursor-pointer select-none font-semibold text-[var(--text-secondary)]">
+                      <input
+                        type="checkbox"
+                        checked={formEnvironmentRejected}
+                        onChange={e => { setFormEnvironmentRejected(e.target.checked); handleUpdateTicket({ environmentRejected: e.target.checked }); }}
+                        className="h-4 w-4 accent-[var(--accent)]"
+                      />
+                      Ambiente reprovado
+                    </label>
+                  </div>
+                </div>
+              );
+            })()}
 
             {/* Grade de identificação (Odoo style) — mesmas classes do chamado
                 do cliente (grid-cols-1 sm:grid-cols-2, label w-24), com os

@@ -419,6 +419,9 @@ export interface InternalTicket {
   resolvedAt?: string | null;     // Entrega Real: primeira vez que virou Resolvido
   qaRejected?: boolean;           // Reprovação de QA (manual, sem pontuação)
   lateDelivery?: boolean;         // Atraso na entrega: resolvido depois do prazo
+  environmentRejected?: boolean;  // Ambiente reprovado (manual, sem pontuacao)
+  // Prazo do Desenvolvimento: N dias uteis desde a criacao (regra do ticket interno). So vem no detalhe.
+  devDeadline?: { at: string | null; days: number; minStars: number; applies: boolean } | null;
   id?: string; // Formatted ID like "int-0001"
   uuid?: string; // Real UUID from database
   parentTicketId?: string;

@@ -19,7 +19,7 @@ interface SimpleItem {
   usageCount?: number;
 }
 
-// Uma lista de rótulo simples (Categorias, Tipos de Solicitação, Produtos) —
+// Uma lista de rótulo simples (Tipos de Solicitação, Produtos) —
 // as três são idênticas em comportamento, então existe um componente só.
 //
 // A distinção entre ARQUIVAR e EXCLUIR é o ponto central desta tela: a FK
@@ -134,7 +134,7 @@ function SimpleListSection({
   );
 }
 
-export function SystemConfigContent({ categories, priorities, requestTypes, products, setCategories, setPriorities, setRequestTypes, setProducts, surveySettings, setSurveySettings }: any) {
+export function SystemConfigContent({ priorities, requestTypes, products, setPriorities, setRequestTypes, setProducts, surveySettings, setSurveySettings }: any) {
   const { currentUser } = useApp();
   const isAdmin = currentUser?.role === UserRole.ADMIN;
   // Esta tela lê e escreve nessas mesmas tabelas via estado elevado (props
@@ -144,11 +144,10 @@ export function SystemConfigContent({ categories, priorities, requestTypes, prod
   // bem-sucedida, pra essas outras telas não ficarem até 60s vendo uma
   // categoria/prioridade/produto/tipo desatualizado.
   const queryClient = useQueryClient();
-  const [newCatLabel, setNewCatLabel] = React.useState('');
   const [newProductLabel, setNewProductLabel] = React.useState('');
   // Exclusão definitiva só é oferecida para item sem uso (o botão nem aparece
   // nos demais), mas ainda assim é irreversível — daí a confirmação.
-  const [pendingDelete, setPendingDelete] = React.useState<{ type: SimpleListType; id: string; label: string } | null>(null);
+  const [pendingDelete, setPendingDelete] = React.useState<{ type: Exclude<SimpleListType, 'categories'>; id: string; label: string } | null>(null);
 
   // Estado local, setter, chave do cache compartilhado e o substantivo usado
   // nas mensagens — um lugar só, para as três listas. O setter é o setState do
@@ -157,7 +156,6 @@ export function SystemConfigContent({ categories, priorities, requestTypes, prod
   // dois cliques rápidos fariam o segundo partir da lista antiga e desfazer o
   // primeiro na tela.
   const LIST_META: Record<string, [any[], React.Dispatch<React.SetStateAction<any[]>>, string, string]> = {
-    'categories': [categories, setCategories, 'config_categories', 'Categoria'],
     'request-types': [requestTypes, setRequestTypes, 'config_request_types', 'Tipo de solicitação'],
     'products': [products, setProducts, 'config_products', 'Produto']
   };
@@ -166,7 +164,7 @@ export function SystemConfigContent({ categories, priorities, requestTypes, prod
   // categories/request-types/products no mesmo branch, então não há motivo
   // para três cópias de "insere, reconsulta, avisa o cache".
   const addSimpleItem = async (
-    type: 'categories' | 'request-types' | 'products',
+    type: 'request-types' | 'products',
     label: string,
     clear: () => void
   ) => {
@@ -208,7 +206,7 @@ export function SystemConfigContent({ categories, priorities, requestTypes, prod
   };
 
   const deleteSimpleItem = async (
-    type: 'categories' | 'request-types' | 'products',
+    type: 'request-types' | 'products',
     id: string
   ) => {
     const [, setList, queryKey, noun] = LIST_META[type];
@@ -226,7 +224,7 @@ export function SystemConfigContent({ categories, priorities, requestTypes, prod
   // listas porque o chamado aponta pra elas por id — trocar o rótulo não
   // desliga nada. Propaga o erro para o EditableLabel voltar ao valor antigo.
   const renameItem = async (
-    type: 'categories' | 'request-types' | 'products',
+    type: 'request-types' | 'products',
     id: string,
     label: string
   ) => {
@@ -243,9 +241,6 @@ export function SystemConfigContent({ categories, priorities, requestTypes, prod
       throw err;
     }
   };
-
-  const addCategory = () => addSimpleItem('categories', newCatLabel, () => setNewCatLabel(''));
-  const deleteCategory = (id: string) => deleteSimpleItem('categories', id);
 
   const [newReqTypeLabel, setNewReqTypeLabel] = React.useState('');
 
@@ -388,18 +383,6 @@ export function SystemConfigContent({ categories, priorities, requestTypes, prod
     <>
     <div className="grid grid-cols-1 md:grid-cols-2 gap-8 border-t border-[var(--border-default)] pt-8 mt-8">
       <SimpleListSection
-        title="Categorias"
-        placeholder="Nova categoria..."
-        items={categories}
-        value={newCatLabel}
-        onChange={setNewCatLabel}
-        onAdd={addCategory}
-        onRename={(id, next) => renameItem('categories', id, next)}
-        onArchive={(id, archived) => archiveItem('categories', id, archived)}
-        onDelete={(item) => setPendingDelete({ type: 'categories', id: item.id, label: item.label })}
-      />
-
-      <SimpleListSection
         title="Tipos de Solicitação"
         placeholder="Novo tipo de solicitação..."
         items={requestTypes}
@@ -523,7 +506,7 @@ export function SystemConfigContent({ categories, priorities, requestTypes, prod
         </div>
       </div>
       <p className="text-[10px] text-[var(--text-tertiary)] font-medium px-2 italic">
-        * Enviada por WhatsApp junto com o aviso de encerramento. O cliente responde "1" (satisfeito) ou "0" (poderia ser melhor) dentro do prazo configurado.
+        * Enviada por WhatsApp junto com o aviso de encerramento. O cliente responde &quot;1&quot; (satisfeito) ou &quot;0&quot; (poderia ser melhor) dentro do prazo configurado.
       </p>
     </div>
 
