@@ -99,9 +99,11 @@ export function LinkContactModal({
       setNewCompanyName('');
       async function loadData() {
         try {
-          const emps = await UserService.getEmployees();
+          // As duas buscas não dependem uma da outra — iam uma depois da
+          // outra à toa (achado 2026-10-08, varredura de performance: é
+          // parte do que fazia "Vincular Contato" parecer lento ao abrir).
+          const [emps, comps] = await Promise.all([UserService.getEmployees(), CompanyService.getAll()]);
           setUsers(emps);
-          const comps = await CompanyService.getAll();
           setCompanies(comps);
         } catch (e) {
           console.error("Error loading LinkContactModal data:", e);
@@ -168,23 +170,15 @@ export function LinkContactModal({
       const currentPhones = user.phones || (user.phone ? [user.phone] : []);
       const needsPhone = !!session.customerPhone && !currentPhones.includes(session.customerPhone);
 
-      // Sincroniza a foto do WhatsApp com o cadastro, só se ele ainda não tiver avatar
-      // (não sobrescreve uma foto definida manualmente).
-      let newAvatarUrl: string | null = null;
-      if (!user.avatarUrl) {
-        newAvatarUrl = await fetchWhatsappContactPhoto();
-      }
-
-      if (needsPhone || newAvatarUrl) {
-        await UserService.save({
-          ...user,
-          phones: needsPhone ? [...currentPhones, session.customerPhone!] : currentPhones,
-          phone: user.phone || session.customerPhone,
-          avatarUrl: newAvatarUrl || user.avatarUrl
-        });
-      }
-
-      // Update chat session
+      // Vincular a CONVERSA é o que a pessoa está esperando ver fechar — vai
+      // primeiro e sozinho. Completar telefone/foto do cadastro (abaixo) é um
+      // retoque em segundo plano: continua acontecendo, só não trava mais o
+      // "Vincular" por ele. Achado 2026-10-08 (varredura de performance): a
+      // busca da foto do WhatsApp (fetchWhatsappContactPhoto), quando o
+      // contato ainda não tem avatar, depende de um socket Baileys ao vivo —
+      // instável/lento com frequência — e isso atrasava o vínculo inteiro à
+      // toa, mesmo quando o único efeito visível que importava (a conversa
+      // mostrar o contato certo) não tinha nada a ver com essa foto.
       const res = await fetch('/api/chats', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -202,6 +196,28 @@ export function LinkContactModal({
 
       onSuccess();
       onClose();
+
+      // Melhor esforço, fora do caminho acima: se falhar, só loga — não
+      // desfaz o vínculo (que já está confirmado) nem mostra erro pra algo
+      // que o usuário nem pediu diretamente.
+      (async () => {
+        try {
+          let newAvatarUrl: string | null = null;
+          if (!user.avatarUrl) {
+            newAvatarUrl = await fetchWhatsappContactPhoto();
+          }
+          if (needsPhone || newAvatarUrl) {
+            await UserService.save({
+              ...user,
+              phones: needsPhone ? [...currentPhones, session.customerPhone!] : currentPhones,
+              phone: user.phone || session.customerPhone,
+              avatarUrl: newAvatarUrl || user.avatarUrl
+            });
+          }
+        } catch (err) {
+          console.error('Erro ao sincronizar telefone/foto do contato recém-vinculado:', err);
+        }
+      })();
     } catch (e) {
       console.error(e);
       toast.error(e instanceof Error && e.message ? e.message : 'Erro ao associar contato.');

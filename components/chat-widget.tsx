@@ -462,7 +462,7 @@ export function ChatWidget() {
   useEffect(() => {
     if (!activeOmniChatId) return;
     if (customerSessions.some(s => s.id === activeOmniChatId)) return;
-    fetchChatSessions().then(setCustomerSessions);
+    reloadAllSessions();
   }, [activeOmniChatId, customerSessions]);
 
   useEffect(() => {
@@ -778,8 +778,7 @@ export function ChatWidget() {
 
     if (!('error' in result)) {
       toast.success(targetUserId ? 'Atendimento transferido com sucesso!' : 'Atendimento assumido com sucesso!');
-      const refreshedSessions = await fetchChatSessions();
-      setCustomerSessions(refreshedSessions);
+      await reloadAllSessions();
     } else {
       toast.error('Erro ao atualizar o atendimento.');
     }
@@ -791,8 +790,7 @@ export function ChatWidget() {
 
     if (!('error' in result)) {
       toast.success('Atendimento devolvido para a fila!');
-      const refreshedSessions = await fetchChatSessions();
-      setCustomerSessions(refreshedSessions);
+      await reloadAllSessions();
     } else {
       toast.error('Erro ao devolver o atendimento para a fila.');
     }
@@ -864,6 +862,36 @@ export function ChatWidget() {
   const scrollRef = useRef<HTMLDivElement>(null);
   const chatFileInputRef = useRef<HTMLInputElement>(null);
   const messageInputRef = useRef<HTMLTextAreaElement>(null);
+
+  // Contador compartilhado pelos DOIS efeitos que recarregam customerSessions por
+  // completo (poll de 30s + o listener de 'sessions-changed' do SSE global, mais
+  // abaixo): cada chamada a fetchChatSessions() pega um número; só aplica o
+  // resultado se, quando ele volta, ainda for o pedido MAIS RECENTE emitido por
+  // qualquer um dos dois. Achado em 2026-10-08: um marcador (tag) escolhido no
+  // popover do chat ficava "saindo e voltando" até se fixar — a causa era dois
+  // desses reloads completos em voo ao mesmo tempo (ex.: o próprio evento de
+  // marcador + o de QUALQUER outra conversa de QUALQUER analista, já que
+  // 'sessions-changed' é global) respondendo FORA DE ORDEM: o mais lento, com um
+  // retrato da sessão de ANTES do marcador mudar, chegava depois do mais rápido
+  // (já com o valor novo) e sobrescrevia a tela de volta para o estado antigo,
+  // até o próximo reload corrigir de novo. Sem fila nem cancelamento de
+  // requisição — só "o último que FOI PEDIDO, não o último que RESPONDEU, vale".
+  const sessionsReloadSeqRef = useRef(0);
+
+  // Ponto único pra um reload COMPLETO de customerSessions fora dos dois
+  // efeitos acima (ex.: depois de vincular contato, editar cadastro, vincular
+  // chamado) — passa pelo mesmo contador, então também não pode "perder" pra
+  // um reload mais antigo que ainda estava em voo. Preferir um patch local
+  // (como handleChatTagsChange já faz) sempre que os dados da própria ação já
+  // bastarem: isto aqui baixa de novo TODAS as conversas abertas e TODAS as
+  // mensagens delas — pesado, e a causa raiz da lentidão ao vincular
+  // contato/gerar chamado (ver achado 2026-10-08 nesses dois fluxos).
+  const reloadAllSessions = React.useCallback(async (signal?: AbortSignal, userId?: string) => {
+    const mySeq = ++sessionsReloadSeqRef.current;
+    const sessions = await fetchChatSessions(signal, userId);
+    if (mySeq === sessionsReloadSeqRef.current) setCustomerSessions(sessions);
+    return sessions;
+  }, []);
 
   const [isRecording, setIsRecording] = useState(false);
   const [recordingSeconds, setRecordingSeconds] = useState(0);
@@ -1156,12 +1184,22 @@ export function ChatWidget() {
     async function loadData() {
       console.log('ChatWidget: Iniciando loadData');
       try {
-        // Use individual try-catch for better error identification
-        const sessions = await fetchChatSessions(controller.signal, currentUser?.id).catch(e => { console.error('sessions fetch error:', e); return [] as any; });
-        const notes = await fetchQuickNotes(controller.signal).catch(e => { console.error('notes fetch error:', e); return [] as any; });
-        const statuses = await fetchAnalystStatuses(controller.signal).catch(e => { console.error('statuses fetch error:', e); return [] as any; });
-        const comp = await fetchCompanies(controller.signal).catch(e => { console.error('companies fetch error:', e); return [] as any; });
-        const allTags = await ConfigService.getTags().catch(e => { console.error('tags fetch error:', e); return [] as TagConfig[]; });
+        // As 6 buscas abaixo são independentes entre si (nenhuma usa o
+        // resultado de outra) — iam uma depois da outra (6 idas sequenciais
+        // ao servidor, somando os tempos de TODAS) só porque foram escritas
+        // assim; `Promise.all` manda as 6 ao mesmo tempo, e o total passa a
+        // ser o tempo da MAIS LENTA, não a soma. Achado 2026-10-08, varredura
+        // de performance: é a primeira coisa que o widget faz ao montar
+        // (login, abrir o chat) — o alvo mais direto pra quem reclama de
+        // "lentidão" bem no início.
+        const [sessions, notes, statuses, comp, allTags, queues] = await Promise.all([
+          fetchChatSessions(controller.signal, currentUser?.id).catch(e => { console.error('sessions fetch error:', e); return [] as any; }),
+          fetchQuickNotes(controller.signal).catch(e => { console.error('notes fetch error:', e); return [] as any; }),
+          fetchAnalystStatuses(controller.signal).catch(e => { console.error('statuses fetch error:', e); return [] as any; }),
+          fetchCompanies(controller.signal).catch(e => { console.error('companies fetch error:', e); return [] as any; }),
+          ConfigService.getTags().catch(e => { console.error('tags fetch error:', e); return [] as TagConfig[]; }),
+          fetchQueues(controller.signal).catch(e => { console.error('queues fetch error:', e); return [] as any; })
+        ]);
 
         // Check if controller was aborted
         if (controller.signal.aborted) return;
@@ -1176,8 +1214,6 @@ export function ChatWidget() {
         setAnalystStatuses(statuses);
         setCompanies(comp);
         setChatTags((allTags || []).filter(t => t.domain === 'chat'));
-
-        const queues = await fetchQueues(controller.signal).catch(e => { console.error('queues fetch error:', e); return [] as any; });
         setAllQueues(queues || []);
         setQueuesLoaded(true);
         if (currentUser) {
@@ -1316,12 +1352,17 @@ export function ChatWidget() {
 
       const controller = new AbortController();
       abortControllerRef.current = controller;
+      const mySeq = ++sessionsReloadSeqRef.current;
 
       try {
         const sessions = await fetchChatSessions(controller.signal, currentUser?.id);
         if (controller.signal.aborted || abortControllerRef.current !== controller) {
           return;
         }
+        // Só aplica se nem este poll nem o listener de SSE abaixo dispararam
+        // um reload mais novo enquanto este estava em voo (ver comentário do
+        // sessionsReloadSeqRef).
+        if (mySeq !== sessionsReloadSeqRef.current) return;
         setCustomerSessions(sessions);
       } catch (err: any) {
         const errMsg = String(err?.message ?? '');
@@ -1368,7 +1409,14 @@ export function ChatWidget() {
     const refresh = () => {
       if (debounceTimer) clearTimeout(debounceTimer);
       debounceTimer = setTimeout(() => {
-        fetchChatSessions(undefined, currentUser.id).then(setCustomerSessions).catch(() => {});
+        const mySeq = ++sessionsReloadSeqRef.current;
+        fetchChatSessions(undefined, currentUser.id).then(sessions => {
+          // Mesmo guard do poll de 30s acima: um evento global (de QUALQUER
+          // conversa, de QUALQUER analista) pode disparar este reload bem na
+          // hora em que outro já estava em voo — sem isso, o que responder
+          // por último "ganhava" mesmo sendo o pedido mais ANTIGO.
+          if (mySeq === sessionsReloadSeqRef.current) setCustomerSessions(sessions);
+        }).catch(() => {});
       }, 150);
     };
 
@@ -1627,8 +1675,7 @@ useEffect(() => {
        // handleSendMessage — aqui só retomamos um atendimento que já exista.
        const loadSession = async () => {
          try {
-            const sessions = await fetchChatSessions();
-            setCustomerSessions(sessions);
+            const sessions = await reloadAllSessions();
             // action=sessions devolve as sessões de TODO mundo (o widget da
             // equipe depende disso) — filtrar pelo próprio usuário aqui é
             // obrigatório, senão o cliente cairia na conversa de outra pessoa.
@@ -1909,7 +1956,18 @@ useEffect(() => {
         }
 
         if (!isSurveyResponse && session.customerPhone) {
-          await forwardMessageToWhatsApp({
+          // Não aguarda (achado 2026-10-08, mesma razão já documentada nos
+          // outros 2 pontos que mandam mensagem pelo WhatsApp, linhas abaixo:
+          // com o WhatsApp desconectado, WhatsAppService.sendMessage tenta
+          // reconectar até 3x com ~20s de espera cada — quase 1min). Este
+          // era o ÚNICO dos três que ainda esperava: enviar uma mensagem
+          // comum numa conversa de WhatsApp travava o composer até quase 1
+          // minuto sempre que a instância estivesse fora do ar, pela mensagem
+          // mais frequente do dia a dia. O 1º tique (`sending`) já aparece
+          // antes daqui (newMessage.whatsappStatus); o 2º/erro chega via
+          // patchMessageWhatsappStatus dentro da própria função, em segundo
+          // plano, sem bloquear o envio.
+          forwardMessageToWhatsApp({
             sessionId: effectiveSessionId,
             messageId: newMessage.id,
             customerPhone: session.customerPhone,
@@ -1921,9 +1979,16 @@ useEffect(() => {
           });
         }
 
-        // Refresh sessions from Supabase
-        const refreshedSessions = await fetchChatSessions();
-        setCustomerSessions(refreshedSessions);
+        // A atualização otimista (logo acima) já deixou a mensagem certa na
+        // tela — recarregar TODAS as conversas abertas (e todas as mensagens
+        // delas) só pra confirmar isso de novo é o reload mais caro do
+        // widget, repetido a cada mensagem enviada por qualquer analista (achado
+        // 2026-10-08, ver CLAUDE.md seção 15). Só vale a pena quando a sessão
+        // efetiva mudou de id (pushChatMessage reabriu/trocou de sessão) — aí
+        // sim a sessão nova ainda não existe no estado local.
+        if (effectiveSessionId !== activeChatId) {
+          await reloadAllSessions();
+        }
 
         // Clear notifications for this session on respond
         markNotificationsAsReadByTarget(effectiveSessionId);
@@ -1957,8 +2022,12 @@ useEffect(() => {
         if (effectiveSessionId !== activeChatId) {
           setSelectedChatId(effectiveSessionId);
         }
-        const refreshedSessions = await fetchChatSessions();
-        setCustomerSessions(refreshedSessions);
+        // Aqui o reload é mesmo necessário (ao contrário do ramo "session"
+        // acima): o placeholder otimista não tem queueId/channel, e
+        // forwardMessageToWhatsApp precisa dos dois — mas passa pelo mesmo
+        // contador dos outros reloads completos (reloadAllSessions), pra não
+        // entrar na mesma corrida que fazia marcador de chat "sair e voltar".
+        const refreshedSessions = await reloadAllSessions();
 
         // Mesmo encaminhamento pro WhatsApp que o ramo "session" acima faz —
         // faltava aqui. Sem isso, responder uma conversa que ainda não tinha
@@ -1969,7 +2038,10 @@ useEffect(() => {
         // este ramo nunca teve a chamada a /api/whatsapp/send.
         const freshSession: any = refreshedSessions.find((s: any) => s.id === effectiveSessionId);
         if (freshSession?.customerPhone) {
-          await forwardMessageToWhatsApp({
+          // Não aguarda — mesma razão do ramo "session" acima (achado
+          // 2026-10-08): com o WhatsApp desconectado isso pode levar quase
+          // 1min, e aqui é justamente a 1ª mensagem de uma conversa nova.
+          forwardMessageToWhatsApp({
             sessionId: effectiveSessionId,
             messageId: newMessage.id,
             customerPhone: freshSession.customerPhone,
@@ -2007,8 +2079,7 @@ useEffect(() => {
         return;
       }
       setSelectedChatId(result.sessionId);
-      const sessions = await fetchChatSessions();
-      setCustomerSessions(sessions);
+      await reloadAllSessions();
       toast.success(result.usedTemplate
         ? 'Fora da janela de 24h — mensagem inicial enviada e conversa aberta.'
         : 'Conversa aberta — o contato já pode ser respondido normalmente.');
@@ -2079,8 +2150,7 @@ useEffect(() => {
       } as any);
 
       setSelectedChatId(newSessionId);
-      const sessions = await fetchChatSessions();
-      setCustomerSessions(sessions);
+      await reloadAllSessions();
       setIsDuplicateModalOpen(false);
       toast.success('Conversa duplicada — novo atendimento aberto.');
     } catch (error) {
@@ -2210,8 +2280,18 @@ useEffect(() => {
         }
 
         setIsFinishModalOpen(false);
-        const sessions = await fetchChatSessions();
-        setCustomerSessions(sessions);
+        // Patch local em vez de recarregar TODAS as conversas abertas (achado
+        // 2026-10-08, mesma causa da lentidão ao "Vincular contato" — ver
+        // CLAUDE.md seção 15): já sabemos exatamente o que mudou nesta ÚNICA
+        // sessão (o chamado criado + o aviso que acabamos de registrar), sem
+        // precisar perguntar ao servidor de novo.
+        setCustomerSessions(prev => prev.map(s => s.id === selectedChat.id ? {
+          ...s,
+          ticketId: createdTicketId,
+          ticketNumber: createdTicketNumber,
+          messages: [...(s.messages || []), ticketNoticeMessage],
+          lastMessageAt: ticketNoticeMessage.timestamp
+        } : s));
         setTicketTitle('');
         toast.success(`Chamado #${String(createdTicketNumber).padStart(4, '0')} criado com sucesso!`, {
           description: `${ticketTitle ? `${ticketTitle} — ` : ''}O atendimento continua em aberto.`
@@ -2328,8 +2408,11 @@ useEffect(() => {
 
       setIsFinishModalOpen(false);
       setSelectedChatId(null);
-      const sessions = await fetchChatSessions();
-      setCustomerSessions(sessions);
+      // Fechar a sessão muda se ela ainda deve aparecer na lista (depende da
+      // janela de pesquisa de satisfação) — menos direto de reproduzir num
+      // patch local que os outros pontos desta função; mantém o reload, só
+      // protegido contra a mesma corrida dos demais (reloadAllSessions).
+      await reloadAllSessions();
       setTicketTitle('');
       toast.success(
         hadExistingTicket
@@ -4518,7 +4601,7 @@ useEffect(() => {
         session={selectedChat || null}
         onSuccess={() => {
           refetchAllUsers();
-          fetchChatSessions().then(setCustomerSessions);
+          reloadAllSessions();
         }}
       />
 
@@ -4539,7 +4622,7 @@ useEffect(() => {
         user={selectedChatContact ?? null}
         onSuccess={() => {
           refetchAllUsers();
-          fetchChatSessions().then(setCustomerSessions);
+          reloadAllSessions();
         }}
       />
 
@@ -4549,7 +4632,7 @@ useEffect(() => {
         sessionId={selectedChat?.id || null}
         companyId={selectedChatContact?.companyId}
         onSuccess={() => {
-          fetchChatSessions().then(setCustomerSessions);
+          reloadAllSessions();
         }}
       />
 
@@ -4559,7 +4642,7 @@ useEffect(() => {
           onClose={() => setPhoneContactPanelPhone(null)}
           onOpenChat={(sessionId) => {
             setSelectedChatId(sessionId);
-            fetchChatSessions().then(setCustomerSessions);
+            reloadAllSessions();
           }}
           currentUserId={currentUser.id}
         />
