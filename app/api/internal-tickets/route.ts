@@ -5,6 +5,7 @@ import { computeInternalTicketSla } from '@/lib/sla';
 import { persistAttachments } from '@/lib/services/attachment-storage';
 import { getActorEffectivePermissions } from '@/lib/server-auth';
 import { getTicketConfig } from '@/lib/services/ticket-points-service';
+import { Permission } from '@/lib/types';
 
 // Rota dos tickets internos — criada para tirar o InternalTicketService do
 // shim de compatibilidade Supabase (ver lib/services/ticket-service.ts).
@@ -133,9 +134,25 @@ export async function GET(request: NextRequest) {
         params.push(teamId);
         conditions.push(`internal_team_id = $${params.length}`);
       }
+      const hotfixId = searchParams.get('hotfixId');
+      if (hotfixId) {
+        // Usado pelo histórico de Hotfix/Publicação (Configurações), pra
+        // expandir um item publicado e ver quais tickets internos ele afetou.
+        params.push(hotfixId);
+        conditions.push(`hotfix_id = $${params.length}`);
+      }
       if (search) {
+        // Busca por título OU pelo número do ticket (2026-10-08, pedido do
+        // usuário) — aceita "23", "0023" ou "int-0023" (o formato que a tela
+        // mostra); o número puro bate contra internal_ticket_number::text.
+        const numeroBuscado = search.replace(/^int-/i, '').replace(/^0+(?=\d)/, '');
         params.push(`%${search}%`);
-        conditions.push(`title ILIKE $${params.length}`);
+        if (numeroBuscado && /^\d+$/.test(numeroBuscado)) {
+          params.push(numeroBuscado);
+          conditions.push(`(title ILIKE $${params.length - 1} OR internal_ticket_number::text = $${params.length})`);
+        } else {
+          conditions.push(`title ILIKE $${params.length}`);
+        }
       }
 
       const where = conditions.length ? `WHERE ${conditions.join(' AND ')}` : '';
@@ -481,6 +498,29 @@ export async function POST(request: NextRequest) {
       const { id, ids, fields } = body;
       const targetIds: string[] = Array.isArray(ids) && ids.length > 0 ? ids : (id ? [id] : []);
       if (targetIds.length === 0 || !fields) return NextResponse.json({ error: 'id(s) e fields são obrigatórios.' }, { status: 400 });
+
+      // Desmarcar "Reprovação de QA"/"Ambiente reprovado" (true → false) exige
+      // internal:qa_override além de internal:edit — qualquer um com acesso ao
+      // ticket marca, só quem tem a permissão extra desfaz (pedido do usuário,
+      // 2026-10-08). Só barra a transição de VERDADE: reenviar o formulário
+      // inteiro sem mexer no checkbox (fields.qaRejected ainda true) não cai aqui.
+      const wantsToUncheckQa = fields.qaRejected === false;
+      const wantsToUncheckEnv = fields.environmentRejected === false;
+      if (wantsToUncheckQa || wantsToUncheckEnv) {
+        const current = await query(
+          `SELECT qa_rejected, environment_rejected FROM public.internal_tickets WHERE id = ANY($1::text[])`,
+          [targetIds]
+        );
+        const isRealUncheck = current.rows.some(r =>
+          (wantsToUncheckQa && r.qa_rejected) || (wantsToUncheckEnv && r.environment_rejected)
+        );
+        if (isRealUncheck && user.role !== 'Administrador') {
+          const permissions = await getActorEffectivePermissions(user.id);
+          if (!permissions.includes(Permission.INTERNAL_QA_OVERRIDE)) {
+            return NextResponse.json({ error: 'Só quem tem a permissão de desmarcar Reprovação de QA/Ambiente pode desfazer essa marcação.' }, { status: 403 });
+          }
+        }
+      }
 
       const COLUMNS: Record<string, string> = {
         title: 'title',

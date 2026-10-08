@@ -65,6 +65,13 @@ export enum Permission {
   // Sem isto, quem tem internal:view só enxerga tickets internos da(s)
   // própria(s) equipe(s) (internalTeamIds) — ver internal-tickets/page.tsx.
   INTERNAL_TICKETS_VIEW_ALL = 'internal:view_all',
+  // Qualquer um com internal:edit pode MARCAR "Reprovação de QA"/"Ambiente
+  // reprovado" no ticket interno — DESMARCAR (true → false) depois de
+  // marcado exige esta permissão além de internal:edit (pedido do usuário,
+  // 2026-10-08: só responsáveis da equipe desfazem a reprovação, não quem
+  // só abriu/editou o ticket). Ver app/api/internal-tickets/route.ts
+  // (action=update) e app/(portal)/internal-tickets/[id]/page.tsx.
+  INTERNAL_QA_OVERRIDE = 'internal:qa_override',
   CUSTOMERS_READ = 'customers:read',
   CUSTOMERS_WRITE = 'customers:write',
   // Criar a avaliação interna de uma empresa-cliente (modal disparado ao
@@ -846,6 +853,12 @@ export interface HourlyBucket {
 export interface SatisfactionResult extends MetricsPeriodInfo {
   positiveRate: number | null; // positivos / avaliados
   responseRate: number | null; // avaliados / fechados no período
+  // positivos / TOTAL de chats fechados no período (avaliado ou não) — pedido
+  // do usuário em 2026-10-08: o "% satisfação" de sempre (positiveRate) soa
+  // mais alto que a realidade quando pouca gente responde a pesquisa, porque
+  // só conta quem avaliou. Esta é a mesma positividade, mas sobre o universo
+  // inteiro de chats do período.
+  positiveRateOfTotal: number | null;
   evaluated: number;
   totalClosed: number;
 }

@@ -60,6 +60,11 @@ export default function DashboardPage() {
   const [allTickets, setAllTickets] = useState<TicketType[]>([]);
   const [filteredTickets, setFilteredTickets] = useState<TicketType[]>([]);
   const [loading, setLoading] = useState(true);
+  // Card "Chamados sem resposta" (pedido do usuário, 2026-10-08) — fonte
+  // própria (GET /api/tickets?action=awaiting-response), separada do
+  // carregamento pesado de allTickets: só equipe vê, nenhum ticket_messages
+  // precisa viajar pro resto da tela.
+  const [awaitingResponse, setAwaitingResponse] = useState<{ id: string; ticketNumber?: number; title: string; updatedAt: string }[]>([]);
   const { currentUser, setIsNewTicketModalOpen, refreshTrigger, hasPermission } = useApp();
   const searchParams = useSearchParams();
 
@@ -281,6 +286,17 @@ export default function DashboardPage() {
 
     return () => controller.abort();
   }, [searchParams, currentUser?.id, currentUser?.role, refreshTrigger, router, canSeeTickets]);
+
+  useEffect(() => {
+    const isCompanyScoped = [UserRole.CUSTOMER, UserRole.EMPLOYEE].includes(currentUser?.role as UserRole);
+    if (!canSeeTickets || isCompanyScoped) { setAwaitingResponse([]); return; }
+    let cancelled = false;
+    fetch('/api/tickets?action=awaiting-response')
+      .then(res => (res.ok ? res.json() : []))
+      .then(data => { if (!cancelled && Array.isArray(data)) setAwaitingResponse(data); })
+      .catch(() => {});
+    return () => { cancelled = true; };
+  }, [canSeeTickets, currentUser?.role, refreshTrigger]);
 
   // Só status de topo viram coluna — sub-status (config_statuses.parent_status_id
   // preenchido) mora dentro do status pai (tickets.sub_status), nunca é um
@@ -528,7 +544,7 @@ export default function DashboardPage() {
         onFilterChange={(filtered) => setFilteredTickets(filtered)}
       />
 
-      <div className="grid grid-cols-1 md:grid-cols-4 gap-6">
+      <div className="grid grid-cols-1 md:grid-cols-5 gap-6">
         <StatCard
           label="Total em Aberto"
           value={filteredTickets.filter(t => !isClosedTicketStatus(t.status)).length}
@@ -559,16 +575,23 @@ export default function DashboardPage() {
           textColor="text-[var(--text-warning)]"
           icon={<User size={14} className="text-[var(--text-warning-strong)]" />}
         />
+        <StatCard
+          label="Chamados sem Resposta"
+          value={awaitingResponse.length}
+          color={awaitingResponse.length > 0 ? "bg-[var(--surface-warning)] border-[var(--border-alert)]" : "bg-[var(--surface-card)]"}
+          textColor="text-[var(--text-warning)]"
+          icon={<AlertCircle size={14} className="text-[var(--text-warning-strong)]" />}
+        />
       </div>
 
       {/* Seção de Chamados Prioritários */}
-      {(stats.overdue > 0 || stats.nearExpiry > 0 || stats.unassigned > 0) && (
+      {(stats.overdue > 0 || stats.nearExpiry > 0 || stats.unassigned > 0 || awaitingResponse.length > 0) && (
         <div className="space-y-3">
           <div className="flex items-center gap-2 px-2">
              <div className="w-1.5 h-1.5 rounded-full bg-[var(--text-danger)] animate-pulse" />
              <h3 className="text-xs font-semibold uppercase tracking-widest text-[var(--text-tertiary)]">Chamados Prioritários</h3>
           </div>
-          <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
+          <div className="grid grid-cols-1 lg:grid-cols-4 gap-4">
             {/* Lista de Vencidos */}
             <PriorityList 
               title="SLA Vencido" 
@@ -601,9 +624,20 @@ export default function DashboardPage() {
             />
 
             {/* Novos Sem Analista */}
-            <PriorityList 
-              title="Sem Analistas" 
+            <PriorityList
+              title="Sem Analistas"
               tickets={allTickets.filter(t => t.status === TicketStatus.NEW && !t.assigneeId)}
+              color="amber"
+              onSelect={setSelectedTicket}
+              priorities={priorities}
+              users={users}
+            />
+
+            {/* Sem Resposta: última mensagem é do cliente, ninguém da equipe
+                respondeu depois ainda (ver GET /api/tickets?action=awaiting-response) */}
+            <PriorityList
+              title="Sem Resposta"
+              tickets={allTickets.filter(t => awaitingResponse.some(a => a.id === t.id))}
               color="amber"
               onSelect={setSelectedTicket}
               priorities={priorities}
@@ -844,7 +878,7 @@ function InternalDashboard({ tickets, loading, router, statuses }: { tickets: In
     const stale = active.filter(t => {
       if (!t.updatedAt) return false;
       const days = (now.getTime() - new Date(t.updatedAt).getTime()) / (1000 * 60 * 60 * 24);
-      return days >= 3;
+      return days >= 2; // era 3+ dias, ajustado a pedido do usuário em 2026-10-08
     }).sort((a, b) => new Date(a.updatedAt || 0).getTime() - new Date(b.updatedAt || 0).getTime());
 
     return { active: active.length, overdue, nearExpiry, unassignedNew, highPriority, stale };
@@ -938,7 +972,7 @@ function InternalDashboard({ tickets, loading, router, statuses }: { tickets: In
           {stats.stale.length > 0 && (
             <div className="bg-[var(--surface-card)] rounded-2xl border border-[var(--border-default)] p-4">
               <h3 className="text-xs font-semibold uppercase tracking-widest text-[var(--text-tertiary)] mb-3 flex items-center gap-2">
-                <Clock size={13} /> Sem Movimento (3+ dias)
+                <Clock size={13} /> Sem Movimento (2+ dias)
               </h3>
               <div className="space-y-2 max-h-[160px] overflow-y-auto scrollbar-thin pr-1">
                 {stats.stale.slice(0, 5).map(t => (

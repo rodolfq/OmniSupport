@@ -73,6 +73,7 @@ export function LinkInternalTicketModal({ isOpen, onClose, onLink, excludeIds = 
         createdAt: it.created_at,
         updatedAt: it.updated_at,
         slaLimit: it.sla_limit,
+        internalTicketNumber: it.internal_ticket_number ?? null,
       })));
       setLoading(false);
     };
@@ -106,7 +107,7 @@ export function LinkInternalTicketModal({ isOpen, onClose, onLink, excludeIds = 
                 <Search size={16} className="absolute left-3 top-1/2 -translate-y-1/2 text-[var(--text-tertiary)]" />
                 <input
                   type="text"
-                  placeholder="Buscar tickets internos..."
+                  placeholder="Buscar por título ou nº (ex: 23 ou int-0023)..."
                   value={search}
                   onChange={(e) => setSearch(e.target.value)}
                   className="w-full pl-9 pr-3 py-2 rounded-lg border border-[var(--border-default)] text-sm focus:border-[var(--text-warning-strong)] outline-none"
@@ -137,7 +138,14 @@ export function LinkInternalTicketModal({ isOpen, onClose, onLink, excludeIds = 
                       onClick={() => onLink(t.id!)}
                       className="w-full p-3 text-left border border-[var(--border-default)] rounded-lg hover:bg-[var(--surface-card)] transition-all"
                     >
-                      <p className="text-sm font-bold text-[var(--text-primary)]">{t.title}</p>
+                      <div className="flex items-center justify-between gap-2">
+                        <p className="text-sm font-bold text-[var(--text-primary)]">{t.title}</p>
+                        {t.internalTicketNumber != null && (
+                          <span className="text-[10px] font-bold text-[var(--text-tertiary)] uppercase shrink-0">
+                            int-{String(t.internalTicketNumber).padStart(4, '0')}
+                          </span>
+                        )}
+                      </div>
                       <p className="text-xs text-[var(--text-tertiary)] mt-1">{t.teamId || 'Sem equipe'}</p>
                     </button>
                   ))}

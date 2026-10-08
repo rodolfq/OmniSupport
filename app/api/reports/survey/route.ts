@@ -106,7 +106,8 @@ export async function GET(request: NextRequest) {
         totalClosed: satisfacao.totalClosed,
         evaluated: satisfacao.evaluated,
         positiveRate: satisfacao.positiveRate,
-        responseRate: satisfacao.responseRate
+        responseRate: satisfacao.responseRate,
+        positiveRateOfTotal: satisfacao.positiveRateOfTotal
       });
     }
 
@@ -148,16 +149,26 @@ export async function GET(request: NextRequest) {
       const offset = Math.max(Number(searchParams.get('offset') ?? 0) || 0, 0);
       const bounds = await getPeriodBounds(filter);
 
+      // `rating` (2026-10-08, pedido do usuário: hiperlink no good/bad do
+      // operador → listar os atendimentos) — 1 (positivas) ou -1 (negativas,
+      // comportamento de sempre). `analystId` filtra por responsável
+      // (h.assignee_id), usado pelo drill-down da quebra por dimensão
+      // "Analista" — ambos opcionais, sem quebrar quem já chamava sem eles.
+      const ratingParam = searchParams.get('rating');
+      const rating = ratingParam === '1' ? 1 : -1;
+      const analystId = searchParams.get('analystId') || null;
+
       const countRes = await query(
         `SELECT COUNT(*)::int AS total
          FROM public.chat_histories h
          LEFT JOIN public.chat_sessions s ON s.id = h.session_id
          LEFT JOIN public.queues q ON q.id = s.queue_id
-         WHERE h.rating = -1
+         WHERE h.rating = $5
            AND h.finished_at >= $1 AND h.finished_at < $2
            AND ($3::text IS NULL OR s.queue_id = $3)
-           AND ($4::text IS NULL OR q.whatsapp_instance_id = $4)`,
-        [bounds.startUtc, bounds.endUtcExclusive, filter.queueId ?? null, filter.instanceId ?? null]
+           AND ($4::text IS NULL OR q.whatsapp_instance_id = $4)
+           AND ($6::uuid IS NULL OR h.assignee_id = $6)`,
+        [bounds.startUtc, bounds.endUtcExclusive, filter.queueId ?? null, filter.instanceId ?? null, rating, analystId]
       );
 
       const res = await query(
@@ -167,13 +178,14 @@ export async function GET(request: NextRequest) {
          LEFT JOIN public.chat_sessions s ON s.id = h.session_id
          LEFT JOIN public.queues q ON q.id = s.queue_id
          LEFT JOIN public.profiles p ON p.id = h.assignee_id
-         WHERE h.rating = -1
+         WHERE h.rating = $5
            AND h.finished_at >= $1 AND h.finished_at < $2
            AND ($3::text IS NULL OR s.queue_id = $3)
            AND ($4::text IS NULL OR q.whatsapp_instance_id = $4)
+           AND ($6::uuid IS NULL OR h.assignee_id = $6)
          ORDER BY h.finished_at DESC
-         LIMIT $5 OFFSET $6`,
-        [bounds.startUtc, bounds.endUtcExclusive, filter.queueId ?? null, filter.instanceId ?? null, limit, offset]
+         LIMIT $7 OFFSET $8`,
+        [bounds.startUtc, bounds.endUtcExclusive, filter.queueId ?? null, filter.instanceId ?? null, rating, analystId, limit, offset]
       );
 
       const rows: NegativeEvaluationRow[] = res.rows.map(r => ({

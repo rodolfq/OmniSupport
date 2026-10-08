@@ -3,7 +3,8 @@
 import React, { useEffect, useMemo, useState } from 'react';
 import Link from 'next/link';
 import { BarChart, Bar, LineChart, Line, XAxis, YAxis, Tooltip, ResponsiveContainer } from 'recharts';
-import { Lock, ThumbsUp, MessageSquareText, ExternalLink, ChevronLeft, ChevronRight } from 'lucide-react';
+import { Lock, ThumbsUp, MessageSquareText, ExternalLink, ChevronLeft, ChevronRight, X } from 'lucide-react';
+import { useEscapeToClose } from '@/hooks/use-escape-to-close';
 import { cn } from '@/lib/utils';
 import { useTheme } from '@/app/theme-provider';
 import { useApp } from '@/app/app-context';
@@ -33,6 +34,7 @@ interface SummaryResponse {
   evaluated: number;
   positiveRate: number | null;
   responseRate: number | null;
+  positiveRateOfTotal: number | null;
 }
 
 const DIMENSION_TABS: { dimension: ReportDimension; label: string }[] = [
@@ -71,13 +73,28 @@ export default function ReportSatisfactionPage() {
   const negativeQs = `limit=${NEGATIVE_PAGE_SIZE}&offset=${negativePage * NEGATIVE_PAGE_SIZE}`;
   const negatives = useReportFetch<{ rows: NegativeEvaluationRow[]; total: number }>(REPORT_ENDPOINT, 'negative-list', filterQs, ready, negativeQs);
 
+  // Drill-down "good/bad" do operador (pedido do usuário, 2026-10-08):
+  // clicar no nº de positivas/negativas de um analista, na quebra por
+  // dimensão, abre a lista dos atendimentos por trás daquele número — mesma
+  // fonte de "Avaliações negativas" acima (negative-list), só generalizada
+  // com `rating` (1 ou -1) e `analystId`.
+  const [drilldown, setDrilldown] = useState<{ analystId: string | null; analystLabel: string; rating: 1 | -1 } | null>(null);
+  const [drilldownPage, setDrilldownPage] = useState(0);
+  useEffect(() => setDrilldownPage(0), [drilldown]);
+  const drilldownQs = drilldown
+    ? `limit=${NEGATIVE_PAGE_SIZE}&offset=${drilldownPage * NEGATIVE_PAGE_SIZE}&rating=${drilldown.rating}${drilldown.analystId ? `&analystId=${drilldown.analystId}` : ''}`
+    : '';
+  const drilldownResult = useReportFetch<{ rows: NegativeEvaluationRow[]; total: number }>(REPORT_ENDPOINT, 'negative-list', filterQs, ready && !!drilldown, drilldownQs);
+  const drilldownTotalPages = drilldownResult.data ? Math.max(1, Math.ceil(drilldownResult.data.total / NEGATIVE_PAGE_SIZE)) : 1;
+
   const summaryExport: ReportExportConfig = useMemo(() => ({
     title: 'Resumo do período',
     columns: [
       { key: 'evaluated', label: 'Avaliados' },
       { key: 'totalClosed', label: 'Encerrados' },
       { key: 'positiveRate', label: '% Satisfação', format: (v) => formatPercentage(v as number | null) },
-      { key: 'responseRate', label: 'Taxa de resposta', format: (v) => formatPercentage(v as number | null) }
+      { key: 'responseRate', label: 'Taxa de resposta', format: (v) => formatPercentage(v as number | null) },
+      { key: 'positiveRateOfTotal', label: '% Satisfação (sobre o total)', format: (v) => formatPercentage(v as number | null) }
     ],
     rows: summary.data ? [summary.data] : []
   }), [summary.data]);
@@ -110,6 +127,8 @@ export default function ReportSatisfactionPage() {
     columns: [
       { key: 'segmentLabel', label: 'Segmento' },
       { key: 'evaluated', label: 'Avaliados' },
+      { key: 'positive', label: 'Positivas' },
+      { key: 'negative', label: 'Negativas' },
       { key: 'positiveRate', label: '% Satisfação', format: (v) => formatPercentage(v as number | null) },
       { key: 'responseRate', label: 'Taxa de resposta', format: (v) => formatPercentage(v as number | null) }
     ],
@@ -184,13 +203,19 @@ export default function ReportSatisfactionPage() {
         reportLabel={REPORT_LABEL}
         filterSummary={filterSummary}
       >
-        <div className="grid grid-cols-1 sm:grid-cols-2 gap-6">
+        <div className="grid grid-cols-1 sm:grid-cols-3 gap-6">
           <StatTile label="% Satisfação (positivos/avaliados)" value={formatPercentage(summary.data?.positiveRate ?? null)} icon={<ThumbsUp size={16} />} />
           <StatTile
             label="Taxa de resposta (avaliados/encerrados)"
             value={formatPercentage(summary.data?.responseRate ?? null)}
             sub={summary.data ? `${formatCount(summary.data.evaluated)} de ${formatCount(summary.data.totalClosed)} encerrados` : undefined}
             icon={<MessageSquareText size={16} />}
+          />
+          <StatTile
+            label="% Satisfação (sobre o total de chats)"
+            value={formatPercentage(summary.data?.positiveRateOfTotal ?? null)}
+            sub="positivos / todos os chats encerrados no período, avaliados ou não"
+            icon={<ThumbsUp size={16} />}
           />
         </div>
       </ReportSection>
@@ -318,6 +343,8 @@ export default function ReportSatisfactionPage() {
                 <tr className="text-[10px] uppercase tracking-widest text-[var(--text-tertiary)] border-b border-[var(--border-default)]">
                   <th className="text-left py-2 px-3">{DIMENSION_TABS.find((t) => t.dimension === activeDimension)?.label}</th>
                   <th className="text-right py-2 px-3">Avaliados</th>
+                  <th className="text-right py-2 px-3">Positivas</th>
+                  <th className="text-right py-2 px-3">Negativas</th>
                   <th className="text-right py-2 px-3">% Satisfação</th>
                   <th className="text-right py-2 px-3">Taxa de resposta</th>
                 </tr>
@@ -329,10 +356,37 @@ export default function ReportSatisfactionPage() {
                       {row.segmentLabel}{row.isSelf && <span className="ml-1.5 text-[9px] font-bold uppercase tracking-widest text-[var(--accent-text)]">você</span>}
                     </td>
                     {row.amostraInsuficiente ? (
-                      <td colSpan={3} className="py-3 px-3 text-right text-[var(--text-tertiary)] italic">Amostra insuficiente ({formatCount(row.evaluated)} avaliações)</td>
+                      <td colSpan={5} className="py-3 px-3 text-right text-[var(--text-tertiary)] italic">Amostra insuficiente ({formatCount(row.evaluated)} avaliações)</td>
                     ) : (
                       <>
                         <td className="py-3 px-3 text-right">{formatCount(row.evaluated)}</td>
+                        <td className="py-3 px-3 text-right">
+                          {/* Hiperlink só na dimensão Analista (2026-10-08, pedido do
+                              usuário: "good/bad do operador") — nas outras dimensões
+                              (fila/instância/canal/empresa) o negative-list não tem
+                              como filtrar por aquele segmento, então vira número puro
+                              pra não abrir uma lista fora de escopo. */}
+                          {activeDimension === 'analyst' && row.positive > 0 ? (
+                            <button
+                              onClick={() => setDrilldown({ analystId: row.segmentId, analystLabel: row.segmentLabel, rating: 1 })}
+                              className="font-bold text-[var(--text-success)] hover:underline"
+                              title="Ver os atendimentos por trás deste número"
+                            >
+                              {formatCount(row.positive)}
+                            </button>
+                          ) : formatCount(row.positive)}
+                        </td>
+                        <td className="py-3 px-3 text-right">
+                          {activeDimension === 'analyst' && row.negative > 0 ? (
+                            <button
+                              onClick={() => setDrilldown({ analystId: row.segmentId, analystLabel: row.segmentLabel, rating: -1 })}
+                              className="font-bold text-[var(--text-danger)] hover:underline"
+                              title="Ver os atendimentos por trás deste número"
+                            >
+                              {formatCount(row.negative)}
+                            </button>
+                          ) : formatCount(row.negative)}
+                        </td>
                         <td className="py-3 px-3 text-right">{formatPercentage(row.positiveRate)}</td>
                         <td className="py-3 px-3 text-right">{formatPercentage(row.responseRate)}</td>
                       </>
@@ -388,6 +442,108 @@ export default function ReportSatisfactionPage() {
             </ResponsiveContainer>
           </div>
         </ReportSection>
+      </div>
+
+      {drilldown && (
+        <EvaluationDrilldownModal
+          drilldown={drilldown}
+          onClose={() => setDrilldown(null)}
+          result={drilldownResult}
+          page={drilldownPage}
+          totalPages={drilldownTotalPages}
+          onPageChange={setDrilldownPage}
+        />
+      )}
+    </div>
+  );
+}
+
+function EvaluationDrilldownModal({
+  drilldown, onClose, result, page, totalPages, onPageChange
+}: {
+  drilldown: { analystId: string | null; analystLabel: string; rating: 1 | -1 };
+  onClose: () => void;
+  result: { data: { rows: NegativeEvaluationRow[]; total: number } | null; status: ReportSectionStatus; error: string | null; retry: () => void };
+  page: number;
+  totalPages: number;
+  onPageChange: (page: number) => void;
+}) {
+  useEscapeToClose(true, onClose);
+  return (
+    <div className="fixed inset-0 z-[200] flex items-center justify-center bg-slate-900/60 backdrop-blur-sm p-4" onClick={onClose}>
+      <div
+        className="bg-[var(--surface-card)] w-full max-w-3xl max-h-[85vh] rounded-3xl shadow-2xl overflow-hidden flex flex-col"
+        onClick={(e) => e.stopPropagation()}
+      >
+        <div className="p-6 border-b border-[var(--border-default)] flex items-center justify-between gap-3 shrink-0">
+          <div>
+            <h3 className="text-lg font-black text-[var(--text-primary)]">
+              Atendimentos {drilldown.rating === 1 ? 'positivos' : 'negativos'} — {drilldown.analystLabel}
+            </h3>
+            <p className="text-xs text-[var(--text-tertiary)] mt-0.5">{result.data?.total ?? 0} no período selecionado</p>
+          </div>
+          <button onClick={onClose} className="p-2 rounded-xl border border-[var(--border-default)] text-[var(--text-secondary)] hover:bg-[var(--surface-pill)] transition-all" title="Fechar">
+            <X size={16} />
+          </button>
+        </div>
+        <div className="flex-1 overflow-y-auto scrollbar-thin p-6">
+          {result.status === 'loading' ? (
+            <p className="text-sm text-[var(--text-tertiary)]">Carregando...</p>
+          ) : result.status === 'error' ? (
+            <p className="text-sm text-[var(--text-danger)]">{result.error || 'Não foi possível carregar.'}</p>
+          ) : (result.data?.rows ?? []).length === 0 ? (
+            <p className="text-sm text-[var(--text-tertiary)]">Nenhum atendimento encontrado.</p>
+          ) : (
+            <table className="w-full text-sm min-w-[600px]">
+              <thead>
+                <tr className="text-[10px] uppercase tracking-widest text-[var(--text-tertiary)] border-b border-[var(--border-default)]">
+                  <th className="text-left py-2 px-3">Cliente</th>
+                  <th className="text-left py-2 px-3">Encerrado em</th>
+                  <th className="text-right py-2 px-3">Duração</th>
+                  <th className="text-right py-2 px-3">Conversa</th>
+                </tr>
+              </thead>
+              <tbody>
+                {(result.data?.rows ?? []).map(row => (
+                  <tr key={row.historyId} className="border-b border-[var(--border-default)] last:border-0">
+                    <td className="py-3 px-3 font-semibold text-[var(--text-primary)]">{row.customerName}</td>
+                    <td className="py-3 px-3 text-[var(--text-tertiary)]">{new Date(row.finishedAt).toLocaleString('pt-BR')}</td>
+                    <td className="py-3 px-3 text-right">{row.durationSeconds !== null ? formatMinutes(row.durationSeconds / 60) : '—'}</td>
+                    <td className="py-3 px-3 text-right">
+                      <Link
+                        href={`/chat-history?historyId=${row.historyId}`}
+                        className="inline-flex items-center gap-1 text-[11px] font-bold text-[var(--accent-text)] hover:underline"
+                      >
+                        Ver conversa <ExternalLink size={11} />
+                      </Link>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          )}
+        </div>
+        {totalPages > 1 && (
+          <div className="p-4 border-t border-[var(--border-default)] flex items-center justify-between shrink-0">
+            <p className="text-xs font-semibold text-[var(--text-tertiary)]">Página {page + 1} de {totalPages}</p>
+            <div className="flex items-center gap-2">
+              <button
+                onClick={() => onPageChange(Math.max(0, page - 1))}
+                disabled={page === 0}
+                className="flex h-8 w-8 items-center justify-center rounded-lg border border-[var(--border-default)] disabled:opacity-40"
+              >
+                <ChevronLeft size={14} />
+              </button>
+              <button
+                onClick={() => onPageChange(Math.min(totalPages - 1, page + 1))}
+                disabled={page >= totalPages - 1}
+                className="flex h-8 w-8 items-center justify-center rounded-lg border border-[var(--border-default)] disabled:opacity-40"
+              >
+                <ChevronRight size={14} />
+              </button>
+            </div>
+          </div>
+        )}
       </div>
     </div>
   );

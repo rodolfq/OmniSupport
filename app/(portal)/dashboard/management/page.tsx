@@ -47,7 +47,7 @@ interface KpisResponse {
   firstResponse: { medianSeconds: number | null; p90Seconds: number | null; sampleSize: number; status: KpiStatus };
   pct2min: { percentage: number | null; status: KpiStatus };
   duration: { medianMinutes: number | null; status: KpiStatus };
-  satisfaction: { positiveRate: number | null; responseRate: number | null; status: KpiStatus };
+  satisfaction: { positiveRate: number | null; responseRate: number | null; positiveRateOfTotal: number | null; status: KpiStatus };
   individualPeak: { value: number; status: KpiStatus };
   waitingNow: { count: number; status: KpiStatus };
 }
@@ -329,7 +329,7 @@ export default function DashboardManagementPage() {
         <KpiCard
           label="% satisfação"
           value={formatPercentage(kpis.data?.satisfaction.positiveRate ?? null)}
-          sub={kpis.data ? `resposta da pesquisa: ${formatPercentage(kpis.data.satisfaction.responseRate)}` : undefined}
+          sub={kpis.data ? `resposta: ${formatPercentage(kpis.data.satisfaction.responseRate)} · sobre o total de chats: ${formatPercentage(kpis.data.satisfaction.positiveRateOfTotal)}` : undefined}
           status={kpis.data?.satisfaction.status ?? 'warning'}
           icon={<Star size={16} />}
         />

@@ -84,6 +84,7 @@ const permissionGroups = [
       { id: Permission.INTERNAL_TICKETS_EDIT, label: 'Criar/Editar ticket interno', desc: 'Permite criar tickets internos e editar os existentes' },
       { id: Permission.INTERNAL_TICKETS_VIEW_ALL, label: 'Ver de todas as equipes', desc: 'Sem isso, só vê tickets internos da(s) própria(s) equipe(s) — use para Suporte/Administração' },
       { id: Permission.INTERNAL_RULES_CONFIG, label: 'Configurar regras do ticket interno', desc: 'Altera a regra de 2 dias (estrelas mínimas e dias úteis) em Configurações > Pontuação do Ranking' },
+      { id: Permission.INTERNAL_QA_OVERRIDE, label: 'Desmarcar Reprovação de QA/Ambiente', desc: 'Qualquer um com "Criar/Editar ticket interno" pode MARCAR "Reprovação de QA" e "Ambiente reprovado" — só quem tem esta permissão pode DESMARCAR depois de marcado' },
     ]
   },
   {

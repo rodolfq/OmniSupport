@@ -407,6 +407,7 @@ export async function getSatisfacao(filter: MetricsFilter): Promise<Satisfaction
     evaluated,
     positiveRate: evaluated > 0 ? (positive / evaluated) * 100 : null,
     responseRate: totalClosed > 0 ? (evaluated / totalClosed) * 100 : null,
+    positiveRateOfTotal: totalClosed > 0 ? (positive / totalClosed) * 100 : null,
     parcial: bounds.parcial
   };
 }
@@ -1152,12 +1153,17 @@ export async function getTempoAusentePorMotivo(filter: MetricsFilter): Promise<A
          AND ${analystQueueFilter('user_id', '$4')}
      ),
      away AS (
+       -- Sem o filtro de gap (2026-10-08, pedido do usuário): só o status
+       -- "online" é derrubado por falta de heartbeat — faz sentido, porque
+       -- fechar a aba é a única forma de "sumir" estando online. Qualquer
+       -- OUTRO status (Ausente/Almoço/etc.) foi escolhido manualmente pelo
+       -- próprio usuário e deve continuar contando até ele mesmo trocar —
+       -- heartbeat esparso de aba em segundo plano não pode apagar essas horas.
        SELECT user_id, COALESCE(reason, 'Sem motivo registrado') AS reason,
          GREATEST(started_at, $1::timestamptz) AS clipped_start,
          LEAST(ended_at, $2::timestamptz) AS clipped_end
        FROM status_intervals
        WHERE status = 'away' AND started_at < $2 AND ended_at > $1
-         AND ${PRESENCE_MAX_GAP_SQL}
      )
      SELECT away.user_id, p.name AS analyst_name, away.reason,
        SUM(EXTRACT(EPOCH FROM (away.clipped_end - away.clipped_start))) / 3600.0 AS hours
@@ -1265,12 +1271,15 @@ export async function getPresenceTimeline(analystId: string, filter: MetricsFilt
                        LEAST($3::timestamptz, NOW())) AS ended_at
          FROM janela j
      ),
-     -- Mesma regra de getHorasOnlinePorAnalista: "online" sem registro seguinte em até
-     -- PRESENCE_MAX_GAP_MINUTES vira "sem registro" (aba fechada sem gravar "offline").
+     -- Mesma regra de getHorasOnlinePorAnalista: só "online" sem registro
+     -- seguinte em até PRESENCE_MAX_GAP_MINUTES vira "sem registro" (aba
+     -- fechada sem gravar "offline"). Qualquer OUTRO status (Ausente/Almoço/
+     -- etc.) é escolhido manualmente e continua valendo até trocar, mesmo com
+     -- um gap longo sem heartbeat (2026-10-08, pedido do usuário).
      classificado AS (
        SELECT
-         CASE WHEN status NOT IN ('online', 'away') OR ${PRESENCE_MAX_GAP_SQL} THEN status ELSE 'sem_registro' END AS status,
-         CASE WHEN status NOT IN ('online', 'away') OR ${PRESENCE_MAX_GAP_SQL} THEN reason ELSE NULL END AS reason,
+         CASE WHEN status <> 'online' OR ${PRESENCE_MAX_GAP_SQL} THEN status ELSE 'sem_registro' END AS status,
+         CASE WHEN status <> 'online' OR ${PRESENCE_MAX_GAP_SQL} THEN reason ELSE NULL END AS reason,
          started_at, ended_at
          FROM com_fim
      )
@@ -1804,7 +1813,9 @@ export async function getContasResumo(filter: MetricsFilter): Promise<Omit<Accou
      recontact_stats AS (
        SELECT company_id,
          COUNT(*)::int AS volume,
-         COUNT(*) FILTER (WHERE previous_contact_at IS NOT NULL AND created_at - previous_contact_at <= interval '72 hours')::int AS recontacts
+         -- Janela de recontato: 7 dias (era 72h até 2026-10-08, ajustada a
+         -- pedido do usuário — mesmo critério de risco, prazo maior).
+         COUNT(*) FILTER (WHERE previous_contact_at IS NOT NULL AND created_at - previous_contact_at <= interval '7 days')::int AS recontacts
        FROM all_contacts
        WHERE created_at >= $1 AND created_at < $2
        GROUP BY company_id
@@ -1928,7 +1939,8 @@ export async function getContaEvolucaoMensal(filter: MetricsFilter, companyId: s
        SELECT
          (date_trunc('month', created_at AT TIME ZONE 'America/Sao_Paulo') AT TIME ZONE 'America/Sao_Paulo') AS month_start,
          COUNT(*)::int AS volume,
-         COUNT(*) FILTER (WHERE previous_contact_at IS NOT NULL AND created_at - previous_contact_at <= interval '72 hours')::int AS recontacts
+         -- Mesma janela de 7 dias de getContas acima.
+         COUNT(*) FILTER (WHERE previous_contact_at IS NOT NULL AND created_at - previous_contact_at <= interval '7 days')::int AS recontacts
        FROM all_contacts
        WHERE created_at >= $1 AND created_at < $2
        GROUP BY 1

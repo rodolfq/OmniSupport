@@ -1,8 +1,9 @@
 'use client';
 
 import React, { useState, useEffect } from 'react';
+import { useRouter } from 'next/navigation';
 import { useEscapeToClose } from '@/hooks/use-escape-to-close';
-import { Rocket, Plus, Search, Trash2, Pencil, CheckCircle2, XCircle, Clock, AlertTriangle, CalendarDays, History as HistoryIcon, Package } from 'lucide-react';
+import { Rocket, Plus, Search, Trash2, Pencil, CheckCircle2, XCircle, Clock, AlertTriangle, CalendarDays, History as HistoryIcon, Package, ChevronDown, ExternalLink } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import { Hotfix, Permission, User, ProductConfig } from '@/lib/types';
 import { UserService } from '@/lib/services/user-service';
@@ -21,6 +22,25 @@ function isOverdue(hotfix: Hotfix): boolean {
   if (hotfix.publishedAt) return false;
   return hotfix.expectedDate < todayIso();
 }
+
+// Situação da publicação: compara o DIA previsto (expectedDate, DATE puro)
+// com o DIA em que foi marcada como publicada — mesmo fuso do navegador que
+// o resto da tela já usa pra exibir (formatDate/formatDateTime abaixo, sem
+// fixar America/Sao_Paulo à parte). Pedido do usuário, 2026-10-08.
+type PublishSituacao = 'atrasado' | 'adiantado' | 'no-prazo';
+function getPublishSituacao(hotfix: Hotfix): PublishSituacao | null {
+  if (!hotfix.publishedAt) return null;
+  const publicadoDia = new Date(hotfix.publishedAt).toLocaleDateString('en-CA');
+  if (publicadoDia > hotfix.expectedDate) return 'atrasado';
+  if (publicadoDia < hotfix.expectedDate) return 'adiantado';
+  return 'no-prazo';
+}
+
+const PUBLISH_SITUACAO_META: Record<PublishSituacao, { label: string; surface: string; text: string; border: string }> = {
+  atrasado: { label: 'Publicado com atraso', surface: 'var(--surface-danger)', text: 'var(--text-danger)', border: 'var(--text-danger)' },
+  adiantado: { label: 'Publicado adiantado', surface: 'var(--surface-warning)', text: 'var(--text-warning)', border: 'var(--text-warning-strong)' },
+  'no-prazo': { label: 'Publicado no prazo', surface: 'var(--surface-success)', text: 'var(--text-success)', border: 'var(--text-success)' },
+};
 
 // Semana corrente (segunda a domingo), calculada no fuso do navegador —
 // mesmo nível de precisão do resto do app (ClientTime etc).
@@ -54,6 +74,7 @@ function formatDateTime(iso: string): string {
  */
 export function HotfixesContent() {
   const { hasPermission } = useApp();
+  const router = useRouter();
   const [hotfixes, setHotfixes] = useState<Hotfix[]>([]);
   const [users, setUsers] = useState<User[]>([]);
   const [products, setProducts] = useState<ProductConfig[]>([]);
@@ -62,6 +83,37 @@ export function HotfixesContent() {
   useEscapeToClose(isModalOpen, () => setIsModalOpen(false));
   const [selectedHotfix, setSelectedHotfix] = useState<Hotfix | null>(null);
   const [deletingHotfix, setDeletingHotfix] = useState<Hotfix | null>(null);
+
+  // Expandir um item do histórico mostra os tickets internos vinculados
+  // (hotfix_id) — carregado sob demanda na 1ª vez que abre, e guardado em
+  // cache pra não refazer a busca ao fechar/abrir de novo.
+  const [expandedHotfixId, setExpandedHotfixId] = useState<string | null>(null);
+  const [affectedTickets, setAffectedTickets] = useState<Record<string, { id: string; title: string; internalTicketNumber: number | null }[]>>({});
+  const [loadingAffected, setLoadingAffected] = useState<string | null>(null);
+
+  const toggleExpandHotfix = async (hotfixId: string) => {
+    const next = expandedHotfixId === hotfixId ? null : hotfixId;
+    setExpandedHotfixId(next);
+    if (next && !affectedTickets[next]) {
+      setLoadingAffected(next);
+      try {
+        const res = await fetch(`/api/internal-tickets?action=list&hotfixId=${next}&limit=200`);
+        const data = res.ok ? await res.json() : [];
+        setAffectedTickets(prev => ({
+          ...prev,
+          [next]: (Array.isArray(data) ? data : []).map((it: any) => ({
+            id: it.id,
+            title: it.title,
+            internalTicketNumber: it.internal_ticket_number ?? null,
+          })),
+        }));
+      } catch {
+        setAffectedTickets(prev => ({ ...prev, [next]: [] }));
+      } finally {
+        setLoadingAffected(null);
+      }
+    }
+  };
 
   const [name, setName] = useState('');
   const [description, setDescription] = useState('');
@@ -369,19 +421,31 @@ export function HotfixesContent() {
               {published.map(hotfix => {
                 const responsible = resolveResponsible(hotfix);
                 const product = resolveProduct(hotfix);
+                const situacao = getPublishSituacao(hotfix);
+                const situacaoMeta = situacao ? PUBLISH_SITUACAO_META[situacao] : null;
+                const isExpanded = expandedHotfixId === hotfix.id;
+                const tickets = affectedTickets[hotfix.id];
                 return (
-                  <div key={hotfix.id} className="p-6 hover:bg-[var(--surface-card)]/50 transition-colors group">
-                    <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
+                  <div key={hotfix.id} className="hover:bg-[var(--surface-card)]/50 transition-colors group">
+                    <div className="p-6 flex flex-col md:flex-row md:items-center justify-between gap-4">
                       <div className="flex items-start gap-4 min-w-0">
-                        <div className="w-12 h-12 rounded-2xl border bg-[var(--surface-success)] border-[var(--text-success)]/20 text-[var(--text-success)] flex items-center justify-center shrink-0">
+                        <div
+                          className="w-12 h-12 rounded-2xl border flex items-center justify-center shrink-0"
+                          style={situacaoMeta ? { backgroundColor: situacaoMeta.surface, borderColor: `${situacaoMeta.border}33`, color: situacaoMeta.text } : undefined}
+                        >
                           <CheckCircle2 size={20} />
                         </div>
                         <div className="min-w-0">
                           <h4 className="text-base font-black text-[var(--text-primary)] tracking-tight uppercase leading-none mb-1.5 truncate">{hotfix.name}</h4>
                           <div className="flex flex-wrap gap-2">
-                            <span className="flex items-center gap-1.5 px-2.5 py-1 rounded-full bg-[var(--surface-success)] text-[var(--text-success)] border border-[var(--text-success)]/20 text-[9px] font-semibold uppercase tracking-widest">
-                              <CheckCircle2 size={11} /> Publicado em {formatDateTime(hotfix.publishedAt!)}
-                            </span>
+                            {situacaoMeta && (
+                              <span
+                                className="flex items-center gap-1.5 px-2.5 py-1 rounded-full border text-[9px] font-semibold uppercase tracking-widest"
+                                style={{ backgroundColor: situacaoMeta.surface, color: situacaoMeta.text, borderColor: `${situacaoMeta.border}33` }}
+                              >
+                                <CheckCircle2 size={11} /> {situacaoMeta.label} em {formatDateTime(hotfix.publishedAt!)}
+                              </span>
+                            )}
                             {product && (
                               <span className="flex items-center gap-1.5 px-2.5 py-1 rounded-full bg-[var(--surface-card)] text-[var(--text-tertiary)] border border-[var(--border-default)] text-[9px] font-semibold uppercase tracking-widest">
                                 <Package size={11} /> {product.label}
@@ -396,14 +460,73 @@ export function HotfixesContent() {
                         </div>
                       </div>
                       <div className="flex items-center gap-2 shrink-0">
-                        <button onClick={() => handleOpenModal(hotfix)} className="p-2 rounded-xl border border-[var(--border-default)] text-[var(--text-secondary)] hover:bg-[var(--surface-pill)] transition-all" title="Editar">
+                        <button
+                          onClick={() => toggleExpandHotfix(hotfix.id)}
+                          className="flex items-center gap-1.5 px-3 py-2 rounded-xl border border-[var(--border-default)] text-[var(--text-secondary)] hover:bg-[var(--surface-pill)] transition-all text-[10px] font-bold uppercase tracking-widest"
+                          title="Ver detalhes"
+                        >
+                          <ChevronDown size={14} className={cn('transition-transform', isExpanded && 'rotate-180')} /> Detalhes
+                        </button>
+                        <button
+                          disabled
+                          title="Publicado — o registro fica travado e não pode ser editado"
+                          className="p-2 rounded-xl border border-[var(--border-default)] text-[var(--text-tertiary)] opacity-40 cursor-not-allowed"
+                        >
                           <Pencil size={14} />
                         </button>
-                        <button onClick={() => setDeletingHotfix(hotfix)} className="p-2 rounded-xl border border-[var(--border-default)] text-[var(--text-danger)] hover:bg-[var(--surface-danger)] transition-all" title="Excluir">
+                        <button
+                          disabled
+                          title="Publicado — o registro fica travado e não pode ser excluído"
+                          className="p-2 rounded-xl border border-[var(--border-default)] text-[var(--text-tertiary)] opacity-40 cursor-not-allowed"
+                        >
                           <Trash2 size={14} />
                         </button>
                       </div>
                     </div>
+                    {isExpanded && (
+                      <div className="px-6 pb-6 -mt-1">
+                        <div className="rounded-2xl border border-[var(--border-default)] bg-[var(--surface-pill)] p-4 space-y-3">
+                          <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 text-xs">
+                            <div>
+                              <p className="text-[9px] font-bold uppercase tracking-widest text-[var(--text-tertiary)]">Data prevista</p>
+                              <p className="font-bold text-[var(--text-primary)]">{formatDate(hotfix.expectedDate)}</p>
+                            </div>
+                            <div>
+                              <p className="text-[9px] font-bold uppercase tracking-widest text-[var(--text-tertiary)]">Publicado em</p>
+                              <p className="font-bold text-[var(--text-primary)]">{formatDateTime(hotfix.publishedAt!)}</p>
+                            </div>
+                            <div>
+                              <p className="text-[9px] font-bold uppercase tracking-widest text-[var(--text-tertiary)]">Situação</p>
+                              <p className="font-bold" style={situacaoMeta ? { color: situacaoMeta.text } : undefined}>{situacaoMeta?.label ?? '—'}</p>
+                            </div>
+                          </div>
+                          <div className="border-t border-[var(--border-default)] pt-3">
+                            <p className="text-[9px] font-bold uppercase tracking-widest text-[var(--text-tertiary)] mb-2">
+                              Tickets internos afetados {tickets ? `(${tickets.length})` : ''}
+                            </p>
+                            {loadingAffected === hotfix.id ? (
+                              <p className="text-xs text-[var(--text-tertiary)]">Carregando...</p>
+                            ) : !tickets || tickets.length === 0 ? (
+                              <p className="text-xs text-[var(--text-tertiary)]">Nenhum ticket interno vinculado a este hotfix.</p>
+                            ) : (
+                              <ul className="space-y-1.5">
+                                {tickets.map(t => (
+                                  <li key={t.id}>
+                                    <button
+                                      onClick={() => router.push(`/internal-tickets/${t.id}`)}
+                                      className="flex items-center gap-2 text-xs font-semibold text-[var(--accent-text)] hover:underline text-left"
+                                    >
+                                      <ExternalLink size={12} className="shrink-0" />
+                                      {t.internalTicketNumber ? `int-${String(t.internalTicketNumber).padStart(4, '0')} — ` : ''}{t.title}
+                                    </button>
+                                  </li>
+                                ))}
+                              </ul>
+                            )}
+                          </div>
+                        </div>
+                      </div>
+                    )}
                   </div>
                 );
               })}

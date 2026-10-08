@@ -233,6 +233,43 @@ export async function GET(request: NextRequest) {
       })));
     }
 
+    if (action === 'awaiting-response') {
+      // Card "Chamados sem resposta" do Dashboard (pedido do usuário,
+      // 2026-10-08): chamado ATIVO cuja ÚLTIMA mensagem é do cliente/
+      // funcionário e ninguém da equipe respondeu depois ainda. Só equipe
+      // enxerga (é lista de trabalho, não faz sentido pro lado cliente).
+      if (isCompanyScopedActor(actor)) {
+        return NextResponse.json({ error: 'Só disponível para a equipe.' }, { status: 403 });
+      }
+      const res = await query(
+        `WITH closed_set AS (
+           SELECT label FROM public.config_statuses WHERE scope = 'ticket' AND is_closed AND parent_status_id IS NULL
+         ),
+         last_msg AS (
+           SELECT DISTINCT ON (m.ticket_id) m.ticket_id, p.role AS author_role
+             FROM public.ticket_messages m
+             LEFT JOIN public.profiles p ON p.id = m.author_id
+            WHERE m.type = 'text'
+            ORDER BY m.ticket_id, m.created_at DESC
+         )
+         SELECT t.id, t.public_ticket_number, t.title, t.updated_at
+           FROM public.tickets t
+           JOIN last_msg lm ON lm.ticket_id = t.id
+          WHERE t.status NOT IN (SELECT label FROM closed_set)
+            AND t.merged_into_id IS NULL
+            AND lm.author_role = ANY($1::text[])
+          ORDER BY t.updated_at ASC
+          LIMIT 100`,
+        [['Cliente', 'Funcionário']]
+      );
+      return NextResponse.json(res.rows.map(t => ({
+        id: t.id,
+        ticketNumber: t.public_ticket_number,
+        title: t.title,
+        updatedAt: t.updated_at
+      })));
+    }
+
     if (action === 'recent-by-company') {
       // Lista curta e só informativa dos outros chamados recentes da mesma
       // empresa — aba "Chamados Recentes" em ticket-detail-modal.tsx, e base

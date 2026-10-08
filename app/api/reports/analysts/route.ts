@@ -155,11 +155,11 @@ export async function GET(request: NextRequest) {
       const minimo = cfg.config.regras.amostraMinima;
       const medidos = t ? t.slaOk + t.slaMiss : 0;
       const objetivos = [
-        { id: 'prazo', objetivo: 'Atender no prazo', kpi: '% chamados no SLA', unidade: '%', sentido: '>=', meta: metas.slaPct,
+        { id: 'prazo', objetivo: 'Atender no prazo', kpi: 'Resolvidos dentro do SLA', unidade: '%', sentido: '>=', meta: metas.slaPct,
           atual: medidos >= minimo ? pct(t!.slaOk, medidos) : null, amostra: medidos, dono: 'Gestor Suporte', freq: 'Diária' },
-        { id: 'espera', objetivo: 'Reduzir espera', kpi: 'Mediana da 1ª resposta', unidade: 'min', sentido: '<=', meta: metas.primeiraRespostaMin,
+        { id: 'espera', objetivo: 'Reduzir espera', kpi: 'Tempo de resposta ao cliente', unidade: 'min', sentido: '<=', meta: metas.primeiraRespostaMin,
           atual: t && t.frAmostra >= minimo ? t.frMedianaMin : null, amostra: t ? t.frAmostra : 0, dono: 'Coordenação', freq: 'Diária' },
-        { id: 'resolver', objetivo: 'Resolver melhor', kpi: '% nasce resolvido', unidade: '%', sentido: '>=', meta: metas.resolucaoPrimeiroContatoPct,
+        { id: 'resolver', objetivo: 'Resolver melhor', kpi: '% Resolvido no Primeiro Contato', unidade: '%', sentido: '>=', meta: metas.resolucaoPrimeiroContatoPct,
           atual: t && t.comHistorico >= minimo ? pct(t.nasceramResolvidos, t.comHistorico) : null, amostra: t ? t.comHistorico : 0, dono: 'Gestor Suporte', freq: 'Semanal' },
         { id: 'backlog', objetivo: 'Evitar backlog', kpi: `Chamados > ${cfg.config.regras.backlogHorasUteis}h úteis`, unidade: 'chamados', sentido: '<=', meta: metas.backlogMax,
           atual: backlog.total, amostra: t ? t.chamados : 0, dono: 'Coordenação', freq: 'Diária' },

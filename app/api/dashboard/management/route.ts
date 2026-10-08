@@ -140,6 +140,7 @@ export async function GET(request: NextRequest) {
         satisfaction: {
           positiveRate: satisfaction.positiveRate,
           responseRate: satisfaction.responseRate,
+          positiveRateOfTotal: satisfaction.positiveRateOfTotal,
           status: classify(satisfaction.positiveRate, thresholds.satisfactionGoodPercentage, thresholds.satisfactionWarningPercentage, true)
         },
         individualPeak: {

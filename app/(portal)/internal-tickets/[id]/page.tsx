@@ -4,7 +4,7 @@ import React, { useState, useEffect, useCallback, useMemo } from 'react';
 import { StyledSelect } from '@/components/styled-select';
 import { useParams, useRouter } from 'next/navigation';
 import { useApp } from '@/app/app-context';
-import { InternalTicket, Message, User, Hotfix, EffortConfig, OutcomeConfig } from '@/lib/types';
+import { InternalTicket, Message, User, Hotfix, EffortConfig, OutcomeConfig, Permission } from '@/lib/types';
 import { MessageService, InternalTicketService } from '@/lib/services/ticket-service';
 import { getHotfixes, saveHotfix } from '@/lib/services/queue-service';
 import { cn, selectableOptions } from '@/lib/utils';
@@ -91,7 +91,11 @@ function toDateOnly(iso?: string | null) {
 export default function InternalTicketDetailPage() {
   const params = useParams();
   const router = useRouter();
-  const { currentUser, triggerRefresh, setPendingTicketDraft } = useApp();
+  const { currentUser, triggerRefresh, setPendingTicketDraft, hasPermission } = useApp();
+  // Desmarcar (true → false) exige permissão extra — ver nota em
+  // app/api/internal-tickets/route.ts (action=update). Marcar continua
+  // liberado pra quem edita o ticket.
+  const canOverrideQaRejection = hasPermission(Permission.INTERNAL_QA_OVERRIDE);
   const [ticket, setTicket] = useState<InternalTicketWithExtras | null>(null);
   const [messages, setMessages] = useState<Message[]>([]);
   const [linkedTickets, setLinkedTickets] = useState<LinkedTicket[]>([]);
@@ -776,7 +780,17 @@ export default function InternalTicketDetailPage() {
                       <input
                         type="checkbox"
                         checked={formQaRejected}
-                        onChange={e => { setFormQaRejected(e.target.checked); handleUpdateTicket({ qaRejected: e.target.checked }); }}
+                        onChange={e => {
+                          const next = e.target.checked;
+                          if (!next && formQaRejected && !canOverrideQaRejection) {
+                            toast.error('Você não pode desmarcar "Reprovação de QA".', {
+                              description: 'Só quem tem a permissão de desmarcar Reprovação de QA/Ambiente pode desfazer essa marcação — fale com o responsável da equipe.'
+                            });
+                            return;
+                          }
+                          setFormQaRejected(next);
+                          handleUpdateTicket({ qaRejected: next });
+                        }}
                         className="h-4 w-4 accent-[var(--accent)]"
                       />
                       Reprovação de QA
@@ -785,7 +799,17 @@ export default function InternalTicketDetailPage() {
                       <input
                         type="checkbox"
                         checked={formEnvironmentRejected}
-                        onChange={e => { setFormEnvironmentRejected(e.target.checked); handleUpdateTicket({ environmentRejected: e.target.checked }); }}
+                        onChange={e => {
+                          const next = e.target.checked;
+                          if (!next && formEnvironmentRejected && !canOverrideQaRejection) {
+                            toast.error('Você não pode desmarcar "Ambiente reprovado".', {
+                              description: 'Só quem tem a permissão de desmarcar Reprovação de QA/Ambiente pode desfazer essa marcação — fale com o responsável da equipe.'
+                            });
+                            return;
+                          }
+                          setFormEnvironmentRejected(next);
+                          handleUpdateTicket({ environmentRejected: next });
+                        }}
                         className="h-4 w-4 accent-[var(--accent)]"
                       />
                       Ambiente reprovado

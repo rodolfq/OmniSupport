@@ -60,7 +60,10 @@ export async function POST(request: Request) {
       const { id } = body;
       if (!id) return NextResponse.json({ error: 'id é obrigatório.' }, { status: 400 });
 
-      const existing = await query('SELECT name FROM public.hotfixes WHERE id = $1', [id]);
+      const existing = await query('SELECT name, published_at FROM public.hotfixes WHERE id = $1', [id]);
+      if (existing.rows[0]?.published_at) {
+        return NextResponse.json({ error: 'Hotfix já publicado — o registro fica travado e não pode ser alterado (nem republicado) depois de concluído.' }, { status: 409 });
+      }
       await query('UPDATE public.hotfixes SET published_at = now(), updated_at = now() WHERE id = $1', [id]);
       logAudit({
         actorId: actor.id, actorName: actor.name, action: 'publish',
@@ -74,6 +77,14 @@ export async function POST(request: Request) {
     if (!name?.trim()) return NextResponse.json({ error: 'O nome do hotfix é obrigatório.' }, { status: 400 });
 
     if (id) {
+      // Imutabilidade (pedido do usuário, 2026-10-08): uma vez publicado,
+      // ninguém edita o registro — nem quem tem hotfixes:manage. Travado
+      // só na aplicação (sem trigger de banco, por causa da moratória de
+      // banco em vigor) — ver CLAUDE.md.
+      const existing = await query('SELECT published_at FROM public.hotfixes WHERE id = $1', [id]);
+      if (existing.rows[0]?.published_at) {
+        return NextResponse.json({ error: 'Hotfix já publicado — o registro fica travado e não pode ser alterado depois de concluído.' }, { status: 409 });
+      }
       await query(
         `UPDATE public.hotfixes
             SET name = $1, description = $2, responsible_id = $3, expected_date = $4,
@@ -108,7 +119,10 @@ export async function DELETE(request: Request) {
     const id = new URL(request.url).searchParams.get('id');
     if (!id) return NextResponse.json({ error: 'id é obrigatório.' }, { status: 400 });
 
-    const existing = await query('SELECT name FROM public.hotfixes WHERE id = $1', [id]);
+    const existing = await query('SELECT name, published_at FROM public.hotfixes WHERE id = $1', [id]);
+    if (existing.rows[0]?.published_at) {
+      return NextResponse.json({ error: 'Hotfix já publicado — o registro fica travado e não pode ser excluído depois de concluído.' }, { status: 409 });
+    }
     await query('DELETE FROM public.hotfixes WHERE id = $1', [id]);
     logAudit({
       actorId: actor.id, actorName: actor.name, action: 'delete',

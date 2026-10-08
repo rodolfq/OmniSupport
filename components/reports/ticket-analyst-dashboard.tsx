@@ -5,7 +5,7 @@ import Link from 'next/link';
 import { Trophy, Target, RotateCcw, Inbox, Settings, CheckCircle2, AlertTriangle, MinusCircle, Timer, Repeat, Ticket, Users } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { TicketAnalystRow, TicketObjetivo, TicketTimeTotals } from '@/lib/types';
-import { formatPercentage, formatMinutes, formatCount } from '@/lib/report-format';
+import { formatPercentage, formatDurationAdaptive, formatCount } from '@/lib/report-format';
 import { formatSignedPointsBr } from '@/lib/analyst-points';
 import { ReportSectionStatus } from '@/components/reports/report-section';
 import { AnalystAvatar } from '@/components/reports/analyst-avatar';
@@ -41,7 +41,7 @@ const pct = (a: number, b: number) => (b > 0 ? (a / b) * 100 : null);
 function valorObjetivo(o: TicketObjetivo): string {
   if (o.atual === null) return 'sem dado';
   if (o.unidade === '%') return `${Math.round(o.atual)}%`;
-  if (o.unidade === 'min') return formatMinutes(o.atual);
+  if (o.unidade === 'min') return formatDurationAdaptive(o.atual);
   return formatCount(Math.round(o.atual));
 }
 
@@ -146,11 +146,14 @@ export function TicketAnalystDashboard({ rows, time, objetivos, pontos, amostraM
   const composicao = useMemo(() => {
     const soma = (f: (r: TicketAnalystRow) => number) => rows.reduce((acc, r) => acc + f(r), 0);
     return [
-      { rotulo: 'SLA', valor: soma(r => r.points.sla) },
-      { rotulo: '1ª resposta', valor: soma(r => r.points.primeiraResposta) },
-      { rotulo: 'Nasce resolvido', valor: soma(r => r.points.resolvidoPrimeiroContato) },
-      { rotulo: 'Backlog', valor: soma(r => r.points.backlog) },
-      { rotulo: 'Reabertura', valor: soma(r => r.points.reabertura) },
+      { rotulo: 'SLA', valor: soma(r => r.points.sla), apenasPenalidade: false },
+      { rotulo: '1ª resposta', valor: soma(r => r.points.primeiraResposta), apenasPenalidade: false },
+      { rotulo: 'Nasce resolvido', valor: soma(r => r.points.resolvidoPrimeiroContato), apenasPenalidade: false },
+      // Backlog e Reabertura só descontam (nunca somam) — soma 0 é o MELHOR
+      // resultado possível, não "sem dado". Sinalizado à parte pra virar
+      // barra verde cheia em vez de barra vazia (pedido do usuário, 2026-10-08).
+      { rotulo: 'Backlog', valor: soma(r => r.points.backlog), apenasPenalidade: true },
+      { rotulo: 'Reabertura', valor: soma(r => r.points.reabertura), apenasPenalidade: true },
     ];
   }, [rows]);
   const maxComposicao = Math.max(1, ...composicao.map(c => Math.abs(c.valor)));
@@ -188,7 +191,7 @@ export function TicketAnalystDashboard({ rows, time, objetivos, pontos, amostraM
             detalhes: [
               { rotulo: 'Chamados', valor: formatCount(r.chamados) },
               { rotulo: 'SLA', valor: r.slaPct === null ? 'sem dado' : formatPercentage(r.slaPct) },
-              { rotulo: 'Espera', valor: r.frMedianaMin === null ? 'sem dado' : formatMinutes(r.frMedianaMin) },
+              { rotulo: 'Espera', valor: r.frMedianaMin === null ? 'sem dado' : formatDurationAdaptive(r.frMedianaMin) },
             ],
             isSelf: r.isSelf,
           }))}
@@ -272,7 +275,7 @@ export function TicketAnalystDashboard({ rows, time, objetivos, pontos, amostraM
                   </div>
                   <div>
                     <dt className="text-[10px] font-bold uppercase tracking-wider text-[var(--text-tertiary)]">1ª resposta</dt>
-                    <dd className="font-bold tabular-nums text-[var(--text-primary)]">{r.frMedianaMin === null ? 'sem dado' : formatMinutes(r.frMedianaMin)}</dd>
+                    <dd className="font-bold tabular-nums text-[var(--text-primary)]">{r.frMedianaMin === null ? 'sem dado' : formatDurationAdaptive(r.frMedianaMin)}</dd>
                     <dd className="text-[10px] text-[var(--text-tertiary)]">{r.frAmostra} medidos · {r.frNoPrazo} no prazo · {r.frForaPrazo} fora</dd>
                   </div>
                   <div>
@@ -342,7 +345,7 @@ export function TicketAnalystDashboard({ rows, time, objetivos, pontos, amostraM
                   <td className={cn('py-2 text-right font-black tabular-nums', r.points.total < 0 ? 'text-[var(--text-danger)]' : 'text-[var(--text-primary)]')}>{formatSignedPointsBr(r.points.total)}</td>
                   <td className="py-2 text-right tabular-nums">{formatCount(r.chamados)}</td>
                   <td className="py-2 text-right tabular-nums">{r.slaPct === null ? '—' : formatPercentage(r.slaPct)}</td>
-                  <td className="py-2 text-right tabular-nums">{r.frMedianaMin === null ? '—' : formatMinutes(r.frMedianaMin)}</td>
+                  <td className="py-2 text-right tabular-nums">{r.frMedianaMin === null ? '—' : formatDurationAdaptive(r.frMedianaMin)}</td>
                   <td className="py-2 text-right tabular-nums">{r.nasceramPct === null ? '—' : formatPercentage(r.nasceramPct)}</td>
                   <td className="py-2 text-right tabular-nums">{formatCount(r.reabertos)}</td>
                   <td className="py-2 text-right tabular-nums">{formatCount(r.backlog)}</td>
@@ -358,19 +361,29 @@ export function TicketAnalystDashboard({ rows, time, objetivos, pontos, amostraM
         <h3 id="ticket-composition-title" className="mb-1 text-sm font-black uppercase tracking-widest text-[var(--text-primary)]">Composição da pontuação do time</h3>
         <p className="mb-4 text-xs text-[var(--text-tertiary)]">Quanto cada item somou (ou descontou) no total de todos os analistas.</p>
         <ul className="space-y-3">
-          {composicao.map(c => (
-            <li key={c.rotulo} className="grid grid-cols-[120px_1fr_90px] items-center gap-3 text-xs">
-              <span className="text-[var(--text-secondary)]">{c.rotulo}</span>
-              <div className="relative h-3 rounded-full bg-[var(--surface-pill)]">
-                <div
-                  className={cn('absolute top-0 h-full rounded-full', c.valor < 0 ? 'bg-[var(--text-danger)] right-1/2' : 'bg-[var(--text-success)] left-1/2')}
-                  style={{ width: `${(Math.abs(c.valor) / maxComposicao) * 50}%` }}
-                />
-                <span className="absolute left-1/2 top-[-2px] h-[16px] w-px bg-[var(--border-strong)]" aria-hidden />
-              </div>
-              <strong className={cn('text-right tabular-nums', c.valor < 0 ? 'text-[var(--text-danger)]' : 'text-[var(--text-success)]')}>{formatSignedPointsBr(c.valor)}</strong>
-            </li>
-          ))}
+          {composicao.map(c => {
+            // Métrica só-penalidade (Backlog/Reabertura) com soma 0: nunca
+            // existiu nada pra descontar, é o melhor caso — barra verde CHEIA,
+            // não uma barra vazia de largura 0 (que parecia "sem dado").
+            const melhorCasoSemPenalidade = c.apenasPenalidade && c.valor === 0;
+            return (
+              <li key={c.rotulo} className="grid grid-cols-[120px_1fr_90px] items-center gap-3 text-xs">
+                <span className="text-[var(--text-secondary)]">{c.rotulo}</span>
+                <div className="relative h-3 rounded-full bg-[var(--surface-pill)]">
+                  {melhorCasoSemPenalidade ? (
+                    <div className="absolute inset-0 rounded-full bg-[var(--text-success)]" />
+                  ) : (
+                    <div
+                      className={cn('absolute top-0 h-full rounded-full', c.valor < 0 ? 'bg-[var(--text-danger)] right-1/2' : 'bg-[var(--text-success)] left-1/2')}
+                      style={{ width: `${(Math.abs(c.valor) / maxComposicao) * 50}%` }}
+                    />
+                  )}
+                  <span className="absolute left-1/2 top-[-2px] h-[16px] w-px bg-[var(--border-strong)]" aria-hidden />
+                </div>
+                <strong className={cn('text-right tabular-nums', c.valor < 0 ? 'text-[var(--text-danger)]' : 'text-[var(--text-success)]')}>{formatSignedPointsBr(c.valor)}</strong>
+              </li>
+            );
+          })}
         </ul>
       </section>
 

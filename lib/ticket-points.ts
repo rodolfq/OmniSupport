@@ -4,8 +4,8 @@
 
 export interface TicketMetas {
   slaPct: number;                      // % dos chamados dentro do SLA (≥)
-  primeiraRespostaMin: number;         // mediana da 1ª resposta, em minutos (≤)
-  resolucaoPrimeiroContatoPct: number; // % que nasce resolvido (≥)
+  primeiraRespostaMin: number;         // tempo de resposta ao cliente, em minutos (≤) — toda mensagem do cliente, não só a 1ª
+  resolucaoPrimeiroContatoPct: number; // % Resolvido no Primeiro Contato (≥)
   backlogMax: number;                  // chamados abertos há mais que o limite (≤)
   reaberturaPct: number;               // % dos chamados fechados que foram reabertos (≤)
 }
@@ -50,8 +50,8 @@ export const DEFAULT_TICKET_CONFIG: TicketConfigValues = {
 // Campos da configuração, na ordem da tela. A chave "grupo.campo" é usada no histórico.
 export const TICKET_CONFIG_FIELDS: { grupo: keyof TicketConfigValues; campo: string; label: string; tipo: 'meta' | 'regra' | 'ponto'; referencia: string }[] = [
   { grupo: 'metas', campo: 'slaPct', label: 'Chamados dentro do SLA (%)', tipo: 'meta', referencia: 'Valor de exemplo: 90%. Só cerca de um terço das equipes cumpre o SLA de forma consistente.' },
-  { grupo: 'metas', campo: 'primeiraRespostaMin', label: 'Mediana da 1ª resposta (min)', tipo: 'meta', referencia: 'Valor de exemplo: 60 min. Mediana de mercado perto de 1 hora.' },
-  { grupo: 'metas', campo: 'resolucaoPrimeiroContatoPct', label: 'Nasce resolvido (%)', tipo: 'meta', referencia: 'Valor de exemplo: 70%. Média do setor de suporte; 80% é padrão de excelência.' },
+  { grupo: 'metas', campo: 'primeiraRespostaMin', label: 'Tempo de resposta ao cliente (min)', tipo: 'meta', referencia: 'Valor de exemplo: 60 min. Vale para TODA mensagem do cliente, não só a 1ª (2026-10-08).' },
+  { grupo: 'metas', campo: 'resolucaoPrimeiroContatoPct', label: '% Resolvido no Primeiro Contato', tipo: 'meta', referencia: 'Valor de exemplo: 70%. Média do setor de suporte; 80% é padrão de excelência.' },
   { grupo: 'metas', campo: 'backlogMax', label: 'Backlog máximo (chamados)', tipo: 'meta', referencia: 'Valor de exemplo: 20. Ajuste ao tamanho da equipe.' },
   { grupo: 'metas', campo: 'reaberturaPct', label: 'Reabertura máxima (%)', tipo: 'meta', referencia: 'Valor de exemplo: 5%. Estimativa; não encontrei benchmark confiável.' },
   { grupo: 'regras', campo: 'backlogHorasUteis', label: 'Backlog a partir de (horas úteis)', tipo: 'regra', referencia: 'Regra de negócio: 48 horas úteis (seg a sex, 8h às 18h).' },

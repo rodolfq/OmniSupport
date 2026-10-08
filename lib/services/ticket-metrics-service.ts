@@ -7,9 +7,12 @@ import { getPeriodBounds } from './metrics-service';
 // Regras (decisões do usuário, 2026-10-06):
 // - SLA: prazo da prioridade (config_priorities.sla_hours) em horas úteis (ticket_business_minutes).
 //   Cumprido = concluído dentro do prazo. Descumprido = concluído depois, ou ainda aberto com o prazo vencido.
-// - 1ª resposta: só conta quando o CLIENTE interagiu no chamado (comentário de cliente/funcionário).
-//   Mede o tempo até a 1ª resposta visível da equipe depois desse comentário. Sem comentário do cliente
-//   não há 1ª resposta (fica fora da medição).
+// - Tempo de resposta ao cliente (2026-10-08, era "Mediana da 1ª resposta" — só a 1ª mensagem/1ª
+//   resposta do chamado contava): agora TODA mensagem do cliente precisa de resposta visível da
+//   equipe dentro da meta, não só a primeira. Por chamado, o "minutos" medido é o PIOR tempo de
+//   resposta entre as mensagens já respondidas; mensagem do cliente ainda sem resposta e já além
+//   da meta conta como "fora do prazo" mesmo sem latência calculável. Sem nenhum comentário do
+//   cliente não há o que medir (fica fora da amostra, igual antes).
 // - Nasce resolvido: chamado criado já com status fechado (conta ponto).
 // - Reabertura: mudança de um status fechado para um aberto (ticket_status_history).
 // - Backlog: chamado aberto com mais de N horas úteis desde a criação (N em regras.backlogHorasUteis).
@@ -74,25 +77,45 @@ export async function getTicketPerformance(filter: MetricsFilter, metaPrimeiraRe
          FROM tk
          LEFT JOIN closed_at ca ON ca.ticket_id = tk.id
      ),
-     client_first AS (
-       SELECT m.ticket_id, MIN(m.created_at) AS at
+     -- "Tempo de resposta ao cliente" (2026-10-08, era "Mediana da 1ª resposta"):
+     -- TODA mensagem do cliente precisa de resposta da equipe dentro da meta,
+     -- não só a primeira do chamado. client_msgs/team_msgs listam cada
+     -- mensagem; pares casa cada mensagem do cliente com a PRÓXIMA resposta
+     -- visível da equipe depois dela (NULL = ainda sem resposta).
+     client_msgs AS (
+       SELECT m.ticket_id, m.created_at AS at
          FROM public.ticket_messages m
          JOIN public.profiles p ON p.id = m.author_id AND p.role = ANY($5::text[])
         WHERE m.type = 'text' AND m.ticket_id IN (SELECT id FROM tk)
-        GROUP BY m.ticket_id
      ),
-     team_reply AS (
-       SELECT c.ticket_id, MIN(m.created_at) AS at
-         FROM client_first c
-         JOIN public.ticket_messages m ON m.ticket_id = c.ticket_id AND m.created_at > c.at
+     team_msgs AS (
+       SELECT m.ticket_id, m.created_at AS at
+         FROM public.ticket_messages m
          JOIN public.profiles p ON p.id = m.author_id AND p.role = ANY($4::text[])
-        WHERE m.type = 'text' AND m.is_visible_to_customer = true
-        GROUP BY c.ticket_id
+        WHERE m.type = 'text' AND m.is_visible_to_customer = true AND m.ticket_id IN (SELECT id FROM tk)
+     ),
+     pares AS (
+       SELECT cm.ticket_id, cm.at AS client_at,
+         (SELECT MIN(tm.at) FROM team_msgs tm WHERE tm.ticket_id = cm.ticket_id AND tm.at > cm.at) AS reply_at
+         FROM client_msgs cm
      ),
      fr AS (
-       SELECT r.ticket_id, EXTRACT(EPOCH FROM (r.at - c.at)) / 60 AS minutos
-         FROM team_reply r
-         JOIN client_first c ON c.ticket_id = r.ticket_id
+       -- minutos = o PIOR tempo de resposta do chamado, entre as mensagens do
+       -- cliente já respondidas (não a média/1ª — o objetivo é que NENHUMA
+       -- mensagem estoure o prazo, não só a primeira).
+       -- tem_pendencia_vencida = existe mensagem do cliente AINDA sem resposta
+       -- e já além da meta (chamado fechado sem responder conta sempre;
+       -- aberto só conta quando "agora" já passou do prazo — mesmo padrão de
+       -- 'pendente' usado no SLA do chamado acima).
+       SELECT p.ticket_id,
+         MAX(EXTRACT(EPOCH FROM (p.reply_at - p.client_at)) / 60) FILTER (WHERE p.reply_at IS NOT NULL) AS minutos,
+         bool_or(
+           p.reply_at IS NULL
+           AND EXTRACT(EPOCH FROM (COALESCE(ca.at, NOW()) - p.client_at)) / 60 > $3::float
+         ) AS tem_pendencia_vencida
+         FROM pares p
+         LEFT JOIN closed_at ca ON ca.ticket_id = p.ticket_id
+        GROUP BY p.ticket_id
      ),
      born AS (
        SELECT DISTINCT h.ticket_id
@@ -110,7 +133,7 @@ export async function getTicketPerformance(filter: MetricsFilter, metaPrimeiraRe
      ),
      base AS (
        SELECT tk.assignee_id, tk.assignee_name, tk.avatar,
-              s.sla_state, f.minutos,
+              s.sla_state, f.minutos, COALESCE(f.tem_pendencia_vencida, false) AS tem_pendencia_vencida,
               (b.ticket_id IS NOT NULL) AS nasceu_resolvido,
               (ca.at IS NOT NULL) AS fechado,
               tk.tem_historico,
@@ -130,10 +153,13 @@ export async function getTicketPerformance(filter: MetricsFilter, metaPrimeiraRe
             COUNT(*) FILTER (WHERE sla_state = 'miss')::int AS sla_miss,
             COUNT(*) FILTER (WHERE sla_state = 'pendente')::int AS sla_pendentes,
             COUNT(*) FILTER (WHERE sla_state = 'sem_historico')::int AS sla_sem_historico,
-            COUNT(minutos)::int AS fr_amostra,
+            -- Amostra/no-prazo/fora-prazo agora também contam mensagem do cliente
+            -- ainda sem resposta e já vencida como "fora do prazo", mesmo sem um
+            -- "minutos" calculado (não dá pra medir latência de quem nunca respondeu).
+            COUNT(*) FILTER (WHERE minutos IS NOT NULL OR tem_pendencia_vencida)::int AS fr_amostra,
             (percentile_cont(0.5) WITHIN GROUP (ORDER BY minutos))::float AS fr_mediana_min,
-            COUNT(*) FILTER (WHERE minutos <= $3::float)::int AS fr_no_prazo,
-            COUNT(*) FILTER (WHERE minutos > $3::float)::int AS fr_fora_prazo,
+            COUNT(*) FILTER (WHERE NOT tem_pendencia_vencida AND minutos <= $3::float)::int AS fr_no_prazo,
+            COUNT(*) FILTER (WHERE tem_pendencia_vencida OR minutos > $3::float)::int AS fr_fora_prazo,
             COUNT(*) FILTER (WHERE nasceu_resolvido)::int AS nasceram_resolvidos,
             COUNT(*) FILTER (WHERE tem_historico)::int AS com_historico,
             COUNT(*) FILTER (WHERE fechado)::int AS fechados,

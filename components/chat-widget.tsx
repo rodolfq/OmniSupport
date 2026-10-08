@@ -3134,9 +3134,25 @@ useEffect(() => {
                           );
                         })()}
                         {selectedChat?.ticketNumber && (
-                          <p className="text-[9px] text-[var(--text-tertiary)] font-semibold uppercase tracking-widest">
-                            Conversa #{String(selectedChat.ticketNumber).padStart(4, '0')}
-                          </p>
+                          // Cliente/Funcionário vê o número virar link direto pro
+                          // chamado (pedido do usuário, 2026-10-08) — equipe já
+                          // acessa o chamado por outros caminhos (Central de
+                          // Atendimento, aba Conversa do chamado), então aqui
+                          // continua só texto informativo pra ela.
+                          isCustomer && selectedChat.ticketId ? (
+                            <button
+                              type="button"
+                              onClick={() => router.push(`/my-tickets?ticket=${selectedChat.ticketId}`)}
+                              className="text-[9px] text-[var(--accent-text)] font-semibold uppercase tracking-widest hover:underline underline-offset-2"
+                              title="Abrir o chamado desta conversa"
+                            >
+                              Chamado #{String(selectedChat.ticketNumber).padStart(4, '0')}
+                            </button>
+                          ) : (
+                            <p className="text-[9px] text-[var(--text-tertiary)] font-semibold uppercase tracking-widest">
+                              Conversa #{String(selectedChat.ticketNumber).padStart(4, '0')}
+                            </p>
+                          )
                         )}
                         {/* Marcadores vinculados em tempo real pelo atendente — só
                             equipe vê/edita, cliente nunca (mesmo padrão do bloco

@@ -38,7 +38,7 @@ function buildCsv<T>(config: ReportExportConfig<T>): string {
   const header = config.columns.map(c => csvCell(c.label)).join(',');
   const lines = config.rows.map(row => config.columns.map(c => csvCell(row[c.key])).join(','));
   // BOM UTF-8 na frente — sem isso o Excel abre acento quebrado.
-  return '' + [header, ...lines].join('\r\n');
+  return '﻿' + [header, ...lines].join('\r\n');
 }
 
 function downloadBlob(blob: Blob, filename: string) {
@@ -108,85 +108,23 @@ const PDF_INK: [number, number, number] = [30, 41, 59]; // slate-800
 const PDF_MUTED: [number, number, number] = [100, 116, 139]; // slate-500
 const PDF_ZEBRA: [number, number, number] = [246, 250, 249]; // tingido levemente de verde água
 
-// Largura MÍNIMA/MÁXIMA de uma coluna e o padding (esquerda+direita) por
-// célula, em pt — usados tanto pra medir a largura natural de cada coluna
-// quanto pra desenhar.
-const COL_MIN_WIDTH = 34;
-const COL_MAX_WIDTH = 170;
-const CELL_PADDING = 12;
-
-// Mede a largura "natural" de cada coluna (maior entre o rótulo do
-// cabeçalho e o valor de toda linha), com o MESMO tamanho de fonte que vai
-// ser usado pra desenhar a tabela de verdade — é o que faz uma coluna
-// "Bad" (1 dígito) ficar estreita e "Analista" (nome) ficar larga, em vez
-// de todas saírem do mesmo tamanho (ver nota abaixo, 2026-10-08).
-function measureNaturalColumnWidths(doc: any, section: ReportExportConfig<any>, fontSize: number): number[] {
-  doc.setFont('helvetica', 'bold');
-  doc.setFontSize(fontSize);
-  const widths = section.columns.map(col => doc.getTextWidth(col.label));
-  doc.setFont('helvetica', 'normal');
-  section.rows.forEach(row => {
-    section.columns.forEach((col, i) => {
-      const raw = row[col.key];
-      const text = col.format ? col.format(raw, row) : (raw === null || raw === undefined ? '—' : String(raw));
-      const w = doc.getTextWidth(text);
-      if (w > widths[i]) widths[i] = w;
-    });
-  });
-  return widths.map(w => Math.min(COL_MAX_WIDTH, Math.max(COL_MIN_WIDTH, w + CELL_PADDING)));
-}
-
-// A partir da largura natural de cada coluna, decide a largura final pra
-// caber exatamente em `contentWidth`: se SOBRA espaço, distribui a sobra
-// proporcionalmente (coluna mais larga ganha mais, não ganham todas igual);
-// se FALTA espaço (tabela não cabe nem larga), encolhe todas
-// proporcionalmente — ainda pode quebrar linha em alguma célula, mas só
-// onde o conteúdo pede, não em toda coluna por igual.
-function fitColumnWidths(natural: number[], contentWidth: number): number[] {
-  const sum = natural.reduce((a, b) => a + b, 0);
-  if (sum <= 0) return natural;
-  if (sum <= contentWidth) {
-    const extra = contentWidth - sum;
-    return natural.map(w => w + extra * (w / sum));
-  }
-  const scale = contentWidth / sum;
-  return natural.map(w => Math.max(COL_MIN_WIDTH * 0.7, w * scale));
-}
-
 // Monta o PDF de reunião: cabeçalho com o relatório e o filtro, e uma tabela por seção.
 // Usado pelo PDF da página inteira e pelo PDF de uma seção (ex.: o ranking).
 //
-// Reescrito em 2026-10-08 em duas rodadas (o motivo de vários PDFs saírem
-// quebrados):
-// 1ª rodada: o código antigo escrevia cada célula com `maxWidth` — o jsPDF
-//    QUEBRA a linha sozinho quando o texto excede a largura, mas o cursor Y
-//    sempre avançava uma linha FIXA (13pt), nunca o nº de linhas que o texto
-//    realmente ocupou. Texto comprido sobrepunha a linha seguinte. Corrigido
-//    medindo cada célula com `splitTextToSize` ANTES de desenhar.
-// 2ª rodada (achado pelo usuário, com print de uma tabela de 17 colunas):
-//    a largura ainda era `contentWidth / nº de colunas` — IGUAL pra todas,
-//    então uma tabela com muita coluna (ex.: Desempenho por Analista) dava
-//    uma largura tão apertada que até "Good"/"Bad" (1 dígito) quebravam
-//    palavra por sílaba. Agora cada coluna mede o próprio conteúdo
-//    (measureNaturalColumnWidths/fitColumnWidths) e a página vira PAISAGEM
-//    sozinha quando a soma das larguras naturais não cabe em retrato.
+// Reescrito em 2026-10-08 (o motivo de vários PDFs saírem quebrados): o
+// código antigo escrevia cada célula com `maxWidth` — o jsPDF QUEBRA a linha
+// sozinho quando o texto excede a largura, mas o cursor Y sempre avançava
+// uma linha FIXA (13pt), nunca o nº de linhas que o texto realmente ocupou.
+// Texto comprido sobrepunha a linha seguinte (e às vezes a seção seguinte).
+// Agora cada célula é medida com `splitTextToSize` ANTES de desenhar, a
+// altura da linha vira o MAIOR número de linhas entre as colunas daquela
+// linha, e só então o cursor avança por aquilo — nunca mais sobrepõe.
 async function buildPdf(sections: ReportExportConfig<any>[], reportLabel: string, filterSummary: string) {
   const ready = sections.filter(s => s.rows.length > 0);
   if (ready.length === 0) return null;
   const { jsPDF } = await import('jspdf');
+  const doc = new jsPDF({ unit: 'pt', format: 'a4' });
   const marginX = 40;
-
-  // Doc de medição: só pra rodar getTextWidth/splitTextToSize antes de
-  // decidir orientação — unidade/fonte é tudo que importa aqui, o tamanho
-  // de página não entra na medição de texto.
-  const probe = new jsPDF({ unit: 'pt', format: 'a4' });
-  const portraitContentWidth = probe.internal.pageSize.getWidth() - marginX * 2;
-  const sectionFontSize = (s: ReportExportConfig<any>) => (s.columns.length > 10 ? 7 : 8);
-  const naturalWidthsBySection = ready.map(s => measureNaturalColumnWidths(probe, s, sectionFontSize(s)));
-  const widestSectionSum = Math.max(...naturalWidthsBySection.map(ws => ws.reduce((a, b) => a + b, 0)));
-  const orientation: 'portrait' | 'landscape' = widestSectionSum > portraitContentWidth ? 'landscape' : 'portrait';
-
-  const doc = new jsPDF({ unit: 'pt', format: 'a4', orientation });
   const marginTop = 56;
   const pageHeight = doc.internal.pageSize.getHeight();
   const pageWidth = doc.internal.pageSize.getWidth();
@@ -251,15 +189,8 @@ async function buildPdf(sections: ReportExportConfig<any>[], reportLabel: string
   const ROW_PADDING = 6;
   const HEADER_HEIGHT = 20;
 
-  ready.forEach((section, sectionIndex) => {
-    const fontSize = sectionFontSize(section);
-    // Larguras já medidas pelo conteúdo real (measureNaturalColumnWidths,
-    // antes de decidir a orientação) — só falta encaixar no contentWidth
-    // de verdade da página escolhida. x-offset de cada coluna vem da soma
-    // acumulada das larguras anteriores (colunas não são mais iguais).
-    const colWidths = fitColumnWidths(naturalWidthsBySection[sectionIndex], contentWidth);
-    const colX: number[] = [];
-    colWidths.reduce((acc, w, i) => { colX[i] = acc; return acc + w; }, marginX);
+  for (const section of ready) {
+    const colWidth = contentWidth / section.columns.length;
 
     const drawSectionTitle = () => {
       doc.setFont('helvetica', 'bold');
@@ -273,9 +204,9 @@ async function buildPdf(sections: ReportExportConfig<any>[], reportLabel: string
       doc.setFillColor(...PDF_ACCENT);
       doc.rect(marginX, y - 13, contentWidth, HEADER_HEIGHT, 'F');
       doc.setFont('helvetica', 'bold');
-      doc.setFontSize(fontSize);
+      doc.setFontSize(8);
       doc.setTextColor(255, 255, 255);
-      section.columns.forEach((col, i) => doc.text(col.label, colX[i] + 5, y, { maxWidth: colWidths[i] - 8 }));
+      section.columns.forEach((col, i) => doc.text(col.label, marginX + i * colWidth + 5, y, { maxWidth: colWidth - 8 }));
       y += HEADER_HEIGHT - 4;
     };
 
@@ -284,15 +215,15 @@ async function buildPdf(sections: ReportExportConfig<any>[], reportLabel: string
     drawColumnHeader();
 
     doc.setFont('helvetica', 'normal');
-    doc.setFontSize(fontSize);
+    doc.setFontSize(8);
 
     section.rows.forEach((row, rowIndex) => {
       // Cada célula pode quebrar em N linhas — a linha da TABELA usa a maior
       // delas, e só então o cursor avança (é exatamente o que faltava antes).
-      const cellLines = section.columns.map((col, i) => {
+      const cellLines = section.columns.map(col => {
         const raw = row[col.key];
         const text = col.format ? col.format(raw, row) : (raw === null || raw === undefined ? '—' : String(raw));
-        return doc.splitTextToSize(text, colWidths[i] - 8) as string[];
+        return doc.splitTextToSize(text, colWidth - 8) as string[];
       });
       const maxLines = Math.max(1, ...cellLines.map(l => l.length));
       const rowHeight = maxLines * LINE_HEIGHT + ROW_PADDING;
@@ -307,13 +238,13 @@ async function buildPdf(sections: ReportExportConfig<any>[], reportLabel: string
 
       doc.setTextColor(...PDF_INK);
       cellLines.forEach((lines, i) => {
-        doc.text(lines, colX[i] + 5, y, { maxWidth: colWidths[i] - 8 });
+        doc.text(lines, marginX + i * colWidth + 5, y, { maxWidth: colWidth - 8 });
       });
       y += rowHeight;
     });
 
     y += 20;
-  });
+  }
 
   drawFooter();
   return doc;

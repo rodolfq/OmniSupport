@@ -15,8 +15,13 @@ export function isStalePresence(lastActive?: string | null): boolean {
 
 export function deriveLiveStatus(entry?: { status?: string | null; isOnline?: boolean; lastActive?: string | null } | null): 'online' | 'away' | 'offline' {
   if (!entry) return 'offline';
-  if (isStalePresence(entry.lastActive)) return 'offline';
+  // Ausente (ou qualquer outro status manual) foi escolhido pelo próprio
+  // usuário e continua valendo até ele mesmo trocar — heartbeat velho não o
+  // derruba (2026-10-08, pedido do usuário: só "online" cai sozinho por falta
+  // de heartbeat, que é a única forma de "sumir" estando online — fechou a
+  // aba ou perdeu conexão).
   if (entry.status === 'away') return 'away';
+  if (isStalePresence(entry.lastActive)) return 'offline';
   if (entry.status === 'online' || entry.isOnline) return 'online';
   return 'offline';
 }

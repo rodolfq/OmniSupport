@@ -4,6 +4,20 @@ Este arquivo orienta o Claude Code (e qualquer novo desenvolvedor) a trabalhar n
 
 ---
 
+## 🚨 MORATÓRIA DE BANCO DE DADOS (vigente desde 2026-10-08, temporária)
+
+**Proibido alterar o banco de produção de qualquer forma — nenhuma migration, nenhum `ALTER`/`CREATE`/`DROP`, nenhum dado corrigido via script, nada —, até o usuário preparar um banco de implementação separado da operação real.** Decisão do usuário em 2026-10-08, depois de dois incidentes reais no dia anterior (ver seção 15, "Pyvon index rollback" e a memória do projeto `project_pyvon_index_rollback.md`): o `DATABASE_URL` do `.env` aponta para o banco REAL, compartilhado com a operação em produção — uma migration aplicada aqui pode quebrar o backend real mesmo sem tocar nele diretamente, porque o deploy do backend é um passo separado, manual, que não acontece na mesma hora.
+
+**O que isso muda na prática** (suspende, só enquanto durar, a antiga permissão permanente de aplicar migrations — ver seção 16 e a memória `feedback_migrations_auto_run.md`):
+- Nenhuma migration nova vai pro banco de produção, mesmo que seja aditiva. Escrever o arquivo em `migrations/` e mirrorar em `schema_postgres.sql` continua normal; **rodar contra o `DATABASE_URL` atual, não**.
+- Nenhum `UPDATE`/`DELETE`/correção de dado direto no banco, mesmo pontual.
+- **Consultas `SELECT` (só leitura) continuam permitidas** — diagnóstico, verificação, achar causa de bug, confirmar hipótese. A trava é só para escrita/alteração de schema.
+- Qualquer item que precise de coluna/tabela nova, ou mudança de dado em produção, fica **listado como pendente**, implementado no código quando fizer sentido mas **sem aplicar a migration**, até a trava ser liberada.
+
+**Como será liberada**: o usuário vai montar um banco próprio para desenvolvimento/implementação, separado do banco de operação real. Até lá, perguntar antes de qualquer coisa que pareça exigir mudança de banco, mesmo que pareça pequena ou "só aditiva".
+
+---
+
 ## 1. Visão geral
 
 **SSX Desk** (nome interno do pacote: `ssx-desk`; nome do produto anterior era "OmniSupport", ainda usado no nome da pasta/projeto) é uma plataforma de helpdesk/atendimento ao cliente multicanal.
