@@ -26,6 +26,7 @@ import { TicketAnalystDashboard } from '@/components/reports/ticket-analyst-dash
 import { GeneralAnalystDashboard } from '@/components/reports/general-analyst-dashboard';
 import { AnalystPresencePanel, PresenceAnalyst } from '@/components/reports/analyst-presence-panel';
 import { DEFAULT_POINTS_WEIGHTS, PointsWeights, PointsDataQuality, rankPoints, formatPointsBr } from '@/lib/analyst-points';
+import { MultiSelectFilter } from '@/components/multi-select-filter';
 
 // R2 — "Desempenho por Analista", mesmo padrão estrutural do R1. Nunca é um
 // ranking 1º-ao-último: cada linha compara contra a MEDIANA do time (linha
@@ -86,6 +87,15 @@ export default function ReportAnalystsPage() {
   const [filter, setFilter] = useState<MetricsFilterState>(DEFAULT_METRICS_FILTER_STATE);
   const [filterSummary, setFilterSummary] = useState('');
   const [view, setView] = useState<AnalystView>('chat');
+  // "Apenas analistas selecionados" (pedido do usuário, 2026-10-08) — pra
+  // comparar só quem interessa, sem o resto do time "poluindo" pódio/
+  // ranking/tabela. Puramente client-side (filtra as linhas já carregadas,
+  // não refaz a consulta): os agregados de time inteiro (Mediana do time,
+  // Objetivos da área/Base da avaliação da visão Chamado) continuam sobre
+  // TODO o time mesmo com seleção ativa — são medianas/percentuais vindos
+  // prontos do servidor, recalcular só pro subconjunto exigiria outra
+  // consulta. Um aviso abaixo do filtro deixa isso explícito.
+  const [selectedAnalystIds, setSelectedAnalystIds] = useState<string[]>([]);
   const ready = isMetricsFilterReady(filter);
   const filterQs = useMemo(() => metricsFilterToQueryString(filter), [filter]);
 
@@ -101,36 +111,59 @@ export default function ReportAnalystsPage() {
   // Visão de chamado: só busca quando a tela está nela (ou na geral, que usa os dois).
   const tickets = useReportFetch<{ rows: TicketAnalystRow[]; time: TicketTimeTotals | null; objetivos: TicketObjetivo[]; config: { pontos: Record<string, number>; regras?: { amostraMinima: number } }; configIsDefault: boolean }>(REPORT_ENDPOINT, 'tickets', filterQs, ready && view !== 'chat');
 
+  const hasAnalystFilter = selectedAnalystIds.length > 0;
+  const matchesAnalystFilter = (analystId: string) => !hasAnalystFilter || selectedAnalystIds.includes(analystId);
+
   const rows = useMemo(() => {
     const list = performance.data?.rows ?? [];
-    return [...list].sort((a, b) => (b.chatsPorHoraOnline ?? -1) - (a.chatsPorHoraOnline ?? -1));
-  }, [performance.data]);
+    return [...list]
+      .filter(r => matchesAnalystFilter(r.analystId))
+      .sort((a, b) => (b.chatsPorHoraOnline ?? -1) - (a.chatsPorHoraOnline ?? -1));
+  }, [performance.data, selectedAnalystIds]);
+
+  // Lista de opções do filtro: união dos analistas vistos em Chat e em
+  // Chamado (nomes podem divergir de anonimização — ver canSeeIndividual no
+  // servidor —, mas o id é sempre o mesmo real).
+  const analystOptions = useMemo(() => {
+    const map = new Map<string, string>();
+    (performance.data?.rows ?? []).forEach(r => map.set(r.analystId, r.analystName));
+    (tickets.data?.rows ?? []).forEach(r => { if (!map.has(r.analystId)) map.set(r.analystId, r.analystName); });
+    return Array.from(map.entries())
+      .map(([value, label]) => ({ value, label }))
+      .sort((a, b) => a.label.localeCompare(b.label, 'pt-BR'));
+  }, [performance.data, tickets.data]);
 
   const absenceReasons = useMemo(() => {
     const set = new Set<string>();
-    (absences.data?.rows ?? []).forEach(r => set.add(r.reason));
+    (absences.data?.rows ?? []).forEach(r => { if (matchesAnalystFilter(r.analystId)) set.add(r.reason); });
     return Array.from(set);
-  }, [absences.data]);
+  }, [absences.data, selectedAnalystIds]);
 
   const absenceChartData = useMemo(() => {
     const byAnalyst = new Map<string, Record<string, any>>();
     (absences.data?.rows ?? []).forEach(r => {
+      if (!matchesAnalystFilter(r.analystId)) return;
       const entry = byAnalyst.get(r.analystId) ?? { analystName: r.analystName };
       entry[r.reason] = r.hours;
       byAnalyst.set(r.analystId, entry);
     });
     return Array.from(byAnalyst.values());
-  }, [absences.data]);
+  }, [absences.data, selectedAnalystIds]);
 
   // Analistas do detalhe de presença: junta quem aparece em desempenho (com foto) e em ausência.
   const presenceAnalysts = useMemo<PresenceAnalyst[]>(() => {
     const map = new Map<string, PresenceAnalyst>();
-    (performance.data?.rows ?? []).forEach(r => map.set(r.analystId, { id: r.analystId, name: r.analystName, avatarUrl: r.analystAvatarUrl ?? null }));
-    (absences.data?.rows ?? []).forEach(r => {
+    (performance.data?.rows ?? []).filter(r => matchesAnalystFilter(r.analystId)).forEach(r => map.set(r.analystId, { id: r.analystId, name: r.analystName, avatarUrl: r.analystAvatarUrl ?? null }));
+    (absences.data?.rows ?? []).filter(r => matchesAnalystFilter(r.analystId)).forEach(r => {
       if (!map.has(r.analystId)) map.set(r.analystId, { id: r.analystId, name: r.analystName, avatarUrl: null });
     });
     return Array.from(map.values()).sort((a, b) => a.name.localeCompare(b.name, 'pt-BR'));
-  }, [performance.data, absences.data]);
+  }, [performance.data, absences.data, selectedAnalystIds]);
+
+  // Visão Chamado: mesma filtragem client-side das linhas individuais.
+  const ticketRows = useMemo(() => {
+    return (tickets.data?.rows ?? []).filter(r => matchesAnalystFilter(r.analystId));
+  }, [tickets.data, selectedAnalystIds]);
 
   const rankingExport: ReportExportConfig = useMemo(() => {
     const weights = performance.data?.pointsWeights ?? DEFAULT_POINTS_WEIGHTS;
@@ -208,7 +241,39 @@ export default function ReportAnalystsPage() {
         <PageExportPdfButton sections={allSections} reportId={REPORT_ID} reportLabel={REPORT_LABEL} filterSummary={filterSummary} />
       </div>
 
-      <MetricsFilterBar value={filter} onChange={setFilter} onFilterSummaryChange={setFilterSummary} periods={ANALYST_PERIODS} />
+      {/* Instância WhatsApp e Empresa removidas (pedido do usuário, 2026-10-08):
+          além de a tela ficar mais enxuta, nenhuma das 3 visões (Chat/Chamado/
+          Geral) deste relatório de fato filtra por elas — Chamado e Geral nem
+          chegam a usar instanceId/companyId na consulta (achado nesta mesma
+          mudança); Fila continua (a visão Chat filtra de verdade por ela). */}
+      <MetricsFilterBar
+        value={filter}
+        onChange={setFilter}
+        onFilterSummaryChange={setFilterSummary}
+        periods={ANALYST_PERIODS}
+        showInstanceFilter={false}
+        showCompanyFilter={false}
+      >
+        <div className="space-y-1.5">
+          <label className="text-[10px] font-semibold uppercase text-[var(--text-tertiary)] tracking-widest ml-1">Analistas</label>
+          <MultiSelectFilter
+            options={analystOptions}
+            selected={selectedAnalystIds}
+            onChange={setSelectedAnalystIds}
+            allLabel="Todos os analistas"
+            itemLabelPlural="analistas"
+            searchPlaceholder="Buscar analista..."
+            className="min-w-[180px]"
+          />
+        </div>
+      </MetricsFilterBar>
+
+      {hasAnalystFilter && (
+        <p className="text-xs text-[var(--text-tertiary)] -mt-4 px-1">
+          Comparando só os analistas selecionados: pódio, ranking, composição e as tabelas abaixo refletem a seleção.
+          A Mediana do time (visão Chat) e os cards de Objetivos da área/Base da avaliação (visão Chamado) continuam sobre o time inteiro.
+        </p>
+      )}
 
       <div className="flex justify-end">
         <AnalystViewSwitch view={view} onChange={setView} />
@@ -216,7 +281,7 @@ export default function ReportAnalystsPage() {
 
       {view === 'chamado' && (
         <TicketAnalystDashboard
-          rows={tickets.data?.rows ?? []}
+          rows={ticketRows}
           time={tickets.data?.time ?? null}
           objetivos={tickets.data?.objetivos ?? []}
           pontos={tickets.data?.config?.pontos ?? {}}
@@ -231,9 +296,9 @@ export default function ReportAnalystsPage() {
 
       {view === 'geral' && (
         <GeneralAnalystDashboard
-          chatRows={performance.data?.rows ?? []}
+          chatRows={rows}
           weights={performance.data?.pointsWeights ?? DEFAULT_POINTS_WEIGHTS}
-          ticketRows={tickets.data?.rows ?? []}
+          ticketRows={ticketRows}
           status={performance.status === 'ready' && tickets.status === 'ready' ? 'ready' : (performance.status === 'error' || tickets.status === 'error' ? 'error' : 'loading')}
           onRetry={() => { performance.retry(); tickets.retry(); }}
           periodTitle={`Geral · ${PERIOD_LABEL[filter.period] ?? 'Período'}`}

@@ -223,8 +223,18 @@ export function LinkContactModal({
     
     try {
       if (isCreatingNewCompany && newCompanyName) {
+        // Nunca mandar `id` aqui: CompanyService.create despacha para
+        // POST /api/companies, e QUALQUER `id` no corpo faz a rota entrar no
+        // caminho de ATUALIZAR empresa existente (`if (id) { UPDATE ... }`) —
+        // com um id recém-gerado no navegador, o UPDATE não acha a linha,
+        // não erra (afeta 0 linhas) e a rota devolvia 200 com esse MESMO id
+        // de volta, como se a empresa tivesse sido criada. O id falso seguia
+        // para createUser() e o INSERT em profiles caía em
+        // "violates foreign key constraint profiles_company_id_fkey" (a
+        // empresa nunca existiu). Sem `id`, a rota cai no INSERT ... RETURNING
+        // id de verdade (ver comentário "Criação simples, sem usuário
+        // administrador" em app/api/companies/route.ts).
         const newCompany = await CompanyService.create({
-          id: crypto.randomUUID(),
           name: newCompanyName,
           industry: '',
           phone: ''

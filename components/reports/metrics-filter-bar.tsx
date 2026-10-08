@@ -77,18 +77,29 @@ function buildFilterSummary(
   queues: any[],
   instances: any[],
   companies: any[],
-  showScopeFilters: boolean
+  showQueueFilter: boolean,
+  showInstanceFilter: boolean,
+  showCompanyFilter: boolean
 ): string {
   const periodPart = state.period === 'custom'
     ? `Período: ${state.customStart || '?'} a ${state.customEnd || '?'}`
     : `Período: ${PERIOD_LABELS[state.period]}`;
-  // Sem os seletores de escopo na tela, repetir "Fila: todas · Instância:
-  // todas" no cabeçalho do PDF é ruído — o relatório nem tem essas dimensões.
-  if (!showScopeFilters) return periodPart;
-  const queueLabel = state.queueId ? (queues.find(q => q.id === state.queueId)?.name ?? state.queueId) : 'todas';
-  const instanceLabel = state.instanceId ? (instances.find(i => i.id === state.instanceId)?.name ?? state.instanceId) : 'todas';
-  const companyLabel = state.companyId ? (companies.find(c => c.id === state.companyId)?.name ?? state.companyId) : 'todas';
-  return `${periodPart} · Fila: ${queueLabel} · Instância: ${instanceLabel} · Empresa: ${companyLabel}`;
+  // Sem o seletor na tela, repetir "Instância: todas" no cabeçalho do PDF é
+  // ruído — o relatório nem tem (ou nem usa) essa dimensão.
+  const parts = [periodPart];
+  if (showQueueFilter) {
+    const queueLabel = state.queueId ? (queues.find(q => q.id === state.queueId)?.name ?? state.queueId) : 'todas';
+    parts.push(`Fila: ${queueLabel}`);
+  }
+  if (showInstanceFilter) {
+    const instanceLabel = state.instanceId ? (instances.find(i => i.id === state.instanceId)?.name ?? state.instanceId) : 'todas';
+    parts.push(`Instância: ${instanceLabel}`);
+  }
+  if (showCompanyFilter) {
+    const companyLabel = state.companyId ? (companies.find(c => c.id === state.companyId)?.name ?? state.companyId) : 'todas';
+    parts.push(`Empresa: ${companyLabel}`);
+  }
+  return parts.join(' · ');
 }
 
 interface MetricsFilterBarProps {
@@ -96,11 +107,21 @@ interface MetricsFilterBarProps {
   onChange: (next: MetricsFilterState) => void;
   onFilterSummaryChange?: (summary: string) => void;
   /**
-   * Fila, instância e empresa. Desligar em relatório que não tem essas
-   * dimensões (Hotfixes é sobre janela de release, não sobre atendimento) —
-   * seletor que não filtra nada só confunde quem lê.
+   * Fila, instância e empresa, como um grupo só — desligar em relatório que
+   * não tem NENHUMA dessas dimensões (Hotfixes é sobre janela de release,
+   * não sobre atendimento). Pra desligar só UMA das três (ex.: Desempenho
+   * por Analista, 2026-10-08 — mantém Fila, tira Instância/Empresa porque
+   * nenhuma tela do relatório as filtra de verdade), use
+   * showInstanceFilter/showCompanyFilter abaixo; cada um, se omitido, segue
+   * este valor.
    */
   showScopeFilters?: boolean;
+  /** Seletor de Fila. Default: showScopeFilters. */
+  showQueueFilter?: boolean;
+  /** Seletor de Instância WhatsApp. Default: showScopeFilters. */
+  showInstanceFilter?: boolean;
+  /** Seletor de Empresa. Default: showScopeFilters. */
+  showCompanyFilter?: boolean;
   /** Presets de período oferecidos. Ver DEFAULT_PERIOD_PRESETS. */
   periods?: MetricsPeriodPreset[];
   /** Conteúdo extra à direita (ex.: filtro de situação no relatório de Hotfixes). */
@@ -112,6 +133,9 @@ export function MetricsFilterBar({
   onChange,
   onFilterSummaryChange,
   showScopeFilters = true,
+  showQueueFilter = showScopeFilters,
+  showInstanceFilter = showScopeFilters,
+  showCompanyFilter = showScopeFilters,
   periods = DEFAULT_PERIOD_PRESETS,
   children
 }: MetricsFilterBarProps) {
@@ -120,17 +144,16 @@ export function MetricsFilterBar({
   const [companies, setCompanies] = useState<any[]>([]);
 
   useEffect(() => {
-    // Sem os seletores de escopo não há por que buscar filas, instâncias e
-    // empresas — eram três requisições por carga de tela sem uso nenhum.
-    if (!showScopeFilters) return;
-    fetchQueues().then(setQueues);
-    getWhatsappInstances().then(setInstances).catch(() => setInstances([]));
-    fetchCompanies().then(setCompanies).catch(() => setCompanies([]));
-  }, [showScopeFilters]);
+    // Só busca o que a tela realmente vai mostrar — pedir lista de
+    // instância/empresa pra um seletor que nem aparece é requisição à toa.
+    if (showQueueFilter) fetchQueues().then(setQueues);
+    if (showInstanceFilter) getWhatsappInstances().then(setInstances).catch(() => setInstances([]));
+    if (showCompanyFilter) fetchCompanies().then(setCompanies).catch(() => setCompanies([]));
+  }, [showQueueFilter, showInstanceFilter, showCompanyFilter]);
 
   useEffect(() => {
-    onFilterSummaryChange?.(buildFilterSummary(value, queues, instances, companies, showScopeFilters));
-  }, [value, queues, instances, companies, onFilterSummaryChange, showScopeFilters]);
+    onFilterSummaryChange?.(buildFilterSummary(value, queues, instances, companies, showQueueFilter, showInstanceFilter, showCompanyFilter));
+  }, [value, queues, instances, companies, onFilterSummaryChange, showQueueFilter, showInstanceFilter, showCompanyFilter]);
 
   const set = <K extends keyof MetricsFilterState>(key: K, val: MetricsFilterState[K]) => {
     onChange({ ...value, [key]: val });
@@ -174,8 +197,7 @@ export function MetricsFilterBar({
         </>
       )}
 
-      {showScopeFilters && (
-      <>
+      {showQueueFilter && (
       <div className="space-y-1.5">
         <label className="text-[10px] font-semibold uppercase text-[var(--text-tertiary)] tracking-widest ml-1">Fila</label>
         <StyledSelect
@@ -187,7 +209,9 @@ export function MetricsFilterBar({
           {queues.map((q) => <option key={q.id} value={q.id}>{q.name}</option>)}
         </StyledSelect>
       </div>
+      )}
 
+      {showInstanceFilter && (
       <div className="space-y-1.5">
         <label className="text-[10px] font-semibold uppercase text-[var(--text-tertiary)] tracking-widest ml-1">Instância WhatsApp</label>
         <StyledSelect
@@ -199,7 +223,9 @@ export function MetricsFilterBar({
           {instances.map((i) => <option key={i.id} value={i.id}>{i.name || i.phone || i.id}</option>)}
         </StyledSelect>
       </div>
+      )}
 
+      {showCompanyFilter && (
       <div className="space-y-1.5">
         <label className="text-[10px] font-semibold uppercase text-[var(--text-tertiary)] tracking-widest ml-1">Empresa</label>
         <StyledSelect
@@ -211,7 +237,6 @@ export function MetricsFilterBar({
           {companies.map((c) => <option key={c.id} value={c.id}>{c.name}</option>)}
         </StyledSelect>
       </div>
-      </>
       )}
 
       {children}

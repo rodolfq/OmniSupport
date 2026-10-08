@@ -436,7 +436,16 @@ export async function POST(request: Request) {
     }
 
     if (id) {
-      await query(
+      // Achado em 2026-10-08: um `id` inventado no client (ex.: UUID gerado
+      // no navegador para uma empresa que ainda não existe) chegava até aqui,
+      // o UPDATE não achava a linha (afeta 0), e a rota devolvia 200 com esse
+      // MESMO id como se a empresa tivesse sido criada/salva — o chamador
+      // seguia usando um company_id que não existe em `companies`, e o
+      // próximo INSERT que dependesse dele (ex.: criar o usuário vinculado)
+      // quebrava com "violates foreign key constraint profiles_company_id_fkey".
+      // Checar rowCount fecha esse caminho silencioso de vez (mesmo padrão já
+      // usado por `set-active` nesta rota).
+      const upd = await query(
         `UPDATE public.companies
             SET name = $1, industry = $2, phone = $3,
                 cs_responsavel_id = $4, comercial_responsavel_id = $5,
@@ -445,6 +454,9 @@ export async function POST(request: Request) {
         [name, industry, phone, csResponsavelId || null, comercialResponsavelId || null,
          decisorNome?.trim() || null, decisorTelefone?.trim() || null, id]
       );
+      if (upd.rowCount === 0) {
+        return NextResponse.json({ error: 'Empresa não encontrada.' }, { status: 404 });
+      }
       logAudit({
         actorId: actor.id, actorName: actor.name, action: 'update',
         entityType: 'company', entityId: id, entityLabel: name,
