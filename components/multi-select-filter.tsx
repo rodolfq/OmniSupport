@@ -78,9 +78,20 @@ export function MultiSelectFilter({
       setAberto(false);
     };
     const tecla = (e: KeyboardEvent) => { if (e.key === 'Escape') setAberto(false); };
-    // O painel está em coordenadas de tela: rolar a página o deixaria solto,
-    // longe do campo de origem.
-    const rolou = () => setAberto(false);
+    // O painel está em coordenadas de tela: rolar a PÁGINA (ou qualquer
+    // ancestral) o deixaria solto, longe do campo de origem — por isso fecha
+    // no scroll, capturado em `window` com `true` pra pegar rolagem de
+    // qualquer contêiner. Mas `scroll` não borbulha, só é pego na fase de
+    // CAPTURA — e isso inclui a rolagem da PRÓPRIA lista de opções
+    // (max-h-56 overflow-y-auto), que o navegador também dispara como
+    // evento `scroll`. Sem este filtro, rolar a lista pra ver mais opções
+    // fechava o painel na hora (achado do usuário, 2026-10-08, com 12
+    // analistas — a lista precisa de scroll pra ver todos). Só fecha
+    // quando o scroll vem de FORA do próprio painel.
+    const rolou = (e: Event) => {
+      if (painelRef.current?.contains(e.target as Node)) return;
+      setAberto(false);
+    };
     document.addEventListener('mousedown', fora);
     document.addEventListener('keydown', tecla);
     window.addEventListener('scroll', rolou, true);

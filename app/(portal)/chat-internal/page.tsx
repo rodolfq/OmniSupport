@@ -913,6 +913,17 @@ export default function ChatInternalPage() {
     setHighlightedMessageId(null);
   }, [selectedRoomId]);
 
+  // Pedido do usuário (2026-10-08): ao clicar numa conversa, o cursor já
+  // nasce no campo de digitação — mesmo ajuste feito no chat-widget.tsx.
+  // Só no desktop: no celular esta tela também troca lista por detalhe
+  // (showListMobile/showDetailMobile) e focar aqui abriria o teclado virtual
+  // na hora, bem no meio da transição de entrada na conversa.
+  useEffect(() => {
+    if (!selectedRoomId || isMobileViewport) return;
+    const raf = requestAnimationFrame(() => messageInputRef.current?.focus());
+    return () => cancelAnimationFrame(raf);
+  }, [selectedRoomId, isMobileViewport]);
+
   const jumpToMessage = (messageId: string) => {
     setShowPinnedPanel(false);
     const element = document.getElementById(`chat-msg-anchor-${messageId}`);

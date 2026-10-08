@@ -506,6 +506,21 @@ export function ChatWidget() {
   // A citação pertence à conversa em que foi escolhida: trocar de conversa a descarta.
   useEffect(() => { setReplyingTo(null); setIsQuickRepliesOpen(false); }, [selectedChatId]);
 
+  // Pedido do usuário (2026-10-08): ao clicar numa conversa, o cursor já
+  // nasce no campo de digitação — hoje era preciso clicar de novo na área de
+  // digitação pra começar a escrever. Só no desktop: no celular o widget abre
+  // em tela cheia (isMobileFullScreen) e focar aqui abriria o teclado virtual
+  // na hora, cobrindo parte da tela bem no momento da transição de entrada
+  // na conversa — o mesmo texto não pedia isso, e nenhum chat app mobile faz.
+  useEffect(() => {
+    if (!selectedChatId || isMinimized || isMobileViewport) return;
+    // Um frame de atraso: a troca de `selectedChatId` ainda está trocando o
+    // layout (lista -> conversa, ou troca de conversa dentro da mesma tela),
+    // e o textarea pode não estar montado/visível no exato instante do clique.
+    const raf = requestAnimationFrame(() => messageInputRef.current?.focus());
+    return () => cancelAnimationFrame(raf);
+  }, [selectedChatId, isMinimized, isMobileViewport]);
+
   // Estado de envio de uma mensagem NOSSA no canal Pyvon: 'sending' (1 tique) →
   // 'sent' (2 tiques) → ou 'failed' (mostrado à parte, com o erro). O Pyvon não
   // fornece "entregue/lida", então nunca há um 3º estado. 'sent' aqui quer dizer
