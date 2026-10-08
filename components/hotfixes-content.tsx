@@ -271,9 +271,12 @@ export function HotfixesContent() {
                   key={hotfix.id}
                   className={cn(
                     "relative overflow-hidden rounded-[2rem] p-7 text-white shadow-xl",
+                    // bg-gradient-to-br não existe no Tailwind v4 (renomeada pra
+                    // bg-linear-to-br) — sem isso o cartão ficava só na cor sólida
+                    // de fallback, sem gradiente nenhum (achado em 2026-10-08).
                     overdue
-                      ? "bg-[#8F2424] bg-gradient-to-br from-[#7A1F1F] to-[#B92C2C] shadow-black/20"
-                      : "bg-[#0A2A4A] bg-gradient-to-br from-[#081F3B] to-[#044C7C] shadow-black/20"
+                      ? "bg-[#8F2424] bg-linear-to-br from-[#7A1F1F] to-[#B92C2C] shadow-black/20"
+                      : "bg-[#0A2A4A] bg-linear-to-br from-[#081F3B] to-[#044C7C] shadow-black/20"
                   )}
                 >
                   <Rocket className="absolute -right-6 -bottom-6 w-32 h-32 text-white/10" />

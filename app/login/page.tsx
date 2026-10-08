@@ -118,7 +118,10 @@ export default function LoginPage() {
                 -inset relativo a este contêiner) e a área geral saíam bem
                 menores que no escuro. Só o fundo/sombra do card é exclusivo
                 do modo escuro (dark:), o tamanho é sempre o mesmo. */}
-            <div className="relative inline-flex items-center justify-center rounded-[2.5rem] p-5 sm:p-6 dark:bg-gradient-to-br dark:from-[#081F3B] dark:to-[#044C7C] dark:shadow-2xl dark:shadow-black/30 dark:ring-1 dark:ring-white/10">
+            {/* dark:bg-linear-to-br (era dark:bg-gradient-to-br — nome antigo,
+                não existe no Tailwind v4, nunca gerou fundo nenhum; achado em
+                2026-10-08 investigando o mesmo bug no pódio dos relatórios). */}
+            <div className="relative inline-flex items-center justify-center rounded-[2.5rem] p-5 sm:p-6 dark:bg-linear-to-br dark:from-[#081F3B] dark:to-[#044C7C] dark:shadow-2xl dark:shadow-black/30 dark:ring-1 dark:ring-white/10">
               <img
                 src="/branding/logo-no-bg.svg"
                 alt="SSX Desk"

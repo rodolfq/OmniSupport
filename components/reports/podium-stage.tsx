@@ -4,6 +4,7 @@ import React from 'react';
 import { Crown, Medal } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { AnalystAvatar } from '@/components/reports/analyst-avatar';
+import { useTheme } from '@/app/theme-provider';
 
 // Pódio com coroa (1º) e medalhas (2º prata, 3º bronze). Usado no pódio geral e no de chamados,
 // para as duas visões ficarem iguais. Os degraus têm a altura do lugar: 1º é o mais alto.
@@ -18,13 +19,43 @@ export interface PodiumItem {
   isSelf?: boolean;
 }
 
+// Degrau (o bloco colorido com o número 1/2/3 embaixo de cada posição):
+// causa raiz real do "não aparece a arte, só o número" (2026-10-08) — não é
+// só o nome da classe (`bg-gradient-to-b` não existe no Tailwind v4,
+// renomeada pra `bg-linear-to-b`). Mesmo já corrigido o nome, o
+// `background-image` continuava resolvendo pra `none` SÓ quando a variante
+// `dark:` entrava em jogo — confirmado com getComputedStyle e com o CSS
+// compilado: a cadeia de variáveis internas do Tailwind (`--tw-gradient-
+// stops` etc.) calcula o valor certo isoladamente, mas a combinação
+// gradiente + `dark:` falha ao virar `background-image` de verdade no
+// Chromium (bug de interação, não do nosso código). Pra não depender desse
+// mecanismo interno, o degrau agora usa `style` inline (mesmo padrão já
+// usado no anel do avatar logo abaixo, que sempre funcionou nos dois
+// temas) — `degrauLight`/`degrauDark` são o `background-image` pronto,
+// escolhido em runtime por `useTheme()`.
 const COR = {
-  1: { anel: '#f5c542', brilho: 'rgba(245,197,66,0.45)', degrau: 'from-[#f7d774] via-[#f5c542] to-[#c99a1e]', texto: 'text-[#c9980f]', titulo: 'Campeão' },
-  2: { anel: '#c9d1db', brilho: 'rgba(201,209,219,0.35)', degrau: 'from-[#e5e9ef] via-[#c9d1db] to-[#8f9aa8]', texto: 'text-[#8e9aab]', titulo: '2º lugar' },
-  3: { anel: '#c98a4b', brilho: 'rgba(201,138,75,0.35)', degrau: 'from-[#e7b48a] via-[#c98a4b] to-[#8a5a2b]', texto: 'text-[#b8743a]', titulo: '3º lugar' },
+  1: {
+    anel: '#f5c542', brilho: 'rgba(245,197,66,0.45)',
+    degrauLight: 'linear-gradient(to bottom, #f7d774, #f5c542, #c99a1e)',
+    degrauDark: 'linear-gradient(to bottom, #9c7b1f, #7a5f18, #4a3a0e)',
+    texto: 'text-[#c9980f] dark:text-[#e8c158]', titulo: 'Campeão',
+  },
+  2: {
+    anel: '#c9d1db', brilho: 'rgba(201,209,219,0.35)',
+    degrauLight: 'linear-gradient(to bottom, #e5e9ef, #c9d1db, #8f9aa8)',
+    degrauDark: 'linear-gradient(to bottom, #5c6670, #434d57, #262c33)',
+    texto: 'text-[#8e9aab] dark:text-[#aab4c0]', titulo: '2º lugar',
+  },
+  3: {
+    anel: '#c98a4b', brilho: 'rgba(201,138,75,0.35)',
+    degrauLight: 'linear-gradient(to bottom, #e7b48a, #c98a4b, #8a5a2b)',
+    degrauDark: 'linear-gradient(to bottom, #8a5a2b, #6b4620, #402a12)',
+    texto: 'text-[#b8743a] dark:text-[#d99b5f]', titulo: '3º lugar',
+  },
 } as const;
 
 export function PodiumStage({ items, titulo, subtitulo }: { items: PodiumItem[]; titulo: string; subtitulo?: string }) {
+  const { theme } = useTheme();
   if (items.length === 0) return null;
   // Ordem visual: 2º à esquerda, 1º no centro, 3º à direita.
   const ordem: { pos: 1 | 2 | 3; item: PodiumItem | undefined }[] = [
@@ -96,10 +127,10 @@ export function PodiumStage({ items, titulo, subtitulo }: { items: PodiumItem[];
                 {/* degrau */}
                 <div
                   className={cn(
-                    'mt-4 flex w-full items-start justify-center rounded-2xl bg-gradient-to-b pt-2 text-2xl font-black text-white/90 shadow-inner',
-                    c.degrau,
+                    'mt-4 flex w-full items-start justify-center rounded-2xl pt-2 text-2xl font-black text-white/90 shadow-inner',
                     primeiro ? 'h-32' : pos === 2 ? 'h-24' : 'h-20'
                   )}
+                  style={{ backgroundImage: theme === 'dark' ? c.degrauDark : c.degrauLight }}
                   aria-hidden
                 >
                   {pos}

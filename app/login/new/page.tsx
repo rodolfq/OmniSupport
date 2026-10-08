@@ -114,9 +114,12 @@ export default function SecretLaunchPage() {
       {!revealed && (
         <div className="fixed inset-0 z-50" aria-hidden={cutting}>
           {/* Lona/cortina — dois painéis com dobras + barra de "varão" no
-              topo, se abrem pros lados revelando o login. */}
+              topo, se abrem pros lados revelando o login.
+              bg-linear-to-br/bl (era bg-gradient-to-*, nome antigo do
+              Tailwind v3 que não existe mais no v4 — nunca gerou fundo
+              nenhum; achado em 2026-10-08) */}
           <div
-            className="absolute inset-y-0 left-0 w-1/2 bg-gradient-to-br from-[var(--accent)] to-[#062B52] transition-transform duration-[900ms] ease-in-out shadow-2xl"
+            className="absolute inset-y-0 left-0 w-1/2 bg-linear-to-br from-[var(--accent)] to-[#062B52] transition-transform duration-[900ms] ease-in-out shadow-2xl"
             style={{
               transform: curtainOpen ? 'translateX(-100%)' : 'translateX(0)',
               backgroundImage:
@@ -126,7 +129,7 @@ export default function SecretLaunchPage() {
             <div className="absolute top-0 inset-x-0 h-6 bg-black/25 shadow-inner" />
           </div>
           <div
-            className="absolute inset-y-0 right-0 w-1/2 bg-gradient-to-bl from-[var(--accent)] to-[#062B52] transition-transform duration-[900ms] ease-in-out shadow-2xl"
+            className="absolute inset-y-0 right-0 w-1/2 bg-linear-to-bl from-[var(--accent)] to-[#062B52] transition-transform duration-[900ms] ease-in-out shadow-2xl"
             style={{
               transform: curtainOpen ? 'translateX(100%)' : 'translateX(0)',
               backgroundImage:
