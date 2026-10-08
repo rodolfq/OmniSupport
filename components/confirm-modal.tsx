@@ -1,6 +1,7 @@
 ﻿'use client';
 
 import { useState } from 'react';
+import { useEscapeToClose } from '@/hooks/use-escape-to-close';
 import { AnimatePresence, motion } from 'motion/react';
 import { AlertTriangle, Loader2, X } from 'lucide-react';
 
@@ -16,6 +17,7 @@ interface ConfirmModalProps {
 
 export function ConfirmModal({ isOpen, title, message, error, onConfirm, onCancel }: ConfirmModalProps) {
   const [loading, setLoading] = useState(false);
+  useEscapeToClose(isOpen, onCancel);
   if (!isOpen) return null;
 
   const handleConfirm = async () => {

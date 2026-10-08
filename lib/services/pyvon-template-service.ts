@@ -76,7 +76,7 @@ export async function checkPyvonOutboundStatus(phone: string): Promise<{ withinW
 
 /**
  * Inicia conversa por telefone (canal Pyvon) — o servidor decide sozinho se
- * abre normal ou se precisa do template contato_pos_vendas antes (ver
+ * abre normal ou se precisa do template saudacao_nova antes (ver
  * app/api/whatsapp/pyvon/start-conversation/route.ts).
  */
 // Canal escolhido pela equipe: 'whatsapp' (padrão) abre no WhatsApp via Pyvon;

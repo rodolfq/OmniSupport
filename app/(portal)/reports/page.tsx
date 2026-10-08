@@ -102,7 +102,8 @@ const REPORT_LINKS: { href: string; title: string; description: string; icon: Re
   { href: '/reports/accounts', title: 'Conta/Cliente', description: 'Visão comercial da carteira — recorrência, minutos consumidos e sinal de risco por empresa.', icon: <Building2 size={18} /> },
   { href: '/reports/hotfixes', title: 'Hotfixes', description: 'Janela de release: publicado no prazo ou com atraso, responsável, anotações e chamados que cada hotfix carregava.', icon: <Rocket size={18} /> },
   { href: '/reports/workload', title: 'Carga e Complexidade', description: 'Tickets internos: carga ponderada por esforço, índice objetivo de complexidade e taxa de defeito de produto.', icon: <Gauge size={18} /> },
-  { href: '/reports/internal-tickets', title: 'Tickets Internos', description: 'Entrega no prazo, atrasos, reprovações de QA e a regra de 2 dias do time de desenvolvimento.', icon: <Ticket size={18} />, permission: Permission.REPORTS_INTERNAL }
+  { href: '/reports/internal-tickets', title: 'Tickets Internos', description: 'Entrega no prazo, atrasos, reprovações de QA e a regra de 2 dias do time de desenvolvimento.', icon: <Ticket size={18} />, permission: Permission.REPORTS_INTERNAL },
+  { href: '/reports/ticket-evaluations', title: 'Avaliação do Chamado', description: 'Bom ou Ruim + comentário enviado pelo cliente depois do chamado Concluído — uma avaliação por chamado.', icon: <ThumbsUp size={18} /> }
 ];
 
 const TAG_LABELS: Record<'technical' | 'beginner' | 'challenging', string> = {

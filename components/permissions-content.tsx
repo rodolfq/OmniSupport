@@ -1,6 +1,7 @@
 'use client';
 
 import React, { useState, useEffect, useMemo } from 'react';
+import { useEscapeToClose } from '@/hooks/use-escape-to-close';
 import { Permission, RolePermission, User } from '@/lib/types';
 import { useQueryClient } from '@tanstack/react-query';
 import { useApp } from '@/app/app-context';
@@ -324,6 +325,10 @@ export function PermissionsContent() {
   const [newTeamDescription, setNewTeamDescription] = useState('');
   const [editingTeamMeta, setEditingTeamMeta] = useState<Team | null>(null);
   const [teamToDelete, setTeamToDelete] = useState<Team | null>(null);
+  useEscapeToClose(showNewTeamModal, () => setShowNewTeamModal(false));
+  useEscapeToClose(!!editingTeamMeta, () => setEditingTeamMeta(null));
+  useEscapeToClose(!!teamToDelete, () => setTeamToDelete(null));
+  useEscapeToClose(!!profileToDelete, () => setProfileToDelete(null));
 
   // Membros, administradores e perfil de acesso da equipe selecionada
   const [editSelectedMembers, setEditSelectedMembers] = useState<string[]>([]);

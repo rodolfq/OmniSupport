@@ -1,6 +1,7 @@
 'use client';
 
 import React, { useEffect, useState } from 'react';
+import { useEscapeToClose } from '@/hooks/use-escape-to-close';
 import { motion, AnimatePresence } from 'motion/react';
 import { X, ShieldCheck, BellOff } from 'lucide-react';
 import { useApp } from '@/app/app-context';
@@ -61,6 +62,7 @@ export function CustomerEvaluationModal() {
   const [saving, setSaving] = useState(false);
 
   const isOpen = !!evaluationModalTarget;
+  useEscapeToClose(isOpen, closeEvaluationModal);
   const canEvaluate = hasPermission(Permission.CUSTOMERS_EVALUATE);
 
   useEffect(() => {

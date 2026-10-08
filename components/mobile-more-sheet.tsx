@@ -1,6 +1,7 @@
 'use client';
 
 import React, { useMemo, useState } from 'react';
+import { useEscapeToClose } from '@/hooks/use-escape-to-close';
 import Link from 'next/link';
 import { usePathname, useRouter } from 'next/navigation';
 import { motion, AnimatePresence } from 'motion/react';
@@ -24,6 +25,7 @@ function formatCountdown(totalSeconds: number): string {
 }
 
 export function MobileMoreSheet({ isOpen, onClose }: MobileMoreSheetProps) {
+  useEscapeToClose(isOpen, onClose);
   const router = useRouter();
   const pathname = usePathname();
   const {

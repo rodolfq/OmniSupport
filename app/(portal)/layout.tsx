@@ -1,6 +1,7 @@
 'use client';
 
 import React, { useState, Suspense } from 'react';
+import { useEscapeToClose } from '@/hooks/use-escape-to-close';
 import { Sidebar } from '@/components/sidebar';
 import { Bell, ChevronDown, Sun, Moon } from 'lucide-react';
 import { useApp } from '@/app/app-context';
@@ -48,6 +49,8 @@ export default function PortalLayout({ children }: { children: React.ReactNode }
   const { theme, toggleTheme } = useTheme();
   const [isNotificationsOpen, setIsNotificationsOpen] = useState(false);
   const [isStatusMenuOpen, setIsStatusMenuOpen] = useState(false);
+  useEscapeToClose(isNotificationsOpen, () => setIsNotificationsOpen(false));
+  useEscapeToClose(isStatusMenuOpen, () => setIsStatusMenuOpen(false));
   const [mounted, setMounted] = useState(false);
 
   React.useEffect(() => {

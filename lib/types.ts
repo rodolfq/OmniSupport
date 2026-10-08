@@ -494,6 +494,23 @@ export interface Ticket {
   // do roadmap) — aponta pro chamado sobrevivente. Ver mergeTickets em
   // app/actions.ts.
   mergedIntoId?: string;
+  // Avaliação do chamado pelo cliente (Bom/Ruim + comentário) — presente só
+  // quando a rota que buscou o chamado também buscou a avaliação (GET
+  // ?action=evaluation em app/api/tickets/route.ts). null = sem avaliação ainda.
+  evaluation?: TicketEvaluation | null;
+}
+
+// Avaliação do chamado (não confundir com a pesquisa de satisfação da
+// CONVERSA de chat, chat_histories.rating) — uma por chamado, gravada pelo
+// Cliente/Funcionário depois que o chamado é Concluído, somente-inserção
+// (migrations/ticket_evaluations.sql): não pode ser editada nem excluída.
+export interface TicketEvaluation {
+  id: string;
+  ticketId: string;
+  rating: 'good' | 'bad';
+  comment: string | null;
+  createdAt: string;
+  customerName?: string | null;
 }
 
 export interface Message {

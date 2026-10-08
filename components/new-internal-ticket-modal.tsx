@@ -1,6 +1,7 @@
 'use client';
 
 import React, { useEffect, useMemo, useState } from 'react';
+import { useEscapeToClose } from '@/hooks/use-escape-to-close';
 import { motion, AnimatePresence } from 'motion/react';
 import { toast } from 'sonner';
 import { StyledSelect } from '@/components/styled-select';
@@ -37,6 +38,7 @@ interface NewInternalTicketModalProps {
 // sozinho, em vez de depender de estado levantado pelo pai. A tela de
 // Tickets Internos continua dona da edição (isso aqui só cobre criação).
 export function NewInternalTicketModal({ isOpen, onClose, onCreated, initialTitle, initialDescription }: NewInternalTicketModalProps) {
+  useEscapeToClose(isOpen, onClose);
   const { currentUser } = useApp();
   const [title, setTitle] = useState('');
   const [description, setDescription] = useState('');

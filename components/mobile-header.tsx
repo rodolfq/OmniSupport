@@ -1,6 +1,7 @@
 'use client';
 
 import React, { useState } from 'react';
+import { useEscapeToClose } from '@/hooks/use-escape-to-close';
 import { AnimatePresence, motion } from 'motion/react';
 import { Bell } from 'lucide-react';
 import { useApp } from '@/app/app-context';
@@ -12,6 +13,7 @@ import { Permission, UserRole } from '@/lib/types';
 export function MobileHeader() {
   const { currentUser, notifications, markNotificationRead, markNotificationsSeen, hasPermission } = useApp();
   const [isOpen, setIsOpen] = useState(false);
+  useEscapeToClose(isOpen, () => setIsOpen(false));
   // Mesma regra do sino do desktop: abrir o painel zera o número (visto), sem
   // marcar como lido.
   const unreadCount = notifications.filter(n => !n.read && !n.seen).length;

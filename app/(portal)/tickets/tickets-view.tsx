@@ -1,6 +1,7 @@
 "use client";
 
 import React, { useState, useEffect, useMemo, useRef } from "react";
+import { useEscapeToClose } from '@/hooks/use-escape-to-close';
 import { StyledSelect } from '@/components/styled-select';
 import {
   Ticket,
@@ -232,6 +233,12 @@ export function TicketsView({
   const [isTitleModalOpen, setIsTitleModalOpen] = useState(false);
   const [isTagsModalOpen, setIsTagsModalOpen] = useState(false);
   const [isPriorityModalOpen, setIsPriorityModalOpen] = useState(false);
+  useEscapeToClose(isTransferModalOpen, () => setIsTransferModalOpen(false));
+  useEscapeToClose(isStatusModalOpen, () => setIsStatusModalOpen(false));
+  useEscapeToClose(isMergeModalOpen, () => setIsMergeModalOpen(false));
+  useEscapeToClose(isTitleModalOpen, () => setIsTitleModalOpen(false));
+  useEscapeToClose(isTagsModalOpen, () => setIsTagsModalOpen(false));
+  useEscapeToClose(isPriorityModalOpen, () => setIsPriorityModalOpen(false));
   const [selectedTeamId, setSelectedTeamId] = useState<string>('');
   const [selectedAssigneeId, setSelectedAssigneeId] = useState<string>('');
   const [selectedMasterTicketId, setSelectedMasterTicketId] = useState<string>('');

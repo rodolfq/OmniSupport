@@ -1,6 +1,7 @@
 "use client";
 
 import React, { useState, useRef, useEffect } from "react";
+import { useEscapeToClose } from '@/hooks/use-escape-to-close';
 import { StyledSelect } from '@/components/styled-select';
 import {
   X,
@@ -78,6 +79,7 @@ export function NewTicketModal() {
   const [tags, setTags] = useState<string[]>([]);
   const [tagInput, setTagInput] = useState("");
   const [isNewEmployeeModalOpen, setIsNewEmployeeModalOpen] = useState(false);
+  useEscapeToClose(isNewTicketModalOpen, () => setIsNewTicketModalOpen(false), isNewEmployeeModalOpen);
   const queryClient = useQueryClient();
   // Aplica título/descrição prontos (ex.: mensagem do chat interno
   // transformada em chamado, ver app/(portal)/chat-internal/page.tsx)

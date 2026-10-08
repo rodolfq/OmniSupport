@@ -698,14 +698,20 @@ CREATE INDEX IF NOT EXISTS idx_chat_sessions_queue_id ON public.chat_sessions(qu
 CREATE INDEX IF NOT EXISTS idx_chat_sessions_assignee_id ON public.chat_sessions(assignee_id);
 CREATE INDEX IF NOT EXISTS idx_chat_sessions_customer_id ON public.chat_sessions(customer_id);
 CREATE INDEX IF NOT EXISTS idx_chat_sessions_ticket_id ON public.chat_sessions(ticket_id);
--- Uma conversa aberta por telefone POR CANAL (WhatsApp/Pyvon 'pyvon' e portal
--- 'widget' podem estar abertas ao mesmo tempo pro mesmo número — ver
--- migrations/chat_sessions_open_phone_per_channel.sql; pyvon-service.ts depende
--- deste índice no ON CONFLICT) e uma por cliente logado no widget. O de
--- customer_id vale SÓ pro canal 'widget' (migrations/
--- chat_sessions_open_customer_widget_only.sql).
+-- Uma conversa aberta por telefone (WhatsApp/Pyvon: pyvon-service.ts e
+-- whatsapp-service.ts dependem deste índice no ON CONFLICT) e uma por cliente
+-- logado no widget. O de customer_id vale SÓ pro canal 'widget': a mesma pessoa
+-- pode ter conversas abertas em canais/números diferentes (migrations/
+-- chat_sessions_unique_open_phone.sql e chat_sessions_open_customer_widget_only.sql).
+--
+-- ⚠️ 2026-10-07: existe `migrations/chat_sessions_open_phone_per_channel.sql`
+-- trocando este índice pra `(customer_phone, channel)` — permite conversa do
+-- portal e do WhatsApp abertas ao mesmo tempo pro mesmo número. NÃO foi
+-- aplicada em produção ainda (nem o código que depende dela foi publicado) —
+-- aplicar as DUAS coisas juntas, na mesma janela de deploy, nunca uma sem a
+-- outra (ver seção 15, "Apagão do Pyvon por índice fora de sincronia").
 CREATE UNIQUE INDEX IF NOT EXISTS uq_chat_sessions_open_phone
-  ON public.chat_sessions (customer_phone, channel)
+  ON public.chat_sessions (customer_phone)
   WHERE status <> 'closed' AND customer_phone IS NOT NULL;
 CREATE UNIQUE INDEX IF NOT EXISTS uq_chat_sessions_open_customer
   ON public.chat_sessions (customer_id)
@@ -1364,6 +1370,37 @@ CREATE TABLE public.ticket_internal_links (
   created_at TIMESTAMP WITH TIME ZONE DEFAULT now() NOT NULL,
   PRIMARY KEY (ticket_id, internal_ticket_id)
 );
+
+-- Avaliação do chamado pelo cliente (Bom/Ruim + comentário), uma por chamado,
+-- somente-inserção (mesmo padrão de public.user_creation_log, ver
+-- migrations/ticket_evaluations.sql).
+CREATE TABLE public.ticket_evaluations (
+  id UUID PRIMARY KEY DEFAULT (md5(random()::text || clock_timestamp()::text)::uuid),
+  ticket_id TEXT NOT NULL UNIQUE REFERENCES public.tickets(id) ON DELETE CASCADE,
+  customer_id UUID REFERENCES public.profiles(id) ON DELETE SET NULL,
+  rating TEXT NOT NULL CHECK (rating IN ('good', 'bad')),
+  comment TEXT,
+  created_at TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT now()
+);
+CREATE INDEX IF NOT EXISTS idx_ticket_evaluations_created_at ON public.ticket_evaluations (created_at DESC);
+CREATE INDEX IF NOT EXISTS idx_ticket_evaluations_customer ON public.ticket_evaluations (customer_id);
+
+CREATE OR REPLACE FUNCTION public.fn_ticket_evaluations_immutable() RETURNS trigger
+LANGUAGE plpgsql AS $$
+BEGIN
+  RAISE EXCEPTION 'ticket_evaluations é somente-inserção: % não é permitido', TG_OP;
+END;
+$$;
+
+DROP TRIGGER IF EXISTS trg_ticket_evaluations_no_change ON public.ticket_evaluations;
+CREATE TRIGGER trg_ticket_evaluations_no_change
+  BEFORE UPDATE OR DELETE ON public.ticket_evaluations
+  FOR EACH ROW EXECUTE PROCEDURE public.fn_ticket_evaluations_immutable();
+
+DROP TRIGGER IF EXISTS trg_ticket_evaluations_no_truncate ON public.ticket_evaluations;
+CREATE TRIGGER trg_ticket_evaluations_no_truncate
+  BEFORE TRUNCATE ON public.ticket_evaluations
+  FOR EACH STATEMENT EXECUTE PROCEDURE public.fn_ticket_evaluations_immutable();
 
 -- WhatsApp Sessions Table (Baileys credentials)
 CREATE TABLE public.whatsapp_sessions (

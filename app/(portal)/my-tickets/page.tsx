@@ -17,11 +17,13 @@ import {
   Tag,
   FolderKanban,
   Kanban,
-  Star
+  Star,
+  ThumbsUp
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import { cn, normalizeString } from '@/lib/utils';
 import { TicketDetailModal } from '@/components/ticket-detail-modal';
+import { TicketEvaluationModal } from '@/components/ticket-evaluation-modal';
 import { CustomerDashboardPanel } from '@/components/customer-dashboard-panel';
 import { isClosedTicketStatus, getCustomerStatusLabel } from '@/lib/ticket-status';
 import { useSearchParams, useRouter } from 'next/navigation';
@@ -124,6 +126,21 @@ export default function MyTicketsPage() {
   const [view, setView] = useState<'grid' | 'list' | 'kanban'>('grid');
   const [visibleCount, setVisibleCount] = useState(12);
 
+  // Chamados Concluídos sem avaliação ainda (pedido do usuário, 2026-10-07) —
+  // só existe pro lado empresa-cliente, ver isInternalRole mais abaixo.
+  const [pendingEvaluations, setPendingEvaluations] = useState<{ id: string; ticketNumber?: number; title: string; updatedAt: string }[]>([]);
+  const [evaluatingTicket, setEvaluatingTicket] = useState<{ id: string; ticketNumber?: number; title: string } | null>(null);
+  const loadPendingEvaluations = React.useCallback(async () => {
+    try {
+      const res = await fetch('/api/tickets?action=pending-evaluations');
+      if (!res.ok) return;
+      const data = await res.json();
+      if (Array.isArray(data)) setPendingEvaluations(data);
+    } catch {
+      // silencioso — é só um aviso complementar, não pode travar a tela principal
+    }
+  }, []);
+
   // Chave Chamados / Tickets Internos — só existe pra quem enxerga tickets
   // internos (Administrador/Equipe/Time Interno); dá pro time interno usar
   // esta mesma tela pra acompanhar os próprios tickets internos, sem
@@ -184,6 +201,11 @@ export default function MyTicketsPage() {
     if (!canSeeTickets && canSeeInternal) setTicketMode('internal');
     else if (canSeeTickets && !canSeeInternal) setTicketMode('tickets');
   }, [canSeeTickets, canSeeInternal]);
+
+  useEffect(() => {
+    if (isInternalRole) return;
+    loadPendingEvaluations();
+  }, [isInternalRole, refreshTrigger, loadPendingEvaluations]);
 
   // Extraído do efeito de carga pra poder ser chamado de novo no onClose do
   // TicketDetailModal — mudar o responsável (ou qualquer outro campo que
@@ -394,6 +416,35 @@ export default function MyTicketsPage() {
           fila pessoal — conceito de "empresa toda vs meus chamados" não se
           aplica a eles aqui. */}
       {!isInternalRole && ticketMode === 'tickets' && <CustomerDashboardPanel />}
+
+      {/* Chamados Concluídos aguardando avaliação — só lado empresa-cliente. */}
+      {!isInternalRole && ticketMode === 'tickets' && pendingEvaluations.length > 0 && (
+        <div className="bg-[var(--surface-warning)] border border-[var(--text-warning-strong)]/20 rounded-2xl p-4 space-y-3">
+          <div className="flex items-center gap-2 text-[var(--text-warning-strong)]">
+            <ThumbsUp size={16} />
+            <p className="text-sm font-bold">
+              {pendingEvaluations.length === 1
+                ? '1 chamado aguardando sua avaliação'
+                : `${pendingEvaluations.length} chamados aguardando sua avaliação`}
+            </p>
+          </div>
+          <div className="flex flex-wrap gap-2">
+            {pendingEvaluations.map(t => (
+              <button
+                key={t.id}
+                onClick={() => setEvaluatingTicket({ id: t.id, ticketNumber: t.ticketNumber, title: t.title })}
+                className="flex items-center gap-2 bg-[var(--surface-card)] border border-[var(--border-default)] rounded-xl px-3 py-2 text-xs font-semibold text-[var(--text-primary)] hover:border-[var(--accent)] transition-all"
+              >
+                <span className="text-[var(--text-tertiary)] tabular-nums">
+                  {t.ticketNumber ? `#${String(t.ticketNumber).padStart(4, '0')}` : ''}
+                </span>
+                <span className="truncate max-w-[200px]">{t.title}</span>
+                <span className="text-[var(--accent-text)] uppercase tracking-widest text-[10px]">Avaliar</span>
+              </button>
+            ))}
+          </div>
+        </div>
+      )}
 
       {/* Filters Bar */}
       <div className="bg-[var(--surface-card)] p-4 rounded-2xl border border-[var(--border-default)] shadow-sm flex flex-wrap items-center gap-4">
@@ -750,6 +801,13 @@ export default function MyTicketsPage() {
           }}
         />
       )}
+
+      <TicketEvaluationModal
+        isOpen={!!evaluatingTicket}
+        ticket={evaluatingTicket}
+        onClose={() => setEvaluatingTicket(null)}
+        onSubmitted={loadPendingEvaluations}
+      />
     </div>
   );
 }

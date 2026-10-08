@@ -1,6 +1,7 @@
 'use client';
 
 import React, { useState, useEffect, useMemo } from 'react';
+import { useEscapeToClose } from '@/hooks/use-escape-to-close';
 import { StyledSelect } from '@/components/styled-select';
 import { 
   ChatSession, 
@@ -55,6 +56,7 @@ export function LinkContactModal({
   // sempre não é chamado nesse modo — ele recarrega a lista de conversas vivas).
   onHistoryLinked?: (result: HistoryLinkResult) => void
 }) {
+  useEscapeToClose(isOpen, onClose);
   const [users, setUsers] = useState<User[]>([]);
   const [companies, setCompanies] = useState<Company[]>([]);
   const { data: queuesData } = useQueuesQuery();

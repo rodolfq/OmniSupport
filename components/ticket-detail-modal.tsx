@@ -6,10 +6,10 @@ import { UserAvatar } from '@/components/user-avatar';
 import { X, User, MessageCircle, Clock, Link2, Paperclip, Save, Maximize2, Minimize2, Send, Lock, History, Download, File, Image as ImageIcon, Film, Loader2, Check, Copy, GitMerge } from 'lucide-react';
 import { motion } from 'motion/react';
 import { createPortal } from 'react-dom';
-import { Ticket, TicketStatus, User as UserType, Message, UserRole, StatusConfig, Company, Attachment, PriorityConfig, CategoryConfig, RequestTypeConfig, ProductConfig, InternalTicket, Permission } from '@/lib/types';
+import { Ticket, TicketStatus, User as UserType, Message, UserRole, StatusConfig, Company, Attachment, PriorityConfig, CategoryConfig, RequestTypeConfig, ProductConfig, InternalTicket, Permission, TicketEvaluation } from '@/lib/types';
 import { cn, selectableOptions, linkifyPlainUrls } from '@/lib/utils';
 import { useApp } from '@/app/app-context';
-import { Star, MoreHorizontal } from 'lucide-react';
+import { Star, MoreHorizontal, ThumbsUp, ThumbsDown } from 'lucide-react';
 import { TicketMergeModal } from './ticket-merge-modal';
 import { toast } from 'sonner';
 import { RichEditor } from './rich-editor';
@@ -219,6 +219,20 @@ export function TicketDetailModal({ ticket, onClose, initialDraft }: TicketDetai
   const [openSubStatusMenuFor, setOpenSubStatusMenuFor] = useState<string | null>(null);
   const [ticketDescription, setTicketDescription] = useState(ticket?.description || '');
   const [ticketTitle, setTicketTitle] = useState(ticket?.title || '');
+  // Avaliação do chamado pelo cliente (Bom/Ruim + comentário) — só leitura
+  // aqui; quem avalia é o Cliente/Funcionário, pelo aviso em "Meus Chamados"
+  // (components/ticket-evaluation-modal.tsx). Busca à parte (não vem junto do
+  // ticket da listagem) pra não pesar a consulta principal de chamados.
+  const [ticketEvaluation, setTicketEvaluation] = useState<TicketEvaluation | null>(null);
+  useEffect(() => {
+    if (!ticket?.id) { setTicketEvaluation(null); return; }
+    let cancelled = false;
+    fetch(`/api/tickets?action=evaluation&ticketId=${encodeURIComponent(ticket.id)}`)
+      .then(res => res.ok ? res.json() : { evaluation: null })
+      .then(data => { if (!cancelled) setTicketEvaluation(data?.evaluation ?? null); })
+      .catch(() => { if (!cancelled) setTicketEvaluation(null); });
+    return () => { cancelled = true; };
+  }, [ticket?.id]);
   const [mainQueue, setMainQueue] = useState(ticket?.queueId || '');
   const [mainCategory, setMainCategory] = useState(ticket?.categoryId || '');
   const [mainRequestType, setMainRequestType] = useState(ticket?.requestTypeId || '');
@@ -1414,6 +1428,29 @@ const loadMessages = async () => {
                  />
                ) : (
                  <h1 className="text-3xl font-black text-[var(--text-primary)] tracking-tight leading-tight">{ticket.title}</h1>
+               )}
+
+               {/* Avaliação do chamado pelo cliente — aparece só quando existe. */}
+               {ticketEvaluation && (
+                 <div className={cn(
+                   'rounded-xl border p-4 flex items-start gap-3',
+                   ticketEvaluation.rating === 'good'
+                     ? 'bg-[var(--surface-success)] border-[var(--text-success)]/20'
+                     : 'bg-[var(--surface-danger)] border-[var(--text-danger)]/20'
+                 )}>
+                   {ticketEvaluation.rating === 'good'
+                     ? <ThumbsUp size={18} className="text-[var(--text-success)] shrink-0 mt-0.5" />
+                     : <ThumbsDown size={18} className="text-[var(--text-danger)] shrink-0 mt-0.5" />}
+                   <div className="min-w-0">
+                     <p className={cn('text-xs font-black uppercase tracking-widest', ticketEvaluation.rating === 'good' ? 'text-[var(--text-success)]' : 'text-[var(--text-danger)]')}>
+                       Avaliação do cliente: {ticketEvaluation.rating === 'good' ? 'Bom' : 'Ruim'}
+                       {ticketEvaluation.customerName && <span className="font-medium normal-case tracking-normal"> · {ticketEvaluation.customerName}</span>}
+                     </p>
+                     {ticketEvaluation.comment && (
+                       <p className="text-sm text-[var(--text-secondary)] mt-1">{ticketEvaluation.comment}</p>
+                     )}
+                   </div>
+                 </div>
                )}
 
                {/* Grid Info (Odoo style) */}

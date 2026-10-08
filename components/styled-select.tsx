@@ -6,6 +6,7 @@ import { AnimatePresence, motion } from "motion/react";
 import { Check, ChevronDown, Search } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { useIsMobile } from "@/hooks/use-mobile";
+import { useEscapeToClose } from '@/hooks/use-escape-to-close';
 
 type SelectOption = {
   value: string;
@@ -152,6 +153,8 @@ export function StyledSelect({
     setOpen(false);
     setQuery("");
   };
+
+  useEscapeToClose(open, closeMenu);
 
   const selectOption = (option: SelectOption) => {
     if (option.disabled) return;

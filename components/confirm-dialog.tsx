@@ -1,6 +1,7 @@
 "use client";
 
 import React, { useState } from 'react';
+import { useEscapeToClose } from '@/hooks/use-escape-to-close';
 import { motion, AnimatePresence } from 'motion/react';
 import { X, AlertTriangle, Loader2 } from 'lucide-react';
 
@@ -49,6 +50,8 @@ export function ConfirmDialog({
   const handleClose = () => {
     if (!loading) onClose();
   };
+
+  useEscapeToClose(isOpen, handleClose);
 
   return (
     <AnimatePresence>

@@ -1,6 +1,7 @@
 'use client';
 
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
+import { useEscapeToClose } from '@/hooks/use-escape-to-close';
 import {
   UserPlus, Trash2, Loader2, Search, CalendarClock, ListChecks, Plus, Minus, X,
   CircleSlash, Clock, GripVertical, Info, Video, UtensilsCrossed
@@ -85,6 +86,8 @@ export function GiroConfigView() {
   const [addSearch, setAddSearch] = useState('');
   const [confirmRemove, setConfirmRemove] = useState<GiroParticipant | null>(null);
   const [absenceTarget, setAbsenceTarget] = useState<GiroParticipant | null>(null);
+  useEscapeToClose(showAdd, () => setShowAdd(false));
+  useEscapeToClose(!!absenceTarget, () => setAbsenceTarget(null));
   const [absenceUntil, setAbsenceUntil] = useState('');
   const [absenceNote, setAbsenceNote] = useState('');
   const [newItemLabel, setNewItemLabel] = useState('');

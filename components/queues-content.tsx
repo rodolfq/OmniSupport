@@ -1,6 +1,7 @@
 'use client';
 
 import React, { useState, useEffect } from 'react';
+import { useEscapeToClose } from '@/hooks/use-escape-to-close';
 import { StyledSelect } from '@/components/styled-select';
 import { UserAvatar } from '@/components/user-avatar';
 import { User, Queue, WhatsappInstance, Permission, AnalystStatus } from '@/lib/types';
@@ -47,6 +48,7 @@ export function QueuesContent() {
   const [whatsappInstances, setWhatsappInstances] = useState<WhatsappInstance[]>([]);
   const [search, setSearch] = useState('');
   const [isModalOpen, setIsModalOpen] = useState(false);
+  useEscapeToClose(isModalOpen, () => setIsModalOpen(false));
   const [selectedQueue, setSelectedQueue] = useState<Queue | null>(null);
 
   // Form state

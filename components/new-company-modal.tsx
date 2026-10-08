@@ -1,6 +1,7 @@
 'use client';
 
 import React, { useState } from 'react';
+import { useEscapeToClose } from '@/hooks/use-escape-to-close';
 import { X, Building2, Phone, Mail, Lock, UserPlus, RefreshCw, Eye, EyeOff, GraduationCap, ShieldAlert, AlertTriangle, ShieldOff, ShieldCheck, Headset, Briefcase, Trash2, Hash } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import { saveCompany, getCustomerEvaluationSummary, updateCompanyTraining, saveCustomerEvaluation } from '@/lib/services/company-service';
@@ -47,6 +48,7 @@ function formatDateBr(iso: string) {
 }
 
 export function NewCompanyModal({ isOpen, onClose, onSuccess, company, showInternalSection = false, onRequestDeactivate, onRequestDelete }: { isOpen: boolean, onClose: () => void, onSuccess?: () => void, company?: Company | null, showInternalSection?: boolean, onRequestDeactivate?: () => void, onRequestDelete?: () => void }) {
+  useEscapeToClose(isOpen, onClose);
   const { currentUser, hasPermission } = useApp();
   // Adicionar/remover "Em treinamento" tem permissão própria (a checagem de
   // verdade é no servidor, action 'training' de /api/companies).

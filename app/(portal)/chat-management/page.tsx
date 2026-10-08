@@ -1,6 +1,7 @@
 'use client';
 
 import React, { useState, useEffect } from 'react';
+import { useEscapeToClose } from '@/hooks/use-escape-to-close';
 import { toast } from 'sonner';
 import {
   ChatSession,
@@ -106,6 +107,8 @@ export default function ChatManagementPage() {
 
   // Form states
   const [isNoteModalOpen, setIsNoteModalOpen] = useState(false);
+  useEscapeToClose(!!viewingSession, () => setViewingSession(null));
+  useEscapeToClose(isNoteModalOpen, () => setIsNoteModalOpen(false));
   const [selectedNote, setSelectedNote] = useState<QuickNote | null>(null);
   const [noteShortcut, setNoteShortcut] = useState('');
   const [noteContent, setNoteContent] = useState('');

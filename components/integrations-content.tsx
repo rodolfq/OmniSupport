@@ -1,6 +1,7 @@
 'use client';
 
 import React, { useState, useEffect, useMemo } from 'react';
+import { useEscapeToClose } from '@/hooks/use-escape-to-close';
 import {
   Key, Plus, Copy, Check, ShieldOff, ShieldCheck, Loader2, ChevronRight, Play,
   Eye, EyeOff, Zap, Clock, Terminal, Trash2
@@ -90,6 +91,8 @@ export function IntegrationsContent() {
   const [newKeyScopes, setNewKeyScopes] = useState<string[]>([]);
   const [creating, setCreating] = useState(false);
   const [revealedKey, setRevealedKey] = useState<string | null>(null);
+  useEscapeToClose(isNewModalOpen, () => setIsNewModalOpen(false));
+  useEscapeToClose(!!revealedKey, () => setRevealedKey(null));
   const [copied, setCopied] = useState(false);
   const [revokingKey, setRevokingKey] = useState<ApiKeyRow | null>(null);
   const [deletingKey, setDeletingKey] = useState<ApiKeyRow | null>(null);

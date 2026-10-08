@@ -1,6 +1,7 @@
 'use client';
 
 import React, { useState, useEffect, useMemo } from 'react';
+import { useEscapeToClose } from '@/hooks/use-escape-to-close';
 import { StyledSelect } from '@/components/styled-select';
 import { X, Save, Mail, Phone, ShieldCheck, ShieldOff, Lock, Plus, Trash2, AlertTriangle, Copy, Check } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
@@ -13,6 +14,7 @@ import { toast } from 'sonner';
 import { useApp } from '@/app/app-context';
 
 export function EditEmployeeModal({ isOpen, onClose, user, onSuccess }: { isOpen: boolean, onClose: () => void, user: User | null, onSuccess?: () => void }) {
+  useEscapeToClose(isOpen, onClose);
   const { hasPermission } = useApp();
   // Achado em 2026-09-23 (varredura de permissões): o botão não tinha
   // nenhuma checagem — ficava visível pra qualquer um que abrisse o modal

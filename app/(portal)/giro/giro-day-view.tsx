@@ -1,6 +1,7 @@
 'use client';
 
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { useEscapeToClose } from '@/hooks/use-escape-to-close';
 import {
   ChevronLeft, ChevronRight, CalendarDays, RotateCcw, Download, Trash2,
   CheckCircle2, GripVertical, Mail, MailX, Lock, Loader2, History, UserPlus, X, Check, Utensils
@@ -184,6 +185,9 @@ export function GiroDayView({ canManage }: GiroDayViewProps) {
     setSelectedNewMembers(new Set());
     setMemberSearch('');
   };
+
+  useEscapeToClose(showAddMember && !!day && !!date, closeAddMember);
+  useEscapeToClose(showExport, () => setShowExport(false));
 
   const toggleSelectedNewMember = (id: string) => {
     setSelectedNewMembers(prev => {

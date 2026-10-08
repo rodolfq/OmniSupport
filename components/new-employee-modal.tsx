@@ -1,6 +1,7 @@
 'use client';
 
 import React, { useEffect, useState } from 'react';
+import { useEscapeToClose } from '@/hooks/use-escape-to-close';
 import { X, UserPlus, Mail, Phone, Plus } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import { createUser } from '@/lib/services/user-actions-service';
@@ -20,6 +21,7 @@ export function NewEmployeeModal({ isOpen, onClose, companyId, initialPhone, onS
   // novo numa lista (ver "+ Criar novo funcionário" em new-ticket-modal.tsx).
   onSuccess?: (createdUser: { id: string; name: string }) => void | Promise<void>;
 }) {
+  useEscapeToClose(isOpen, onClose);
   const [name, setName] = useState('');
   const [email, setEmail] = useState('');
   const [phones, setPhones] = useState<string[]>(['']);

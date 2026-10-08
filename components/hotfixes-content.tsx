@@ -1,6 +1,7 @@
 'use client';
 
 import React, { useState, useEffect } from 'react';
+import { useEscapeToClose } from '@/hooks/use-escape-to-close';
 import { Rocket, Plus, Search, Trash2, Pencil, CheckCircle2, XCircle, Clock, AlertTriangle, CalendarDays, History as HistoryIcon, Package } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import { Hotfix, Permission, User, ProductConfig } from '@/lib/types';
@@ -58,6 +59,7 @@ export function HotfixesContent() {
   const [products, setProducts] = useState<ProductConfig[]>([]);
   const [search, setSearch] = useState('');
   const [isModalOpen, setIsModalOpen] = useState(false);
+  useEscapeToClose(isModalOpen, () => setIsModalOpen(false));
   const [selectedHotfix, setSelectedHotfix] = useState<Hotfix | null>(null);
   const [deletingHotfix, setDeletingHotfix] = useState<Hotfix | null>(null);
 

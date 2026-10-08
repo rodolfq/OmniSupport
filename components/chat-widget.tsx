@@ -1016,6 +1016,58 @@ export function ChatWidget() {
   const [isLinkModalOpen, setIsLinkModalOpen] = useState(false);
 
   const [chatFilter, setChatFilter] = useState<'all' | 'me'>('all');
+
+  // Esc vai 'voltando' um nível por vez com o chat em primeiro plano (pedido do
+  // usuário, 2026-10-07): fecha primeiro o popup/sub-modal mais em cima (um
+  // por vez — AssignChatMenu continua só fechando por clique fora, é externo
+  // a este widget); sem nenhum aberto, segue a cadeia de sempre: anexo(s)
+  // pendente(s) -> cancela todos; conversa aberta -> lista; lista em 'Meus'
+  // -> lista 'Todos'; lista em 'Todos' -> minimiza.
+  useEffect(() => {
+    if (isMinimized) return;
+
+    function handleEscapeNavigation(e: KeyboardEvent) {
+      if (e.key !== 'Escape') return;
+      if (previewAttachment) {
+        setPreviewAttachment(null);
+      } else if (isMoreActionsOpen) {
+        setIsMoreActionsOpen(false);
+      } else if (isChatInfoModalOpen) {
+        setIsChatInfoModalOpen(false);
+      } else if (isEditContactModalOpen) {
+        setIsEditContactModalOpen(false);
+      } else if (isLinkModalOpen) {
+        setIsLinkModalOpen(false);
+      } else if (isLinkTicketModalOpen) {
+        setIsLinkTicketModalOpen(false);
+      } else if (isConfirmNewTicketOpen) {
+        setIsConfirmNewTicketOpen(false);
+      } else if (isDuplicateModalOpen) {
+        setIsDuplicateModalOpen(false);
+      } else if (isFinishModalOpen) {
+        setIsFinishModalOpen(false);
+      } else if (isNewChatModalOpen) {
+        setIsNewChatModalOpen(false);
+      } else if (isQuickRepliesOpen) {
+        setIsQuickRepliesOpen(false);
+      } else if (chatAttachments.length > 0) {
+        setChatAttachments([]);
+      } else if (activeOmniChatId) {
+        setActiveOmniChatId(null);
+      } else if (chatFilter === 'me') {
+        setChatFilter('all');
+      } else {
+        setIsMinimized(true);
+      }
+    }
+    window.addEventListener('keydown', handleEscapeNavigation);
+    return () => window.removeEventListener('keydown', handleEscapeNavigation);
+  }, [
+    isMinimized, activeOmniChatId, chatFilter, setActiveOmniChatId, chatAttachments,
+    isNewChatModalOpen, isFinishModalOpen, isDuplicateModalOpen, isConfirmNewTicketOpen,
+    isLinkTicketModalOpen, isMoreActionsOpen, isChatInfoModalOpen, isEditContactModalOpen,
+    isLinkModalOpen, isQuickRepliesOpen, previewAttachment
+  ]);
   const [chatSearch, setChatSearch] = useState('');
   const [userQueues, setUserQueues] = useState<string[]>([]);
   const [allQueues, setAllQueues] = useState<any[]>([]);
@@ -1655,7 +1707,7 @@ useEffect(() => {
     // no early-return acima). Sem isso, o cliente não sabia quem estava
     // respondendo pelo WhatsApp — pedido do usuário 2026-09-17. Fora do
     // escopo de propósito: templates (chamado_aberto/atualizacao_chamado/
-    // contato_pos_vendas) têm texto fixo aprovado pela Meta, não passam por
+    // saudacao_nova) têm texto fixo aprovado pela Meta, não passam por
     // aqui.
     const messageForWhatsApp = (!isCustomer && currentUser?.name)
       ? `*${currentUser.name}*\n\n${text}`
@@ -1922,7 +1974,7 @@ useEffect(() => {
   };
 
   // Canal Pyvon: decide sozinho (servidor) se abre normal (dentro da janela
-  // de 24h) ou se precisa do template contato_pos_vendas antes — mesma regra
+  // de 24h) ou se precisa do template saudacao_nova antes — mesma regra
   // de components/start-whatsapp-conversation-modal.tsx. Substituiu o
   // openChatForPhone direto, que abria sem checar nada.
   const handleStartNewChat = async () => {
@@ -4122,7 +4174,7 @@ useEffect(() => {
                        <span>
                          {newChatWindowStatus === 'checking' && 'Verificando se este contato já respondeu nas últimas 24h...'}
                          {newChatWindowStatus === 'open' && 'Dentro da janela de 24h — a conversa abre normal, sem template.'}
-                         {newChatWindowStatus === 'closed' && 'Fora da janela de 24h (ou contato novo) — vamos enviar a mensagem inicial do modelo aprovado ("contato_pos_vendas") pra poder falar com ele.'}
+                         {newChatWindowStatus === 'closed' && 'Fora da janela de 24h (ou contato novo) — vamos enviar a mensagem inicial do modelo aprovado ("saudacao_nova") pra poder falar com ele.'}
                        </span>
                      </div>
                    )}

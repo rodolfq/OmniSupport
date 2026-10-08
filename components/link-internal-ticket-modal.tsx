@@ -1,6 +1,7 @@
 "use client";
 
 import React, { useState, useEffect } from 'react';
+import { useEscapeToClose } from '@/hooks/use-escape-to-close';
 import { StyledSelect } from '@/components/styled-select';
 import { motion, AnimatePresence } from 'motion/react';
 import { Search } from 'lucide-react';
@@ -17,6 +18,7 @@ interface LinkInternalTicketModalProps {
 }
 
 export function LinkInternalTicketModal({ isOpen, onClose, onLink, excludeIds = [] }: LinkInternalTicketModalProps) {
+  useEscapeToClose(isOpen, onClose);
   const [allTickets, setAllTickets] = useState<InternalTicket[]>([]);
   const { data: teamsData } = useInternalTeamsQuery();
   const teams = React.useMemo(

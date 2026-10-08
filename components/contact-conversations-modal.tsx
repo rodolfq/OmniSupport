@@ -1,6 +1,7 @@
 'use client';
 
 import React, { useEffect, useState } from 'react';
+import { useEscapeToClose } from '@/hooks/use-escape-to-close';
 import { motion, AnimatePresence } from 'motion/react';
 import { X, History, ChevronRight, Loader2, ThumbsUp, ThumbsDown, MessageCircle } from 'lucide-react';
 import { cn } from '@/lib/utils';
@@ -25,6 +26,7 @@ interface ContactConversationsModalProps {
 // dentro do próprio chat, só que numa tela dedicada, sem precisar abrir a
 // conversa primeiro.
 export function ContactConversationsModal({ isOpen, onClose, phone, contactName, activeSession, onOpenActiveSession }: ContactConversationsModalProps) {
+  useEscapeToClose(isOpen, onClose);
   const [histories, setHistories] = useState<PreviousChatHistoriesResult['histories']>([]);
   const [total, setTotal] = useState(0);
   const [offset, setOffset] = useState(0);

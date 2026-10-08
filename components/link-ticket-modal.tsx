@@ -1,6 +1,7 @@
 'use client';
 
 import React, { useState, useEffect } from 'react';
+import { useEscapeToClose } from '@/hooks/use-escape-to-close';
 import { Search, X, Check } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import { cn } from '@/lib/utils';
@@ -26,6 +27,7 @@ export function LinkTicketModal({
   companyId?: string;
   onSuccess: (ticketId: string, ticketNumber: number) => void;
 }) {
+  useEscapeToClose(isOpen, onClose);
   const [searchTerm, setSearchTerm] = useState('');
   const [tickets, setTickets] = useState<any[]>([]);
   const [loading, setLoading] = useState(false);

@@ -1,12 +1,14 @@
 ﻿'use client';
 
 import React, { useState } from 'react';
+import { useEscapeToClose } from '@/hooks/use-escape-to-close';
 import { motion } from 'motion/react';
 import { Eye, EyeOff, X, AlertCircle, CheckCircle2 } from 'lucide-react';
 import { useApp } from '@/app/app-context';
 import { toast } from 'sonner';
 
 export function ChangePasswordModal({ isOpen, onClose }: { isOpen: boolean, onClose: () => void }) {
+  useEscapeToClose(isOpen, onClose);
   const { currentUser, setCurrentUser } = useApp();
   const [newPassword, setNewPassword] = useState('');
   const [confirmPassword, setConfirmPassword] = useState('');

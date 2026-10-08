@@ -1,6 +1,7 @@
 'use client';
 
 import React, { useState, useEffect } from 'react';
+import { useEscapeToClose } from '@/hooks/use-escape-to-close';
 import { StyledSelect } from '@/components/styled-select';
 import {
   Search, Mail, Shield, Key, Trash2, Edit2, CheckCircle2, XCircle, Bell, UserPlus, Eye, EyeOff, RefreshCw,
@@ -86,6 +87,9 @@ export function TeamContent() {
   // (POST /api/internal-teams, action=membership) já aceita adicionar
   // QUALQUER usuário à equipe-alvo, bastava um ponto de entrada na tela.
   const [isAddOperatorModalOpen, setIsAddOperatorModalOpen] = useState(false);
+  useEscapeToClose(isModalOpen, () => setIsModalOpen(false));
+  useEscapeToClose(isNotifModalOpen, () => setIsNotifModalOpen(false));
+  useEscapeToClose(isAddOperatorModalOpen, () => setIsAddOperatorModalOpen(false));
   const [addOperatorSearch, setAddOperatorSearch] = useState('');
   const [addOperatorTeams, setAddOperatorTeams] = useState<InternalTeamRecord[]>([]);
   const [addOperatorAllUsers, setAddOperatorAllUsers] = useState<InternalTeamPageUser[]>([]);

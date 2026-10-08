@@ -574,6 +574,12 @@ export class PyvonService {
       // Quem INICIOU a conversa (analista que mandou o template): fica com ela
       // sempre, sem passar pelo rodízio e sem exigir estar online na fila.
       forceAssigneeId?: string | null;
+      // Número do atendimento já reservado (startConversation, template
+      // saudacao_nova) — só é usado se uma sessão NOVA for de fato criada
+      // aqui embaixo; nos caminhos que devolvem uma sessão já existente
+      // (linhas 603+ e a corrida mais abaixo) este valor nunca é tocado, pra
+      // nunca sobrescrever o número de uma conversa que já tinha o dela.
+      publicSessionNumber?: number;
     }
   ) {
     const placeHoldersFor = (arr: string[]) => arr.map((_, i) => `$${i + 1}`).join(',');
@@ -602,7 +608,7 @@ export class PyvonService {
 
     if (variants.length) {
       const existing = await query(
-        `SELECT id, customer_phone, customer_id, customer_name, assignee_id, queue_id, pyvon_cadastro_id, pyvon_pending_note_text, pyvon_pending_note_author_id
+        `SELECT id, customer_phone, customer_id, customer_name, assignee_id, queue_id, pyvon_cadastro_id, public_session_number, pyvon_pending_note_text, pyvon_pending_note_author_id
            FROM public.chat_sessions
           WHERE customer_phone IN (${placeHoldersFor(variants)}) AND channel = 'pyvon' AND status != 'closed'
           ORDER BY updated_at DESC LIMIT 1`,
@@ -612,7 +618,7 @@ export class PyvonService {
     } else {
       // Canal sem telefone exposto (ex.: Instagram) — casa só pelo cadastro_id.
       const existing = await query(
-        `SELECT id, customer_phone, customer_id, customer_name, assignee_id, queue_id, pyvon_cadastro_id, pyvon_pending_note_text, pyvon_pending_note_author_id
+        `SELECT id, customer_phone, customer_id, customer_name, assignee_id, queue_id, pyvon_cadastro_id, public_session_number, pyvon_pending_note_text, pyvon_pending_note_author_id
            FROM public.chat_sessions
           WHERE pyvon_cadastro_id = $1 AND channel = 'pyvon' AND status != 'closed'
           ORDER BY updated_at DESC LIMIT 1`,
@@ -668,15 +674,15 @@ export class PyvonService {
       // aberta do mesmo telefone pelo canal, sem depender de índice; o ON CONFLICT
       // sem alvo só cobre a corrida entre processos quando o índice existe.
       const insertRes = await query(
-        `INSERT INTO public.chat_sessions (customer_id, customer_name, customer_phone, status, queue_id, assignee_id, pyvon_cadastro_id, channel, created_at, updated_at)
-         SELECT $1::uuid, $2::text, $3::text, $4::text, $5::text, $6::uuid, $7::integer, 'pyvon', NOW(), NOW()
+        `INSERT INTO public.chat_sessions (customer_id, customer_name, customer_phone, status, queue_id, assignee_id, pyvon_cadastro_id, channel, public_session_number, created_at, updated_at)
+         SELECT $1::uuid, $2::text, $3::text, $4::text, $5::text, $6::uuid, $7::integer, 'pyvon', COALESCE($8::bigint, nextval('public.chat_session_seq')), NOW(), NOW()
           WHERE NOT EXISTS (
             SELECT 1 FROM public.chat_sessions
              WHERE channel = 'pyvon' AND status <> 'closed' AND customer_phone = $3::text
           )
          ON CONFLICT DO NOTHING
-         RETURNING id, customer_phone, customer_id, customer_name, assignee_id, queue_id, pyvon_cadastro_id, pyvon_pending_note_text, pyvon_pending_note_author_id`,
-        [profile?.id || null, customerName, digits, status, queue?.id || null, assigneeId, cadastroId]
+         RETURNING id, customer_phone, customer_id, customer_name, assignee_id, queue_id, pyvon_cadastro_id, public_session_number, pyvon_pending_note_text, pyvon_pending_note_author_id`,
+        [profile?.id || null, customerName, digits, status, queue?.id || null, assigneeId, cadastroId, options?.publicSessionNumber ?? null]
       );
       return { insertRes };
     });
@@ -696,7 +702,7 @@ export class PyvonService {
     // responsável (ex.: rodízio sem ninguém online na fila).
     if (variants.length) {
       const retryRes = await query(
-        `SELECT id, customer_phone, customer_id, customer_name, assignee_id, queue_id, pyvon_cadastro_id, pyvon_pending_note_text, pyvon_pending_note_author_id
+        `SELECT id, customer_phone, customer_id, customer_name, assignee_id, queue_id, pyvon_cadastro_id, public_session_number, pyvon_pending_note_text, pyvon_pending_note_author_id
            FROM public.chat_sessions WHERE channel = 'pyvon' AND customer_phone IN (${placeHoldersFor(variants)})
           ORDER BY updated_at DESC LIMIT 1`,
         variants
@@ -1031,7 +1037,7 @@ export class PyvonService {
   static async findOpenSession(variants: string[], cadastroId: number) {
     if (variants.length) {
       const res = await query(
-        `SELECT id, customer_phone, customer_id, customer_name, assignee_id, queue_id, pyvon_cadastro_id, pyvon_pending_note_text, pyvon_pending_note_author_id
+        `SELECT id, customer_phone, customer_id, customer_name, assignee_id, queue_id, pyvon_cadastro_id, public_session_number, pyvon_pending_note_text, pyvon_pending_note_author_id
            FROM public.chat_sessions
           WHERE channel = 'pyvon' AND customer_phone IN (${variants.map((_, i) => `$${i + 1}`).join(',')}) AND status != 'closed'
           ORDER BY updated_at DESC LIMIT 1`,
@@ -1040,7 +1046,7 @@ export class PyvonService {
       return res.rows[0] || null;
     }
     const res = await query(
-      `SELECT id, customer_phone, customer_id, customer_name, assignee_id, queue_id, pyvon_cadastro_id, pyvon_pending_note_text, pyvon_pending_note_author_id
+      `SELECT id, customer_phone, customer_id, customer_name, assignee_id, queue_id, pyvon_cadastro_id, public_session_number, pyvon_pending_note_text, pyvon_pending_note_author_id
          FROM public.chat_sessions WHERE pyvon_cadastro_id = $1 AND channel = 'pyvon' AND status != 'closed'
         ORDER BY updated_at DESC LIMIT 1`,
       [cadastroId]
@@ -1164,6 +1170,10 @@ export class PyvonService {
     // mensagem/linha pendente pra casar com o aviso de falha de entrega, que
     // chega depois e só traz esse id (handleDeliveryStatus).
     pyvonMessageId?: number | string | null;
+    // Número do atendimento já reservado (startConversation, template
+    // saudacao_nova) — só pega se uma sessão NOVA for criada aqui dentro, via
+    // findOrCreateSession (nunca sobrescreve sessão já existente/reaproveitada).
+    publicSessionNumber?: number;
   }): Promise<{ id: string | null } | null> {
     const variants = params.phone ? phoneVariants(params.phone) : [];
 
@@ -1188,7 +1198,7 @@ export class PyvonService {
       // (envio manual): se a conversa nascer agora, nasce com ele. Automação
       // (analystId null) segue o rodízio / autor da nota, como antes.
       session = await runExclusive(`session:${variants[0] || `cadastro-${params.cadastroId}`}`, () =>
-        this.findOrCreateSession(variants, params.cadastroId, params.customerName, params.instanceId, { forceAssigneeId: params.analystId })
+        this.findOrCreateSession(variants, params.cadastroId, params.customerName, params.instanceId, { forceAssigneeId: params.analystId, publicSessionNumber: params.publicSessionNumber })
       );
     }
     if (!session) return null;
@@ -1261,9 +1271,10 @@ export class PyvonService {
    * telefone (botão "Iniciar Conversa" em Empresas, e "+ Novo WhatsApp" no
    * chat widget) — decide sozinho, olhando a janela de 24h
    * (resolveOutboundContext), se dá pra abrir a conversa normal ou se precisa
-   * mandar o template `contato_pos_vendas` antes. Sempre reivindica a
-   * conversa pro analista que chamou, mas só quando ela ainda não tiver
-   * responsável — não tira atendimento de quem já está atendendo.
+   * mandar o template `saudacao_nova` antes (trocado de `contato_pos_vendas`
+   * em 2026-10-07, pedido do usuário). Sempre reivindica a conversa pro
+   * analista que chamou, mas só quando ela ainda não tiver responsável — não
+   * tira atendimento de quem já está atendendo.
    */
   static async startConversation(instanceId: string, params: {
     phone: string;
@@ -1282,19 +1293,38 @@ export class PyvonService {
       usedTemplate = false;
     } else {
       const templateRes = await query(
-        `SELECT body_text FROM public.pyvon_templates WHERE template_name = 'contato_pos_vendas' AND is_active = true LIMIT 1`
+        `SELECT body_text FROM public.pyvon_templates WHERE template_name = 'saudacao_nova' AND is_active = true LIMIT 1`
       );
       const template = templateRes.rows[0];
       if (!template) {
-        throw new Error('Template "contato_pos_vendas" não está cadastrado (ou está inativo) em Configurações > WhatsApp.');
+        throw new Error('Template "saudacao_nova" não está cadastrado (ou está inativo) em Configurações > WhatsApp.');
       }
 
-      const variables = { '1': customerName };
+      // {{2}} é o número do ATENDIMENTO (chat_sessions.public_session_number),
+      // não do chamado — ligação proativa ainda não tem chamado nenhum (pedido
+      // do usuário, 2026-10-07). O texto precisa estar PRONTO antes de mandar
+      // o template, mas a sessão só nasce DEPOIS (dentro de
+      // recordOutboundTemplateMessage) — por isso primeiro checa se já existe
+      // uma conversa pyvon aberta pra reaproveitar o número DELA (contato que
+      // já tinha atendimento, só fora da janela de 24h); só reserva um número
+      // novo quando não há nenhuma pra reaproveitar. Isso garante que o
+      // número que o cliente recebe na mensagem é sempre o mesmo que fica
+      // gravado na sessão que vai receber a resposta dele.
+      const existingOpen = await this.findOpenSession(phoneVariants(params.phone), context.cadastroId || 0);
+      let sessionNumber: number;
+      if (existingOpen?.public_session_number) {
+        sessionNumber = existingOpen.public_session_number;
+      } else {
+        const reserved = await query(`SELECT nextval('public.chat_session_seq') AS n`);
+        sessionNumber = Number(reserved.rows[0].n);
+      }
+
+      const variables = { '1': customerName, '2': String(sessionNumber) };
       // Contrato do bot-template: cadastro_id OU phone (um só). Cadastro só
       // quando ainda vale pro número atual (resolveOutboundContext); senão,
       // pelo telefone.
       const sendResult = await this.sendTemplate(instanceId, {
-        templateName: 'contato_pos_vendas',
+        templateName: 'saudacao_nova',
         phone: context.cadastroId ? undefined : params.phone,
         name: customerName,
         cadastroId: context.cadastroId || undefined,
@@ -1314,8 +1344,9 @@ export class PyvonService {
         customerName,
         analystId: params.actorId,
         analystName: params.actorName,
-        text: this.renderTemplateBody(template.body_text, variables) || `[template contato_pos_vendas]`,
-        pyvonMessageId: sendResult.message_id
+        text: this.renderTemplateBody(template.body_text, variables) || `[template saudacao_nova]`,
+        pyvonMessageId: sendResult.message_id,
+        publicSessionNumber: sessionNumber
       });
       if (!recorded?.id) throw new Error('Falha ao registrar a conversa iniciada.');
       sessionId = recorded.id;

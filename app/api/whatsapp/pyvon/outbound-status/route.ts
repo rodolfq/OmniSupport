@@ -4,7 +4,7 @@ import { PyvonService } from '@/lib/services/pyvon-service';
 
 // Só pra dar transparência ANTES de enviar: mostra pro analista se este
 // telefone já está dentro da janela de 24h (mensagem normal funciona) ou se
-// vai precisar do template contato_pos_vendas — ver
+// vai precisar do template saudacao_nova — ver
 // app/api/whatsapp/pyvon/start-conversation/route.ts, que decide de novo (e
 // com autoridade) na hora de enviar de verdade, sem confiar nesta checagem.
 export async function GET(request: NextRequest) {

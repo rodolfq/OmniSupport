@@ -1,6 +1,7 @@
 'use client';
 
 import React, { useEffect, useRef, useState } from 'react';
+import { useEscapeToClose } from '@/hooks/use-escape-to-close';
 import { createPortal } from 'react-dom';
 import { AnimatePresence, motion } from 'motion/react';
 import { ChevronDown, ListRestart, Send, UserPlus } from 'lucide-react';
@@ -60,6 +61,7 @@ export function AssignChatMenu({
   const [position, setPosition] = useState({ top: 0, left: 0, maxHeight: 320 });
   const containerRef = useRef<HTMLDivElement>(null);
 
+  useEscapeToClose(open, () => setOpen(false), awayConfirmOpen);
   useEffect(() => setMounted(true), []);
 
   // Esse menu abre dentro de cards com `overflow-hidden` (usado pra

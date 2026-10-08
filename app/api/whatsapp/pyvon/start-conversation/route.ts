@@ -8,7 +8,7 @@ import { PyvonService } from '@/lib/services/pyvon-service';
 // e pelo "+ Novo WhatsApp" do chat widget.
 //
 // Escolha do canal (2026-10-06): 'whatsapp' (padrão) abre a conversa no
-// WhatsApp via Pyvon — decide sozinho se manda o template contato_pos_vendas
+// WhatsApp via Pyvon — decide sozinho se manda o template saudacao_nova
 // antes (fora da janela de 24h). 'portal' abre a conversa no chat do portal
 // com o cadastro do contato, para quem já trocou a senha provisória (ver
 // eligibility abaixo) — quem não usa o portal só recebe pelo WhatsApp.

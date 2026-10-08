@@ -1,6 +1,7 @@
 'use client';
 
 import React, { useEffect, useState } from 'react';
+import { useEscapeToClose } from '@/hooks/use-escape-to-close';
 import { motion, AnimatePresence } from 'motion/react';
 import { X, Phone, Building2, UserPlus, MessageCirclePlus, MessagesSquare, AlertTriangle, Loader2 } from 'lucide-react';
 import { toast } from 'sonner';
@@ -33,6 +34,7 @@ export function PhoneContactPanel({ phone, onClose, onOpenChat, currentUserId }:
   const [starting, setStarting] = useState(false);
   const [showConversations, setShowConversations] = useState(false);
   const [showRegister, setShowRegister] = useState(false);
+  useEscapeToClose(true, onClose, showRegister || showConversations);
 
   useEffect(() => {
     if (!phone) return;

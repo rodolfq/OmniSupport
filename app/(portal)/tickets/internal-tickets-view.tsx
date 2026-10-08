@@ -1,6 +1,7 @@
 "use client";
 
 import React, { useState, useEffect, useCallback, useMemo } from "react";
+import { useEscapeToClose } from '@/hooks/use-escape-to-close';
 import { StyledSelect } from '@/components/styled-select';
 import { cn } from "@/lib/utils";
 import { motion, AnimatePresence } from "motion/react";
@@ -258,6 +259,10 @@ export function InternalTicketsView({
   const [isBulkAssigneeOpen, setIsBulkAssigneeOpen] = useState(false);
   const [isBulkTeamOpen, setIsBulkTeamOpen] = useState(false);
   const [isBulkPriorityOpen, setIsBulkPriorityOpen] = useState(false);
+  useEscapeToClose(isBulkStatusOpen, () => setIsBulkStatusOpen(false));
+  useEscapeToClose(isBulkAssigneeOpen, () => setIsBulkAssigneeOpen(false));
+  useEscapeToClose(isBulkTeamOpen, () => setIsBulkTeamOpen(false));
+  useEscapeToClose(isBulkPriorityOpen, () => setIsBulkPriorityOpen(false));
   const [isBulkSaving, setIsBulkSaving] = useState(false);
 
 // Filters

@@ -1,6 +1,7 @@
 'use client';
 
 import React, { useState, useEffect, useMemo, useRef } from 'react';
+import { useEscapeToClose } from '@/hooks/use-escape-to-close';
 import Link from 'next/link';
 import { assignChatSession } from '@/lib/services/chat-session-actions';
 import { getUsers } from '@/lib/services/user-actions-service';
@@ -37,7 +38,7 @@ type PhoneWindowStatus = 'checking' | 'open' | 'closed' | 'unknown';
 // Canal Pyvon: mesma checagem/decisão de
 // components/start-whatsapp-conversation-modal.tsx (Empresas > Decisor) e do
 // "+ Novo WhatsApp" do chat widget — dentro da janela de 24h abre normal,
-// fora dela manda o template contato_pos_vendas antes. Aqui o telefone já é
+// fora dela manda o template saudacao_nova antes. Aqui o telefone já é
 // conhecido (cadastro do funcionário), por isso checa cada número da lista
 // assim que o modal abre, em vez de esperar o analista digitar.
 function WhatsAppNumberModal({
@@ -49,6 +50,7 @@ function WhatsAppNumberModal({
   onClose: () => void,
   user: User | null
 }) {
+  useEscapeToClose(isOpen, onClose);
   const { currentUser, setIsOmniChatOpen, setActiveOmniChatId, userStatus } = useApp();
   const [windowStatusByPhone, setWindowStatusByPhone] = useState<Record<string, PhoneWindowStatus>>({});
   const [sendingPhone, setSendingPhone] = useState<string | null>(null);
@@ -223,6 +225,8 @@ export default function CustomersPage() {
   const [companyToToggle, setCompanyToToggle] = useState<Company | null>(null);
   const [toggleError, setToggleError] = useState('');
   const [companyToDelete, setCompanyToDelete] = useState<Company | null>(null);
+  useEscapeToClose(!!companyToToggle, () => { setCompanyToToggle(null); setToggleError(''); });
+  useEscapeToClose(!!companyToDelete, () => { setCompanyToDelete(null); setDeleteError(''); setDeletePendingCounts(null); });
   const [deleteError, setDeleteError] = useState<string>('');
   // Preenchido quando o servidor recusa a primeira tentativa com
   // requiresConfirmation (há chamados/avaliações vinculados) — a partir daí o

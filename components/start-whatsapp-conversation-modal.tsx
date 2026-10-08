@@ -1,6 +1,7 @@
 "use client";
 
 import React, { useEffect, useRef, useState } from 'react';
+import { useEscapeToClose } from '@/hooks/use-escape-to-close';
 import { X, MessageCircle, Loader2, CheckCircle2, Clock } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import { checkPyvonOutboundStatus, startPyvonConversation, PyvonStartChannel } from '@/lib/services/pyvon-template-service';
@@ -15,7 +16,7 @@ type WindowStatus = 'unknown' | 'checking' | 'open' | 'closed';
  * pelo botão "Iniciar Conversa" (Empresas > Decisor) quanto pelo "+ Novo
  * WhatsApp" do chat widget. O servidor (app/api/whatsapp/pyvon/start-conversation)
  * decide sozinho se abre a conversa normal (dentro da janela de 24h) ou se
- * precisa mandar o template contato_pos_vendas antes (fora dela) — aqui só
+ * precisa mandar o template saudacao_nova antes (fora dela) — aqui só
  * mostramos ANTES qual dos dois vai acontecer, checando
  * /api/whatsapp/pyvon/outbound-status enquanto o analista digita o telefone.
  */
@@ -32,6 +33,7 @@ export function StartWhatsAppConversationModal({
   defaultName?: string;
   onSuccess?: (sessionId: string, usedTemplate: boolean) => void;
 }) {
+  useEscapeToClose(isOpen, onClose);
   const [phone, setPhone] = useState('');
   const [name, setName] = useState('');
   const [windowStatus, setWindowStatus] = useState<WindowStatus>('unknown');
@@ -177,7 +179,7 @@ export function StartWhatsAppConversationModal({
                   <span>
                     {windowStatus === 'checking' && 'Verificando se este contato já respondeu nas últimas 24h...'}
                     {windowStatus === 'open' && 'Dentro da janela de 24h — a conversa abre normal, sem template.'}
-                    {windowStatus === 'closed' && 'Fora da janela de 24h (ou contato novo) — vamos enviar a mensagem inicial do modelo aprovado ("contato_pos_vendas") pra poder falar com ele.'}
+                    {windowStatus === 'closed' && 'Fora da janela de 24h (ou contato novo) — vamos enviar a mensagem inicial do modelo aprovado ("saudacao_nova") pra poder falar com ele.'}
                   </span>
                 </div>
               )}

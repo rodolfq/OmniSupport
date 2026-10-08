@@ -1,6 +1,7 @@
 'use client';
 
 import React, { useState } from 'react';
+import { useEscapeToClose } from '@/hooks/use-escape-to-close';
 import { X, Mail, Loader2 } from 'lucide-react';
 import { toast } from 'sonner';
 
@@ -14,6 +15,7 @@ interface ForgotPasswordModalProps {
 // conta (POST /api/auth/forgot-password já responde assim de propósito,
 // enumeration-safe — mesmo princípio do login).
 export function ForgotPasswordModal({ isOpen, onClose }: ForgotPasswordModalProps) {
+  useEscapeToClose(isOpen, onClose);
   const [email, setEmail] = useState('');
   const [loading, setLoading] = useState(false);
   const [sent, setSent] = useState(false);

@@ -1,6 +1,7 @@
 'use client';
 
 import React, { useState, useEffect, useMemo, useRef, useCallback } from 'react';
+import { useEscapeToClose } from '@/hooks/use-escape-to-close';
 import { useSearchParams } from 'next/navigation';
 import { StyledSelect } from '@/components/styled-select';
 import { useApp } from '@/app/app-context';
@@ -481,6 +482,7 @@ export default function ChatHistoryPage() {
   const [companyFilter, setCompanyFilter] = useState<string>('all');
   const [queueFilter, setQueueFilter] = useState<string>('all');
   const [selectedHistory, setSelectedHistory] = useState<any | null>(null);
+  useEscapeToClose(!!selectedHistory, () => setSelectedHistory(null));
   const [isBulkDownloading, setIsBulkDownloading] = useState(false);
   // Mensagens "ao vivo" (com anexos e transcrição) da sessão da conversa
   // selecionada — busca em chat_messages, que nunca é apagado quando a

@@ -7,6 +7,8 @@ import { notifyUser } from '@/lib/services/push-service';
 import { getTeamUserIds, getTicketRecipients, pushToTicketRecipients, ticketLabel } from '@/lib/services/notification-recipients';
 import { persistAttachments } from '@/lib/services/attachment-storage';
 import { getCurrentActionUser } from '@/lib/server-auth';
+import { logAudit } from '@/lib/audit-log';
+import { TicketStatus } from '@/lib/types';
 
 async function getTicketActor(request: NextRequest) {
   const token = request.cookies.get('token')?.value;
@@ -16,7 +18,8 @@ async function getTicketActor(request: NextRequest) {
   if (!decoded?.id) return null;
 
   const result = await query(
-    `SELECT p.id, p.role, p.company_id, COALESCE(rp.permissions, '{}'::text[]) AS permissions
+    `SELECT p.id, p.name, p.role, p.company_id, p.view_all_company_tickets,
+            COALESCE(rp.permissions, '{}'::text[]) AS permissions
      FROM public.profiles p
      LEFT JOIN public.role_permissions rp ON rp.id = p.access_profile_id
      WHERE p.id = $1`,
@@ -24,6 +27,15 @@ async function getTicketActor(request: NextRequest) {
   );
 
   return result.rows[0] || null;
+}
+
+/** Cliente/Funcionário com acesso ao chamado: dono, colaborador (employeeIds) ou
+ *  "ver todos os chamados da empresa" (profiles.view_all_company_tickets). */
+function hasCompanyAccessToTicket(actor: any, ticket: { customer_id: string | null; employee_ids: string[] | null; company_id: string | null }) {
+  if (ticket.customer_id === actor.id) return true;
+  if ((ticket.employee_ids || []).includes(actor.id)) return true;
+  if (actor.view_all_company_tickets && ticket.company_id === actor.company_id) return true;
+  return false;
 }
 
 /**
@@ -152,6 +164,72 @@ export async function GET(request: NextRequest) {
         isVisibleToCustomer: m.is_visible_to_customer,
         type: m.type,
         attachments: m.attachments_data || []
+      })));
+    }
+
+    // Avaliação do chamado pelo cliente (Bom/Ruim + comentário) — distinta da
+    // pesquisa de satisfação da conversa de chat (chat_histories.rating).
+    // Qualquer um que já enxerga o chamado também vê a avaliação, se houver.
+    if (action === 'evaluation') {
+      const ticketId = searchParams.get('ticketId');
+      if (!ticketId) return NextResponse.json({ error: 'ticketId é obrigatório' }, { status: 400 });
+
+      if (isCompanyScopedActor(actor)) {
+        const ticketRes = await query(
+          'SELECT customer_id, employee_ids, company_id FROM public.tickets WHERE id = $1',
+          [ticketId]
+        );
+        if (ticketRes.rowCount === 0) return NextResponse.json({ error: 'Chamado não encontrado' }, { status: 404 });
+        if (!hasCompanyAccessToTicket(actor, ticketRes.rows[0])) {
+          return NextResponse.json({ error: 'Você não tem permissão para ver este chamado.' }, { status: 403 });
+        }
+      }
+
+      const res = await query(
+        `SELECT e.id, e.ticket_id, e.rating, e.comment, e.created_at, p.name AS customer_name
+           FROM public.ticket_evaluations e
+           LEFT JOIN public.profiles p ON p.id = e.customer_id
+          WHERE e.ticket_id = $1`,
+        [ticketId]
+      );
+      const row = res.rows[0];
+      return NextResponse.json({
+        evaluation: row ? {
+          id: row.id,
+          ticketId: row.ticket_id,
+          rating: row.rating,
+          comment: row.comment,
+          createdAt: row.created_at,
+          customerName: row.customer_name
+        } : null
+      });
+    }
+
+    // Chamados do próprio Cliente/Funcionário (dono, colaborador ou empresa
+    // inteira — mesma regra de hasCompanyAccessToTicket) já Concluídos e ainda
+    // sem avaliação — alimenta o aviso em "Meus Chamados" (pedido do usuário,
+    // 2026-10-07). Não existe pra papel interno: a avaliação é só do lado do
+    // cliente, a equipe apenas lê (ver action=evaluation acima).
+    if (action === 'pending-evaluations') {
+      if (!isCompanyScopedActor(actor)) {
+        return NextResponse.json({ error: 'Só disponível para Cliente/Funcionário.' }, { status: 403 });
+      }
+      const res = await query(
+        `SELECT t.id, t.public_ticket_number, t.title, t.updated_at
+           FROM public.tickets t
+           LEFT JOIN public.ticket_evaluations e ON e.ticket_id = t.id
+          WHERE t.status = $1
+            AND e.id IS NULL
+            AND (t.customer_id = $2 OR $2 = ANY(COALESCE(t.employee_ids, '{}')) OR ($3 AND t.company_id = $4))
+          ORDER BY t.updated_at DESC
+          LIMIT 50`,
+        [TicketStatus.CLOSED, actor.id, !!actor.view_all_company_tickets, actor.company_id]
+      );
+      return NextResponse.json(res.rows.map(t => ({
+        id: t.id,
+        ticketNumber: t.public_ticket_number,
+        title: t.title,
+        updatedAt: t.updated_at
       })));
     }
 
@@ -425,6 +503,82 @@ export async function POST(request: Request) {
   try {
     const body = await request.json();
     const { action } = body;
+
+    // Avaliação do chamado pelo cliente (Bom/Ruim + comentário obrigatório
+    // "rating", comentário opcional) — pedido do usuário, 2026-10-07. Distinta
+    // da pesquisa de satisfação da CONVERSA (chat_histories.rating): essa é
+    // sobre o CHAMADO em si, só depois de Concluído, uma por chamado,
+    // somente-inserção (migrations/ticket_evaluations.sql barra UPDATE/DELETE
+    // no próprio banco — aqui só confere elegibilidade antes de tentar gravar).
+    if (action === 'submit-evaluation') {
+      const actor = await getCurrentActionUser();
+      if (!actor) return NextResponse.json({ error: 'Sessão expirada. Faça login novamente.' }, { status: 401 });
+      if (actor.role !== 'Cliente' && actor.role !== 'Funcionário') {
+        return NextResponse.json({ error: 'Só o cliente pode avaliar o chamado.' }, { status: 403 });
+      }
+
+      const { ticketId, rating, comment } = body;
+      if (!ticketId) return NextResponse.json({ error: 'ticketId é obrigatório.' }, { status: 400 });
+      if (rating !== 'good' && rating !== 'bad') {
+        return NextResponse.json({ error: 'Avaliação inválida — escolha Bom ou Ruim.' }, { status: 400 });
+      }
+      const trimmedComment = typeof comment === 'string' ? comment.trim().slice(0, 2000) : '';
+
+      const ticketRes = await query(
+        'SELECT status, customer_id, employee_ids, company_id FROM public.tickets WHERE id = $1',
+        [ticketId]
+      );
+      const ticket = ticketRes.rows[0];
+      if (!ticket) return NextResponse.json({ error: 'Chamado não encontrado.' }, { status: 404 });
+
+      // view_all_company_tickets não vem de getCurrentActionUser (ele serve a
+      // rota inteira, a maioria das ações não precisa desse campo) — busca à
+      // parte, só quando necessário.
+      const flagRes = await query('SELECT view_all_company_tickets FROM public.profiles WHERE id = $1', [actor.id]);
+      const viewAllCompanyTickets = !!flagRes.rows[0]?.view_all_company_tickets;
+      const hasAccess = ticket.customer_id === actor.id
+        || (ticket.employee_ids || []).includes(actor.id)
+        || (viewAllCompanyTickets && ticket.company_id === actor.company_id);
+      if (!hasAccess) {
+        return NextResponse.json({ error: 'Você não tem permissão para avaliar este chamado.' }, { status: 403 });
+      }
+      if (ticket.status !== TicketStatus.CLOSED) {
+        return NextResponse.json({ error: 'Só é possível avaliar um chamado Concluído.' }, { status: 422 });
+      }
+
+      try {
+        const insertRes = await query(
+          `INSERT INTO public.ticket_evaluations (ticket_id, customer_id, rating, comment)
+           VALUES ($1, $2, $3, $4)
+           RETURNING id, created_at`,
+          [ticketId, actor.id, rating, trimmedComment || null]
+        );
+        logAudit({
+          actorId: actor.id,
+          actorName: actor.name || 'Cliente',
+          action: 'create',
+          entityType: 'ticket_evaluation',
+          entityId: ticketId,
+          entityLabel: `Chamado #${ticketId}`,
+          changes: { rating, comment: trimmedComment || null }
+        }).catch(() => {});
+        return NextResponse.json({
+          evaluation: {
+            id: insertRes.rows[0].id,
+            ticketId,
+            rating,
+            comment: trimmedComment || null,
+            createdAt: insertRes.rows[0].created_at,
+            customerName: actor.name
+          }
+        });
+      } catch (err: any) {
+        if (err?.code === '23505') {
+          return NextResponse.json({ error: 'Este chamado já foi avaliado.' }, { status: 409 });
+        }
+        throw err;
+      }
+    }
 
     if (action === 'create') {
       const { ticket, userId } = body;
