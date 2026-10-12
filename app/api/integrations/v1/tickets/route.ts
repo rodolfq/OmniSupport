@@ -123,8 +123,8 @@ export async function GET(request: Request) {
     // todas) — mesmo espírito de "tem essa tag" que a tela usa.
     const tags = searchParams.get('tags');
     // Mesmo par search/contentSearch do filtro interno (components/filter-bar.tsx).
-    const search = searchParams.get('search');
-    const contentSearch = searchParams.get('contentSearch');
+    const search = searchParams.get('search')?.trim() || null;
+    const contentSearch = searchParams.get('contentSearch')?.trim() || null;
     const createdFrom = searchParams.get('createdFrom');
     const createdTo = searchParams.get('createdTo');
     // Sincronização incremental: "me dê tudo que mudou desde a última vez

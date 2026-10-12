@@ -9,8 +9,9 @@ import {
 } from '@/lib/integration-auth';
 
 // Leitura de conversas (sessões de chat, incluindo WhatsApp) para a
-// plataforma externa. Filtro por companyId faz join com profiles pois
-// chat_sessions só guarda customer_id diretamente.
+// plataforma externa. chat_sessions só guarda customer_id/assignee_id
+// diretamente — nome de quem atendeu e empresa do cliente vêm de JOIN com
+// profiles/companies (ver ENRICHMENT_JOINS).
 //
 // Boa prática de consulta: colunas explícitas, não `SELECT *` — evita que uma
 // coluna nova/interna (ex.: awaiting_survey_until, um detalhe de timing da
@@ -20,6 +21,19 @@ const SESSION_COLUMNS = `
   status, ticket_id, ticket_number, tags, created_at, updated_at, last_message_at
 `;
 
+// Enriquecimento adicionado a pedido do usuário (2026-10-12): nome de quem
+// atendeu e empresa do cliente — antes só o `assigneeId`/filtro por
+// `companyId` chegavam, sem o nome resolvido. Mesmos dois JOINs em toda
+// consulta (detalhe e lista), pra não duplicar a lógica — `cust`/`co`
+// também substituem o JOIN que só existia quando `companyId` era usado
+// como filtro (ver mais abaixo).
+const ENRICHMENT_JOINS = `
+  LEFT JOIN public.profiles assignee ON assignee.id = cs.assignee_id
+  LEFT JOIN public.profiles cust ON cust.id = cs.customer_id
+  LEFT JOIN public.companies co ON co.id = cust.company_id
+`;
+const ENRICHMENT_COLUMNS = `assignee.name AS assignee_name, co.id AS company_id, co.name AS company_name`;
+
 function serializeSession(row: any) {
   return {
     id: row.id,
@@ -28,6 +42,7 @@ function serializeSession(row: any) {
     customerName: row.customer_name,
     customerPhone: row.customer_phone,
     assigneeId: row.assignee_id,
+    assigneeName: row.assignee_name ?? null,
     queueId: row.queue_id,
     status: row.status,
     ticketId: row.ticket_id,
@@ -36,6 +51,10 @@ function serializeSession(row: any) {
     createdAt: row.created_at,
     updatedAt: row.updated_at,
     lastMessageAt: row.last_message_at,
+    // null quando o contato não está vinculado a um cadastro com empresa
+    // (ex.: WhatsApp ainda não vinculado) — mesma regra do endpoint de
+    // training-conversations.
+    company: row.company_id ? { id: row.company_id, name: row.company_name } : null,
   };
 }
 
@@ -64,7 +83,14 @@ export async function GET(request: Request) {
 
   try {
     if (id) {
-      const sessionRes = await query(`SELECT ${SESSION_COLUMNS} FROM public.chat_sessions WHERE id = $1`, [id]);
+      const sessionCols = SESSION_COLUMNS.split(',').map(c => `cs.${c.trim()}`).join(', ');
+      const sessionRes = await query(
+        `SELECT ${sessionCols}, ${ENRICHMENT_COLUMNS}
+           FROM public.chat_sessions cs
+           ${ENRICHMENT_JOINS}
+          WHERE cs.id = $1`,
+        [id]
+      );
       if (sessionRes.rowCount === 0) {
         return integrationError(auth, 'NOT_FOUND', 'Conversa não encontrada.', 404);
       }
@@ -103,11 +129,12 @@ export async function GET(request: Request) {
 
     const conditions: string[] = [];
     const params: any[] = [];
-    let joinCompany = '';
     if (companyId) {
-      joinCompany = 'LEFT JOIN public.profiles p ON p.id = cs.customer_id';
+      // JOIN de empresa agora é sempre presente (ENRICHMENT_JOINS, pro nome
+      // da empresa ir em toda resposta) — o filtro só usa o alias `co` que já
+      // existe, sem precisar de um JOIN à parte como antes.
       params.push(companyId);
-      conditions.push(`p.company_id = $${params.length}`);
+      conditions.push(`co.id = $${params.length}`);
     }
     if (customerId) {
       params.push(customerId);
@@ -151,7 +178,7 @@ export async function GET(request: Request) {
     const whereClause = conditions.length ? `WHERE ${conditions.join(' AND ')}` : '';
 
     const countRes = await query(
-      `SELECT COUNT(*)::int AS total FROM public.chat_sessions cs ${joinCompany} ${whereClause}`,
+      `SELECT COUNT(*)::int AS total FROM public.chat_sessions cs ${ENRICHMENT_JOINS} ${whereClause}`,
       params
     );
     const total = countRes.rows[0]?.total ?? 0;
@@ -159,8 +186,8 @@ export async function GET(request: Request) {
     const listParams = [...params, limit, offset];
     const sessionCols = SESSION_COLUMNS.split(',').map(c => `cs.${c.trim()}`).join(', ');
     const res = await query(
-      `SELECT ${sessionCols} FROM public.chat_sessions cs
-       ${joinCompany}
+      `SELECT ${sessionCols}, ${ENRICHMENT_COLUMNS} FROM public.chat_sessions cs
+       ${ENRICHMENT_JOINS}
        ${whereClause}
        ORDER BY cs.created_at DESC
        LIMIT $${listParams.length - 1} OFFSET $${listParams.length}`,

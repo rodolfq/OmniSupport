@@ -195,7 +195,7 @@ export function HotfixesContent() {
     );
   }
 
-  const q = search.toLowerCase();
+  const q = search.trim().toLowerCase();
   const visibleHotfixes = hotfixes.filter(h =>
     h.name.toLowerCase().includes(q) || (h.description || '').toLowerCase().includes(q)
   );

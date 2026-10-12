@@ -1235,10 +1235,13 @@ export function ChatWidget() {
 
 
   useEffect(() => {
-    if (customerSearch.length > 1) {
+    // trim() pra ignorar espaço colado/digitado nas pontas (pedido do
+    // usuário, 2026-10-12: todo campo de busca deve ignorar).
+    const customerSearchTerm = customerSearch.trim();
+    if (customerSearchTerm.length > 1) {
       // Use existing state variables loaded in initial load
-      const filteredCompanies = companies.filter(c => c.name.toLowerCase().includes(customerSearch.toLowerCase()));
-      const filteredUsers = allUsers.filter(u => u.name.toLowerCase().includes(customerSearch.toLowerCase()));
+      const filteredCompanies = companies.filter(c => c.name.toLowerCase().includes(customerSearchTerm.toLowerCase()));
+      const filteredUsers = allUsers.filter(u => u.name.toLowerCase().includes(customerSearchTerm.toLowerCase()));
       
       const results: any[] = [];
 
@@ -3396,6 +3399,7 @@ useEffect(() => {
                               const datePrefix = now.toLocaleDateString('pt-BR');
                               const timePrefix = now.toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' });
                               setTicketTitle(`Atendimento ${datePrefix} ${timePrefix}: ${selectedChat?.customerName}`);
+                              setCloseTicketImmediately(false);
                               setFinishTagBlockVisible(!sessionHasRequiredTag(selectedChat));
                               setIsFinishModalOpen(true);
                             }}

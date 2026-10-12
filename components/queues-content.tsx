@@ -320,9 +320,10 @@ export function QueuesContent() {
     )
   );
 
+  const queueSearchTerm = search.trim().toLowerCase();
   const filteredQueues = queues.filter(q =>
-    q.name.toLowerCase().includes(search.toLowerCase()) ||
-    q.description?.toLowerCase().includes(search.toLowerCase())
+    q.name.toLowerCase().includes(queueSearchTerm) ||
+    q.description?.toLowerCase().includes(queueSearchTerm)
   );
 
   if (!hasPermission(Permission.QUEUES_MANAGE)) {

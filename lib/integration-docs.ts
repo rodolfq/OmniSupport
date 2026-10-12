@@ -372,7 +372,7 @@ export const INTEGRATION_ENDPOINTS: EndpointDoc[] = [
     method: 'GET',
     path: '/api/integrations/v1/conversations',
     summary: 'Listar ou consultar conversas',
-    description: 'Sem "id" retorna uma página de conversas (chat/WhatsApp) de todos os clientes, filtrável por qualquer um dos parâmetros abaixo (todos combináveis entre si). Com "id" retorna a conversa com todas as mensagens visíveis ao cliente — anotações internas entre atendentes não são expostas por esta API.',
+    description: 'Sem "id" retorna uma página de conversas (chat/WhatsApp) de todos os clientes, filtrável por qualquer um dos parâmetros abaixo (todos combináveis entre si). Com "id" retorna a conversa com todas as mensagens visíveis ao cliente — anotações internas entre atendentes não são expostas por esta API. Cada conversa já vem com o nome de quem atendeu (assigneeName) e a empresa do cliente (company) — "company" vem null quando o contato ainda não está vinculado a um cadastro com empresa.',
     scope: 'conversations:read',
     params: [
       { name: 'id', in: 'query', type: 'uuid', description: 'Retorna essa conversa + mensagens (ignora os demais filtros).' },
@@ -418,7 +418,7 @@ export const INTEGRATION_ENDPOINTS: EndpointDoc[] = [
     exampleResponse: JSON.stringify(
       {
         data: [
-          { id: '7188...', type: 'support', customerId: '48bf...', customerName: 'Jean', customerPhone: '11999990000', assigneeId: 'a881...', queueId: 'suporte-n1', status: 'active', ticketId: null, ticketNumber: null, tags: ['vip'], createdAt: '2026-07-20T12:00:00.000Z', updatedAt: '2026-07-20T12:00:00.000Z', lastMessageAt: null },
+          { id: '7188...', type: 'support', customerId: '48bf...', customerName: 'Jean', customerPhone: '11999990000', assigneeId: 'a881...', assigneeName: 'Rodolfo Quintanilha', queueId: 'suporte-n1', status: 'active', ticketId: null, ticketNumber: null, tags: ['vip'], createdAt: '2026-07-20T12:00:00.000Z', updatedAt: '2026-07-20T12:00:00.000Z', lastMessageAt: null, company: { id: 'c111...', name: 'APOVEL PRIME' } },
         ],
         meta: { limit: 100, offset: 0, total: 1, hasMore: false },
       },

@@ -772,15 +772,18 @@ export default function ChatHistoryPage() {
   }, [dateFrom, dateTo]);
 
   const filteredHistories = useMemo(() => {
+    // trim() pra ignorar espaço nas pontas (pedido do usuário, 2026-10-12).
+    const searchTerm = search.trim();
+    const searchTermLower = searchTerm.toLowerCase();
     return histories.filter(h => {
       const ticketDigits = h.ticketNumber ? String(h.ticketNumber) : '';
-      const searchDigits = search.replace(/\D/g, '');
-      const matchesSearch = search === '' ||
-        h.customerName?.toLowerCase().includes(search.toLowerCase()) ||
-        h.customerProfileName?.toLowerCase().includes(search.toLowerCase()) ||
-        h.companyName?.toLowerCase().includes(search.toLowerCase()) ||
-        h.transcript?.toLowerCase().includes(search.toLowerCase()) ||
-        h.assigneeName?.toLowerCase().includes(search.toLowerCase()) ||
+      const searchDigits = searchTerm.replace(/\D/g, '');
+      const matchesSearch = searchTerm === '' ||
+        h.customerName?.toLowerCase().includes(searchTermLower) ||
+        h.customerProfileName?.toLowerCase().includes(searchTermLower) ||
+        h.companyName?.toLowerCase().includes(searchTermLower) ||
+        h.transcript?.toLowerCase().includes(searchTermLower) ||
+        h.assigneeName?.toLowerCase().includes(searchTermLower) ||
         (searchDigits !== '' && ticketDigits.includes(searchDigits));
 
       let matchesDate = true;

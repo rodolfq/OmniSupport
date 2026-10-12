@@ -226,7 +226,8 @@ export function TeamContent() {
   // enquanto o resultado novo pode ter só 1 página deixaria a lista vazia.
   useEffect(() => {
     const handler = setTimeout(() => {
-      setDebouncedSearch(search);
+      // trim() pra ignorar espaço nas pontas (pedido do usuário, 2026-10-12).
+      setDebouncedSearch(search.trim());
       setPage(1);
     }, 250);
     return () => clearTimeout(handler);

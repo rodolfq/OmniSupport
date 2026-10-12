@@ -62,7 +62,7 @@ export async function GET(request: Request) {
   const { searchParams } = new URL(request.url);
   const id = searchParams.get('id');
   const tipo = searchParams.get('tipo');
-  const search = searchParams.get('search');
+  const search = searchParams.get('search')?.trim() || null;
   const isCompanyUser = actor.role === 'Cliente' || actor.role === 'Funcionário';
 
   try {

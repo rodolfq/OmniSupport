@@ -21,7 +21,14 @@ export function selectableOptions<T extends { id: string; isArchived?: boolean }
 }
 
 export function normalizeString(str: string) {
+  // trim() primeiro: espa\u00e7o no in\u00edcio/fim \u00e9 comum ao colar um nome/telefone
+  // ou s\u00f3 por h\u00e1bito de digita\u00e7\u00e3o \u2014 sem isso, "jo\u00e3o " buscado contra "jo\u00e3o"
+  // batia por acidente s\u00f3 quando o lado comparado tamb\u00e9m tinha o espa\u00e7o
+  // (raro), mas a busca digitada com espa\u00e7o sobrando contra listas sem
+  // espa\u00e7o simplesmente n\u00e3o achava nada (pedido do usu\u00e1rio, 2026-10-12: todo
+  // campo de busca deve ignorar espa\u00e7o nas pontas).
   return str
+    .trim()
     .toLowerCase()
     .normalize('NFD')
     .replace(/[\u0300-\u036f]/g, "");

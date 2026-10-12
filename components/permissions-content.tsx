@@ -406,12 +406,13 @@ export function PermissionsContent() {
   }, [isSystemAdmin, myPermissions]);
 
   const filteredGroups = useMemo(() => {
-    if (!searchQuery) return visiblePermissionGroups;
+    const q = searchQuery.trim();
+    if (!q) return visiblePermissionGroups;
     return visiblePermissionGroups.map(group => ({
       ...group,
       permissions: group.permissions.filter(p =>
-        p.label.toLowerCase().includes(searchQuery.toLowerCase()) ||
-        p.desc.toLowerCase().includes(searchQuery.toLowerCase())
+        p.label.toLowerCase().includes(q.toLowerCase()) ||
+        p.desc.toLowerCase().includes(q.toLowerCase())
       )
     })).filter(group => group.permissions.length > 0);
   }, [visiblePermissionGroups, searchQuery]);
@@ -661,9 +662,10 @@ export function PermissionsContent() {
   // Quem já está selecionado pra esta equipe sobe pro topo — sem isso, achar
   // quem já é membro no meio de uma lista grande e alfabética é chato.
   const filteredCandidateUsers = useMemo(() => {
+    const term = memberSearch.trim().toLowerCase();
     const filtered = allUsers.filter(u =>
-      (u.name?.toLowerCase().includes(memberSearch.toLowerCase()) ||
-       u.email?.toLowerCase().includes(memberSearch.toLowerCase()))
+      (u.name?.toLowerCase().includes(term) ||
+       u.email?.toLowerCase().includes(term))
     );
     return [...filtered].sort((a, b) => {
       const aSelected = editSelectedMembers.includes(a.id);

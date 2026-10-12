@@ -277,7 +277,7 @@ export async function GET(request: NextRequest) {
       // parâmetro opcional `search`, por número ou título).
       const companyId = searchParams.get('companyId');
       const excludeId = searchParams.get('excludeId');
-      const search = searchParams.get('search');
+      const search = searchParams.get('search')?.trim() || null;
       const limit = Math.min(Math.max(parseInt(searchParams.get('limit') || '5', 10) || 5, 1), 20);
       if (!companyId) return NextResponse.json({ error: 'companyId é obrigatório' }, { status: 400 });
 
