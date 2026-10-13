@@ -44,10 +44,15 @@ DROP TABLE IF EXISTS public.hotfixes CASCADE;
 
 DROP SEQUENCE IF EXISTS public.ticket_seq CASCADE;
 DROP SEQUENCE IF EXISTS public.internal_ticket_seq CASCADE;
+DROP SEQUENCE IF EXISTS public.chat_session_seq CASCADE;
 
 -- Create Public Sequences
 CREATE SEQUENCE IF NOT EXISTS public.ticket_seq START 1000;
 CREATE SEQUENCE IF NOT EXISTS public.internal_ticket_seq START 1;
+-- Número público do atendimento (chat_sessions.public_session_number) — nasce
+-- com a sessão, mesmo quando ainda não existe chamado (ex.: ligação proativa
+-- via template saudacao_nova). Mesmo padrão de ticket_seq/internal_ticket_seq.
+CREATE SEQUENCE IF NOT EXISTS public.chat_session_seq START 1;
 
 -- Companies Table
 CREATE TABLE public.companies (
@@ -688,7 +693,12 @@ CREATE TABLE public.chat_sessions (
   -- verdade (sendAutomaticNoteReply em pyvon-service.ts), pra prefixar o
   -- nome do analista em negrito na mensagem ao cliente e atribuir a
   -- mensagem ao autor certo no nosso próprio chat.
-  pyvon_pending_note_author_id UUID REFERENCES public.profiles(id) ON DELETE SET NULL
+  pyvon_pending_note_author_id UUID REFERENCES public.profiles(id) ON DELETE SET NULL,
+  -- Número público do atendimento, igual ao {{2}} do template saudacao_nova —
+  -- existe desde que a conversa nasce, mesmo sem chamado ainda (diferente de
+  -- ticket_number, que só aparece quando um chamado é gerado). Mesmo padrão
+  -- de tickets.public_ticket_number (migrations/chat_session_number_and_saudacao_nova.sql).
+  public_session_number BIGINT NOT NULL DEFAULT nextval('public.chat_session_seq')
 );
 
 -- Poll de 30s (GET /api/chats?action=sessions) e a subquery correlacionada
@@ -698,20 +708,21 @@ CREATE INDEX IF NOT EXISTS idx_chat_sessions_queue_id ON public.chat_sessions(qu
 CREATE INDEX IF NOT EXISTS idx_chat_sessions_assignee_id ON public.chat_sessions(assignee_id);
 CREATE INDEX IF NOT EXISTS idx_chat_sessions_customer_id ON public.chat_sessions(customer_id);
 CREATE INDEX IF NOT EXISTS idx_chat_sessions_ticket_id ON public.chat_sessions(ticket_id);
+CREATE UNIQUE INDEX IF NOT EXISTS uq_chat_sessions_public_session_number
+  ON public.chat_sessions (public_session_number);
 -- Uma conversa aberta por telefone (WhatsApp/Pyvon: pyvon-service.ts e
 -- whatsapp-service.ts dependem deste índice no ON CONFLICT) e uma por cliente
 -- logado no widget. O de customer_id vale SÓ pro canal 'widget': a mesma pessoa
 -- pode ter conversas abertas em canais/números diferentes (migrations/
 -- chat_sessions_unique_open_phone.sql e chat_sessions_open_customer_widget_only.sql).
 --
--- ⚠️ 2026-10-07: existe `migrations/chat_sessions_open_phone_per_channel.sql`
--- trocando este índice pra `(customer_phone, channel)` — permite conversa do
--- portal e do WhatsApp abertas ao mesmo tempo pro mesmo número. NÃO foi
--- aplicada em produção ainda (nem o código que depende dela foi publicado) —
--- aplicar as DUAS coisas juntas, na mesma janela de deploy, nunca uma sem a
--- outra (ver seção 15, "Apagão do Pyvon por índice fora de sincronia").
+-- 2026-10-13: `migrations/chat_sessions_open_phone_per_channel.sql` aplicada
+-- junto com a publicação do backend que já depende dela — permite conversa
+-- do portal e do WhatsApp abertas ao mesmo tempo pro mesmo número (ver seção
+-- 15, "Apagão do Pyvon por índice fora de sincronia", pra o histórico de por
+-- que isso ficou pendente por quase uma semana).
 CREATE UNIQUE INDEX IF NOT EXISTS uq_chat_sessions_open_phone
-  ON public.chat_sessions (customer_phone)
+  ON public.chat_sessions (customer_phone, channel)
   WHERE status <> 'closed' AND customer_phone IS NOT NULL;
 CREATE UNIQUE INDEX IF NOT EXISTS uq_chat_sessions_open_customer
   ON public.chat_sessions (customer_id)
@@ -1456,6 +1467,24 @@ CREATE TABLE public.pyvon_templates (
   body_text TEXT,
   created_at TIMESTAMP WITH TIME ZONE DEFAULT now() NOT NULL
 );
+
+-- Template ATIVO de primeiro contato proativo (sem chamado ainda) — usado em
+-- "Iniciar Conversa"/"+ Novo WhatsApp" fora da janela de 24h. Templates
+-- antigos/inativos (ex.: contato_pos_vendas, substituído por este em
+-- 2026-10-13) nunca foram semeados aqui — vieram só de migration, e um banco
+-- novo não precisa deles (ver migrations/chat_session_number_and_saudacao_nova.sql).
+-- pyvon_templates não tem DROP TABLE no topo deste arquivo (fica pelo histórico
+-- entre resets) — WHERE NOT EXISTS evita duplicar a linha se este script for
+-- rodado de novo contra um banco que já a tem.
+INSERT INTO public.pyvon_templates (template_name, language, description, variables_schema, is_active, body_text)
+SELECT
+  'saudacao_nova',
+  'pt_BR',
+  'Primeiro contato proativo (sem chamado ainda) — usado em "Iniciar Conversa"/"+ Novo WhatsApp" fora da janela de 24h.',
+  '[{"key":"1","label":"Nome do contato"},{"key":"2","label":"Número do atendimento"}]'::jsonb,
+  true,
+  E'Olá, {{1}}! Tudo bem?\n\nFoi gerado o atendimento nº {{2}} em nosso sistema para tratarmos de um assunto relacionado a você.\n\nEstamos entrando em contato para dar continuidade ao atendimento. Quando possível, responda a esta mensagem.\n\nAtenciosamente,\nEquipe Systemsat'
+WHERE NOT EXISTS (SELECT 1 FROM public.pyvon_templates WHERE template_name = 'saudacao_nova');
 
 -- Templates automáticos enviados a contato SEM conversa aberta ficam aqui até o
 -- cliente responder (só então nasce a conversa, já com a nota/autor pendentes)

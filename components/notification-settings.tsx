@@ -1,4 +1,4 @@
-﻿'use client';
+'use client';
 
 import React from 'react';
 import { StyledSelect } from '@/components/styled-select';
@@ -191,9 +191,35 @@ export function NotificationSettingsContent() {
                            <option value="/audio/Nokia.mp3">Clássico (Nokia)</option>
                            <option value="/audio/notificação1.mp3">Notificação 1 (Curta)</option>
                         </StyledSelect>
-                        <button 
+                        <button
                           onClick={() => playSound('chat')}
                           className="p-2 bg-[var(--surface-success)] text-[var(--text-success)] rounded-xl hover:bg-emerald-200 transition-all"
+                        >
+                           <Volume2 size={16} />
+                        </button>
+                     </div>
+                  </div>
+
+                  <div className="space-y-1">
+                     <label className="text-[9px] font-black uppercase text-[var(--text-tertiary)] tracking-widest">Alerta de Chat Interno</label>
+                     <div className="flex gap-2">
+                        <StyledSelect
+                          value={notificationSettings.internalChatSound}
+                          onChange={(e) => updateNotificationSettings({ internalChatSound: e.target.value })}
+                          className="flex-1 bg-[var(--surface-card)] border border-[var(--border-default)] rounded-xl px-3 py-2 text-xs font-bold outline-none focus:border-[var(--accent)]"
+                        >
+                           <option value="/audio/Nokia.mp3">Clássico (Nokia) (Padrão)</option>
+                           <option value="/audio/Alerta.mp3">Alerta</option>
+                           <option value="/audio/Baseball.mp3">Whistle (Baseball)</option>
+                           <option value="/audio/Confirmação.mp3">Confirmação</option>
+                           <option value="/audio/Corda Solta.mp3">Guitarra (Corda Solta)</option>
+                           <option value="/audio/Formiguinha.mp3">Formiguinha</option>
+                           <option value="/audio/Notificação de Mensagem.mp3">Mensagem WhatsApp</option>
+                           <option value="/audio/notificação1.mp3">Notificação 1 (Curta)</option>
+                        </StyledSelect>
+                        <button
+                          onClick={() => playSound('internal_chat')}
+                          className="p-2 bg-[var(--surface-pill)] text-[var(--text-secondary)] rounded-xl hover:bg-[var(--surface-card)] transition-all"
                         >
                            <Volume2 size={16} />
                         </button>

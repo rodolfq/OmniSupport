@@ -363,6 +363,12 @@ export default function SettingsPage() {
                     >
                       Sons Chat
                     </button>
+                    <button
+                      onClick={() => playSound('internal_chat')}
+                      className="px-4 py-2 bg-[var(--surface-pill)] border border-[var(--border-default)] text-[var(--text-secondary)] rounded-xl text-[10px] font-black uppercase tracking-widest hover:bg-[var(--surface-card)] transition-all shadow-sm"
+                    >
+                      Sons Chat Interno
+                    </button>
                   </div>
                </div>
 

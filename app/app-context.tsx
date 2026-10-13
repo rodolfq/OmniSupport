@@ -46,6 +46,7 @@ export interface AppNotification {
 export interface NotificationSettings {
   systemSound: string;
   chatSound: string;
+  internalChatSound: string;
   ticket_new: boolean;
   ticket_assigned: boolean;
   ticket_update: boolean;
@@ -109,7 +110,7 @@ interface AppContextType {
   markNotificationsAsReadByTarget: (targetId: string) => void;
   clearNotifications: () => void;
   pruneStaleChatNotifications: (validSessionIds: string[]) => void;
-  playSound: (type: 'system' | 'chat') => void;
+  playSound: (type: 'system' | 'chat' | 'internal_chat') => void;
   suppressTicketAssignedNotification: (ticketId: string) => void;
   notificationSettings: NotificationSettings;
   updateNotificationSettings: (settings: Partial<NotificationSettings>) => void;
@@ -168,6 +169,7 @@ const AppContext = createContext<AppContextType | undefined>(undefined);
 const DEFAULT_SETTINGS: NotificationSettings = {
   systemSound: '/audio/Alerta.mp3',
   chatSound: '/audio/notificação1.mp3',
+  internalChatSound: '/audio/Nokia.mp3',
   ticket_new: true,
   ticket_assigned: true,
   ticket_update: true,
@@ -365,14 +367,17 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     }
   }, []);
 
-  const playSound = React.useCallback((type: 'system' | 'chat') => {
+  const playSound = React.useCallback((type: 'system' | 'chat' | 'internal_chat') => {
     try {
       const currentSettings = settingsRef.current;
       const defaultChatSound = '/audio/Notificação de Mensagem.mp3';
       const defaultSystemSound = '/audio/Alerta.mp3';
+      const defaultInternalChatSound = '/audio/Nokia.mp3';
 
-      const audioPath = type === 'system' 
+      const audioPath = type === 'system'
         ? (currentSettings.systemSound || defaultSystemSound)
+        : type === 'internal_chat'
+        ? (currentSettings.internalChatSound || defaultInternalChatSound)
         : (currentSettings.chatSound || defaultChatSound);
 
       let audio = audioCacheRef.current.get(audioPath);
@@ -457,7 +462,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
         return updated;
       });
       
-      const soundType = (notif.type.startsWith('chat_') || notif.type === 'internal_chat_message') ? 'chat' : 'system';
+      const soundType = notif.type === 'internal_chat_message' ? 'internal_chat' : notif.type.startsWith('chat_') ? 'chat' : 'system';
       playSound(soundType);
 
       // Sem `type`: cai no estilo "default" do Toaster (ver app/layout.tsx),
