@@ -400,8 +400,12 @@ X-RateLimit-Reset: 1786994325 <span class="c">// epoch em segundos</span></div>
         <tr><td class="name">companyId</td><td class="type">query</td><td>Filtra pela empresa do cliente.</td></tr>
         <tr><td class="name">customerId</td><td class="type">query</td><td>Filtra por cliente.</td></tr>
         <tr><td class="name">status</td><td class="type">query</td><td>waiting / active / closed.</td></tr>
+        <tr><td class="name">tags</td><td class="type">query</td><td>Uma ou mais tags separadas por vírgula, pelo NOME (qualquer uma basta; não diferencia maiúscula/acento). Nome inexistente devolve 400 com a lista válida.</td></tr>
         <tr><td class="name">updatedSince</td><td class="type">query</td><td>ISO 8601 — sincronização incremental.</td></tr>
       </table>
+      <div class="code-label">Conversa na listagem — tags resolvidas em {id,label}</div>
+      <div class="code-block">{ <span class="k">"id"</span>: <span class="s">"7188..."</span>, <span class="k">"status"</span>: <span class="s">"active"</span>,
+  <span class="k">"tags"</span>: [{ <span class="k">"id"</span>: <span class="s">"..."</span>, <span class="k">"label"</span>: <span class="s">"vip"</span> }], <span class="k">"createdAt"</span>: <span class="s">"2026-07-20T12:00:00.000Z"</span> }</div>
       <div class="code-label">Mensagem, dentro de uma conversa específica</div>
       <div class="code-block">{ <span class="k">"id"</span>: <span class="s">"..."</span>, <span class="k">"senderName"</span>: <span class="s">"Jean"</span>, <span class="k">"text"</span>: <span class="s">"Bom dia!"</span>, <span class="k">"type"</span>: <span class="s">"text"</span>,
   <span class="k">"attachments"</span>: [], <span class="k">"createdAt"</span>: <span class="s">"2026-08-17T12:00:00.000Z"</span> }</div>

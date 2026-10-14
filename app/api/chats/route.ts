@@ -608,7 +608,7 @@ export async function GET(request: NextRequest) {
         `SELECT h.*, p1.name as customer_profile_name, p1.company_id as customer_company_id,
                 co.name as company_name, co.is_in_training as company_is_in_training,
                 p2.name as assignee_profile_name,
-                s.ticket_id, s.ticket_number, s.queue_id, q.name as queue_name
+                s.ticket_id, s.ticket_number, s.queue_id, q.name as queue_name, s.tags as session_tags
          FROM public.chat_histories h
          LEFT JOIN public.profiles p1 ON h.customer_id = p1.id
          LEFT JOIN public.companies co ON co.id = p1.company_id
@@ -617,6 +617,22 @@ export async function GET(request: NextRequest) {
          LEFT JOIN public.queues q ON q.id = s.queue_id
          ORDER BY h.finished_at DESC`
       );
+
+      // Marcador (tag) da conversa — pedido do usuário (2026-10-14): mostrar
+      // no Histórico pra avaliar em massa se a categorização do atendimento
+      // está sendo bem feita. `chat_sessions.tags` guarda só o ID; resolve pro
+      // {id,label,color} aqui (mesmo padrão de /api/integrations/v1/training-
+      // conversations) pra não espalhar essa junção em cada consumidor. Tag
+      // apagada do cadastro depois simplesmente não aparece mais (filtrada
+      // pelo `tagById.has`), sem erro.
+      const tagCatalogRes = await query(`SELECT id::text AS id, label, color FROM public.config_tags WHERE domain = 'chat'`);
+      const tagById = new Map<string, { label: string; color: string }>(
+        tagCatalogRes.rows.map((t: any) => [t.id, { label: t.label, color: t.color }])
+      );
+      const resolveTags = (ids: string[] | null) => ((ids || []) as string[])
+        .filter(id => tagById.has(id))
+        .map(id => ({ id, label: tagById.get(id)!.label, color: tagById.get(id)!.color }))
+        .sort((a, b) => a.label.localeCompare(b.label, 'pt-BR'));
 
       return NextResponse.json(res.rows.map(h => ({
         id: h.id,
@@ -651,7 +667,8 @@ export async function GET(request: NextRequest) {
         ticketId: h.ticket_id,
         ticketNumber: h.ticket_number,
         queueId: h.queue_id,
-        queueName: h.queue_name
+        queueName: h.queue_name,
+        tags: resolveTags(h.session_tags)
       })));
     }
 

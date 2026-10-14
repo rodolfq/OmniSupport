@@ -62,6 +62,7 @@ const ALL_HISTORY_COLUMNS: HistoryColumnDef[] = [
   { id: 'cliente', label: 'Cliente', defaultVisible: true },
   { id: 'funcionario', label: 'Funcionário', defaultVisible: true },
   { id: 'equipe', label: 'Equipe', defaultVisible: true },
+  { id: 'tags', label: 'Tags', defaultVisible: true },
   { id: 'telefone', label: 'Telefone', defaultVisible: false },
   { id: 'duracao', label: 'Duração', defaultVisible: false },
   { id: 'fila', label: 'Fila', defaultVisible: false }
@@ -127,6 +128,11 @@ function historyFileBaseName(h: any) {
   return `${ticket}_${date}_${employee}`;
 }
 
+function tagsLine(h: any): string {
+  const labels = ((h.tags || []) as { label: string }[]).map(t => t.label);
+  return labels.length > 0 ? labels.join(', ') : '-';
+}
+
 function buildTxtContent(h: any): string {
   const header = [
     h.ticketNumber ? `Chat: #${String(h.ticketNumber).padStart(4, '0')}` : 'Chat: -',
@@ -137,6 +143,7 @@ function buildTxtContent(h: any): string {
     `Fim: ${formatDateTime(h.finishedAt)}`,
     `1ª resposta: ${formatDuration(h.firstResponseSeconds)}`,
     `Avaliação: ${h.rating === 1 ? 'Positiva' : h.rating === -1 ? 'Negativa' : 'Sem avaliação'}`,
+    `Tags: ${tagsLine(h)}`,
     ''
   ].join('\n');
   return header + '\n' + (h.transcript || '');
@@ -181,7 +188,8 @@ async function buildHistoryPdfBlob(h: any, messages?: ChatMessage[]): Promise<Bl
     `Início: ${formatDateTime(h.startedAt)}`,
     `Fim: ${formatDateTime(h.finishedAt)}`,
     `1ª resposta: ${formatDuration(h.firstResponseSeconds)}`,
-    `Avaliação: ${h.rating === 1 ? 'Positiva' : h.rating === -1 ? 'Negativa' : 'Sem avaliação'}`
+    `Avaliação: ${h.rating === 1 ? 'Positiva' : h.rating === -1 ? 'Negativa' : 'Sem avaliação'}`,
+    `Tags: ${tagsLine(h)}`
   ];
   meta.forEach(line => { doc.text(line, marginX, y); y += 13; });
   y += 8;
@@ -936,6 +944,22 @@ export default function ChatHistoryPage() {
         return <td key="funcionario" className="px-5 py-4 text-xs font-bold text-[var(--text-secondary)] truncate max-w-[160px]">{h.customerProfileName || h.customerName || '-'}</td>;
       case 'equipe':
         return <td key="equipe" className="px-5 py-4 text-xs font-bold text-[var(--text-secondary)] truncate max-w-[160px]">{h.assigneeName || '-'}</td>;
+      case 'tags':
+        return (
+          <td key="tags" className="px-5 py-4 max-w-[200px]">
+            {h.tags && h.tags.length > 0 ? (
+              <div className="flex flex-wrap gap-1">
+                {h.tags.map((tag: { id: string; label: string; color: string }) => (
+                  <span key={tag.id} className={cn('text-[8px] font-black uppercase tracking-widest px-1.5 py-0.5 rounded-full whitespace-nowrap', tag.color)}>
+                    {tag.label}
+                  </span>
+                ))}
+              </div>
+            ) : (
+              <span className="text-xs text-[var(--text-tertiary)] font-medium">-</span>
+            )}
+          </td>
+        );
       case 'telefone':
         return <td key="telefone" className="px-5 py-4 text-xs font-medium text-[var(--text-tertiary)] whitespace-nowrap">{h.customerPhone || '-'}</td>;
       case 'duracao':
@@ -1273,6 +1297,15 @@ export default function ChatHistoryPage() {
                     <span className="flex items-center gap-1"><Clock size={11} /> Fim: {formatDateTime(selectedHistory.finishedAt)}</span>
                     <span className="flex items-center gap-1"><MessageSquare size={11} /> 1ª resposta: {formatDuration(selectedHistory.firstResponseSeconds)}</span>
                   </div>
+                  {selectedHistory.tags && selectedHistory.tags.length > 0 && (
+                    <div className="flex flex-wrap gap-1 mt-3">
+                      {selectedHistory.tags.map((tag: { id: string; label: string; color: string }) => (
+                        <span key={tag.id} className={cn('text-[8px] font-black uppercase tracking-widest px-1.5 py-0.5 rounded-full whitespace-nowrap', tag.color)}>
+                          {tag.label}
+                        </span>
+                      ))}
+                    </div>
+                  )}
                   {(hasPermission(Permission.CHAT_HISTORY_LINK_CONTACT) || hasPermission(Permission.OUTSIDE_QUEUE_VIEW)) && (
                     <div className="flex flex-wrap items-center gap-2 mt-4">
                       {hasPermission(Permission.CHAT_HISTORY_LINK_CONTACT) && (

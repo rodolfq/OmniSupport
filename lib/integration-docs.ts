@@ -382,7 +382,7 @@ export const INTEGRATION_ENDPOINTS: EndpointDoc[] = [
       { name: 'assigneeId', in: 'query', type: 'uuid', description: 'Filtra pelo analista responsável pela conversa.' },
       { name: 'queueId', in: 'query', type: 'string', description: 'Filtra pela fila da conversa.' },
       { name: 'ticketId', in: 'query', type: 'string', description: 'Conversa vinculada a este chamado.' },
-      { name: 'tags', in: 'query', type: 'string (separado por vírgula)', description: 'Conversas que tenham QUALQUER uma das tags informadas.', placeholder: 'vip' },
+      { name: 'tags', in: 'query', type: 'string (separado por vírgula)', description: 'Conversas que tenham QUALQUER uma das tags informadas, pelo NOME (não diferencia maiúscula/acento). Nome que não existe no cadastro devolve erro 400 com a lista de tags válidas.', placeholder: 'vip' },
       { name: 'status', in: 'query', type: 'string', description: 'Ex.: "waiting", "active", "closed".', placeholder: 'active' },
       { name: 'updatedSince', in: 'query', type: 'ISO 8601', description: 'Só conversas alteradas a partir desta data/hora — para sincronização incremental.', placeholder: '2026-08-01T00:00:00Z' },
       { name: 'limit', in: 'query', type: 'number', description: 'Itens por página. Padrão 100, máximo 500.', placeholder: '100' },
@@ -418,14 +418,14 @@ export const INTEGRATION_ENDPOINTS: EndpointDoc[] = [
     exampleResponse: JSON.stringify(
       {
         data: [
-          { id: '7188...', type: 'support', customerId: '48bf...', customerName: 'Jean', customerPhone: '11999990000', assigneeId: 'a881...', assigneeName: 'Rodolfo Quintanilha', queueId: 'suporte-n1', status: 'active', ticketId: null, ticketNumber: null, tags: ['vip'], createdAt: '2026-07-20T12:00:00.000Z', updatedAt: '2026-07-20T12:00:00.000Z', lastMessageAt: null, company: { id: 'c111...', name: 'APOVEL PRIME' } },
+          { id: '7188...', type: 'support', customerId: '48bf...', customerName: 'Jean', customerPhone: '11999990000', assigneeId: 'a881...', assigneeName: 'Rodolfo Quintanilha', queueId: 'suporte-n1', status: 'active', ticketId: null, ticketNumber: null, tags: [{ id: '2604...', label: 'vip' }], createdAt: '2026-07-20T12:00:00.000Z', updatedAt: '2026-07-20T12:00:00.000Z', lastMessageAt: null, company: { id: 'c111...', name: 'APOVEL PRIME' } },
         ],
         meta: { limit: 100, offset: 0, total: 1, hasMore: false },
       },
       null,
       2
     ),
-    errors: [...AUTH_ERRORS, scopeError('conversations:read'), { status: 400, code: 'VALIDATION_ERROR', description: 'updatedSince não é uma data ISO 8601 válida.' }, { status: 404, code: 'NOT_FOUND', description: 'Conversa não encontrada.' }],
+    errors: [...AUTH_ERRORS, scopeError('conversations:read'), { status: 400, code: 'VALIDATION_ERROR', description: 'updatedSince não é uma data ISO 8601 válida, ou nome desconhecido no parâmetro "tags".' }, { status: 404, code: 'NOT_FOUND', description: 'Conversa não encontrada.' }],
   },
   {
     id: 'training-conversations-list',

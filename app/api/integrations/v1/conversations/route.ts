@@ -34,7 +34,14 @@ const ENRICHMENT_JOINS = `
 `;
 const ENRICHMENT_COLUMNS = `assignee.name AS assignee_name, co.id AS company_id, co.name AS company_name`;
 
-function serializeSession(row: any) {
+// Compara nome de tag sem diferenciar maiúscula/minúscula nem acento (mesma
+// função de app/api/integrations/v1/training-conversations/route.ts — feita em
+// JS porque o lower() do Postgres depende do locale do banco).
+function normalizeLabel(value: string): string {
+  return value.normalize('NFD').replace(/[̀-ͯ]/g, '').trim().toLowerCase();
+}
+
+function serializeSession(row: any, labelById: Map<string, string>) {
   return {
     id: row.id,
     type: row.type,
@@ -47,7 +54,14 @@ function serializeSession(row: any) {
     status: row.status,
     ticketId: row.ticket_id,
     ticketNumber: row.ticket_number,
-    tags: row.tags || [],
+    // Resolvido pra {id,label} (pedido do usuário, 2026-10-14) — chat_sessions.tags
+    // só guarda o ID, inútil sozinho pra quem consome de fora pra analisar
+    // categorização. Mesmo formato de /api/integrations/v1/training-conversations.
+    // Tag apagada do cadastro depois some da lista, sem erro.
+    tags: ((row.tags || []) as string[])
+      .filter(id => labelById.has(id))
+      .map(id => ({ id, label: labelById.get(id) as string }))
+      .sort((a, b) => a.label.localeCompare(b.label, 'pt-BR')),
     createdAt: row.created_at,
     updatedAt: row.updated_at,
     lastMessageAt: row.last_message_at,
@@ -82,6 +96,9 @@ export async function GET(request: Request) {
   const id = searchParams.get('id');
 
   try {
+    const tagCatalogRes = await query(`SELECT id::text AS id, label FROM public.config_tags WHERE domain = 'chat'`);
+    const labelById = new Map<string, string>(tagCatalogRes.rows.map((t: any) => [t.id, t.label]));
+
     if (id) {
       const sessionCols = SESSION_COLUMNS.split(',').map(c => `cs.${c.trim()}`).join(', ');
       const sessionRes = await query(
@@ -107,7 +124,7 @@ export async function GET(request: Request) {
       );
       return integrationJson(auth, {
         data: {
-          ...serializeSession(sessionRes.rows[0]),
+          ...serializeSession(sessionRes.rows[0], labelById),
           messages: messagesRes.rows.map(serializeMessage),
         },
       });
@@ -161,9 +178,25 @@ export async function GET(request: Request) {
       conditions.push(`cs.ticket_id = $${params.length}`);
     }
     if (tags) {
-      const tagList = tags.split(',').map(t => t.trim()).filter(Boolean);
-      if (tagList.length) {
-        params.push(tagList);
+      // Antes comparava contra o ID cru (que esta API nunca expôs em lugar
+      // nenhum pra quem integra adivinhar) — passou a aceitar o NOME da tag,
+      // mesmo padrão de training-conversations: resolve por label (sem
+      // diferenciar maiúscula/acento) e devolve 400 com a lista válida se
+      // algum nome não bater com nenhuma tag de domain='chat' cadastrada.
+      const wanted = tags.split(',').map(normalizeLabel).filter(Boolean);
+      if (wanted.length) {
+        const known = new Map<string, string>(tagCatalogRes.rows.map((t: any) => [normalizeLabel(t.label), t.id]));
+        const unknown = wanted.filter(w => !known.has(w));
+        if (unknown.length > 0) {
+          return integrationError(
+            auth,
+            'VALIDATION_ERROR',
+            `Tag desconhecida no parâmetro "tags". Tags disponíveis: ${tagCatalogRes.rows.map((t: any) => t.label).join(', ') || '(nenhuma cadastrada)'}.`,
+            400
+          );
+        }
+        const ids = wanted.map(w => known.get(w) as string);
+        params.push(ids);
         conditions.push(`cs.tags && $${params.length}::text[]`);
       }
     }
@@ -194,7 +227,7 @@ export async function GET(request: Request) {
       listParams
     );
     return integrationJson(auth, {
-      data: res.rows.map(serializeSession),
+      data: res.rows.map(row => serializeSession(row, labelById)),
       meta: { limit, offset, total, hasMore: offset + res.rows.length < total },
     });
   } catch (error: any) {
