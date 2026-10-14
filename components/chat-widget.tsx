@@ -907,6 +907,22 @@ export function ChatWidget() {
   const silentGainRef = useRef<GainNode | null>(null);
   const pcmChunksRef = useRef<Float32Array[]>([]);
   const recordingSampleRateRef = useRef<number>(44100);
+  // Trava contra início duplo de gravação (achado 2026-10-14): startRecording
+  // é async e só chama setIsRecording(true) DEPOIS de `await getUserMedia(...)`
+  // resolver — enquanto isso, o botão "Gravar áudio" continua visível e
+  // habilitado (nenhum feedback visual imediato), e `if (isRecording) return`
+  // não protege nada nesse intervalo, porque STATE só atualiza depois do
+  // await. Um segundo toque ali (comum no celular, onde getUserMedia pode
+  // demorar — prompt de permissão, inicialização do microfone) passava pela
+  // guarda, criava um 2º MediaStream/AudioContext/ScriptProcessorNode em
+  // paralelo ao 1º, e como pcmChunksRef/recordingIntervalRef são refs ÚNICOS
+  // (não por instância), as duas capturas simultâneas empilhavam amostras no
+  // MESMO array e os dois setInterval incrementavam o MESMO contador — essa
+  // era a causa do áudio saindo com o dobro de amostras pro mesmo tempo real
+  // (duração 2x, som grudado/robotizado) e da contagem na tela acelerando (2
+  // por segundo). Ref porque precisa valer DURANTE o await, antes de qualquer
+  // re-render — state chegaria tarde demais pra bloquear a 2ª chamada.
+  const startingRecordingRef = useRef(false);
 
   const disconnectRecordingGraph = () => {
     try { scriptProcessorRef.current?.disconnect(); } catch { /* ignore */ }
@@ -2611,24 +2627,25 @@ useEffect(() => {
   };
 
   const startRecording = async () => {
-    if (isRecording) return;
+    if (isRecording || startingRecordingRef.current) return;
+    startingRecordingRef.current = true;
 
     console.log('[AudioRecording] startRecording called');
 
-    if (!navigator.mediaDevices?.getUserMedia) {
-      console.error('[AudioRecording] navigator.mediaDevices.getUserMedia is unavailable (requires HTTPS or localhost).');
-      toast.error('Gravação de áudio requer conexão segura (HTTPS) ou localhost.');
-      return;
-    }
-    const AudioContextClass: typeof AudioContext | undefined =
-      (window as any).AudioContext || (window as any).webkitAudioContext;
-    if (!AudioContextClass) {
-      console.error('[AudioRecording] Web Audio API is unavailable in this browser.');
-      toast.error('Gravação de áudio não é suportada neste navegador.');
-      return;
-    }
-
     try {
+      if (!navigator.mediaDevices?.getUserMedia) {
+        console.error('[AudioRecording] navigator.mediaDevices.getUserMedia is unavailable (requires HTTPS or localhost).');
+        toast.error('Gravação de áudio requer conexão segura (HTTPS) ou localhost.');
+        return;
+      }
+      const AudioContextClass: typeof AudioContext | undefined =
+        (window as any).AudioContext || (window as any).webkitAudioContext;
+      if (!AudioContextClass) {
+        console.error('[AudioRecording] Web Audio API is unavailable in this browser.');
+        toast.error('Gravação de áudio não é suportada neste navegador.');
+        return;
+      }
+
       const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
       console.log('[AudioRecording] Microphone stream acquired. Audio tracks:', stream.getAudioTracks().map(t => ({ label: t.label, readyState: t.readyState, enabled: t.enabled })));
       mediaStreamRef.current = stream;
@@ -2679,6 +2696,13 @@ useEffect(() => {
       } else {
         toast.error('Não foi possível acessar o microfone.');
       }
+    } finally {
+      // Libera a trava em TODO caminho de saída (sucesso, capacidade ausente
+      // ou erro) — senão uma 1ª tentativa que falhou travaria toda gravação
+      // futura. Depois que `isRecording` vira true (caminho de sucesso), o
+      // guard de cima já bloqueia por ele; isto aqui é só o que cobre a
+      // janela ANTES disso.
+      startingRecordingRef.current = false;
     }
   };
 
