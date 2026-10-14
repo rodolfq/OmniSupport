@@ -28,6 +28,12 @@ export interface TicketPontos {
 export interface TicketInternoRegra {
   estrelasMinimas: number; // a partir de qual prioridade (estrelas) o ticket interno entra na regra
   diasUteis: number;      // dias úteis sem ficar Resolvido antes de sinalizar
+  // Dias úteis sem NENHUMA interação (mensagem de uma pessoa, não conta log
+  // automático) desde a criação, antes de alertar o responsável — pedido do
+  // usuário, 2026-10-14. Independente de estrelas/prioridade (todo ticket com
+  // responsável entra nesta regra), diferente de `diasUteis` acima (que é
+  // sobre NÃO estar Resolvido, não sobre ausência de interação).
+  diasSemInteracao: number;
 }
 
 export interface TicketConfigValues {
@@ -44,7 +50,7 @@ export const DEFAULT_TICKET_CONFIG: TicketConfigValues = {
   metas: { slaPct: 90, primeiraRespostaMin: 60, resolucaoPrimeiroContatoPct: 70, backlogMax: 20, reaberturaPct: 5 },
   regras: { backlogHorasUteis: 48, amostraMinima: 10 },
   pontos: { slaCumprido: 10, slaDescumprido: -15, primeiraRespostaNoPrazo: 5, primeiraRespostaForaPrazo: -5, resolvidoPrimeiroContato: 10, backlog: -2, reabertura: -10 },
-  interno: { estrelasMinimas: 2, diasUteis: 2 },
+  interno: { estrelasMinimas: 2, diasUteis: 2, diasSemInteracao: 2 },
 };
 
 // Campos da configuração, na ordem da tela. A chave "grupo.campo" é usada no histórico.
@@ -65,6 +71,7 @@ export const TICKET_CONFIG_FIELDS: { grupo: keyof TicketConfigValues; campo: str
   { grupo: 'pontos', campo: 'reabertura', label: 'Reaberto (por reabertura)', tipo: 'ponto', referencia: 'Por reabertura de chamado já concluído.' },
   { grupo: 'interno', campo: 'estrelasMinimas', label: 'Estrelas mínimas para a regra de 2 dias (1 a 4)', tipo: 'regra', referencia: 'Ticket com estrelas (prioridade) a partir deste valor entra na regra. Padrão: 2 (valores 2, 3 e 4).' },
   { grupo: 'interno', campo: 'diasUteis', label: 'Dias úteis até ser marcado Resolvido', tipo: 'regra', referencia: 'Dias úteis sem Resolvido antes de sinalizar o ticket. Padrão: 2 dias (horário comercial, 8h às 18h).' },
+  { grupo: 'interno', campo: 'diasSemInteracao', label: 'Dias úteis sem interação inicial', tipo: 'regra', referencia: 'Dias úteis sem nenhuma mensagem no ticket antes de alertar o responsável e sinalizar no Dashboard. Padrão: 2 dias (horário comercial, 8h às 18h). Vale para qualquer prioridade.' },
 ];
 
 function numeroOu(v: unknown, padrao: number): number {
@@ -105,7 +112,7 @@ export function validateTicketConfigInput(input: unknown): { ok: true; value: Ti
     if (f.campo === 'estrelasMinimas' && (!Number.isInteger(n) || n < 1 || n > 4)) {
       return { ok: false, error: `"${f.label}" precisa ser um número inteiro de 1 a 4.` };
     }
-    if (f.campo === 'diasUteis' && (!Number.isInteger(n) || n < 0)) {
+    if ((f.campo === 'diasUteis' || f.campo === 'diasSemInteracao') && (!Number.isInteger(n) || n < 0)) {
       return { ok: false, error: `"${f.label}" precisa ser um número inteiro, sem negativo.` };
     }
     if (f.campo === 'primeiraRespostaMin' || f.campo === 'backlogMax' || f.campo === 'backlogHorasUteis' || f.campo === 'amostraMinima') {

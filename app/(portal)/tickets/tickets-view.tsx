@@ -12,7 +12,7 @@ import {
 } from "@/lib/types";
 import { useRouter } from "next/navigation";
 import { useQueryClient } from "@tanstack/react-query";
-import { prefetchTicketModalReferenceData, useProfilesLiteQuery } from "@/lib/query-hooks";
+import { prefetchTicketModalReferenceData, useProfilesLiteQuery, useConfigPrioritiesQuery } from "@/lib/query-hooks";
 import { TicketService } from "@/lib/services/ticket-service";
 
 import { SearchFilters, searchTickets, getQuickFilterCounts, QuickFilterCounts } from "@/lib/search";
@@ -260,7 +260,17 @@ export function TicketsView({
   ]);
 
   const [loading, setLoading] = useState(true);
-  const [priorities, setPriorities] = useState<any[]>([]);
+  // Prioridades via React Query (mesmo cache do modal de detalhe do chamado,
+  // ticket-detail-modal.tsx) — antes era um fetch avulso, feito UMA vez só
+  // (guardado por referenceDataUserIdRef) e nunca mais atualizado. Editar o
+  // SLA de uma prioridade em Configurações invalida esse cache (ver
+  // system-config-content.tsx, queryClient.invalidateQueries), então o modal
+  // já pegava o valor novo na próxima abertura — mas a coluna Vencimento desta
+  // lista continuava calculando com o sla_hours ANTIGO até a página ser
+  // recarregada. Compartilhar o mesmo hook elimina a divergência na raiz, em
+  // vez de só encurtar a janela de desatualização (2026-10-14).
+  const prioritiesQuery = useConfigPrioritiesQuery();
+  const priorities = (prioritiesQuery.data as any[]) || [];
   const [companies, setCompanies] = useState<any[]>([]);
   const [queues, setQueues] = useState<any[]>([]);
   // Só usado pra achar nome/iniciais do responsável (nunca avatar, ver uso
@@ -429,12 +439,10 @@ export function TicketsView({
 
     const loadReferenceData = async () => {
       try {
-        const [pRes, cRes, qRes] = await Promise.all([
-          fetch('/api/config?type=priorities').then(r => r.json()),
+        const [cRes, qRes] = await Promise.all([
           fetch('/api/companies').then(r => r.json()),
           fetch('/api/config?type=queues').then(r => r.json()),
         ]);
-        setPriorities(pRes);
         setCompanies(cRes);
         setQueues(qRes);
       } catch (error) {
