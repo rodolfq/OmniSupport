@@ -904,13 +904,18 @@ export class PyvonService {
     if (!variants.length) return { sessionId: null, cadastroId: null, withinWindow: false };
 
     const placeHolders = variants.map((_, i) => `$${i + 1}`).join(',');
+    // status não entra no WHERE de propósito: uma conversa FECHADA do mesmo
+    // cadastro ainda é a identidade certa do contato no Pyvon (cadastroId
+    // abaixo precisa dela). O que não pode acontecer é usar o ID dela como
+    // "sessão pra reaproveitar" — ver o filtro de `status` logo abaixo, no
+    // retorno.
     const candidatesRes = await query(
-      `SELECT id, customer_phone, pyvon_cadastro_id FROM public.chat_sessions
+      `SELECT id, customer_phone, pyvon_cadastro_id, status FROM public.chat_sessions
         WHERE channel = 'pyvon' AND customer_phone IN (${placeHolders}) AND pyvon_cadastro_id IS NOT NULL
         ORDER BY updated_at DESC LIMIT 10`,
       variants
     );
-    const candidates = candidatesRes.rows as { id: string; customer_phone: string; pyvon_cadastro_id: number }[];
+    const candidates = candidatesRes.rows as { id: string; customer_phone: string; pyvon_cadastro_id: number; status: string }[];
     if (!candidates.length) return { sessionId: null, cadastroId: null, withinWindow: false };
 
     const target = normalizeBrazilianPhoneDigits(normalizePhone(phone));
@@ -936,6 +941,26 @@ export class PyvonService {
     );
     const lastInbound = windowRes.rows[0]?.last_inbound;
     const withinWindow = !!lastInbound && (Date.now() - new Date(lastInbound).getTime()) < 24 * 3600 * 1000;
+
+    // Achado 2026-10-14 (chamado do Felipe Pasti, canal virando "Portal" ao
+    // escolher WhatsApp): esta função devolvia `sessionId` de uma conversa
+    // JÁ FECHADA sempre que o cliente tivesse respondido de verdade há menos
+    // de 24h — mesmo tendo sido finalizada por um analista nesse meio-tempo
+    // (ex.: fechada às 14h, cliente respondeu às 13h47, reaberta por aqui às
+    // 18h). `PyvonService.startConversation` reusava esse id DIRETO, sem
+    // reabrir nada (`claimSessionIfUnassigned` não faz nada quando já tem
+    // responsável) — a conversa continuava `status='closed'` no banco. A
+    // primeira mensagem enviada nela caía no fallback de reabertura genérico
+    // de `app/api/chats/route.ts` (action=push-message), que grava
+    // `channel='widget'` incondicionalmente ao reabrir — perdendo o canal
+    // Pyvon da conversa original e fazendo a mensagem nunca saber pro
+    // WhatsApp (silenciosamente, `forwardMessageToWhatsApp` não envia nada
+    // pra channel='widget'). Uma conversa FECHADA nunca pode ser devolvida
+    // como "pronta pra reaproveitar" — só o cadastroId (identidade do
+    // contato no Pyvon) continua valendo independente do status.
+    if (session.status === 'closed') {
+      return { sessionId: null, cadastroId: session.pyvon_cadastro_id, withinWindow: false };
+    }
 
     return { sessionId: session.id, cadastroId: session.pyvon_cadastro_id, withinWindow };
   }

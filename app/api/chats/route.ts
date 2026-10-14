@@ -1378,7 +1378,7 @@ export async function POST(request: Request) {
       const { sessionId, message } = body;
 
       const sessionRes = await query(
-        `SELECT id, customer_id, customer_name, customer_phone, status, queue_id, assignee_id
+        `SELECT id, customer_id, customer_name, customer_phone, status, queue_id, assignee_id, channel
          FROM public.chat_sessions WHERE id = $1`,
         [sessionId]
       );
@@ -1417,13 +1417,25 @@ export async function POST(request: Request) {
         const newId = crypto.randomUUID();
         await runExclusive(`queue-assign:${queue?.id ?? 'combined'}`, async () => {
           const assigneeId = queue ? await pickNextQueueAssignee(queue) : null;
-          // channel = 'widget': esta ação (push-message) só é chamada pelo
-          // widget do portal (ver pushChatMessage em chat-widget.tsx) — nunca
-          // por uma instância de WhatsApp.
+          // Achado 2026-10-14 (chamado do Felipe Pasti): aqui gravava
+          // channel='widget' incondicionalmente, achando que esta ação só
+          // nascia do widget do portal — mas pushChatMessage(chat-widget.tsx)
+          // também é o caminho genérico de ENVIAR MENSAGEM pra uma conversa
+          // qualquer já selecionada na tela, pyvon incluso (ex.: uma conversa
+          // Pyvon fechada reaberta — PyvonService.resolveOutboundContext já
+          // foi corrigido pra nunca devolver sessionId de sessão fechada, mas
+          // nada aqui impede alguém chegar numa sessão pyvon fechada por
+          // outro caminho, ex.: busca/link direto). Resultado: a conversa
+          // reaberta virava Portal mesmo sendo WhatsApp — a mensagem nunca
+          // saía (forwardMessageToWhatsApp não envia nada pra channel=
+          // 'widget'), sem erro visível. Herdar o canal da sessão ANTERIOR
+          // corrige na raiz; 'widget' só como fallback de sessão muito antiga
+          // sem a coluna preenchida.
+          const channel = session.channel || 'widget';
           await query(
             `INSERT INTO public.chat_sessions (id, customer_id, customer_name, customer_phone, status, queue_id, assignee_id, channel, created_at, updated_at)
-             VALUES ($1, $2, $3, $4, $5, $6, $7, 'widget', NOW(), NOW())`,
-            [newId, session.customer_id, session.customer_name, session.customer_phone, assigneeId ? 'active' : 'pending', queue?.id || null, assigneeId]
+             VALUES ($1, $2, $3, $4, $5, $6, $7, $8, NOW(), NOW())`,
+            [newId, session.customer_id, session.customer_name, session.customer_phone, assigneeId ? 'active' : 'pending', queue?.id || null, assigneeId, channel]
           );
           effectiveAssigneeId = assigneeId;
           effectiveQueueId = queue?.id || null;
