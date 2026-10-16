@@ -4,9 +4,9 @@ import React, { useState, useEffect, useMemo, useRef } from 'react';
 import { Ticket as TicketType, TicketStatus, UserRole, TicketPriority, Permission, InternalTicket } from '@/lib/types';
 import { fetchAllTickets } from '@/lib/tickets';
 import { isClosedTicketStatus, isInProgressTicketStatus } from '@/lib/ticket-status';
-import { addBusinessHours } from '@/lib/sla';
-import { fetchPriorities, fetchStatuses, ConfigService } from '@/lib/services/config-service';
-import { useProfilesLiteQuery } from '@/lib/query-hooks';
+import { getTicketSlaStatus } from '@/lib/sla';
+import { fetchStatuses, ConfigService } from '@/lib/services/config-service';
+import { useProfilesLiteQuery, useConfigPrioritiesQuery } from '@/lib/query-hooks';
 import { UserAvatar } from '@/components/user-avatar';
 import { findStatusColor } from '@/lib/status-colors';
 import { useApp } from '@/app/app-context';
@@ -68,7 +68,14 @@ export default function DashboardPage() {
   const { currentUser, setIsNewTicketModalOpen, refreshTrigger, hasPermission } = useApp();
   const searchParams = useSearchParams();
 
-  const [priorities, setPriorities] = useState<any[]>([]);
+  // Mesmo cache de prioridades usado em tickets-view.tsx e ticket-detail-
+  // modal.tsx (useConfigPrioritiesQuery) — antes era um fetch avulso próprio
+  // desta tela (fetchPriorities), que podia ficar desatualizado em relação às
+  // outras duas telas depois de editar o SLA de uma prioridade em
+  // Configurações, fazendo o Vencimento mostrado aqui divergir do resto do
+  // sistema (acompanha o achado do usuário, 2026-10-16).
+  const prioritiesQuery = useConfigPrioritiesQuery();
+  const priorities = (prioritiesQuery.data as any[]) || [];
   const [statuses, setStatuses] = useState<any[]>([]);
   // Só usado pra achar nome/iniciais do responsável (nunca avatar) — via hook
   // compartilhado "lite" (sem avatar_url, ~51MB a menos de payload) em vez de
@@ -250,9 +257,8 @@ export default function DashboardPage() {
         
         if (controller.signal.aborted) return;
 
-        const [loadedTickets, loadedPriorities, loadedStatuses] = await Promise.all([
+        const [loadedTickets, loadedStatuses] = await Promise.all([
           fetchAllTickets(controller.signal),
-          fetchPriorities(controller.signal),
           fetchStatuses(controller.signal, 'ticket')
         ]);
         
@@ -264,7 +270,6 @@ export default function DashboardPage() {
         
         setAllTickets(tickets);
         setFilteredTickets(tickets);
-        setPriorities(loadedPriorities || []);
         setStatuses(loadedStatuses || []);
         setLoading(false);
     
@@ -368,8 +373,7 @@ export default function DashboardPage() {
       .filter(t => visibleStatuses.has(t.status))
       .map(t => {
         const config = priorities.find(p => p.label === t.priority);
-        const slaLimit = config?.sla_hours ? addBusinessHours(t.createdAt, config.sla_hours) : null;
-        const isOverdue = !!slaLimit && slaLimit < now;
+        const { limit: slaLimit, isOverdue } = getTicketSlaStatus(t.createdAt, t.priority, priorities, now);
         const isNear = !!slaLimit && !isOverdue && (slaLimit.getTime() - now.getTime() < 4 * 60 * 60 * 1000);
         const tier = isOverdue ? 0 : isNear ? 1 : 2;
         // sla_hours do config da prioridade: quanto menor, mais urgente —
@@ -409,20 +413,9 @@ export default function DashboardPage() {
     const unassigned = allTickets.filter(t => t.status === TicketStatus.NEW && !t.assigneeId).length;
     const allActive = allTickets.filter(t => !isClosedTicketStatus(t.status));
     
-    const overdue = allActive.filter(t => {
-      const config = priorities.find(p => p.label === t.priority);
-      if (!config || !config.sla_hours) return false;
-      const limit = addBusinessHours(t.createdAt, config.sla_hours);
-      return limit < now;
-    }).length;
+    const overdue = allActive.filter(t => getTicketSlaStatus(t.createdAt, t.priority, priorities, now).isOverdue).length;
 
-    const nearExpiry = allActive.filter(t => {
-      const config = priorities.find(p => p.label === t.priority);
-      if (!config || !config.sla_hours) return false;
-      const limit = addBusinessHours(t.createdAt, config.sla_hours);
-      const diff = limit.getTime() - now.getTime();
-      return diff > 0 && diff < 4 * 60 * 60 * 1000; // 4 hours
-    }).length;
+    const nearExpiry = allActive.filter(t => getTicketSlaStatus(t.createdAt, t.priority, priorities, now).isNear).length;
 
     const inProgress = filteredTickets.filter(t => isInProgressTicketStatus(t.status)).length;
     const closed = filteredTickets.filter(t => isClosedTicketStatus(t.status)).length;
@@ -595,12 +588,7 @@ export default function DashboardPage() {
             {/* Lista de Vencidos */}
             <PriorityList 
               title="SLA Vencido" 
-              tickets={allTickets.filter(t => {
-                const config = priorities.find(p => p.label === t.priority);
-                if (!config || !config.sla_hours || isClosedTicketStatus(t.status)) return false;
-                const limit = addBusinessHours(t.createdAt, config.sla_hours);
-                return limit < new Date();
-              })}
+              tickets={allTickets.filter(t => !isClosedTicketStatus(t.status) && getTicketSlaStatus(t.createdAt, t.priority, priorities).isOverdue)}
               color="rose"
               onSelect={setSelectedTicket}
               priorities={priorities}
@@ -610,13 +598,7 @@ export default function DashboardPage() {
             {/* Lista de Próximos do Vencimento */}
             <PriorityList 
               title="Próximos do Vencimento" 
-              tickets={allTickets.filter(t => {
-                const config = priorities.find(p => p.label === t.priority);
-                if (!config || !config.sla_hours || isClosedTicketStatus(t.status)) return false;
-                const limit = addBusinessHours(t.createdAt, config.sla_hours);
-                const diff = limit.getTime() - new Date().getTime();
-                return diff > 0 && diff < 4 * 60 * 60 * 1000;
-              })}
+              tickets={allTickets.filter(t => !isClosedTicketStatus(t.status) && getTicketSlaStatus(t.createdAt, t.priority, priorities).isNear)}
               color="orange"
               onSelect={setSelectedTicket}
               priorities={priorities}
@@ -1327,14 +1309,18 @@ function TicketCard({ ticket, availablePriorities, users, onClick }: { ticket: T
   const isUnassignedNew = ticket.status === TicketStatus.NEW && !ticket.assigneeId;
 
   const now = new Date();
-  
-  // Dynamic SLA limit calculation
-  const slaLimit = useMemo(() => {
-    if (!priorityConfig || !priorityConfig.sla_hours) return null;
-    return addBusinessHours(ticket.createdAt, priorityConfig.sla_hours);
-  }, [ticket.createdAt, priorityConfig]);
 
-  const isOverdue = slaLimit && slaLimit < now && !isClosedTicketStatus(ticket.status);
+  // Vencimento pela MESMA fórmula/fonte do resto do sistema (lib/sla.ts) —
+  // note que isto usa ticket.priority cru, não o `priorityConfig` com
+  // fallback pra "Baixa" acima (esse fallback é só pra ainda pintar um
+  // badge de cor quando a prioridade do chamado não bate com nenhuma linha
+  // cadastrada; não deveria inventar um Vencimento que a lista/detalhe do
+  // chamado não mostrariam nesse mesmo caso).
+  const { limit: slaLimit, isOverdue: isOverdueRaw } = useMemo(
+    () => getTicketSlaStatus(ticket.createdAt, ticket.priority, availablePriorities, now),
+    [ticket.createdAt, ticket.priority, availablePriorities]
+  );
+  const isOverdue = isOverdueRaw && !isClosedTicketStatus(ticket.status);
   const isNear = slaLimit && !isOverdue && (slaLimit.getTime() - now.getTime() < 4 * 60 * 60 * 1000) && !isClosedTicketStatus(ticket.status);
 
   const formatDate = (date: Date) => {

@@ -17,7 +17,7 @@ import { TicketService } from "@/lib/services/ticket-service";
 
 import { SearchFilters, searchTickets, getQuickFilterCounts, QuickFilterCounts } from "@/lib/search";
 import { isClosedTicketStatus, isInProgressTicketStatus } from "@/lib/ticket-status";
-import { addBusinessHours } from "@/lib/sla";
+import { getTicketSlaStatus } from "@/lib/sla";
 import { mergeTickets } from "@/lib/services/chat-session-actions";
 import { ConfigService } from "@/lib/services/config-service";
 import { findStatusColor } from "@/lib/status-colors";
@@ -778,9 +778,8 @@ export function TicketsView({
         case "sla":
           const slaValue = (ticket: Ticket) => {
             if (isClosedTicketStatus(ticket.status)) return "";
-            const config = priorities.find((p) => p.label === ticket.priority);
-            if (!config || !config.sla_hours) return "";
-            return addBusinessHours(ticket.createdAt, config.sla_hours).getTime();
+            const limit = getTicketSlaStatus(ticket.createdAt, ticket.priority, priorities).limit;
+            return limit ? limit.getTime() : "";
           };
           aValue = slaValue(a);
           bValue = slaValue(b);
@@ -807,16 +806,8 @@ export function TicketsView({
   }, [currentPage, totalPages]);
 
   const getSLAStatus = (ticket: Ticket) => {
-    const config = priorities.find((p) => p.label === ticket.priority);
-    if (!config || !config.sla_hours)
-      return { label: "---", color: "text-[var(--text-tertiary)]", isOverdue: false };
-
-    const limit = addBusinessHours(ticket.createdAt, config.sla_hours);
-    const now = new Date();
-    const isOverdue = now > limit;
-
-    const diff = limit.getTime() - now.getTime();
-    const isNear = diff > 0 && diff < 4 * 60 * 60 * 1000;
+    const { limit, isOverdue, isNear } = getTicketSlaStatus(ticket.createdAt, ticket.priority, priorities);
+    if (!limit) return { label: "---", color: "text-[var(--text-tertiary)]", isOverdue: false };
 
     return {
       label: limit.toLocaleString("pt-BR", {

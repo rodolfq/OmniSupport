@@ -32,7 +32,7 @@ import {
   useConfigRequestTypesQuery, useConfigProductsQuery, useConfigPrioritiesQuery, useInternalTeamsQuery, useQueuesQuery
 } from '@/lib/query-hooks';
 import { isClosedTicketStatus, registerClosedStatusLabels, getCustomerStatusLabel } from '@/lib/ticket-status';
-import { addBusinessHours } from '@/lib/sla';
+import { getTicketSlaStatus } from '@/lib/sla';
 import { FieldChange, formatChangeMessage } from '@/lib/ticket-diff';
 import { uploadAttachment } from '@/lib/attachment-upload';
 import { splitAttachmentsByBudget, MAX_ATTACHMENT_TOTAL_LABEL } from '@/lib/attachment-limits';
@@ -1550,30 +1550,26 @@ const loadMessages = async () => {
 <div className="flex items-start gap-4">
                            <span className="text-[11px] font-semibold uppercase text-[var(--text-tertiary)] w-24 pt-0.5">Vencimento</span>
                            <div className="flex flex-col">
-                             <span className={cn(
-                               "text-sm font-bold",
-                               (() => {
-                                   const config = priorities.find(p => p.label === mainPriority);
-                                   if (!config || !(config.sla_hours ?? config.slaHours)) return false;
-                                   const limit = addBusinessHours(ticket.createdAt, (config.sla_hours ?? config.slaHours)!);
-                                   return limit < new Date() && !isClosedTicketStatus(ticketStatus);
-                                 })() ? "text-[var(--text-danger)]" : "text-[var(--text-secondary)]"
-                             )}>
-                               {(() => {
-                                 const config = priorities.find(p => p.label === mainPriority);
-                                 if (!config || !(config.sla_hours ?? config.slaHours)) return '---';
-                                 const limit = new Date(new Date(ticket.createdAt).getTime() + (config.sla_hours ?? config.slaHours) * 60 * 60 * 1000);
-                                 return limit.toLocaleString('pt-BR', { day: '2-digit', month: '2-digit', year: 'numeric', hour: '2-digit', minute: '2-digit' });
-                               })()}
-                             </span>
                              {(() => {
-                               const config = priorities.find(p => p.label === mainPriority);
-                               if (!config || !(config.sla_hours ?? config.slaHours)) return false;
-                               const limit = new Date(new Date(ticket.createdAt).getTime() + (config.sla_hours ?? config.slaHours) * 60 * 60 * 1000);
-                               return limit < new Date() && !isClosedTicketStatus(ticketStatus);
-                             })() && (
-                               <span className="text-[10px] font-semibold text-[var(--text-danger)] uppercase tracking-tight">Prazo ultrapassado</span>
-                             )}
+                               // Única fórmula de Vencimento do projeto (lib/sla.ts,
+                               // getTicketSlaStatus) — mesma usada na lista de
+                               // chamados, pra nunca mais divergir entre as duas
+                               // telas (achado do usuário, 2026-10-16: aqui dentro
+                               // chegou a existir cálculo em horas CORRIDAS,
+                               // enquanto a lista já usava horas ÚTEIS).
+                               const { limit, isOverdue } = getTicketSlaStatus(ticket.createdAt, mainPriority, priorities);
+                               const overdue = isOverdue && !isClosedTicketStatus(ticketStatus);
+                               return (
+                                 <>
+                                   <span className={cn("text-sm font-bold", overdue ? "text-[var(--text-danger)]" : "text-[var(--text-secondary)]")}>
+                                     {limit ? limit.toLocaleString('pt-BR', { day: '2-digit', month: '2-digit', year: 'numeric', hour: '2-digit', minute: '2-digit' }) : '---'}
+                                   </span>
+                                   {overdue && (
+                                     <span className="text-[10px] font-semibold text-[var(--text-danger)] uppercase tracking-tight">Prazo ultrapassado</span>
+                                   )}
+                                 </>
+                               );
+                             })()}
                            </div>
                         </div>
                        <div className="flex items-start gap-4">

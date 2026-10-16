@@ -58,6 +58,72 @@ export function addBusinessHours(fromIso: string, hours: number): Date {
   return cursor;
 }
 
+// Prioridade, como ela chega de GET /api/config?type=priorities (sla_hours,
+// snake_case puro — ver app/api/config/route.ts) ou de algum consumidor mais
+// antigo que normalizou pra camelCase. Aceita as duas por via das dúvidas,
+// mas a fonte real hoje é sempre snake_case.
+export interface TicketPriorityConfig {
+  label: string;
+  sla_hours?: number | null;
+  slaHours?: number | null;
+}
+
+/**
+ * Vencimento (Prazo/SLA) de UM chamado — ÚNICA fórmula no projeto pra isso:
+ * acha a prioridade pelo rótulo e soma as horas úteis configuradas nela a
+ * partir da abertura do chamado. Null = prioridade sem SLA configurado (sem
+ * `sla_hours`) ou sem prioridade reconhecida — nesses casos não existe
+ * vencimento, não é erro.
+ *
+ * Existia reimplementada à mão em pelo menos 3 arquivos (lista de chamados,
+ * detalhe do chamado, Dashboard — este com 4 cópias só dele) — cada um lendo
+ * a config de prioridades de uma fonte diferente, o que fazia o mesmo chamado
+ * mostrar um Vencimento diferente dependendo de qual tela tinha carregado a
+ * config mais recente (2026-10-16, achado do usuário: lista e detalhe do
+ * chamado divergindo). Centralizado aqui — qualquer tela nova que precisar
+ * mostrar "Vencimento" deve chamar esta função (ou `getTicketSlaStatus`
+ * abaixo), nunca recalcular na mão, e sempre ler a config de prioridades via
+ * `useConfigPrioritiesQuery` (lib/query-hooks.ts) — mesmo cache em toda tela,
+ * invalidado junto quando o SLA de uma prioridade é editado em Configurações
+ * (components/system-config-content.tsx).
+ */
+export function computeTicketSlaLimit(
+  createdAt: string,
+  priorityLabel: string | null | undefined,
+  priorities: TicketPriorityConfig[] | null | undefined
+): Date | null {
+  const config = (priorities || []).find(p => p.label === priorityLabel);
+  const hours = config?.sla_hours ?? config?.slaHours;
+  if (!hours) return null;
+  return addBusinessHours(createdAt, hours);
+}
+
+export interface TicketSlaStatus {
+  limit: Date | null;
+  isOverdue: boolean;
+  isNear: boolean; // vence em menos de 4h úteis/corridas, ainda não vencido
+}
+
+/** Vencimento + se já venceu/está perto de vencer — mesma janela de "perto
+ * do vencimento" (4h) usada em toda tela que mostra esse aviso. Chamado
+ * fechado nunca é tratado como vencido (quem chama decide se filtra fechado
+ * antes; esta função só calcula a data, `isClosedTicketStatus` é de quem usa). */
+export function getTicketSlaStatus(
+  createdAt: string,
+  priorityLabel: string | null | undefined,
+  priorities: TicketPriorityConfig[] | null | undefined,
+  now: Date = new Date()
+): TicketSlaStatus {
+  const limit = computeTicketSlaLimit(createdAt, priorityLabel, priorities);
+  if (!limit) return { limit: null, isOverdue: false, isNear: false };
+  const diffMs = limit.getTime() - now.getTime();
+  return {
+    limit,
+    isOverdue: diffMs < 0,
+    isNear: diffMs > 0 && diffMs < 4 * 60 * 60 * 1000,
+  };
+}
+
 // SLA de ticket interno: a prioridade (1-4) reflete o mesmo catálogo de
 // prazos configurado em Configurações para chamados (config_priorities),
 // mapeando o nível numérico pro rótulo em texto usado lá.

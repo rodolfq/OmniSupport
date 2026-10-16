@@ -21,6 +21,7 @@ import {
   Minimize2,
   PanelLeftOpen,
   PanelLeftClose,
+  PictureInPicture2,
   MessageCircle,
   Phone,
   Ticket as TicketIcon,
@@ -351,6 +352,80 @@ export function ChatWidget() {
   // seguida — sem isso, soltar o botão depois de arrastar também contaria
   // como um clique e abriria/fecharia o chat sem o usuário pedir.
   const justDraggedLauncherRef = useRef(false);
+
+  // Picture-in-Picture: deixa a bolinha/painel do chat flutuando por cima de
+  // QUALQUER janela do Windows (não só do navegador), mesmo minimizado — pedido
+  // do usuário, 2026-10-16. A API cria uma janela de verdade, mas o JS continua
+  // rodando no MESMO realm desta aba (não é um iframe nem uma aba nova): o
+  // conteúdo é só "teletransportado" via createPortal pro <body> dessa janela
+  // (ver o `return` no fim do componente), então todo estado/handler do widget
+  // continua funcionando normalmente, sem duplicar nada. Suporte: Chrome/Edge
+  // recentes, só desktop (feature-detected, sem polyfill — por isso também
+  // escondido no mobile, que nunca tem a API).
+  const [pipWindow, setPipWindow] = useState<Window | null>(null);
+  const pipSupported = typeof window !== 'undefined' && 'documentPictureInPicture' in window;
+
+  const openPip = async () => {
+    const docPip = (window as any).documentPictureInPicture;
+    if (!docPip) return;
+    try {
+      const pip: Window = await docPip.requestWindow({ width: 420, height: 680 });
+
+      // A janela nasce com um document em branco — sem copiar o CSS da aba
+      // principal (Tailwind + fonte), o chat apareceria lá dentro sem estilo
+      // nenhum.
+      Array.from(document.styleSheets).forEach(styleSheet => {
+        try {
+          const rules = Array.from(styleSheet.cssRules).map(r => r.cssText).join('\n');
+          const style = pip.document.createElement('style');
+          style.textContent = rules;
+          pip.document.head.appendChild(style);
+        } catch {
+          // Folha de estilo cross-origin (ex.: Google Fonts) não deixa ler
+          // cssRules — copia como <link> de verdade em vez do conteúdo.
+          if (styleSheet.href) {
+            const link = pip.document.createElement('link');
+            link.rel = 'stylesheet';
+            link.href = styleSheet.href;
+            pip.document.head.appendChild(link);
+          }
+        }
+      });
+      pip.document.documentElement.className = document.documentElement.className;
+      pip.document.body.style.margin = '0';
+      pip.document.body.style.background = 'transparent';
+      pip.document.title = 'Chat — SSX Desk';
+
+      pip.addEventListener('pagehide', () => setPipWindow(null), { once: true });
+      setPipWindow(pip);
+    } catch (err) {
+      console.error('Falha ao destacar o chat em janela flutuante:', err);
+      toast.error('Não foi possível destacar o chat nesta janela.');
+    }
+  };
+
+  const closePip = () => {
+    pipWindow?.close();
+    setPipWindow(null);
+  };
+
+  // Mantém o tema (claro/escuro) da janela destacada em dia enquanto ela
+  // estiver aberta — sem isso, trocar o tema na aba principal (app/theme-
+  // provider.tsx, classe "dark" no <html>) não refletiria lá.
+  useEffect(() => {
+    if (!pipWindow) return;
+    const sync = () => { pipWindow.document.documentElement.className = document.documentElement.className; };
+    const observer = new MutationObserver(sync);
+    observer.observe(document.documentElement, { attributes: true, attributeFilter: ['class'] });
+    return () => observer.disconnect();
+  }, [pipWindow]);
+
+  // Fecha a janela destacada se o widget desmontar (não deveria acontecer em
+  // uso normal — ele fica sempre montado no layout do portal — mas evita uma
+  // janela órfã sem o chat lá dentro em algum caminho incomum).
+  useEffect(() => {
+    return () => { pipWindow?.close(); };
+  }, []);
 
   useEffect(() => {
     try {
@@ -2847,7 +2922,10 @@ useEffect(() => {
   const openPanelUp = !hasCustomLauncherPos || (launcherPos!.top + CHAT_LAUNCHER_SIZE / 2) > window.innerHeight / 2;
   const anchorPanelRight = !hasCustomLauncherPos || (launcherPos!.left + CHAT_LAUNCHER_SIZE / 2) > window.innerWidth / 2;
 
-  return (
+  // Monta a árvore normalmente; só decide ONDE ela é renderizada lá embaixo
+  // (inline na aba, ou destacada via createPortal pro <body> da janela de
+  // Picture-in-Picture) — nenhuma lógica/estado do widget muda por causa disso.
+  const widgetTree = (
     <div
       className={cn(
         "omni-chat-shell fixed flex flex-col",
@@ -2917,6 +2995,15 @@ useEffect(() => {
                     title={isSidePanelOpen ? 'Ocultar lista de conversas' : 'Mostrar lista de conversas ao lado'}
                   >
                     {isSidePanelOpen ? <PanelLeftClose size={16} /> : <PanelLeftOpen size={16} />}
+                  </button>
+                )}
+                {pipSupported && !isMobileViewport && !isFullScreen && (
+                  <button
+                    onClick={() => (pipWindow ? closePip() : openPip())}
+                    className="hidden md:block p-1.5 hover:bg-white/10 rounded-lg transition-all"
+                    title={pipWindow ? 'Voltar o chat para a aba' : 'Destacar o chat numa janela sempre visível'}
+                  >
+                    <PictureInPicture2 size={16} />
                   </button>
                 )}
                 <button
@@ -4723,6 +4810,8 @@ useEffect(() => {
       )}
     </div>
   );
+
+  return pipWindow ? createPortal(widgetTree, pipWindow.document.body) : widgetTree;
 }
 
 
