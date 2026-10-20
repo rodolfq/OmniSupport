@@ -9,6 +9,7 @@ import { persistAttachments } from '@/lib/services/attachment-storage';
 import { getCurrentActionUser } from '@/lib/server-auth';
 import { logAudit } from '@/lib/audit-log';
 import { TicketStatus } from '@/lib/types';
+import { ticketPriorityToStars, cascadePriorityFromTicket } from '@/lib/services/priority-sync-service';
 
 async function getTicketActor(request: NextRequest) {
   const token = request.cookies.get('token')?.value;
@@ -677,6 +678,16 @@ export async function POST(request: Request) {
         }
       }
 
+      // Fila/Tipo de Solicitação/Produto obrigatórios na abertura (pedido do
+      // usuário, 2026-10-20) — só pra quem abre pelo lado interno (Equipe/
+      // Administrador/Time Interno): Cliente/Funcionário nem vê esses 3
+      // campos no formulário (components/new-ticket-modal.tsx), de
+      // propósito, pra não precisar entender a operação interna.
+      const isStaffCreator = userRole !== 'Cliente' && userRole !== 'Funcionário';
+      if (isStaffCreator && (!ticket.queueId || !ticket.requestTypeId || !ticket.productId)) {
+        return NextResponse.json({ error: 'Fila, Tipo de Solicitação e Produto são obrigatórios para abrir o chamado.' }, { status: 400 });
+      }
+
       // Anexo chega do client como data: URL e é gravado em disco aqui (ver
       // lib/services/attachment-storage.ts) — no banco fica só a URL curta.
       const ticketAttachments = await persistAttachments(ticket.attachments || []);
@@ -728,18 +739,36 @@ export async function POST(request: Request) {
       // internal_tickets.team_id é um conceito próprio (texto legado, não FK)
       // e não deve ser derivado de nenhum campo do chamado principal — o time
       // interno terá seus próprios marcadores, à parte.
+      //
+      // Prioridade herdada do chamado (estrelas) + vínculo em
+      // ticket_internal_links (2026-10-20, pedido do usuário — "chamados e
+      // tickets internos vinculados devem ter a mesma quantidade de
+      // estrelas"): antes nascia sempre com 1 estrela e sem nenhum vínculo
+      // gravado, mesmo sendo claramente o par um-do-outro.
       if (userRole === 'Time Interno') {
-        await query(
+        const inheritedStars = ticketPriorityToStars(newTicket.priority);
+        const autoInternal = await query(
           `INSERT INTO public.internal_tickets (title, description, team_id, creator_id, priority)
-           VALUES ($1, $2, $3, $4, 1)
-           RETURNING id`,
+           VALUES ($1, $2, $3, $4, $5)
+           RETURNING id, internal_ticket_number`,
           [
             ticket.title || 'Ticket Interno',
             ticket.description || '',
             'Desenvolvimento',
-            userId
+            userId,
+            inheritedStars
           ]
         );
+        const autoInternalId = autoInternal.rows[0].id;
+        await query(
+          `INSERT INTO public.ticket_internal_links (ticket_id, internal_ticket_id) VALUES ($1, $2) ON CONFLICT DO NOTHING`,
+          [newTicket.id, autoInternalId]
+        );
+        logAudit({
+          actorId: userId, actorName: sessionActor?.name || 'Sistema', action: 'create', entityType: 'internal_ticket', entityId: autoInternalId,
+          entityLabel: `int-${String(autoInternal.rows[0].internal_ticket_number).padStart(4, '0')}`,
+          changes: { field: 'priority', to: inheritedStars, reason: 'inherited_from_ticket', sourceTicketId: newTicket.id }
+        });
       }
 
       return NextResponse.json({ success: true, ticket: newTicket });
@@ -992,6 +1021,17 @@ export async function PUT(request: NextRequest) {
     const newTicket = updateRes.rows[0];
     handleTicketUpdated(oldTicket, newTicket);
 
+    // Chamados e tickets internos vinculados devem ter a mesma quantidade
+    // de estrelas (pedido do usuário, 2026-10-20) — reflete em todo ticket
+    // interno já vinculado sempre que a prioridade aparecer no payload
+    // (seguro mesmo sem ter mudado de verdade: a própria função só toca
+    // quem estiver de fato fora de sincronia).
+    if ('priority' in ticket && ticket.priority) {
+      cascadePriorityFromTicket(id, newTicket.priority, { id: actor.id, name: actor.name }).catch(err =>
+        console.error('[priority-sync] Falha ao sincronizar prioridade do chamado pros tickets internos vinculados:', err)
+      );
+    }
+
     // Edição de campo (status, prioridade, responsável etc.) não gera push:
     // quem editou já vê a confirmação visual na própria tela (flashSaved em
     // ticket-detail-modal.tsx), e um aviso genérico "Chamado atualizado" pros
@@ -1106,6 +1146,13 @@ export async function PATCH(request: NextRequest) {
     // push genérico de "Chamado atualizado" pra cada um dos chamados afetados.
     for (const newTicket of updateRes.rows) {
       handleTicketUpdated(oldById.get(newTicket.id), newTicket);
+    }
+
+    // Prioridade em massa — mesma sincronização do PUT único, pra cada
+    // chamado afetado (ver lib/services/priority-sync-service.ts).
+    if (updates.priority !== undefined) {
+      Promise.all(updateRes.rows.map((t: any) => cascadePriorityFromTicket(t.id, t.priority, { id: actor.id, name: actor.name })))
+        .catch(err => console.error('[priority-sync] Falha ao sincronizar prioridade em massa pros tickets internos vinculados:', err));
     }
 
     return NextResponse.json({ success: true });

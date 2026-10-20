@@ -408,16 +408,24 @@ export async function POST(request: Request) {
         companyId = profileRes.rows[0]?.company_id || null;
       }
 
+      // Fila padrão "Suporte" (pedido do usuário, 2026-10-20) — chamado
+      // gerado pelo chat não tem seletor de Fila nesse fluxo (é só o
+      // título), então sem isso nascia sem fila nenhuma. Mesmo padrão do
+      // formulário "Novo Chamado" (components/new-ticket-modal.tsx).
+      const defaultQueueRes = await query(`SELECT id FROM public.queues WHERE name = 'Suporte' LIMIT 1`);
+      const defaultQueueId: string | null = defaultQueueRes.rows[0]?.id || null;
+
       const client = await pool.connect();
       try {
         await client.query('BEGIN');
         const ticketRes = await client.query(
-          `INSERT INTO public.tickets (title, description, status, priority, category, company_id, customer_id, assignee_id, created_by, chat_session_id)
-           VALUES ($1, '', $2, 'Baixa', 'Atendimento Chat', $3, $4, $5, $6, $7)
+          `INSERT INTO public.tickets (title, description, status, priority, category, queue_id, company_id, customer_id, assignee_id, created_by, chat_session_id)
+           VALUES ($1, '', $2, 'Baixa', 'Atendimento Chat', $3, $4, $5, $6, $7, $8)
            RETURNING id, public_ticket_number`,
           [
             ticketTitle,
             closeTicketImmediately ? TicketStatus.CLOSED : 'Novo',
+            defaultQueueId,
             companyId,
             session.customer_id || null,
             session.assignee_id || actor.id,

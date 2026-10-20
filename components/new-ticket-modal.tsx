@@ -271,12 +271,19 @@ export function NewTicketModal() {
     }
   }, [isNewTicketModalOpen, priority, availablePriorities]);
 
-  // Fila padrão: a fila de que o próprio operador é membro — evita abrir
-  // chamado sem fila toda vez que quem cria já atende uma fila fixa. Só
-  // entra enquanto o campo estiver vazio (não sobrescreve escolha manual) e
-  // continua livremente editável pelo select abaixo.
+  // Fila padrão: "Suporte" (pedido do usuário, 2026-10-20) — Fila passou a
+  // ser obrigatória na abertura, então todo chamado precisa nascer com uma
+  // marcada; "Suporte" é a fila de triagem geral, o usuário troca se for o
+  // caso. Só entra enquanto o campo estiver vazio (não sobrescreve escolha
+  // manual) e continua livremente editável pelo select abaixo. Cai pra "a
+  // fila de que o próprio operador é membro" só se "Suporte" não existir
+  // (defensivo — não deveria faltar, mas sem isso o campo ficaria vazio à
+  // toa quando a única fila cadastrada tiver outro nome).
   useEffect(() => {
-    if (!isNewTicketModalOpen || isCustomer || queueId || !currentUser || availableQueues.length === 0) return;
+    if (!isNewTicketModalOpen || isCustomer || queueId || availableQueues.length === 0) return;
+    const suporte = availableQueues.find((q) => q.name === 'Suporte');
+    if (suporte) { setQueueId(suporte.id); return; }
+    if (!currentUser) return;
     const myQueue = availableQueues.find(
       (q) => q.member_ids?.includes?.(currentUser.id) || q.memberIds?.includes?.(currentUser.id)
     );
@@ -583,11 +590,12 @@ export function NewTicketModal() {
                 <>
                   <div className="space-y-1">
                     <label className="text-[10px] font-semibold uppercase tracking-widest text-[var(--text-tertiary)] ml-1">
-                      Fila
+                      Fila <span className="text-[var(--text-danger)]">*</span>
                     </label>
                     <StyledSelect
                       value={queueId}
                       onChange={(e) => setQueueId(e.target.value)}
+                      required
                       className="w-full bg-[var(--surface-card)] border border-[var(--border-default)] rounded-xl px-4 py-2.5 text-sm font-medium focus:ring-2 focus:ring-[var(--accent)]/20 focus:border-[var(--accent)] outline-none transition-all appearance-none"
                     >
                       <option value="">Selecione uma fila</option>
@@ -602,11 +610,12 @@ export function NewTicketModal() {
                   <div className="grid grid-cols-2 gap-4">
                     <div className="space-y-1">
                       <label className="text-[10px] font-semibold uppercase tracking-widest text-[var(--text-tertiary)] ml-1">
-                        Tipo de Solicitação
+                        Tipo de Solicitação <span className="text-[var(--text-danger)]">*</span>
                       </label>
                       <StyledSelect
                         value={requestTypeId}
                         onChange={(e) => setRequestTypeId(e.target.value)}
+                        required
                         className="w-full bg-[var(--surface-card)] border border-[var(--border-default)] rounded-xl px-4 py-2.5 text-sm font-medium focus:ring-2 focus:ring-[var(--accent)]/20 focus:border-[var(--accent)] outline-none transition-all appearance-none"
                       >
                         <option value="">Selecione um tipo de solicitação</option>
@@ -638,11 +647,12 @@ export function NewTicketModal() {
 
                   <div className="space-y-1">
                     <label className="text-[10px] font-semibold uppercase tracking-widest text-[var(--text-tertiary)] ml-1">
-                      Produto
+                      Produto <span className="text-[var(--text-danger)]">*</span>
                     </label>
                     <StyledSelect
                       value={productId}
                       onChange={(e) => setProductId(e.target.value)}
+                      required
                       className="w-full bg-[var(--surface-card)] border border-[var(--border-default)] rounded-xl px-4 py-2.5 text-sm font-medium focus:ring-2 focus:ring-[var(--accent)]/20 focus:border-[var(--accent)] outline-none transition-all appearance-none"
                     >
                       <option value="">Selecione um produto</option>

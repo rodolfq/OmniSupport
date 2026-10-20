@@ -649,7 +649,11 @@ const loadMessages = async () => {
       if (!ticket || !currentUser) return;
 
       try {
-        await InternalTicketService.linkExisting(ticket.id, internalTicketId);
+        const { prioritySync } = await InternalTicketService.linkExisting(ticket.id, internalTicketId);
+        if (prioritySync?.synced) {
+          const quem = prioritySync.winner === 'ticket' ? 'do chamado (aberto primeiro)' : 'do ticket interno (aberto primeiro)';
+          toast.warning(`Prioridades diferentes — sincronizado para ${prioritySync.starsAfter} estrela(s), ${quem}.`);
+        }
       } catch (error) {
         toast.error('Erro ao vincular ticket interno');
         return;

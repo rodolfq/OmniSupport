@@ -6,6 +6,8 @@ import { persistAttachments } from '@/lib/services/attachment-storage';
 import { getActorEffectivePermissions } from '@/lib/server-auth';
 import { getTicketConfig } from '@/lib/services/ticket-points-service';
 import { Permission } from '@/lib/types';
+import { logAudit } from '@/lib/audit-log';
+import { ticketPriorityToStars, cascadePriorityFromInternalTicket, reconcilePriorityOnLink } from '@/lib/services/priority-sync-service';
 
 // Rota dos tickets internos — criada para tirar o InternalTicketService do
 // shim de compatibilidade Supabase (ver lib/services/ticket-service.ts).
@@ -74,7 +76,7 @@ async function getSessionUser(request: NextRequest) {
   const decoded = await verifyJWT(token);
   if (!decoded?.id) return null;
   const res = await query(
-    'SELECT id, role, internal_team_ids FROM public.profiles WHERE id = $1',
+    'SELECT id, name, role, internal_team_ids FROM public.profiles WHERE id = $1',
     [decoded.id]
   );
   return res.rows[0] || null;
@@ -468,10 +470,28 @@ export async function POST(request: NextRequest) {
         );
         if (res.rowCount === 0) return NextResponse.json({ error: 'Ticket interno não encontrado.' }, { status: 404 });
         const row = res.rows[0];
+        // Chamados e tickets internos vinculados devem ter a mesma
+        // quantidade de estrelas (pedido do usuário, 2026-10-20) — reflete
+        // pra todo chamado já vinculado sempre que a prioridade daqui muda.
+        cascadePriorityFromInternalTicket(ticket.uuid, priority, { id: user.id, name: user.name }).catch(err =>
+          console.error('[priority-sync] Falha ao sincronizar prioridade do ticket interno pros chamados vinculados:', err)
+        );
         return NextResponse.json({ uuid: row.id, id: formatId(row.internal_ticket_number, row.id) });
       }
 
-      const slaLimit = computeInternalTicketSla(priority, new Date().toISOString(), priorityRes.rows);
+      // Ticket interno NOVO, aberto a partir de um chamado existente
+      // (parentTicketId): herda a prioridade (estrelas) do chamado — "As
+      // estrelas de prioridade no chamado deve refletir no ticket interno
+      // que será aberto" — sem conflito possível, é criação, não existia
+      // divergência pra resolver.
+      let effectivePriority = priority;
+      if (parentTicketId) {
+        const parentRes = await query('SELECT priority FROM public.tickets WHERE id = $1', [parentTicketId]);
+        if ((parentRes.rowCount ?? 0) > 0) {
+          effectivePriority = ticketPriorityToStars(parentRes.rows[0].priority);
+        }
+      }
+      const slaLimit = computeInternalTicketSla(effectivePriority, new Date().toISOString(), priorityRes.rows);
 
       // O número sai de MAX+1 calculado DENTRO do INSERT. O caminho antigo
       // lia o maior número numa consulta e escrevia em outra: duas criações
@@ -493,7 +513,7 @@ export async function POST(request: NextRequest) {
           ticket.teamId || null,
           ticket.internalTeamId || null,
           ticket.assigneeId || null,
-          priority,
+          effectivePriority,
           ticket.tags || [],
           ticket.creatorId,
           ticket.description || '',
@@ -504,6 +524,13 @@ export async function POST(request: NextRequest) {
       const row = res.rows[0];
 
       if (parentTicketId) {
+        if (effectivePriority !== priority) {
+          logAudit({
+            actorId: user.id, actorName: user.name, action: 'create', entityType: 'internal_ticket', entityId: row.id,
+            entityLabel: formatId(row.internal_ticket_number, row.id),
+            changes: { field: 'priority', to: effectivePriority, reason: 'inherited_from_ticket', sourceTicketId: parentTicketId }
+          });
+        }
         // ON CONFLICT DO NOTHING no lugar do "ignora se a mensagem contém
         // 'duplicate'" que o caminho antigo fazia — o vínculo já existir é
         // resultado esperado, não erro a ser interpretado por texto.
@@ -617,6 +644,14 @@ export async function POST(request: NextRequest) {
           [targetIds, ticketConfig.interno.estrelasMinimas, ticketConfig.interno.diasUteis]
         );
       }
+
+      // Prioridade mudou (edição individual OU em massa) — reflete em todo
+      // chamado já vinculado a cada um desses tickets internos.
+      if (fields.priority !== undefined) {
+        Promise.all(targetIds.map(tid => cascadePriorityFromInternalTicket(tid, fields.priority, { id: user.id, name: user.name })))
+          .catch(err => console.error('[priority-sync] Falha ao sincronizar prioridade em massa pros chamados vinculados:', err));
+      }
+
       return NextResponse.json({ success: true, updated: res.rowCount });
     }
 
@@ -630,7 +665,11 @@ export async function POST(request: NextRequest) {
          VALUES ($1, $2) ON CONFLICT DO NOTHING`,
         [ticketId, internalTicketId]
       );
-      return NextResponse.json({ success: true });
+      // Chamado e ticket interno já existiam os dois — se a prioridade
+      // divergir, sincroniza a favor de quem foi aberto PRIMEIRO e avisa o
+      // client (pedido do usuário, 2026-10-20).
+      const prioritySync = await reconcilePriorityOnLink(ticketId, internalTicketId, { id: user.id, name: user.name });
+      return NextResponse.json({ success: true, prioritySync });
     }
 
     if (action === 'message') {

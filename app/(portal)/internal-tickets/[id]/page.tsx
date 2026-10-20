@@ -455,7 +455,11 @@ export default function InternalTicketDetailPage() {
   const handleLinkTicket = async (regularTicketId: string) => {
     if (!ticket) return;
     try {
-      await InternalTicketService.linkExisting(regularTicketId, ticket.uuid);
+      const { prioritySync } = await InternalTicketService.linkExisting(regularTicketId, ticket.uuid);
+      if (prioritySync?.synced) {
+        const quem = prioritySync.winner === 'ticket' ? 'do chamado (aberto primeiro)' : 'deste ticket interno (aberto primeiro)';
+        toast.warning(`Prioridades diferentes — sincronizado para ${prioritySync.starsAfter} estrela(s), ${quem}.`);
+      }
       toast.success('Chamado vinculado');
       setShowLinkTicketModal(false);
       setTicketSearch('');

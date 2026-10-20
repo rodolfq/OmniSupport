@@ -225,16 +225,20 @@ export class InternalTicketService {
   // Vincula um ticket interno já existente (criado solto ou por outro
   // chamado) a mais um chamado — é o que sustenta o N:N: um ticket interno
   // pode cobrir vários chamados, e este é o segundo (ou terceiro...) vínculo.
-  static async linkExisting(ticketId: string, internalTicketId: string): Promise<void> {
+  // Devolve `prioritySync` quando o chamado e o ticket interno já existiam
+  // os dois com prioridade (estrelas) diferente — o servidor já resolveu a
+  // favor de quem foi aberto primeiro, isto aqui é só pro client avisar.
+  static async linkExisting(ticketId: string, internalTicketId: string): Promise<{ prioritySync?: { synced: boolean; winner?: 'ticket' | 'internal'; starsBefore?: number; starsAfter?: number } }> {
     const res = await fetch('/api/internal-tickets', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ action: 'link', ticketId, internalTicketId })
     });
+    const body = await res.json().catch(() => null);
     if (!res.ok) {
-      const body = await res.json().catch(() => null);
       throw new Error(body?.error || 'Erro ao vincular o ticket interno.');
     }
+    return body || {};
   }
 
   static async unlink(ticketId: string, internalTicketId: string): Promise<void> {
