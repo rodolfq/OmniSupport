@@ -1,4 +1,5 @@
 import { apiJson, apiFetch } from '../api-client';
+import type { ReleaseTemplate, ReleaseCycle, ReleaseItemType } from '../types';
 
 /**
  * Filas e Hotfixes, do lado do cliente — substituem as Server Actions
@@ -125,5 +126,167 @@ export async function deleteHotfix(id: string): Promise<MutationResult> {
     return { success: true };
   } catch (err: any) {
     return { error: err?.message || 'Erro ao excluir hotfix.' };
+  }
+}
+
+// ------------------------------------------------------- ciclo de publicação
+// (/api/release-cycles — reestruturado em 2026-10-19: Ciclo é o intervalo
+// com a timeline compartilhada; Hotfix/Publicação são ITENS dentro dele.)
+
+export async function getReleaseTemplates(): Promise<ReleaseTemplate[]> {
+  try {
+    return await apiJson<ReleaseTemplate[]>('/api/release-cycles?action=templates');
+  } catch (err) {
+    console.error('Erro ao carregar modelos de ciclo:', err);
+    return [];
+  }
+}
+
+export async function saveReleaseTemplate(template: {
+  id?: string | null;
+  name: string;
+  description?: string | null;
+  isActive?: boolean;
+  stages: Array<{
+    name: string;
+    description?: string | null;
+    color?: string;
+    icon?: string | null;
+    offsetStartDays: number;
+    offsetEndDays: number;
+    defaultTeamId?: string | null;
+    defaultResponsibleIds?: string[];
+  }>;
+}): Promise<MutationResult> {
+  return mutate('/api/release-cycles', { method: 'POST', body: JSON.stringify({ action: 'save-template', ...template }) }, 'Erro ao salvar modelo.');
+}
+
+export async function deleteReleaseTemplate(id: string): Promise<MutationResult> {
+  return mutate('/api/release-cycles', { method: 'POST', body: JSON.stringify({ action: 'delete-template', id }) }, 'Erro ao excluir modelo.');
+}
+
+export async function createReleaseCycle(data: {
+  name: string;
+  description?: string | null;
+  responsibleId?: string | null;
+  templateId?: string | null;
+  anchorDate?: string | null;
+}): Promise<MutationResult & { cycle?: ReleaseCycle }> {
+  return mutate('/api/release-cycles', { method: 'POST', body: JSON.stringify({ action: 'create-cycle', ...data }) }, 'Erro ao criar ciclo.') as Promise<MutationResult & { cycle?: ReleaseCycle }>;
+}
+
+export async function addCycleStage(data: {
+  cycleId: string; name: string; description?: string | null; color?: string; startDate: string; endDate: string;
+}): Promise<MutationResult> {
+  return mutate('/api/release-cycles', { method: 'POST', body: JSON.stringify({ action: 'add-stage', ...data }) }, 'Erro ao adicionar etapa.');
+}
+
+export async function updateCycleStage(stageId: string, data: {
+  name?: string; description?: string | null; color?: string; startDate?: string; endDate?: string;
+  teamId?: string | null; responsibleIds?: string[]; notes?: string | null;
+}): Promise<MutationResult> {
+  return mutate('/api/release-cycles', { method: 'POST', body: JSON.stringify({ action: 'update-stage', stageId, ...data }) }, 'Erro ao atualizar etapa.');
+}
+
+export async function deleteCycleStage(stageId: string): Promise<MutationResult> {
+  return mutate('/api/release-cycles', { method: 'POST', body: JSON.stringify({ action: 'delete-stage', stageId }) }, 'Erro ao excluir etapa.');
+}
+
+export async function completeCycleStage(stageId: string): Promise<MutationResult & { locked?: boolean }> {
+  return mutate('/api/release-cycles', { method: 'POST', body: JSON.stringify({ action: 'complete-stage', stageId }) }, 'Erro ao concluir etapa.') as Promise<MutationResult & { locked?: boolean }>;
+}
+
+export async function reopenCycleStage(stageId: string): Promise<MutationResult> {
+  return mutate('/api/release-cycles', { method: 'POST', body: JSON.stringify({ action: 'reopen-stage', stageId }) }, 'Erro ao reabrir etapa.');
+}
+
+export async function saveCycleAsTemplate(cycleId: string, name: string): Promise<MutationResult> {
+  return mutate('/api/release-cycles', { method: 'POST', body: JSON.stringify({ action: 'save-as-template', cycleId, name }) }, 'Erro ao transformar em modelo.');
+}
+
+// ---- Itens (Hotfix / Publicação) dentro de um ciclo ----
+
+export async function createReleaseItem(data: {
+  cycleId: string; itemType: ReleaseItemType; name: string; description?: string | null;
+  responsibleId?: string | null; currentStageId?: string | null;
+}): Promise<MutationResult> {
+  return mutate('/api/release-cycles', { method: 'POST', body: JSON.stringify({ action: 'create-item', ...data }) }, 'Erro ao criar item.');
+}
+
+export async function updateReleaseItem(itemId: string, data: {
+  name?: string; description?: string | null; responsibleId?: string | null; currentStageId?: string | null;
+}): Promise<MutationResult> {
+  return mutate('/api/release-cycles', { method: 'POST', body: JSON.stringify({ action: 'update-item', itemId, ...data }) }, 'Erro ao atualizar item.');
+}
+
+export async function deleteReleaseItem(itemId: string): Promise<MutationResult> {
+  return mutate('/api/release-cycles', { method: 'POST', body: JSON.stringify({ action: 'delete-item', itemId }) }, 'Erro ao excluir item.');
+}
+
+export async function completeReleaseItem(itemId: string): Promise<MutationResult> {
+  return mutate('/api/release-cycles', { method: 'POST', body: JSON.stringify({ action: 'complete-item', itemId }) }, 'Erro ao concluir item.');
+}
+
+export async function reopenReleaseItem(itemId: string): Promise<MutationResult> {
+  return mutate('/api/release-cycles', { method: 'POST', body: JSON.stringify({ action: 'reopen-item', itemId }) }, 'Erro ao reabrir item.');
+}
+
+export async function linkItemTicket(itemId: string, kind: 'internal' | 'client', ticketId: string): Promise<MutationResult> {
+  return mutate('/api/release-cycles', { method: 'POST', body: JSON.stringify({ action: 'link-ticket', itemId, kind, ticketId }) }, 'Erro ao vincular chamado.');
+}
+
+export async function unlinkItemTicket(itemId: string, kind: 'internal' | 'client', ticketId: string): Promise<MutationResult> {
+  return mutate('/api/release-cycles', { method: 'POST', body: JSON.stringify({ action: 'unlink-ticket', itemId, kind, ticketId }) }, 'Erro ao desvincular chamado.');
+}
+
+export interface ItemLinkedTickets {
+  internalTickets: { id: string; title: string; internalTicketNumber: number | null }[];
+  clientTickets: { id: string; title: string; publicTicketNumber: number | null }[];
+}
+
+export async function getItemTickets(itemId: string): Promise<ItemLinkedTickets> {
+  try {
+    return await apiJson<ItemLinkedTickets>(`/api/release-cycles?action=item-tickets&itemId=${encodeURIComponent(itemId)}`);
+  } catch (err) {
+    console.error('Erro ao carregar chamados vinculados ao item:', err);
+    return { internalTickets: [], clientTickets: [] };
+  }
+}
+
+export interface StageAuditEntry {
+  actorName: string;
+  action: string;
+  changes: any;
+  createdAt?: string;
+}
+
+export async function getCycleStageAudit(stageId: string): Promise<StageAuditEntry[]> {
+  try {
+    return await apiJson<StageAuditEntry[]>(`/api/release-cycles?action=stage-audit&stageId=${encodeURIComponent(stageId)}`);
+  } catch (err) {
+    console.error('Erro ao carregar histórico da etapa:', err);
+    return [];
+  }
+}
+
+export async function getReleaseCycles(): Promise<ReleaseCycle[]> {
+  try {
+    return await apiJson<ReleaseCycle[]>('/api/release-cycles');
+  } catch (err) {
+    console.error('Erro ao carregar ciclos de publicação:', err);
+    return [];
+  }
+}
+
+export async function deleteReleaseCycle(id: string): Promise<MutationResult> {
+  try {
+    const res = await apiFetch(`/api/release-cycles?id=${encodeURIComponent(id)}`, { method: 'DELETE' });
+    if (!res.ok) {
+      const data = await res.json().catch(() => null);
+      return { error: data?.error || 'Erro ao excluir ciclo.' };
+    }
+    return { success: true };
+  } catch (err: any) {
+    return { error: err?.message || 'Erro ao excluir ciclo.' };
   }
 }

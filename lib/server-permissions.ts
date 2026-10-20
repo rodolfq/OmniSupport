@@ -36,6 +36,17 @@ export function assertCanManageHotfixes(): Promise<PermissionCheck> {
   return assertPermission('hotfixes:manage', 'Você não tem permissão para gerenciar hotfixes.');
 }
 
+/** hotfixes:manage também libera a visualização — ver lib/types.ts (HOTFIXES_VIEW). */
+export async function assertCanViewHotfixes(): Promise<PermissionCheck> {
+  const actor = await getCurrentActionUser();
+  if (!actor) return { ok: false, error: 'Sessão inválida.' };
+  if (actor.role === 'Administrador') return { ok: true, actor };
+
+  const permissions = await getActorEffectivePermissions(actor.id);
+  if (permissions.includes('hotfixes:view') || permissions.includes('hotfixes:manage')) return { ok: true, actor };
+  return { ok: false, error: 'Você não tem permissão para ver hotfixes.' };
+}
+
 export function assertCanManageWhatsapp(): Promise<PermissionCheck> {
   return assertPermission('whatsapp:manage', 'Você não tem permissão para gerenciar WhatsApp.');
 }

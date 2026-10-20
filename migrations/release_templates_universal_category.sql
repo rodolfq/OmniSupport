@@ -1,0 +1,13 @@
+-- Pedido do usuário, 2026-10-19: permitir que o mesmo modelo de publicação
+-- seja usado em QUALQUER categoria (Hotfix/Emergencial/Prevista), não só na
+-- que foi escolhida ao criar o modelo.
+--
+-- category = NULL passa a significar "serve pra todas as categorias" —
+-- mesmo idioma já usado em role_permissions.internal_team_id (NULL = perfil
+-- global). category preenchida continua restringindo o modelo à categoria
+-- escolhida, como já era.
+--
+-- Puramente aditivo (relaxa uma restrição, não reescreve dado nenhum) —
+-- CHECK (category IN (...)) já aceita NULL sem precisar de ajuste (CHECK só
+-- reprova quando a expressão dá FALSE; com NULL dá desconhecido, que passa).
+ALTER TABLE public.release_templates ALTER COLUMN category DROP NOT NULL;

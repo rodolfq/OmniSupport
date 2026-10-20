@@ -136,6 +136,10 @@ export enum Permission {
   // config do sistema e ver o log de auditoria são capacidades sem relação).
   REPORTS_AUDIT_LOG = 'reports:audit_log',
   HOTFIXES_MANAGE = 'hotfixes:manage',
+  // Ver a timeline de publicações sem poder editar nada (arrastar data,
+  // linkar chamado, gerenciar modelo). hotfixes:manage continua liberando os
+  // dois — quem só tem esta vê em modo somente-leitura. 2026-10-19.
+  HOTFIXES_VIEW = 'hotfixes:view',
   // Nível gerencial, separado do dashboard/relatórios de time acima —
   // roadmap "Time x Gerencial", etapa 1: só a fundação de acesso, as telas
   // que consomem essas permissões vêm nas etapas seguintes.
@@ -449,6 +453,10 @@ export interface InternalTicket {
   // Marcador informativo: hotfix cadastrado ao qual este ticket se refere —
   // ver app/(portal)/hotfixes/page.tsx.
   hotfixId?: string | null;
+  // Item (hotfix/publicação) de um ciclo de publicação, quando vinculado
+  // por lá — independente do hotfixId acima (fluxo achatado legado). Ver
+  // components/release-timeline.tsx.
+  releaseItemId?: string | null;
   // Classificação da solução, preenchida na conclusão (ver EffortConfig /
   // OutcomeConfig). Esforço alimenta a carga ponderada e Desfecho a taxa de
   // defeito no relatório de Carga e Complexidade.
@@ -587,7 +595,9 @@ export interface Queue {
   createdAt: string;
 }
 
-// Item 17 do roadmap — cadastro de hotfix / janela de release.
+// Item 17 do roadmap — cadastro de hotfix / janela de release (fluxo
+// ACHATADO, sem ciclo nenhum — 1 nome, 1 data, publishedAt trava o
+// registro). Nada a ver com o ciclo de publicação abaixo.
 export interface Hotfix {
   id: string;
   name: string;
@@ -597,6 +607,87 @@ export interface Hotfix {
   expectedDate: string; // YYYY-MM-DD
   publishedAt?: string;
   createdAt: string;
+}
+
+// ---------------------------------------------------------------------
+// Ciclo de publicação (2026-10-19, reestruturado no mesmo dia a pedido do
+// usuário). Um CICLO é um intervalo de tempo com UMA timeline
+// compartilhada (release_cycles/ReleaseCycleStage); Hotfix e Publicação
+// (Emergencial/Prevista) deixaram de ser "a categoria de 1 registro só" e
+// passaram a ser ITENS independentes — vários de cada — dentro do mesmo
+// ciclo (release_items), cada item na sua posição (currentStageId) na
+// timeline compartilhada. Ver components/release-timeline.tsx.
+
+export type ReleaseItemType = 'hotfix' | 'emergencial' | 'prevista';
+export type ReleaseStageStatus = 'pendente' | 'em_andamento' | 'concluida' | 'atrasada' | 'em_risco';
+
+export interface ReleaseCycleStage {
+  id: string;
+  cycleId: string;
+  templateStageId?: string | null;
+  stageOrder: number;
+  name: string;
+  description?: string | null;
+  color: string;
+  icon?: string | null;
+  startDate: string; // YYYY-MM-DD, pode ter sido arrastada/editada
+  endDate: string;
+  plannedStartDate: string; // congelada na criação — nunca muda depois
+  plannedEndDate: string;
+  teamId?: string | null;
+  responsibleIds: string[];
+  notes?: string | null;
+  completedAt?: string | null;
+}
+
+export interface ReleaseItem {
+  id: string;
+  cycleId: string;
+  itemType: ReleaseItemType;
+  name: string;
+  description?: string | null;
+  responsibleId?: string | null;
+  currentStageId?: string | null;
+  completedAt?: string | null;
+  internalTicketCount: number;
+  clientTicketCount: number;
+  createdAt: string;
+}
+
+export interface ReleaseCycle {
+  id: string;
+  name: string;
+  description?: string | null;
+  templateId?: string | null;
+  anchorDate?: string | null; // YYYY-MM-DD, base dos deslocamentos do modelo
+  responsibleId?: string | null;
+  publishedAt?: string | null; // setado quando a ÚLTIMA etapa é concluída — trava o ciclo inteiro
+  createdAt: string;
+  stages: ReleaseCycleStage[];
+  items: ReleaseItem[];
+}
+
+export interface ReleaseTemplateStage {
+  id: string;
+  templateId: string;
+  stageOrder: number;
+  name: string;
+  description?: string | null;
+  color: string;
+  icon?: string | null;
+  offsetStartDays: number;
+  offsetEndDays: number;
+  defaultTeamId?: string | null;
+  defaultResponsibleIds: string[];
+}
+
+export interface ReleaseTemplate {
+  id: string;
+  name: string;
+  description?: string | null;
+  isActive: boolean;
+  createdAt: string;
+  stages: ReleaseTemplateStage[];
 }
 
 export interface QuickNote {

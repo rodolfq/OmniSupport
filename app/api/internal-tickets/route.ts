@@ -331,6 +331,34 @@ export async function GET(request: NextRequest) {
       ]);
 
       const names = new Map(profilesRes.rows.map((p: any) => [p.id, p.name]));
+
+      // Mão dupla do ciclo de publicação (reestruturado em 2026-10-19: Ciclo
+      // é o intervalo com timeline compartilhada; Hotfix/Publicação são
+      // ITENS dentro dele) — se este ticket está vinculado a um ITEM, mostra
+      // o item e, se ele já tem posição na timeline, a etapa também — ver
+      // components/hotfixes-content.tsx / release-timeline.tsx.
+      let hotfixStageSummary: { itemId: string; itemName: string; itemType: string; cycleId: string; cycleName: string; stageName: string | null; stageOrder: number | null; totalStages: number } | null = null;
+      if (row.release_item_id) {
+        const itemRes = await query(
+          `SELECT ri.id, ri.name, ri.item_type, rc.id AS cycle_id, rc.name AS cycle_name,
+                  rcs.name AS stage_name, rcs.stage_order,
+                  (SELECT COUNT(*) FROM public.release_cycle_stages WHERE cycle_id = rc.id) AS total_stages
+             FROM public.release_items ri
+             JOIN public.release_cycles rc ON rc.id = ri.cycle_id
+             LEFT JOIN public.release_cycle_stages rcs ON rcs.id = ri.current_stage_id
+            WHERE ri.id = $1`,
+          [row.release_item_id]
+        );
+        if ((itemRes.rowCount ?? 0) > 0) {
+          const it = itemRes.rows[0];
+          hotfixStageSummary = {
+            itemId: it.id, itemName: it.name, itemType: it.item_type,
+            cycleId: it.cycle_id, cycleName: it.cycle_name,
+            stageName: it.stage_name ?? null, stageOrder: it.stage_order ?? null, totalStages: Number(it.total_stages)
+          };
+        }
+      }
+
       return NextResponse.json({
         ticket: row,
         devDeadline,
@@ -340,7 +368,8 @@ export async function GET(request: NextRequest) {
           ticketNumber: t.public_ticket_number
         })),
         assigneeName: row.assignee_id ? names.get(row.assignee_id) || null : null,
-        creatorName: row.creator_id ? names.get(row.creator_id) || null : null
+        creatorName: row.creator_id ? names.get(row.creator_id) || null : null,
+        hotfixStageSummary
       });
     }
 

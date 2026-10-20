@@ -140,7 +140,8 @@ const permissionGroups = [
       { id: Permission.SETTINGS_EMAIL, label: 'E-mail (SMTP)', desc: 'Configurar servidor de envio de e-mail e testar conexão' },
       { id: Permission.SETTINGS_AI, label: 'Agente de IA (config)', desc: 'Configurar modelo, embeddings e comportamento do Agente de IA (aba própria em Configurações > Sistema)' },
       { id: Permission.QUEUES_MANAGE, label: 'Filas de atendimento', desc: 'Criar e configurar filas do WhatsApp (aba Filas em Configurações)' },
-      { id: Permission.HOTFIXES_MANAGE, label: 'Hotfixes / Janela de release', desc: 'Criar e gerenciar hotfixes, marcar publicação, ver alertas de atraso (aba Hotfixes em Configurações)' },
+      { id: Permission.HOTFIXES_MANAGE, label: 'Publicações / Hotfixes (editar)', desc: 'Criar e editar publicações, gerenciar modelos de ciclo, arrastar/alterar datas de etapa, linkar chamados, marcar conclusão (aba Hotfixes em Configurações)' },
+      { id: Permission.HOTFIXES_VIEW, label: 'Publicações / Hotfixes (ver)', desc: 'Ver a timeline de publicações e etapas, sem poder editar nada — quem tem a permissão de editar acima já ganha esta automaticamente' },
     ]
   },
   {

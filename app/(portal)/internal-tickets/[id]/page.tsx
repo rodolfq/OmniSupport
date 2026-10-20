@@ -21,7 +21,8 @@ import {
   Rocket,
   Copy,
   Maximize2,
-  Minimize2
+  Minimize2,
+  Layers
 } from 'lucide-react';
 import { RichEditor } from '@/components/rich-editor';
 import { motion } from 'motion/react';
@@ -123,6 +124,13 @@ export default function InternalTicketDetailPage() {
   const [formTags, setFormTags] = useState('');
   const [formExpectedPublish, setFormExpectedPublish] = useState('');
   const [formHotfixId, setFormHotfixId] = useState('');
+  // Mão dupla do ciclo de publicação (reestruturado em 2026-10-19: Ciclo é
+  // o intervalo com timeline compartilhada; Hotfix/Publicação são ITENS
+  // dentro dele) — quando este ticket está vinculado a um ITEM (via
+  // internal_tickets.release_item_id, independente do hotfix_id/formHotfixId
+  // acima, que é só o fluxo achatado legado), mostra o item e, se ele já
+  // tem posição, a etapa — ver app/api/internal-tickets/route.ts (action=detail).
+  const [hotfixStageSummary, setHotfixStageSummary] = useState<{ itemId: string; itemName: string; itemType: string; cycleId: string; cycleName: string; stageName: string | null; stageOrder: number | null; totalStages: number } | null>(null);
   // Classificação da solução (ver EffortConfig/OutcomeConfig). Esforço
   // alimenta a carga ponderada e Desfecho a taxa de defeito no relatório de
   // Carga e Complexidade.
@@ -182,6 +190,7 @@ export default function InternalTicketDetailPage() {
       const data = detail.ticket;
 
       setLinkedTickets(detail.linkedTickets || []);
+      setHotfixStageSummary(detail.hotfixStageSummary || null);
 
       setTicket({
         ...data,
@@ -879,6 +888,28 @@ export default function InternalTicketDetailPage() {
                     )}
                   </div>
                 </div>
+                {/* Mão dupla do ciclo de publicação (reestruturado em
+                    2026-10-19) — independente do campo "Hotfix" acima (fluxo
+                    achatado legado): este ticket foi vinculado a um ITEM de
+                    um ciclo pelo lado do item (Publicações > ciclo > item >
+                    chamados vinculados), não por aqui. */}
+                {hotfixStageSummary && (
+                  <div className="flex items-start gap-4">
+                    <span className="text-[11px] font-semibold uppercase text-[var(--text-tertiary)] w-24 pt-0.5 flex items-center gap-1"><Layers size={11} /> Ciclo</span>
+                    <button
+                      type="button"
+                      onClick={() => router.push('/settings?tab=hotfixes')}
+                      className="flex-1 text-left text-sm font-bold text-[var(--accent-text)] hover:underline"
+                    >
+                      {hotfixStageSummary.cycleName} — {hotfixStageSummary.itemName}
+                      {hotfixStageSummary.stageName && (
+                        <span className="block text-[10px] font-bold text-[var(--text-tertiary)] mt-0.5">
+                          Etapa {(hotfixStageSummary.stageOrder ?? 0) + 1} de {hotfixStageSummary.totalStages} — {hotfixStageSummary.stageName}
+                        </span>
+                      )}
+                    </button>
+                  </div>
+                )}
                 <div className="flex items-start gap-4">
                   <span className="text-[11px] font-semibold uppercase text-[var(--text-tertiary)] w-24 pt-0.5">Marcadores</span>
                   <input

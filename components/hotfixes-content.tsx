@@ -3,18 +3,29 @@
 import React, { useState, useEffect } from 'react';
 import { useRouter } from 'next/navigation';
 import { useEscapeToClose } from '@/hooks/use-escape-to-close';
-import { Rocket, Plus, Search, Trash2, Pencil, CheckCircle2, XCircle, Clock, AlertTriangle, CalendarDays, History as HistoryIcon, Package, ChevronDown, ExternalLink } from 'lucide-react';
+import { Rocket, Plus, Search, Trash2, Pencil, CheckCircle2, XCircle, Clock, AlertTriangle, CalendarDays, History as HistoryIcon, Package, ChevronDown, ExternalLink, LayoutTemplate, FileDown, Layers, AlertOctagon } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
-import { Hotfix, Permission, User, ProductConfig } from '@/lib/types';
+import { Hotfix, ReleaseCycle, ReleaseCycleStage, ReleaseItem, ReleaseItemType, Permission, User, ProductConfig, ReleaseTemplate } from '@/lib/types';
 import { UserService } from '@/lib/services/user-service';
 import { ConfigService } from '@/lib/services/config-service';
 // Migrado para rota HTTP (/api/hotfixes) na separação front/back.
-import { getHotfixes, saveHotfix, deleteHotfix, markHotfixPublished } from '@/lib/services/queue-service';
+import {
+  getHotfixes, saveHotfix, deleteHotfix, markHotfixPublished,
+  getReleaseTemplates, getReleaseCycles, createReleaseCycle, updateCycleStage, addCycleStage,
+  completeCycleStage, saveCycleAsTemplate, createReleaseItem
+} from '@/lib/services/queue-service';
+import { getInternalTeamsPageData, InternalTeamRecord } from '@/lib/services/internal-team-service';
 import { StyledSelect } from '@/components/styled-select';
 import { ConfirmDialog } from '@/components/confirm-dialog';
+import { MultiSelectFilter } from '@/components/multi-select-filter';
+import { ReleaseTimeline } from '@/components/release-timeline';
+import { ReleaseStageDrawer } from '@/components/release-stage-drawer';
+import { ReleaseItemDrawer } from '@/components/release-item-drawer';
+import { ReleaseTemplateManager } from '@/components/release-template-manager';
 import { useApp } from '@/app/app-context';
 import { cn, selectableOptions } from '@/lib/utils';
 import { toast } from 'sonner';
+import { RELEASE_ITEM_TYPE_META, computeStagesWithStatus, todayIsoDate } from '@/lib/release-stage-logic';
 
 const todayIso = () => new Date().toISOString().slice(0, 10);
 
@@ -71,6 +82,14 @@ function formatDateTime(iso: string): string {
  * Conteúdo da aba "Hotfixes" em Configurações. Era a página /hotfixes —
  * migrada pra dentro de Configurações (ver app/(portal)/settings/page.tsx);
  * a rota antiga agora só redireciona pra cá.
+ *
+ * Desde 2026-10-19 (reestruturado no mesmo dia a pedido do usuário) esta
+ * tela cobre DOIS modelos sem relação um com o outro: o cadastro achatado
+ * legado (`hotfixes`, sem ciclo — Hotfix da Semana/Próximos/Histórico, mais
+ * abaixo) e o CICLO de publicação novo (`release_cycles` — um intervalo de
+ * tempo com UMA timeline compartilhada, onde Hotfix/Publicação Emergencial/
+ * Publicação Prevista são ITENS independentes, vários de cada, dentro do
+ * mesmo ciclo). Ver CLAUDE.md seção 15.
  */
 export function HotfixesContent() {
   const { hasPermission } = useApp();
@@ -121,19 +140,199 @@ export function HotfixesContent() {
   const [productId, setProductId] = useState('');
   const [expectedDate, setExpectedDate] = useState('');
 
+  // --------------------------------------------------- ciclo de publicação
+  const canEdit = hasPermission(Permission.HOTFIXES_MANAGE);
+  const [cycles, setCycles] = useState<ReleaseCycle[]>([]);
+  const [templates, setTemplates] = useState<ReleaseTemplate[]>([]);
+  const [teams, setTeams] = useState<InternalTeamRecord[]>([]);
+  const [timelineMode, setTimelineMode] = useState<'all' | 'single'>('all');
+  const [singleCycleId, setSingleCycleId] = useState<string | null>(null);
+  const [visibleCycleIds, setVisibleCycleIds] = useState<string[]>([]);
+  const [isTemplateManagerOpen, setIsTemplateManagerOpen] = useState(false);
+  const [stageDrawerTarget, setStageDrawerTarget] = useState<{ cycle: ReleaseCycle; stage: ReleaseCycleStage } | null>(null);
+  const [itemDrawerTarget, setItemDrawerTarget] = useState<{ cycle: ReleaseCycle; item: ReleaseItem } | null>(null);
+  const [isCreateCycleOpen, setIsCreateCycleOpen] = useState(false);
+  const [saveAsTemplateFor, setSaveAsTemplateFor] = useState<ReleaseCycle | null>(null);
+  const [addStageFor, setAddStageFor] = useState<ReleaseCycle | null>(null);
+  const [createItemFor, setCreateItemFor] = useState<ReleaseCycle | null>(null);
+  const [concludeCycleFor, setConcludeCycleFor] = useState<ReleaseCycle | null>(null);
+
+  // Novo ciclo
+  const [newCycleName, setNewCycleName] = useState('');
+  const [newCycleDescription, setNewCycleDescription] = useState('');
+  const [newCycleTemplateId, setNewCycleTemplateId] = useState('');
+  const [newCycleAnchorDate, setNewCycleAnchorDate] = useState('');
+  const [newCycleResponsibleId, setNewCycleResponsibleId] = useState('');
+  const [isCreatingCycle, setIsCreatingCycle] = useState(false);
+
+  // Undo de 6s ao arrastar uma etapa (pedido do usuário — item 10 da lista
+  // de melhorias): o commit de verdade só acontece depois do toast expirar,
+  // sem clicar em "Desfazer". Um timer pendente por etapa.
+  const dragTimersRef = React.useRef<Record<string, ReturnType<typeof setTimeout>>>({});
+
   useEffect(() => {
     loadData();
+    return () => {
+      Object.values(dragTimersRef.current).forEach(clearTimeout);
+    };
   }, []);
 
   const loadData = async () => {
-    const [dbHotfixes, analysts, dbProducts] = await Promise.all([
+    const [dbHotfixes, analysts, dbProducts, dbCycles, dbTemplates, teamsData] = await Promise.all([
       getHotfixes(),
       UserService.getAnalysts(),
-      ConfigService.getProducts()
+      ConfigService.getProducts(),
+      getReleaseCycles(),
+      getReleaseTemplates(),
+      getInternalTeamsPageData()
     ]);
     setHotfixes(dbHotfixes as Hotfix[]);
     setUsers(analysts);
     setProducts(dbProducts);
+    setCycles(dbCycles);
+    setTemplates(dbTemplates);
+    setTeams(teamsData.teams);
+    // Mostra por padrão os ciclos ainda não concluídos — evita a timeline
+    // nascer poluída de histórico antigo a cada load.
+    setVisibleCycleIds(prev => prev.length > 0
+      ? prev
+      : dbCycles.filter(c => c.stages.length > 0 && !c.publishedAt).map(c => c.id));
+  };
+
+  const cyclesWithStages = cycles.filter(c => c.stages.length > 0);
+
+  const riskyCyclesToday = cyclesWithStages.filter(c =>
+    computeStagesWithStatus(c.stages, todayIsoDate()).some(s => s.status === 'atrasada' || s.status === 'em_risco')
+  );
+
+  const handleOpenStage = (cycle: ReleaseCycle, stage: ReleaseCycleStage) => setStageDrawerTarget({ cycle, stage });
+  const handleOpenItem = (cycle: ReleaseCycle, item: ReleaseItem) => setItemDrawerTarget({ cycle, item });
+
+  const handleFocusCycle = (cycleId: string) => {
+    setSingleCycleId(cycleId);
+    setTimelineMode('single');
+  };
+
+  const handleStageDatesDragged = (stageId: string, newStart: string, newEnd: string) => {
+    let prevStart = '', prevEnd = '', stageName = '';
+    setCycles(prev => prev.map(c => ({
+      ...c,
+      stages: c.stages.map(s => {
+        if (s.id !== stageId) return s;
+        prevStart = s.startDate; prevEnd = s.endDate; stageName = s.name;
+        return { ...s, startDate: newStart, endDate: newEnd };
+      })
+    })));
+
+    const revert = () => {
+      setCycles(prev => prev.map(c => ({
+        ...c,
+        stages: c.stages.map(s => s.id === stageId ? { ...s, startDate: prevStart, endDate: prevEnd } : s)
+      })));
+    };
+
+    if (dragTimersRef.current[stageId]) clearTimeout(dragTimersRef.current[stageId]);
+
+    toast(`"${stageName}" movida para ${new Date(`${newStart}T00:00:00`).toLocaleDateString('pt-BR')}–${new Date(`${newEnd}T00:00:00`).toLocaleDateString('pt-BR')}`, {
+      duration: 6000,
+      action: {
+        label: 'Desfazer',
+        onClick: () => {
+          clearTimeout(dragTimersRef.current[stageId]);
+          delete dragTimersRef.current[stageId];
+          revert();
+        }
+      }
+    });
+
+    dragTimersRef.current[stageId] = setTimeout(async () => {
+      delete dragTimersRef.current[stageId];
+      const res = await updateCycleStage(stageId, { startDate: newStart, endDate: newEnd });
+      if (res.error) {
+        toast.error(res.error);
+        revert();
+      } else {
+        loadData();
+      }
+    }, 6000);
+  };
+
+  const handleCreateCycle = async () => {
+    if (!newCycleName.trim()) { toast.error('Dê um nome ao ciclo.'); return; }
+    if (newCycleTemplateId && !newCycleAnchorDate) { toast.error('Informe a data-âncora para usar um modelo.'); return; }
+    setIsCreatingCycle(true);
+    try {
+      const res = await createReleaseCycle({
+        name: newCycleName, description: newCycleDescription || null,
+        responsibleId: newCycleResponsibleId || null, templateId: newCycleTemplateId || null, anchorDate: newCycleAnchorDate || null
+      });
+      if (res.error) { toast.error(res.error); return; }
+      toast.success('Ciclo criado.');
+      setIsCreateCycleOpen(false);
+      setNewCycleName(''); setNewCycleDescription(''); setNewCycleTemplateId(''); setNewCycleAnchorDate(''); setNewCycleResponsibleId('');
+      if (res.cycle) setVisibleCycleIds(prev => [...prev, res.cycle!.id]);
+      loadData();
+    } finally {
+      setIsCreatingCycle(false);
+    }
+  };
+
+  const handleExportPdf = async () => {
+    const targets = timelineMode === 'single' && singleCycleId
+      ? cyclesWithStages.filter(c => c.id === singleCycleId)
+      : cyclesWithStages.filter(c => visibleCycleIds.includes(c.id));
+    if (targets.length === 0) { toast.error('Nenhum ciclo visível para exportar.'); return; }
+    const { jsPDF } = await import('jspdf');
+    const doc = new jsPDF({ unit: 'pt', format: 'a4' });
+    const marginX = 40;
+    let y = 50;
+    doc.setFont('helvetica', 'bold');
+    doc.setFontSize(16);
+    doc.text('Ciclo de Publicação', marginX, y);
+    doc.setFont('helvetica', 'normal');
+    doc.setFontSize(9);
+    y += 16;
+    doc.text(`Gerado em ${new Date().toLocaleString('pt-BR')}`, marginX, y);
+    y += 24;
+
+    for (const cycle of targets) {
+      if (y > 740) { doc.addPage(); y = 50; }
+      doc.setFont('helvetica', 'bold');
+      doc.setFontSize(12);
+      doc.text(`${cycle.name} (${cycle.items.length} item(ns))`, marginX, y);
+      y += 16;
+      doc.setFont('helvetica', 'normal');
+      doc.setFontSize(9);
+      const stagesWithStatus = computeStagesWithStatus(cycle.stages, todayIsoDate());
+      for (const s of stagesWithStatus) {
+        if (y > 760) { doc.addPage(); y = 50; }
+        const respNames = s.responsibleIds.map(id => users.find(u => u.id === id)?.name).filter(Boolean).join(', ') || '—';
+        const teamName = teams.find(t => t.id === s.teamId)?.name || '—';
+        const stageItems = cycle.items.filter(it => it.currentStageId === s.id).map(it => `${RELEASE_ITEM_TYPE_META[it.itemType].short}:${it.name}`).join(', ');
+        doc.text(`• ${s.name} — ${formatDate(s.startDate)} a ${formatDate(s.endDate)} — ${s.status} — Equipe: ${teamName} — Responsáveis: ${respNames}`, marginX + 10, y);
+        y += 14;
+        if (stageItems) { doc.text(`   Itens: ${stageItems}`, marginX + 10, y); y += 14; }
+      }
+      y += 10;
+    }
+    doc.save(`ciclo-publicacao-${todayIsoDate()}.pdf`);
+  };
+
+  // "Onde clica para concluir a publicação?" (achado do usuário, 2026-10-19):
+  // antes só dava pra concluir o ciclo abrindo a última etapa na timeline e
+  // clicando "Concluir" ali dentro — nada ao nível do ciclo deixava isso
+  // visível. Botão aqui conclui a etapa de MAIOR stage_order (a mesma que
+  // trava o ciclo inteiro, ver isLastStage/lib/release-stage-logic.ts), só
+  // que com um ponto de entrada óbvio na própria barra de ações.
+  const handleConcludeCycle = async () => {
+    if (!concludeCycleFor) return;
+    const lastStage = [...concludeCycleFor.stages].sort((a, b) => b.stageOrder - a.stageOrder)[0];
+    if (!lastStage) { toast.error('Este ciclo não tem etapas.'); setConcludeCycleFor(null); return; }
+    const res = await completeCycleStage(lastStage.id);
+    if (res.error) { toast.error(res.error); return; }
+    toast.success('Ciclo concluído — travado.');
+    setConcludeCycleFor(null);
+    loadData();
   };
 
   const handleOpenModal = (hotfix?: Hotfix) => {
@@ -185,17 +384,20 @@ export function HotfixesContent() {
     loadData();
   };
 
-  if (!hasPermission(Permission.HOTFIXES_MANAGE)) {
+  if (!hasPermission(Permission.HOTFIXES_MANAGE) && !hasPermission(Permission.HOTFIXES_VIEW)) {
     return (
       <div className="flex flex-col items-center justify-center p-20 text-center">
         <XCircle size={48} className="text-[var(--text-danger)] mb-4" />
         <h2 className="text-2xl font-black text-[var(--text-primary)] uppercase tracking-tight">Acesso Negado</h2>
-        <p className="text-[var(--text-tertiary)]">Você não tem permissão para gerenciar hotfixes.</p>
+        <p className="text-[var(--text-tertiary)]">Você não tem permissão para ver hotfixes.</p>
       </div>
     );
   }
 
   const q = search.trim().toLowerCase();
+  // Daqui pra baixo (Semana/Próximos/Histórico) é só o fluxo achatado
+  // legado, sem ciclo — o ciclo de publicação vive na timeline acima,
+  // numa tabela separada (release_cycles), sem relação com esta lista.
   const visibleHotfixes = hotfixes.filter(h =>
     h.name.toLowerCase().includes(q) || (h.description || '').toLowerCase().includes(q)
   );
@@ -213,15 +415,17 @@ export function HotfixesContent() {
   const resolveResponsible = (hotfix: Hotfix) => users.find(u => u.id === hotfix.responsibleId);
   const resolveProduct = (hotfix: Hotfix) => products.find(p => p.id === hotfix.productId);
 
+  const selectedCycle = cyclesWithStages.find(c => c.id === singleCycleId) || null;
+
   return (
     <div className="space-y-8 animate-in fade-in slide-in-from-bottom-4 duration-300">
       <div className="flex flex-col md:flex-row md:items-end justify-between gap-4">
         <div>
           <h2 className="text-3xl font-black text-[var(--text-primary)] tracking-tight flex items-center gap-3">
             <Rocket className="text-[var(--accent-text)]" size={32} />
-            Hotfixes
+            Publicações
           </h2>
-          <p className="text-[var(--text-tertiary)] font-medium">Janela de release do time — o que já foi publicado, o que vem por aí e o que é desta semana</p>
+          <p className="text-[var(--text-tertiary)] font-medium">Ciclo de publicação com timeline compartilhada (Hotfix/Publicação Emergencial/Prevista como itens), mais o cadastro simples (sem ciclo) de sempre</p>
         </div>
         <div className="flex flex-col sm:flex-row items-stretch sm:items-center gap-3">
           <div className="relative flex-1 sm:flex-none">
@@ -238,17 +442,140 @@ export function HotfixesContent() {
               calibrado para fundo branco e, no tema escuro, virava um brilho
               roxo em volta do botão — além de não combinar com o accent do
               produto desde o rebrand. */}
-          <button
-            onClick={() => handleOpenModal()}
-            className="bg-[var(--accent)] hover:bg-[var(--accent-hover)] text-white px-6 py-3 rounded-2xl text-sm font-black uppercase tracking-widest shadow-lg shadow-black/10 transition-all flex items-center justify-center gap-2 shrink-0"
-          >
-            <Plus size={18} />
-            Novo Hotfix
-          </button>
+          {canEdit && (
+            <button
+              onClick={() => handleOpenModal()}
+              className="bg-[var(--accent)] hover:bg-[var(--accent-hover)] text-white px-6 py-3 rounded-2xl text-sm font-black uppercase tracking-widest shadow-lg shadow-black/10 transition-all flex items-center justify-center gap-2 shrink-0"
+            >
+              <Plus size={18} />
+              Hotfix sem ciclo
+            </button>
+          )}
         </div>
       </div>
 
-      {/* Destaque: hotfix(es) da semana */}
+      {/* Ciclo de publicação — timeline compartilhada com itens (2026-10-19) */}
+      <div className="space-y-3">
+        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+          <h3 className="text-xs font-black uppercase tracking-widest text-[var(--text-tertiary)] flex items-center gap-2">
+            <Layers size={15} className="text-[var(--accent-text)]" /> Ciclo de Publicação
+          </h3>
+          <div className="flex flex-wrap items-center gap-2">
+            {cyclesWithStages.length > 0 && (
+              <>
+                <div className="flex rounded-xl border border-[var(--border-default)] overflow-hidden">
+                  <button
+                    onClick={() => setTimelineMode('all')}
+                    className={cn('px-3 py-1.5 text-[10px] font-black uppercase tracking-widest', timelineMode === 'all' ? 'bg-[var(--accent)] text-white' : 'text-[var(--text-tertiary)] hover:bg-[var(--surface-pill)]')}
+                  >
+                    Todos
+                  </button>
+                  <button
+                    onClick={() => { setTimelineMode('single'); if (!singleCycleId) setSingleCycleId(cyclesWithStages[0]?.id || null); }}
+                    className={cn('px-3 py-1.5 text-[10px] font-black uppercase tracking-widest', timelineMode === 'single' ? 'bg-[var(--accent)] text-white' : 'text-[var(--text-tertiary)] hover:bg-[var(--surface-pill)]')}
+                  >
+                    Um só
+                  </button>
+                </div>
+                {timelineMode === 'all' ? (
+                  <MultiSelectFilter
+                    options={cyclesWithStages.map(c => ({ value: c.id, label: c.name }))}
+                    selected={visibleCycleIds}
+                    onChange={setVisibleCycleIds}
+                    allLabel="Nenhum selecionado"
+                    itemLabelPlural="ciclos"
+                    searchPlaceholder="Buscar ciclo..."
+                  />
+                ) : (
+                  <StyledSelect
+                    value={singleCycleId || ''}
+                    onChange={e => setSingleCycleId(e.target.value)}
+                    className="bg-[var(--surface-card)] border border-[var(--border-default)] rounded-xl px-3 py-1.5 text-[11px] font-bold outline-none appearance-none"
+                  >
+                    {cyclesWithStages.map(c => <option key={c.id} value={c.id}>{c.name}</option>)}
+                  </StyledSelect>
+                )}
+                <button onClick={handleExportPdf} className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl border border-[var(--border-default)] text-[10px] font-black uppercase tracking-widest text-[var(--text-secondary)] hover:bg-[var(--surface-pill)]">
+                  <FileDown size={13} /> PDF
+                </button>
+                {canEdit && timelineMode === 'single' && selectedCycle && !selectedCycle.publishedAt && (
+                  <button
+                    onClick={() => setCreateItemFor(selectedCycle)}
+                    className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl border border-[var(--border-default)] text-[10px] font-black uppercase tracking-widest text-[var(--text-secondary)] hover:bg-[var(--surface-pill)]"
+                  >
+                    <Plus size={13} /> Novo Item
+                  </button>
+                )}
+                {canEdit && timelineMode === 'single' && selectedCycle && !selectedCycle.publishedAt && (
+                  <button
+                    onClick={() => setAddStageFor(selectedCycle)}
+                    className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl border border-[var(--border-default)] text-[10px] font-black uppercase tracking-widest text-[var(--text-secondary)] hover:bg-[var(--surface-pill)]"
+                  >
+                    <Plus size={13} /> Nova Etapa
+                  </button>
+                )}
+                {canEdit && timelineMode === 'single' && selectedCycle && !selectedCycle.publishedAt && (
+                  <button
+                    onClick={() => setConcludeCycleFor(selectedCycle)}
+                    className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl border border-[var(--text-success)]/30 bg-[var(--surface-success)] text-[10px] font-black uppercase tracking-widest text-[var(--text-success)] hover:bg-[var(--text-success)] hover:text-white transition-colors"
+                  >
+                    <CheckCircle2 size={13} /> Concluir Ciclo
+                  </button>
+                )}
+                {canEdit && timelineMode === 'single' && selectedCycle && (
+                  <button
+                    onClick={() => setSaveAsTemplateFor(selectedCycle)}
+                    className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl border border-[var(--border-default)] text-[10px] font-black uppercase tracking-widest text-[var(--text-secondary)] hover:bg-[var(--surface-pill)]"
+                  >
+                    <LayoutTemplate size={13} /> Transformar em modelo
+                  </button>
+                )}
+              </>
+            )}
+            {canEdit && (
+              <>
+                <button onClick={() => setIsTemplateManagerOpen(true)} className="flex items-center gap-1.5 px-3.5 py-1.5 rounded-xl border border-[var(--border-default)] text-[10px] font-black uppercase tracking-widest text-[var(--text-secondary)] hover:bg-[var(--surface-pill)]">
+                  <LayoutTemplate size={13} /> Modelos
+                </button>
+                <button onClick={() => setIsCreateCycleOpen(true)} className="flex items-center gap-1.5 px-3.5 py-1.5 rounded-xl bg-[var(--accent)] text-white text-[10px] font-black uppercase tracking-widest hover:bg-[var(--accent-hover)]">
+                  <Plus size={13} /> Novo Ciclo
+                </button>
+              </>
+            )}
+          </div>
+        </div>
+
+        {riskyCyclesToday.length > 0 && (
+          <div className="flex items-start gap-2.5 p-4 rounded-2xl bg-[var(--surface-warning)] border border-[var(--text-warning-strong)]/20 text-[var(--text-warning-strong)]">
+            <AlertOctagon size={16} className="shrink-0 mt-0.5" />
+            <p className="text-xs font-bold">
+              {riskyCyclesToday.length === 1 ? '1 ciclo' : `${riskyCyclesToday.length} ciclos`} com etapa atrasada ou em risco hoje: {riskyCyclesToday.map(c => c.name).join(', ')}.
+            </p>
+          </div>
+        )}
+
+        {cyclesWithStages.length === 0 ? (
+          <div className="rounded-[2rem] border-2 border-dashed border-[var(--border-default)] p-10 text-center">
+            <Layers className="mx-auto text-[var(--text-tertiary)] mb-2" size={28} />
+            <p className="text-sm font-bold text-[var(--text-tertiary)] uppercase tracking-widest">Nenhum ciclo cadastrado ainda</p>
+            {canEdit && <p className="text-xs text-[var(--text-tertiary)] mt-1">Crie um modelo e depois &ldquo;Novo Ciclo&rdquo; para começar uma timeline.</p>}
+          </div>
+        ) : (
+          <ReleaseTimeline
+            cycles={cyclesWithStages}
+            visibleCycleIds={visibleCycleIds}
+            mode={timelineMode}
+            singleCycleId={singleCycleId}
+            canEdit={canEdit}
+            onOpenStage={handleOpenStage}
+            onOpenItem={handleOpenItem}
+            onFocusCycle={handleFocusCycle}
+            onStageDatesDragged={handleStageDatesDragged}
+          />
+        )}
+      </div>
+
+      {/* Destaque: hotfix(es) da semana — cadastro simples, sem ciclo */}
       <div className="space-y-3">
         <h3 className="text-xs font-black uppercase tracking-widest text-[var(--text-tertiary)] flex items-center gap-2">
           <CalendarDays size={15} className="text-[var(--accent-text)]" /> Hotfix da Semana
@@ -307,21 +634,23 @@ export function HotfixesContent() {
                         <p className="text-[10px] font-bold uppercase tracking-widest text-white/70 text-right">{responsible.name}</p>
                       )}
                     </div>
-                    <div className="flex items-center gap-2 mt-5">
-                      <button
-                        onClick={() => handleMarkPublished(hotfix)}
-                        className="flex-1 py-2.5 rounded-xl text-[10px] font-black uppercase tracking-widest bg-white text-[#0D3A69] hover:bg-white/90 transition-all"
-                      >
-                        Marcar como Publicado
-                      </button>
-                      <button
-                        onClick={() => handleOpenModal(hotfix)}
-                        className="p-2.5 rounded-xl bg-white/15 hover:bg-white/25 transition-all"
-                        title="Editar"
-                      >
-                        <Pencil size={15} />
-                      </button>
-                    </div>
+                    {canEdit && (
+                      <div className="flex items-center gap-2 mt-5">
+                        <button
+                          onClick={() => handleMarkPublished(hotfix)}
+                          className="flex-1 py-2.5 rounded-xl text-[10px] font-black uppercase tracking-widest bg-white text-[#0D3A69] hover:bg-white/90 transition-all"
+                        >
+                          Marcar como Publicado
+                        </button>
+                        <button
+                          onClick={() => handleOpenModal(hotfix)}
+                          className="p-2.5 rounded-xl bg-white/15 hover:bg-white/25 transition-all"
+                          title="Editar"
+                        >
+                          <Pencil size={15} />
+                        </button>
+                      </div>
+                    )}
                   </div>
                 </div>
               );
@@ -386,20 +715,22 @@ export function HotfixesContent() {
                           </div>
                         </div>
                       </div>
-                      <div className="flex items-center gap-2 shrink-0">
-                        <button
-                          onClick={() => handleMarkPublished(hotfix)}
-                          className="px-3.5 py-2 rounded-xl text-[9px] font-black uppercase tracking-widest bg-[var(--surface-success)] text-[var(--text-success)] border border-[var(--text-success)]/20 hover:bg-[var(--text-success)] hover:text-white transition-all"
-                        >
-                          Publicado
-                        </button>
-                        <button onClick={() => handleOpenModal(hotfix)} className="p-2 rounded-xl border border-[var(--border-default)] text-[var(--text-secondary)] hover:bg-[var(--surface-pill)] transition-all" title="Editar">
-                          <Pencil size={14} />
-                        </button>
-                        <button onClick={() => setDeletingHotfix(hotfix)} className="p-2 rounded-xl border border-[var(--border-default)] text-[var(--text-danger)] hover:bg-[var(--surface-danger)] transition-all" title="Excluir">
-                          <Trash2 size={14} />
-                        </button>
-                      </div>
+                      {canEdit && (
+                        <div className="flex items-center gap-2 shrink-0">
+                          <button
+                            onClick={() => handleMarkPublished(hotfix)}
+                            className="px-3.5 py-2 rounded-xl text-[9px] font-black uppercase tracking-widest bg-[var(--surface-success)] text-[var(--text-success)] border border-[var(--text-success)]/20 hover:bg-[var(--text-success)] hover:text-white transition-all"
+                          >
+                            Publicado
+                          </button>
+                          <button onClick={() => handleOpenModal(hotfix)} className="p-2 rounded-xl border border-[var(--border-default)] text-[var(--text-secondary)] hover:bg-[var(--surface-pill)] transition-all" title="Editar">
+                            <Pencil size={14} />
+                          </button>
+                          <button onClick={() => setDeletingHotfix(hotfix)} className="p-2 rounded-xl border border-[var(--border-default)] text-[var(--text-danger)] hover:bg-[var(--surface-danger)] transition-all" title="Excluir">
+                            <Trash2 size={14} />
+                          </button>
+                        </div>
+                      )}
                     </div>
                   </div>
                 );
@@ -668,6 +999,282 @@ export function HotfixesContent() {
         confirmLabel="Excluir"
         variant="danger"
       />
+
+      <ReleaseTemplateManager
+        isOpen={isTemplateManagerOpen}
+        onClose={() => setIsTemplateManagerOpen(false)}
+        templates={templates}
+        teams={teams}
+        users={users}
+        onChanged={loadData}
+      />
+
+      {stageDrawerTarget && (
+        <ReleaseStageDrawer
+          cycle={cycles.find(c => c.id === stageDrawerTarget.cycle.id) || stageDrawerTarget.cycle}
+          stage={(cycles.find(c => c.id === stageDrawerTarget.cycle.id) || stageDrawerTarget.cycle).stages.find(s => s.id === stageDrawerTarget.stage.id) || stageDrawerTarget.stage}
+          isOpen={!!stageDrawerTarget}
+          onClose={() => setStageDrawerTarget(null)}
+          canEdit={canEdit}
+          teams={teams}
+          users={users}
+          onChanged={loadData}
+        />
+      )}
+
+      {itemDrawerTarget && (
+        <ReleaseItemDrawer
+          cycle={cycles.find(c => c.id === itemDrawerTarget.cycle.id) || itemDrawerTarget.cycle}
+          item={(cycles.find(c => c.id === itemDrawerTarget.cycle.id) || itemDrawerTarget.cycle).items.find(i => i.id === itemDrawerTarget.item.id) || itemDrawerTarget.item}
+          isOpen={!!itemDrawerTarget}
+          onClose={() => setItemDrawerTarget(null)}
+          canEdit={canEdit}
+          users={users}
+          onChanged={loadData}
+        />
+      )}
+
+      <AnimatePresence>
+        {isCreateCycleOpen && (
+          <div className="fixed inset-0 z-[150] flex items-center justify-center p-4">
+            <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} onClick={() => setIsCreateCycleOpen(false)} className="absolute inset-0 bg-slate-900/60 backdrop-blur-sm" />
+            <motion.div initial={{ scale: 0.95, opacity: 0 }} animate={{ scale: 1, opacity: 1 }} exit={{ scale: 0.95, opacity: 0 }} className="relative bg-[var(--surface-card)] w-full max-w-lg rounded-[2.5rem] shadow-2xl overflow-hidden">
+              <div className="p-8 border-b border-[var(--border-default)] flex items-center gap-4">
+                <div className="w-12 h-12 bg-[var(--accent)] rounded-2xl flex items-center justify-center text-white shrink-0"><Layers size={22} /></div>
+                <h3 className="text-xl font-black text-[var(--text-primary)] tracking-tight uppercase">Novo Ciclo</h3>
+              </div>
+              <div className="p-8 space-y-5">
+                <div className="space-y-1.5">
+                  <label className="text-[10px] font-semibold uppercase text-[var(--text-tertiary)] tracking-widest ml-1">Nome</label>
+                  <input value={newCycleName} onChange={e => setNewCycleName(e.target.value)} placeholder="Ex: Ciclo HTR01 — 20/10"
+                    className="w-full bg-[var(--surface-card)] border border-[var(--border-default)] rounded-2xl px-5 py-4 text-sm font-bold outline-none focus:ring-4 focus:ring-[var(--accent)]/10" />
+                </div>
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                  <div className="space-y-1.5">
+                    <label className="text-[10px] font-semibold uppercase text-[var(--text-tertiary)] tracking-widest ml-1">Modelo</label>
+                    <StyledSelect value={newCycleTemplateId} onChange={e => setNewCycleTemplateId(e.target.value)}
+                      className="w-full bg-[var(--surface-card)] border border-[var(--border-default)] rounded-2xl px-5 py-4 text-sm font-bold outline-none appearance-none">
+                      <option value="">Sem modelo (etapas manuais)</option>
+                      {templates.filter(t => t.isActive).map(t => <option key={t.id} value={t.id}>{t.name}</option>)}
+                    </StyledSelect>
+                  </div>
+                  <div className="space-y-1.5">
+                    <label className="text-[10px] font-semibold uppercase text-[var(--text-tertiary)] tracking-widest ml-1">Data-âncora</label>
+                    <input type="date" value={newCycleAnchorDate} onChange={e => setNewCycleAnchorDate(e.target.value)}
+                      className="w-full bg-[var(--surface-card)] border border-[var(--border-default)] rounded-2xl px-5 py-4 text-sm font-bold outline-none" />
+                  </div>
+                </div>
+                <div className="space-y-1.5">
+                  <label className="text-[10px] font-semibold uppercase text-[var(--text-tertiary)] tracking-widest ml-1">Responsável</label>
+                  <StyledSelect value={newCycleResponsibleId} onChange={e => setNewCycleResponsibleId(e.target.value)}
+                    className="w-full bg-[var(--surface-card)] border border-[var(--border-default)] rounded-2xl px-5 py-4 text-sm font-bold outline-none appearance-none">
+                    <option value="">Sem responsável</option>
+                    {users.map(u => <option key={u.id} value={u.id}>{u.name}</option>)}
+                  </StyledSelect>
+                </div>
+                <div className="space-y-1.5">
+                  <label className="text-[10px] font-semibold uppercase text-[var(--text-tertiary)] tracking-widest ml-1">Descrição</label>
+                  <textarea value={newCycleDescription} onChange={e => setNewCycleDescription(e.target.value)}
+                    className="w-full bg-[var(--surface-card)] border border-[var(--border-default)] rounded-2xl px-5 py-4 text-sm font-medium outline-none resize-none h-20" placeholder="Opcional" />
+                </div>
+              </div>
+              <div className="p-8 pt-0 flex gap-3">
+                <button onClick={() => setIsCreateCycleOpen(false)} className="px-8 py-4 rounded-2xl text-[10px] font-semibold uppercase tracking-widest text-[var(--text-tertiary)] hover:bg-[var(--surface-pill)]">
+                  Cancelar
+                </button>
+                <button onClick={handleCreateCycle} disabled={isCreatingCycle || !newCycleName.trim()}
+                  className="flex-1 px-8 py-4 bg-[var(--accent)] text-white rounded-2xl text-[10px] font-semibold uppercase tracking-widest hover:bg-[var(--accent-hover)] shadow-xl shadow-black/10 disabled:opacity-50">
+                  Criar Ciclo
+                </button>
+              </div>
+            </motion.div>
+          </div>
+        )}
+      </AnimatePresence>
+
+      <AnimatePresence>
+        {saveAsTemplateFor && (
+          <SaveAsTemplateModal cycle={saveAsTemplateFor} onClose={() => setSaveAsTemplateFor(null)} onSaved={loadData} />
+        )}
+      </AnimatePresence>
+
+      <AnimatePresence>
+        {addStageFor && (
+          <AddStageModal cycle={addStageFor} onClose={() => setAddStageFor(null)} onSaved={loadData} />
+        )}
+      </AnimatePresence>
+
+      <AnimatePresence>
+        {createItemFor && (
+          <CreateItemModal cycle={createItemFor} users={users} onClose={() => setCreateItemFor(null)} onSaved={loadData} />
+        )}
+      </AnimatePresence>
+
+      <ConfirmDialog
+        isOpen={!!concludeCycleFor}
+        onClose={() => setConcludeCycleFor(null)}
+        onConfirm={handleConcludeCycle}
+        title="Concluir ciclo"
+        description={
+          concludeCycleFor
+            ? `Conclui a última etapa ("${[...concludeCycleFor.stages].sort((a, b) => b.stageOrder - a.stageOrder)[0]?.name}") e trava o ciclo inteiro de "${concludeCycleFor.name}" — nenhuma etapa poderá mais ser editada${concludeCycleFor.stages.some(s => !s.completedAt) ? ', mesmo as que ainda não foram concluídas' : ''}. Essa ação não pode ser desfeita pela tela.`
+            : ''
+        }
+        confirmLabel="Concluir e travar"
+        variant="danger"
+      />
+    </div>
+  );
+}
+
+function AddStageModal({ cycle, onClose, onSaved }: { cycle: ReleaseCycle; onClose: () => void; onSaved: () => void }) {
+  const lastStage = [...cycle.stages].sort((a, b) => a.stageOrder - b.stageOrder).at(-1);
+  const [name, setName] = useState('');
+  const [color, setColor] = useState('#2563eb');
+  const [startDate, setStartDate] = useState(lastStage?.endDate || '');
+  const [endDate, setEndDate] = useState(lastStage?.endDate || '');
+  const [saving, setSaving] = useState(false);
+
+  const handleSave = async () => {
+    if (!name.trim() || !startDate || !endDate) { toast.error('Preencha nome, início e fim.'); return; }
+    if (endDate < startDate) { toast.error('A data final não pode ser antes da inicial.'); return; }
+    setSaving(true);
+    try {
+      const res = await addCycleStage({ cycleId: cycle.id, name, color, startDate, endDate });
+      if (res.error) { toast.error(res.error); return; }
+      toast.success('Etapa adicionada.');
+      onSaved();
+      onClose();
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  return (
+    <div className="fixed inset-0 z-[160] flex items-center justify-center p-4">
+      <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} onClick={onClose} className="absolute inset-0 bg-slate-900/60 backdrop-blur-sm" />
+      <motion.div initial={{ scale: 0.96, opacity: 0 }} animate={{ scale: 1, opacity: 1 }} exit={{ scale: 0.96, opacity: 0 }} className="relative bg-[var(--surface-card)] w-full max-w-sm rounded-[2rem] shadow-2xl p-7 space-y-4">
+        <h3 className="text-base font-black text-[var(--text-primary)] uppercase tracking-tight">Nova etapa — {cycle.name}</h3>
+        <div className="flex items-center gap-2">
+          <input type="color" value={color} onChange={e => setColor(e.target.value)} className="w-9 h-9 rounded-lg border border-[var(--border-default)] shrink-0 cursor-pointer" />
+          <input autoFocus value={name} onChange={e => setName(e.target.value)} placeholder="Nome da etapa" className="flex-1 bg-[var(--surface-pill)] rounded-xl px-4 py-3 text-sm font-bold outline-none" />
+        </div>
+        <div className="grid grid-cols-2 gap-3">
+          <div className="space-y-1">
+            <label className="text-[9px] font-bold uppercase text-[var(--text-tertiary)] tracking-widest ml-1">Início</label>
+            <input type="date" value={startDate} onChange={e => setStartDate(e.target.value)} className="w-full bg-[var(--surface-pill)] rounded-xl px-3 py-2.5 text-sm font-bold outline-none" />
+          </div>
+          <div className="space-y-1">
+            <label className="text-[9px] font-bold uppercase text-[var(--text-tertiary)] tracking-widest ml-1">Fim</label>
+            <input type="date" value={endDate} onChange={e => setEndDate(e.target.value)} className="w-full bg-[var(--surface-pill)] rounded-xl px-3 py-2.5 text-sm font-bold outline-none" />
+          </div>
+        </div>
+        <p className="text-[9px] text-[var(--text-tertiary)]">Início = fim: etapa-marco (1 dia só). Entra depois da última etapa existente — reordene arrastando a data depois, se precisar.</p>
+        <div className="flex gap-2 pt-1">
+          <button onClick={onClose} className="px-5 py-3 rounded-xl text-[10px] font-semibold uppercase tracking-widest text-[var(--text-tertiary)] hover:bg-[var(--surface-pill)]">Cancelar</button>
+          <button onClick={handleSave} disabled={saving} className="flex-1 py-3 bg-[var(--accent)] text-white rounded-xl text-[10px] font-black uppercase tracking-widest hover:bg-[var(--accent-hover)] disabled:opacity-50">Adicionar</button>
+        </div>
+      </motion.div>
+    </div>
+  );
+}
+
+function SaveAsTemplateModal({ cycle, onClose, onSaved }: { cycle: ReleaseCycle; onClose: () => void; onSaved: () => void }) {
+  const [name, setName] = useState(`Modelo — ${cycle.name}`);
+  const [saving, setSaving] = useState(false);
+
+  const handleSave = async () => {
+    if (!name.trim()) { toast.error('Dê um nome ao modelo.'); return; }
+    setSaving(true);
+    try {
+      const res = await saveCycleAsTemplate(cycle.id, name);
+      if (res.error) { toast.error(res.error); return; }
+      toast.success('Modelo criado a partir deste ciclo.');
+      onSaved();
+      onClose();
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  return (
+    <div className="fixed inset-0 z-[160] flex items-center justify-center p-4">
+      <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} onClick={onClose} className="absolute inset-0 bg-slate-900/60 backdrop-blur-sm" />
+      <motion.div initial={{ scale: 0.96, opacity: 0 }} animate={{ scale: 1, opacity: 1 }} exit={{ scale: 0.96, opacity: 0 }} className="relative bg-[var(--surface-card)] w-full max-w-sm rounded-[2rem] shadow-2xl p-7 space-y-4">
+        <h3 className="text-base font-black text-[var(--text-primary)] uppercase tracking-tight">Transformar em modelo</h3>
+        <p className="text-xs text-[var(--text-tertiary)]">Cria um modelo novo com as etapas deste ciclo, usando os deslocamentos a partir da data-âncora.</p>
+        <div className="space-y-1.5">
+          <label className="text-[10px] font-semibold uppercase text-[var(--text-tertiary)] tracking-widest ml-1">Nome do modelo</label>
+          <input value={name} onChange={e => setName(e.target.value)} className="w-full bg-[var(--surface-pill)] rounded-xl px-4 py-3 text-sm font-bold outline-none" />
+        </div>
+        <div className="flex gap-2 pt-1">
+          <button onClick={onClose} className="px-5 py-3 rounded-xl text-[10px] font-semibold uppercase tracking-widest text-[var(--text-tertiary)] hover:bg-[var(--surface-pill)]">Cancelar</button>
+          <button onClick={handleSave} disabled={saving} className="flex-1 py-3 bg-[var(--accent)] text-white rounded-xl text-[10px] font-black uppercase tracking-widest hover:bg-[var(--accent-hover)] disabled:opacity-50">Criar Modelo</button>
+        </div>
+      </motion.div>
+    </div>
+  );
+}
+
+function CreateItemModal({ cycle, users, onClose, onSaved }: { cycle: ReleaseCycle; users: User[]; onClose: () => void; onSaved: () => void }) {
+  const [itemType, setItemType] = useState<ReleaseItemType>('hotfix');
+  const [name, setName] = useState('');
+  const [description, setDescription] = useState('');
+  const [responsibleId, setResponsibleId] = useState('');
+  const [currentStageId, setCurrentStageId] = useState('');
+  const [saving, setSaving] = useState(false);
+  const orderedStages = [...cycle.stages].sort((a, b) => a.stageOrder - b.stageOrder);
+
+  const handleSave = async () => {
+    if (!name.trim()) { toast.error('Dê um nome ao item.'); return; }
+    setSaving(true);
+    try {
+      const res = await createReleaseItem({
+        cycleId: cycle.id, itemType, name, description: description || null,
+        responsibleId: responsibleId || null, currentStageId: currentStageId || null
+      });
+      if (res.error) { toast.error(res.error); return; }
+      toast.success('Item criado.');
+      onSaved();
+      onClose();
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  return (
+    <div className="fixed inset-0 z-[160] flex items-center justify-center p-4">
+      <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} onClick={onClose} className="absolute inset-0 bg-slate-900/60 backdrop-blur-sm" />
+      <motion.div initial={{ scale: 0.96, opacity: 0 }} animate={{ scale: 1, opacity: 1 }} exit={{ scale: 0.96, opacity: 0 }} className="relative bg-[var(--surface-card)] w-full max-w-sm rounded-[2rem] shadow-2xl p-7 space-y-4">
+        <h3 className="text-base font-black text-[var(--text-primary)] uppercase tracking-tight">Novo item — {cycle.name}</h3>
+        <div className="flex gap-2">
+          {(['hotfix', 'emergencial', 'prevista'] as const).map(t => (
+            <button key={t} onClick={() => setItemType(t)}
+              className={cn('flex-1 py-2 rounded-lg text-[10px] font-black uppercase tracking-widest border',
+                itemType === t ? 'text-white border-transparent' : 'border-[var(--border-default)] text-[var(--text-tertiary)]')}
+              style={itemType === t ? { backgroundColor: RELEASE_ITEM_TYPE_META[t].color } : undefined}
+            >
+              {RELEASE_ITEM_TYPE_META[t].short}
+            </button>
+          ))}
+        </div>
+        <input autoFocus value={name} onChange={e => setName(e.target.value)} placeholder="Nome do item" className="w-full bg-[var(--surface-pill)] rounded-xl px-4 py-3 text-sm font-bold outline-none" />
+        <textarea value={description} onChange={e => setDescription(e.target.value)} placeholder="Descrição (opcional)" className="w-full bg-[var(--surface-pill)] rounded-xl px-4 py-3 text-sm font-medium outline-none resize-none h-16" />
+        <div className="grid grid-cols-2 gap-3">
+          <StyledSelect value={responsibleId} onChange={e => setResponsibleId(e.target.value)} className="w-full bg-[var(--surface-pill)] rounded-xl px-3 py-2.5 text-xs font-bold outline-none appearance-none">
+            <option value="">Sem responsável</option>
+            {users.map(u => <option key={u.id} value={u.id}>{u.name}</option>)}
+          </StyledSelect>
+          <StyledSelect value={currentStageId} onChange={e => setCurrentStageId(e.target.value)} className="w-full bg-[var(--surface-pill)] rounded-xl px-3 py-2.5 text-xs font-bold outline-none appearance-none">
+            <option value="">Sem posição</option>
+            {orderedStages.map(s => <option key={s.id} value={s.id}>{s.name}</option>)}
+          </StyledSelect>
+        </div>
+        <div className="flex gap-2 pt-1">
+          <button onClick={onClose} className="px-5 py-3 rounded-xl text-[10px] font-semibold uppercase tracking-widest text-[var(--text-tertiary)] hover:bg-[var(--surface-pill)]">Cancelar</button>
+          <button onClick={handleSave} disabled={saving} className="flex-1 py-3 bg-[var(--accent)] text-white rounded-xl text-[10px] font-black uppercase tracking-widest hover:bg-[var(--accent-hover)] disabled:opacity-50">Criar Item</button>
+        </div>
+      </motion.div>
     </div>
   );
 }

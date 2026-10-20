@@ -3,6 +3,7 @@ import { query } from './lib/db';
 import { WhatsAppService } from './lib/services/whatsapp-service';
 import { startAutomationScheduler } from './lib/services/automation-scheduler';
 import { startHotfixScheduler } from './lib/services/hotfix-scheduler';
+import { startReleaseCycleScheduler } from './lib/services/release-cycle-scheduler';
 import { startGoogleCalendarScheduler } from './lib/services/google-calendar-scheduler';
 import { startEmbeddingScheduler } from './lib/services/embedding-scheduler';
 import { startDissatisfactionScheduler } from './lib/services/dissatisfaction-scheduler';
@@ -40,6 +41,7 @@ import { SHOULD_RUN_BACKGROUND_JOBS, SERVICE_ROLE } from './lib/runtime-config';
 
   startAutomationScheduler();
   startHotfixScheduler();
+  startReleaseCycleScheduler();
   startEmbeddingScheduler();
   startDissatisfactionScheduler();
   startGoogleCalendarScheduler();

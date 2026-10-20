@@ -476,6 +476,114 @@ CREATE INDEX IF NOT EXISTS idx_tickets_created_at ON public.tickets(created_at D
 -- migrations/integration_v1_indexes.sql.
 CREATE INDEX IF NOT EXISTS idx_tickets_updated_at ON public.tickets(updated_at DESC);
 
+-- Ciclo de publicação (migrations/release_cycles_and_items.sql,
+-- 2026-10-19) — ver CLAUDE.md seção 15. "Ciclo" é um intervalo de tempo com
+-- UMA timeline compartilhada (release_cycles/release_cycle_stages); Hotfix
+-- e Publicação (Emergencial/Prevista) são ITENS independentes — vários de
+-- cada — dentro do mesmo ciclo (release_items), cada um na sua posição na
+-- timeline compartilhada (current_stage_id). A tabela legada `hotfixes`
+-- (fluxo achatado, sem ciclo) continua existindo, sem relação com isto.
+CREATE TABLE public.release_templates (
+  id UUID PRIMARY KEY DEFAULT (md5(random()::text || clock_timestamp()::text)::uuid),
+  name TEXT NOT NULL,
+  description TEXT,
+  is_active BOOLEAN NOT NULL DEFAULT true,
+  created_by UUID REFERENCES public.profiles(id) ON DELETE SET NULL,
+  created_at TIMESTAMP WITH TIME ZONE DEFAULT now() NOT NULL,
+  updated_at TIMESTAMP WITH TIME ZONE DEFAULT now() NOT NULL
+);
+
+CREATE TABLE public.release_template_stages (
+  id UUID PRIMARY KEY DEFAULT (md5(random()::text || clock_timestamp()::text)::uuid),
+  template_id UUID NOT NULL REFERENCES public.release_templates(id) ON DELETE CASCADE,
+  stage_order INTEGER NOT NULL DEFAULT 0,
+  name TEXT NOT NULL,
+  description TEXT,
+  color TEXT NOT NULL DEFAULT '#2563eb',
+  icon TEXT,
+  offset_start_days INTEGER NOT NULL DEFAULT 0,
+  offset_end_days INTEGER NOT NULL DEFAULT 0,
+  default_team_id UUID REFERENCES public.internal_teams(id) ON DELETE SET NULL,
+  default_responsible_ids UUID[] NOT NULL DEFAULT '{}',
+  created_at TIMESTAMP WITH TIME ZONE DEFAULT now() NOT NULL,
+  CHECK (offset_end_days >= offset_start_days)
+);
+CREATE INDEX IF NOT EXISTS idx_release_template_stages_template_id ON public.release_template_stages(template_id);
+
+CREATE TABLE public.release_cycles (
+  id UUID PRIMARY KEY DEFAULT (md5(random()::text || clock_timestamp()::text)::uuid),
+  name TEXT NOT NULL,
+  description TEXT,
+  template_id UUID REFERENCES public.release_templates(id) ON DELETE SET NULL,
+  anchor_date DATE,
+  responsible_id UUID REFERENCES public.profiles(id) ON DELETE SET NULL,
+  published_at TIMESTAMP WITH TIME ZONE,
+  created_by UUID REFERENCES public.profiles(id) ON DELETE SET NULL,
+  created_at TIMESTAMP WITH TIME ZONE DEFAULT now() NOT NULL,
+  updated_at TIMESTAMP WITH TIME ZONE DEFAULT now() NOT NULL
+);
+
+-- Etapas do ciclo — timeline COMPARTILHADA por todos os itens dentro dele.
+-- planned_start_date/planned_end_date congeladas na criação (referência de
+-- "planejado x realizado"), mesmo depois de start_date/end_date arrastados.
+CREATE TABLE public.release_cycle_stages (
+  id UUID PRIMARY KEY DEFAULT (md5(random()::text || clock_timestamp()::text)::uuid),
+  cycle_id UUID NOT NULL REFERENCES public.release_cycles(id) ON DELETE CASCADE,
+  template_stage_id UUID REFERENCES public.release_template_stages(id) ON DELETE SET NULL,
+  stage_order INTEGER NOT NULL DEFAULT 0,
+  name TEXT NOT NULL,
+  description TEXT,
+  color TEXT NOT NULL DEFAULT '#2563eb',
+  icon TEXT,
+  start_date DATE NOT NULL,
+  end_date DATE NOT NULL,
+  planned_start_date DATE NOT NULL,
+  planned_end_date DATE NOT NULL,
+  team_id UUID REFERENCES public.internal_teams(id) ON DELETE SET NULL,
+  responsible_ids UUID[] NOT NULL DEFAULT '{}',
+  notes TEXT,
+  completed_at TIMESTAMP WITH TIME ZONE,
+  notified_start_at TIMESTAMP WITH TIME ZONE,
+  notified_overdue_at TIMESTAMP WITH TIME ZONE,
+  created_at TIMESTAMP WITH TIME ZONE DEFAULT now() NOT NULL,
+  updated_at TIMESTAMP WITH TIME ZONE DEFAULT now() NOT NULL,
+  CHECK (end_date >= start_date),
+  CHECK (planned_end_date >= planned_start_date)
+);
+CREATE INDEX IF NOT EXISTS idx_release_cycle_stages_cycle_id ON public.release_cycle_stages(cycle_id);
+CREATE INDEX IF NOT EXISTS idx_release_cycle_stages_dates ON public.release_cycle_stages(start_date, end_date);
+CREATE INDEX IF NOT EXISTS idx_release_cycle_stages_team_id ON public.release_cycle_stages(team_id);
+
+-- Item dentro do ciclo: um Hotfix ou uma Publicação (Emergencial/Prevista)
+-- de verdade. current_stage_id é só a posição na timeline compartilhada
+-- pra exibição — mover um item de etapa não toca em data de ninguém.
+CREATE TABLE public.release_items (
+  id UUID PRIMARY KEY DEFAULT (md5(random()::text || clock_timestamp()::text)::uuid),
+  cycle_id UUID NOT NULL REFERENCES public.release_cycles(id) ON DELETE CASCADE,
+  item_type TEXT NOT NULL CHECK (item_type IN ('hotfix', 'emergencial', 'prevista')),
+  name TEXT NOT NULL,
+  description TEXT,
+  responsible_id UUID REFERENCES public.profiles(id) ON DELETE SET NULL,
+  current_stage_id UUID REFERENCES public.release_cycle_stages(id) ON DELETE SET NULL,
+  completed_at TIMESTAMP WITH TIME ZONE,
+  created_by UUID REFERENCES public.profiles(id) ON DELETE SET NULL,
+  created_at TIMESTAMP WITH TIME ZONE DEFAULT now() NOT NULL,
+  updated_at TIMESTAMP WITH TIME ZONE DEFAULT now() NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_release_items_cycle_id ON public.release_items(cycle_id);
+CREATE INDEX IF NOT EXISTS idx_release_items_current_stage_id ON public.release_items(current_stage_id);
+
+-- Chamado de CLIENTE vinculado ao ITEM (ticket interno usa
+-- internal_tickets.release_item_id, perto de internal_tickets).
+CREATE TABLE public.release_item_tickets (
+  release_item_id UUID NOT NULL REFERENCES public.release_items(id) ON DELETE CASCADE,
+  ticket_id TEXT NOT NULL REFERENCES public.tickets(id) ON DELETE CASCADE,
+  created_at TIMESTAMP WITH TIME ZONE DEFAULT now() NOT NULL,
+  created_by UUID REFERENCES public.profiles(id) ON DELETE SET NULL,
+  PRIMARY KEY (release_item_id, ticket_id)
+);
+CREATE INDEX IF NOT EXISTS idx_release_item_tickets_ticket ON public.release_item_tickets(ticket_id);
+
 -- Fila de envio atrasado (status='pending') e histórico/auditoria
 -- (status='sent'|'failed'|'skipped') na mesma tabela. Movida pra depois de
 -- "Tickets Table" (bug corrigido: referenciava public.tickets antes da
@@ -1353,6 +1461,7 @@ CREATE TABLE public.internal_tickets (
   sla_limit TIMESTAMP WITH TIME ZONE, -- calculado a partir da prioridade + SLA configurado em Configurações (ver InternalTicketService.saveWithDetails / handleUpdateTicket), não editado manualmente
   expected_publish_date TIMESTAMP WITH TIME ZONE, -- "Publicação prevista": estimativa do dev, independente do SLA
   hotfix_id UUID REFERENCES public.hotfixes(id) ON DELETE SET NULL, -- marcador informativo: hotfix cadastrado ao qual este ticket se refere
+  release_item_id UUID REFERENCES public.release_items(id) ON DELETE SET NULL, -- vínculo com um ITEM (hotfix/publicação) de um ciclo (2026-10-19) — independente do hotfix_id acima, que é só do fluxo achatado legado
   -- Classificação da solução, preenchida na conclusão (ver
   -- config_effort_levels / config_outcomes). Esforço = quanto custou resolver;
   -- Desfecho = natureza da solução. Base do relatório de Carga e Complexidade.
@@ -1373,6 +1482,7 @@ CREATE INDEX IF NOT EXISTS idx_internal_tickets_status ON public.internal_ticket
 CREATE INDEX IF NOT EXISTS idx_internal_tickets_assignee_id ON public.internal_tickets(assignee_id);
 CREATE INDEX IF NOT EXISTS idx_internal_tickets_internal_team_id ON public.internal_tickets(internal_team_id);
 CREATE INDEX IF NOT EXISTS idx_internal_tickets_search_vector ON public.internal_tickets USING GIN (search_vector);
+CREATE INDEX IF NOT EXISTS idx_internal_tickets_release_item_id ON public.internal_tickets(release_item_id);
 
 -- Ticket Internal Links Table
 CREATE TABLE public.ticket_internal_links (
