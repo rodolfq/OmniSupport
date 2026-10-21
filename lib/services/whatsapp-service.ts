@@ -10,12 +10,15 @@ import { sendBaileysRedirectNoticeIfDue } from './baileys-redirect';
 
 const log = pino({ level: (process.env.WHATSAPP_LOG_LEVEL as any) || 'warn' });
 
-// 8 tentativas com espera dobrando (3s → 5min) cobrem mais de uma hora de
-// indisponibilidade antes de desistir. O valor anterior — 5 tentativas de 3s
-// fixos — tolerava só ~15 segundos de queda.
-const MAX_RECONNECT_ATTEMPTS = 8;
-const RECONNECT_BASE_DELAY_MS = 3000;
-const RECONNECT_MAX_DELAY_MS = 5 * 60 * 1000;
+// Decisão do usuário (2026-10-21): o WhatsApp não-oficial (Baileys) não é
+// crítico pra operação — não tem problema ficar offline por um tempo. Em vez
+// de tentativas rápidas e crescentes (era 3s, 6s, 12s... até 5min, 8
+// tentativas, ~11min no total e depois desistia), reconecta no máximo 1x por
+// hora, pra sempre (nunca desiste sozinho) — sem martelar a conexão nem gerar
+// log/carga toda vez que ela cair (foi o que causou lentidão real em
+// produção em 2026-10-21: um conflito com outro dispositivo logado na mesma
+// conta ficava sendo reconectado sem parar).
+const RECONNECT_INTERVAL_MS = 60 * 60 * 1000;
 const CONNECTING_STALE_MS = 45000;
 const SEND_RETRY_ATTEMPTS = 3;
 const MAX_CONTACT_PHOTO_BYTES = 2 * 1024 * 1024;
@@ -420,42 +423,42 @@ export class WhatsAppService {
             const attempts = (state.retryCount.get(instanceId) || 0) + 1;
             state.retryCount.set(instanceId, attempts);
 
-            if (attempts <= MAX_RECONNECT_ATTEMPTS) {
-              clearReconnectTimer(instanceId);
-              // Espera crescente em vez de 3s fixos. Com o valor fixo e 5
-              // tentativas, qualquer queda de rede acima de ~15 segundos
-              // esgotava o limite — curto demais para uma oscilação comum de
-              // link. Agora: 3s, 6, 12, 24, 48, 96, 192, até o teto de 5 min,
-              // o que cobre mais de uma hora de indisponibilidade.
-              const delay = Math.min(
-                RECONNECT_BASE_DELAY_MS * Math.pow(2, attempts - 1),
-                RECONNECT_MAX_DELAY_MS
-              );
-              console.warn(`[WhatsApp:${instanceId}] Conexão caiu; tentativa ${attempts} em ${Math.round(delay / 1000)}s.`);
-              const timer = setTimeout(() => {
-                state.reconnectTimers.delete(instanceId);
-                void this.connect(instanceId);
-              }, delay);
-              state.reconnectTimers.set(instanceId, timer);
-            } else {
-              // Desiste de tentar sozinho, mas PRESERVA as credenciais: a
-              // sessão continua válida do lado do WhatsApp, e uma queda de rede
-              // prolongada não deve custar um novo QR code. Antes havia um
-              // clearStoredSession aqui, então bastava a internet cair por um
-              // tempo para alguém ter que reconectar o telefone na mão.
-              // Só logout de verdade (tratado no ramo abaixo) invalida a
-              // credencial. O botão "Conectar" da tela reaproveita o que está
-              // guardado e volta sem QR.
-              console.error(
-                `[WhatsApp:${instanceId}] ${MAX_RECONNECT_ATTEMPTS} tentativas de reconexão sem sucesso. ` +
-                'Parando por aqui; as credenciais foram mantidas, use "Conectar" na tela de WhatsApp.'
-              );
-              clearReconnectTimer(instanceId);
-              if (state.instances.get(instanceId)?.sock === sock) {
-                state.instances.delete(instanceId);
-              }
-              state.retryCount.delete(instanceId);
-            }
+            clearReconnectTimer(instanceId);
+            // Intervalo fixo de 1h, sempre — nunca desiste por conta própria.
+            // Decisão do usuário (2026-10-21): este WhatsApp não é crítico pra
+            // operação, não tem problema ficar offline por um tempo; o que
+            // importa é NUNCA martelar reconexão (era 3s/6s/12s... escalando
+            // até 5min, 8 tentativas, ~11min no total, e causou lentidão real
+            // em produção quando um conflito com outro dispositivo ficava
+            // derrubando a conexão repetidamente). Credenciais sempre
+            // preservadas — só logout de verdade (ramo abaixo) as invalida.
+            console.warn(`[WhatsApp:${instanceId}] Conexão caiu; tentativa ${attempts} em 1h.`);
+            const timer = setTimeout(() => {
+              state.reconnectTimers.delete(instanceId);
+              // Registrado em ensurePromises (mesmo cadeado que
+              // ensureConnection já respeita) ANTES de qualquer await, para
+              // que um poll concorrente de GET /api/whatsapp/status (que
+              // chama ensureConnection a cada vez que a tela fica aberta)
+              // nunca crie um SEGUNDO socket para a mesma instância ao mesmo
+              // tempo — dois sockets autenticando com a mesma conta
+              // simultaneamente é o próprio WhatsApp quem devolve "stream
+              // errored out" por conflito, e cada um reagia reconectando de
+              // novo, se realimentando. Sem isso, ensureConnection só evitava
+              // chamar connect() de novo enquanto o timer ainda estava
+              // pendente no Map — no instante exato em que o timer dispara
+              // (linha acima já apagou o timer do Map), havia uma janela em
+              // que outro chamador podia entrar.
+              const pending = this.connect(instanceId)
+                .then(() => undefined)
+                .catch((err) => {
+                  console.error(`[WhatsApp:${instanceId}] Reconexão automática falhou:`, err);
+                })
+                .finally(() => {
+                  state.ensurePromises.delete(instanceId);
+                });
+              state.ensurePromises.set(instanceId, pending);
+            }, RECONNECT_INTERVAL_MS);
+            state.reconnectTimers.set(instanceId, timer);
           } else {
             clearReconnectTimer(instanceId);
             if (state.instances.get(instanceId)?.sock === sock) {
