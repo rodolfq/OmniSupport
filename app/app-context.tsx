@@ -140,6 +140,7 @@ interface AppContextType {
   navBadges: NavBadges;
   refreshNavBadges: () => Promise<void>;
   markTicketNotificationsRead: (ticketId: string) => Promise<string | null>;
+  markInternalTicketNotificationsRead: (internalTicketId: string) => Promise<string | null>;
 }
 
 // Números "stackados" dos ícones da sidebar (components/sidebar.tsx) — Chat
@@ -152,6 +153,11 @@ export interface NavBadges {
   // Mesmo total de myTicketsUnread, mas por chamado — usado pra mostrar o
   // número no card individual dentro de app/(portal)/my-tickets/page.tsx.
   myTicketsUnreadByTicket: Record<string, number>;
+  // Mesma ideia pro TICKET INTERNO (2026-10-21) — critério mais amplo
+  // (qualquer ticket já aberto antes, não só os atribuídos ao usuário), pra
+  // mostrar o indicativo em toda tela que lista ticket interno.
+  internalTicketsUnread: number;
+  internalTicketsUnreadByTicket: Record<string, number>;
 }
 
 export interface EvaluationModalTarget {
@@ -540,7 +546,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     }
   }, [addNotification, triggerRefresh]);
 
-  const [navBadges, setNavBadges] = useState<NavBadges>({ chatInternalUnread: 0, myTicketsUnread: 0, myTicketsUnreadByTicket: {} });
+  const [navBadges, setNavBadges] = useState<NavBadges>({ chatInternalUnread: 0, myTicketsUnread: 0, myTicketsUnreadByTicket: {}, internalTicketsUnread: 0, internalTicketsUnreadByTicket: {} });
 
   const refreshNavBadges = React.useCallback(async () => {
     if (!userRef.current?.id) return;
@@ -551,7 +557,9 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       setNavBadges({
         chatInternalUnread: data.chatInternalUnread || 0,
         myTicketsUnread: data.myTicketsUnread || 0,
-        myTicketsUnreadByTicket: data.myTicketsUnreadByTicket || {}
+        myTicketsUnreadByTicket: data.myTicketsUnreadByTicket || {},
+        internalTicketsUnread: data.internalTicketsUnread || 0,
+        internalTicketsUnreadByTicket: data.internalTicketsUnreadByTicket || {}
       });
     } catch (error) {
       console.error('Erro ao buscar notificações da sidebar:', error);
@@ -576,6 +584,25 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       return data.previousReadAt || null;
     } catch (error) {
       console.error('Erro ao marcar chamado como lido:', error);
+      return null;
+    }
+  }, [refreshNavBadges]);
+
+  // Mesma ideia, pro ticket interno (2026-10-21) — chamado ao abrir
+  // app/(portal)/internal-tickets/[id]/page.tsx.
+  const markInternalTicketNotificationsRead = React.useCallback(async (internalTicketId: string): Promise<string | null> => {
+    try {
+      const res = await fetch('/api/notifications/badges', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ action: 'mark-internal-ticket-read', internalTicketId })
+      });
+      refreshNavBadges();
+      if (!res.ok) return null;
+      const data = await res.json();
+      return data.previousReadAt || null;
+    } catch (error) {
+      console.error('Erro ao marcar ticket interno como lido:', error);
       return null;
     }
   }, [refreshNavBadges]);
@@ -1191,7 +1218,8 @@ return (
       closeEvaluationModal,
       navBadges,
       refreshNavBadges,
-      markTicketNotificationsRead
+      markTicketNotificationsRead,
+      markInternalTicketNotificationsRead
     }}>
       {children}
     </AppContext.Provider>

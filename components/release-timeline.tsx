@@ -1,26 +1,18 @@
 'use client';
 
 import React, { useMemo, useRef, useState, useCallback, useEffect } from 'react';
-import { Lock, CheckCircle2, AlertTriangle, AlertOctagon, Clock, Circle, Flag, Rocket, GripVertical, CalendarRange } from 'lucide-react';
+import { Lock, CheckCircle2, AlertTriangle, AlertOctagon, Flag, Rocket, GripVertical, CalendarRange } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { ReleaseCycle, ReleaseCycleStage, ReleaseItem, ReleaseStageStatus } from '@/lib/types';
 import {
   computeStagesWithStatus, diffIsoDays, addDaysToIsoDate, todayIsoDate,
-  isStageMilestone, STAGE_STATUS_META, RELEASE_ITEM_TYPE_META, formatIsoDatePtBr
+  isStageMilestone, STAGE_STATUS_META, RELEASE_ITEM_TYPE_META, formatIsoDatePtBr, readableTextOn
 } from '@/lib/release-stage-logic';
 
 const DAY_WIDTH_ALL = 30;
 const DAY_WIDTH_SINGLE = 40;
 const LANE_LABEL_WIDTH = 240;
 const WEEKDAY_LETTERS = ['D', 'S', 'T', 'Q', 'Q', 'S', 'S'];
-
-const STATUS_ICON: Record<ReleaseStageStatus, React.ComponentType<{ size?: number; className?: string; style?: React.CSSProperties }>> = {
-  pendente: Circle,
-  em_andamento: Clock,
-  concluida: CheckCircle2,
-  atrasada: AlertTriangle,
-  em_risco: AlertOctagon,
-};
 
 function capitalize(s: string): string {
   return s.charAt(0).toUpperCase() + s.slice(1);
@@ -122,7 +114,7 @@ function StageBar({
   const milestone = isStageMilestone({ startDate: start, endDate: end });
   const status = stage.status;
   const meta = STAGE_STATUS_META[status];
-  const StatusIcon = STATUS_ICON[status];
+  const textColor = readableTextOn(stage.color);
 
   const { begin, onMove, onUp } = useDragHandlers({
     canEdit, dayWidth, stage,
@@ -165,23 +157,21 @@ function StageBar({
           hovered && 'shadow-md'
         )}
         style={{
-          backgroundColor: meta.surfaceVar,
-          borderColor: meta.textVar,
-          borderWidth: status === 'atrasada' || status === 'em_risco' ? 1.5 : 1,
+          backgroundColor: stage.color,
+          opacity: status === 'pendente' ? 0.6 : 1,
+          borderColor: status === 'em_risco' || status === 'atrasada' ? meta.textVar : 'rgba(255,255,255,0.35)',
+          borderWidth: status === 'atrasada' || status === 'em_risco' ? 2 : 1,
           borderStyle: status === 'em_risco' ? 'dashed' : 'solid',
+          boxShadow: status === 'atrasada' ? `0 0 0 2px ${meta.textVar}` : status === 'concluida' ? `0 0 0 2px ${meta.textVar}` : undefined,
           marginTop: plannedChanged ? 3 : 0,
         }}
       >
-        {/* pontinho = identidade própria da etapa (cor escolhida no modelo/criação),
-            separado do status (fundo+ícone) — ver legenda. */}
-        {!milestone && <span className="w-1.5 h-1.5 rounded-full shrink-0" style={{ backgroundColor: stage.color }} />}
         {milestone ? (
-          <Flag size={isSingle ? 13 : 11} style={{ color: meta.textVar }} className="shrink-0" />
+          <Flag size={isSingle ? 13 : 11} style={{ color: textColor }} className="shrink-0" />
         ) : (
-          <StatusIcon size={isSingle ? 13 : 11} style={{ color: meta.textVar }} className="shrink-0" />
-        )}
-        {showLabel && !milestone && (
-          <span className="text-[11px] font-bold truncate" style={{ color: meta.textVar }}>{stage.name}</span>
+          showLabel && (
+            <span className="text-[11px] font-bold truncate" style={{ color: textColor }}>{stage.name}</span>
+          )
         )}
 
         {canEdit && !milestone && (
@@ -189,10 +179,16 @@ function StageBar({
             <div onPointerDown={begin('resize-start')} onPointerMove={onMove} onPointerUp={onUp} className="absolute left-0 top-0 h-full w-2.5 cursor-ew-resize" />
             <div onPointerDown={begin('resize-end')} onPointerMove={onMove} onPointerUp={onUp} className="absolute right-0 top-0 h-full w-2.5 cursor-ew-resize" />
             {hovered && showLabel && (
-              <GripVertical size={12} className="absolute right-1.5 top-1/2 -translate-y-1/2 opacity-40 pointer-events-none" style={{ color: meta.textVar }} />
+              <GripVertical size={12} className="absolute right-1.5 top-1/2 -translate-y-1/2 opacity-50 pointer-events-none" style={{ color: textColor }} />
             )}
           </>
         )}
+
+        {/* Selo de status: fundo PRÓPRIO (nunca tinge em cima da cor
+            arbitrária da etapa, que podia deixar o ícone invisível). */}
+        {status === 'concluida' && <CheckCircle2 size={13} className="absolute -right-1.5 -top-1.5 text-white bg-[var(--text-success)] rounded-full ring-2 ring-[var(--surface-card)]" />}
+        {status === 'atrasada' && <AlertTriangle size={12} className="absolute -right-1.5 -top-1.5 text-white bg-[var(--text-danger)] rounded-full p-[1px] ring-2 ring-[var(--surface-card)]" />}
+        {status === 'em_risco' && <AlertOctagon size={12} className="absolute -right-1.5 -top-1.5 text-white bg-[var(--text-warning-strong)] rounded-full p-[1px] ring-2 ring-[var(--surface-card)]" />}
 
         {!isSingle && itemCount > 0 && (
           <span className="absolute -left-1 -bottom-1 min-w-[15px] h-[15px] px-1 rounded-full bg-[var(--text-primary)] text-white text-[8px] font-black flex items-center justify-center leading-none ring-2 ring-[var(--surface-card)]">
@@ -205,7 +201,7 @@ function StageBar({
       {milestone && isSingle && (
         <span
           className="absolute left-full ml-1.5 top-1/2 -translate-y-1/2 text-[11px] font-bold whitespace-nowrap pointer-events-none"
-          style={{ color: meta.textVar }}
+          style={{ color: 'var(--text-primary)' }}
         >
           {stage.name}
         </span>
@@ -303,17 +299,16 @@ export function ReleaseTimeline({
           <CalendarRange size={13} /> {formatIsoDatePtBr(days[0])}–{formatIsoDatePtBr(days[days.length - 1])}
         </div>
         <div className="flex flex-wrap items-center gap-3">
-          {(['pendente', 'em_andamento', 'em_risco', 'atrasada', 'concluida'] as const).map(s => {
-            const Icon = STATUS_ICON[s];
-            return (
-              <span key={s} className="flex items-center gap-1.5 text-[10px] font-bold" style={{ color: STAGE_STATUS_META[s].textVar }}>
-                <Icon size={12} />
-                {STAGE_STATUS_META[s].label}
-              </span>
-            );
-          })}
+          <span className="text-[9px] font-black uppercase tracking-widest text-[var(--text-tertiary)]/70">Status (contorno):</span>
+          {(['pendente', 'em_andamento', 'em_risco', 'atrasada', 'concluida'] as const).map(s => (
+            <span key={s} className="flex items-center gap-1.5 text-[10px] font-bold" style={{ color: STAGE_STATUS_META[s].textVar }}>
+              <span className="w-2.5 h-2.5 rounded-full border-2" style={{ borderColor: STAGE_STATUS_META[s].textVar, backgroundColor: 'transparent' }} />
+              {STAGE_STATUS_META[s].label}
+            </span>
+          ))}
         </div>
         <div className="flex flex-wrap items-center gap-3 border-l border-[var(--border-default)] pl-4">
+          <span className="text-[9px] font-black uppercase tracking-widest text-[var(--text-tertiary)]/70">Tipo de item:</span>
           {(['hotfix', 'emergencial', 'prevista'] as const).map(t => (
             <span key={t} className="flex items-center gap-1.5 text-[10px] font-bold text-[var(--text-tertiary)]">
               <span className="w-2.5 h-2.5 rounded-full" style={{ backgroundColor: RELEASE_ITEM_TYPE_META[t].color }} />
@@ -321,9 +316,9 @@ export function ReleaseTimeline({
             </span>
           ))}
         </div>
-        <div className="flex items-center gap-1.5 text-[10px] font-medium text-[var(--text-tertiary)] border-l border-[var(--border-default)] pl-4">
-          <span className="w-1.5 h-1.5 rounded-full bg-[var(--text-tertiary)]" /> cor própria da etapa
-        </div>
+        <p className="text-[10px] font-medium text-[var(--text-tertiary)] border-l border-[var(--border-default)] pl-4">
+          A cor de fundo de cada barra é a identidade própria da etapa, definida ao criar o ciclo.
+        </p>
       </div>
 
       <div ref={scrollRef} className="overflow-x-auto">

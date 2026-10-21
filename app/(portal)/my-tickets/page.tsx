@@ -25,9 +25,11 @@ import { cn, normalizeString } from '@/lib/utils';
 import { TicketDetailModal } from '@/components/ticket-detail-modal';
 import { TicketEvaluationModal } from '@/components/ticket-evaluation-modal';
 import { CustomerDashboardPanel } from '@/components/customer-dashboard-panel';
+import { NotificationCountBadge, UnreadDot } from '@/components/notification-count-badge';
 import { isClosedTicketStatus, getCustomerStatusLabel } from '@/lib/ticket-status';
 import { useSearchParams, useRouter } from 'next/navigation';
 import { ConfigService } from '@/lib/services/config-service';
+import { usePersistedViewMode } from '@/hooks/use-persisted-view-mode';
 import { findStatusColor } from '@/lib/status-colors';
 
 interface InternalTicketItem extends InternalTicket {
@@ -123,7 +125,7 @@ export default function MyTicketsPage() {
   const [search, setSearch] = useState('');
   const [filter, setFilter] = useState<CustomerStatusFilter>('all');
   const [selectedTicket, setSelectedTicket] = useState<Ticket | null>(null);
-  const [view, setView] = useState<'grid' | 'list' | 'kanban'>('grid');
+  const [view, setView] = usePersistedViewMode<'grid' | 'list' | 'kanban'>('my-tickets', 'grid', ['grid', 'list', 'kanban']);
   const [visibleCount, setVisibleCount] = useState(12);
 
   // Chamados Concluídos sem avaliação ainda (pedido do usuário, 2026-10-07) —
@@ -387,6 +389,7 @@ export default function MyTicketsPage() {
                 )}
               >
                 <FolderKanban size={14} /> Tickets Internos
+                <UnreadDot show={navBadges.internalTicketsUnread > 0} />
               </button>
             </div>
           )}
@@ -524,10 +527,11 @@ export default function MyTicketsPage() {
                       whileHover={{ y: -2 }}
                       onClick={() => router.push(`/internal-tickets/${it.uuid}`)}
                       className={cn(
-                        "bg-[var(--surface-card)] border border-[var(--border-default)] rounded-2xl p-6 shadow-sm cursor-pointer transition-all hover:shadow-md hover:border-[var(--text-warning-strong)]/40 group flex flex-col",
+                        "relative bg-[var(--surface-card)] border border-[var(--border-default)] rounded-2xl p-6 shadow-sm cursor-pointer transition-all hover:shadow-md hover:border-[var(--text-warning-strong)]/40 group flex flex-col",
                         view === 'list' && "flex-row items-center gap-6 py-4"
                       )}
                     >
+                      <NotificationCountBadge count={navBadges.internalTicketsUnreadByTicket[it.uuid || ''] || 0} />
                       <div className={cn("flex-1 min-w-0", view === 'list' && "flex items-center gap-6 flex-1")}>
                         <div className="flex items-center justify-between mb-3">
                           <span className="text-[10px] font-semibold uppercase tracking-widest text-[var(--text-warning)]">{it.displayId}</span>

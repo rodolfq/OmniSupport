@@ -3,6 +3,7 @@
 import React, { useState, useEffect, useCallback, useMemo } from "react";
 import { useEscapeToClose } from '@/hooks/use-escape-to-close';
 import { StyledSelect } from '@/components/styled-select';
+import { NotificationCountBadge, UnreadDot } from '@/components/notification-count-badge';
 import { cn } from "@/lib/utils";
 import { motion, AnimatePresence } from "motion/react";
 import { useApp } from "@/app/app-context";
@@ -225,7 +226,7 @@ export function InternalTicketsView({
   openNewModal?: boolean;
 }) {
   const router = useRouter();
-  const { currentUser, hasPermission, triggerRefresh } = useApp();
+  const { currentUser, hasPermission, triggerRefresh, navBadges } = useApp();
   const [tickets, setTickets] = useState<InternalTicketItem[]>([]);
   // Só usado em <select> de filtro/responsável (sem avatar, ver componente
   // Avatar local — só aceita {name,size}) — via hook compartilhado "lite"
@@ -839,6 +840,7 @@ const openEditModal = (ticket: InternalTicketItem) => {
               statuses={statuses}
               assignableUsers={assignableUsers}
               onReassign={reassignInternalTicket}
+              unreadCount={navBadges.internalTicketsUnreadByTicket[it.uuid || ''] || 0}
             />
           ))}
         </div>
@@ -880,6 +882,7 @@ const openEditModal = (ticket: InternalTicketItem) => {
             selectedIds={selectedIds}
             onToggleSelect={toggleSelectTicket}
             onToggleSelectAll={toggleSelectAllTickets}
+            unreadByTicket={navBadges.internalTicketsUnreadByTicket}
           />
         </>
       ) : (
@@ -989,7 +992,7 @@ const openEditModal = (ticket: InternalTicketItem) => {
 // Ticket Card Component
 function TicketCard({
   ticket, onEdit, teams = DEFAULT_TEAM_OPTIONS, statuses = DEFAULT_KANBAN_STATUSES,
-  assignableUsers = [], onReassign
+  assignableUsers = [], onReassign, unreadCount = 0
 }: {
   ticket: InternalTicketItem;
   onEdit: () => void;
@@ -997,6 +1000,7 @@ function TicketCard({
   statuses?: KanbanStatusMeta[];
   assignableUsers?: { id: string; name: string; avatarThumbUrl?: string | null }[];
   onReassign?: (ticketId: string, assigneeId: string | null) => Promise<void>;
+  unreadCount?: number;
 }) {
   const teamOption = teams.find((t) => t.value === ticket.teamId) || teams[0];
   const statusMeta = statuses.find(s => s.value === (ticket.status || "Novo")) || statuses[0];
@@ -1009,6 +1013,7 @@ function TicketCard({
       className="relative bg-[var(--surface-card)] rounded-2xl border border-[var(--border-default)] pl-5 pr-5 py-5 hover:shadow-lg hover:border-[var(--text-warning-strong)]/40 transition-all group cursor-pointer overflow-hidden"
       onClick={onEdit}
     >
+      <NotificationCountBadge count={unreadCount} />
       <div className="absolute left-0 top-0 bottom-0 w-1" style={{ backgroundColor: statusMeta.accent }} />
 
       <div className="flex items-start justify-between mb-3">
@@ -1095,7 +1100,7 @@ function TicketCard({
 // Ticket Table Component
 function TicketTable({
   tickets, onEdit, teams = DEFAULT_TEAM_OPTIONS, statuses = DEFAULT_KANBAN_STATUSES,
-  assignableUsers = [], onReassign, selectedIds, onToggleSelect, onToggleSelectAll
+  assignableUsers = [], onReassign, selectedIds, onToggleSelect, onToggleSelectAll, unreadByTicket = {}
 }: {
   tickets: InternalTicketItem[];
   onEdit: (t: InternalTicketItem) => void;
@@ -1103,6 +1108,7 @@ function TicketTable({
   statuses?: KanbanStatusMeta[];
   assignableUsers?: { id: string; name: string; avatarThumbUrl?: string | null }[];
   onReassign?: (ticketUuid: string, assigneeId: string | null) => Promise<void>;
+  unreadByTicket?: Record<string, number>;
   // Edição em massa (2026-09-30) — seleção fica só na visão Tabela, mesma
   // decisão de escopo do padrão já usado em "Todos os Chamados"
   // (tickets-view.tsx): é a visão de gestão em lista, onde selecionar linha a
@@ -1160,7 +1166,12 @@ function TicketTable({
                     <span className="text-[10px] font-semibold text-[var(--text-warning)] whitespace-nowrap">{it.id?.startsWith("int-") ? it.id : `#${it.internalTicketNumber?.toString().padStart(4, "0")}`}</span>
                   </div>
                 </td>
-                <td className="px-4 py-3 text-sm font-bold text-[var(--text-primary)] group-hover:text-[var(--text-warning)] transition-colors max-w-xs truncate">{it.title}</td>
+                <td className="px-4 py-3 text-sm font-bold text-[var(--text-primary)] group-hover:text-[var(--text-warning)] transition-colors max-w-xs truncate">
+                  <div className="flex items-center gap-1.5">
+                    <UnreadDot show={!!unreadByTicket[it.uuid || '']} />
+                    <span className="truncate">{it.title}</span>
+                  </div>
+                </td>
                 <td className="px-4 py-3">
                   <span className={cn("text-[10px] font-semibold px-2 py-1 rounded-full uppercase flex items-center gap-1 w-fit", statusMeta.color)}>
                     <span className={cn("w-1.5 h-1.5 rounded-full", statusMeta.dot)} />
@@ -1338,14 +1349,20 @@ function DraggableKanbanCard({ ticket, onEdit, assignableUsers = [], onReassign 
 
 // KanbanCard Component
 function KanbanCard({ ticket, onEdit, dragging = false, assignableUsers = [], onReassign }: { ticket: InternalTicketItem; onEdit: (t: InternalTicketItem) => void; dragging?: boolean; assignableUsers?: { id: string; name: string; avatarThumbUrl?: string | null }[]; onReassign?: (ticketUuid: string, assigneeId: string | null) => Promise<void> }) {
+  // useApp() direto aqui (em vez de perfurar DndContext → KanbanColumn →
+  // DraggableKanbanCard) — menos props pra manter em sincronia, mesmo
+  // indicativo de "notas novas" de TicketCard/TicketTable (2026-10-21).
+  const { navBadges } = useApp();
+  const unreadCount = navBadges.internalTicketsUnreadByTicket[ticket.uuid || ''] || 0;
   return (
     <div
       onClick={() => !dragging && onEdit(ticket)}
       className={cn(
-        "bg-[var(--surface-card)] rounded-xl p-3.5 border border-[var(--border-default)] transition-all group",
+        "relative bg-[var(--surface-card)] rounded-xl p-3.5 border border-[var(--border-default)] transition-all group",
         dragging ? "shadow-2xl rotate-2 cursor-grabbing" : "hover:shadow-md hover:border-[var(--text-warning-strong)]/40 cursor-grab active:cursor-grabbing"
       )}
     >
+      <NotificationCountBadge count={unreadCount} />
       <div className="flex items-start justify-between mb-2">
         <span className="text-[10px] font-semibold text-[var(--text-warning)]">
           {ticket.id?.startsWith("int-") ? ticket.id : `#${ticket.internalTicketNumber?.toString().padStart(4, "0")}`}

@@ -83,6 +83,8 @@ export interface HotfixRecord {
   productId: string | null;
   expectedDate: string;
   publishedAt?: string;
+  releaseCycleId?: string | null;
+  releaseItemId?: string | null;
   createdAt?: string;
 }
 
@@ -171,8 +173,25 @@ export async function createReleaseCycle(data: {
   responsibleId?: string | null;
   templateId?: string | null;
   anchorDate?: string | null;
-}): Promise<MutationResult & { cycle?: ReleaseCycle }> {
-  return mutate('/api/release-cycles', { method: 'POST', body: JSON.stringify({ action: 'create-cycle', ...data }) }, 'Erro ao criar ciclo.') as Promise<MutationResult & { cycle?: ReleaseCycle }>;
+  /** Por templateStageId — personaliza a cor de cada etapa gerada só neste ciclo. */
+  stageColorOverrides?: Record<string, string>;
+  /** Vincula hotfix(es) soltos ao ciclo recém-criado, já como item do tipo escolhido. */
+  linkHotfixIds?: Array<{ hotfixId: string; itemType: ReleaseItemType; currentStageId?: string | null }>;
+}): Promise<MutationResult & { cycle?: ReleaseCycle; linkErrors?: string[] }> {
+  return mutate('/api/release-cycles', { method: 'POST', body: JSON.stringify({ action: 'create-cycle', ...data }) }, 'Erro ao criar ciclo.') as Promise<MutationResult & { cycle?: ReleaseCycle; linkErrors?: string[] }>;
+}
+
+/**
+ * Vincula um hotfix SOLTO (fluxo achatado legado) a um ciclo já existente,
+ * criando um release_item espelho do tipo escolhido — pedido do usuário,
+ * 2026-10-21. ⚠️ Depende de migrations/hotfix_cycle_link.sql, ainda NÃO
+ * aplicada em produção (moratória de banco) — a rota devolve 503 com
+ * mensagem clara até lá.
+ */
+export async function linkHotfixToCycle(data: {
+  hotfixId: string; cycleId: string; itemType: ReleaseItemType; currentStageId?: string | null;
+}): Promise<MutationResult> {
+  return mutate('/api/release-cycles', { method: 'POST', body: JSON.stringify({ action: 'link-hotfix', ...data }) }, 'Erro ao vincular hotfix ao ciclo.');
 }
 
 export async function addCycleStage(data: {

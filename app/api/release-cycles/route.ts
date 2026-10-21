@@ -65,8 +65,50 @@ function mapItem(row: any): ReleaseItem {
     completedAt: toIsoOrNull(row.completed_at),
     internalTicketCount: Number(row.internal_ticket_count || 0),
     clientTicketCount: Number(row.client_ticket_count || 0),
+    // `ri.*` tolera a coluna ainda não existir (migrations/hotfix_cycle_link.sql,
+    // pendente — moratória de banco): vem undefined → null, nunca quebra.
+    sourceHotfixId: row.source_hotfix_id || null,
     createdAt: toIsoOrUndefined(row.created_at) || '',
   };
+}
+
+/**
+ * Cria o release_item "espelho" de um hotfix solto (fluxo achatado legado)
+ * dentro de um ciclo, e marca o hotfix de origem como vinculado — usado
+ * tanto por `create-cycle` (vincular hotfixes soltos ao criar o ciclo novo)
+ * quanto por `link-hotfix` (vincular a um ciclo já existente). Snapshot: não
+ * fica sincronizado com o hotfix depois (editar o hotfix não atualiza o
+ * item, e vice-versa) — decisão deliberada pra não precisar de
+ * trigger/sincronização contínua entre os dois modelos.
+ *
+ * Pré-condições (responsabilidade do chamador verificar o ciclo
+ * destravado): hotfix existe, não publicado/travado, ainda não vinculado.
+ */
+async function createItemFromHotfix(
+  hotfixId: string, cycleId: string, itemType: string, currentStageId: string | null | undefined,
+  actor: { id: string; name: string }
+): Promise<{ itemId: string } | { error: string }> {
+  if (!['hotfix', 'emergencial', 'prevista'].includes(itemType)) {
+    return { error: 'Tipo de publicação inválido.' };
+  }
+  const hotfixRes = await query('SELECT * FROM public.hotfixes WHERE id = $1', [hotfixId]);
+  if (hotfixRes.rowCount === 0) return { error: 'Hotfix não encontrado.' };
+  const hotfix = hotfixRes.rows[0];
+  if (hotfix.published_at) return { error: `Hotfix "${hotfix.name}" já publicado — travado, não pode ser vinculado.` };
+  if (hotfix.release_cycle_id) return { error: `Hotfix "${hotfix.name}" já está vinculado a outro ciclo.` };
+
+  const itemId = crypto.randomUUID();
+  await query(
+    `INSERT INTO public.release_items (id, cycle_id, item_type, name, description, responsible_id, current_stage_id, source_hotfix_id, created_by)
+     VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9)`,
+    [itemId, cycleId, itemType, hotfix.name, hotfix.description, hotfix.responsible_id, currentStageId || null, hotfixId, actor.id]
+  );
+  await query('UPDATE public.hotfixes SET release_cycle_id = $1, release_item_id = $2, updated_at = now() WHERE id = $3', [cycleId, itemId, hotfixId]);
+  logAudit({
+    actorId: actor.id, actorName: actor.name, action: 'create', entityType: 'release_item', entityId: itemId, entityLabel: hotfix.name,
+    changes: { cycleId, itemType, sourceHotfixId: hotfixId }
+  });
+  return { itemId };
 }
 
 function mapCycle(row: any, stages: ReleaseCycleStage[], items: ReleaseItem[]): ReleaseCycle {
@@ -338,7 +380,7 @@ export async function POST(request: Request) {
       if (!check.ok) return NextResponse.json({ error: check.error }, { status: permissionErrorStatus(check.error) });
       const { actor } = check;
 
-      const { name, description, responsibleId, templateId, anchorDate } = body;
+      const { name, description, responsibleId, templateId, anchorDate, stageColorOverrides, linkHotfixIds } = body;
       if (!name?.trim()) return NextResponse.json({ error: 'O nome é obrigatório.' }, { status: 400 });
 
       let templateStages: ReleaseTemplateStage[] = [];
@@ -349,7 +391,10 @@ export async function POST(request: Request) {
         if (templateStages.length === 0) return NextResponse.json({ error: 'O modelo escolhido não tem etapas.' }, { status: 400 });
       }
 
-      const drafts = templateId ? generateStagesFromTemplate(templateStages, anchorDate) : [];
+      // stageColorOverrides (opcional, por templateStageId): personaliza a
+      // cor de cada etapa gerada SÓ neste ciclo, sem alterar o modelo
+      // compartilhado — pedido do usuário, 2026-10-21.
+      const drafts = templateId ? generateStagesFromTemplate(templateStages, anchorDate, stageColorOverrides || undefined) : [];
 
       const newId = crypto.randomUUID();
       await query(
@@ -368,11 +413,39 @@ export async function POST(request: Request) {
         );
       }
 
-      logAudit({ actorId: actor.id, actorName: actor.name, action: 'create', entityType: 'release_cycle', entityId: newId, entityLabel: name, changes: { templateId, anchorDate, stageCount: drafts.length } });
+      // Vincular hotfix(es) soltos ao ciclo recém-criado (pedido do usuário,
+      // 2026-10-21) — mesma criação de release_item espelho de `link-hotfix`,
+      // só que em lote. Um hotfix que falhar (já vinculado/publicado nesse
+      // meio-tempo) não derruba a criação do ciclo nem os demais vínculos —
+      // reportado em `linkErrors` pro client avisar.
+      const linkErrors: string[] = [];
+      if (Array.isArray(linkHotfixIds)) {
+        for (const entry of linkHotfixIds) {
+          const result = await createItemFromHotfix(entry.hotfixId, newId, entry.itemType || 'hotfix', entry.currentStageId, actor);
+          if ('error' in result) linkErrors.push(result.error);
+        }
+      }
+
+      logAudit({ actorId: actor.id, actorName: actor.name, action: 'create', entityType: 'release_cycle', entityId: newId, entityLabel: name, changes: { templateId, anchorDate, stageCount: drafts.length, linkedHotfixCount: (linkHotfixIds?.length || 0) - linkErrors.length } });
 
       const { stages, items } = await fetchStagesAndItemsByCycleIds([newId]);
       const cycleRow = (await query('SELECT * FROM public.release_cycles WHERE id = $1', [newId])).rows[0];
-      return NextResponse.json({ id: newId, cycle: mapCycle(cycleRow, stages.get(newId) || [], items.get(newId) || []) });
+      return NextResponse.json({ id: newId, cycle: mapCycle(cycleRow, stages.get(newId) || [], items.get(newId) || []), linkErrors: linkErrors.length ? linkErrors : undefined });
+    }
+
+    if (action === 'link-hotfix') {
+      const check = await assertCanManageHotfixes();
+      if (!check.ok) return NextResponse.json({ error: check.error }, { status: permissionErrorStatus(check.error) });
+      const { actor } = check;
+      const { hotfixId, cycleId, itemType, currentStageId } = body;
+      if (!hotfixId || !cycleId) return NextResponse.json({ error: 'hotfixId e cycleId são obrigatórios.' }, { status: 400 });
+
+      const lock = await assertCycleNotLocked(cycleId);
+      if (!lock.ok) return NextResponse.json({ error: lock.error }, { status: 409 });
+
+      const result = await createItemFromHotfix(hotfixId, cycleId, itemType || 'hotfix', currentStageId, actor);
+      if ('error' in result) return NextResponse.json({ error: result.error }, { status: 409 });
+      return NextResponse.json({ itemId: result.itemId });
     }
 
     if (action === 'add-stage') {
@@ -612,8 +685,14 @@ export async function POST(request: Request) {
     }
 
     return NextResponse.json({ error: 'Ação desconhecida.' }, { status: 400 });
-  } catch (err) {
+  } catch (err: any) {
     console.error('Error in release-cycles route:', err);
+    // 42703 = coluna inexistente — só pode vir de hotfix_cycle_link.sql
+    // ainda não aplicada (moratória de banco, ver CLAUDE.md); mensagem
+    // específica em vez do genérico, já que é esperado até lá.
+    if (err?.code === '42703') {
+      return NextResponse.json({ error: 'Vincular hotfix a um ciclo depende de uma migration ainda não aplicada neste ambiente.' }, { status: 503 });
+    }
     return NextResponse.json({ error: 'Erro ao processar a solicitação.' }, { status: 500 });
   }
 }

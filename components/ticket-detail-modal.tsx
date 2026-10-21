@@ -3,7 +3,7 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { StyledSelect } from '@/components/styled-select';
 import { UserAvatar } from '@/components/user-avatar';
-import { X, User, MessageCircle, Clock, Link2, Paperclip, Save, Maximize2, Minimize2, Send, Lock, History, Download, File, Image as ImageIcon, Film, Loader2, Check, Copy, GitMerge } from 'lucide-react';
+import { X, User, MessageCircle, Clock, Link2, Paperclip, Save, Maximize2, Minimize2, Send, Lock, History, Download, File, Image as ImageIcon, Film, Loader2, Check, CheckCheck, Copy, GitMerge } from 'lucide-react';
 import { motion } from 'motion/react';
 import { createPortal } from 'react-dom';
 import { Ticket, TicketStatus, User as UserType, Message, UserRole, StatusConfig, Company, Attachment, PriorityConfig, CategoryConfig, RequestTypeConfig, ProductConfig, InternalTicket, Permission, TicketEvaluation } from '@/lib/types';
@@ -2405,6 +2405,13 @@ const loadMessages = async () => {
                            )}
                            dangerouslySetInnerHTML={{ __html: linkifyPlainUrls(m.text) }}
                            />
+                           {/* Check azul: cliente leu via WhatsApp ("Prosseguir") — 2026-10-21. */}
+                           {!isInternal && m.readByCustomerAt && (
+                             <p className="flex items-center gap-1 mt-1 text-[9px] font-semibold text-[var(--text-info)]" title="Lido pelo cliente via WhatsApp">
+                               <CheckCheck size={11} />
+                               Lido pelo cliente em <ClientTime date={m.readByCustomerAt} showDate />
+                             </p>
+                           )}
                            {/* Render attachments inline */}
                            {m.attachments && m.attachments.length > 0 && (
                              <div className="mt-3 pt-3 border-t border-[var(--border-default)]">

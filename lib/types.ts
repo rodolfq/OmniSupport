@@ -547,6 +547,9 @@ export interface Message {
   // mensagem (ver ticket-diff / handleUpdateTicket / saveMainTicketDescription).
   type: 'text' | 'system' | 'internal' | 'system_log';
   attachments?: Attachment[];
+  // Cliente leu via WhatsApp (digitou "Prosseguir") — 2026-10-21. Nunca
+  // setado localmente; só a resposta real do webhook Pyvon grava isto.
+  readByCustomerAt?: string | null;
 }
 
 export interface Attachment {
@@ -597,7 +600,12 @@ export interface Queue {
 
 // Item 17 do roadmap — cadastro de hotfix / janela de release (fluxo
 // ACHATADO, sem ciclo nenhum — 1 nome, 1 data, publishedAt trava o
-// registro). Nada a ver com o ciclo de publicação abaixo.
+// registro). Nada a ver com o ciclo de publicação abaixo — EXCETO pelo
+// vínculo opcional releaseCycleId/releaseItemId (2026-10-21): ligar um
+// hotfix solto a um ciclo cria um release_item "espelho" (snapshot, não
+// sincronizado depois) e marca o hotfix como vinculado. ⚠️ Depende de
+// migration ainda NÃO aplicada em produção (moratória de banco) — ver
+// CLAUDE.md seção 15, "Vincular hotfix solto a um ciclo".
 export interface Hotfix {
   id: string;
   name: string;
@@ -606,6 +614,8 @@ export interface Hotfix {
   productId?: string;
   expectedDate: string; // YYYY-MM-DD
   publishedAt?: string;
+  releaseCycleId?: string | null;
+  releaseItemId?: string | null;
   createdAt: string;
 }
 
@@ -651,6 +661,8 @@ export interface ReleaseItem {
   completedAt?: string | null;
   internalTicketCount: number;
   clientTicketCount: number;
+  /** Veio de "vincular hotfix solto" — snapshot, não sincronizado com o hotfix depois. */
+  sourceHotfixId?: string | null;
   createdAt: string;
 }
 

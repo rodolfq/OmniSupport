@@ -76,8 +76,18 @@ export interface GeneratedStageDraft {
   responsibleIds: string[];
 }
 
-/** Gera as etapas concretas de um ciclo a partir do modelo + data-âncora. */
-export function generateStagesFromTemplate(templateStages: ReleaseTemplateStage[], anchorDate: string): GeneratedStageDraft[] {
+/**
+ * Gera as etapas concretas de um ciclo a partir do modelo + data-âncora.
+ * `colorOverrides` (opcional, por templateStageId) permite personalizar a
+ * cor de cada etapa NESTE ciclo específico, sem alterar o modelo
+ * compartilhado — pedido do usuário, 2026-10-21 ("permitir definir as cores
+ * na criação"). Sem override, usa a cor do próprio modelo (padrão de sempre).
+ */
+export function generateStagesFromTemplate(
+  templateStages: ReleaseTemplateStage[],
+  anchorDate: string,
+  colorOverrides?: Record<string, string>
+): GeneratedStageDraft[] {
   return [...templateStages]
     .sort((a, b) => a.stageOrder - b.stageOrder)
     .map(ts => ({
@@ -85,7 +95,7 @@ export function generateStagesFromTemplate(templateStages: ReleaseTemplateStage[
       stageOrder: ts.stageOrder,
       name: ts.name,
       description: ts.description ?? null,
-      color: ts.color,
+      color: colorOverrides?.[ts.id] || ts.color,
       icon: ts.icon ?? null,
       startDate: addDaysToIsoDate(anchorDate, ts.offsetStartDays),
       endDate: addDaysToIsoDate(anchorDate, ts.offsetEndDays),
@@ -100,12 +110,13 @@ export const RELEASE_ITEM_TYPE_META: Record<ReleaseItemType, { label: string; sh
   prevista: { label: 'Publicação Prevista', short: 'PREV', color: '#14b8a6' },
 };
 
-// Status é o canal de cor DOMINANTE da barra na timeline (fundo + ícone +
-// texto) — por isso usa tons de SURFACE (fundo claro, legível com texto por
-// cima), nunca o --accent sólido da marca (reservado pra botão/CTA; usá-lo
-// aqui faria "em andamento" se confundir com "ação principal da tela").
-// A cor própria de cada etapa (stage.color) é só um identificador secundário
-// (um pontinho ao lado do nome), nunca o fundo — ver release-timeline.tsx.
+// Status é um canal SECUNDÁRIO na timeline (contorno + ícone da barra,
+// nunca o fundo) — o fundo é stage.color, a identidade própria de cada
+// etapa, que o usuário define na criação (pedido do usuário, 2026-10-21:
+// "volte com as cores de cada etapa"). textVar/surfaceVar aqui usam tons
+// de SURFACE (nunca o --accent sólido da marca — reservado pra botão/CTA,
+// confundiria "em andamento" com "ação principal da tela") porque também
+// aparecem fora da timeline (legenda, outros resumos de status).
 export const STAGE_STATUS_META: Record<ReleaseStageStatus, { label: string; textVar: string; surfaceVar: string }> = {
   pendente: { label: 'Pendente', textVar: 'var(--text-tertiary)', surfaceVar: 'var(--surface-pill)' },
   em_andamento: { label: 'Em andamento', textVar: 'var(--text-info)', surfaceVar: 'var(--surface-info)' },
@@ -116,6 +127,23 @@ export const STAGE_STATUS_META: Record<ReleaseStageStatus, { label: string; text
 
 export function isStageMilestone(stage: { startDate: string; endDate: string }): boolean {
   return stage.startDate === stage.endDate;
+}
+
+/**
+ * Preto ou branco, o que for mais legível sobre `hex` — necessário porque
+ * a cor da etapa agora é escolhida livremente pelo usuário na criação
+ * (2026-10-21): texto branco fixo (como era antes) sumiria em cima de uma
+ * cor clara (ex.: amarelo). Fórmula de luminância relativa padrão (W3C).
+ */
+export function readableTextOn(hex: string): string {
+  const clean = hex.replace('#', '');
+  if (clean.length !== 6) return '#FFFFFF';
+  const r = parseInt(clean.slice(0, 2), 16) / 255;
+  const g = parseInt(clean.slice(2, 4), 16) / 255;
+  const b = parseInt(clean.slice(4, 6), 16) / 255;
+  const lin = (c: number) => (c <= 0.03928 ? c / 12.92 : Math.pow((c + 0.055) / 1.055, 2.4));
+  const luminance = 0.2126 * lin(r) + 0.7152 * lin(g) + 0.0722 * lin(b);
+  return luminance > 0.5 ? '#0B1220' : '#FFFFFF';
 }
 
 /** Diferença em dias inteiros entre duas datas ISO (b - a). */

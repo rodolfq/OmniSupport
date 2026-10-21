@@ -3,7 +3,7 @@
 import React, { useState, useEffect } from 'react';
 import { useRouter } from 'next/navigation';
 import { useEscapeToClose } from '@/hooks/use-escape-to-close';
-import { Rocket, Plus, Search, Trash2, Pencil, CheckCircle2, XCircle, Clock, AlertTriangle, CalendarDays, History as HistoryIcon, Package, ChevronDown, ExternalLink, LayoutTemplate, FileDown, Layers, AlertOctagon } from 'lucide-react';
+import { Rocket, Plus, Search, Trash2, Pencil, CheckCircle2, XCircle, Clock, AlertTriangle, CalendarDays, History as HistoryIcon, Package, ChevronDown, ExternalLink, LayoutTemplate, FileDown, Layers, AlertOctagon, Link2 } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import { Hotfix, ReleaseCycle, ReleaseCycleStage, ReleaseItem, ReleaseItemType, Permission, User, ProductConfig, ReleaseTemplate } from '@/lib/types';
 import { UserService } from '@/lib/services/user-service';
@@ -12,7 +12,7 @@ import { ConfigService } from '@/lib/services/config-service';
 import {
   getHotfixes, saveHotfix, deleteHotfix, markHotfixPublished,
   getReleaseTemplates, getReleaseCycles, createReleaseCycle, updateCycleStage, addCycleStage,
-  completeCycleStage, saveCycleAsTemplate, createReleaseItem
+  completeCycleStage, saveCycleAsTemplate, createReleaseItem, linkHotfixToCycle
 } from '@/lib/services/queue-service';
 import { getInternalTeamsPageData, InternalTeamRecord } from '@/lib/services/internal-team-service';
 import { StyledSelect } from '@/components/styled-select';
@@ -139,6 +139,12 @@ export function HotfixesContent() {
   const [responsibleId, setResponsibleId] = useState('');
   const [productId, setProductId] = useState('');
   const [expectedDate, setExpectedDate] = useState('');
+  // Vincular a um ciclo já existente direto no modal de criação/edição do
+  // hotfix avulso (pedido do usuário, 2026-10-21) — mesmo vínculo de
+  // LinkHotfixToCycleModal, só que num passo só, sem precisar salvar o
+  // hotfix e depois abrir outra tela pra vincular.
+  const [modalLinkCycleId, setModalLinkCycleId] = useState('');
+  const [modalLinkItemType, setModalLinkItemType] = useState<ReleaseItemType>('hotfix');
 
   // --------------------------------------------------- ciclo de publicação
   const canEdit = hasPermission(Permission.HOTFIXES_MANAGE);
@@ -164,6 +170,18 @@ export function HotfixesContent() {
   const [newCycleAnchorDate, setNewCycleAnchorDate] = useState('');
   const [newCycleResponsibleId, setNewCycleResponsibleId] = useState('');
   const [isCreatingCycle, setIsCreatingCycle] = useState(false);
+  // Cor de cada etapa gerada do modelo, por templateStageId — editável só
+  // NESTE ciclo, sem alterar o modelo compartilhado (pedido do usuário,
+  // 2026-10-21: "permitir definir as cores na criação").
+  const [newCycleStageColors, setNewCycleStageColors] = useState<Record<string, string>>({});
+  // Hotfix(es) soltos a vincular ao ciclo recém-criado, já com o tipo
+  // escolhido (mapa hotfixId -> itemType; presença no mapa = selecionado).
+  const [newCycleLinkHotfixes, setNewCycleLinkHotfixes] = useState<Record<string, ReleaseItemType>>({});
+  // Vincular um hotfix solto a um ciclo JÁ EXISTENTE (botão no card do hotfix).
+  const [linkHotfixTarget, setLinkHotfixTarget] = useState<Hotfix | null>(null);
+
+  const looseHotfixes = hotfixes.filter(h => !h.publishedAt && !h.releaseCycleId);
+  const selectedNewCycleTemplate = templates.find(t => t.id === newCycleTemplateId) || null;
 
   // Undo de 6s ao arrastar uma etapa (pedido do usuário — item 10 da lista
   // de melhorias): o commit de verdade só acontece depois do toast expirar,
@@ -257,19 +275,28 @@ export function HotfixesContent() {
     }, 6000);
   };
 
+  const closeCreateCycleModal = () => {
+    setIsCreateCycleOpen(false);
+    setNewCycleName(''); setNewCycleDescription(''); setNewCycleTemplateId(''); setNewCycleAnchorDate(''); setNewCycleResponsibleId('');
+    setNewCycleStageColors({}); setNewCycleLinkHotfixes({});
+  };
+
   const handleCreateCycle = async () => {
     if (!newCycleName.trim()) { toast.error('Dê um nome ao ciclo.'); return; }
     if (newCycleTemplateId && !newCycleAnchorDate) { toast.error('Informe a data-âncora para usar um modelo.'); return; }
     setIsCreatingCycle(true);
     try {
+      const linkHotfixIds = Object.entries(newCycleLinkHotfixes).map(([hotfixId, itemType]) => ({ hotfixId, itemType }));
       const res = await createReleaseCycle({
         name: newCycleName, description: newCycleDescription || null,
-        responsibleId: newCycleResponsibleId || null, templateId: newCycleTemplateId || null, anchorDate: newCycleAnchorDate || null
+        responsibleId: newCycleResponsibleId || null, templateId: newCycleTemplateId || null, anchorDate: newCycleAnchorDate || null,
+        stageColorOverrides: Object.keys(newCycleStageColors).length > 0 ? newCycleStageColors : undefined,
+        linkHotfixIds: linkHotfixIds.length > 0 ? linkHotfixIds : undefined,
       });
       if (res.error) { toast.error(res.error); return; }
       toast.success('Ciclo criado.');
-      setIsCreateCycleOpen(false);
-      setNewCycleName(''); setNewCycleDescription(''); setNewCycleTemplateId(''); setNewCycleAnchorDate(''); setNewCycleResponsibleId('');
+      if (res.linkErrors?.length) toast.warning(`Ciclo criado, mas ${res.linkErrors.length} hotfix(es) não puderam ser vinculados: ${res.linkErrors.join(' ')}`);
+      closeCreateCycleModal();
       if (res.cycle) setVisibleCycleIds(prev => [...prev, res.cycle!.id]);
       loadData();
     } finally {
@@ -351,6 +378,8 @@ export function HotfixesContent() {
       setProductId('');
       setExpectedDate('');
     }
+    setModalLinkCycleId('');
+    setModalLinkItemType('hotfix');
     setIsModalOpen(true);
   };
 
@@ -369,6 +398,14 @@ export function HotfixesContent() {
     if (res && (res as any).error) {
       toast.error((res as any).error);
       return;
+    }
+
+    // Vincula ao ciclo escolhido no mesmo modal (só quando o hotfix ainda
+    // não tinha vínculo — o campo nem aparece se já tiver).
+    const hotfixId = res?.id || selectedHotfix?.id;
+    if (modalLinkCycleId && hotfixId && !selectedHotfix?.releaseCycleId) {
+      const linkRes = await linkHotfixToCycle({ hotfixId, cycleId: modalLinkCycleId, itemType: modalLinkItemType });
+      if (linkRes.error) toast.warning(`Hotfix salvo, mas não foi possível vincular ao ciclo: ${linkRes.error}`);
     }
 
     setIsModalOpen(false);
@@ -447,8 +484,7 @@ export function HotfixesContent() {
               onClick={() => handleOpenModal()}
               className="bg-[var(--accent)] hover:bg-[var(--accent-hover)] text-white px-6 py-3 rounded-2xl text-sm font-black uppercase tracking-widest shadow-lg shadow-black/10 transition-all flex items-center justify-center gap-2 shrink-0"
             >
-              <Plus size={18} />
-              Hotfix sem ciclo
+              + Hotfix
             </button>
           )}
         </div>
@@ -626,6 +662,15 @@ export function HotfixesContent() {
                           <Package size={10} /> {product.label}
                         </span>
                       )}
+                      {hotfix.releaseCycleId && (
+                        <button
+                          onClick={() => handleFocusCycle(hotfix.releaseCycleId!)}
+                          className="flex items-center gap-1 text-[9px] font-black uppercase tracking-widest px-2.5 py-1 rounded-full bg-white/15 hover:bg-white/25 transition-all"
+                          title="Ver ciclo na timeline"
+                        >
+                          <Link2 size={10} /> {cycles.find(c => c.id === hotfix.releaseCycleId)?.name || 'Vinculado a um ciclo'}
+                        </button>
+                      )}
                     </div>
                     <h4 className="text-xl font-black tracking-tight uppercase leading-tight mb-2">{hotfix.name}</h4>
                     {hotfix.description && (
@@ -648,6 +693,15 @@ export function HotfixesContent() {
                         >
                           Marcar como Publicado
                         </button>
+                        {!hotfix.releaseCycleId && (
+                          <button
+                            onClick={() => setLinkHotfixTarget(hotfix)}
+                            className="p-2.5 rounded-xl bg-white/15 hover:bg-white/25 transition-all"
+                            title="Vincular a um ciclo"
+                          >
+                            <Link2 size={15} />
+                          </button>
+                        )}
                         <button
                           onClick={() => handleOpenModal(hotfix)}
                           className="p-2.5 rounded-xl bg-white/15 hover:bg-white/25 transition-all"
@@ -718,6 +772,15 @@ export function HotfixesContent() {
                                 {responsible.name}
                               </span>
                             )}
+                            {hotfix.releaseCycleId && (
+                              <button
+                                onClick={() => handleFocusCycle(hotfix.releaseCycleId!)}
+                                className="flex items-center gap-1.5 px-2.5 py-1 rounded-full bg-[var(--accent)]/10 text-[var(--accent-text)] border border-[var(--accent)]/20 text-[9px] font-black uppercase tracking-widest hover:bg-[var(--accent)]/20 transition-all"
+                                title="Ver ciclo na timeline"
+                              >
+                                <Link2 size={11} /> {cycles.find(c => c.id === hotfix.releaseCycleId)?.name || 'Vinculado a um ciclo'}
+                              </button>
+                            )}
                           </div>
                         </div>
                       </div>
@@ -729,6 +792,11 @@ export function HotfixesContent() {
                           >
                             Publicado
                           </button>
+                          {!hotfix.releaseCycleId && (
+                            <button onClick={() => setLinkHotfixTarget(hotfix)} className="p-2 rounded-xl border border-[var(--border-default)] text-[var(--text-secondary)] hover:bg-[var(--surface-pill)] transition-all" title="Vincular a um ciclo">
+                              <Link2 size={14} />
+                            </button>
+                          )}
                           <button onClick={() => handleOpenModal(hotfix)} className="p-2 rounded-xl border border-[var(--border-default)] text-[var(--text-secondary)] hover:bg-[var(--surface-pill)] transition-all" title="Editar">
                             <Pencil size={14} />
                           </button>
@@ -900,7 +968,7 @@ export function HotfixesContent() {
                 </h3>
               </div>
 
-              <div className="p-8 space-y-5">
+              <div className="p-8 space-y-5 max-h-[70vh] overflow-y-auto">
                 <div className="space-y-1.5">
                   <label className="text-[10px] font-semibold uppercase text-[var(--text-tertiary)] tracking-widest ml-1">Nome do Hotfix</label>
                   <input
@@ -964,6 +1032,44 @@ export function HotfixesContent() {
                     placeholder="O que esse hotfix corrige ou entrega?"
                   />
                 </div>
+
+                {/* Vincular a um ciclo já existente, no mesmo passo de criar/editar
+                    (pedido do usuário, 2026-10-21) — só aparece se o hotfix ainda
+                    não tem vínculo; pra desvincular ou trocar de ciclo depois,
+                    usar o botão dedicado no card do hotfix. */}
+                {!selectedHotfix?.releaseCycleId && (
+                  <div className="space-y-1.5">
+                    <label className="text-[10px] font-semibold uppercase text-[var(--text-tertiary)] tracking-widest ml-1">Vincular a um ciclo (opcional)</label>
+                    <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+                      <StyledSelect
+                        value={modalLinkCycleId}
+                        onChange={(e) => setModalLinkCycleId(e.target.value)}
+                        className="w-full bg-[var(--surface-card)] border border-[var(--border-default)] rounded-2xl px-5 py-4 text-sm font-bold focus:ring-4 focus:ring-[var(--accent)]/10 outline-none transition-all appearance-none"
+                      >
+                        <option value="">Sem ciclo</option>
+                        {cyclesWithStages.filter(c => !c.publishedAt).map(c => (
+                          <option key={c.id} value={c.id}>{c.name}</option>
+                        ))}
+                      </StyledSelect>
+                      {modalLinkCycleId && (
+                        <div className="flex gap-2">
+                          {(['hotfix', 'emergencial', 'prevista'] as const).map(t => (
+                            <button
+                              key={t}
+                              type="button"
+                              onClick={() => setModalLinkItemType(t)}
+                              className={cn('flex-1 py-2 rounded-xl text-[10px] font-black uppercase tracking-widest border',
+                                modalLinkItemType === t ? 'text-white border-transparent' : 'border-[var(--border-default)] text-[var(--text-tertiary)]')}
+                              style={modalLinkItemType === t ? { backgroundColor: RELEASE_ITEM_TYPE_META[t].color } : undefined}
+                            >
+                              {RELEASE_ITEM_TYPE_META[t].short}
+                            </button>
+                          ))}
+                        </div>
+                      )}
+                    </div>
+                  </div>
+                )}
               </div>
 
               <div className="p-8 pt-0 flex gap-3">
@@ -1024,6 +1130,7 @@ export function HotfixesContent() {
           canEdit={canEdit}
           teams={teams}
           users={users}
+          looseHotfixes={looseHotfixes}
           onChanged={loadData}
         />
       )}
@@ -1043,13 +1150,13 @@ export function HotfixesContent() {
       <AnimatePresence>
         {isCreateCycleOpen && (
           <div className="fixed inset-0 z-[150] flex items-center justify-center p-4">
-            <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} onClick={() => setIsCreateCycleOpen(false)} className="absolute inset-0 bg-slate-900/60 backdrop-blur-sm" />
+            <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} onClick={closeCreateCycleModal} className="absolute inset-0 bg-slate-900/60 backdrop-blur-sm" />
             <motion.div initial={{ scale: 0.95, opacity: 0 }} animate={{ scale: 1, opacity: 1 }} exit={{ scale: 0.95, opacity: 0 }} className="relative bg-[var(--surface-card)] w-full max-w-lg rounded-[2.5rem] shadow-2xl overflow-hidden">
               <div className="p-8 border-b border-[var(--border-default)] flex items-center gap-4">
                 <div className="w-12 h-12 bg-[var(--accent)] rounded-2xl flex items-center justify-center text-white shrink-0"><Layers size={22} /></div>
                 <h3 className="text-xl font-black text-[var(--text-primary)] tracking-tight uppercase">Novo Ciclo</h3>
               </div>
-              <div className="p-8 space-y-5">
+              <div className="p-8 space-y-5 max-h-[65vh] overflow-y-auto">
                 <div className="space-y-1.5">
                   <label className="text-[10px] font-semibold uppercase text-[var(--text-tertiary)] tracking-widest ml-1">Nome</label>
                   <input value={newCycleName} onChange={e => setNewCycleName(e.target.value)} placeholder="Ex: Ciclo HTR01 — 20/10"
@@ -1058,7 +1165,7 @@ export function HotfixesContent() {
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                   <div className="space-y-1.5">
                     <label className="text-[10px] font-semibold uppercase text-[var(--text-tertiary)] tracking-widest ml-1">Modelo</label>
-                    <StyledSelect value={newCycleTemplateId} onChange={e => setNewCycleTemplateId(e.target.value)}
+                    <StyledSelect value={newCycleTemplateId} onChange={e => { setNewCycleTemplateId(e.target.value); setNewCycleStageColors({}); }}
                       className="w-full bg-[var(--surface-card)] border border-[var(--border-default)] rounded-2xl px-5 py-4 text-sm font-bold outline-none appearance-none">
                       <option value="">Sem modelo (etapas manuais)</option>
                       {templates.filter(t => t.isActive).map(t => <option key={t.id} value={t.id}>{t.name}</option>)}
@@ -1083,9 +1190,80 @@ export function HotfixesContent() {
                   <textarea value={newCycleDescription} onChange={e => setNewCycleDescription(e.target.value)}
                     className="w-full bg-[var(--surface-card)] border border-[var(--border-default)] rounded-2xl px-5 py-4 text-sm font-medium outline-none resize-none h-20" placeholder="Opcional" />
                 </div>
+
+                {/* Cor de cada etapa — herda do modelo, mas pode ser
+                    personalizada SÓ neste ciclo (pedido do usuário,
+                    2026-10-21). Só faz sentido com um modelo escolhido: sem
+                    modelo, o ciclo nasce sem etapas (adicionadas uma a uma
+                    depois, cada uma já com seu próprio seletor de cor). */}
+                {selectedNewCycleTemplate && (
+                  <div className="space-y-1.5">
+                    <label className="text-[10px] font-semibold uppercase text-[var(--text-tertiary)] tracking-widest ml-1">Cor de cada etapa</label>
+                    <div className="space-y-1.5 rounded-2xl border border-[var(--border-default)] p-3">
+                      {[...selectedNewCycleTemplate.stages].sort((a, b) => a.stageOrder - b.stageOrder).map(s => (
+                        <div key={s.id} className="flex items-center gap-2.5">
+                          <input
+                            type="color"
+                            value={newCycleStageColors[s.id] ?? s.color}
+                            onChange={e => setNewCycleStageColors(prev => ({ ...prev, [s.id]: e.target.value }))}
+                            className="w-8 h-8 rounded-lg border border-[var(--border-default)] shrink-0 cursor-pointer"
+                          />
+                          <span className="text-xs font-bold text-[var(--text-primary)] truncate">{s.name}</span>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                )}
+
+                {/* Vincular hotfix(es) soltos já existentes a este ciclo,
+                    como item (tipo escolhido na hora) — pedido do usuário,
+                    2026-10-21. */}
+                {looseHotfixes.length > 0 && (
+                  <div className="space-y-1.5">
+                    <label className="text-[10px] font-semibold uppercase text-[var(--text-tertiary)] tracking-widest ml-1">Vincular hotfix(es) soltos</label>
+                    <div className="space-y-1 rounded-2xl border border-[var(--border-default)] p-2 max-h-48 overflow-y-auto">
+                      {looseHotfixes.map(h => {
+                        const selectedType = newCycleLinkHotfixes[h.id];
+                        const isSelected = selectedType !== undefined;
+                        return (
+                          <div key={h.id} className={cn('flex items-center gap-2 p-2 rounded-xl transition-colors', isSelected && 'bg-[var(--surface-pill)]')}>
+                            <input
+                              type="checkbox"
+                              checked={isSelected}
+                              onChange={e => setNewCycleLinkHotfixes(prev => {
+                                const next = { ...prev };
+                                if (e.target.checked) next[h.id] = 'hotfix';
+                                else delete next[h.id];
+                                return next;
+                              })}
+                              className="shrink-0 w-4 h-4 accent-[var(--accent)] cursor-pointer"
+                            />
+                            <span className="flex-1 min-w-0 text-xs font-bold text-[var(--text-primary)] truncate">{h.name}</span>
+                            {isSelected && (
+                              <div className="flex gap-1 shrink-0">
+                                {(['hotfix', 'emergencial', 'prevista'] as const).map(t => (
+                                  <button
+                                    key={t}
+                                    type="button"
+                                    onClick={() => setNewCycleLinkHotfixes(prev => ({ ...prev, [h.id]: t }))}
+                                    className={cn('px-2 py-1 rounded-lg text-[9px] font-black uppercase border',
+                                      selectedType === t ? 'text-white border-transparent' : 'border-[var(--border-default)] text-[var(--text-tertiary)]')}
+                                    style={selectedType === t ? { backgroundColor: RELEASE_ITEM_TYPE_META[t].color } : undefined}
+                                  >
+                                    {RELEASE_ITEM_TYPE_META[t].short}
+                                  </button>
+                                ))}
+                              </div>
+                            )}
+                          </div>
+                        );
+                      })}
+                    </div>
+                  </div>
+                )}
               </div>
               <div className="p-8 pt-0 flex gap-3">
-                <button onClick={() => setIsCreateCycleOpen(false)} className="px-8 py-4 rounded-2xl text-[10px] font-semibold uppercase tracking-widest text-[var(--text-tertiary)] hover:bg-[var(--surface-pill)]">
+                <button onClick={closeCreateCycleModal} className="px-8 py-4 rounded-2xl text-[10px] font-semibold uppercase tracking-widest text-[var(--text-tertiary)] hover:bg-[var(--surface-pill)]">
                   Cancelar
                 </button>
                 <button onClick={handleCreateCycle} disabled={isCreatingCycle || !newCycleName.trim()}
@@ -1113,6 +1291,12 @@ export function HotfixesContent() {
       <AnimatePresence>
         {createItemFor && (
           <CreateItemModal cycle={createItemFor} users={users} onClose={() => setCreateItemFor(null)} onSaved={loadData} />
+        )}
+      </AnimatePresence>
+
+      <AnimatePresence>
+        {linkHotfixTarget && (
+          <LinkHotfixToCycleModal hotfix={linkHotfixTarget} cycles={cyclesWithStages} onClose={() => setLinkHotfixTarget(null)} onSaved={loadData} />
         )}
       </AnimatePresence>
 
@@ -1279,6 +1463,92 @@ function CreateItemModal({ cycle, users, onClose, onSaved }: { cycle: ReleaseCyc
         <div className="flex gap-2 pt-1">
           <button onClick={onClose} className="px-5 py-3 rounded-xl text-[10px] font-semibold uppercase tracking-widest text-[var(--text-tertiary)] hover:bg-[var(--surface-pill)]">Cancelar</button>
           <button onClick={handleSave} disabled={saving} className="flex-1 py-3 bg-[var(--accent)] text-white rounded-xl text-[10px] font-black uppercase tracking-widest hover:bg-[var(--accent-hover)] disabled:opacity-50">Criar Item</button>
+        </div>
+      </motion.div>
+    </div>
+  );
+}
+
+/**
+ * Vincular hotfix SOLTO (fluxo achatado legado) a um ciclo já existente —
+ * pedido do usuário, 2026-10-21. Cria um release_item espelho do tipo
+ * escolhido (snapshot: nome/descrição/responsável não ficam sincronizados
+ * com o hotfix depois). ⚠️ Depende de migrations/hotfix_cycle_link.sql,
+ * ainda NÃO aplicada em produção (moratória de banco) — o servidor devolve
+ * 503 com mensagem clara até lá.
+ */
+function LinkHotfixToCycleModal({ hotfix, cycles, onClose, onSaved }: { hotfix: Hotfix; cycles: ReleaseCycle[]; onClose: () => void; onSaved: () => void }) {
+  const openCycles = cycles.filter(c => !c.publishedAt);
+  const [cycleId, setCycleId] = useState(openCycles[0]?.id || '');
+  const [itemType, setItemType] = useState<ReleaseItemType>('hotfix');
+  const [currentStageId, setCurrentStageId] = useState('');
+  const [saving, setSaving] = useState(false);
+  const selectedCycle = openCycles.find(c => c.id === cycleId) || null;
+  const orderedStages = selectedCycle ? [...selectedCycle.stages].sort((a, b) => a.stageOrder - b.stageOrder) : [];
+
+  const handleSave = async () => {
+    if (!cycleId) { toast.error('Escolha um ciclo.'); return; }
+    setSaving(true);
+    try {
+      const res = await linkHotfixToCycle({ hotfixId: hotfix.id, cycleId, itemType, currentStageId: currentStageId || null });
+      if (res.error) { toast.error(res.error); return; }
+      toast.success('Hotfix vinculado ao ciclo.');
+      onSaved();
+      onClose();
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  return (
+    <div className="fixed inset-0 z-[160] flex items-center justify-center p-4">
+      <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} onClick={onClose} className="absolute inset-0 bg-slate-900/60 backdrop-blur-sm" />
+      <motion.div initial={{ scale: 0.96, opacity: 0 }} animate={{ scale: 1, opacity: 1 }} exit={{ scale: 0.96, opacity: 0 }} className="relative bg-[var(--surface-card)] w-full max-w-sm rounded-[2rem] shadow-2xl p-7 space-y-4">
+        <h3 className="text-base font-black text-[var(--text-primary)] uppercase tracking-tight">Vincular a um ciclo</h3>
+        <p className="text-xs text-[var(--text-tertiary)]">
+          &ldquo;{hotfix.name}&rdquo; entra no ciclo escolhido como um item, com o tipo abaixo — é um retrato tirado agora (nome, descrição e responsável copiados); editar o hotfix depois não atualiza o item.
+        </p>
+        {openCycles.length === 0 ? (
+          <p className="text-xs font-bold text-[var(--text-danger)]">Nenhum ciclo em aberto — crie um ciclo primeiro, ou todos já estão concluídos/travados.</p>
+        ) : (
+          <>
+            <div className="space-y-1">
+              <label className="text-[9px] font-bold uppercase text-[var(--text-tertiary)] tracking-widest ml-1">Ciclo</label>
+              <StyledSelect value={cycleId} onChange={e => { setCycleId(e.target.value); setCurrentStageId(''); }} className="w-full bg-[var(--surface-pill)] rounded-xl px-3 py-2.5 text-sm font-bold outline-none appearance-none">
+                {openCycles.map(c => <option key={c.id} value={c.id}>{c.name}</option>)}
+              </StyledSelect>
+            </div>
+            <div className="space-y-1">
+              <label className="text-[9px] font-bold uppercase text-[var(--text-tertiary)] tracking-widest ml-1">Tipo de publicação</label>
+              <div className="flex gap-2">
+                {(['hotfix', 'emergencial', 'prevista'] as const).map(t => (
+                  <button
+                    key={t}
+                    type="button"
+                    onClick={() => setItemType(t)}
+                    className={cn('flex-1 py-2 rounded-lg text-[10px] font-black uppercase tracking-widest border',
+                      itemType === t ? 'text-white border-transparent' : 'border-[var(--border-default)] text-[var(--text-tertiary)]')}
+                    style={itemType === t ? { backgroundColor: RELEASE_ITEM_TYPE_META[t].color } : undefined}
+                  >
+                    {RELEASE_ITEM_TYPE_META[t].short}
+                  </button>
+                ))}
+              </div>
+            </div>
+            {orderedStages.length > 0 && (
+              <div className="space-y-1">
+                <label className="text-[9px] font-bold uppercase text-[var(--text-tertiary)] tracking-widest ml-1">Posição na timeline (opcional)</label>
+                <StyledSelect value={currentStageId} onChange={e => setCurrentStageId(e.target.value)} className="w-full bg-[var(--surface-pill)] rounded-xl px-3 py-2.5 text-xs font-bold outline-none appearance-none">
+                  <option value="">Sem posição</option>
+                  {orderedStages.map(s => <option key={s.id} value={s.id}>{s.name}</option>)}
+                </StyledSelect>
+              </div>
+            )}
+          </>
+        )}
+        <div className="flex gap-2 pt-1">
+          <button onClick={onClose} className="px-5 py-3 rounded-xl text-[10px] font-semibold uppercase tracking-widest text-[var(--text-tertiary)] hover:bg-[var(--surface-pill)]">Cancelar</button>
+          <button onClick={handleSave} disabled={saving || openCycles.length === 0} className="flex-1 py-3 bg-[var(--accent)] text-white rounded-xl text-[10px] font-black uppercase tracking-widest hover:bg-[var(--accent-hover)] disabled:opacity-50">Vincular</button>
         </div>
       </motion.div>
     </div>

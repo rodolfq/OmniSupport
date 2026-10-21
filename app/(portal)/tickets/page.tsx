@@ -8,12 +8,15 @@ import { useApp } from "@/app/app-context";
 import { cn } from "@/lib/utils";
 import { TicketsView } from "./tickets-view";
 import { InternalTicketsView } from "./internal-tickets-view";
+import { usePersistedViewMode } from "@/hooks/use-persisted-view-mode";
+import { UnreadDot } from "@/components/notification-count-badge";
 
 type Mode = "tickets" | "internal";
 type ViewMode = "cards" | "table" | "kanban";
+const VIEW_MODE_OPTIONS = ["cards", "table", "kanban"] as const;
 
 export default function TicketsPage() {
-  const { currentUser, hasPermission } = useApp();
+  const { currentUser, hasPermission, navBadges } = useApp();
   const searchParams = useSearchParams();
 
   const canSeeTickets = hasPermission(Permission.TICKETS_READ);
@@ -39,7 +42,7 @@ export default function TicketsPage() {
     if (!canSeeTickets && canSeeInternal) return "internal";
     return "tickets";
   });
-  const [viewMode, setViewMode] = useState<ViewMode>("table");
+  const [viewMode, setViewMode] = usePersistedViewMode<ViewMode>("tickets", "table", VIEW_MODE_OPTIONS);
 
   useEffect(() => {
     if (!canSeeTickets && canSeeInternal) setMode("internal");
@@ -80,6 +83,7 @@ export default function TicketsPage() {
         )}
       >
         <FolderKanban size={14} /> Tickets Internos
+        <UnreadDot show={navBadges.internalTicketsUnread > 0} />
       </button>
     </div>
   ) : null;

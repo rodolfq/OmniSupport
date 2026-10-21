@@ -39,6 +39,11 @@ export async function GET() {
       productId: h.product_id,
       expectedDate: toIsoDateOnly(h.expected_date),
       publishedAt: toIsoOrUndefined(h.published_at),
+      // `SELECT *` tolera a coluna ainda não existir (migrations/hotfix_cycle_link.sql,
+      // pendente — moratória de banco): vem `undefined` → cai no `|| null`,
+      // nunca quebra a rota.
+      releaseCycleId: h.release_cycle_id || null,
+      releaseItemId: h.release_item_id || null,
       createdAt: toIsoOrUndefined(h.created_at)
     })));
   } catch (err) {

@@ -584,6 +584,19 @@ CREATE TABLE public.release_item_tickets (
 );
 CREATE INDEX IF NOT EXISTS idx_release_item_tickets_ticket ON public.release_item_tickets(ticket_id);
 
+-- Vincular hotfix solto a um ciclo (migrations/hotfix_cycle_link.sql,
+-- 2026-10-21) — ALTER porque hotfixes/release_items já existem antes deste
+-- ponto do script. Ligar cria um release_item espelho (snapshot) com o tipo
+-- escolhido; source_hotfix_id é o caminho inverso, pra nunca criar dois
+-- itens-espelho do mesmo hotfix.
+ALTER TABLE public.hotfixes
+  ADD COLUMN IF NOT EXISTS release_cycle_id UUID REFERENCES public.release_cycles(id) ON DELETE SET NULL,
+  ADD COLUMN IF NOT EXISTS release_item_id UUID REFERENCES public.release_items(id) ON DELETE SET NULL;
+ALTER TABLE public.release_items
+  ADD COLUMN IF NOT EXISTS source_hotfix_id UUID REFERENCES public.hotfixes(id) ON DELETE SET NULL;
+CREATE INDEX IF NOT EXISTS idx_hotfixes_release_cycle_id ON public.hotfixes(release_cycle_id);
+CREATE INDEX IF NOT EXISTS idx_release_items_source_hotfix_id ON public.release_items(source_hotfix_id);
+
 -- Fila de envio atrasado (status='pending') e histórico/auditoria
 -- (status='sent'|'failed'|'skipped') na mesma tabela. Movida pra depois de
 -- "Tickets Table" (bug corrigido: referenciava public.tickets antes da
@@ -629,6 +642,13 @@ CREATE TABLE public.ticket_messages (
 -- WHERE ticket_id = $1 ORDER BY created_at — toda abertura de chamado bate
 -- nisso.
 CREATE INDEX IF NOT EXISTS idx_ticket_messages_ticket_id ON public.ticket_messages(ticket_id, created_at);
+
+-- "Check azul" de leitura pelo cliente, via WhatsApp/"Prosseguir"
+-- (migrations/pyvon_prosseguir_no_chat.sql, 2026-10-21) — gravado direto na
+-- nota, sobrevive mesmo depois que o pyvon_pending_outbound correspondente
+-- for consumido/apagado.
+ALTER TABLE public.ticket_messages
+  ADD COLUMN IF NOT EXISTS read_by_customer_at TIMESTAMP WITH TIME ZONE;
 
 -- Minutos úteis do SLA/backlog de chamado (migrations/ticket_business_minutes.sql).
 CREATE OR REPLACE FUNCTION public.ticket_business_minutes(p_from timestamptz, p_to timestamptz)
@@ -1618,6 +1638,17 @@ CREATE INDEX idx_pyvon_pending_outbound_cadastro ON public.pyvon_pending_outboun
 CREATE INDEX idx_pyvon_pending_outbound_phone ON public.pyvon_pending_outbound (phone);
 CREATE INDEX idx_pyvon_pending_outbound_message ON public.pyvon_pending_outbound (pyvon_message_id) WHERE pyvon_message_id IS NOT NULL;
 
+-- "Prosseguir" não cria conversa sozinho (migrations/pyvon_prosseguir_no_chat.sql,
+-- 2026-10-21) — ticket_id/ticket_message_id dizem de qual chamado/nota este
+-- template veio (pra vincular a conversa e marcar a nota como lida quando o
+-- cliente responder de verdade); read_at trava reenvio duplicado da nota em
+-- retentativa de webhook.
+ALTER TABLE public.pyvon_pending_outbound
+  ADD COLUMN IF NOT EXISTS ticket_id TEXT REFERENCES public.tickets(id) ON DELETE SET NULL,
+  ADD COLUMN IF NOT EXISTS ticket_message_id UUID REFERENCES public.ticket_messages(id) ON DELETE SET NULL,
+  ADD COLUMN IF NOT EXISTS read_at TIMESTAMP WITH TIME ZONE;
+CREATE INDEX IF NOT EXISTS idx_pyvon_pending_outbound_ticket_message ON public.pyvon_pending_outbound(ticket_message_id) WHERE ticket_message_id IS NOT NULL;
+
 -- Tudo o que o Pyvon avisa em POST /api/whatsapp/pyvon-status (falha/entrega
 -- assíncrona de uma mensagem que ele já tinha aceito) — cru + interpretado.
 -- Ver migrations/pyvon_delivery_status.sql e PyvonService.handleDeliveryStatus.
@@ -1860,6 +1891,16 @@ CREATE TABLE IF NOT EXISTS public.ticket_notification_reads (
   CONSTRAINT ticket_notification_reads_pkey PRIMARY KEY (ticket_id, user_id),
   CONSTRAINT ticket_notification_reads_ticket_id_fkey FOREIGN KEY (ticket_id) REFERENCES tickets(id) ON DELETE CASCADE,
   CONSTRAINT ticket_notification_reads_user_id_fkey FOREIGN KEY (user_id) REFERENCES profiles(id) ON DELETE CASCADE
+);
+
+-- Mesma ideia, pro TICKET INTERNO (migrations/internal_ticket_notification_reads.sql,
+-- 2026-10-21) — critério mais amplo que o de cima: vale pra qualquer ticket
+-- interno que o usuário já tenha aberto antes, não só os atribuídos a ele.
+CREATE TABLE IF NOT EXISTS public.internal_ticket_notification_reads (
+  internal_ticket_id TEXT NOT NULL REFERENCES public.internal_tickets(id) ON DELETE CASCADE,
+  user_id UUID NOT NULL REFERENCES public.profiles(id) ON DELETE CASCADE,
+  last_read_at TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT now(),
+  PRIMARY KEY (internal_ticket_id, user_id)
 );
 
 -- Web Push / VAPID (lib/services/push-service.ts) --------------------------

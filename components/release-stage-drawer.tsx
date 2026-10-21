@@ -5,15 +5,15 @@ import { motion, AnimatePresence } from 'motion/react';
 import { X, CheckCircle2, RotateCcw, Trash2, History as HistoryIcon } from 'lucide-react';
 import { toast } from 'sonner';
 import { useEscapeToClose } from '@/hooks/use-escape-to-close';
-import { ReleaseCycle, ReleaseCycleStage, User } from '@/lib/types';
+import { Hotfix, ReleaseCycle, ReleaseCycleStage, ReleaseItemType, User } from '@/lib/types';
 import {
-  updateCycleStage, deleteCycleStage, completeCycleStage, reopenCycleStage, getCycleStageAudit, StageAuditEntry
+  updateCycleStage, deleteCycleStage, completeCycleStage, reopenCycleStage, getCycleStageAudit, StageAuditEntry, linkHotfixToCycle
 } from '@/lib/services/queue-service';
 import { InternalTeamRecord } from '@/lib/services/internal-team-service';
 import { MultiSelectFilter } from '@/components/multi-select-filter';
 import { StyledSelect } from '@/components/styled-select';
 import { ConfirmDialog } from '@/components/confirm-dialog';
-import { computeBaseStageStatus, isLastStage, STAGE_STATUS_META, formatIsoDatePtBr } from '@/lib/release-stage-logic';
+import { computeBaseStageStatus, isLastStage, STAGE_STATUS_META, RELEASE_ITEM_TYPE_META, formatIsoDatePtBr } from '@/lib/release-stage-logic';
 import { cn } from '@/lib/utils';
 
 interface ReleaseStageDrawerProps {
@@ -24,10 +24,13 @@ interface ReleaseStageDrawerProps {
   canEdit: boolean;
   teams: InternalTeamRecord[];
   users: User[];
+  // Hotfix(es) soltos (fluxo achatado legado, sem ciclo) — pra adicionar
+  // direto nesta etapa, já posicionados (pedido do usuário, 2026-10-21).
+  looseHotfixes: Hotfix[];
   onChanged: () => void;
 }
 
-export function ReleaseStageDrawer({ cycle, stage, isOpen, onClose, canEdit, teams, users, onChanged }: ReleaseStageDrawerProps) {
+export function ReleaseStageDrawer({ cycle, stage, isOpen, onClose, canEdit, teams, users, looseHotfixes, onChanged }: ReleaseStageDrawerProps) {
   useEscapeToClose(isOpen, onClose);
 
   const [startDate, setStartDate] = useState(stage.startDate);
@@ -41,6 +44,8 @@ export function ReleaseStageDrawer({ cycle, stage, isOpen, onClose, canEdit, tea
 
   const [audit, setAudit] = useState<StageAuditEntry[]>([]);
   const [tab, setTab] = useState<'detalhes' | 'historico'>('detalhes');
+  const [hotfixItemTypes, setHotfixItemTypes] = useState<Record<string, ReleaseItemType>>({});
+  const [linkingHotfixId, setLinkingHotfixId] = useState<string | null>(null);
 
   useEffect(() => {
     if (!isOpen) return;
@@ -99,6 +104,19 @@ export function ReleaseStageDrawer({ cycle, stage, isOpen, onClose, canEdit, tea
   };
 
   const resolveUserName = (id: string) => users.find(u => u.id === id)?.name || 'Usuário removido';
+
+  const handleLinkHotfixHere = async (hotfixId: string) => {
+    setLinkingHotfixId(hotfixId);
+    try {
+      const itemType = hotfixItemTypes[hotfixId] || 'hotfix';
+      const res = await linkHotfixToCycle({ hotfixId, cycleId: cycle.id, itemType, currentStageId: stage.id });
+      if (res.error) { toast.error(res.error); return; }
+      toast.success('Hotfix vinculado e posicionado nesta etapa.');
+      onChanged();
+    } finally {
+      setLinkingHotfixId(null);
+    }
+  };
 
   return (
     <AnimatePresence>
@@ -201,6 +219,47 @@ export function ReleaseStageDrawer({ cycle, stage, isOpen, onClose, canEdit, tea
                       placeholder="Anotação livre sobre esta etapa (ex.: por que atrasou)"
                       className="w-full bg-[var(--surface-card)] border border-[var(--border-default)] rounded-xl px-3 py-2.5 text-sm font-medium outline-none resize-none h-20 disabled:opacity-60" />
                   </div>
+
+                  {/* Hotfix(es) soltos (sem ciclo) — adicionar direto aqui já
+                      posiciona na etapa (pedido do usuário, 2026-10-21). */}
+                  {canEdit && !locked && looseHotfixes.length > 0 && (
+                    <div className="space-y-1.5">
+                      <label className="text-[10px] font-semibold uppercase text-[var(--text-tertiary)] tracking-widest ml-1">Adicionar hotfix solto a esta etapa</label>
+                      <div className="space-y-1 rounded-xl border border-[var(--border-default)] p-2 max-h-48 overflow-y-auto">
+                        {looseHotfixes.map(h => {
+                          const itemType = hotfixItemTypes[h.id] || 'hotfix';
+                          return (
+                            <div key={h.id} className="flex items-center gap-2 p-1.5 rounded-lg">
+                              <span className="flex-1 min-w-0 text-xs font-bold text-[var(--text-primary)] truncate">{h.name}</span>
+                              <div className="flex gap-1 shrink-0">
+                                {(['hotfix', 'emergencial', 'prevista'] as const).map(t => (
+                                  <button
+                                    key={t}
+                                    type="button"
+                                    onClick={() => setHotfixItemTypes(prev => ({ ...prev, [h.id]: t }))}
+                                    title={RELEASE_ITEM_TYPE_META[t].label}
+                                    className={cn('w-6 h-6 rounded-full text-[8px] font-black uppercase border shrink-0',
+                                      itemType === t ? 'text-white border-transparent' : 'border-[var(--border-default)] text-[var(--text-tertiary)]')}
+                                    style={itemType === t ? { backgroundColor: RELEASE_ITEM_TYPE_META[t].color } : undefined}
+                                  >
+                                    {RELEASE_ITEM_TYPE_META[t].short.slice(0, 1)}
+                                  </button>
+                                ))}
+                              </div>
+                              <button
+                                type="button"
+                                onClick={() => handleLinkHotfixHere(h.id)}
+                                disabled={linkingHotfixId === h.id}
+                                className="px-2.5 py-1.5 rounded-lg text-[9px] font-black uppercase tracking-widest bg-[var(--accent)] text-white hover:bg-[var(--accent-hover)] disabled:opacity-50 shrink-0"
+                              >
+                                + Adicionar
+                              </button>
+                            </div>
+                          );
+                        })}
+                      </div>
+                    </div>
+                  )}
 
                   {canEdit && !locked && (
                     <div className="flex gap-2 pt-2">

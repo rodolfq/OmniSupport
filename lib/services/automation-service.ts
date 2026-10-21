@@ -29,6 +29,7 @@ export interface TicketRow {
 }
 
 interface TicketMessageRow {
+  id: string;
   ticket_id: string;
   is_visible_to_customer: boolean;
   type: string;
@@ -326,7 +327,9 @@ async function dispatchTicketUpdateTemplate(
   ticketNumber: string,
   ticketTitle: string | null | undefined,
   noteText: string,
-  noteAuthorId: string | null
+  noteAuthorId: string | null,
+  ticketId: string,
+  ticketMessageId: string | null
 ): Promise<PyvonDispatchOutcome> {
   if (!noteText.trim()) return false; // nota vazia não tem o que enviar depois do "Prosseguir"
 
@@ -361,7 +364,7 @@ async function dispatchTicketUpdateTemplate(
     // cliente responder — aí ela nasce com o autor da nota (regra do usuário,
     // 2026-09-25).
     deferUntilReply: true,
-    pending: { noteText: withTicketPrefix(ticketNumber, ticketTitle, noteText), authorId: noteAuthorId },
+    pending: { noteText: withTicketPrefix(ticketNumber, ticketTitle, noteText), authorId: noteAuthorId, ticketId, ticketMessageId },
     pyvonMessageId: result.message_id
   });
   if (!recorded) return false;
@@ -479,7 +482,7 @@ export async function dispatchEvent(eventKey: string, ticket: TicketRow, extra: 
         if (eventKey === 'resposta_analista' && r.id === ticket.customer_id && pyvonInstanceId) {
           let sentViaTemplate: PyvonDispatchOutcome = false;
           try {
-            sentViaTemplate = await dispatchTicketUpdateTemplate(pyvonInstanceId, r, context.numero_chamado, ticket.title, context.nota, extra.autor_id || null);
+            sentViaTemplate = await dispatchTicketUpdateTemplate(pyvonInstanceId, r, context.numero_chamado, ticket.title, context.nota, extra.autor_id || null, ticket.id, extra.message_id || null);
           } catch (err: any) {
             console.error('[automation] Falha ao enviar template atualizacao_chamado:', err?.message || err);
           }
@@ -636,6 +639,6 @@ export function handleTicketMessageCreated(message: TicketMessageRow, ticket: Ti
   // escapa/renderiza texto puro aqui, não faz parse de HTML) mostra os
   // asteriscos/underscores literais — troca aceitável por não duplicar o
   // texto da nota em dois formatos.
-  dispatchEvent('resposta_analista', ticket, { nota: htmlToWhatsAppText(message.content || ''), autor_id: message.author_id || '' })
+  dispatchEvent('resposta_analista', ticket, { nota: htmlToWhatsAppText(message.content || ''), autor_id: message.author_id || '', message_id: message.id })
     .catch(err => console.error('[automation] handleTicketMessageCreated:', err));
 }

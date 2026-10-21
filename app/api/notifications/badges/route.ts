@@ -18,7 +18,7 @@ export async function GET(request: NextRequest) {
   try {
     const userId = await getAuthenticatedUserId(request);
     if (!userId) {
-      return NextResponse.json({ chatInternalUnread: 0, myTicketsUnread: 0, myTicketsUnreadByTicket: {} }, { status: 401 });
+      return NextResponse.json({ chatInternalUnread: 0, myTicketsUnread: 0, myTicketsUnreadByTicket: {}, internalTicketsUnread: 0, internalTicketsUnreadByTicket: {} }, { status: 401 });
     }
 
     const [chatInternalRes, fechadosRes] = await Promise.all([
@@ -69,14 +69,47 @@ export async function GET(request: NextRequest) {
       myTicketsUnread += row.cnt;
     });
 
+    // Ticket interno (2026-10-21, pedido do usuário) — mesma ideia do
+    // chamado acima, mas SEM o recorte "atribuído a mim": vale pra qualquer
+    // ticket interno que este usuário já tenha aberto antes (last_read_at
+    // NOT NULL), senão todo ticket nunca aberto apareceria como "não lido"
+    // na primeira vez que a lista geral carrega. `42703` (tabela/coluna
+    // ainda não existe — migration pendente) degrada pra "zero", não quebra
+    // a rota.
+    let internalTicketsUnread = 0;
+    const internalTicketsUnreadByTicket: Record<string, number> = {};
+    try {
+      const fechadosInternoRes = await query(`SELECT label FROM public.config_statuses WHERE scope = 'internal_ticket' AND is_closed = true`);
+      const fechadosInterno = fechadosInternoRes.rows.map((r: any) => r.label);
+      const internalRes = await query(
+        `SELECT m.internal_ticket_id, COUNT(*)::int AS cnt
+           FROM public.internal_ticket_messages m
+           JOIN public.internal_tickets it ON it.id = m.internal_ticket_id
+           JOIN public.internal_ticket_notification_reads r ON r.internal_ticket_id = it.id AND r.user_id = $1
+          WHERE (it.status IS NULL OR it.status <> ALL($2))
+            AND m.author_id IS DISTINCT FROM $1
+            AND m.created_at > r.last_read_at
+          GROUP BY m.internal_ticket_id`,
+        [userId, fechadosInterno]
+      );
+      internalRes.rows.forEach((row: any) => {
+        internalTicketsUnreadByTicket[row.internal_ticket_id] = row.cnt;
+        internalTicketsUnread += row.cnt;
+      });
+    } catch (err: any) {
+      if (err?.code !== '42703' && err?.code !== '42P01') console.error('Erro ao calcular não lidos de ticket interno:', err);
+    }
+
     return NextResponse.json({
       chatInternalUnread: chatInternalRes.rows[0]?.total || 0,
       myTicketsUnread,
-      myTicketsUnreadByTicket
+      myTicketsUnreadByTicket,
+      internalTicketsUnread,
+      internalTicketsUnreadByTicket
     });
   } catch (error) {
     console.error('Erro ao calcular notificações da sidebar:', error);
-    return NextResponse.json({ chatInternalUnread: 0, myTicketsUnread: 0 }, { status: 500 });
+    return NextResponse.json({ chatInternalUnread: 0, myTicketsUnread: 0, internalTicketsUnread: 0, internalTicketsUnreadByTicket: {} }, { status: 500 });
   }
 }
 
@@ -117,6 +150,34 @@ export async function POST(request: NextRequest) {
       );
 
       return NextResponse.json({ success: true, previousReadAt });
+    }
+
+    // Mesma ideia, pro ticket interno (2026-10-21) — chamado ao abrir
+    // app/(portal)/internal-tickets/[id]/page.tsx.
+    if (action === 'mark-internal-ticket-read') {
+      const internalTicketId = body.internalTicketId;
+      if (!internalTicketId) {
+        return NextResponse.json({ error: 'internalTicketId é obrigatório' }, { status: 400 });
+      }
+      try {
+        const previousRes = await query(
+          `SELECT last_read_at FROM public.internal_ticket_notification_reads WHERE internal_ticket_id = $1 AND user_id = $2`,
+          [internalTicketId, userId]
+        );
+        const previousReadAt = previousRes.rows[0]?.last_read_at || null;
+        await query(
+          `INSERT INTO public.internal_ticket_notification_reads (internal_ticket_id, user_id, last_read_at)
+           VALUES ($1, $2, now())
+           ON CONFLICT (internal_ticket_id, user_id) DO UPDATE SET last_read_at = now()`,
+          [internalTicketId, userId]
+        );
+        return NextResponse.json({ success: true, previousReadAt });
+      } catch (err: any) {
+        // 42P01 = tabela ainda não existe (migration pendente) — não quebra
+        // a tela, só não persiste a leitura até a migration ser aplicada.
+        if (err?.code === '42P01' || err?.code === '42703') return NextResponse.json({ success: true, previousReadAt: null });
+        throw err;
+      }
     }
 
     return NextResponse.json({ error: 'Ação desconhecida.' }, { status: 400 });

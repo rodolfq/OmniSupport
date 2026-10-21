@@ -92,7 +92,7 @@ function toDateOnly(iso?: string | null) {
 export default function InternalTicketDetailPage() {
   const params = useParams();
   const router = useRouter();
-  const { currentUser, triggerRefresh, setPendingTicketDraft, hasPermission } = useApp();
+  const { currentUser, triggerRefresh, setPendingTicketDraft, hasPermission, markInternalTicketNotificationsRead } = useApp();
   // Desmarcar (true → false) exige permissão extra — ver nota em
   // app/api/internal-tickets/route.ts (action=update). Marcar continua
   // liberado pra quem edita o ticket.
@@ -191,6 +191,10 @@ export default function InternalTicketDetailPage() {
 
       setLinkedTickets(detail.linkedTickets || []);
       setHotfixStageSummary(detail.hotfixStageSummary || null);
+      // Zera a contagem de "novas notas" deste ticket pra este usuário —
+      // mesmo gatilho do chamado de cliente (ticket-detail-modal.tsx),
+      // generalizado pro ticket interno (2026-10-21).
+      markInternalTicketNotificationsRead(data.id).catch(() => {});
 
       setTicket({
         ...data,
@@ -536,11 +540,13 @@ export default function InternalTicketDetailPage() {
   }, [handleRequestClose, showCreateHotfixModal, showLinkTicketModal, copyPickerFor]);
 
   // Link direto pro ticket interno, mesmo padrão do "Copiar link" do chamado
-  // do cliente (handleCopyTicketLink, ticket-detail-modal.tsx) — a rota
-  // /internal-tickets/<id> já existe e é justamente esta página.
+  // do cliente (handleCopyTicketLink, ticket-detail-modal.tsx) — número
+  // simples (ex.: /internal-tickets/40), igual a /tickets/4940 do chamado,
+  // em vez do id interno (UUID) — pedido do usuário, 2026-10-21. A rota
+  // aceita os dois formatos (ver app/api/internal-tickets/route.ts).
   const handleCopyTicketLink = async () => {
     if (!ticket) return;
-    const link = `${window.location.origin}/internal-tickets/${ticket.uuid}`;
+    const link = `${window.location.origin}/internal-tickets/${ticket.internalTicketNumber}`;
     try {
       await navigator.clipboard.writeText(link);
       toast.success('Link do ticket interno copiado!');

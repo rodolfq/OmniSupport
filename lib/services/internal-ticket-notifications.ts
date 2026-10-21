@@ -31,7 +31,10 @@ async function notifyInternalTeamByEmail(ticket: InternalTicketRow, reason: 'cre
 
   const ticketLabel = `#${String(ticket.internal_ticket_number ?? '').padStart(4, '0')}`;
   const baseUrl = process.env.NEXT_PUBLIC_APP_URL;
-  const link = baseUrl ? `${baseUrl}/internal-tickets/${ticket.id}` : null;
+  // Número simples (mesmo padrão de /tickets/4940 pro chamado de cliente),
+  // não o id interno (UUID) — pedido do usuário, 2026-10-21. A rota aceita
+  // os dois (ver app/api/internal-tickets/route.ts, action=detail).
+  const link = baseUrl ? `${baseUrl}/internal-tickets/${ticket.internal_ticket_number}` : null;
 
   const subject = reason === 'created'
     ? `Novo ticket interno ${ticketLabel} para ${teamName} — SSX Desk`

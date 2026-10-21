@@ -15,6 +15,7 @@ import { motion, AnimatePresence } from 'motion/react';
 import { cn } from '@/lib/utils';
 import { TicketDetailModal } from '@/components/ticket-detail-modal';
 import { FilterBar } from '@/components/filter-bar';
+import { UnreadDot } from '@/components/notification-count-badge';
 import { useSearchParams, useRouter } from 'next/navigation';
 
 interface InternalTicketItem extends InternalTicket {
@@ -65,7 +66,7 @@ export default function DashboardPage() {
   // carregamento pesado de allTickets: só equipe vê, nenhum ticket_messages
   // precisa viajar pro resto da tela.
   const [awaitingResponse, setAwaitingResponse] = useState<{ id: string; ticketNumber?: number; title: string; updatedAt: string }[]>([]);
-  const { currentUser, setIsNewTicketModalOpen, refreshTrigger, hasPermission } = useApp();
+  const { currentUser, setIsNewTicketModalOpen, refreshTrigger, hasPermission, navBadges } = useApp();
   const searchParams = useSearchParams();
 
   // Mesmo cache de prioridades usado em tickets-view.tsx e ticket-detail-
@@ -491,6 +492,7 @@ export default function DashboardPage() {
                 )}
               >
                 <FolderKanban size={14} /> Tickets Internos
+                <UnreadDot show={navBadges.internalTicketsUnread > 0} />
               </button>
             </div>
           )}

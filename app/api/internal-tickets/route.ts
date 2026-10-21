@@ -290,17 +290,20 @@ export async function GET(request: NextRequest) {
     }
 
     if (action === 'detail') {
-      // Aceita o id interno ou o número formatado (int-0001), como a URL da
-      // tela de detalhe. Devolve numa ida o ticket, os chamados vinculados e
-      // os nomes de responsável/criador — antes eram quatro consultas soltas
-      // saindo do navegador.
+      // Aceita o id interno, o número formatado (int-0001) OU o número puro
+      // (40) — este último é o padrão simples do link externo (mesma ideia
+      // de /tickets/4940 pro chamado de cliente, ver app/(portal)/tickets/[id]/page.tsx
+      // — pedido do usuário, 2026-10-21). Devolve numa ida o ticket, os
+      // chamados vinculados e os nomes de responsável/criador — antes eram
+      // quatro consultas soltas saindo do navegador.
       const ref = (searchParams.get('ref') || '').trim();
       if (!ref) return NextResponse.json({ error: 'ref é obrigatório.' }, { status: 400 });
 
       const isFormatted = ref.startsWith('int-');
-      const ticketRes = isFormatted
+      const isBareNumber = /^\d+$/.test(ref);
+      const ticketRes = (isFormatted || isBareNumber)
         ? await query('SELECT * FROM public.internal_tickets WHERE internal_ticket_number = $1', [
-            parseInt(ref.replace('int-', ''), 10)
+            parseInt(isFormatted ? ref.replace('int-', '') : ref, 10)
           ])
         : await query('SELECT * FROM public.internal_tickets WHERE id = $1', [ref]);
 

@@ -161,6 +161,16 @@ export class PyvonService {
       console.error('[Pyvon] Falha ao registrar resposta da pesquisa — seguindo o fluxo normal:', err);
     }
 
+    // "Prosseguir" entrega o conteúdo da nota e marca a leitura, SEM criar
+    // conversa — decisão do usuário, 2026-10-21 (ver tryClaimProsseguir).
+    // Só a mensagem SEGUINTE do cliente (seja qual for o texto) cria a
+    // conversa de verdade.
+    try {
+      if (await this.tryClaimProsseguir(payload, variants, instanceId)) return;
+    } catch (err) {
+      console.error('[Pyvon] Falha ao processar "Prosseguir" — seguindo o fluxo normal:', err);
+    }
+
     // Se este contato tem template automático guardado (ver
     // savePendingOutbound), a conversa que vai nascer já pode nascer com o autor
     // da nota — em vez de passar pelo rodízio e ser trocada depois.
@@ -265,7 +275,19 @@ export class PyvonService {
     // vez. Sem elegibilidade, não faz nada e o rodízio segue normalmente.
     const pendingText: string | null = session.pyvon_pending_note_text || null;
     const pendingAuthorId: string | null = session.pyvon_pending_note_author_id || null;
-    if (pendingAuthorId) {
+    // Cascata de atribuição (pedido do usuário, 2026-10-21): responsável
+    // ATUAL do chamado (se online) primeiro; senão, autor da nota (se online
+    // E membro da fila, regra de sempre); senão, segue pro rodízio normal
+    // (dispatchPendingChatSessions, logo abaixo).
+    let claimedByAssignee = false;
+    if (session.ticket_id) {
+      try {
+        claimedByAssignee = await this.assignToTicketAssigneeIfOnline(session, session.ticket_id, savedMessage.id);
+      } catch (err) {
+        console.error('[Pyvon] Falha ao atribuir a conversa ao responsável do chamado:', err);
+      }
+    }
+    if (!claimedByAssignee && pendingAuthorId) {
       try {
         await this.assignToPendingAuthorIfOnline(session, pendingAuthorId, savedMessage.id);
       } catch (err) {
@@ -1081,16 +1103,35 @@ export class PyvonService {
 
   private static async savePendingOutbound(params: {
     instanceId: string; phone?: string; cadastroId: number; customerName: string; analystName: string; text: string;
-    pending?: { noteText?: string | null; authorId?: string | null };
+    pending?: { noteText?: string | null; authorId?: string | null; ticketId?: string | null; ticketMessageId?: string | null };
     pyvonMessageId?: number | string | null;
   }, variants: string[]): Promise<void> {
     const base = [params.cadastroId, variants[0] || null, params.customerName, params.instanceId, params.text, params.analystName,
       params.pending?.noteText || null, params.pending?.authorId || null];
+    const pyvonMsgId = params.pyvonMessageId != null ? String(params.pyvonMessageId) : null;
+
+    // ticket_id/ticket_message_id (migrations/pyvon_prosseguir_no_chat.sql,
+    // ver CLAUDE.md) — ainda NÃO aplicada em produção (moratória de banco):
+    // tenta com as colunas novas primeiro, cai pro INSERT de sempre (sem
+    // elas) em 42703, pra não perder o template por causa de uma migration
+    // pendente. "Prosseguir" simplesmente não terá de qual chamado/nota se
+    // tratava até a migration ser aplicada — degrada, não quebra.
+    try {
+      await query(
+        `INSERT INTO public.pyvon_pending_outbound (cadastro_id, phone, customer_name, instance_id, template_text, sender_name, note_text, note_author_id, ticket_id, ticket_message_id, pyvon_message_id)
+         VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11)`,
+        [...base, params.pending?.ticketId || null, params.pending?.ticketMessageId || null, pyvonMsgId]
+      );
+      return;
+    } catch (err: any) {
+      if (err?.code !== '42703') throw err;
+    }
+
     try {
       await query(
         `INSERT INTO public.pyvon_pending_outbound (cadastro_id, phone, customer_name, instance_id, template_text, sender_name, note_text, note_author_id, pyvon_message_id)
          VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)`,
-        [...base, params.pyvonMessageId != null ? String(params.pyvonMessageId) : null]
+        [...base, pyvonMsgId]
       );
     } catch (err: any) {
       // 42703 = coluna inexistente: código publicado antes da migration
@@ -1158,6 +1199,20 @@ export class PyvonService {
       );
     }
 
+    // Vincula a conversa (NOVA) ao chamado de origem da nota + tag
+    // "Atualização de Chamado" — pedido do usuário, 2026-10-21. Resposta de
+    // verdade do cliente, nunca o "Prosseguir" em si (ver tryClaimProsseguir,
+    // que nem chega a criar conversa). `row.ticket_id` vem undefined se a
+    // migration ainda não foi aplicada — degrada pra "sem vínculo", não quebra.
+    const withTicket = [...rows].reverse().find((r: any) => r.ticket_id);
+    if (withTicket?.ticket_id) {
+      try {
+        await this.linkSessionToTicket(session, withTicket.ticket_id);
+      } catch (err) {
+        console.error('[Pyvon] Falha ao vincular conversa ao chamado de origem:', err);
+      }
+    }
+
     if (session.pyvon_pending_note_text || session.pyvon_pending_note_author_id) return;
     const withNote = [...rows].reverse().find((r: any) => r.note_text);
     const withAuthor = withNote || [...rows].reverse().find((r: any) => r.note_author_id);
@@ -1172,6 +1227,157 @@ export class PyvonService {
     );
     session.pyvon_pending_note_text = text;
     session.pyvon_pending_note_author_id = authorId;
+  }
+
+  // Mesmo par de UPDATEs de "Vincular conversa a um chamado"
+  // (app/api/chat-sessions/route.ts, action=link-ticket) + tag "Atualização
+  // de Chamado" — pedido do usuário, 2026-10-21. Sem checagem de
+  // empresa/"já vinculado": a conversa é NOVA, não tem o que conflitar.
+  private static async linkSessionToTicket(session: any, ticketId: string): Promise<void> {
+    const ticketRes = await query('SELECT public_ticket_number FROM public.tickets WHERE id = $1', [ticketId]);
+    const ticketNumber = ticketRes.rows[0]?.public_ticket_number;
+    if (ticketNumber == null) return; // chamado não existe mais
+
+    await query('UPDATE public.tickets SET chat_session_id = $1 WHERE id = $2', [session.id, ticketId]);
+    await query('UPDATE public.chat_sessions SET ticket_id = $1, ticket_number = $2 WHERE id = $3', [ticketId, ticketNumber, session.id]);
+    session.ticket_id = ticketId;
+    session.ticket_number = ticketNumber;
+
+    const tagId = await this.ensureUpdateTicketTag();
+    if (tagId) {
+      await query(
+        `UPDATE public.chat_sessions SET tags = CASE WHEN $1::text = ANY(tags) THEN tags ELSE array_append(tags, $1::text) END WHERE id = $2`,
+        [tagId, session.id]
+      );
+    }
+  }
+
+  // "Atualização de Chamado": tag de chat própria pras conversas que
+  // nasceram da resposta do cliente a uma nota. Não é migration — config_tags
+  // já existe, isto é dado — cria uma vez, na primeira falta.
+  private static async ensureUpdateTicketTag(): Promise<string | null> {
+    const label = 'Atualização de Chamado';
+    const existing = await query('SELECT id FROM public.config_tags WHERE label = $1', [label]);
+    if (existing.rows[0]) return existing.rows[0].id;
+    try {
+      const inserted = await query(
+        `INSERT INTO public.config_tags (label, color, domain) VALUES ($1, '#6366f1', 'chat')
+         ON CONFLICT (label) DO NOTHING RETURNING id`,
+        [label]
+      );
+      if (inserted.rows[0]) return inserted.rows[0].id;
+      const retry = await query('SELECT id FROM public.config_tags WHERE label = $1', [label]);
+      return retry.rows[0]?.id || null;
+    } catch (err) {
+      console.error('[Pyvon] Falha ao garantir a tag "Atualização de Chamado":', err);
+      return null;
+    }
+  }
+
+  // Responsável ATUAL do chamado (pode ter trocado desde que a nota foi
+  // enviada) — tentado ANTES do autor da nota, só exige estar Online (sem
+  // exigir ser membro da fila: ele já é o responsável formal do chamado,
+  // decisão do usuário, 2026-10-21 — diferente da regra do autor da nota,
+  // abaixo, que continua exigindo fila). Mesma trava de "só assume dono
+  // quando a conversa nasceu agora e ninguém mexeu nela" de
+  // assignToPendingAuthorIfOnline.
+  private static async assignToTicketAssigneeIfOnline(session: any, ticketId: string, currentMessageId: string): Promise<boolean> {
+    const ticketRes = await query('SELECT assignee_id FROM public.tickets WHERE id = $1', [ticketId]);
+    const assigneeId: string | null = ticketRes.rows[0]?.assignee_id || null;
+    if (!assigneeId || session.assignee_id === assigneeId) return false;
+    if (!(await isOnlineQueueMember(assigneeId, null))) return false;
+
+    const res = await query(
+      `UPDATE public.chat_sessions SET assignee_id = $1, status = 'active', updated_at = NOW()
+        WHERE id = $2
+          AND (
+            assignee_id IS NULL
+            OR NOT EXISTS (
+              SELECT 1 FROM public.chat_messages m
+               WHERE m.session_id = $2 AND m.id <> $3
+                 AND COALESCE(m.metadata->>'template', 'false') <> 'true'
+                 AND COALESCE(m.metadata->>'auto_reply', 'false') <> 'true'
+            )
+          )
+        RETURNING id`,
+      [assigneeId, session.id, currentMessageId]
+    );
+    if ((res.rowCount ?? 0) > 0) {
+      session.assignee_id = assigneeId;
+      emitSessionsChanged({ reason: 'assigned', sessionId: session.id });
+      return true;
+    }
+    return false;
+  }
+
+  // "Prosseguir" NÃO cria conversa — só entrega o conteúdo da nota e marca a
+  // nota do chamado como lida (ticket_messages.read_by_customer_at). Só a
+  // resposta SEGUINTE do cliente (qualquer texto) cria a conversa de
+  // verdade, em adoptPendingOutbound (vínculo + tag) — decisão do usuário,
+  // 2026-10-21: comportamento muda só pra "Prosseguir"; qualquer OUTRA
+  // resposta continua criando a conversa na hora, como sempre (não passa
+  // por aqui, retorna false). Só vale quando o contato NÃO tem conversa
+  // aberta ainda — com conversa já existente, mantém o
+  // pyvon_pending_note_text de sempre (ver handleWebhook).
+  //
+  // UPDATE ... WHERE read_at IS NULL é a trava de idempotência: uma
+  // retentativa do mesmo webhook encontra read_at já setado e não reenvia a
+  // nota 2x. Em falha de entrega, desfaz a reivindicação (volta read_at pra
+  // NULL) e devolve false — cai no fluxo normal, que cria a conversa pro
+  // analista intervir manualmente.
+  private static async tryClaimProsseguir(payload: PyvonInboundPayload, variants: string[], instanceId: string): Promise<boolean> {
+    const text = String(payload.content || '').trim().toLowerCase().replace(/[.,!?]+$/, '');
+    if (text !== 'prosseguir') return false;
+
+    const alreadyOpen = await this.findOpenSession(variants, payload.cadastro_id);
+    if (alreadyOpen) return false;
+
+    const w = this.pendingOutboundWhere(variants, payload.cadastro_id);
+    let claimedRows: any[];
+    try {
+      const res = await query(
+        `UPDATE public.pyvon_pending_outbound
+            SET read_at = NOW()
+          WHERE (${w.sql}) AND read_at IS NULL AND note_text IS NOT NULL
+            AND created_at > NOW() - INTERVAL '48 hours'
+          RETURNING *`,
+        w.params
+      );
+      claimedRows = res.rows;
+    } catch (err: any) {
+      if (err?.code !== '42703') throw err;
+      return false; // migration pendente — sem read_at pra reivindicar, cai no fluxo antigo (cria conversa)
+    }
+    if (!claimedRows.length) return false;
+
+    // Mais de um pendente com nota (raro) — só o mais recente é entregue
+    // agora; os demais continuam pendentes pra virar histórico quando a
+    // conversa de verdade nascer.
+    const row = [...claimedRows].sort((a, b) => +new Date(b.created_at) - +new Date(a.created_at))[0];
+
+    let authorName: string | null = null;
+    if (row.note_author_id) {
+      const authorRes = await query('SELECT name FROM public.profiles WHERE id = $1', [row.note_author_id]);
+      authorName = authorRes.rows[0]?.name || null;
+    }
+    const contentForPyvon = authorName ? `*${authorName}*\n\n${row.note_text}` : row.note_text;
+
+    const result = await this.sendMessage(
+      instanceId,
+      { cadastroId: payload.cadastro_id, phone: variants[0] || undefined, name: payload.cadastro_name || undefined },
+      contentForPyvon
+    );
+    if (result.skipped || (result.delivery && result.delivery !== 'sent')) {
+      console.warn(`[Pyvon] "Prosseguir" não entregue (cadastro ${payload.cadastro_id}): ${result.skipped || result.delivery_error || result.delivery}`);
+      await query('UPDATE public.pyvon_pending_outbound SET read_at = NULL WHERE id = $1', [row.id]).catch(() => {});
+      return false;
+    }
+
+    if (row.ticket_message_id) {
+      query('UPDATE public.ticket_messages SET read_by_customer_at = NOW() WHERE id = $1 AND read_by_customer_at IS NULL', [row.ticket_message_id])
+        .catch(err => console.error('[Pyvon] Falha ao marcar nota como lida pelo cliente:', err));
+    }
+    return true;
   }
 
   static async recordOutboundTemplateMessage(params: {
@@ -1190,7 +1396,11 @@ export class PyvonService {
     // "iniciar conversa"), cria a conversa como sempre.
     deferUntilReply?: boolean;
     // Nota / autor que valem na resposta do cliente (ver handleWebhook).
-    pending?: { noteText?: string | null; authorId?: string | null };
+    // ticketId/ticketMessageId: de qual chamado/nota este template veio —
+    // usados por tryClaimProsseguir (marca a nota como lida sem criar
+    // conversa) e, na resposta de verdade, pra vincular a conversa ao
+    // chamado (2026-10-21).
+    pending?: { noteText?: string | null; authorId?: string | null; ticketId?: string | null; ticketMessageId?: string | null };
     // message_id que o Pyvon devolveu no bot-template. Guardado junto da
     // mensagem/linha pendente pra casar com o aviso de falha de entrega, que
     // chega depois e só traz esse id (handleDeliveryStatus).

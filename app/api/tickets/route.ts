@@ -164,7 +164,11 @@ export async function GET(request: NextRequest) {
         timestamp: m.created_at,
         isVisibleToCustomer: m.is_visible_to_customer,
         type: m.type,
-        attachments: m.attachments_data || []
+        attachments: m.attachments_data || [],
+        // "Check azul" — cliente leu via WhatsApp/"Prosseguir" (2026-10-21).
+        // `m.*` tolera a coluna ainda não existir (moratória de banco): vem
+        // undefined → null, nunca quebra a rota.
+        readByCustomerAt: m.read_by_customer_at || null
       })));
     }
 
