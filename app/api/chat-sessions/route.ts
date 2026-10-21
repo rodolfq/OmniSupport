@@ -21,23 +21,38 @@ async function actorTemAlgumaPermissao(actor: any, perms: string[]): Promise<boo
   return perms.some(p => permissions.includes(p));
 }
 
-// Encerrar conversa exige ao menos 1 tag de chat válida (pedido do usuário,
-// 2026-09-28). "Válida" = o id ainda existe em config_tags com domain 'chat' (tag
-// apagada depois não conta). Sem NENHUMA tag de chat cadastrada não há o que
-// exigir — senão ninguém encerraria nenhuma conversa. Devolve null se a conversa
-// não existe.
+// Encerrar conversa exige ao menos 1 tag PRINCIPAL de chat válida (pedido do
+// usuário, 2026-09-28; refinado em 2026-10-21 pra hierarquia tag principal →
+// subtag) — e, se essa principal tiver subtags cadastradas, ao menos 1 delas
+// também selecionada (ex.: "Hardware" sem escolher "Câmera" não fecha; "Dúvida",
+// que não tem subtag nenhuma, fecha só com ela). "Válida" = o id ainda existe em
+// config_tags com domain 'chat' (tag apagada depois não conta). Sem NENHUMA tag
+// de chat cadastrada não há o que exigir — senão ninguém encerraria nenhuma
+// conversa. Devolve null se a conversa não existe.
 async function conversaTemTagParaEncerrar(sessionId: string): Promise<boolean | null> {
-  const sessionRes = await query('SELECT 1 FROM public.chat_sessions WHERE id::text = $1', [String(sessionId)]);
+  const sessionRes = await query('SELECT tags FROM public.chat_sessions WHERE id::text = $1', [String(sessionId)]);
   if (sessionRes.rowCount === 0) return null;
-  const cadastradas = await query(`SELECT 1 FROM public.config_tags WHERE domain = 'chat' LIMIT 1`);
-  if (cadastradas.rowCount === 0) return true;
-  const comTag = await query(
-    `SELECT 1 FROM public.chat_sessions s
-      WHERE s.id::text = $1
-        AND EXISTS (SELECT 1 FROM public.config_tags t WHERE t.domain = 'chat' AND t.id::text = ANY(s.tags))`,
-    [String(sessionId)]
-  );
-  return (comTag.rowCount ?? 0) > 0;
+
+  const todasRes = await query(`SELECT id, parent_tag_id FROM public.config_tags WHERE domain = 'chat'`);
+  if (todasRes.rowCount === 0) return true;
+
+  const sessionTags = new Set<string>((sessionRes.rows[0].tags || []).map((t: any) => String(t)));
+  const porId = new Map<string, string | null>(todasRes.rows.map((r: any) => [String(r.id), r.parent_tag_id ? String(r.parent_tag_id) : null]));
+  const subtagsDe = new Map<string, string[]>();
+  for (const r of todasRes.rows) {
+    if (!r.parent_tag_id) continue;
+    const pai = String(r.parent_tag_id);
+    if (!subtagsDe.has(pai)) subtagsDe.set(pai, []);
+    subtagsDe.get(pai)!.push(String(r.id));
+  }
+
+  const principaisSelecionadas = [...sessionTags].filter((id) => porId.has(id) && porId.get(id) === null);
+  if (principaisSelecionadas.length === 0) return false;
+
+  return principaisSelecionadas.every((p) => {
+    const subtags = subtagsDe.get(p) || [];
+    return subtags.length === 0 || subtags.some((s) => sessionTags.has(s));
+  });
 }
 
 /**

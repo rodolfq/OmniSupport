@@ -117,7 +117,18 @@ async function classifyWithGroq(
 ): Promise<{ summary: string | null; result: ClassificationResult }> {
   const completion = await client.chat.completions.create({
     model: params.model,
-    max_tokens: 500,
+    // openai/gpt-oss-120b (modelo padrão) é um modelo de "raciocínio": por
+    // padrão (reasoning_effort 'medium') ele gasta uma fatia do próprio
+    // max_tokens pensando ANTES de escrever a resposta — com max_tokens
+    // baixo (era 500) e response_format json_object, a cota as vezes
+    // acabava inteira no raciocínio, sem sobrar nada pra terminar o JSON
+    // (achado em produção, 2026-10-21: erro 400 "Failed to generate
+    // JSON"/"max completion tokens reached before generating a valid
+    // document", às vezes com failed_generation vazio — zero token sobrou
+    // pro conteúdo). Esta tarefa é só extrair/classificar, não precisa de
+    // raciocínio profundo — 'low' deixa quase toda a cota pra resposta.
+    reasoning_effort: 'low',
+    max_tokens: 1500,
     response_format: { type: 'json_object' },
     messages: [
       {

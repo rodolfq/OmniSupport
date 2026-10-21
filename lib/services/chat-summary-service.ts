@@ -69,7 +69,12 @@ export async function getOrGenerateChatSummary(historyId: string): Promise<ChatS
 
   const completion = await client.chat.completions.create({
     model: GROQ_MODEL_NAME,
-    max_tokens: 400,
+    // Mesmo ajuste de dissatisfaction-service.ts: openai/gpt-oss-120b gasta
+    // parte do max_tokens "pensando" antes de responder por padrão — com
+    // max_tokens baixo isso podia cortar o resumo no meio. 'low' porque
+    // resumir não precisa de raciocínio profundo.
+    reasoning_effort: 'low',
+    max_tokens: 800,
     messages: [
       { role: 'system', content: SUMMARY_SYSTEM_INSTRUCTION },
       {

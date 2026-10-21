@@ -1,3 +1,5 @@
+import { TagConfig } from '@/lib/types';
+
 // Regras de encerramento de conversa compartilhadas entre o servidor
 // (app/api/chat-sessions/route.ts, action 'close') e as telas que mostram o
 // aviso (chat-widget.tsx, Central de Atendimento).
@@ -14,12 +16,20 @@ export function isChatTagRequiredError(result: unknown): boolean {
 
 /**
  * Conversa pronta pra encerrar do ponto de vista das tags: precisa ter ao menos
- * 1 tag de chat válida (que ainda exista no cadastro). Se NÃO existe nenhuma tag
+ * 1 tag PRINCIPAL de chat válida (sem `parentTagId`) e, se essa principal tiver
+ * subtags cadastradas, ao menos uma delas também selecionada (hierarquia
+ * introduzida em 2026-10-21 — ver RequiredChatTags). Se NÃO existe nenhuma tag
  * de chat cadastrada, não há o que exigir — senão ninguém conseguiria encerrar
  * nenhuma conversa. Mesma regra do servidor (`conversaTemTagParaEncerrar`),
  * usada na tela só pra decidir o que mostrar; quem barra de verdade é o servidor.
  */
-export function chatHasRequiredTag(sessionTagIds: string[] | undefined | null, availableChatTagIds: string[]): boolean {
-  if (availableChatTagIds.length === 0) return true;
-  return (sessionTagIds || []).some(id => availableChatTagIds.includes(id));
+export function chatHasRequiredTag(sessionTagIds: string[] | undefined | null, availableChatTags: TagConfig[]): boolean {
+  if (availableChatTags.length === 0) return true;
+  const selected = new Set(sessionTagIds || []);
+  const principais = availableChatTags.filter(t => !t.parentTagId && selected.has(t.id));
+  if (principais.length === 0) return false;
+  return principais.every(p => {
+    const subtags = availableChatTags.filter(t => t.parentTagId === p.id);
+    return subtags.length === 0 || subtags.some(s => selected.has(s.id));
+  });
 }

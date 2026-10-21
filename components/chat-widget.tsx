@@ -1041,7 +1041,7 @@ export function ChatWidget() {
   // tags de chat já terem carregado no instante em que o modal abre.
   const [finishTagBlockVisible, setFinishTagBlockVisible] = useState(false);
   const [duplicateTagBlockVisible, setDuplicateTagBlockVisible] = useState(false);
-  const sessionHasRequiredTag = (s?: { tags?: string[] } | null) => chatHasRequiredTag(s?.tags, chatTags.map(tag => tag.id));
+  const sessionHasRequiredTag = (s?: { tags?: string[] } | null) => chatHasRequiredTag(s?.tags, chatTags);
   // Se as tags de chat terminam de carregar DEPOIS de o modal abrir, o seletor
   // aparece pela regra derivada, mas o flag ficaria falso e o bloco sumiria no
   // instante em que a 1ª tag fosse marcada (sem mostrar o "Tag selecionada").
