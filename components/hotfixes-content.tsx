@@ -498,37 +498,43 @@ export function HotfixesContent() {
                 <button onClick={handleExportPdf} className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl border border-[var(--border-default)] text-[10px] font-black uppercase tracking-widest text-[var(--text-secondary)] hover:bg-[var(--surface-pill)]">
                   <FileDown size={13} /> PDF
                 </button>
-                {canEdit && timelineMode === 'single' && selectedCycle && !selectedCycle.publishedAt && (
-                  <button
-                    onClick={() => setCreateItemFor(selectedCycle)}
-                    className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl border border-[var(--border-default)] text-[10px] font-black uppercase tracking-widest text-[var(--text-secondary)] hover:bg-[var(--surface-pill)]"
-                  >
-                    <Plus size={13} /> Novo Item
-                  </button>
-                )}
-                {canEdit && timelineMode === 'single' && selectedCycle && !selectedCycle.publishedAt && (
-                  <button
-                    onClick={() => setAddStageFor(selectedCycle)}
-                    className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl border border-[var(--border-default)] text-[10px] font-black uppercase tracking-widest text-[var(--text-secondary)] hover:bg-[var(--surface-pill)]"
-                  >
-                    <Plus size={13} /> Nova Etapa
-                  </button>
-                )}
-                {canEdit && timelineMode === 'single' && selectedCycle && !selectedCycle.publishedAt && (
-                  <button
-                    onClick={() => setConcludeCycleFor(selectedCycle)}
-                    className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl border border-[var(--text-success)]/30 bg-[var(--surface-success)] text-[10px] font-black uppercase tracking-widest text-[var(--text-success)] hover:bg-[var(--text-success)] hover:text-white transition-colors"
-                  >
-                    <CheckCircle2 size={13} /> Concluir Ciclo
-                  </button>
-                )}
+                {/* Ações do ciclo focado — agrupadas visualmente (fundo +
+                    borda próprios) pra não se misturar nem com os controles
+                    de visualização (acima) nem com as ações globais
+                    Modelos/Novo Ciclo (à direita, fora deste grupo). */}
                 {canEdit && timelineMode === 'single' && selectedCycle && (
-                  <button
-                    onClick={() => setSaveAsTemplateFor(selectedCycle)}
-                    className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl border border-[var(--border-default)] text-[10px] font-black uppercase tracking-widest text-[var(--text-secondary)] hover:bg-[var(--surface-pill)]"
-                  >
-                    <LayoutTemplate size={13} /> Transformar em modelo
-                  </button>
+                  <div className="flex items-center gap-1.5 pl-2.5 ml-1 border-l border-[var(--border-default)]">
+                    {!selectedCycle.publishedAt && (
+                      <>
+                        <button
+                          onClick={() => setCreateItemFor(selectedCycle)}
+                          className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl border border-[var(--border-default)] text-[10px] font-black uppercase tracking-widest text-[var(--text-secondary)] hover:bg-[var(--surface-pill)]"
+                        >
+                          <Plus size={13} /> Novo Item
+                        </button>
+                        <button
+                          onClick={() => setAddStageFor(selectedCycle)}
+                          className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl border border-[var(--border-default)] text-[10px] font-black uppercase tracking-widest text-[var(--text-secondary)] hover:bg-[var(--surface-pill)]"
+                        >
+                          <Plus size={13} /> Nova Etapa
+                        </button>
+                      </>
+                    )}
+                    <button
+                      onClick={() => setSaveAsTemplateFor(selectedCycle)}
+                      className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl border border-[var(--border-default)] text-[10px] font-black uppercase tracking-widest text-[var(--text-secondary)] hover:bg-[var(--surface-pill)]"
+                    >
+                      <LayoutTemplate size={13} /> Transformar em modelo
+                    </button>
+                    {!selectedCycle.publishedAt && (
+                      <button
+                        onClick={() => setConcludeCycleFor(selectedCycle)}
+                        className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl border border-[var(--text-success)]/30 bg-[var(--surface-success)] text-[10px] font-black uppercase tracking-widest text-[var(--text-success)] hover:bg-[var(--text-success)] hover:text-white transition-colors"
+                      >
+                        <CheckCircle2 size={13} /> Concluir Ciclo
+                      </button>
+                    )}
+                  </div>
                 )}
               </>
             )}

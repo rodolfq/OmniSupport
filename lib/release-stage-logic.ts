@@ -100,9 +100,15 @@ export const RELEASE_ITEM_TYPE_META: Record<ReleaseItemType, { label: string; sh
   prevista: { label: 'Publicação Prevista', short: 'PREV', color: '#14b8a6' },
 };
 
+// Status é o canal de cor DOMINANTE da barra na timeline (fundo + ícone +
+// texto) — por isso usa tons de SURFACE (fundo claro, legível com texto por
+// cima), nunca o --accent sólido da marca (reservado pra botão/CTA; usá-lo
+// aqui faria "em andamento" se confundir com "ação principal da tela").
+// A cor própria de cada etapa (stage.color) é só um identificador secundário
+// (um pontinho ao lado do nome), nunca o fundo — ver release-timeline.tsx.
 export const STAGE_STATUS_META: Record<ReleaseStageStatus, { label: string; textVar: string; surfaceVar: string }> = {
   pendente: { label: 'Pendente', textVar: 'var(--text-tertiary)', surfaceVar: 'var(--surface-pill)' },
-  em_andamento: { label: 'Em andamento', textVar: 'var(--accent-text)', surfaceVar: 'var(--accent)' },
+  em_andamento: { label: 'Em andamento', textVar: 'var(--text-info)', surfaceVar: 'var(--surface-info)' },
   concluida: { label: 'Concluída', textVar: 'var(--text-success)', surfaceVar: 'var(--surface-success)' },
   atrasada: { label: 'Atrasada', textVar: 'var(--text-danger)', surfaceVar: 'var(--surface-danger)' },
   em_risco: { label: 'Em risco', textVar: 'var(--text-warning-strong)', surfaceVar: 'var(--surface-warning)' },
