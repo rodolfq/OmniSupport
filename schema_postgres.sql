@@ -333,6 +333,15 @@ CREATE TABLE public.config_tags (
   created_at TIMESTAMP WITH TIME ZONE DEFAULT now() NOT NULL
 );
 
+-- Hierarquia tag principal -> subtag (migrations/config_tags_parent.sql,
+-- 2026-10-21). label continua UNIQUE globalmente — cada subtag é única e
+-- reaproveitável, com NO MÁXIMO uma tag principal (a tela só oferece tags
+-- SEM pai como opção de "principal", travando em 2 níveis). Apagar a
+-- principal não apaga as subtags: elas só voltam a ser top-level.
+ALTER TABLE public.config_tags
+  ADD COLUMN IF NOT EXISTS parent_tag_id UUID REFERENCES public.config_tags(id) ON DELETE SET NULL;
+CREATE INDEX IF NOT EXISTS idx_config_tags_parent_tag_id ON public.config_tags(parent_tag_id) WHERE parent_tag_id IS NOT NULL;
+
 -- Config Survey Settings (linha única) - pesquisa de satisfação enviada ao finalizar conversa
 CREATE TABLE public.config_survey_settings (
   id INTEGER PRIMARY KEY DEFAULT 1,

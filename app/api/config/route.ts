@@ -151,8 +151,14 @@ export async function GET(request: Request) {
         ...(withUsage ? { usageCount: Number(r.usage_count) } : {})
       })));
     } else if (type === 'tags') {
+      // parent_tag_id -> parentTagId: SELECT * tolera a coluna ainda não
+      // existir (migrations/config_tags_parent.sql, pendente — moratória de
+      // banco) — vem undefined, cai no `|| null`, nunca quebra a rota.
       const res = await query('SELECT * FROM public.config_tags');
-      return cacheableJson(res.rows);
+      return cacheableJson(res.rows.map(r => ({
+        id: r.id, label: r.label, color: r.color, domain: r.domain,
+        parentTagId: r.parent_tag_id || null
+      })));
     } else if (type === 'quick-notes') {
       const res = await query('SELECT * FROM public.quick_notes');
       return NextResponse.json(res.rows);
@@ -310,27 +316,55 @@ export async function POST(request: Request) {
       const { tag } = body;
       if (action === 'save') {
         const id = tag.id || undefined;
+        // null explícito (nunca undefined pro driver do pg) — "" do
+        // seletor "Nenhuma (é uma tag principal)" também vira null.
+        const parentTagId = tag.parentTagId || null;
         let res;
-        if (id) {
-          res = await query(
-            `INSERT INTO public.config_tags (id, label, color, domain)
-             VALUES ($1, $2, $3, $4)
-             ON CONFLICT (id) DO UPDATE SET
-               label = EXCLUDED.label,
-               color = EXCLUDED.color,
-               domain = EXCLUDED.domain
-             RETURNING id, label, color, domain`,
-            [id, tag.label, tag.color, tag.domain]
-          );
-        } else {
-          res = await query(
-            `INSERT INTO public.config_tags (label, color, domain)
-             VALUES ($1, $2, $3)
-             RETURNING id, label, color, domain`,
-            [tag.label, tag.color, tag.domain]
-          );
+        try {
+          if (id) {
+            res = await query(
+              `INSERT INTO public.config_tags (id, label, color, domain, parent_tag_id)
+               VALUES ($1, $2, $3, $4, $5)
+               ON CONFLICT (id) DO UPDATE SET
+                 label = EXCLUDED.label,
+                 color = EXCLUDED.color,
+                 domain = EXCLUDED.domain,
+                 parent_tag_id = EXCLUDED.parent_tag_id
+               RETURNING id, label, color, domain, parent_tag_id`,
+              [id, tag.label, tag.color, tag.domain, parentTagId]
+            );
+          } else {
+            res = await query(
+              `INSERT INTO public.config_tags (label, color, domain, parent_tag_id)
+               VALUES ($1, $2, $3, $4)
+               RETURNING id, label, color, domain, parent_tag_id`,
+              [tag.label, tag.color, tag.domain, parentTagId]
+            );
+          }
+        } catch (err: any) {
+          // 42703 = coluna inexistente: migrations/config_tags_parent.sql
+          // ainda não aplicada (moratória de banco) — salva sem o vínculo em
+          // vez de perder a tag inteira.
+          if (err?.code !== '42703') throw err;
+          if (id) {
+            res = await query(
+              `INSERT INTO public.config_tags (id, label, color, domain)
+               VALUES ($1, $2, $3, $4)
+               ON CONFLICT (id) DO UPDATE SET label = EXCLUDED.label, color = EXCLUDED.color, domain = EXCLUDED.domain
+               RETURNING id, label, color, domain`,
+              [id, tag.label, tag.color, tag.domain]
+            );
+          } else {
+            res = await query(
+              `INSERT INTO public.config_tags (label, color, domain)
+               VALUES ($1, $2, $3)
+               RETURNING id, label, color, domain`,
+              [tag.label, tag.color, tag.domain]
+            );
+          }
         }
-        return NextResponse.json(res.rows[0]);
+        const row = res.rows[0];
+        return NextResponse.json({ id: row.id, label: row.label, color: row.color, domain: row.domain, parentTagId: row.parent_tag_id || null });
       } else if (action === 'delete') {
         await query('DELETE FROM public.config_tags WHERE id = $1', [tag.id]);
         return NextResponse.json({ success: true });

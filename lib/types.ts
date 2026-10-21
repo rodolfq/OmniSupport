@@ -416,6 +416,10 @@ export interface TagConfig {
   label: string;
   color: string;
   domain: 'chat' | 'ticket';
+  // Tag principal desta subtag — null/undefined = esta já É uma tag
+  // principal (2026-10-21, reformulação de tags em hierarquia). Só tags SEM
+  // parentTagId podem ser escolhidas como principal de outra (2 níveis só).
+  parentTagId?: string | null;
 }
 
 export enum TicketPriority {

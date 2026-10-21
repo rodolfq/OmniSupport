@@ -4,6 +4,7 @@ import React, { useState, useEffect } from 'react';
 import { Plus, Trash2, Tag, Hash, Pencil, X, Check } from 'lucide-react';
 import { TagConfig, UserRole } from '@/lib/types';
 import { ConfigService } from '@/lib/services/config-service';
+import { StyledSelect } from '@/components/styled-select';
 import { useApp } from '@/app/app-context';
 import { cn } from '@/lib/utils';
 import { toast } from 'sonner';
@@ -36,6 +37,11 @@ export function TagManager() {
   const [selectedColor, setSelectedColor] = useState(TAG_COLORS[0]);
   const [domainFilter, setDomainFilter] = useState<'all' | 'chat' | 'ticket'>('all');
   const [editingTagId, setEditingTagId] = useState<string | null>(null);
+  // Hierarquia tag principal -> subtag (2026-10-21). "" = esta tag É uma
+  // principal (sem pai). Só funciona de verdade depois que
+  // migrations/config_tags_parent.sql for aplicada — até lá, o seletor
+  // aparece normal mas o vínculo não persiste (ver app/api/config/route.ts).
+  const [selectedParentId, setSelectedParentId] = useState('');
 
   useEffect(() => {
     async function loadTags() {
@@ -70,7 +76,8 @@ export function TagManager() {
           id: editingTagId,
           label: newTagLabel.trim(),
           color: `${selectedColor.bg} ${selectedColor.text}`,
-          domain: original?.domain || (domainFilter === 'all' ? 'ticket' : domainFilter)
+          domain: original?.domain || (domainFilter === 'all' ? 'ticket' : domainFilter),
+          parentTagId: selectedParentId || null
         } as TagConfig);
         setTags(tags.map(t => t.id === editingTagId ? updated : t));
         toast.success('Tag atualizada!');
@@ -80,10 +87,12 @@ export function TagManager() {
         const newTag = await ConfigService.saveTag({
           label: newTagLabel.trim(),
           color: `${selectedColor.bg} ${selectedColor.text}`,
-          domain
+          domain,
+          parentTagId: selectedParentId || null
         } as TagConfig);
         setTags([...tags, newTag]);
         setNewTagLabel('');
+        setSelectedParentId('');
         toast.success('Tag personalizada criada!');
       }
     } catch {
@@ -97,12 +106,14 @@ export function TagManager() {
     setEditingTagId(tag.id);
     setNewTagLabel(tag.label);
     setSelectedColor(matchedColor);
+    setSelectedParentId(tag.parentTagId || '');
   };
 
   const handleCancelEdit = () => {
     setEditingTagId(null);
     setNewTagLabel('');
     setSelectedColor(TAG_COLORS[0]);
+    setSelectedParentId('');
   };
 
   const handleDeleteTag = async (id: string) => {
@@ -118,6 +129,26 @@ export function TagManager() {
   };
 
   const filteredTags = tags.filter(t => domainFilter === 'all' || t.domain === domainFilter);
+
+  // Só tags SEM pai, do mesmo domínio que está sendo salvo, viram opção de
+  // "tag principal" — trava a hierarquia em 2 níveis (nunca aninha uma
+  // subtag debaixo de outra subtag) e nunca deixa a tag virar pai dela mesma.
+  const formDomain = editingTagId
+    ? (tags.find(t => t.id === editingTagId)?.domain || (domainFilter === 'all' ? 'ticket' : domainFilter))
+    : (domainFilter === 'all' ? 'ticket' : domainFilter);
+  const parentOptions = tags.filter(t => t.domain === formDomain && !t.parentTagId && t.id !== editingTagId);
+
+  // Agrupado por principal, pra exibição: cada principal some da lista solta
+  // e ganha as subtags logo abaixo dela; quem não tem pai nem filhos continua
+  // aparecendo normal, como sempre.
+  const topLevelTags = filteredTags.filter(t => !t.parentTagId);
+  const childrenByParent = new Map<string, TagConfig[]>();
+  for (const t of filteredTags) {
+    if (!t.parentTagId) continue;
+    const list = childrenByParent.get(t.parentTagId) || [];
+    list.push(t);
+    childrenByParent.set(t.parentTagId, list);
+  }
 
   return (
     <div className="space-y-6 animate-in fade-in slide-in-from-bottom-4 duration-300">
@@ -192,6 +223,19 @@ export function TagManager() {
               </div>
             </div>
 
+            <div className="space-y-2">
+              <label className="text-[10px] font-black uppercase text-[var(--text-tertiary)] tracking-widest ml-1">Tag principal (opcional)</label>
+              <StyledSelect
+                value={selectedParentId}
+                onChange={e => setSelectedParentId(e.target.value)}
+                className="w-full bg-[var(--surface-card)] border border-[var(--border-default)] rounded-2xl px-5 py-3 text-sm font-bold focus:ring-4 focus:ring-[var(--accent)]/10 outline-none transition-all appearance-none"
+              >
+                <option value="">Nenhuma — esta é uma tag principal</option>
+                {parentOptions.map(p => <option key={p.id} value={p.id}>{p.label}</option>)}
+              </StyledSelect>
+              <p className="text-[9px] text-[var(--text-tertiary)] font-medium ml-1">Deixe uma subtag solta ao escolher uma principal — ela passa a aparecer agrupada embaixo dela, ex.: &ldquo;Problema &rarr; SSX Web&rdquo;.</p>
+            </div>
+
             <div className="flex gap-3">
               <button
                 type="submit"
@@ -212,57 +256,34 @@ export function TagManager() {
           </form>
         )}
 
-        <div className="grid grid-cols-2 md:grid-cols-4 lg:grid-cols-5 gap-3">
-          {filteredTags.length === 0 ? (
-            <div className="col-span-full py-12 text-center">
-              <p className="text-[var(--text-tertiary)] text-xs font-bold uppercase tracking-widest italic">Nenhuma tag cadastrada para este domínio.</p>
-            </div>
-          ) : (
-            filteredTags.map((tag) => (
-              <div
-                key={tag.id}
-                className={cn(
-                  "p-4 rounded-3xl border flex flex-col gap-3 group transition-all hover:shadow-md h-32",
-                  tag.color.split(' ')[0],
-                  tag.color.split(' ')[1],
-                  editingTagId === tag.id
-                    ? "border-[var(--accent)] ring-2 ring-[var(--accent)]/30"
-                    : "border-transparent hover:border-[var(--border-default)]"
-                )}
-              >
-                <div className="flex justify-between items-start">
-                  <div className="w-8 h-8 rounded-xl bg-white/50 dark:bg-[var(--surface-card)] backdrop-blur-sm flex items-center justify-center">
-                    <Hash size={14} />
+        {filteredTags.length === 0 ? (
+          <div className="col-span-full py-12 text-center">
+            <p className="text-[var(--text-tertiary)] text-xs font-bold uppercase tracking-widest italic">Nenhuma tag cadastrada para este domínio.</p>
+          </div>
+        ) : (
+          <div className="space-y-6">
+            {topLevelTags.map(tag => {
+              const children = childrenByParent.get(tag.id) || [];
+              return (
+                <div key={tag.id} className="space-y-3">
+                  <div className="grid grid-cols-2 md:grid-cols-4 lg:grid-cols-5 gap-3">
+                    <TagCard tag={tag} editingTagId={editingTagId} isAdmin={isAdmin} onEdit={handleStartEdit} onDelete={handleDeleteTag} />
                   </div>
-                  {isAdmin && (
-                    <div className="flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-all">
-                      <button
-                        onClick={() => handleStartEdit(tag)}
-                        title="Editar tag"
-                        className="p-1.5 hover:bg-white/50 dark:hover:bg-[var(--surface-card)] rounded-lg text-[var(--text-tertiary)] hover:text-[var(--accent-text)] transition-all"
-                      >
-                        <Pencil size={14} />
-                      </button>
-                      <button
-                        onClick={() => handleDeleteTag(tag.id)}
-                        title="Excluir tag"
-                        className="p-1.5 hover:bg-white/50 dark:hover:bg-[var(--surface-card)] rounded-lg text-[var(--text-tertiary)] hover:text-[var(--text-danger)] transition-all"
-                      >
-                        <Trash2 size={14} />
-                      </button>
+                  {children.length > 0 && (
+                    <div className="pl-5 md:pl-8 border-l-2 border-dashed border-[var(--border-default)] ml-3">
+                      <p className="text-[9px] font-black uppercase tracking-widest text-[var(--text-tertiary)]/70 mb-2">Subtags de &ldquo;{tag.label}&rdquo;</p>
+                      <div className="grid grid-cols-2 md:grid-cols-4 lg:grid-cols-5 gap-3">
+                        {children.map(child => (
+                          <TagCard key={child.id} tag={child} editingTagId={editingTagId} isAdmin={isAdmin} onEdit={handleStartEdit} onDelete={handleDeleteTag} />
+                        ))}
+                      </div>
                     </div>
                   )}
                 </div>
-                <div className="mt-auto">
-                  <span className="text-xs font-black uppercase tracking-tight block truncate">{tag.label}</span>
-                  <span className="text-[8px] font-black uppercase opacity-60 tracking-widest">
-                    {tag.domain === 'chat' ? 'WhatsApp' : 'Chamados'}
-                  </span>
-                </div>
-              </div>
-            ))
-          )}
-        </div>
+              );
+            })}
+          </div>
+        )}
       </div>
 
       <div className="p-6 bg-[var(--accent)]/10 border border-[var(--accent)]/20 rounded-3xl flex gap-4">
@@ -280,4 +301,51 @@ export function TagManager() {
   );
 }
 
+function TagCard({ tag, editingTagId, isAdmin, onEdit, onDelete }: {
+  tag: TagConfig; editingTagId: string | null; isAdmin: boolean;
+  onEdit: (tag: TagConfig) => void; onDelete: (id: string) => void;
+}) {
+  return (
+    <div
+      className={cn(
+        "p-4 rounded-3xl border flex flex-col gap-3 group transition-all hover:shadow-md h-32",
+        tag.color.split(' ')[0],
+        tag.color.split(' ')[1],
+        editingTagId === tag.id
+          ? "border-[var(--accent)] ring-2 ring-[var(--accent)]/30"
+          : "border-transparent hover:border-[var(--border-default)]"
+      )}
+    >
+      <div className="flex justify-between items-start">
+        <div className="w-8 h-8 rounded-xl bg-white/50 dark:bg-[var(--surface-card)] backdrop-blur-sm flex items-center justify-center">
+          <Hash size={14} />
+        </div>
+        {isAdmin && (
+          <div className="flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-all">
+            <button
+              onClick={() => onEdit(tag)}
+              title="Editar tag"
+              className="p-1.5 hover:bg-white/50 dark:hover:bg-[var(--surface-card)] rounded-lg text-[var(--text-tertiary)] hover:text-[var(--accent-text)] transition-all"
+            >
+              <Pencil size={14} />
+            </button>
+            <button
+              onClick={() => onDelete(tag.id)}
+              title="Excluir tag"
+              className="p-1.5 hover:bg-white/50 dark:hover:bg-[var(--surface-card)] rounded-lg text-[var(--text-tertiary)] hover:text-[var(--text-danger)] transition-all"
+            >
+              <Trash2 size={14} />
+            </button>
+          </div>
+        )}
+      </div>
+      <div className="mt-auto">
+        <span className="text-xs font-black uppercase tracking-tight block truncate">{tag.label}</span>
+        <span className="text-[8px] font-black uppercase opacity-60 tracking-widest">
+          {tag.domain === 'chat' ? 'WhatsApp' : 'Chamados'}
+        </span>
+      </div>
+    </div>
+  );
+}
 
