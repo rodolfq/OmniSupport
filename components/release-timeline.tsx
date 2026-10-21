@@ -159,10 +159,14 @@ function StageBar({
         style={{
           backgroundColor: stage.color,
           opacity: status === 'pendente' ? 0.6 : 1,
-          borderColor: status === 'em_risco' || status === 'atrasada' ? meta.textVar : 'rgba(255,255,255,0.35)',
-          borderWidth: status === 'atrasada' || status === 'em_risco' ? 2 : 1,
+          // Contorno SEMPRE na cor do status (meta.textVar) — pros 5
+          // status da legenda baterem de verdade com o que a barra mostra.
+          // Antes só "atrasada"/"em_risco" ganhavam cor; os outros 3
+          // ficavam com um branco genérico, invisíveis na prática
+          // (achado do usuário, 2026-10-21).
+          borderColor: meta.textVar,
+          borderWidth: status === 'atrasada' ? 2.5 : status === 'em_risco' ? 2 : 1.5,
           borderStyle: status === 'em_risco' ? 'dashed' : 'solid',
-          boxShadow: status === 'atrasada' ? `0 0 0 2px ${meta.textVar}` : status === 'concluida' ? `0 0 0 2px ${meta.textVar}` : undefined,
           marginTop: plannedChanged ? 3 : 0,
         }}
       >
