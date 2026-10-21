@@ -42,7 +42,7 @@ const EVALUATION_JOIN = `
 
 const COMPANY_SELECT = `
   SELECT
-    c.id, c.name, c.industry, c.phone, c.is_in_training,
+    c.id, c.name, c.industry, c.phone, c.is_in_training, c.id_central,
     COALESCE(ev.count, 0) AS eval_count,
     ev.knowledge_avg, ev.autonomy_avg, ev.learning_avg, ev.engagement_avg, ev.organization_avg, ev.communication_avg,
     COALESCE(ev.chat_close_count, 0) AS chat_close_count,
@@ -76,6 +76,13 @@ function serializeCompany(row: any) {
     industry: row.industry,
     phone: row.phone,
     isInTraining: row.is_in_training === true,
+    // Id do cliente no sistema "Central" (rastreamento/telemetria), vindo da
+    // Planilha de CS — pode ser null (nem toda empresa tem a célula
+    // preenchida) e NÃO é único (duas empresas podem compartilhar o mesmo
+    // id_central quando são marcas/CNPJs diferentes na mesma conta central).
+    // Só leitura por esta API: é dado de sincronização, reescrito pela
+    // Planilha de CS — não aceito em PUT (ver route.ts, 2026-10-21).
+    idCentral: row.id_central || null,
     evaluation: {
       count: Number(row.eval_count) || 0,
       overallAverage,

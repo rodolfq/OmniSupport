@@ -245,14 +245,14 @@ X-RateLimit-Reset: 1786994325 <span class="c">// epoch em segundos</span></div>
   <div class="endpoint">
     <div class="endpoint-head"><span class="method get">GET</span><span class="endpoint-path">/api/integrations/v1/companies</span><span class="endpoint-scope chip">companies:read</span></div>
     <div class="endpoint-body">
-      <p>Sem <code>id</code>, devolve todas as empresas. Com <code>id</code>, devolve só uma — incluindo o resumo de avaliação interna (nota do relacionamento, nunca visível ao próprio cliente).</p>
+      <p>Sem <code>id</code>, devolve todas as empresas. Com <code>id</code>, devolve só uma — incluindo o resumo de avaliação interna (nota do relacionamento, nunca visível ao próprio cliente). Cada empresa traz <code>idCentral</code>, o id do cliente no sistema Central (rastreamento/telemetria) vindo da Planilha de CS — pode ser <code>null</code> e <strong>não é único</strong> (duas empresas podem compartilhar o mesmo id_central quando são marcas/CNPJs diferentes na mesma conta central). Só leitura: não é aceito em PUT.</p>
       <table class="ptable">
         <tr><th>Parâmetro</th><th>Onde</th><th>Descrição</th></tr>
         <tr><td class="name">id</td><td class="type">query</td><td>uuid — retorna só essa empresa.</td></tr>
       </table>
       <div class="code-label">Resposta 200 (resumida)</div>
       <div class="code-block">{ <span class="k">"data"</span>: [{ <span class="k">"id"</span>: <span class="s">"56f9..."</span>, <span class="k">"name"</span>: <span class="s">"Empresa Matriz Ltda"</span>, <span class="k">"industry"</span>: <span class="s">"Tecnologia"</span>,
-  <span class="k">"isInTraining"</span>: false, <span class="k">"evaluation"</span>: { <span class="k">"count"</span>: 3, <span class="k">"overallAverage"</span>: 4.2, <span class="k">"latestTag"</span>: <span class="s">"technical"</span> } }] }</div>
+  <span class="k">"isInTraining"</span>: false, <span class="k">"idCentral"</span>: <span class="s">"1042"</span>, <span class="k">"evaluation"</span>: { <span class="k">"count"</span>: 3, <span class="k">"overallAverage"</span>: 4.2, <span class="k">"latestTag"</span>: <span class="s">"technical"</span> } }] }</div>
     </div>
   </div>
 

@@ -170,7 +170,7 @@ export const INTEGRATION_ENDPOINTS: EndpointDoc[] = [
     method: 'GET',
     path: '/api/integrations/v1/companies',
     summary: 'Listar ou consultar empresas',
-    description: 'Use para resolver o companyId antes de cadastrar/atualizar um funcionário, ou para consultar o perfil de relacionamento (isInTraining + resumo das avaliações do analista). Sem "id" retorna todas; com "id" retorna uma só. Aceita companies:read, companies:write (que já inclui leitura) ou, por compatibilidade com chaves antigas, employees:read.',
+    description: 'Use para resolver o companyId antes de cadastrar/atualizar um funcionário, ou para consultar o perfil de relacionamento (isInTraining + resumo das avaliações do analista). Sem "id" retorna todas; com "id" retorna uma só. Aceita companies:read, companies:write (que já inclui leitura) ou, por compatibilidade com chaves antigas, employees:read. Cada empresa traz "idCentral", o id do cliente no sistema Central (rastreamento/telemetria) vindo da Planilha de CS — pode ser null e NÃO é único (duas empresas podem compartilhar o mesmo id_central quando são marcas/CNPJs diferentes na mesma conta central).',
     scope: 'companies:read',
     params: [{ name: 'id', in: 'query', type: 'uuid', description: 'Retorna só essa empresa.' }],
     exampleResponse: JSON.stringify(
@@ -182,6 +182,7 @@ export const INTEGRATION_ENDPOINTS: EndpointDoc[] = [
             industry: 'Tecnologia',
             phone: '1140040000',
             isInTraining: false,
+            idCentral: '1042',
             evaluation: {
               count: 3,
               overallAverage: 4.2,
@@ -203,7 +204,7 @@ export const INTEGRATION_ENDPOINTS: EndpointDoc[] = [
     method: 'PUT',
     path: '/api/integrations/v1/companies',
     summary: 'Atualizar empresa',
-    description: 'Atualização parcial: envie só os campos que deseja alterar. Inclui o indicador "cliente em treinamento" (isInTraining), visível só internamente no chat. As avaliações do analista não são editáveis por esta API — só pelo portal.',
+    description: 'Atualização parcial: envie só os campos que deseja alterar. Inclui o indicador "cliente em treinamento" (isInTraining), visível só internamente no chat. As avaliações do analista não são editáveis por esta API — só pelo portal. "idCentral" não é aceito aqui (sempre volta na resposta, mas é só leitura): é dado de sincronização da Planilha de CS, que o reescreve por fora.',
     scope: 'companies:write',
     params: [
       { name: 'id', in: 'query', type: 'uuid', required: true, description: 'Id da empresa a atualizar.' },
@@ -220,6 +221,7 @@ export const INTEGRATION_ENDPOINTS: EndpointDoc[] = [
           industry: 'Tecnologia',
           phone: '1140040000',
           isInTraining: false,
+          idCentral: '1042',
           evaluation: {
             count: 3,
             overallAverage: 4.2,
