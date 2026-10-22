@@ -1698,7 +1698,19 @@ useEffect(() => {
             // action=sessions devolve as sessões de TODO mundo (o widget da
             // equipe depende disso) — filtrar pelo próprio usuário aqui é
             // obrigatório, senão o cliente cairia na conversa de outra pessoa.
-            const mine = sessions.filter(s => s.customerId === currentUser.id);
+            // channel !== 'pyvon'/'whatsapp_baileys': achado em 2026-10-21
+            // (ticket #5368, Guilherme/ELITHIUM) — sem este filtro, quando um
+            // analista iniciava uma conversa por WhatsApp com o cliente
+            // (template, "Iniciar Conversa"), a sessão nascia aberta E com
+            // esse mesmo customerId; o widget do CLIENTE a pegava aqui como
+            // "meu atendimento em andamento" e passava a escrever nela pelo
+            // PORTAL — forwardMessageToWhatsApp então tentava encaminhar as
+            // próprias respostas do cliente de volta pro WhatsApp dele (só
+            // olha `channel !== 'widget'`, não quem é o remetente), e o Pyvon
+            // recusava por estar fora da janela de 24h de verdade (nunca
+            // houve resposta genuína pelo WhatsApp — só pelo portal). Uma
+            // conversa por WhatsApp só continua pelo WhatsApp de verdade.
+            const mine = sessions.filter(s => s.customerId === currentUser.id && s.channel !== 'pyvon' && s.channel !== 'whatsapp_baileys');
             // Atendimento em andamento tem prioridade; senão, uma sessão
             // fechada ainda dentro da janela da pesquisa de satisfação precisa
             // continuar selecionada pro "1"/"0" do cliente virar avaliação em
@@ -1718,12 +1730,15 @@ useEffect(() => {
 
   // O cliente não tem lista lateral pra escolher conversa: se existir um
   // atendimento dele, é sempre esse que o widget mostra. Como o widget não cria
-  // mais sessão ao abrir, isso também cobre o caso de um analista iniciar a
-  // conversa enquanto o cliente está com o widget aberto — a sessão nova chega
-  // pelo polling de 30s e é selecionada aqui.
+  // mais sessão ao abrir, isso também cobre o caso de um analista iniciar uma
+  // conversa PELO PORTAL enquanto o cliente está com o widget aberto — a sessão
+  // nova chega pelo polling de 30s e é selecionada aqui. channel !== 'pyvon'/
+  // 'whatsapp_baileys' pela mesma razão do filtro em loadSession acima: uma
+  // conversa que o analista iniciou por WhatsApp não deve aparecer nem ser
+  // respondida pelo portal do cliente — ver achado 2026-10-21 (ticket #5368).
   useEffect(() => {
     if (!isCustomer || !currentUser || selectedChatId) return;
-    const mine = customerSessions.filter(s => s.customerId === currentUser.id);
+    const mine = customerSessions.filter(s => s.customerId === currentUser.id && s.channel !== 'pyvon' && s.channel !== 'whatsapp_baileys');
     const next =
       mine.find(s => s.status !== 'closed') ||
       mine.find(s => s.awaitingSurveyUntil && new Date(s.awaitingSurveyUntil) > new Date());

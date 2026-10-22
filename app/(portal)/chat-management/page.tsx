@@ -445,6 +445,24 @@ const handleDeleteNote = async () => {
     return map;
   }, [sessions]);
 
+  // Ordem da aba "Analistas" (pedido do usuário, 2026-10-22): online primeiro
+  // (com mais atendimentos ativos no topo, pra achar rápido quem está mais
+  // sobrecarregado), depois ausente, depois offline — por último, nome como
+  // critério de desempate estável. Usa a mesma presença AO VIVO
+  // (deriveLiveStatus) que a coluna Status já exibe, não o status cru
+  // gravado — sem isso alguém com heartbeat velho continuaria ordenado como
+  // "online" mesmo a tela já mostrando ele como Offline.
+  const ANALYST_STATUS_SORT_RANK: Record<'online' | 'away' | 'offline', number> = { online: 0, away: 1, offline: 2 };
+  const sortedQueueAnalystRows = React.useMemo(() => {
+    return [...queueAnalystRows].sort((a, b) => {
+      const rankDiff = ANALYST_STATUS_SORT_RANK[deriveLiveStatus(a.status)] - ANALYST_STATUS_SORT_RANK[deriveLiveStatus(b.status)];
+      if (rankDiff !== 0) return rankDiff;
+      const loadDiff = (activeChatCountByAnalyst.get(b.analyst.id) || 0) - (activeChatCountByAnalyst.get(a.analyst.id) || 0);
+      if (loadDiff !== 0) return loadDiff;
+      return (a.analyst.name || '').localeCompare(b.analyst.name || '', 'pt-BR');
+    });
+  }, [queueAnalystRows, activeChatCountByAnalyst]);
+
   const assignableTargets = React.useMemo(() => {
     return statuses
       // "Disponível" aqui precisa refletir presença de verdade, não só o
@@ -896,7 +914,7 @@ const handleDeleteNote = async () => {
                  </tr>
               </thead>
               <tbody className="divide-y divide-[var(--border-default)]">
-                 {queueAnalystRows.map(({ analyst, status: s }) => {
+                 {sortedQueueAnalystRows.map(({ analyst, status: s }) => {
                    const liveStatus = deriveLiveStatus(s);
                    const currentLoad = activeChatCountByAnalyst.get(analyst.id) || 0;
                    return (

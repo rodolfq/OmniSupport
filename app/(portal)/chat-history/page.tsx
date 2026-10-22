@@ -7,7 +7,7 @@ import { StyledSelect } from '@/components/styled-select';
 import { useApp } from '@/app/app-context';
 import { UserRole, Permission, ChatMessage, Attachment } from '@/lib/types';
 import { isImageAttachment, isAudioAttachment, isVideoAttachment } from '@/lib/attachment-kind';
-import { getChatHistories, fetchSessionMessages, summarizeChatHistory, requeueDissatisfaction, ChatSummaryResult, SessionMessagesResult } from '@/lib/services/chat-service';
+import { getChatHistories, getChatHistoryById, fetchSessionMessages, summarizeChatHistory, requeueDissatisfaction, ChatSummaryResult, SessionMessagesResult, ChatHistoryFilters } from '@/lib/services/chat-service';
 import { fetchQueues } from '@/lib/services/config-service';
 import { CompanyService } from '@/lib/services/company-service';
 import { useProfilesLiteQuery } from '@/lib/query-hooks';
@@ -19,7 +19,7 @@ import { useAutoTranscribeMissingAudio } from '@/hooks/use-auto-transcribe-missi
 import {
   Search, Clock, User, MessageSquare, ThumbsUp, ThumbsDown, Minus, Filter,
   ChevronDown, X, FileText, FileDown, Archive, Ticket as TicketIcon, Building2,
-  GripVertical, Columns3, CheckSquare, Square, Shield, Sparkles, RotateCcw, Link2, MessageCircle, RefreshCw, GraduationCap
+  GripVertical, Columns3, CheckSquare, Square, Shield, Sparkles, RotateCcw, Link2, MessageCircle, RefreshCw, GraduationCap, Loader2
 } from 'lucide-react';
 import { cn, normalizeBrazilianPhoneDigits } from '@/lib/utils';
 import { motion, AnimatePresence } from 'motion/react';
@@ -457,6 +457,17 @@ export default function ChatHistoryPage() {
   const { currentUser, hasPermission, refreshTrigger, userStatus, setActiveOmniChatId, setIsOmniChatOpen } = useApp();
   const searchParams = useSearchParams();
   const [histories, setHistories] = useState<any[]>([]);
+  const [totalCount, setTotalCount] = useState(0);
+  const [loadingHistories, setLoadingHistories] = useState(true);
+  // Filtros + paginação em lote crescente no servidor (2026-10-21) — antes a
+  // rota trazia TODO o histórico desde sempre (sem LIMIT, filtro só no
+  // navegador) e a tela travava conforme a tabela crescia (achado em
+  // produção). Mesmo padrão de "Carregar mais"/"Carregar todos" do Kanban de
+  // Todos os Chamados (tickets-view.tsx): sempre busca do começo com um
+  // `limit` que só cresce, nunca OFFSET de verdade.
+  const HISTORY_BATCH_SIZE = 150;
+  const HISTORY_MAX_BATCH_SIZE = 3000;
+  const [historyBatchSize, setHistoryBatchSize] = useState(HISTORY_BATCH_SIZE);
   // Botão "Atualizar": a tela só recarregava sozinha quando o app pedia
   // (refreshTrigger), então conversa que acabou de ser encerrada — ou uma nota
   // de satisfação que chegou depois — só aparecia recarregando a página inteira.
@@ -545,7 +556,11 @@ export default function ChatHistoryPage() {
 
   // Outras conversas do MESMO número, ainda sem cliente — alimenta a opção
   // "vincular todas" do modal. Compara o número já normalizado (55 + DDD +
-  // assinante), então "85 9..." e "5585 9..." contam como o mesmo.
+  // assinante), então "85 9..." e "5585 9..." contam como o mesmo. Desde a
+  // paginação em lote (2026-10-21), só enxerga dentro do que já está
+  // CARREGADO na tela — uma conversa do mesmo número fora do lote atual (ou
+  // escondida por outro filtro) não aparece aqui. Degradação aceitável: é um
+  // atalho de conveniência, não a fonte de verdade do vínculo.
   const otherUnlinkedSamePhone = useMemo(() => {
     if (!selectedHistory?.customerPhone) return [] as any[];
     const target = normalizeBrazilianPhoneDigits(String(selectedHistory.customerPhone).replace(/\D/g, ''));
@@ -579,27 +594,45 @@ export default function ChatHistoryPage() {
     useSensor(KeyboardSensor, { coordinateGetter: sortableKeyboardCoordinates })
   );
 
+  // Monta o objeto de filtros a partir do estado atual da tela — chamada toda
+  // vez (não memoizada), pra nunca ficar com closure velha dos filtros.
+  const buildHistoryFilters = (): ChatHistoryFilters => ({
+    search: search.trim() || undefined,
+    dateFrom: dateFrom || undefined,
+    dateTo: dateTo || undefined,
+    rating: ratingFilter,
+    dissatisfaction: dissatisfactionFilter,
+    training: trainingFilter,
+    teamId: teamFilter,
+    employeeId: employeeFilter,
+    companyId: companyFilter,
+    queueId: queueFilter,
+  });
+
   // Carrega (ou recarrega) a lista de conversas e o que alimenta os filtros
   // (filas, clientes, equipe). `manual` = veio do botão "Atualizar": mostra o
   // giro, avisa quantas conversas são novas e recarrega também a lista de equipe.
-  const loadHistories = useCallback(async (manual: boolean) => {
+  const loadHistories = useCallback(async (manual: boolean, filters: ChatHistoryFilters, limit: number) => {
     if (manual) setIsRefreshing(true);
+    else setLoadingHistories(true);
     try {
-      const [data] = await Promise.all([
-        getChatHistories(),
+      const [result] = await Promise.all([
+        getChatHistories(filters, limit),
         fetchQueues().then(setQueues).catch(() => {}),
         CompanyService.getAll().then(setCompanies).catch(() => {}),
         manual ? refetchUsers().catch(() => {}) : Promise.resolve()
       ]);
-      // getChatHistories devolve o corpo do erro ({ error }) quando a sessão
-      // expirou ou falta permissão — nunca trocar a lista por isso.
-      if (!Array.isArray(data)) {
-        if (manual) toast.error((data as any)?.error || 'Não foi possível atualizar o histórico.');
+      // getChatHistories devolve { error } quando a sessão expirou ou falta
+      // permissão — nunca trocar a lista por isso.
+      if ('error' in result) {
+        if (manual) toast.error(result.error || 'Não foi possível atualizar o histórico.');
         return;
       }
+      const { data, total } = result;
       const knownIds = new Set(historiesRef.current.map(h => h.id));
       const novas = knownIds.size > 0 ? data.filter(h => !knownIds.has(h.id)).length : 0;
       setHistories(data);
+      setTotalCount(total);
       // Detalhe aberto: acompanha o que mudou (nota de satisfação, resumo...).
       setSelectedHistory((prev: any) => (prev ? (data.find(h => h.id === prev.id) || prev) : prev));
       setLastUpdatedAt(new Date());
@@ -613,24 +646,59 @@ export default function ChatHistoryPage() {
       if (manual) toast.error('Não foi possível atualizar o histórico.');
     } finally {
       if (manual) setIsRefreshing(false);
+      setLoadingHistories(false);
     }
   }, [refetchUsers]);
 
+  // Qualquer filtro mudando volta o lote pro tamanho padrão — senão "Carregar
+  // mais" de um filtro ficava "herdado" pelo próximo (mesmo padrão de
+  // handleSearch/handleQuickFilterChange em tickets-view.tsx).
+  useEffect(() => {
+    setHistoryBatchSize(HISTORY_BATCH_SIZE);
+  }, [search, dateFrom, dateTo, ratingFilter, dissatisfactionFilter, trainingFilter, teamFilter, employeeFilter, companyFilter, queueFilter]);
+
+  // Busca com debounce de 300ms (mesmo padrão de ModernSearchBar) — sem isso,
+  // digitar na busca disparava uma requisição por tecla.
+  const lastHistoryRequestKeyRef = useRef<string>('');
   useEffect(() => {
     if (!currentUser || !hasPermission(Permission.CHAT_HISTORY_VIEW)) return;
-    loadHistories(false);
-  }, [currentUser?.id, refreshTrigger]);
+    const filters = buildHistoryFilters();
+    const requestKey = `${currentUser.id}:${historyBatchSize}:${JSON.stringify(filters)}:${refreshTrigger}`;
+    if (requestKey === lastHistoryRequestKeyRef.current) return;
+    const handler = setTimeout(() => {
+      lastHistoryRequestKeyRef.current = requestKey;
+      loadHistories(false, filters, historyBatchSize);
+    }, 300);
+    return () => clearTimeout(handler);
+  }, [currentUser?.id, search, dateFrom, dateTo, ratingFilter, dissatisfactionFilter, trainingFilter, teamFilter, employeeFilter, companyFilter, queueFilter, historyBatchSize, refreshTrigger]);
+
+  // Mesmo teto de "Todos os Chamados" (tickets-view.tsx) — sem ele o botão
+  // prometeria "todos" e a resposta viria cortada em silêncio.
+  const handleHistoryLoadMore = () => setHistoryBatchSize(prev => Math.min(prev + HISTORY_BATCH_SIZE, HISTORY_MAX_BATCH_SIZE));
+  const handleHistoryLoadAll = () => setHistoryBatchSize(Math.min(Math.max(totalCount, HISTORY_BATCH_SIZE), HISTORY_MAX_BATCH_SIZE));
 
   // Deep link vindo de outro relatório (ex.: lista de avaliações negativas
   // do R4) — ?historyId= abre a conversa direto, sem precisar buscar na
   // lista. Só age uma vez por navegação (guarda em selectedHistory === null)
-  // pra não reabrir depois que o usuário fechar o painel manualmente.
+  // pra não reabrir depois que o usuário fechar o painel manualmente. Desde a
+  // paginação em lote (2026-10-21), a conversa pode estar fora do lote
+  // carregado — busca direto por id nesse caso, em vez de só procurar no que
+  // já está na tela.
   useEffect(() => {
     const historyId = searchParams.get('historyId');
-    if (!historyId || selectedHistory || histories.length === 0) return;
+    if (!historyId || selectedHistory) return;
     const match = histories.find(h => h.id === historyId);
-    if (match) setSelectedHistory(match);
-  }, [searchParams, histories, selectedHistory]);
+    if (match) {
+      setSelectedHistory(match);
+      return;
+    }
+    if (loadingHistories) return;
+    let cancelled = false;
+    getChatHistoryById(historyId).then(found => {
+      if (!cancelled && found) setSelectedHistory(found);
+    });
+    return () => { cancelled = true; };
+  }, [searchParams, histories, selectedHistory, loadingHistories]);
 
   useEffect(() => {
     localStorage.setItem(COLUMN_PREFS_STORAGE_KEY, JSON.stringify({ order: columnOrder, hidden: hiddenColumns }));
@@ -779,52 +847,6 @@ export default function ChatHistoryPage() {
     return 'custom';
   }, [dateFrom, dateTo]);
 
-  const filteredHistories = useMemo(() => {
-    // trim() pra ignorar espaço nas pontas (pedido do usuário, 2026-10-12).
-    const searchTerm = search.trim();
-    const searchTermLower = searchTerm.toLowerCase();
-    return histories.filter(h => {
-      const ticketDigits = h.ticketNumber ? String(h.ticketNumber) : '';
-      const searchDigits = searchTerm.replace(/\D/g, '');
-      const matchesSearch = searchTerm === '' ||
-        h.customerName?.toLowerCase().includes(searchTermLower) ||
-        h.customerProfileName?.toLowerCase().includes(searchTermLower) ||
-        h.companyName?.toLowerCase().includes(searchTermLower) ||
-        h.transcript?.toLowerCase().includes(searchTermLower) ||
-        h.assigneeName?.toLowerCase().includes(searchTermLower) ||
-        (searchDigits !== '' && ticketDigits.includes(searchDigits));
-
-      let matchesDate = true;
-      if (dateFrom || dateTo) {
-        const started = h.startedAt ? new Date(h.startedAt) : null;
-        if (!started) matchesDate = false;
-        else {
-          if (dateFrom && started < new Date(dateFrom + 'T00:00:00')) matchesDate = false;
-          if (dateTo && started > new Date(dateTo + 'T23:59:59')) matchesDate = false;
-        }
-      }
-
-      let matchesRating = true;
-      if (ratingFilter === 'liked') matchesRating = h.rating === 1;
-      else if (ratingFilter === 'disliked') matchesRating = h.rating === -1;
-      else if (ratingFilter === 'unrated') matchesRating = h.rating !== 1 && h.rating !== -1;
-
-      let matchesDissatisfaction = true;
-      if (dissatisfactionFilter === 'detected') matchesDissatisfaction = h.dissatisfactionDetected === true;
-      else if (dissatisfactionFilter === 'not_detected') matchesDissatisfaction = h.dissatisfactionProcessedAt != null && h.dissatisfactionDetected !== true;
-      else if (dissatisfactionFilter === 'unprocessed') matchesDissatisfaction = h.dissatisfactionProcessedAt == null;
-
-      const matchesTraining = trainingFilter === 'all'
-        || (trainingFilter === 'training' ? h.companyIsInTraining === true : h.companyIsInTraining !== true);
-      const matchesTeam = teamFilter === 'all' || h.assigneeId === teamFilter;
-      const matchesEmployee = employeeFilter === 'all' || h.customerId === employeeFilter;
-      const matchesCompany = companyFilter === 'all' || h.companyId === companyFilter;
-      const matchesQueue = queueFilter === 'all' || h.queueId === queueFilter;
-
-      return matchesSearch && matchesDate && matchesRating && matchesDissatisfaction && matchesTraining && matchesTeam && matchesEmployee && matchesCompany && matchesQueue;
-    });
-  }, [histories, search, dateFrom, dateTo, ratingFilter, dissatisfactionFilter, trainingFilter, teamFilter, employeeFilter, companyFilter, queueFilter]);
-
   const handleDownloadTxt = (h: any) => {
     downloadBlob(`${historyFileBaseName(h)}.txt`, new Blob([buildTxtContent(h)], { type: 'text/plain;charset=utf-8' }));
   };
@@ -851,7 +873,7 @@ export default function ChatHistoryPage() {
   };
 
   const handleBulkDownloadZip = async () => {
-    if (filteredHistories.length === 0) {
+    if (histories.length === 0) {
       toast.info('Nenhuma conversa para baixar com os filtros atuais.');
       return;
     }
@@ -860,7 +882,7 @@ export default function ChatHistoryPage() {
       const JSZip = (await import('jszip')).default;
       const zip = new JSZip();
       const usedNames = new Set<string>();
-      filteredHistories.forEach(h => {
+      histories.forEach(h => {
         let name = `${historyFileBaseName(h)}.txt`;
         let suffix = 2;
         while (usedNames.has(name)) {
@@ -872,7 +894,7 @@ export default function ChatHistoryPage() {
       });
       const blob = await zip.generateAsync({ type: 'blob' });
       downloadBlob(`conversas_${new Date().toISOString().slice(0, 10)}.zip`, blob);
-      toast.success(`${filteredHistories.length} conversa(s) baixada(s) em .zip.`);
+      toast.success(`${histories.length} conversa(s) baixada(s) em .zip.`);
     } catch (err) {
       console.error('Error building bulk zip:', err);
       toast.error('Erro ao gerar o arquivo .zip.');
@@ -993,7 +1015,7 @@ export default function ChatHistoryPage() {
           </span>
         )}
         <button
-          onClick={() => loadHistories(true)}
+          onClick={() => loadHistories(true, buildHistoryFilters(), historyBatchSize)}
           disabled={isRefreshing}
           title="Recarrega as conversas, os filtros (clientes, equipe, filas) e o que estiver aberto"
           className="flex items-center gap-2 px-5 py-3 bg-[var(--surface-card)] border-2 border-[var(--border-default)] text-[var(--text-primary)] rounded-2xl text-[11px] font-semibold uppercase tracking-widest hover:border-[var(--accent)]/40 hover:bg-[var(--surface-pill)] transition-all disabled:opacity-60"
@@ -1002,10 +1024,10 @@ export default function ChatHistoryPage() {
         </button>
         <button
           onClick={handleBulkDownloadZip}
-          disabled={isBulkDownloading || filteredHistories.length === 0}
+          disabled={isBulkDownloading || histories.length === 0}
           className="flex items-center gap-2 px-5 py-3 bg-slate-900 text-white rounded-2xl text-[11px] font-semibold uppercase tracking-widest hover:bg-slate-800 transition-all disabled:opacity-50 disabled:cursor-not-allowed shrink-0"
         >
-          <Archive size={16} /> {isBulkDownloading ? 'Gerando .zip...' : `Baixar Filtradas (${filteredHistories.length})`}
+          <Archive size={16} /> {isBulkDownloading ? 'Gerando .zip...' : `Baixar Filtradas (${histories.length})`}
         </button>
         </div>
       </div>
@@ -1237,7 +1259,12 @@ export default function ChatHistoryPage() {
 
       {/* Results table */}
       <div className="bg-[var(--surface-card)] border border-[var(--border-default)] rounded-[2rem] shadow-sm overflow-hidden">
-        {filteredHistories.length === 0 ? (
+        {loadingHistories && histories.length === 0 ? (
+          <div className="flex flex-col items-center gap-4 text-[var(--text-tertiary)] py-20">
+            <Loader2 size={32} className="animate-spin text-[var(--accent-text)]" />
+            <p className="text-sm font-bold uppercase tracking-widest text-[10px]">Carregando conversas...</p>
+          </div>
+        ) : histories.length === 0 ? (
           <div className="text-center py-20">
             <MessageSquare className="mx-auto text-slate-300 mb-4" size={48} />
             <p className="text-[var(--text-tertiary)] font-medium">Nenhuma conversa encontrada</p>
@@ -1257,7 +1284,7 @@ export default function ChatHistoryPage() {
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-[var(--border-default)]">
-                  {filteredHistories.map(h => (
+                  {histories.map(h => (
                     <tr
                       key={h.id}
                       onClick={() => setSelectedHistory(h)}
@@ -1272,6 +1299,33 @@ export default function ChatHistoryPage() {
           </div>
         )}
       </div>
+
+      {/* Lote crescente — mesmo padrão de "Carregar mais"/"Carregar todos" do
+          Kanban de Todos os Chamados (tickets-view.tsx). Sem isso a tela só
+          mostraria sempre o 1º lote, sem jeito nenhum de ver o resto. */}
+      {!loadingHistories && totalCount > histories.length && historyBatchSize < HISTORY_MAX_BATCH_SIZE && (
+        <div className="text-center py-2 flex items-center justify-center gap-4">
+          <button
+            onClick={handleHistoryLoadMore}
+            className="bg-[var(--surface-card)] border border-[var(--border-default)] text-[var(--text-secondary)] px-6 py-2.5 rounded-xl text-[10px] font-semibold uppercase tracking-widest hover:border-[var(--accent)]/40 hover:text-[var(--accent-text)] transition-all shadow-sm active:scale-95"
+          >
+            Carregar mais conversas <span className="text-[var(--accent-text)] ml-1">({totalCount - histories.length})</span>
+          </button>
+          <button
+            onClick={handleHistoryLoadAll}
+            className="text-[10px] font-semibold uppercase tracking-widest text-[var(--text-tertiary)] hover:text-[var(--accent-text)] underline underline-offset-2 transition-all"
+          >
+            Carregar todas
+          </button>
+        </div>
+      )}
+      {/* Chegou no teto e ainda sobra conversa — avisa em vez de deixar os
+          botões sumirem sem explicação. */}
+      {!loadingHistories && totalCount > histories.length && historyBatchSize >= HISTORY_MAX_BATCH_SIZE && (
+        <p className="text-center text-[10px] font-semibold uppercase tracking-widest text-[var(--text-tertiary)] py-2">
+          Mostrando as {histories.length} mais recentes de {totalCount} — refine os filtros para ver o restante.
+        </p>
+      )}
 
       {/* Detail modal */}
       <AnimatePresence>

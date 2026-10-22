@@ -600,23 +600,109 @@ export async function GET(request: NextRequest) {
         }
       }
 
+      // Filtros + paginação em lote crescente no servidor (2026-10-21) — antes
+      // esta rota trazia TODO o histórico desde sempre (sem LIMIT nenhum,
+      // filtro só no navegador) e a tela travava conforme a tabela crescia
+      // (achado em produção: tela ficando "travada" na aba Histórico de
+      // Conversas). Mesmo padrão já usado no Kanban de "Todos os Chamados"
+      // (app/(portal)/tickets/tickets-view.tsx + app/api/search/route.ts):
+      // sempre busca do começo com um `limit` que só cresce via "Carregar
+      // mais"/"Carregar todos", nunca OFFSET de verdade — mais simples e
+      // evita duplicar/pular linha se uma conversa nova entrar no meio.
+      // Deep link (?historyId= em /chat-history, ex.: vindo do relatório de
+      // avaliações negativas) — busca essa conversa específica direto por id,
+      // ignorando os demais filtros/paginação: ela pode estar fora do lote
+      // carregado na tela.
+      const idParam = searchParams.get('id') || '';
+      const search = (searchParams.get('search') || '').trim();
+      const dateFrom = searchParams.get('dateFrom') || '';
+      const dateTo = searchParams.get('dateTo') || '';
+      const ratingFilter = searchParams.get('rating') || 'all';
+      const dissatisfactionFilter = searchParams.get('dissatisfaction') || 'all';
+      const trainingFilter = searchParams.get('training') || 'all';
+      const teamId = searchParams.get('teamId') || 'all';
+      const employeeId = searchParams.get('employeeId') || 'all';
+      const companyIdFilter = searchParams.get('companyId') || 'all';
+      const queueIdFilter = searchParams.get('queueId') || 'all';
+      // Mesmo teto de 500 do servidor pra Tickets (app/api/search/route.ts) —
+      // aqui um pouco mais alto porque o histórico de chat já nasce com mais
+      // volume (2.397 linhas em 2026-10-21) do que chamados costumam ter.
+      const requestedLimit = parseInt(searchParams.get('limit') || '150', 10);
+      const limit = Math.min(3000, Math.max(1, Number.isFinite(requestedLimit) ? requestedLimit : 150));
+
+      const conditions: string[] = [];
+      const params: any[] = [];
+
+      if (idParam) {
+        params.push(idParam);
+        conditions.push(`h.id = $${params.length}`);
+      } else {
+        if (search) {
+          params.push(`%${search}%`);
+          const likeParam = params.length;
+          const digits = search.replace(/\D/g, '');
+          let cond = `(h.customer_name ILIKE $${likeParam} OR p1.name ILIKE $${likeParam} OR co.name ILIKE $${likeParam} OR h.transcript ILIKE $${likeParam} OR p2.name ILIKE $${likeParam}`;
+          if (digits) {
+            params.push(`%${digits}%`);
+            cond += ` OR s.ticket_number::text LIKE $${params.length}`;
+          }
+          cond += ')';
+          conditions.push(cond);
+        }
+        if (dateFrom) {
+          params.push(dateFrom);
+          conditions.push(`h.started_at >= $${params.length}::date`);
+        }
+        if (dateTo) {
+          params.push(dateTo);
+          conditions.push(`h.started_at < ($${params.length}::date + INTERVAL '1 day')`);
+        }
+        if (ratingFilter === 'liked') conditions.push(`h.rating = 1`);
+        else if (ratingFilter === 'disliked') conditions.push(`h.rating = -1`);
+        else if (ratingFilter === 'unrated') conditions.push(`h.rating IS DISTINCT FROM 1 AND h.rating IS DISTINCT FROM -1`);
+
+        if (dissatisfactionFilter === 'detected') conditions.push(`h.dissatisfaction_detected = true`);
+        else if (dissatisfactionFilter === 'not_detected') conditions.push(`h.dissatisfaction_processed_at IS NOT NULL AND h.dissatisfaction_detected IS DISTINCT FROM true`);
+        else if (dissatisfactionFilter === 'unprocessed') conditions.push(`h.dissatisfaction_processed_at IS NULL`);
+
+        if (trainingFilter === 'training') conditions.push(`co.is_in_training = true`);
+        else if (trainingFilter === 'not_training') conditions.push(`co.is_in_training IS DISTINCT FROM true`);
+
+        if (teamId !== 'all') { params.push(teamId); conditions.push(`h.assignee_id = $${params.length}`); }
+        if (employeeId !== 'all') { params.push(employeeId); conditions.push(`h.customer_id = $${params.length}`); }
+        if (companyIdFilter !== 'all') { params.push(companyIdFilter); conditions.push(`p1.company_id = $${params.length}`); }
+        if (queueIdFilter !== 'all') { params.push(queueIdFilter); conditions.push(`s.queue_id = $${params.length}`); }
+      }
+
+      const whereSql = conditions.length ? `WHERE ${conditions.join(' AND ')}` : '';
       // "Cliente" = a empresa contratante (companies.name, via profiles.company_id
       // do usuário que conversou) — não confundir com "Funcionário", que é a
       // PESSOA do lado do cliente que efetivamente conversou (customer_name),
       // nem com "Equipe", que é quem da equipe interna atendeu (assignee_name).
-      const res = await query(
-        `SELECT h.*, p1.name as customer_profile_name, p1.company_id as customer_company_id,
-                co.name as company_name, co.is_in_training as company_is_in_training,
-                p2.name as assignee_profile_name,
-                s.ticket_id, s.ticket_number, s.queue_id, q.name as queue_name, s.tags as session_tags
+      const fromSql = `
          FROM public.chat_histories h
          LEFT JOIN public.profiles p1 ON h.customer_id = p1.id
          LEFT JOIN public.companies co ON co.id = p1.company_id
          LEFT JOIN public.profiles p2 ON h.assignee_id = p2.id
          LEFT JOIN public.chat_sessions s ON s.id = h.session_id
-         LEFT JOIN public.queues q ON q.id = s.queue_id
-         ORDER BY h.finished_at DESC`
-      );
+         LEFT JOIN public.queues q ON q.id = s.queue_id`;
+
+      const countParams = [...params];
+      params.push(limit);
+      const [countRes, res] = await Promise.all([
+        query(`SELECT COUNT(*)::int AS total ${fromSql} ${whereSql}`, countParams),
+        query(
+          `SELECT h.*, p1.name as customer_profile_name, p1.company_id as customer_company_id,
+                  co.name as company_name, co.is_in_training as company_is_in_training,
+                  p2.name as assignee_profile_name,
+                  s.ticket_id, s.ticket_number, s.queue_id, q.name as queue_name, s.tags as session_tags
+           ${fromSql} ${whereSql}
+           ORDER BY h.finished_at DESC
+           LIMIT $${params.length}`,
+          params
+        )
+      ]);
+      const total = countRes.rows[0]?.total ?? 0;
 
       // Marcador (tag) da conversa — pedido do usuário (2026-10-14): mostrar
       // no Histórico pra avaliar em massa se a categorização do atendimento
@@ -634,7 +720,9 @@ export async function GET(request: NextRequest) {
         .map(id => ({ id, label: tagById.get(id)!.label, color: tagById.get(id)!.color }))
         .sort((a, b) => a.label.localeCompare(b.label, 'pt-BR'));
 
-      return NextResponse.json(res.rows.map(h => ({
+      return NextResponse.json({
+        total,
+        data: res.rows.map(h => ({
         id: h.id,
         sessionId: h.session_id,
         customerId: h.customer_id,
@@ -669,7 +757,8 @@ export async function GET(request: NextRequest) {
         queueId: h.queue_id,
         queueName: h.queue_name,
         tags: resolveTags(h.session_tags)
-      })));
+        }))
+      });
     }
 
     if (action === 'status-history') {
@@ -1235,10 +1324,27 @@ export async function POST(request: Request) {
       }
       const lookupWhere = lookupClauses.map(c => `(${c})`).join(' OR ');
 
+      // O próprio cliente/funcionário mandando a 1a mensagem (sem sessão
+      // selecionada ainda) nunca pode reaproveitar uma conversa que um
+      // analista abriu por WhatsApp (channel='pyvon'/'whatsapp_baileys') —
+      // achado em 2026-10-21 (ticket #5368, Guilherme/ELITHIUM): o widget do
+      // cliente escrevendo numa sessão assim faz forwardMessageToWhatsApp
+      // tentar encaminhar a própria resposta dele de volta pro WhatsApp
+      // (Pyvon recusa, fora da janela de verdade — nunca houve resposta
+      // genuína por lá). Uma conversa por WhatsApp só continua por WhatsApp.
+      // Esta ação é compartilhada com fluxos de ANALISTA (clique em telefone,
+      // "Novo WhatsApp" por fora do widget) que legitimamente querem achar/
+      // reaproveitar uma sessão pyvon por telefone — a trava vale só quando
+      // quem está chamando é o próprio cliente.
+      const actor = await getCurrentActionUser();
+      const channelGuard = actor && ['Cliente', 'Funcionário'].includes(actor.role)
+        ? ` AND channel NOT IN ('pyvon', 'whatsapp_baileys')`
+        : '';
+
       async function findOpenExisting() {
         if (!lookupClauses.length) return null;
         const res = await query(
-          `SELECT id, assignee_id FROM public.chat_sessions WHERE (${lookupWhere}) AND status != 'closed' ORDER BY updated_at DESC, created_at DESC LIMIT 1`,
+          `SELECT id, assignee_id FROM public.chat_sessions WHERE (${lookupWhere}) AND status != 'closed'${channelGuard} ORDER BY updated_at DESC, created_at DESC LIMIT 1`,
           lookupParams
         );
         return res.rows[0] || null;

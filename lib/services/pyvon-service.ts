@@ -921,9 +921,9 @@ export class PyvonService {
    * nós digitamos (nunca houve resposta) não tem esse benefício: o 9 a mais
    * do #3394 era exatamente esse caso.
    */
-  static async resolveOutboundContext(phone: string): Promise<{ sessionId: string | null; cadastroId: number | null; withinWindow: boolean }> {
+  static async resolveOutboundContext(phone: string): Promise<{ sessionId: string | null; cadastroId: number | null; withinWindow: boolean; closedSessionId: string | null }> {
     const variants = phoneVariants(phone);
-    if (!variants.length) return { sessionId: null, cadastroId: null, withinWindow: false };
+    if (!variants.length) return { sessionId: null, cadastroId: null, withinWindow: false, closedSessionId: null };
 
     const placeHolders = variants.map((_, i) => `$${i + 1}`).join(',');
     // status não entra no WHERE de propósito: uma conversa FECHADA do mesmo
@@ -938,7 +938,7 @@ export class PyvonService {
       variants
     );
     const candidates = candidatesRes.rows as { id: string; customer_phone: string; pyvon_cadastro_id: number; status: string }[];
-    if (!candidates.length) return { sessionId: null, cadastroId: null, withinWindow: false };
+    if (!candidates.length) return { sessionId: null, cadastroId: null, withinWindow: false, closedSessionId: null };
 
     const target = normalizeBrazilianPhoneDigits(normalizePhone(phone));
     let session = candidates.find(c => normalizeBrazilianPhoneDigits(normalizePhone(c.customer_phone)) === target);
@@ -950,7 +950,7 @@ export class PyvonService {
     if (!session) {
       const old = normalizeBrazilianPhoneDigits(normalizePhone(candidates[0].customer_phone));
       console.info(`[Pyvon] Telefone atual (${target.length} dígitos, final ${target.slice(-4)}) difere do gravado no cadastro ${candidates[0].pyvon_cadastro_id} (${old.length} dígitos, final ${old.slice(-4)}) e o cliente nunca respondeu por ele — o envio vai pelo telefone, sem reaproveitar o cadastro.`);
-      return { sessionId: null, cadastroId: null, withinWindow: false };
+      return { sessionId: null, cadastroId: null, withinWindow: false, closedSessionId: null };
     }
 
     // Última mensagem GENUINAMENTE recebida do cliente por este canal (não
@@ -980,11 +980,27 @@ export class PyvonService {
     // pra channel='widget'). Uma conversa FECHADA nunca pode ser devolvida
     // como "pronta pra reaproveitar" — só o cadastroId (identidade do
     // contato no Pyvon) continua valendo independente do status.
+    //
+    // Achado 2026-10-21 (ticket #5368, Guilherme/ELITHIUM): a correção acima
+    // foi longe demais — também zerava `withinWindow`, mesmo quando o
+    // cliente TINHA respondido há poucas horas. "Janela de 24h" é uma regra
+    // do NÚMERO do cliente (quando ele escreveu por último), não de a sessão
+    // estar aberta ou fechada no nosso banco — uma conversa fechada às 13h41
+    // com resposta do cliente às 13h02 continua dentro da janela até 13h02
+    // do dia seguinte, e "Iniciar Conversa"/o checador de transparência
+    // (`/api/whatsapp/pyvon/outbound-status`) avisavam "fora da janela" horas
+    // depois, no mesmo dia. `withinWindow` agora reflete só o `lastInbound`
+    // real, sem relação com o status — esta função continua sem efeito
+    // colateral (é chamada também por uma checagem "só pra mostrar" e por
+    // disparo de automação que decide sozinho o que fazer com o resultado).
+    // `closedSessionId` deixa o id disponível pra quem for enviar de
+    // verdade e quiser reabrir essa mesma sessão em vez de mandar template
+    // à toa — ver `startConversation` logo abaixo.
     if (session.status === 'closed') {
-      return { sessionId: null, cadastroId: session.pyvon_cadastro_id, withinWindow: false };
+      return { sessionId: null, cadastroId: session.pyvon_cadastro_id, withinWindow, closedSessionId: session.id };
     }
 
-    return { sessionId: session.id, cadastroId: session.pyvon_cadastro_id, withinWindow };
+    return { sessionId: session.id, cadastroId: session.pyvon_cadastro_id, withinWindow, closedSessionId: null };
   }
 
   // Cadastro "confirmado" = o cliente já escreveu por ele alguma vez (mensagem
@@ -1525,6 +1541,21 @@ export class PyvonService {
 
     if (context.withinWindow && context.sessionId) {
       sessionId = context.sessionId;
+      usedTemplate = false;
+    } else if (context.withinWindow && context.closedSessionId) {
+      // Janela real aberta (cliente escreveu há menos de 24h), mas a única
+      // sessão que bate pra este telefone está FECHADA (ex.: ticket
+      // encerrado mais cedo no mesmo dia) — reabre ESSA MESMA sessão (mesmo
+      // canal, mesmo histórico/ticket vinculado) em vez de mandar o template
+      // à toa. Achado 2026-10-21, ticket #5368 (Guilherme/ELITHIUM): sem
+      // isso, "Iniciar Conversa" sempre caía no `else` abaixo mesmo com a
+      // janela aberta, porque uma sessão fechada nunca é devolvida como
+      // `sessionId` (ver resolveOutboundContext) — só reabrir aqui, no ponto
+      // em que vamos mesmo escrever nela, evita repetir o bug de 2026-10-14
+      // (reusar o id de uma fechada SEM reabrir).
+      await query(`UPDATE public.chat_sessions SET status = 'active', updated_at = NOW() WHERE id = $1`, [context.closedSessionId]);
+      emitSessionsChanged({ reason: 'status', sessionId: context.closedSessionId });
+      sessionId = context.closedSessionId;
       usedTemplate = false;
     } else {
       const templateRes = await query(

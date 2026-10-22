@@ -462,13 +462,66 @@ export async function saveChatHistory(history: any): Promise<void> {
   if (!res.ok) throw new Error('Error saving chat history via API');
 }
 
-export async function getChatHistories(signal?: AbortSignal): Promise<any[]> {
+export interface ChatHistoryFilters {
+  search?: string;
+  dateFrom?: string;
+  dateTo?: string;
+  rating?: 'all' | 'liked' | 'disliked' | 'unrated';
+  dissatisfaction?: 'all' | 'detected' | 'not_detected' | 'unprocessed';
+  training?: 'all' | 'training' | 'not_training';
+  teamId?: string;
+  employeeId?: string;
+  companyId?: string;
+  queueId?: string;
+}
+
+export interface ChatHistoriesResult {
+  total: number;
+  data: any[];
+}
+
+// Filtros + lote crescente no servidor (2026-10-21) — antes trazia TODO o
+// histórico desde sempre, sem LIMIT nenhum, e filtrava no navegador; a tela
+// travava conforme a tabela crescia (achado em produção). Mesmo padrão de
+// "Carregar mais"/"Carregar todos" já usado no Kanban de Todos os Chamados
+// (ver app/(portal)/tickets/tickets-view.tsx).
+export async function getChatHistories(filters: ChatHistoryFilters = {}, limit = 150): Promise<ChatHistoriesResult | { error: string }> {
   try {
-    const res = await fetch('/api/chats?action=histories');
-    return res.json();
+    const qs = new URLSearchParams({ action: 'histories', limit: String(limit) });
+    if (filters.search) qs.set('search', filters.search);
+    if (filters.dateFrom) qs.set('dateFrom', filters.dateFrom);
+    if (filters.dateTo) qs.set('dateTo', filters.dateTo);
+    if (filters.rating && filters.rating !== 'all') qs.set('rating', filters.rating);
+    if (filters.dissatisfaction && filters.dissatisfaction !== 'all') qs.set('dissatisfaction', filters.dissatisfaction);
+    if (filters.training && filters.training !== 'all') qs.set('training', filters.training);
+    if (filters.teamId && filters.teamId !== 'all') qs.set('teamId', filters.teamId);
+    if (filters.employeeId && filters.employeeId !== 'all') qs.set('employeeId', filters.employeeId);
+    if (filters.companyId && filters.companyId !== 'all') qs.set('companyId', filters.companyId);
+    if (filters.queueId && filters.queueId !== 'all') qs.set('queueId', filters.queueId);
+    const res = await fetch(`/api/chats?${qs.toString()}`);
+    const data = await res.json();
+    if (!res.ok) return { error: data?.error || 'Não foi possível buscar o histórico.' };
+    return data;
   } catch (err) {
     console.error("Error fetching chat histories:", err);
-    return [];
+    return { error: 'Não foi possível buscar o histórico.' };
+  }
+}
+
+// Busca UMA conversa específica por id, ignorando filtro/paginação — usado
+// pelo deep link ?historyId= de /chat-history (ex.: vindo do relatório de
+// avaliações negativas), que pode apontar pra uma conversa fora do lote
+// carregado na tela.
+export async function getChatHistoryById(id: string): Promise<any | null> {
+  try {
+    const res = await fetch(`/api/chats?${new URLSearchParams({ action: 'histories', id, limit: '1' }).toString()}`);
+    if (!res.ok) return null;
+    const result: ChatHistoriesResult | { error: string } = await res.json();
+    if ('error' in result) return null;
+    return result.data[0] || null;
+  } catch (err) {
+    console.error("Error fetching chat history by id:", err);
+    return null;
   }
 }
 
