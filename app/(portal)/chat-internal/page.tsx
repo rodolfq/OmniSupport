@@ -36,7 +36,8 @@ import {
   Reply,
   MoreHorizontal,
   Ticket,
-  ClipboardList
+  ClipboardList,
+  UploadCloud
 } from 'lucide-react';
 import { cn, normalizeString } from '@/lib/utils';
 import { useApp } from '@/app/app-context';
@@ -611,37 +612,81 @@ export default function ChatInternalPage() {
     setMentionQuery(null);
   };
 
-  const handleFileUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
-    const file = e.target.files?.[0];
-    if (!file || !currentUser) return;
-
-    // Barra ANTES de ler o arquivo — sem isso, o erro (413 do proxy pra
-    // payload grande, ver guia-implementacao-servidor.html) só aparecia no
-    // console ao enviar, sem nenhum aviso em tela.
-    if (file.size > MAX_ATTACHMENT_TOTAL_BYTES) {
-      toast.error(`${file.name} excede o limite de ${MAX_ATTACHMENT_TOTAL_LABEL} por envio.`);
-      if (e.target) e.target.value = '';
-      return;
-    }
-
+  // Compartilhado entre o seletor de arquivo (input) e arrastar-e-soltar —
+  // cada arquivo vira sua própria mensagem (sem composer de anexo "parado"
+  // como no chat com cliente: aqui sempre foi enviar na hora). Sequencial
+  // (await em cada upload antes do próximo) pra não martelar vários uploads
+  // em paralelo nem embaralhar a ordem das mensagens na conversa.
+  const sendFilesAsAttachments = async (files: File[]) => {
+    if (!currentUser || files.length === 0) return;
     setIsUploadingFile(true);
     try {
-      const attachment = await uploadAttachment(file);
-      const metadata = {
-        fileName: attachment.name,
-        fileSize: attachment.size,
-        fileUrl: attachment.url
-      };
-
-      // Imagem ganha preview inline (bolha própria, ver renderização de
-      // msg.type === 'image') em vez do card genérico de arquivo.
-      handleSendMessage(file.type.startsWith('image/') ? 'image' : 'file', undefined, metadata);
-    } catch {
-      toast.error(`Erro ao fazer upload de ${file.name}`);
+      for (const file of files) {
+        // Barra ANTES de ler o arquivo — sem isso, o erro (413 do proxy pra
+        // payload grande, ver guia-implementacao-servidor.html) só aparecia no
+        // console ao enviar, sem nenhum aviso em tela.
+        if (file.size > MAX_ATTACHMENT_TOTAL_BYTES) {
+          toast.error(`${file.name} excede o limite de ${MAX_ATTACHMENT_TOTAL_LABEL} por envio.`);
+          continue;
+        }
+        try {
+          const attachment = await uploadAttachment(file);
+          const metadata = {
+            fileName: attachment.name,
+            fileSize: attachment.size,
+            fileUrl: attachment.url
+          };
+          // Imagem ganha preview inline (bolha própria, ver renderização de
+          // msg.type === 'image') em vez do card genérico de arquivo.
+          handleSendMessage(file.type.startsWith('image/') ? 'image' : 'file', undefined, metadata);
+        } catch {
+          toast.error(`Erro ao fazer upload de ${file.name}`);
+        }
+      }
     } finally {
       setIsUploadingFile(false);
-      if (e.target) e.target.value = '';
     }
+  };
+
+  const handleFileUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const files = Array.from(e.target.files || []);
+    await sendFilesAsAttachments(files);
+    if (e.target) e.target.value = '';
+  };
+
+  // Arrastar-e-soltar arquivo em qualquer ponto da conversa aberta (pedido do
+  // usuário, 2026-10-22) — mesmo destino de sendFilesAsAttachments, cada
+  // arquivo solto vira uma mensagem. Contador em ref (não state) pra contar
+  // entra/sai de elementos filhos sem piscar: um dragenter num filho dispara
+  // dragleave no pai antes do dragenter do filho chegar.
+  const [isDraggingFile, setIsDraggingFile] = useState(false);
+  const dragCounterRef = useRef(0);
+  const handleChatDragEnter = (e: React.DragEvent) => {
+    if (!e.dataTransfer?.types?.includes('Files')) return;
+    e.preventDefault();
+    dragCounterRef.current += 1;
+    setIsDraggingFile(true);
+  };
+  const handleChatDragOver = (e: React.DragEvent) => {
+    if (!e.dataTransfer?.types?.includes('Files')) return;
+    e.preventDefault();
+  };
+  const handleChatDragLeave = (e: React.DragEvent) => {
+    if (!e.dataTransfer?.types?.includes('Files')) return;
+    e.preventDefault();
+    dragCounterRef.current = Math.max(0, dragCounterRef.current - 1);
+    if (dragCounterRef.current === 0) setIsDraggingFile(false);
+  };
+  const handleChatDrop = async (e: React.DragEvent) => {
+    if (!e.dataTransfer?.types?.includes('Files')) return;
+    e.preventDefault();
+    dragCounterRef.current = 0;
+    setIsDraggingFile(false);
+    // Sem conversa selecionada (tela de boas-vindas), não há pra onde
+    // mandar — mesmo guard do overlay (isDraggingFile && selectedRoom).
+    if (!selectedRoom) return;
+    const files = Array.from(e.dataTransfer.files || []);
+    await sendFilesAsAttachments(files);
   };
 
   const handleDeleteMessage = async (messageId: string) => {
@@ -1400,10 +1445,24 @@ export default function ChatInternalPage() {
       </div>
 
       {/* Main Window */}
-      <div className={cn(
-        "flex-1 flex-col bg-[var(--surface-card)]",
-        showDetailMobile ? "flex" : "hidden md:flex"
-      )}>
+      <div
+        className={cn(
+          "relative flex-1 flex-col bg-[var(--surface-card)]",
+          showDetailMobile ? "flex" : "hidden md:flex"
+        )}
+        onDragEnter={handleChatDragEnter}
+        onDragOver={handleChatDragOver}
+        onDragLeave={handleChatDragLeave}
+        onDrop={handleChatDrop}
+      >
+        {isDraggingFile && selectedRoom && (
+          <div className="absolute inset-0 z-40 flex items-center justify-center bg-[var(--accent)]/10 border-4 border-dashed border-[var(--accent)] rounded-2xl pointer-events-none">
+            <div className="flex flex-col items-center gap-2 text-[var(--accent-text)] bg-[var(--surface-card)] px-6 py-4 rounded-2xl shadow-xl">
+              <UploadCloud size={32} />
+              <p className="text-xs font-black uppercase tracking-widest">Solte para anexar</p>
+            </div>
+          </div>
+        )}
         {selectedRoom ? (
           <>
             {/* Header */}
@@ -2161,6 +2220,7 @@ export default function ChatInternalPage() {
                     </button>
                     <input
                       type="file"
+                      multiple
                       className="hidden"
                       ref={fileInputRef}
                       onChange={handleFileUpload}

@@ -47,7 +47,8 @@ import {
   CheckCircle2,
   Clock,
   Info,
-  UserCog
+  UserCog,
+  UploadCloud
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import {
@@ -1058,6 +1059,14 @@ export function ChatWidget() {
   // estiver em andamento, pra não mandar a mensagem sem o anexo ainda ter
   // terminado de subir.
   const [isUploadingAttachment, setIsUploadingAttachment] = useState(false);
+  // Arrastar-e-soltar arquivo pro chat (pedido do usuário, 2026-10-22) — usa
+  // o MESMO addFilesAsChatAttachments do seletor/colar, só muda como os
+  // arquivos chegam. Contador em ref (não state) pra contar entra/sai de
+  // elementos filhos sem piscar: um dragenter num filho dispara dragleave no
+  // pai antes do dragenter do filho, e sem contador isso já desligaria o
+  // overlay no meio do arrasto.
+  const [isDraggingFile, setIsDraggingFile] = useState(false);
+  const dragCounterRef = useRef(0);
   const [previewAttachment, setPreviewAttachment] = useState<Attachment | null>(null);
 
   // Histórico da conversa sob demanda: resumos dos atendimentos ANTERIORES do
@@ -2621,6 +2630,37 @@ useEffect(() => {
     }
   };
 
+  // Arrastar-e-soltar arquivo em qualquer ponto da conversa aberta (área de
+  // mensagens ou composer) — mesmo destino (chatAttachments) do seletor e do
+  // colar, então entra na mensagem normal ao enviar, com o mesmo limite de
+  // tamanho. `dataTransfer.types.includes('Files')` filtra arrastar TEXTO
+  // (ex.: selecionar um trecho da própria mensagem e arrastar) — isso não
+  // deve acionar o overlay nem tentar virar anexo.
+  const handleChatDragEnter = (e: React.DragEvent) => {
+    if (!e.dataTransfer?.types?.includes('Files')) return;
+    e.preventDefault();
+    dragCounterRef.current += 1;
+    setIsDraggingFile(true);
+  };
+  const handleChatDragOver = (e: React.DragEvent) => {
+    if (!e.dataTransfer?.types?.includes('Files')) return;
+    e.preventDefault();
+  };
+  const handleChatDragLeave = (e: React.DragEvent) => {
+    if (!e.dataTransfer?.types?.includes('Files')) return;
+    e.preventDefault();
+    dragCounterRef.current = Math.max(0, dragCounterRef.current - 1);
+    if (dragCounterRef.current === 0) setIsDraggingFile(false);
+  };
+  const handleChatDrop = async (e: React.DragEvent) => {
+    if (!e.dataTransfer?.types?.includes('Files')) return;
+    e.preventDefault();
+    dragCounterRef.current = 0;
+    setIsDraggingFile(false);
+    const files = Array.from(e.dataTransfer.files || []);
+    if (files.length > 0) await addFilesAsChatAttachments(files);
+  };
+
   // Cola direto do clipboard (print de tela, ou arquivo copiado no SO) sem
   // precisar abrir o seletor de arquivo — funciona tanto pro cliente quanto
   // pro operador, já que os dois usam este mesmo componente de chat. Só
@@ -3216,7 +3256,21 @@ useEffect(() => {
                   ele precisa de um campo de digitação (e não do vazio
                   "selecione um chat", que só faz sentido pra equipe). */}
               {(selectedChatId || isCustomer) ? (
-                <div className="flex-1 flex flex-col bg-[var(--surface-card)] min-w-0">
+                <div
+                  className="relative flex-1 flex flex-col bg-[var(--surface-card)] min-w-0"
+                  onDragEnter={handleChatDragEnter}
+                  onDragOver={handleChatDragOver}
+                  onDragLeave={handleChatDragLeave}
+                  onDrop={handleChatDrop}
+                >
+                  {isDraggingFile && (
+                    <div className="absolute inset-0 z-40 flex items-center justify-center bg-[var(--accent)]/10 border-4 border-dashed border-[var(--accent)] rounded-2xl pointer-events-none">
+                      <div className="flex flex-col items-center gap-2 text-[var(--accent-text)] bg-[var(--surface-card)] px-6 py-4 rounded-2xl shadow-xl">
+                        <UploadCloud size={32} />
+                        <p className="text-xs font-black uppercase tracking-widest">Solte para anexar</p>
+                      </div>
+                    </div>
+                  )}
                   {/* Chat Header */}
                   {/* Sem flex-wrap: com nome de responsável muito longo, a linha
                       quebrava e o bloco de botões (2º item da row) ia parar
