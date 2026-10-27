@@ -31,7 +31,7 @@ import { ClientTime } from '@/components/client-time';
 import { FieldChange, formatChangeMessage } from '@/lib/ticket-diff';
 import { INTERNAL_PRIORITY_LABELS, computeInternalTicketSla } from '@/lib/sla';
 import { fetchPriorities, ConfigService } from '@/lib/services/config-service';
-import { useAnalystsQuery, useConfigEffortsQuery, useConfigOutcomesQuery } from '@/lib/query-hooks';
+import { useAnalystsQuery, useConfigEffortsQuery, useConfigOutcomesQuery, useInternalTeamsQuery } from '@/lib/query-hooks';
 import { findStatusColor } from '@/lib/status-colors';
 import { uploadAttachment } from '@/lib/attachment-upload';
 import { splitAttachmentsByBudget, MAX_ATTACHMENT_TOTAL_LABEL } from '@/lib/attachment-limits';
@@ -50,7 +50,14 @@ interface LinkedTicket {
   ticketNumber?: number;
 }
 
-const TEAM_OPTIONS = [
+// Fallback só pra quando internal_teams ainda não carregou (ou está vazia) —
+// mesmo padrão de internal-tickets-view.tsx/new-internal-ticket-modal.tsx.
+// Achado em 2026-10-23 (usuário perguntando por que "Suporte" não aparecia
+// pra escolher): esta tela usava essa lista fixa como ÚNICA fonte, nunca
+// lendo a tabela internal_teams de verdade — 4 nomes de placeholder (só
+// "Desenvolvimento" coincide com uma equipe real) escondiam as outras 4
+// equipes cadastradas (CRC - CS, Hardware, Suporte, Treinamento).
+const DEFAULT_TEAM_OPTIONS = [
   { value: "Desenvolvimento", label: "Desenvolvimento", color: "bg-[var(--accent)]/20 text-[var(--accent-text)]" },
   { value: "Infraestrutura", label: "Infraestrutura", color: "bg-[var(--surface-success)] text-[var(--text-success)]" },
   { value: "QA / Testes", label: "QA / Testes", color: "bg-[var(--surface-warning)] text-[var(--text-warning)]" },
@@ -113,6 +120,15 @@ export default function InternalTicketDetailPage() {
   const [formTitle, setFormTitle] = useState('');
   const [formDescription, setFormDescription] = useState('');
   const [formTeam, setFormTeam] = useState('Desenvolvimento');
+  // Equipes de verdade (internal_teams), não a lista fixa de placeholder —
+  // ver comentário de DEFAULT_TEAM_OPTIONS acima.
+  const { data: internalTeamsData } = useInternalTeamsQuery();
+  const teamOptions = useMemo(() => {
+    const sorted = [...(internalTeamsData || [])].sort((a: any, b: any) => a.name.localeCompare(b.name, 'pt-BR'));
+    return sorted.length > 0
+      ? sorted.map((t: any) => ({ value: t.name, label: t.name }))
+      : DEFAULT_TEAM_OPTIONS;
+  }, [internalTeamsData]);
   const [formPriority, setFormPriority] = useState(1);
   const [formAssignee, setFormAssignee] = useState('');
   const [formStatus, setFormStatus] = useState('Novo');
@@ -848,7 +864,7 @@ export default function InternalTicketDetailPage() {
                 <div className="flex items-start gap-4">
                   <span className="text-[11px] font-semibold uppercase text-[var(--text-tertiary)] w-24 pt-0.5">Equipe</span>
                   <StyledSelect value={formTeam} onChange={(e) => { setFormTeam(e.target.value); setTimeout(() => handleUpdateTicket(), 0); }} className="flex-1 bg-transparent border-none outline-none text-sm font-bold text-[var(--text-primary)] cursor-pointer hover:underline">
-                    {TEAM_OPTIONS.map(t => <option key={t.value} value={t.value}>{t.label}</option>)}
+                    {teamOptions.map(t => <option key={t.value} value={t.value}>{t.label}</option>)}
                   </StyledSelect>
                 </div>
                 <div className="flex items-start gap-4">

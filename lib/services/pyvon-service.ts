@@ -940,12 +940,27 @@ export class PyvonService {
     const candidates = candidatesRes.rows as { id: string; customer_phone: string; pyvon_cadastro_id: number; status: string }[];
     if (!candidates.length) return { sessionId: null, cadastroId: null, withinWindow: false, closedSessionId: null };
 
+    // Achado 2026-10-27 (chamado do Felipe D/Online Rastreamento): quando o
+    // mesmo contato tem DOIS cadastros Pyvon reais — um antigo e abandonado
+    // (ex.: criado há mais de um mês, só por digitarmos o telefone uma vez) e
+    // um atual, confirmado, usado todo dia —, o `.find()` por match EXATO
+    // pegava o antigo sempre que o telefone de ENTRADA (ex.: profiles.phone,
+    // cadastrado faz tempo) batesse byte a byte com o formato de 9º dígito
+    // do cadastro antigo, mesmo o cadastro de verdade usando o outro formato.
+    // `normalizeBrazilianPhoneDigits` só resolve DDI, nunca o 9º dígito — então
+    // o match exato nunca empata dois formatos diferentes, e o cadastro
+    // confirmado (mais recente, ver `ORDER BY updated_at DESC` acima) nunca
+    // chegava a ser considerado. Agora o confirmado tem prioridade sobre o
+    // match exato — exatamente a mesma régua de "só tolera 9º dígito pra
+    // cadastro confirmado" do comentário acima, só que também vale quando
+    // EXISTE um candidato exato, não só quando não existe nenhum.
     const target = normalizeBrazilianPhoneDigits(normalizePhone(phone));
-    let session = candidates.find(c => normalizeBrazilianPhoneDigits(normalizePhone(c.customer_phone)) === target);
+    let session: typeof candidates[number] | undefined;
+    for (const c of candidates) {
+      if (await this.isCadastroConfirmed(c.pyvon_cadastro_id)) { session = c; break; }
+    }
     if (!session) {
-      for (const c of candidates) {
-        if (await this.isCadastroConfirmed(c.pyvon_cadastro_id)) { session = c; break; }
-      }
+      session = candidates.find(c => normalizeBrazilianPhoneDigits(normalizePhone(c.customer_phone)) === target);
     }
     if (!session) {
       const old = normalizeBrazilianPhoneDigits(normalizePhone(candidates[0].customer_phone));
@@ -1213,6 +1228,26 @@ export class PyvonService {
          ON CONFLICT DO NOTHING`,
         [session.id, r.sender_name, r.template_text, JSON.stringify({ source: 'pyvon', template: true }), r.pyvon_message_id || null, r.created_at]
       );
+
+      // Achado 2026-10-27: quando o cliente respondeu "Prosseguir" ANTES de
+      // existir conversa, tryClaimProsseguir já entregou a nota pelo Pyvon
+      // (não havia sessão pra gravar — só marcou read_at) — a nota chegava ao
+      // cliente, mas nunca aparecia no chat, deixando a equipe sem saber se
+      // foi enviada. Replay aqui, como histórico, no horário real do envio
+      // (read_at, sempre depois de created_at), assim que a conversa nasce.
+      if (r.read_at && r.note_text) {
+        let noteAuthorName: string | null = null;
+        if (r.note_author_id) {
+          const authorRes = await query('SELECT name FROM public.profiles WHERE id = $1', [r.note_author_id]);
+          noteAuthorName = authorRes.rows[0]?.name || null;
+        }
+        await query(
+          `INSERT INTO public.chat_messages (session_id, sender_id, sender_name, text, type, metadata, created_at)
+           VALUES ($1, $2, $3, $4, 'text', $5, $6)`,
+          [session.id, r.note_author_id || null, noteAuthorName || 'SSX Desk (automático)', r.note_text,
+            JSON.stringify({ source: 'pyvon', auto_reply: true }), r.read_at]
+        );
+      }
     }
 
     // Vincula a conversa (NOVA) ao chamado de origem da nota + tag
@@ -1230,8 +1265,12 @@ export class PyvonService {
     }
 
     if (session.pyvon_pending_note_text || session.pyvon_pending_note_author_id) return;
-    const withNote = [...rows].reverse().find((r: any) => r.note_text);
-    const withAuthor = withNote || [...rows].reverse().find((r: any) => r.note_author_id);
+    // Nota já entregue via "Prosseguir" (read_at setado por tryClaimProsseguir)
+    // não pode virar pendente de novo — reenviaria a mesma nota se o cliente
+    // digitasse "prosseguir" outra vez nesta conversa nova.
+    const stillPending = rows.filter((r: any) => !r.read_at);
+    const withNote = [...stillPending].reverse().find((r: any) => r.note_text);
+    const withAuthor = withNote || [...stillPending].reverse().find((r: any) => r.note_author_id);
     if (!withAuthor) return;
     const text = withNote ? withNote.note_text : null;
     const authorId = withAuthor.note_author_id || null;

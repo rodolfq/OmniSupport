@@ -408,7 +408,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     }
   }, []);
 
-  // Janela maior que o intervalo de polling (10s, ver useEffect mais abaixo)
+  // Janela maior que o intervalo de polling (3s, ver useEffect mais abaixo)
   // pra garantir que a mudança seja detectada e suprimida antes de expirar.
   const SUPPRESS_ASSIGNED_WINDOW_MS = 15000;
   const suppressTicketAssignedNotification = React.useCallback((ticketId: string) => {
@@ -853,7 +853,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     const interval = setInterval(() => {
       checkNotifications();
       refreshNavBadges();
-    }, 10000);
+    }, 3000);
     const onVisible = () => {
       if (document.visibilityState === 'visible') {
         checkNotifications();

@@ -1,9 +1,9 @@
 'use client';
 
 import React, { useEffect, useRef, useState } from 'react';
-import { Tag as TagIcon, Check, X } from 'lucide-react';
+import { Tag as TagIcon, Check, X, Search } from 'lucide-react';
 import { TagConfig } from '@/lib/types';
-import { cn } from '@/lib/utils';
+import { cn, normalizeString } from '@/lib/utils';
 
 interface ChatTagPickerProps {
   availableTags: TagConfig[];
@@ -55,7 +55,9 @@ export function tagAccentBgClass(tag: TagConfig): string {
 // domain==='chat' por quem usa este componente (chat-widget.tsx).
 export function ChatTagPicker({ availableTags, selectedTagIds, onChange, align = 'left' }: ChatTagPickerProps) {
   const [isOpen, setIsOpen] = useState(false);
+  const [search, setSearch] = useState('');
   const containerRef = useRef<HTMLDivElement>(null);
+  const searchInputRef = useRef<HTMLInputElement>(null);
 
   useEffect(() => {
     if (!isOpen) return;
@@ -72,6 +74,16 @@ export function ChatTagPicker({ availableTags, selectedTagIds, onChange, align =
       window.removeEventListener('keydown', handleEscape);
     };
   }, [isOpen]);
+
+  // Busca some junto com o popover — reabrir sempre começa do zero.
+  useEffect(() => {
+    if (isOpen) searchInputRef.current?.focus();
+    else setSearch('');
+  }, [isOpen]);
+
+  const filteredTags = search.trim()
+    ? availableTags.filter(t => normalizeString(t.label).includes(normalizeString(search.trim())))
+    : availableTags;
 
   const selectedTags = availableTags.filter(t => selectedTagIds.includes(t.id));
 
@@ -105,16 +117,34 @@ export function ChatTagPicker({ availableTags, selectedTagIds, onChange, align =
       {isOpen && (
         <div
           className={cn(
-            'absolute top-full mt-2 z-30 w-52 bg-[var(--surface-card)] border border-[var(--border-default)] rounded-2xl shadow-xl overflow-hidden py-1 max-h-64 overflow-y-auto',
+            'absolute top-full mt-2 z-30 w-52 bg-[var(--surface-card)] border border-[var(--border-default)] rounded-2xl shadow-xl overflow-hidden flex flex-col',
             align === 'right' ? 'right-0' : 'left-0'
           )}
         >
+          {availableTags.length > 5 && (
+            <div className="flex items-center gap-1.5 px-3 py-2 border-b border-[var(--border-default)] shrink-0">
+              <Search size={11} className="text-[var(--text-tertiary)] shrink-0" />
+              <input
+                ref={searchInputRef}
+                value={search}
+                onChange={(e) => setSearch(e.target.value)}
+                onClick={(e) => e.stopPropagation()}
+                placeholder="Buscar marcador..."
+                className="w-full bg-transparent text-[11px] font-medium text-[var(--text-primary)] placeholder:text-[var(--text-tertiary)] outline-none"
+              />
+            </div>
+          )}
+          <div className="py-1 max-h-56 overflow-y-auto">
           {availableTags.length === 0 ? (
             <p className="px-4 py-3 text-[10px] font-semibold text-[var(--text-tertiary)] uppercase tracking-widest leading-relaxed">
               Nenhum marcador cadastrado para chats. Crie em Configurações {'>'} Gestão de Tags.
             </p>
+          ) : filteredTags.length === 0 ? (
+            <p className="px-4 py-3 text-[10px] font-semibold text-[var(--text-tertiary)] uppercase tracking-widest leading-relaxed">
+              Nenhum marcador encontrado.
+            </p>
           ) : (
-            availableTags.map(tag => {
+            filteredTags.map(tag => {
               const active = selectedTagIds.includes(tag.id);
               return (
                 <button
@@ -129,6 +159,7 @@ export function ChatTagPicker({ availableTags, selectedTagIds, onChange, align =
               );
             })
           )}
+          </div>
         </div>
       )}
     </div>

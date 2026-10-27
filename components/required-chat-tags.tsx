@@ -1,9 +1,9 @@
 'use client';
 
 import React, { useEffect, useRef, useState } from 'react';
-import { AlertTriangle, Check, ChevronDown, Tag as TagIcon } from 'lucide-react';
+import { AlertTriangle, Check, ChevronDown, Tag as TagIcon, Search } from 'lucide-react';
 import { TagConfig } from '@/lib/types';
-import { cn } from '@/lib/utils';
+import { cn, normalizeString } from '@/lib/utils';
 import { tagAccentBgClass } from '@/components/chat-tag-picker';
 
 /**
@@ -31,10 +31,15 @@ export function RequiredChatTags({
   disabled?: boolean;
 }) {
   const [isOpen, setIsOpen] = useState(false);
+  const [search, setSearch] = useState('');
   const containerRef = useRef<HTMLDivElement>(null);
+  const searchInputRef = useRef<HTMLInputElement>(null);
 
   const principals = tags.filter(t => !t.parentTagId);
   const subtagsOf = (principalId: string) => tags.filter(t => t.parentTagId === principalId);
+  const filteredPrincipals = search.trim()
+    ? principals.filter(t => normalizeString(t.label).includes(normalizeString(search.trim())))
+    : principals;
 
   const selectedPrincipal = principals.find(p => selectedIds.includes(p.id)) || null;
   const availableSubtags = selectedPrincipal ? subtagsOf(selectedPrincipal.id) : [];
@@ -66,6 +71,12 @@ export function RequiredChatTags({
   useEffect(() => {
     if (disabled) setIsOpen(false);
   }, [disabled]);
+
+  // Busca some junto com o dropdown — reabrir sempre começa do zero.
+  useEffect(() => {
+    if (isOpen) searchInputRef.current?.focus();
+    else setSearch('');
+  }, [isOpen]);
 
   const pickPrincipal = (principalId: string) => {
     if (disabled) return;
@@ -138,31 +149,51 @@ export function RequiredChatTags({
 
             {isOpen && (
               <div
-                role="listbox"
-                className="absolute left-0 right-0 top-full mt-2 z-30 bg-[var(--surface-card)] border border-[var(--border-default)] rounded-2xl shadow-xl overflow-hidden py-1 max-h-64 overflow-y-auto"
+                className="absolute left-0 right-0 top-full mt-2 z-30 bg-[var(--surface-card)] border border-[var(--border-default)] rounded-2xl shadow-xl overflow-hidden flex flex-col"
               >
-                {principals.map(tag => {
-                  const active = selectedPrincipal?.id === tag.id;
-                  return (
-                    <button
-                      key={tag.id}
-                      type="button"
-                      role="option"
-                      aria-selected={active}
-                      onClick={() => pickPrincipal(tag.id)}
-                      className={cn(
-                        'w-full flex items-center gap-2.5 px-4 py-2.5 text-xs font-semibold transition-all',
-                        active
-                          ? 'text-[var(--accent-text)] bg-[var(--surface-pill)]'
-                          : 'text-[var(--text-secondary)] hover:bg-[var(--surface-pill)]'
-                      )}
-                    >
-                      <span className={cn('w-2.5 h-2.5 rounded-full shrink-0', tagAccentBgClass(tag))} />
-                      <span className="flex-1 text-left truncate">{tag.label}</span>
-                      {active && <Check size={14} className="text-[var(--accent-text)] shrink-0" />}
-                    </button>
-                  );
-                })}
+                {principals.length > 5 && (
+                  <div className="flex items-center gap-1.5 px-3 py-2 border-b border-[var(--border-default)] shrink-0">
+                    <Search size={11} className="text-[var(--text-tertiary)] shrink-0" />
+                    <input
+                      ref={searchInputRef}
+                      value={search}
+                      onChange={(e) => setSearch(e.target.value)}
+                      onClick={(e) => e.stopPropagation()}
+                      placeholder="Buscar tag principal..."
+                      className="w-full bg-transparent text-[11px] font-medium text-[var(--text-primary)] placeholder:text-[var(--text-tertiary)] outline-none"
+                    />
+                  </div>
+                )}
+                <div role="listbox" className="py-1 max-h-56 overflow-y-auto">
+                  {filteredPrincipals.length === 0 ? (
+                    <p className="px-4 py-3 text-[10px] font-semibold text-[var(--text-tertiary)] uppercase tracking-widest leading-relaxed">
+                      Nenhuma tag encontrada.
+                    </p>
+                  ) : (
+                    filteredPrincipals.map(tag => {
+                      const active = selectedPrincipal?.id === tag.id;
+                      return (
+                        <button
+                          key={tag.id}
+                          type="button"
+                          role="option"
+                          aria-selected={active}
+                          onClick={() => pickPrincipal(tag.id)}
+                          className={cn(
+                            'w-full flex items-center gap-2.5 px-4 py-2.5 text-xs font-semibold transition-all',
+                            active
+                              ? 'text-[var(--accent-text)] bg-[var(--surface-pill)]'
+                              : 'text-[var(--text-secondary)] hover:bg-[var(--surface-pill)]'
+                          )}
+                        >
+                          <span className={cn('w-2.5 h-2.5 rounded-full shrink-0', tagAccentBgClass(tag))} />
+                          <span className="flex-1 text-left truncate">{tag.label}</span>
+                          {active && <Check size={14} className="text-[var(--accent-text)] shrink-0" />}
+                        </button>
+                      );
+                    })
+                  )}
+                </div>
               </div>
             )}
           </div>

@@ -544,6 +544,20 @@ export async function POST(request: Request) {
            VALUES ($1, $2, $3, 'system', false)`,
           [ticket.id, actor.id, `Conversa vinculada ao chamado: ${session.customer_name || session.customer_phone || 'contato'} (iniciada em ${quando}).`]
         );
+        // Tag automática "Atualização de Chamado" na conversa (pedido do usuário,
+        // 2026-10-27) — se a tag tiver sido apagada do cadastro, só não marca
+        // (nunca impede o vínculo por isso).
+        const updateTagRes = await client.query(
+          `SELECT id FROM public.config_tags WHERE domain = 'chat' AND label = $1 LIMIT 1`,
+          ['Atualização de Chamado']
+        );
+        const updateTagId = updateTagRes.rows[0]?.id;
+        if (updateTagId) {
+          await client.query(
+            `UPDATE public.chat_sessions SET tags = CASE WHEN $1::text = ANY(tags) THEN tags ELSE array_append(tags, $1::text) END WHERE id = $2`,
+            [String(updateTagId), session.id]
+          );
+        }
         await client.query('COMMIT');
       } catch (err) {
         try { await client.query('ROLLBACK'); } catch { /* conexão já caiu */ }
