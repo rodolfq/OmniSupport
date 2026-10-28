@@ -115,6 +115,7 @@ const CHAT_LAUNCHER_SIZE = 64;
 const CHAT_PANEL_GAP_PX = CHAT_LAUNCHER_SIZE + 16;
 const CHAT_LAUNCHER_EDGE_MARGIN = 8;
 const CHAT_LAUNCHER_POS_KEY = 'omni-chat-launcher-pos';
+const CHAT_SIDE_PANEL_OPEN_KEY = 'omni_chat_side_panel_open';
 
 function clampChatLauncherPos(left: number, top: number) {
   if (typeof window === 'undefined') return { left, top };
@@ -255,8 +256,6 @@ export function ChatWidget() {
     activeOmniChatId,
     setActiveOmniChatId,
     triggerRefresh,
-    getContactPhoto,
-    ensureContactPhoto,
     userStatus,
     openEvaluationModal,
     hasPermission
@@ -296,7 +295,7 @@ export function ChatWidget() {
   // caber as duas colunas, sem virar tela cheia (isFullScreen continua
   // dependendo só de isExpanded/mobile). Reaproveita chatListWidth (mesma
   // largura ajustável de quando maximizado) em vez de um estado novo.
-  const [isSidePanelOpen, setIsSidePanelOpen] = useState(false);
+  const [isSidePanelOpen, setIsSidePanelOpenState] = useState(false);
   const [chatListWidth, setChatListWidth] = useState(CHAT_LIST_WIDTH_DEFAULT);
   const [isResizingList, setIsResizingList] = useState(false);
   useEffect(() => {
@@ -304,7 +303,16 @@ export function ChatWidget() {
       const saved = Number(window.localStorage.getItem(CHAT_LIST_WIDTH_KEY));
       if (saved > 0) setChatListWidth(clampChatListWidth(saved));
     } catch {}
+    try {
+      setIsSidePanelOpenState(window.localStorage.getItem(CHAT_SIDE_PANEL_OPEN_KEY) === '1');
+    } catch {}
   }, []);
+  // Lembra a escolha entre sessões — sem isto, atualizar a página sempre
+  // voltava pro padrão (oculto), mesmo quem prefere ver a lista sempre.
+  const setIsSidePanelOpen = (value: boolean) => {
+    setIsSidePanelOpenState(value);
+    try { window.localStorage.setItem(CHAT_SIDE_PANEL_OPEN_KEY, value ? '1' : '0'); } catch {}
+  };
   // Janela redimensionada: a lista não pode passar do que sobra pra conversa.
   useEffect(() => {
     const onWindowResize = () => setChatListWidth(w => clampChatListWidth(w));
@@ -1139,10 +1147,6 @@ export function ChatWidget() {
   const [chatSearch, setChatSearch] = useState('');
   const [userQueues, setUserQueues] = useState<string[]>([]);
   const [allQueues, setAllQueues] = useState<any[]>([]);
-  // Só true depois do primeiro fetchQueues (ver loadData abaixo) — usado por
-  // getSessionInstanceId pra nunca "chutar" a instância antes de saber a de
-  // verdade (ver comentário ali).
-  const [queuesLoaded, setQueuesLoaded] = useState(false);
 
   const queueMenuTargets = React.useMemo(() => {
     return allQueues.map((q: any) => ({ id: q.id, name: q.name }));
@@ -1167,32 +1171,6 @@ export function ChatWidget() {
     const withoutSelf = base.filter(t => t.id !== currentUser.id);
     return [...withoutSelf, { id: currentUser.id, name: currentUser.name, away: false }];
   }, [assignableTargets, allQueues, currentUser]);
-
-  // Achado em 2026-09-30 (conversa com o Rafael Leal/APOVEL): antes das Filas
-  // carregarem, esta função "chutava" 'default' pra QUALQUER sessão (fallback
-  // de quem ainda não sabia a fila de verdade) — e como um contato específico
-  // tinha uma foto de perfil ANTIGA persistida sob instance_id='default' (de
-  // quando este número passava pelo WhatsApp não-oficial/Baileys, antes da
-  // migração pro Pyvon), a foto aparecia por uma fração de segundo e depois
-  // sumia assim que as Filas terminavam de carregar e a instância de verdade
-  // (aqui, 'pyvon') era resolvida — sem foto salva pra ela, porque o Pyvon/Meta
-  // Cloud API oficial não expõe foto de perfil (só o protocolo do WhatsApp
-  // Web, que o Baileys imita, consegue isso). Retornar undefined enquanto
-  // `queuesLoaded` for false evita essa pisca: sem instanceId, getContactPhoto/
-  // ensureContactPhoto (app-context.tsx) não fazem nada, e só buscam de
-  // verdade quando já dá pra confiar no resultado.
-  const getSessionInstanceId = React.useCallback((session?: { queueId?: string }) => {
-    if (!queuesLoaded) return undefined;
-    const queue = allQueues.find((q: any) => q.id === session?.queueId);
-    return queue?.whatsapp_instance_id || queue?.whatsappInstanceId || 'default';
-  }, [allQueues, queuesLoaded]);
-
-  // Cache de foto de contato compartilhado com as demais telas (ex: /chat-management)
-  useEffect(() => {
-    customerSessions
-      .filter(s => s.status !== 'closed' && s.customerPhone)
-      .forEach(s => ensureContactPhoto(s.customerPhone, getSessionInstanceId(s)));
-  }, [customerSessions, getSessionInstanceId, ensureContactPhoto]);
 
   // Notificações de chat sobrevivem no localStorage; se a sessão de origem for
   // encerrada/apagada do banco, a notificação nunca some sozinha e o badge de
@@ -1240,7 +1218,6 @@ export function ChatWidget() {
         setCompanies(comp);
         setChatTags((allTags || []).filter(t => t.domain === 'chat'));
         setAllQueues(queues || []);
-        setQueuesLoaded(true);
         if (currentUser) {
             const myQueues = queues.filter((q: any) => q.member_ids?.includes?.(currentUser.id) || q.memberIds?.includes?.(currentUser.id)).map((q: any) => q.id);
             setUserQueues(myQueues || []);
@@ -1804,7 +1781,9 @@ useEffect(() => {
     if (!phone) return { ok: true };
 
     const queue = allQueues.find((q: any) => q.id === queueId);
-    const instanceId = queue?.whatsapp_instance_id || queue?.whatsappInstanceId || 'default';
+    // 'default' era a instância Baileys (removida) — o fallback agora é a
+    // instância Pyvon (a única que resta quando a Fila não tem uma própria).
+    const instanceId = queue?.whatsapp_instance_id || queue?.whatsappInstanceId || 'pyvon';
 
     // Nome do analista em negrito antes da mensagem — chegando neste ponto
     // (canal != 'widget') sempre foi um humano da equipe quem escreveu, nunca
@@ -1971,7 +1950,7 @@ useEffect(() => {
 
         // Resposta à pesquisa de satisfação enviada ao encerrar a conversa: cliente
         // logado respondendo "1"/"0" direto pelo widget (equivalente ao que já é
-        // tratado no lado do WhatsApp em lib/services/whatsapp-service.ts). Vai por
+        // tratado no lado do WhatsApp em lib/services/pyvon-service.ts, tryRecordSurveyAnswer). Vai por
         // um caminho separado do push-message normal porque este último reabre
         // sessões fechadas (status closed -> pending) — responder a pesquisa não
         // deve fazer o atendimento parecer uma conversa nova para o analista.
@@ -1986,7 +1965,7 @@ useEffect(() => {
         if (isSurveyResponse) {
           // -1 = negativo (não 0, que significa "neutro" em chat_histories.rating
           // e some das contagens de avaliação) — mesma conversão do canal
-          // WhatsApp em lib/services/whatsapp-service.ts.
+          // WhatsApp em lib/services/pyvon-service.ts.
           await submitSurveyResponse(activeChatId, trimmedText === '1' ? 1 : -1, newMessage);
         } else {
           // Save via Supabase first, then attempt WhatsApp delivery. Se a sessão
@@ -1999,13 +1978,9 @@ useEffect(() => {
         }
 
         if (!isSurveyResponse && session.customerPhone) {
-          // Não aguarda (achado 2026-10-08, mesma razão já documentada nos
-          // outros 2 pontos que mandam mensagem pelo WhatsApp, linhas abaixo:
-          // com o WhatsApp desconectado, WhatsAppService.sendMessage tenta
-          // reconectar até 3x com ~20s de espera cada — quase 1min). Este
-          // era o ÚNICO dos três que ainda esperava: enviar uma mensagem
-          // comum numa conversa de WhatsApp travava o composer até quase 1
-          // minuto sempre que a instância estivesse fora do ar, pela mensagem
+          // Não aguarda (achado 2026-10-08): o encaminhamento pro Pyvon é uma
+          // chamada de rede separada do salvamento da mensagem — esperar por
+          // ela travaria o composer a cada mensagem comum enviada, pela ação
           // mais frequente do dia a dia. O 1º tique (`sending`) já aparece
           // antes daqui (newMessage.whatsappStatus); o 2º/erro chega via
           // patchMessageWhatsappStatus dentro da própria função, em segundo
@@ -2396,14 +2371,12 @@ useEffect(() => {
             await pushChatMessage(selectedChat.id, closingChatMessage);
             awaitingSurveyUntil = new Date(Date.now() + surveySettings.responseWindowHours * 3600_000).toISOString();
 
-            // Não aguarda: quando o WhatsApp está desconectado, o envio faz
-            // até 3 tentativas com espera de reconexão de ~20s cada
-            // (WhatsAppService.sendMessage/waitUntilConnected) — chegando a
-            // ~1min. Esperar isso aqui travava "Gerar chamado e finalizar"
-            // inteiro (a sessão só fecha depois deste bloco), dando a
-            // impressão de que o chat não fechava. O aviso de encerramento já
-            // foi registrado no chat acima (pushChatMessage); o envio ao
-            // WhatsApp é best-effort.
+            // Não aguarda: o encaminhamento pro Pyvon é uma chamada de rede
+            // separada, e esperar por ela aqui travava "Gerar chamado e
+            // finalizar" inteiro (a sessão só fecha depois deste bloco),
+            // dando a impressão de que o chat não fechava. O aviso de
+            // encerramento já foi registrado no chat acima (pushChatMessage);
+            // o envio ao WhatsApp é best-effort.
             forwardMessageToWhatsApp({
               sessionId: selectedChat.id,
               messageId: closingChatMessage.id,
@@ -3146,7 +3119,7 @@ useEffect(() => {
                               <div className="relative shrink-0">
                                 <div className="w-9 h-9 rounded-xl flex items-center justify-center text-[var(--text-success)] overflow-hidden bg-[var(--surface-success)]">
                                   {(() => {
-                                    const photo = contact?.avatarUrl || getContactPhoto(s.customerPhone, getSessionInstanceId(s));
+                                    const photo = contact?.avatarUrl;
                                     return photo ? (
                                       <img src={photo} alt={s.customerName} className="w-full h-full object-cover" />
                                     ) : (
@@ -3288,7 +3261,7 @@ useEffect(() => {
                         </button>
                       )}
                       {!isCustomer && (() => {
-                        const photo = selectedChatContact?.avatarUrl || getContactPhoto(selectedChat?.customerPhone, getSessionInstanceId(selectedChat));
+                        const photo = selectedChatContact?.avatarUrl;
                         return photo ? (
                           <img
                             src={photo}
@@ -3552,6 +3525,12 @@ useEffect(() => {
                                     {h.assigneeName ? ` · ${h.assigneeName}` : ''}
                                     {durationLabel ? ` · ${durationLabel}` : ''}
                                   </span>
+                                  <span
+                                    className="shrink-0 font-mono text-[9px] font-bold text-[var(--text-tertiary)] bg-[var(--surface-pill)] px-1.5 py-0.5 rounded"
+                                    title={`ID da conversa: ${h.sessionId}`}
+                                  >
+                                    #{h.sessionId.slice(0, 8)}
+                                  </span>
                                   {h.rating === 1 && (
                                     <ThumbsUp size={11} className="text-[var(--text-success)] shrink-0" />
                                   )}
@@ -3562,7 +3541,7 @@ useEffect(() => {
                                 <ChevronRight size={14} className={cn("shrink-0 text-[var(--text-tertiary)] transition-transform", isExpanded && "rotate-90")} />
                               </button>
                               {isExpanded && (
-                                <div className="px-4 py-3 border-t border-[var(--border-default)] bg-[var(--surface-pill)]/40 space-y-2 max-h-64 overflow-y-auto">
+                                <div className="px-4 py-3 border-t border-[var(--border-default)] bg-[var(--surface-pill)]/40 space-y-3 max-h-64 overflow-y-auto">
                                   {isLoadingThis ? (
                                     <div className="flex items-center justify-center py-4 text-[var(--text-tertiary)]">
                                       <Loader2 size={16} className="animate-spin" />
@@ -3570,13 +3549,62 @@ useEffect(() => {
                                   ) : loadedMessages.length === 0 ? (
                                     <p className="text-[10px] text-[var(--text-tertiary)] text-center py-2">Sem mensagens registradas.</p>
                                   ) : (
-                                    loadedMessages.map(m => (
-                                      <div key={m.id} className="text-[11px] leading-relaxed">
-                                        <span className="font-semibold text-[var(--text-tertiary)]">{m.senderName || 'Cliente'}: </span>
-                                        <span className="text-[var(--text-secondary)]">{m.text}</span>
-                                      </div>
-                                    ))
+                                    loadedMessages.map(m => {
+                                      const histAttachments = m.attachments || m.metadata?.attachments || [];
+                                      return (
+                                        <div key={m.id} className="text-[11px] leading-relaxed">
+                                          <span className="font-semibold text-[var(--text-tertiary)]">{m.senderName || 'Cliente'}: </span>
+                                          <span className="text-[var(--text-secondary)]">{m.text}</span>
+                                          {histAttachments.length > 0 && (
+                                            <div className="mt-1.5 flex flex-wrap gap-1.5">
+                                              {histAttachments.map((attachment: Attachment) => {
+                                                const key = attachment.id || attachment.url;
+                                                if (isImageAttachment(attachment)) {
+                                                  return (
+                                                    <button
+                                                      key={key}
+                                                      type="button"
+                                                      onClick={(e) => { e.stopPropagation(); setPreviewAttachment(attachment); }}
+                                                      className="block overflow-hidden rounded-lg border border-[var(--border-default)] hover:opacity-80 transition-opacity"
+                                                    >
+                                                      <img src={attachment.url} alt={attachment.name} className="h-16 w-16 object-cover" />
+                                                    </button>
+                                                  );
+                                                }
+                                                if (isAudioAttachment(attachment)) {
+                                                  return (
+                                                    <div key={key} className="w-full">
+                                                      <AudioPlayer src={attachment.url} name={attachment.name} />
+                                                    </div>
+                                                  );
+                                                }
+                                                return (
+                                                  <button
+                                                    key={key}
+                                                    type="button"
+                                                    onClick={(e) => { e.stopPropagation(); openAttachmentInNewTab(attachment); }}
+                                                    className="flex items-center gap-1 rounded-lg border border-[var(--border-default)] bg-[var(--surface-card)] px-2 py-1 text-[10px] font-semibold text-[var(--text-secondary)] hover:bg-[var(--surface-pill)] transition-colors"
+                                                  >
+                                                    <File size={11} className="text-[var(--text-tertiary)]" />
+                                                    <span className="max-w-[100px] truncate">{attachment.name}</span>
+                                                  </button>
+                                                );
+                                              })}
+                                            </div>
+                                          )}
+                                        </div>
+                                      );
+                                    })
                                   )}
+                                  <a
+                                    href={`/chat-history?historyId=${h.id}`}
+                                    target="_blank"
+                                    rel="noopener noreferrer"
+                                    onClick={(e) => e.stopPropagation()}
+                                    className="inline-flex items-center gap-1 text-[10px] font-black uppercase tracking-widest text-[var(--accent-text)] hover:underline"
+                                  >
+                                    Ver conversa completa →
+                                  </a>
                                 </div>
                               )}
                             </div>

@@ -1,18 +1,16 @@
 "use client";
 
 import React, { useEffect, useState } from 'react';
-import { Plus, QrCode, Radio } from 'lucide-react';
+import { Plus, Radio } from 'lucide-react';
 import { getWhatsappInstances } from '@/lib/services/whatsapp-instance-service';
 import { WhatsappInstance } from '@/lib/types';
-import { WhatsAppConnect } from '@/components/whatsapp-connect';
 import { PyvonChannelForm } from '@/components/pyvon-channel-form';
 import { PyvonTemplatesManager } from '@/components/pyvon-templates-manager';
 
-// Duas famílias de canal, lado a lado: o canal Baileys fixo ('default', QR
-// Code — já existia) e a lista de canais Pyvon (BSP/CRM que já cuida do WABA
-// oficial) — as duas reaproveitando a mesma tabela whatsapp_instances via
-// provider. A integração Meta Cloud API existiu aqui antes e foi removida
-// (2026-09-17, pedido do usuário) — só Baileys e Pyvon em produção.
+// Só o Pyvon (BSP/CRM que cuida do WABA oficial) continua aqui — o canal
+// Baileys fixo ('default', QR Code) foi desativado e removido por completo
+// (2026-10-28, pedido do usuário). A integração Meta Cloud API existiu aqui
+// antes e já tinha sido removida (2026-09-17).
 export function WhatsAppChannelManager() {
   const [instances, setInstances] = useState<WhatsappInstance[]>([]);
   const [isLoading, setIsLoading] = useState(true);
@@ -32,14 +30,6 @@ export function WhatsAppChannelManager() {
 
   return (
     <div className="space-y-8">
-      <div className="space-y-3">
-        <div className="flex items-center gap-2 text-[var(--text-tertiary)]">
-          <QrCode size={14} />
-          <p className="text-[10px] font-black uppercase tracking-widest">QR Code (WhatsApp Web)</p>
-        </div>
-        <WhatsAppConnect instanceId="default" />
-      </div>
-
       <div className="space-y-3">
         <div className="flex items-center justify-between">
           <div className="flex items-center gap-2 text-[var(--text-tertiary)]">

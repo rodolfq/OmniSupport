@@ -251,11 +251,10 @@ export async function dispatchPendingChatSessions(options?: { sessionId?: string
     filter = ` AND id = $${params.length}`;
   }
 
-  // Conversa do WhatsApp não oficial (Baileys) nunca é distribuída: o cliente
-  // recebe o aviso de que o atendimento agora é pelo número novo (Pyvon) e a
-  // conversa fica sem responsável (decisão do usuário, 2026-09-24 — ver
-  // baileys-redirect.ts). Sem este filtro, qualquer analista ficando Online
-  // (ou uma mensagem em outro canal) redistribuiria essas conversas.
+  // Conversa do WhatsApp não oficial (Baileys, removido em 2026-10-28) nunca
+  // era distribuída (decisão do usuário, 2026-09-24) — o filtro fica só pra
+  // nunca redistribuir as sessões históricas com esse canal que ainda existem
+  // no banco (status 'closed' na prática, mas sem custo manter a guarda).
   const pendingRes = await query(
     `SELECT id, queue_id, customer_name FROM public.chat_sessions
      WHERE status = 'pending' AND assignee_id IS NULL

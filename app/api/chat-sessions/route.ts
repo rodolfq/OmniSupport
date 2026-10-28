@@ -544,12 +544,13 @@ export async function POST(request: Request) {
            VALUES ($1, $2, $3, 'system', false)`,
           [ticket.id, actor.id, `Conversa vinculada ao chamado: ${session.customer_name || session.customer_phone || 'contato'} (iniciada em ${quando}).`]
         );
-        // Tag automática "Atualização de Chamado" na conversa (pedido do usuário,
-        // 2026-10-27) — se a tag tiver sido apagada do cadastro, só não marca
+        // Tag automática "Atualização" (subtag de "Chamado" desde a
+        // reorganização de 2026-10-28; era a principal solta "Atualização de
+        // Chamado" antes disso — pedido original do usuário, 2026-10-27) na
+        // conversa — se a tag tiver sido apagada do cadastro, só não marca
         // (nunca impede o vínculo por isso).
         const updateTagRes = await client.query(
-          `SELECT id FROM public.config_tags WHERE domain = 'chat' AND label = $1 LIMIT 1`,
-          ['Atualização de Chamado']
+          `SELECT id FROM public.config_tags WHERE domain = 'chat' AND label = 'Atualização' AND parent_tag_id IS NOT NULL LIMIT 1`
         );
         const updateTagId = updateTagRes.rows[0]?.id;
         if (updateTagId) {

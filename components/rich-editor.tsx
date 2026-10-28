@@ -24,6 +24,11 @@ interface RichEditorProps {
   onChange: (html: string) => void;
   placeholder?: string;
   minHeight?: string;
+  // Sem isto o campo cresce sem limite com o texto — numa nota longa, empurra
+  // tudo que vem depois dele (o botão "Enviar", no composer do chamado) pra
+  // fora da área visível, sem nenhuma barra de rolagem pra alcançar. Com o
+  // prop, a partir desta altura a rolagem passa a ser DENTRO do campo.
+  maxHeight?: string;
   // 'full' (padrão): negrito, itálico, títulos, listas, citação, link,
   // imagem, vídeo do YouTube. 'simple': só negrito, itálico e desfazer/
   // refazer — usado na nota do chamado (Histórico Cliente/Nota Interna),
@@ -42,7 +47,7 @@ interface RichEditorProps {
   onPasteImages?: (files: File[]) => void;
 }
 
-export function RichEditor({ content, onChange, placeholder = 'Comece a digitar...', minHeight = '150px', toolbar = 'full', onPasteImages }: RichEditorProps) {
+export function RichEditor({ content, onChange, placeholder = 'Comece a digitar...', minHeight = '150px', maxHeight, toolbar = 'full', onPasteImages }: RichEditorProps) {
   const isSimple = toolbar === 'simple';
   const [isUrlModalOpen, setIsUrlModalOpen] = React.useState<'link' | 'image' | 'youtube' | null>(null);
   const [urlInputValue, setUrlInputValue] = React.useState('');
@@ -352,7 +357,7 @@ export function RichEditor({ content, onChange, placeholder = 'Comece a digitar.
 
 {/* Editor Content Area */}
         <div
-          style={{ minHeight }}
+          style={maxHeight ? { minHeight, maxHeight, overflowY: 'auto' } : { minHeight }}
           className="cursor-text bg-[var(--surface-card)] relative"
           onClick={handleContainerClick}
         >

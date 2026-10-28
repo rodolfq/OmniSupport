@@ -2,7 +2,6 @@ import { query } from '../db';
 import { isClosedTicketStatus } from '../ticket-status';
 import { htmlToWhatsAppText } from '../utils';
 import { AUTOMATION_EVENTS, renderTemplate } from '../automation-events';
-import { WhatsAppService } from './whatsapp-service';
 import { PyvonService } from './pyvon-service';
 import { EmailService } from './email-service';
 import { wrapEmailHtml, ticketRefBlock } from '../email-templates';
@@ -22,6 +21,7 @@ export interface TicketRow {
   company_id: string | null;
   customer_id: string | null;
   assignee_id: string | null;
+  queue_id?: string | null;
   employee_ids?: string[] | null;
   created_by?: string | null;
   created_at: string;
@@ -38,6 +38,21 @@ interface TicketMessageRow {
 }
 
 const STATUS_KEYED_EVENTS = ['solicitacao_informacoes', 'aguardando_aprovacao', 'aguardando_nota', 'chamado_finalizado'];
+
+// Mesma instância que o botão manual "Enviar por WhatsApp" e o chat usam:
+// a da Fila do chamado (queues.whatsapp_instance_id), não uma fixa. Sem
+// Fila, ou Fila sem instância configurada, devolve null e quem chamou cai
+// no fallback de sempre (sole Pyvon / 'default' Baileys).
+export async function resolveTicketWhatsappInstance(ticket: Pick<TicketRow, 'queue_id'>): Promise<{ id: string; provider: string } | null> {
+  if (!ticket.queue_id) return null;
+  const r = await query(
+    `SELECT wi.id, wi.provider FROM public.queues q
+     JOIN public.whatsapp_instances wi ON wi.id = q.whatsapp_instance_id
+     WHERE q.id = $1`,
+    [ticket.queue_id]
+  );
+  return r.rows[0] || null;
+}
 
 let seeded = false;
 
@@ -444,12 +459,13 @@ export async function dispatchEvent(eventKey: string, ticket: TicketRow, extra: 
         await logDispatch({ eventKey, ticketId: ticket.id, recipientId: r.id, recipientName: r.name, channel: 'whatsapp', message: renderedMessage, status: 'failed', error: 'Sem telefone cadastrado' });
       }
 
-      // Se houver um canal Pyvon configurado, a automação prefere ele (não
-      // fica mais sempre fixa no Baileys 'default', item 2 da dívida técnica
-      // do CLAUDE.md) — mas só no envio imediato; o caminho com atraso
-      // (delayMinutes > 0, processado por automation-scheduler.ts) continua
-      // saindo pelo Baileys por ora, é um gap conhecido, não um bloqueio.
-      const pyvonInstanceId = await PyvonService.getSoleInstanceId();
+      // Resolve pela Fila do chamado primeiro (mesma regra do botão manual
+      // "Enviar por WhatsApp" e do chat) — só cai pro "qualquer Pyvon
+      // configurado" quando a Fila não tem instância própria. Corrige o
+      // item 2 da dívida técnica do CLAUDE.md: antes disparava sempre fixo
+      // em 'default' (Baileys), ignorando a Fila por completo.
+      const queueInstance = await resolveTicketWhatsappInstance(ticket);
+      const pyvonInstanceId = (queueInstance?.provider === 'pyvon' ? queueInstance.id : null) || await PyvonService.getSoleInstanceId();
 
       const sentPhones = new Set<string>();
       for (const r of recipients) {
@@ -511,12 +527,10 @@ export async function dispatchEvent(eventKey: string, ticket: TicketRow, extra: 
           continue;
         }
 
-        try {
-          await WhatsAppService.sendMessage('default', r.phone, renderedMessage);
-          await logDispatch({ eventKey, ticketId: ticket.id, recipientId: r.id, recipientName: r.name, channel: 'whatsapp', recipientPhone: r.phone, message: renderedMessage, status: 'sent' });
-        } catch (err: any) {
-          await logDispatch({ eventKey, ticketId: ticket.id, recipientId: r.id, recipientName: r.name, channel: 'whatsapp', recipientPhone: r.phone, message: renderedMessage, status: 'failed', error: err?.message || String(err) });
-        }
+        // Chegou aqui sem nenhuma instância Pyvon resolvida (nem pela Fila,
+        // nem a "sole" de fallback) — não há mais pra onde cair: o WhatsApp
+        // não-oficial (Baileys/QR Code) foi desativado e removido.
+        await logDispatch({ eventKey, ticketId: ticket.id, recipientId: r.id, recipientName: r.name, channel: 'whatsapp', recipientPhone: r.phone, message: renderedMessage, status: 'failed', error: 'Nenhuma instância Pyvon configurada para enviar esta mensagem (WhatsApp não-oficial foi desativado).' });
       }
     }
 

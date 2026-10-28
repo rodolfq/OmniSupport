@@ -71,11 +71,7 @@ const nextConfig: NextConfig = {
     ],
   },
   serverExternalPackages: [
-    '@whiskeysockets/baileys',
     'pino',
-    'ws',
-    'bufferutil',
-    'utf-8-validate',
     'pg',
     '@huggingface/transformers',
     'onnxruntime-node',

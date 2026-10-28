@@ -4,13 +4,15 @@ import React, { useEffect, useState } from 'react';
 import { useParams, useRouter } from 'next/navigation';
 import Link from 'next/link';
 import { ChevronLeft, Building2, Phone, Ticket as TicketIcon, MessageCircle, Loader2, ThumbsUp, ThumbsDown, Circle } from 'lucide-react';
-import { Company, Ticket } from '@/lib/types';
+import { Company, Ticket, User, UserRole } from '@/lib/types';
 import { CompanyService } from '@/lib/services/company-service';
 import { TicketService } from '@/lib/services/ticket-service';
+import { UserService } from '@/lib/services/user-service';
 import { getActiveSessionsByCompany, getChatHistoriesByCompany, CompanyActiveSession, PreviousChatHistoriesResult } from '@/lib/services/chat-service';
 import { isClosedTicketStatus } from '@/lib/ticket-status';
 import { ClientTime } from '@/components/client-time';
 import { cn } from '@/lib/utils';
+import { useApp } from '@/app/app-context';
 
 const TICKETS_PAGE_SIZE = 15;
 const HISTORIES_PAGE_SIZE = 10;
@@ -23,9 +25,12 @@ export default function CompanyDetailPage() {
   const params = useParams();
   const router = useRouter();
   const companyId = params.id as string;
+  const { currentUser } = useApp();
+  const isCompanyPortalUser = [UserRole.CUSTOMER, UserRole.EMPLOYEE].includes(currentUser?.role as UserRole);
 
   const [company, setCompany] = useState<Company | null>(null);
   const [loadingCompany, setLoadingCompany] = useState(true);
+  const [internalUsers, setInternalUsers] = useState<User[]>([]);
 
   const [tickets, setTickets] = useState<Ticket[]>([]);
   const [ticketsTotal, setTicketsTotal] = useState(0);
@@ -46,6 +51,13 @@ export default function CompanyDetailPage() {
       .then(setCompany)
       .finally(() => setLoadingCompany(false));
 
+    // CS/Comercial Responsável são perfil interno — Cliente/Funcionário não
+    // tem acesso a /api/users?type=analysts (403), nem precisa ver esse dado
+    // (mesma regra de app/(portal)/customers/page.tsx).
+    if (!isCompanyPortalUser) {
+      UserService.getAnalysts().then(setInternalUsers).catch(() => setInternalUsers([]));
+    }
+
     setLoadingTickets(true);
     TicketService.getByCompanyPaginated(companyId, TICKETS_PAGE_SIZE, 0)
       .then(res => { setTickets(res.tickets); setTicketsTotal(res.total); })
@@ -61,6 +73,8 @@ export default function CompanyDetailPage() {
       .then(res => { setHistories(res.histories); setHistoriesTotal(res.total); })
       .finally(() => setLoadingHistories(false));
   }, [companyId]);
+
+  const resolveInternalUser = (id?: string | null) => internalUsers.find(u => u.id === id);
 
   const handleLoadMoreTickets = async () => {
     setLoadingTickets(true);
@@ -109,6 +123,12 @@ export default function CompanyDetailPage() {
                 {company.industry && <span>{company.industry}</span>}
                 {company.phone && <span className="flex items-center gap-1"><Phone size={11} /> {company.phone}</span>}
               </p>
+              {!isCompanyPortalUser && (
+                <p className="text-xs text-[var(--text-tertiary)] font-bold uppercase tracking-widest mt-1.5 flex items-center gap-3">
+                  <span>CS: <span className="text-[var(--text-secondary)] normal-case">{resolveInternalUser(company.csResponsavelId)?.name || 'Não definido'}</span></span>
+                  <span>Comercial: <span className="text-[var(--text-secondary)] normal-case">{resolveInternalUser(company.comercialResponsavelId)?.name || 'Não definido'}</span></span>
+                </p>
+              )}
             </>
           )}
         </div>

@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useState, useEffect, useMemo } from 'react';
+import React, { useState, useEffect } from 'react';
 import { useEscapeToClose } from '@/hooks/use-escape-to-close';
 import { StyledSelect } from '@/components/styled-select';
 import { 
@@ -11,7 +11,6 @@ import {
 } from '@/lib/types';
 import { UserService, createUser } from '@/lib/services/user-service';
 import { CompanyService } from '@/lib/services/company-service';
-import { useQueuesQuery } from '@/lib/query-hooks';
 import { 
   Search, 
   X,
@@ -59,8 +58,6 @@ export function LinkContactModal({
   useEscapeToClose(isOpen, onClose);
   const [users, setUsers] = useState<User[]>([]);
   const [companies, setCompanies] = useState<Company[]>([]);
-  const { data: queuesData } = useQueuesQuery();
-  const queues = useMemo(() => queuesData || [], [queuesData]);
   const [searchTerm, setSearchTerm] = useState('');
   const [isCreatingNew, setIsCreatingNew] = useState(false);
   const [newName, setNewName] = useState('');
@@ -120,21 +117,6 @@ export function LinkContactModal({
     // aba. Achado em 2026-10-06.
   }, [isOpen]);
 
-  // Foto de perfil do WhatsApp do contato, para sincronizar com o cadastro
-  // (profiles.avatar_url) assim que ele é vinculado/criado.
-  const fetchWhatsappContactPhoto = async (): Promise<string | null> => {
-    if (!session?.customerPhone) return null;
-    const queue = queues.find((q: any) => q.id === session.queueId);
-    const instanceId = queue?.whatsapp_instance_id || queue?.whatsappInstanceId || 'default';
-    try {
-      const res = await fetch(`/api/whatsapp/contact-photo?instanceId=${encodeURIComponent(instanceId)}&phone=${encodeURIComponent(session.customerPhone)}`);
-      const data = await res.json();
-      return data.url || null;
-    } catch {
-      return null;
-    }
-  };
-
   const filteredUsers = users.filter(u => 
     normalizeString(u.name).includes(normalizeString(searchTerm)) ||
     (u.phone && u.phone.includes(searchTerm)) ||
@@ -171,14 +153,9 @@ export function LinkContactModal({
       const needsPhone = !!session.customerPhone && !currentPhones.includes(session.customerPhone);
 
       // Vincular a CONVERSA é o que a pessoa está esperando ver fechar — vai
-      // primeiro e sozinho. Completar telefone/foto do cadastro (abaixo) é um
+      // primeiro e sozinho. Completar telefone do cadastro (abaixo) é um
       // retoque em segundo plano: continua acontecendo, só não trava mais o
-      // "Vincular" por ele. Achado 2026-10-08 (varredura de performance): a
-      // busca da foto do WhatsApp (fetchWhatsappContactPhoto), quando o
-      // contato ainda não tem avatar, depende de um socket Baileys ao vivo —
-      // instável/lento com frequência — e isso atrasava o vínculo inteiro à
-      // toa, mesmo quando o único efeito visível que importava (a conversa
-      // mostrar o contato certo) não tinha nada a ver com essa foto.
+      // "Vincular" por ele.
       const res = await fetch('/api/chats', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -200,24 +177,19 @@ export function LinkContactModal({
       // Melhor esforço, fora do caminho acima: se falhar, só loga — não
       // desfaz o vínculo (que já está confirmado) nem mostra erro pra algo
       // que o usuário nem pediu diretamente.
-      (async () => {
-        try {
-          let newAvatarUrl: string | null = null;
-          if (!user.avatarUrl) {
-            newAvatarUrl = await fetchWhatsappContactPhoto();
-          }
-          if (needsPhone || newAvatarUrl) {
+      if (needsPhone) {
+        (async () => {
+          try {
             await UserService.save({
               ...user,
-              phones: needsPhone ? [...currentPhones, session.customerPhone!] : currentPhones,
-              phone: user.phone || session.customerPhone,
-              avatarUrl: newAvatarUrl || user.avatarUrl
+              phones: [...currentPhones, session.customerPhone!],
+              phone: user.phone || session.customerPhone
             });
+          } catch (err) {
+            console.error('Erro ao sincronizar telefone do contato recém-vinculado:', err);
           }
-        } catch (err) {
-          console.error('Erro ao sincronizar telefone/foto do contato recém-vinculado:', err);
-        }
-      })();
+        })();
+      }
     } catch (e) {
       console.error(e);
       toast.error(e instanceof Error && e.message ? e.message : 'Erro ao associar contato.');

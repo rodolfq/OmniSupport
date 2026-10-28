@@ -57,7 +57,7 @@ import { getCompanies } from '@/lib/services/company-service';
 import { getAnalysts, updateUserStatus } from '@/lib/services/user-actions-service';
 
 export default function ChatManagementPage() {
-  const { currentUser, setActiveOmniChatId, setIsOmniChatOpen, refreshTrigger, userStatus, getContactPhoto, ensureContactPhoto, hasPermission, setIsNewTicketModalOpen } = useApp();
+  const { currentUser, setActiveOmniChatId, setIsOmniChatOpen, refreshTrigger, userStatus, hasPermission, setIsNewTicketModalOpen } = useApp();
   const [sessions, setSessions] = useState<ChatSession[]>([]);
   const [statuses, setStatuses] = useState<AnalystStatus[]>([]);
   const [notes, setNotes] = useState<QuickNote[]>([]);
@@ -68,7 +68,7 @@ export default function ChatManagementPage() {
   const [queueFilter, setQueueFilter] = useState<'all' | 'me' | 'queue'>('all');
   // Filas: dado de referência, via hook compartilhado (cache de 60s) em vez
   // de buscado do zero a cada refreshData/refreshTrigger.
-  const { data: queuesData, isSuccess: queuesLoaded } = useQueuesQuery();
+  const { data: queuesData } = useQueuesQuery();
   const allQueues = React.useMemo(() => queuesData || [], [queuesData]);
   const userQueues = React.useMemo(
     () => (currentUser ? allQueues.filter((q: any) => q.member_ids?.includes(currentUser.id)).map((q: any) => q.id) : []),
@@ -184,27 +184,6 @@ export default function ChatManagementPage() {
       document.removeEventListener('visibilitychange', loadWhenVisible);
     };
   }, [currentUser, refreshData]);
-
-  // Mesma trava de components/chat-widget.tsx (achado em 2026-09-30, conversa
-  // com o Rafael Leal/APOVEL): sem isso, antes de useQueuesQuery resolver, a
-  // função "chutava" 'default' pra qualquer sessão, e um contato com foto
-  // salva sob esse instance_id (WhatsApp não-oficial, antes da migração pro
-  // Pyvon) piscava a foto antiga e a perdia assim que a fila de verdade
-  // (sem foto, porque o Pyvon/Meta Cloud API oficial não expõe foto de
-  // perfil) era resolvida. undefined faz getContactPhoto/ensureContactPhoto
-  // não fazerem nada até dar pra confiar no resultado.
-  const getSessionInstanceId = React.useCallback((session?: { queueId?: string }) => {
-    if (!queuesLoaded) return undefined;
-    const queue = allQueues.find((q: any) => q.id === session?.queueId);
-    return queue?.whatsapp_instance_id || queue?.whatsappInstanceId || 'default';
-  }, [allQueues, queuesLoaded]);
-
-  // Cache de foto de contato compartilhado com as demais telas (ex: widget de chat)
-  useEffect(() => {
-    sessions
-      .filter(s => s.status !== 'closed' && s.customerPhone)
-      .forEach(s => ensureContactPhoto(s.customerPhone, getSessionInstanceId(s)));
-  }, [sessions, getSessionInstanceId, ensureContactPhoto]);
 
   const visibleQueueSessions = React.useMemo(() => {
     return sessions
@@ -770,7 +749,7 @@ const handleDeleteNote = async () => {
                             );
                            const company = contact ? companies.find(comp => comp.id === contact.companyId) : null;
                            const displayName = s.customerName || contact?.name || (s.customerPhone && maskPhone(s.customerPhone)) || 'Contato sem nome';
-                           const photo = contact?.avatarUrl || getContactPhoto(s.customerPhone, getSessionInstanceId(s));
+                           const photo = contact?.avatarUrl;
                            return (
                          <div key={s.id} className="p-4 sm:p-6 flex flex-col gap-4 hover:bg-[var(--surface-card)] transition-all">
                             <div className="flex items-start justify-between gap-4">

@@ -12,11 +12,23 @@ import { findStatusColor } from '@/lib/status-colors';
 import { useApp } from '@/app/app-context';
 import { Plus, Clock, AlertCircle, User, Lock, Ticket as TicketIcon, FolderKanban, Users, LayoutGrid, List as ListIcon, Settings2, Eye, EyeOff, ChevronUp, ChevronDown } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
+import { toast } from 'sonner';
 import { cn } from '@/lib/utils';
 import { TicketDetailModal } from '@/components/ticket-detail-modal';
 import { FilterBar } from '@/components/filter-bar';
 import { UnreadDot } from '@/components/notification-count-badge';
 import { useSearchParams, useRouter } from 'next/navigation';
+import {
+  DndContext,
+  DragOverlay,
+  PointerSensor,
+  useSensor,
+  useSensors,
+  useDraggable,
+  useDroppable,
+  type DragStartEvent,
+  type DragEndEvent,
+} from '@dnd-kit/core';
 
 interface InternalTicketItem extends InternalTicket {
   uuid: string;
@@ -66,7 +78,7 @@ export default function DashboardPage() {
   // carregamento pesado de allTickets: só equipe vê, nenhum ticket_messages
   // precisa viajar pro resto da tela.
   const [awaitingResponse, setAwaitingResponse] = useState<{ id: string; ticketNumber?: number; title: string; updatedAt: string }[]>([]);
-  const { currentUser, setIsNewTicketModalOpen, refreshTrigger, hasPermission, navBadges } = useApp();
+  const { currentUser, setIsNewTicketModalOpen, refreshTrigger, triggerRefresh, hasPermission, navBadges } = useApp();
   const searchParams = useSearchParams();
 
   // Mesmo cache de prioridades usado em tickets-view.tsx e ticket-detail-
@@ -91,6 +103,22 @@ export default function DashboardPage() {
   const [kanbanPrefs, setKanbanPrefs] = useState<KanbanPrefsState>({ order: [], hidden: [], view: 'kanban', sortBy: 'urgency' });
   const [showColumnSettings, setShowColumnSettings] = useState(false);
   const columnSettingsRef = useRef<HTMLDivElement>(null);
+
+  // Arrastar-e-soltar do Kanban "estilo Bitrix" (@dnd-kit) — mesmo padrão de
+  // tickets-view.tsx/internal-tickets-view.tsx.
+  const [activeDashboardTicket, setActiveDashboardTicket] = useState<TicketType | null>(null);
+  const dashboardKanbanSensors = useSensors(useSensor(PointerSensor, { activationConstraint: { distance: 8 } }));
+  const handleDashboardTicketDragStart = (event: DragStartEvent) => {
+    setActiveDashboardTicket(filteredTickets.find(t => t.id === event.active.id) || null);
+  };
+  const handleDashboardTicketDragEnd = (event: DragEndEvent) => {
+    setActiveDashboardTicket(null);
+    const { active, over } = event;
+    if (!over) return;
+    const ticket = filteredTickets.find(t => t.id === active.id);
+    const targetStatus = String(over.id);
+    if (ticket && ticket.status !== targetStatus) handleTicketKanbanStatusChange(String(active.id), targetStatus);
+  };
 
   useEffect(() => {
     let active = true;
@@ -150,6 +178,9 @@ export default function DashboardPage() {
   // internal:view); ver descrições em Equipes & Permissões.
   const canSeeTickets = hasPermission(Permission.TICKETS_READ);
   const canSeeInternal = hasPermission(Permission.INTERNAL_TICKETS_VIEW);
+  // Mesma regra de tickets-view.tsx ("Todos os Chamados") — arrastar um card
+  // entre colunas do Kanban é só mais uma forma de trocar o status.
+  const canChangeTicketStatus = hasPermission(Permission.TICKETS_WRITE) || hasPermission(Permission.TICKETS_STATUS_CHANGE) || currentUser?.role === UserRole.ADMIN;
   // Inicializa já no lado certo pra quem só tem uma das duas permissões —
   // evita um frame mostrando "Chamados" antes do efeito abaixo corrigir.
   const [dashboardMode, setDashboardMode] = useState<'tickets' | 'internal'>(() => (
@@ -434,6 +465,49 @@ export default function DashboardPage() {
     });
     return groups;
   }, [filteredTickets, statuses]);
+
+  // Arrastar um card entre colunas do Kanban de Chamados — colunas aqui são
+  // o cadastro real de Status (baseColumns), 1:1 com tickets.status.
+  const handleTicketKanbanStatusChange = async (ticketId: string, newStatus: string) => {
+    if (!canChangeTicketStatus) {
+      toast.error('Você não tem permissão para alterar o status de chamados.');
+      return;
+    }
+    try {
+      const res = await fetch('/api/tickets', {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ ids: [ticketId], updates: { status: newStatus } })
+      });
+      if (!res.ok) {
+        const err = await res.json().catch(() => ({}));
+        throw new Error(err.error || 'Erro na atualização em lote');
+      }
+      triggerRefresh();
+    } catch (error: any) {
+      toast.error('Erro ao alterar status: ' + error.message);
+    }
+  };
+
+  // Idem para o Kanban de Tickets Internos (InternalDashboard) — autorização
+  // de verdade fica no servidor (POST /api/internal-tickets, action=update),
+  // mesmo padrão sem checagem extra no client de internal-tickets-view.tsx.
+  const handleInternalKanbanStatusChange = async (ticketUuid: string, newStatus: string) => {
+    try {
+      const res = await fetch('/api/internal-tickets', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ action: 'update', id: ticketUuid, fields: { status: newStatus } })
+      });
+      if (!res.ok) {
+        const err = await res.json().catch(() => ({}));
+        throw new Error(err.error || 'Erro ao atualizar o status.');
+      }
+      triggerRefresh();
+    } catch (error: any) {
+      toast.error('Erro ao alterar status: ' + error.message);
+    }
+  };
 
   if (currentUser && !hasPermission(Permission.DASHBOARD_VIEW)) {
     return (
@@ -766,59 +840,40 @@ export default function DashboardPage() {
            segurança de antes, só que agora só entra em ação quando
            realmente precisa (não é mais o padrão fixo pra 1 ou 20 colunas
            igual). */
-        <div className="flex flex-col gap-6 md:flex-row md:items-start md:gap-4 md:overflow-x-auto md:scrollbar-thin md:pb-4">
-          {columns.map(col => {
-            const colTickets = groupedTickets[col.status] || [];
-            const displayTickets = colTickets.slice(0, 20); // Only render first 20 for performance
-            const hasMore = colTickets.length > 20;
+        <DndContext sensors={dashboardKanbanSensors} onDragStart={handleDashboardTicketDragStart} onDragEnd={handleDashboardTicketDragEnd}>
+          <div className="flex flex-col gap-6 md:flex-row md:items-start md:gap-4 md:overflow-x-auto md:scrollbar-thin md:pb-4">
+            {columns.map(col => {
+              const colTickets = groupedTickets[col.status] || [];
+              const displayTickets = colTickets.slice(0, 20); // Only render first 20 for performance
+              const hasMore = colTickets.length > 20;
 
-            return (
-              <div key={col.status} className="flex flex-col gap-3 md:flex-1 md:min-w-[220px]">
-                <div className="flex items-center justify-between px-1">
-                  <h3 className="text-[10px] font-semibold uppercase tracking-[0.2em] text-[var(--text-tertiary)]">{col.title}</h3>
-                  <span className="bg-[var(--border-default)] text-[var(--text-secondary)] text-[10px] font-bold px-2 py-0.5 rounded-full">
-                    {colTickets.length}
-                  </span>
-                </div>
-                {/* Altura fixa por coluna (md+) em vez de crescer com a
-                    quantidade de chamados — clamp() acompanha a tela do
-                    usuário (nunca menor que 420px nem maior que 800px) sem
-                    precisar recalcular via JS. Rola por dentro (scrollbar já
-                    fina/minimalista por padrão, ver app/globals.css) — no
-                    mobile continua no tamanho do conteúdo, empilhado com o
-                    resto da página. Piso subiu de 280 pra 420px (2026-09-23,
-                    pedido do usuário): no mínimo anterior só cabia ~1,5 card
-                    por vez. */}
-                <div className="bg-[var(--surface-pill)]/50 rounded-2xl p-3 space-y-3 border border-dashed border-[var(--border-default)] md:h-[clamp(420px,calc(100vh_-_420px),800px)] md:overflow-y-auto">
-                  {displayTickets.map(ticket => (
-                    <TicketCard
-                      key={ticket.id}
-                      ticket={ticket}
-                      availablePriorities={priorities}
-                      users={users}
-                      onClick={() => setSelectedTicket(ticket)}
-                    />
-                  ))}
-                  {hasMore && (
-                    <button
-                      onClick={() => router.push(`/tickets?status=${col.status}`)}
-                      className="w-full py-3 text-[10px] font-semibold uppercase tracking-widest text-[var(--text-tertiary)] hover:text-[var(--accent-text)] transition-colors bg-[var(--surface-card)]/50 rounded-xl border border-dashed border-[var(--border-default)]"
-                    >
-                      Ver mais {colTickets.length - 20} chamados
-                    </button>
-                  )}
-                  {colTickets.length === 0 && (
-                    <p className="text-center text-[11px] font-semibold text-[var(--text-tertiary)] py-6">Nenhum chamado</p>
-                  )}
-                </div>
-              </div>
-            );
-          })}
-        </div>
+              return (
+                <DashboardTicketKanbanColumn
+                  key={col.status}
+                  status={col.status}
+                  title={col.title}
+                  count={colTickets.length}
+                  tickets={displayTickets}
+                  hasMore={hasMore}
+                  remaining={colTickets.length - 20}
+                  availablePriorities={priorities}
+                  users={users}
+                  onSelect={setSelectedTicket}
+                  onSeeMore={() => router.push(`/tickets?status=${col.status}`)}
+                />
+              );
+            })}
+          </div>
+          <DragOverlay dropAnimation={{ duration: 180, easing: 'cubic-bezier(0.18, 0.67, 0.6, 1.22)' }}>
+            {activeDashboardTicket && (
+              <TicketCard ticket={activeDashboardTicket} availablePriorities={priorities} users={users} onClick={() => {}} dragging />
+            )}
+          </DragOverlay>
+        </DndContext>
       )}
       </>
       ) : canSeeInternal ? (
-        <InternalDashboard tickets={internalTickets} loading={loadingInternal} router={router} statuses={internalStatuses} />
+        <InternalDashboard tickets={internalTickets} loading={loadingInternal} router={router} statuses={internalStatuses} onStatusChange={handleInternalKanbanStatusChange} />
       ) : null}
 
       <AnimatePresence>
@@ -841,7 +896,20 @@ export default function DashboardPage() {
 // Painel "Tickets Internos" do dashboard geral — mesma linguagem visual do
 // board de chamados acima (StatCard, colunas por status), com dados e cores
 // vindas de config_statuses (scope=internal_ticket), igual /internal-tickets.
-function InternalDashboard({ tickets, loading, router, statuses }: { tickets: InternalTicketItem[]; loading: boolean; router: ReturnType<typeof useRouter>; statuses: InternalStatusMeta[] }) {
+function InternalDashboard({ tickets, loading, router, statuses, onStatusChange }: { tickets: InternalTicketItem[]; loading: boolean; router: ReturnType<typeof useRouter>; statuses: InternalStatusMeta[]; onStatusChange: (ticketUuid: string, newStatus: string) => void }) {
+  const [activeInternalTicket, setActiveInternalTicket] = useState<InternalTicketItem | null>(null);
+  const internalKanbanSensors = useSensors(useSensor(PointerSensor, { activationConstraint: { distance: 8 } }));
+  const handleInternalDragStart = (event: DragStartEvent) => {
+    setActiveInternalTicket(tickets.find(t => t.uuid === event.active.id) || null);
+  };
+  const handleInternalDragEnd = (event: DragEndEvent) => {
+    setActiveInternalTicket(null);
+    const { active, over } = event;
+    if (!over) return;
+    const ticket = tickets.find(t => t.uuid === active.id);
+    const targetStatus = String(over.id);
+    if (ticket && (ticket.status || 'Novo') !== targetStatus) onStatusChange(String(active.id), targetStatus);
+  };
   const stats = useMemo(() => {
     const now = new Date();
     const active = tickets.filter(t => !isClosedTicketStatus(t.status));
@@ -978,63 +1046,103 @@ function InternalDashboard({ tickets, loading, router, statuses }: { tickets: In
         </div>
       )}
 
-      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4 flex-1 min-h-[500px] items-start mt-2">
-        {columns.map(col => (
-          <div key={col.value} className="rounded-2xl border-t-4 bg-[var(--surface-card)] overflow-hidden" style={{ borderTopColor: col.accent }}>
-            <div className="flex items-center gap-2 px-4 py-3 border-b border-[var(--border-default)]">
-              <span className={cn("w-2 h-2 rounded-full", col.dot)} />
-              <h3 className="text-xs font-black uppercase tracking-wide text-[var(--text-secondary)]">{col.label}</h3>
-              <span className="text-[10px] font-bold text-[var(--text-tertiary)] ml-auto bg-[var(--surface-pill)] px-2 py-0.5 rounded-full">{col.tickets.length}</span>
-            </div>
-            <div className="p-3 space-y-2.5 min-h-[100px] max-h-[440px] overflow-y-auto">
-              {col.tickets.length === 0 ? (
-                <p className="text-center py-8 text-[10px] text-[var(--text-tertiary)] font-medium uppercase tracking-wide">Vazio</p>
-              ) : (
-                col.tickets.slice(0, 15).map(ticket => {
-                  const isOverdue = ticket.slaRemaining === 'Expirado';
-                  return (
-                    <div
-                      key={ticket.uuid}
-                      onClick={() => router.push(`/internal-tickets/${ticket.uuid}`)}
-                      className="bg-[var(--surface-card)] rounded-xl p-3.5 border border-[var(--border-default)] hover:shadow-md hover:border-[var(--text-warning-strong)]/40 transition-all cursor-pointer"
-                    >
-                      <div className="flex items-start justify-between mb-2">
-                        <span className="text-[10px] font-semibold text-[var(--text-warning)]">{ticket.displayId}</span>
-                        <div className="flex items-end gap-[3px]">
-                          {[0, 1, 2].map(i => (
-                            <div key={i} className={cn("w-[3px] rounded-full", i === 0 ? "h-2" : i === 1 ? "h-3" : "h-4", i < (ticket.priority || 1) ? (ticket.priority === 3 ? "bg-[var(--text-danger)]" : "bg-[var(--text-warning-strong)]") : "bg-[var(--border-default)]")} />
-                          ))}
-                        </div>
-                      </div>
-                      <h4 className="font-bold text-[var(--text-primary)] text-sm mb-2 line-clamp-2 leading-snug">{ticket.title}</h4>
-                      <div className="flex items-center justify-between text-[10px] text-[var(--text-tertiary)]">
-                        {isOverdue ? (
-                          <span className="flex items-center gap-1 font-bold text-[var(--text-danger)]"><Clock size={11} />Atrasado</span>
-                        ) : ticket.slaRemaining ? (
-                          <span className="flex items-center gap-1 font-semibold text-orange-600 dark:text-orange-400"><Clock size={11} />{ticket.slaRemaining}</span>
-                        ) : <span className="truncate max-w-[100px]">{ticket.teamId || 'Sem equipe'}</span>}
-                        {ticket.assigneeName ? (
-                          <UserAvatar
-                            name={ticket.assigneeName}
-                            thumbUrl={ticket.assigneeAvatarThumbUrl}
-                            size={20}
-                            fallbackClassName="bg-[var(--accent)]/15 text-[var(--accent-text)] font-black"
-                          />
-                        ) : (
-                          <span className="w-5 h-5 rounded-full bg-[var(--surface-pill)] border border-dashed border-[var(--border-default)] flex items-center justify-center">
-                            <User size={11} className="text-[var(--text-tertiary)]" />
-                          </span>
-                        )}
-                      </div>
-                    </div>
-                  );
-                })
-              )}
-            </div>
-          </div>
-        ))}
-      </div>
+      <DndContext sensors={internalKanbanSensors} onDragStart={handleInternalDragStart} onDragEnd={handleInternalDragEnd}>
+        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4 flex-1 min-h-[500px] items-start mt-2">
+          {columns.map(col => (
+            <InternalDashboardKanbanColumn key={col.value} col={col} router={router} />
+          ))}
+        </div>
+        <DragOverlay dropAnimation={{ duration: 180, easing: 'cubic-bezier(0.18, 0.67, 0.6, 1.22)' }}>
+          {activeInternalTicket && <InternalDashboardTicketCard ticket={activeInternalTicket} dragging />}
+        </DragOverlay>
+      </DndContext>
     </>
+  );
+}
+
+// Coluna droppable + card draggable do Kanban de Tickets Internos (mesmo
+// padrão de arrastar-e-soltar do board de Chamados acima e de
+// internal-tickets-view.tsx).
+function InternalDashboardKanbanColumn({ col, router }: { col: InternalStatusMeta & { tickets: InternalTicketItem[] }; router: ReturnType<typeof useRouter> }) {
+  const { setNodeRef, isOver } = useDroppable({ id: col.value });
+
+  return (
+    <div
+      ref={setNodeRef}
+      className={cn("rounded-2xl border-t-4 overflow-hidden transition-colors", isOver ? "bg-[var(--surface-pill)] ring-2 ring-[var(--text-warning-strong)]/30" : "bg-[var(--surface-card)]")}
+      style={{ borderTopColor: col.accent }}
+    >
+      <div className="flex items-center gap-2 px-4 py-3 border-b border-[var(--border-default)]">
+        <span className={cn("w-2 h-2 rounded-full", col.dot)} />
+        <h3 className="text-xs font-black uppercase tracking-wide text-[var(--text-secondary)]">{col.label}</h3>
+        <span className="text-[10px] font-bold text-[var(--text-tertiary)] ml-auto bg-[var(--surface-pill)] px-2 py-0.5 rounded-full">{col.tickets.length}</span>
+      </div>
+      <div className="p-3 space-y-2.5 min-h-[100px] max-h-[440px] overflow-y-auto">
+        {col.tickets.length === 0 ? (
+          <p className="text-center py-8 text-[10px] text-[var(--text-tertiary)] font-medium uppercase tracking-wide">
+            {isOver ? 'Solte aqui' : 'Vazio'}
+          </p>
+        ) : (
+          col.tickets.slice(0, 15).map(ticket => (
+            <DraggableInternalDashboardTicketCard key={ticket.uuid} ticket={ticket} router={router} />
+          ))
+        )}
+      </div>
+    </div>
+  );
+}
+
+function DraggableInternalDashboardTicketCard({ ticket, router }: { ticket: InternalTicketItem; router: ReturnType<typeof useRouter> }) {
+  const { attributes, listeners, setNodeRef, transform, isDragging } = useDraggable({ id: ticket.uuid });
+  return (
+    <div
+      ref={setNodeRef}
+      {...listeners}
+      {...attributes}
+      style={{ transform: transform ? `translate3d(${transform.x}px, ${transform.y}px, 0)` : undefined, opacity: isDragging ? 0.4 : 1 }}
+      className="touch-none"
+    >
+      <InternalDashboardTicketCard ticket={ticket} onClick={() => router.push(`/internal-tickets/${ticket.uuid}`)} />
+    </div>
+  );
+}
+
+function InternalDashboardTicketCard({ ticket, onClick, dragging = false }: { ticket: InternalTicketItem; onClick?: () => void; dragging?: boolean }) {
+  const isOverdue = ticket.slaRemaining === 'Expirado';
+  return (
+    <div
+      onClick={() => !dragging && onClick?.()}
+      className="bg-[var(--surface-card)] rounded-xl p-3.5 border border-[var(--border-default)] hover:shadow-md hover:border-[var(--text-warning-strong)]/40 transition-all cursor-pointer"
+    >
+      <div className="flex items-start justify-between mb-2">
+        <span className="text-[10px] font-semibold text-[var(--text-warning)]">{ticket.displayId}</span>
+        <div className="flex items-end gap-[3px]">
+          {[0, 1, 2].map(i => (
+            <div key={i} className={cn("w-[3px] rounded-full", i === 0 ? "h-2" : i === 1 ? "h-3" : "h-4", i < (ticket.priority || 1) ? (ticket.priority === 3 ? "bg-[var(--text-danger)]" : "bg-[var(--text-warning-strong)]") : "bg-[var(--border-default)]")} />
+          ))}
+        </div>
+      </div>
+      <h4 className="font-bold text-[var(--text-primary)] text-sm mb-2 line-clamp-2 leading-snug">{ticket.title}</h4>
+      <div className="flex items-center justify-between text-[10px] text-[var(--text-tertiary)]">
+        {isOverdue ? (
+          <span className="flex items-center gap-1 font-bold text-[var(--text-danger)]"><Clock size={11} />Atrasado</span>
+        ) : ticket.slaRemaining ? (
+          <span className="flex items-center gap-1 font-semibold text-orange-600 dark:text-orange-400"><Clock size={11} />{ticket.slaRemaining}</span>
+        ) : <span className="truncate max-w-[100px]">{ticket.teamId || 'Sem equipe'}</span>}
+        {ticket.assigneeName ? (
+          <UserAvatar
+            name={ticket.assigneeName}
+            thumbUrl={ticket.assigneeAvatarThumbUrl}
+            size={20}
+            fallbackClassName="bg-[var(--accent)]/15 text-[var(--accent-text)] font-black"
+          />
+        ) : (
+          <span className="w-5 h-5 rounded-full bg-[var(--surface-pill)] border border-dashed border-[var(--border-default)] flex items-center justify-center">
+            <User size={11} className="text-[var(--text-tertiary)]" />
+          </span>
+        )}
+      </div>
+    </div>
   );
 }
 
@@ -1302,7 +1410,99 @@ function ListTicketRow({ ticket, statusColor, isOverdue, isNear, priorities, use
   );
 }
 
-function TicketCard({ ticket, availablePriorities, users, onClick }: { ticket: TicketType, availablePriorities: any[], users: any[], onClick: () => void }) {
+// Coluna droppable do Kanban "estilo Bitrix" de Chamados — mesmo padrão de
+// arrastar-e-soltar do board de "Todos os Chamados" (tickets-view.tsx).
+function DashboardTicketKanbanColumn({
+  status,
+  title,
+  count,
+  tickets,
+  hasMore,
+  remaining,
+  availablePriorities,
+  users,
+  onSelect,
+  onSeeMore,
+}: {
+  status: string;
+  title: string;
+  count: number;
+  tickets: TicketType[];
+  hasMore: boolean;
+  remaining: number;
+  availablePriorities: any[];
+  users: any[];
+  onSelect: (t: TicketType) => void;
+  onSeeMore: () => void;
+}) {
+  const { setNodeRef, isOver } = useDroppable({ id: status });
+
+  return (
+    <div className="flex flex-col gap-3 md:flex-1 md:min-w-[220px]">
+      <div className="flex items-center justify-between px-1">
+        <h3 className="text-[10px] font-semibold uppercase tracking-[0.2em] text-[var(--text-tertiary)]">{title}</h3>
+        <span className="bg-[var(--border-default)] text-[var(--text-secondary)] text-[10px] font-bold px-2 py-0.5 rounded-full">
+          {count}
+        </span>
+      </div>
+      {/* Altura fixa por coluna (md+) em vez de crescer com a quantidade de
+          chamados — clamp() acompanha a tela do usuário (nunca menor que
+          420px nem maior que 800px) sem precisar recalcular via JS. Rola por
+          dentro (scrollbar já fina/minimalista por padrão, ver
+          app/globals.css) — no mobile continua no tamanho do conteúdo,
+          empilhado com o resto da página. Piso subiu de 280 pra 420px
+          (2026-09-23, pedido do usuário): no mínimo anterior só cabia ~1,5
+          card por vez. */}
+      <div
+        ref={setNodeRef}
+        className={cn(
+          "rounded-2xl p-3 space-y-3 border border-dashed transition-all md:h-[clamp(420px,calc(100vh_-_420px),800px)] md:overflow-y-auto",
+          isOver ? "bg-[var(--surface-pill)] border-[var(--accent)]/40 ring-2 ring-[var(--accent)]/20" : "bg-[var(--surface-pill)]/50 border-[var(--border-default)]"
+        )}
+      >
+        {tickets.map(ticket => (
+          <DraggableDashboardTicketCard
+            key={ticket.id}
+            ticket={ticket}
+            availablePriorities={availablePriorities}
+            users={users}
+            onClick={() => onSelect(ticket)}
+          />
+        ))}
+        {hasMore && (
+          <button
+            onClick={onSeeMore}
+            className="w-full py-3 text-[10px] font-semibold uppercase tracking-widest text-[var(--text-tertiary)] hover:text-[var(--accent-text)] transition-colors bg-[var(--surface-card)]/50 rounded-xl border border-dashed border-[var(--border-default)]"
+          >
+            Ver mais {remaining} chamados
+          </button>
+        )}
+        {count === 0 && (
+          <p className="text-center text-[11px] font-semibold text-[var(--text-tertiary)] py-6">
+            {isOver ? 'Solte aqui' : 'Nenhum chamado'}
+          </p>
+        )}
+      </div>
+    </div>
+  );
+}
+
+function DraggableDashboardTicketCard({ ticket, availablePriorities, users, onClick }: { ticket: TicketType; availablePriorities: any[]; users: any[]; onClick: () => void }) {
+  const { attributes, listeners, setNodeRef, transform, isDragging } = useDraggable({ id: ticket.id });
+  return (
+    <div
+      ref={setNodeRef}
+      {...listeners}
+      {...attributes}
+      style={{ transform: transform ? `translate3d(${transform.x}px, ${transform.y}px, 0)` : undefined, opacity: isDragging ? 0.4 : 1 }}
+      className="touch-none"
+    >
+      <TicketCard ticket={ticket} availablePriorities={availablePriorities} users={users} onClick={onClick} />
+    </div>
+  );
+}
+
+function TicketCard({ ticket, availablePriorities, users, onClick, dragging = false }: { ticket: TicketType, availablePriorities: any[], users: any[], onClick: () => void, dragging?: boolean }) {
   const priorityConfig = availablePriorities.find(p => p.label === ticket.priority) || 
                        availablePriorities.find(p => p.label === 'Baixa') || 
                        availablePriorities[0];
@@ -1331,8 +1531,8 @@ function TicketCard({ ticket, availablePriorities, users, onClick }: { ticket: T
 
   return (
     <motion.div
-      layoutId={ticket.id}
-      onClick={onClick}
+      layoutId={dragging ? undefined : ticket.id}
+      onClick={() => !dragging && onClick()}
       className={cn(
         "bg-[var(--surface-card)] p-4 rounded-xl border cursor-pointer transition-all hover:shadow-md active:scale-[0.98] shadow-sm relative overflow-hidden group",
         isUnassignedNew

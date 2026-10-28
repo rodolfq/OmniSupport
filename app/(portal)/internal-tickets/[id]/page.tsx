@@ -1225,7 +1225,7 @@ export default function InternalTicketDetailPage() {
             })()}
           </div>
           <div className="p-4 border-t border-[var(--border-default)]">
-            <RichEditor content={input} onChange={setInput} placeholder="Digite sua nota interna..." minHeight="80px" />
+            <RichEditor content={input} onChange={setInput} placeholder="Digite sua nota interna..." minHeight="80px" maxHeight="35vh" />
             <div className="flex justify-between items-center mt-3">
               <button onClick={() => fileInputRef.current?.click()} disabled={isUploading} className="px-3 py-1 rounded-lg text-xs font-bold border border-[var(--border-default)] text-[var(--text-secondary)] hover:bg-[var(--surface-card)] flex items-center gap-1 disabled:opacity-50">
                 {isUploading ? <Loader2 size={14} className="animate-spin" /> : <Paperclip size={14} />} {isUploading ? 'ENVIANDO...' : 'ANEXAR'}

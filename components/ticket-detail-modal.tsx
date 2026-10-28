@@ -2277,6 +2277,7 @@ const loadMessages = async () => {
                        onChange={setMessage}
                        placeholder="Nota do ticket interno..."
                        minHeight="100px"
+                       maxHeight="35vh"
                        onPasteImages={handleMessagePasteImages}
                      />
                      <div className="flex items-center justify-between">
@@ -2475,6 +2476,7 @@ const loadMessages = async () => {
                      onChange={setMessage}
                      placeholder={historyTab === 'internal' ? "Nota interna..." : "Escreva sua resposta..."}
                      minHeight="100px"
+                     maxHeight="35vh"
                      toolbar="simple"
                      onPasteImages={handleMessagePasteImages}
                    />

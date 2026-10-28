@@ -1,7 +1,7 @@
 'use client';
 
 import React, { useEffect, useRef, useState } from 'react';
-import { Tag as TagIcon, Check, X, Search } from 'lucide-react';
+import { Tag as TagIcon, Check, X, Search, ChevronDown } from 'lucide-react';
 import { TagConfig } from '@/lib/types';
 import { cn, normalizeString } from '@/lib/utils';
 
@@ -14,7 +14,7 @@ interface ChatTagPickerProps {
 
 // tag.color é um combo "bg-*-100 text-*-700" pensado pra chip (fundo claro +
 // texto escuro, ver TAG_COLORS em tag-manager.tsx — é a única paleta que a
-// tela de cadastro oferece, fixa em 7 cores). Pra um indicador sólido (barra
+// tela de cadastro oferece, fixa em 15 cores). Pra um indicador sólido (barra
 // lateral da lista, ponto do popover) precisamos da cor saturada como FUNDO,
 // não como texto.
 //
@@ -50,12 +50,20 @@ export function tagAccentBgClass(tag: TagConfig): string {
   return ACCENT_BG_BY_FAMILY[family];
 }
 
-// Chips das tags já aplicadas + popover para vincular/desvincular em tempo
-// real durante o atendimento. `availableTags` já vem filtrado por
-// domain==='chat' por quem usa este componente (chat-widget.tsx).
+// Chips das tags já aplicadas + popover hierárquico (principal -> subtags)
+// para vincular/desvincular em tempo real durante o atendimento.
+// `availableTags` já vem filtrado por domain==='chat' por quem usa este
+// componente (chat-widget.tsx) e inclui os dois níveis juntos, flat.
+//
+// Selecionar uma subtag marca a principal dela junto (uma subtag solta, sem
+// o contexto da principal, não faz sentido pra filtro/relatório); desmarcar a
+// principal remove as subtags dela que estavam marcadas — mesma regra de
+// RequiredChatTags, só que aqui vale pra VÁRIAS principais ao mesmo tempo
+// (não é single-select: a conversa pode ter "Dúvida" + "Instabilidade" juntas).
 export function ChatTagPicker({ availableTags, selectedTagIds, onChange, align = 'left' }: ChatTagPickerProps) {
   const [isOpen, setIsOpen] = useState(false);
   const [search, setSearch] = useState('');
+  const [expandedIds, setExpandedIds] = useState<Set<string>>(new Set());
   const containerRef = useRef<HTMLDivElement>(null);
   const searchInputRef = useRef<HTMLInputElement>(null);
 
@@ -75,20 +83,56 @@ export function ChatTagPicker({ availableTags, selectedTagIds, onChange, align =
     };
   }, [isOpen]);
 
-  // Busca some junto com o popover — reabrir sempre começa do zero.
+  // Busca e expansão somem junto com o popover — reabrir sempre começa do zero.
   useEffect(() => {
     if (isOpen) searchInputRef.current?.focus();
-    else setSearch('');
+    else { setSearch(''); setExpandedIds(new Set()); }
   }, [isOpen]);
 
-  const filteredTags = search.trim()
-    ? availableTags.filter(t => normalizeString(t.label).includes(normalizeString(search.trim())))
-    : availableTags;
+  const principals = availableTags.filter(t => !t.parentTagId);
+  const childrenOf = (id: string) => availableTags.filter(t => t.parentTagId === id);
+
+  const query = normalizeString(search.trim());
+  const matchesQuery = (t: TagConfig) => !query || normalizeString(t.label).includes(query);
+  const visiblePrincipals = principals.filter(p => matchesQuery(p) || childrenOf(p.id).some(matchesQuery));
 
   const selectedTags = availableTags.filter(t => selectedTagIds.includes(t.id));
 
-  function toggleTag(id: string) {
-    onChange(selectedTagIds.includes(id) ? selectedTagIds.filter(t => t !== id) : [...selectedTagIds, id]);
+  function togglePrincipal(principal: TagConfig) {
+    if (selectedTagIds.includes(principal.id)) {
+      const childIds = childrenOf(principal.id).map(c => c.id);
+      onChange(selectedTagIds.filter(id => id !== principal.id && !childIds.includes(id)));
+    } else {
+      onChange([...selectedTagIds, principal.id]);
+    }
+  }
+
+  function toggleSubtag(subtag: TagConfig) {
+    if (selectedTagIds.includes(subtag.id)) {
+      onChange(selectedTagIds.filter(id => id !== subtag.id));
+    } else {
+      const withParent = subtag.parentTagId && !selectedTagIds.includes(subtag.parentTagId)
+        ? [...selectedTagIds, subtag.parentTagId]
+        : selectedTagIds;
+      onChange([...withParent, subtag.id]);
+    }
+  }
+
+  function removeChip(tag: TagConfig) {
+    if (!tag.parentTagId) {
+      const childIds = childrenOf(tag.id).map(c => c.id);
+      onChange(selectedTagIds.filter(id => id !== tag.id && !childIds.includes(id)));
+    } else {
+      onChange(selectedTagIds.filter(id => id !== tag.id));
+    }
+  }
+
+  function toggleExpanded(id: string) {
+    setExpandedIds(prev => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id); else next.add(id);
+      return next;
+    });
   }
 
   return (
@@ -100,7 +144,7 @@ export function ChatTagPicker({ availableTags, selectedTagIds, onChange, align =
             className={cn('text-[8px] font-black uppercase tracking-widest pl-1.5 pr-1 py-0.5 rounded-full flex items-center gap-1', tag.color)}
           >
             {tag.label}
-            <button onClick={() => toggleTag(tag.id)} className="hover:opacity-60 transition-opacity" title={`Remover marcador ${tag.label}`}>
+            <button onClick={() => removeChip(tag)} className="hover:opacity-60 transition-opacity" title={`Remover marcador ${tag.label}`}>
               <X size={9} />
             </button>
           </span>
@@ -117,7 +161,7 @@ export function ChatTagPicker({ availableTags, selectedTagIds, onChange, align =
       {isOpen && (
         <div
           className={cn(
-            'absolute top-full mt-2 z-30 w-52 bg-[var(--surface-card)] border border-[var(--border-default)] rounded-2xl shadow-xl overflow-hidden flex flex-col',
+            'absolute top-full mt-2 z-30 w-60 bg-[var(--surface-card)] border border-[var(--border-default)] rounded-2xl shadow-xl overflow-hidden flex flex-col',
             align === 'right' ? 'right-0' : 'left-0'
           )}
         >
@@ -134,28 +178,63 @@ export function ChatTagPicker({ availableTags, selectedTagIds, onChange, align =
               />
             </div>
           )}
-          <div className="py-1 max-h-56 overflow-y-auto">
+          <div className="py-1 max-h-64 overflow-y-auto">
           {availableTags.length === 0 ? (
             <p className="px-4 py-3 text-[10px] font-semibold text-[var(--text-tertiary)] uppercase tracking-widest leading-relaxed">
               Nenhum marcador cadastrado para chats. Crie em Configurações {'>'} Gestão de Tags.
             </p>
-          ) : filteredTags.length === 0 ? (
+          ) : visiblePrincipals.length === 0 ? (
             <p className="px-4 py-3 text-[10px] font-semibold text-[var(--text-tertiary)] uppercase tracking-widest leading-relaxed">
               Nenhum marcador encontrado.
             </p>
           ) : (
-            filteredTags.map(tag => {
-              const active = selectedTagIds.includes(tag.id);
+            visiblePrincipals.map(principal => {
+              const kids = childrenOf(principal.id);
+              const hasKids = kids.length > 0;
+              const active = selectedTagIds.includes(principal.id);
+              const expanded = hasKids && (expandedIds.has(principal.id) || active || (!!query && kids.some(matchesQuery)));
               return (
-                <button
-                  key={tag.id}
-                  onClick={() => toggleTag(tag.id)}
-                  className="w-full flex items-center gap-2.5 px-4 py-2.5 text-xs font-semibold text-[var(--text-secondary)] hover:bg-[var(--surface-pill)] transition-all"
-                >
-                  <span className={cn('w-2.5 h-2.5 rounded-full shrink-0', tagAccentBgClass(tag))} />
-                  <span className="flex-1 text-left truncate">{tag.label}</span>
-                  {active && <Check size={14} className="text-[var(--accent-text)] shrink-0" />}
-                </button>
+                <div key={principal.id}>
+                  <div className="w-full flex items-center gap-1 px-2 hover:bg-[var(--surface-pill)] transition-all">
+                    {hasKids ? (
+                      <button
+                        onClick={() => toggleExpanded(principal.id)}
+                        className="p-1.5 shrink-0 text-[var(--text-tertiary)] hover:text-[var(--text-secondary)]"
+                        title={expanded ? 'Recolher' : 'Ver subtags'}
+                      >
+                        <ChevronDown size={12} className={cn('transition-transform', expanded ? 'rotate-0' : '-rotate-90')} />
+                      </button>
+                    ) : (
+                      <span className="w-[26px] shrink-0" />
+                    )}
+                    <button
+                      onClick={() => togglePrincipal(principal)}
+                      className="flex-1 flex items-center gap-2.5 py-2.5 text-xs font-semibold text-[var(--text-secondary)] text-left min-w-0"
+                    >
+                      <span className={cn('w-2.5 h-2.5 rounded-full shrink-0', tagAccentBgClass(principal))} />
+                      <span className="flex-1 text-left truncate">{principal.label}</span>
+                      {active && <Check size={14} className="text-[var(--accent-text)] shrink-0" />}
+                    </button>
+                  </div>
+                  {expanded && (
+                    <div className="pb-1">
+                      {kids.map(child => {
+                        const childActive = selectedTagIds.includes(child.id);
+                        return (
+                          <button
+                            key={child.id}
+                            onClick={() => toggleSubtag(child)}
+                            className="w-full flex items-center gap-2.5 pl-[42px] pr-4 py-2 text-[11px] font-semibold text-[var(--text-secondary)] hover:bg-[var(--surface-pill)] transition-all"
+                          >
+                            <span className={cn('w-2 h-2 rounded-full shrink-0', tagAccentBgClass(child))} />
+                            <span className="flex-1 text-left truncate">{child.label}</span>
+                            {childActive && <Check size={13} className="text-[var(--accent-text)] shrink-0" />}
+                          </button>
+                        );
+                      })}
+                    </div>
+                  )}
+                </div>
               );
             })
           )}

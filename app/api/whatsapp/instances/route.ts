@@ -30,7 +30,7 @@ export async function GET() {
       name: r.name,
       phone: r.phone,
       status: r.status,
-      provider: r.provider || 'baileys',
+      provider: r.provider || 'pyvon',
       hasAccessToken: r.has_access_token,
       pyvonEnvironment: r.pyvon_environment || undefined,
       pyvonChannelId: r.pyvon_channel_id ?? undefined
@@ -47,7 +47,7 @@ export async function POST(request: Request) {
     if (!check.ok) return NextResponse.json({ error: check.error }, { status: permissionErrorStatus(check.error) });
     const { actor } = check;
 
-    const { id, name, phone, status, provider = 'baileys', meta } = await request.json();
+    const { id, name, phone, status, provider = 'pyvon', meta } = await request.json();
     if (!name?.trim()) return NextResponse.json({ error: 'Informe um nome para o canal.' }, { status: 400 });
 
     if (id) {
@@ -98,13 +98,6 @@ export async function DELETE(request: Request) {
 
     const id = new URL(request.url).searchParams.get('id');
     if (!id) return NextResponse.json({ error: 'id é obrigatório.' }, { status: 400 });
-
-    if (id === 'default') {
-      return NextResponse.json(
-        { error: 'O canal padrão do WhatsApp (QR Code) não pode ser excluído.' },
-        { status: 400 }
-      );
-    }
 
     // Fila apontando para o canal ficaria sem instância e as mensagens dela
     // sairiam pela instância errada — melhor recusar e explicar.

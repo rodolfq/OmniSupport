@@ -1,7 +1,7 @@
 import { query } from '../db';
-import { WhatsAppService } from './whatsapp-service';
+import { PyvonService } from './pyvon-service';
 import { EmailService } from './email-service';
-import { plainTextToHtml } from './automation-service';
+import { plainTextToHtml, resolveTicketWhatsappInstance } from './automation-service';
 import { wrapEmailHtml, ticketRefBlock } from '../email-templates';
 
 // Mesmo padrão de lib/services/whatsapp-service.ts: guarda estado em
@@ -17,7 +17,7 @@ const BATCH_SIZE = 50;
 async function processDueDispatches(): Promise<void> {
   const due = await query(
     `SELECT d.id, d.channel, d.ticket_id, d.recipient_phone, d.recipient_email, d.subject, d.message,
-            t.public_ticket_number, t.title AS ticket_title
+            t.public_ticket_number, t.title AS ticket_title, t.queue_id
      FROM public.automation_dispatches d
      LEFT JOIN public.tickets t ON t.id = d.ticket_id
      WHERE d.status = 'pending' AND d.send_at <= now()
@@ -39,7 +39,19 @@ async function processDueDispatches(): Promise<void> {
         const html = wrapEmailHtml({ bodyHtml, ctaUrl, ctaLabel: 'Abrir chamado' });
         await EmailService.send(row.recipient_email, row.subject || row.message.slice(0, 80), html);
       } else {
-        await WhatsAppService.sendMessage('default', row.recipient_phone, row.message);
+        // WhatsApp não-oficial (Baileys/QR Code) foi removido — este caminho
+        // (disparo com atraso) era o único gap que ainda saía por ele
+        // (ver CLAUDE.md, dívida técnica item 2). Resolve pela Fila do
+        // chamado, mesma regra de dispatchEvent em automation-service.ts.
+        const queueInstance = await resolveTicketWhatsappInstance({ queue_id: row.queue_id });
+        const pyvonInstanceId = queueInstance?.provider === 'pyvon' ? queueInstance.id : await PyvonService.getSoleInstanceId();
+        if (!pyvonInstanceId) {
+          throw new Error('Nenhuma instância Pyvon configurada para enviar esta mensagem.');
+        }
+        const result = await PyvonService.sendMessage(pyvonInstanceId, { phone: row.recipient_phone }, row.message);
+        if (result.skipped || (result.delivery && result.delivery !== 'sent')) {
+          throw new Error(result.delivery_error || result.skipped || 'Pyvon não entregou a mensagem.');
+        }
       }
       await query(
         `UPDATE public.automation_dispatches SET status = 'sent', sent_at = now() WHERE id = $1`,

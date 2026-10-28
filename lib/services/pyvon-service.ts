@@ -1307,26 +1307,17 @@ export class PyvonService {
     }
   }
 
-  // "Atualização de Chamado": tag de chat própria pras conversas que
-  // nasceram da resposta do cliente a uma nota. Não é migration — config_tags
-  // já existe, isto é dado — cria uma vez, na primeira falta.
+  // "Atualização": subtag de "Chamado" (reorganização de tags, 2026-10-28 —
+  // era a principal solta "Atualização de Chamado" antes disso) pras
+  // conversas que nasceram da resposta do cliente a uma nota. Não cria mais
+  // sozinha (a hierarquia é curada pela tela de Gestão de Tags agora) — se a
+  // subtag foi apagada/renomeada, só desiste de marcar, igual ao outro ponto
+  // que já faz isso (app/api/chat-sessions/route.ts).
   private static async ensureUpdateTicketTag(): Promise<string | null> {
-    const label = 'Atualização de Chamado';
-    const existing = await query('SELECT id FROM public.config_tags WHERE label = $1', [label]);
-    if (existing.rows[0]) return existing.rows[0].id;
-    try {
-      const inserted = await query(
-        `INSERT INTO public.config_tags (label, color, domain) VALUES ($1, '#6366f1', 'chat')
-         ON CONFLICT (label) DO NOTHING RETURNING id`,
-        [label]
-      );
-      if (inserted.rows[0]) return inserted.rows[0].id;
-      const retry = await query('SELECT id FROM public.config_tags WHERE label = $1', [label]);
-      return retry.rows[0]?.id || null;
-    } catch (err) {
-      console.error('[Pyvon] Falha ao garantir a tag "Atualização de Chamado":', err);
-      return null;
-    }
+    const existing = await query(
+      `SELECT id FROM public.config_tags WHERE domain = 'chat' AND label = 'Atualização' AND parent_tag_id IS NOT NULL LIMIT 1`
+    );
+    return existing.rows[0]?.id || null;
   }
 
   // Responsável ATUAL do chamado (pode ter trocado desde que a nota foi

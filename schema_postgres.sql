@@ -17,7 +17,6 @@ DROP TABLE IF EXISTS public.ticket_status_history CASCADE;
 DROP TABLE IF EXISTS public.analyst_status CASCADE;
 DROP TABLE IF EXISTS public.user_status_history CASCADE;
 DROP TABLE IF EXISTS public.absence_reasons CASCADE;
-DROP TABLE IF EXISTS public.whatsapp_sessions CASCADE;
 DROP TABLE IF EXISTS public.whatsapp_instances CASCADE;
 DROP TABLE IF EXISTS public.config_categories CASCADE;
 DROP TABLE IF EXISTS public.config_priorities CASCADE;
@@ -327,20 +326,26 @@ CREATE TABLE public.config_priorities (
 -- Config Tags
 CREATE TABLE public.config_tags (
   id UUID PRIMARY KEY DEFAULT (md5(random()::text || clock_timestamp()::text)::uuid),
-  label TEXT NOT NULL UNIQUE,
+  label TEXT NOT NULL,
   color TEXT NOT NULL,
   domain TEXT DEFAULT 'ticket',
   created_at TIMESTAMP WITH TIME ZONE DEFAULT now() NOT NULL
 );
 
 -- Hierarquia tag principal -> subtag (migrations/config_tags_parent.sql,
--- 2026-10-21). label continua UNIQUE globalmente — cada subtag é única e
--- reaproveitável, com NO MÁXIMO uma tag principal (a tela só oferece tags
--- SEM pai como opção de "principal", travando em 2 níveis). Apagar a
--- principal não apaga as subtags: elas só voltam a ser top-level.
+-- 2026-10-21), com NO MÁXIMO uma tag principal (a tela só oferece tags SEM
+-- pai como opção de "principal", travando em 2 níveis). Apagar a principal
+-- não apaga as subtags: elas só voltam a ser top-level.
 ALTER TABLE public.config_tags
   ADD COLUMN IF NOT EXISTS parent_tag_id UUID REFERENCES public.config_tags(id) ON DELETE SET NULL;
 CREATE INDEX IF NOT EXISTS idx_config_tags_parent_tag_id ON public.config_tags(parent_tag_id) WHERE parent_tag_id IS NOT NULL;
+
+-- label NÃO é mais UNIQUE globalmente (reorganização de tags, 2026-10-28) —
+-- a mesma subtag (ex.: "SSX Web") pode existir sob mais de uma principal
+-- diferente. O que continua garantido: nenhuma tag principal repete nome
+-- entre si, e nenhuma subtag repete nome dentro da MESMA principal.
+CREATE UNIQUE INDEX IF NOT EXISTS config_tags_label_principal_uq ON public.config_tags (label) WHERE parent_tag_id IS NULL;
+CREATE UNIQUE INDEX IF NOT EXISTS config_tags_label_parent_uq ON public.config_tags (parent_tag_id, label) WHERE parent_tag_id IS NOT NULL;
 
 -- Config Survey Settings (linha única) - pesquisa de satisfação enviada ao finalizar conversa
 CREATE TABLE public.config_survey_settings (
@@ -1552,18 +1557,14 @@ CREATE TRIGGER trg_ticket_evaluations_no_truncate
   BEFORE TRUNCATE ON public.ticket_evaluations
   FOR EACH STATEMENT EXECUTE PROCEDURE public.fn_ticket_evaluations_immutable();
 
--- WhatsApp Sessions Table (Baileys credentials)
-CREATE TABLE public.whatsapp_sessions (
-  id TEXT PRIMARY KEY,
-  data JSONB NOT NULL,
-  created_at TIMESTAMP WITH TIME ZONE DEFAULT now() NOT NULL,
-  updated_at TIMESTAMP WITH TIME ZONE DEFAULT now() NOT NULL
-);
-
 -- WhatsApp Instances Table (for UI management) — cada linha é um "canal" de
--- WhatsApp, com provider 'baileys' (QR Code) ou 'pyvon' (BSP oficial).
--- Integração direta com a Meta Cloud API ('meta') existiu aqui antes e foi
--- removida (2026-09-17, pedido do usuário) — chegou a ter as colunas
+-- WhatsApp. Só provider 'pyvon' (BSP oficial) existe hoje: o canal Baileys
+-- (QR Code, provider 'baileys') foi desativado e removido por completo
+-- (2026-10-28, pedido do usuário) — tabelas whatsapp_sessions (credenciais) e
+-- whatsapp_contact_photos (cache de foto, nunca funcionou com Pyvon/Meta
+-- Cloud API oficial) foram dropadas junto. Integração direta com a Meta
+-- Cloud API ('meta') existiu aqui antes e já tinha sido removida
+-- (2026-09-17, pedido do usuário) — chegou a ter as colunas
 -- phone_number_id/verify_token, nunca usadas em produção (zero linhas com
 -- provider='meta'), então foram descartadas junto (ver migrations/
 -- remove_meta_whatsapp.sql).
@@ -1572,7 +1573,7 @@ CREATE TABLE public.whatsapp_instances (
   name TEXT,
   phone TEXT,
   status TEXT DEFAULT 'disconnected',
-  provider TEXT NOT NULL DEFAULT 'baileys',
+  provider TEXT NOT NULL DEFAULT 'pyvon',
   access_token TEXT,
   created_at TIMESTAMP WITH TIME ZONE DEFAULT now() NOT NULL,
   updated_at TIMESTAMP WITH TIME ZONE DEFAULT now() NOT NULL,
@@ -1702,15 +1703,6 @@ CREATE INDEX idx_pyvon_delivery_events_received ON public.pyvon_delivery_events 
 -- porque pyvon_templates só é criada aqui, depois.
 ALTER TABLE public.automation_settings
   ADD COLUMN pyvon_template_id UUID REFERENCES public.pyvon_templates(id) ON DELETE SET NULL;
-
--- WhatsApp Contact Photos (persistidas para não reconsultar o WhatsApp após obter sucesso)
-CREATE TABLE public.whatsapp_contact_photos (
-  instance_id TEXT NOT NULL,
-  phone TEXT NOT NULL,
-  photo_url TEXT,
-  updated_at TIMESTAMP WITH TIME ZONE DEFAULT now() NOT NULL,
-  PRIMARY KEY (instance_id, phone)
-);
 
 -- Internal Chats for messaging
 CREATE TABLE public.internal_chats (
@@ -2363,14 +2355,6 @@ SELECT slot_time FROM (VALUES
   ('14:00')
 ) AS seed(slot_time)
 WHERE NOT EXISTS (SELECT 1 FROM public.giro_lunch_slots);
-
--- Seed Default WhatsApp Channel — a tela de Configurações > WhatsApp sempre
--- usou o id fixo 'default' pro canal Baileys (ver components/whatsapp-
--- connect.tsx), então uma linha correspondente precisa existir pra Fila
--- conseguir listar/vincular esse canal.
-INSERT INTO public.whatsapp_instances (id, name, phone, status, provider) VALUES
-('default', 'WhatsApp Principal', NULL, 'disconnected', 'baileys')
-ON CONFLICT (id) DO NOTHING;
 
 -- Seed Default Quick Notes
 INSERT INTO public.quick_notes (shortcut, content, category) VALUES 

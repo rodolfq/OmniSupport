@@ -21,6 +21,7 @@ import {
   ThumbsUp
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
+import { toast } from 'sonner';
 import { cn, normalizeString } from '@/lib/utils';
 import { TicketDetailModal } from '@/components/ticket-detail-modal';
 import { TicketEvaluationModal } from '@/components/ticket-evaluation-modal';
@@ -31,6 +32,17 @@ import { useSearchParams, useRouter } from 'next/navigation';
 import { ConfigService } from '@/lib/services/config-service';
 import { usePersistedViewMode } from '@/hooks/use-persisted-view-mode';
 import { findStatusColor } from '@/lib/status-colors';
+import {
+  DndContext,
+  DragOverlay,
+  PointerSensor,
+  useSensor,
+  useSensors,
+  useDraggable,
+  useDroppable,
+  type DragStartEvent,
+  type DragEndEvent,
+} from '@dnd-kit/core';
 
 interface InternalTicketItem extends InternalTicket {
   uuid: string;
@@ -118,7 +130,7 @@ function ticketMatchesSearch(t: Ticket, normalQuery: string): boolean {
 }
 
 export default function MyTicketsPage() {
-  const { currentUser, hasPermission, setIsNewTicketModalOpen, refreshTrigger, navBadges } = useApp();
+  const { currentUser, hasPermission, setIsNewTicketModalOpen, refreshTrigger, triggerRefresh, navBadges } = useApp();
   const searchParams = useSearchParams();
   const router = useRouter();
   const [allTickets, setAllTickets] = useState<Ticket[]>([]); // Renamed from tickets = useState<Ticket[]>([])
@@ -154,6 +166,9 @@ export default function MyTicketsPage() {
   const isInternalRole = !!currentUser && ![UserRole.CUSTOMER, UserRole.EMPLOYEE].includes(currentUser.role as UserRole);
   const canSeeTickets = !isInternalRole || hasPermission(Permission.TICKETS_READ);
   const canSeeInternal = isInternalRole && hasPermission(Permission.INTERNAL_TICKETS_VIEW);
+  // Mesma regra de tickets-view.tsx ("Todos os Chamados") — arrastar um card
+  // entre colunas do Kanban é só mais uma forma de trocar o status.
+  const canChangeStatus = hasPermission(Permission.TICKETS_WRITE) || hasPermission(Permission.TICKETS_STATUS_CHANGE) || currentUser?.role === UserRole.ADMIN;
   const [ticketMode, setTicketMode] = useState<'tickets' | 'internal'>(() => (
     !canSeeTickets && canSeeInternal ? 'internal' : 'tickets'
   ));
@@ -354,6 +369,31 @@ export default function MyTicketsPage() {
     if (isClosedTicketStatus(status)) return 'bg-[var(--surface-success)] text-[var(--text-success)]';
     if (status === 'Novo') return 'bg-[var(--surface-info)] text-[var(--text-info)]';
     return 'bg-[var(--surface-warning)] text-[var(--text-warning)]';
+  };
+
+  // Arrastar um card entre colunas do Kanban (só equipe/admin/time interno —
+  // as colunas aqui já são o cadastro real de Status, 1:1 com tickets.status,
+  // diferente das 3 colunas agregadas do lado cliente/funcionário, onde um
+  // drop não teria um status único de destino pra gravar).
+  const handleKanbanStatusChange = async (ticketId: string, newStatus: string) => {
+    if (!canChangeStatus) {
+      toast.error('Você não tem permissão para alterar o status de chamados.');
+      return;
+    }
+    try {
+      const res = await fetch('/api/tickets', {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ ids: [ticketId], updates: { status: newStatus } })
+      });
+      if (!res.ok) {
+        const err = await res.json().catch(() => ({}));
+        throw new Error(err.error || 'Erro na atualização em lote');
+      }
+      triggerRefresh();
+    } catch (error: any) {
+      toast.error('Erro ao alterar status: ' + error.message);
+    }
   };
 
   return (
@@ -638,45 +678,59 @@ export default function MyTicketsPage() {
                 </span>
               </label>
             )}
-            <div className="flex flex-col gap-6 md:flex-row md:items-start md:gap-4 md:overflow-x-auto md:scrollbar-thin md:pb-4">
-            {(isInternalRole
-              ? displayedInternalKanbanStatuses.map(s => ({ key: s.value, title: s.label, dot: s.dot, accent: s.accent }))
-              : MY_TICKETS_KANBAN_COLUMNS.map(c => ({ key: c.status, title: c.title, dot: c.dot, accent: c.accent }))
-            ).map(col => {
-              const colTickets = kanbanGrouped[col.key] || [];
-              return (
-                <div
-                  key={col.key}
-                  className="rounded-2xl border-t-4 bg-[var(--surface-card)] overflow-hidden md:w-[280px] md:shrink-0"
-                  style={{ borderTopColor: col.accent }}
-                >
-                  <div className="flex items-center gap-2 px-4 py-3 border-b border-[var(--border-default)]">
-                    <span className={cn("w-2 h-2 rounded-full", col.dot)} />
-                    <h3 className="text-xs font-black uppercase tracking-wide text-[var(--text-secondary)]">{col.title}</h3>
-                    <span className="text-[10px] font-bold text-[var(--text-tertiary)] ml-auto bg-[var(--surface-pill)] px-2 py-0.5 rounded-full">
-                      {colTickets.length}
-                    </span>
-                  </div>
-                  <div className="p-3 space-y-2.5 min-h-[120px] md:h-[clamp(280px,calc(100vh_-_460px),640px)] md:overflow-y-auto">
-                    {colTickets.length === 0 ? (
-                      <div className="text-center py-8 rounded-xl border-2 border-dashed border-[var(--border-default)]">
-                        <p className="text-[10px] text-[var(--text-tertiary)] font-medium uppercase tracking-wide">Nenhum chamado por aqui</p>
+            {isInternalRole ? (
+              // Equipe/Administrador/Time Interno: colunas = cadastro real de
+              // Status, 1:1 com tickets.status — arrastar um card já tem um
+              // destino único e sem ambiguidade pra gravar.
+              <StaffTicketKanbanBoard
+                columns={displayedInternalKanbanStatuses}
+                grouped={kanbanGrouped}
+                navBadges={navBadges}
+                onSelect={setSelectedTicket}
+                onStatusChange={handleKanbanStatusChange}
+              />
+            ) : (
+              // Cliente/Funcionário: as 3 colunas aqui são uma AGREGAÇÃO de
+              // vários status reais (getCustomerStatusLabel) — um card
+              // arrastado para "Em Andamento" não tem um status único de
+              // destino pra gravar, então este lado nunca ganhou arrastar.
+              <div className="flex flex-col gap-6 md:flex-row md:items-start md:gap-4 md:overflow-x-auto md:scrollbar-thin md:pb-4">
+                {MY_TICKETS_KANBAN_COLUMNS.map(c => {
+                  const colTickets = kanbanGrouped[c.status] || [];
+                  return (
+                    <div
+                      key={c.status}
+                      className="rounded-2xl border-t-4 bg-[var(--surface-card)] overflow-hidden md:w-[280px] md:shrink-0"
+                      style={{ borderTopColor: c.accent }}
+                    >
+                      <div className="flex items-center gap-2 px-4 py-3 border-b border-[var(--border-default)]">
+                        <span className={cn("w-2 h-2 rounded-full", c.dot)} />
+                        <h3 className="text-xs font-black uppercase tracking-wide text-[var(--text-secondary)]">{c.title}</h3>
+                        <span className="text-[10px] font-bold text-[var(--text-tertiary)] ml-auto bg-[var(--surface-pill)] px-2 py-0.5 rounded-full">
+                          {colTickets.length}
+                        </span>
                       </div>
-                    ) : (
-                      colTickets.map(ticket => (
-                        <MyTicketKanbanCard
-                          key={ticket.id}
-                          ticket={ticket}
-                          notificationCount={navBadges.myTicketsUnreadByTicket[ticket.id] || 0}
-                          onClick={() => setSelectedTicket(ticket)}
-                        />
-                      ))
-                    )}
-                  </div>
-                </div>
-              );
-            })}
-            </div>
+                      <div className="p-3 space-y-2.5 min-h-[120px] md:h-[clamp(280px,calc(100vh_-_460px),640px)] md:overflow-y-auto">
+                        {colTickets.length === 0 ? (
+                          <div className="text-center py-8 rounded-xl border-2 border-dashed border-[var(--border-default)]">
+                            <p className="text-[10px] text-[var(--text-tertiary)] font-medium uppercase tracking-wide">Nenhum chamado por aqui</p>
+                          </div>
+                        ) : (
+                          colTickets.map(ticket => (
+                            <MyTicketKanbanCard
+                              key={ticket.id}
+                              ticket={ticket}
+                              notificationCount={navBadges.myTicketsUnreadByTicket[ticket.id] || 0}
+                              onClick={() => setSelectedTicket(ticket)}
+                            />
+                          ))
+                        )}
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+            )}
           </>
         ) : visibleTickets.length > 0 ? (
           <>
@@ -818,16 +872,17 @@ export default function MyTicketsPage() {
 
 // Card do modo Kanban — mesmo desenho do TicketKanbanCard de "Todos os
 // Chamados" (número + estrelas de prioridade, título em itálico, tags,
-// rodapé com a data), só sem o cursor de arrastar (aqui o card não é
-// draggable — ver comentário de MY_TICKETS_KANBAN_COLUMNS).
+// rodapé com a data). Draggable só do lado Equipe/Administrador/Time Interno
+// (ver StaffTicketKanbanBoard) — `dragging` só desliga o clique durante o
+// DragOverlay, mesmo padrão de TicketKanbanCard.
 const KANBAN_PRIORITY_LABELS = ['Baixa', 'Média', 'Alta', 'Urgente'];
 
-function MyTicketKanbanCard({ ticket, notificationCount = 0, onClick }: { ticket: Ticket; notificationCount?: number; onClick: () => void }) {
+function MyTicketKanbanCard({ ticket, notificationCount = 0, onClick, dragging = false }: { ticket: Ticket; notificationCount?: number; onClick: () => void; dragging?: boolean }) {
   const currentPriority = KANBAN_PRIORITY_LABELS.indexOf(ticket.priority as string) + 1;
 
   return (
     <div
-      onClick={onClick}
+      onClick={() => !dragging && onClick()}
       className="relative bg-[var(--surface-card)] rounded-xl p-3.5 border border-[var(--border-default)] cursor-pointer transition-all hover:shadow-md hover:border-[var(--accent)]/40 group"
     >
       <TicketNotificationBadge count={notificationCount} />
@@ -866,6 +921,123 @@ function MyTicketKanbanCard({ ticket, notificationCount = 0, onClick }: { ticket
           {new Date(ticket.createdAt).toLocaleDateString('pt-BR')}
         </span>
       </div>
+    </div>
+  );
+}
+
+// Board Kanban arrastável do lado Equipe/Administrador/Time Interno — mesmo
+// padrão de arrastar-e-soltar do Kanban de "Todos os Chamados"
+// (tickets-view.tsx: @dnd-kit, colunas droppable, card draggable, solta
+// chama onStatusChange que faz o PATCH).
+function StaffTicketKanbanBoard({
+  columns,
+  grouped,
+  navBadges,
+  onSelect,
+  onStatusChange,
+}: {
+  columns: KanbanStatusMeta[];
+  grouped: Record<string, Ticket[]>;
+  navBadges: { myTicketsUnreadByTicket: Record<string, number> };
+  onSelect: (t: Ticket) => void;
+  onStatusChange: (ticketId: string, newStatus: string) => void;
+}) {
+  const [activeTicket, setActiveTicket] = useState<Ticket | null>(null);
+  const sensors = useSensors(useSensor(PointerSensor, { activationConstraint: { distance: 8 } }));
+  const allTickets = useMemo(() => Object.values(grouped).flat(), [grouped]);
+
+  const handleDragStart = (event: DragStartEvent) => {
+    setActiveTicket(allTickets.find(t => t.id === event.active.id) || null);
+  };
+
+  const handleDragEnd = (event: DragEndEvent) => {
+    setActiveTicket(null);
+    const { active, over } = event;
+    if (!over) return;
+    const ticket = allTickets.find(t => t.id === active.id);
+    const targetStatus = String(over.id);
+    if (ticket && ticket.status !== targetStatus) {
+      onStatusChange(String(active.id), targetStatus);
+    }
+  };
+
+  return (
+    <DndContext sensors={sensors} onDragStart={handleDragStart} onDragEnd={handleDragEnd}>
+      <div className="flex flex-col gap-6 md:flex-row md:items-start md:gap-4 md:overflow-x-auto md:scrollbar-thin md:pb-4">
+        {columns.map(col => (
+          <StaffTicketKanbanColumn
+            key={col.value}
+            col={{ ...col, tickets: grouped[col.value] || [] }}
+            navBadges={navBadges}
+            onSelect={onSelect}
+          />
+        ))}
+      </div>
+      <DragOverlay dropAnimation={{ duration: 180, easing: 'cubic-bezier(0.18, 0.67, 0.6, 1.22)' }}>
+        {activeTicket && <MyTicketKanbanCard ticket={activeTicket} onClick={() => {}} dragging />}
+      </DragOverlay>
+    </DndContext>
+  );
+}
+
+function StaffTicketKanbanColumn({
+  col,
+  navBadges,
+  onSelect,
+}: {
+  col: KanbanStatusMeta & { tickets: Ticket[] };
+  navBadges: { myTicketsUnreadByTicket: Record<string, number> };
+  onSelect: (t: Ticket) => void;
+}) {
+  const { setNodeRef, isOver } = useDroppable({ id: col.value });
+
+  return (
+    <div
+      ref={setNodeRef}
+      className={cn(
+        "rounded-2xl border-t-4 overflow-hidden md:w-[280px] md:shrink-0 transition-all",
+        isOver ? "bg-[var(--surface-pill)] ring-2 ring-[var(--accent)]/30" : "bg-[var(--surface-card)]"
+      )}
+      style={{ borderTopColor: col.accent }}
+    >
+      <div className="flex items-center gap-2 px-4 py-3 border-b border-[var(--border-default)]">
+        <span className={cn("w-2 h-2 rounded-full", col.dot)} />
+        <h3 className="text-xs font-black uppercase tracking-wide text-[var(--text-secondary)]">{col.label}</h3>
+        <span className="text-[10px] font-bold text-[var(--text-tertiary)] ml-auto bg-[var(--surface-pill)] px-2 py-0.5 rounded-full">
+          {col.tickets.length}
+        </span>
+      </div>
+      <div className="p-3 space-y-2.5 min-h-[120px] md:h-[clamp(280px,calc(100vh_-_460px),640px)] md:overflow-y-auto">
+        {col.tickets.length === 0 ? (
+          <div className={cn("text-center py-8 rounded-xl border-2 border-dashed transition-colors", isOver ? "border-[var(--accent)]/40" : "border-[var(--border-default)]")}>
+            <p className="text-[10px] text-[var(--text-tertiary)] font-medium uppercase tracking-wide">Arraste um card aqui</p>
+          </div>
+        ) : (
+          col.tickets.map(ticket => (
+            <DraggableMyTicketKanbanCard
+              key={ticket.id}
+              ticket={ticket}
+              notificationCount={navBadges.myTicketsUnreadByTicket[ticket.id] || 0}
+              onClick={() => onSelect(ticket)}
+            />
+          ))
+        )}
+      </div>
+    </div>
+  );
+}
+
+function DraggableMyTicketKanbanCard({ ticket, notificationCount, onClick }: { ticket: Ticket; notificationCount: number; onClick: () => void }) {
+  const { attributes, listeners, setNodeRef, transform, isDragging } = useDraggable({ id: ticket.id });
+  return (
+    <div
+      ref={setNodeRef}
+      {...listeners}
+      {...attributes}
+      style={{ transform: transform ? `translate3d(${transform.x}px, ${transform.y}px, 0)` : undefined, opacity: isDragging ? 0.4 : 1 }}
+      className="touch-none"
+    >
+      <MyTicketKanbanCard ticket={ticket} notificationCount={notificationCount} onClick={onClick} />
     </div>
   );
 }

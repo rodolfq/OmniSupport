@@ -1,6 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server';
 import axios from 'axios';
-import { WhatsAppService } from '@/lib/services/whatsapp-service';
 import { PyvonService } from '@/lib/services/pyvon-service';
 import { signPyvonMediaUrl } from '@/lib/services/pyvon-media-link';
 import { ATTACHMENT_URL_PREFIX } from '@/lib/services/attachment-storage';
@@ -42,12 +41,12 @@ export async function POST(request: NextRequest) {
   };
 
   try {
-    // O canal escolhe o provedor sozinho (Baileys ou Pyvon) — quem chama essa
-    // rota (botão manual no chamado, automação, widget) não precisa saber
-    // qual é. Sem linha correspondente em whatsapp_instances (canal antigo,
-    // nunca migrado), assume Baileys pra manter o comportamento de sempre.
-    const instRes = await query('SELECT provider FROM public.whatsapp_instances WHERE id = $1', [instanceId || 'default']);
-    const provider = instRes.rows[0]?.provider || 'baileys';
+    // WhatsApp não-oficial (Baileys/QR Code) foi removido — Pyvon é a única
+    // instância suportada agora. Sem linha correspondente em
+    // whatsapp_instances (ex.: instanceId vazio/inválido), recusa em vez de
+    // assumir silenciosamente uma instância que pode não existir mais.
+    const instRes = await query('SELECT provider FROM public.whatsapp_instances WHERE id = $1', [instanceId]);
+    const provider = instRes.rows[0]?.provider;
 
     if (provider === 'pyvon') {
       // Desde a v1.6.4 do contrato, bot-response aceita phone (+name) além
@@ -162,13 +161,7 @@ export async function POST(request: NextRequest) {
         quoteDropped: quoteDropped || undefined
       });
     } else {
-      // Baileys ainda não encaminha o anexo em si (só o canal Pyvon tem isso
-      // hoje) — sem legenda digitada, não há texto de verdade pra mandar por
-      // aqui. Antes caía num "Anexo enviado" que passava a impressão de que
-      // o arquivo tinha chegado, quando só o texto saiu. Sem legenda = não
-      // manda nada à toa (pedido do usuário 2026-09-17).
-      if (!message.trim()) return NextResponse.json({ success: true, mediaSent: false });
-      await WhatsAppService.sendMessage(instanceId, to, message);
+      return NextResponse.json({ error: 'Instância de WhatsApp não encontrada ou não suportada (o WhatsApp não-oficial foi desativado).' }, { status: 400 });
     }
     return NextResponse.json({ success: true });
   } catch (error: any) {
