@@ -1093,57 +1093,106 @@ export function ChatWidget() {
 
   const [chatFilter, setChatFilter] = useState<'all' | 'me'>('all');
 
-  // Esc vai 'voltando' um nível por vez com o chat em primeiro plano (pedido do
-  // usuário, 2026-10-07): fecha primeiro o popup/sub-modal mais em cima (um
-  // por vez — AssignChatMenu continua só fechando por clique fora, é externo
-  // a este widget); sem nenhum aberto, segue a cadeia de sempre: anexo(s)
-  // pendente(s) -> cancela todos; conversa aberta -> lista; lista em 'Meus'
-  // -> lista 'Todos'; lista em 'Todos' -> minimiza.
-  useEffect(() => {
-    if (isMinimized) return;
-
-    function handleEscapeNavigation(e: KeyboardEvent) {
-      if (e.key !== 'Escape') return;
-      if (previewAttachment) {
-        setPreviewAttachment(null);
-      } else if (isMoreActionsOpen) {
-        setIsMoreActionsOpen(false);
-      } else if (isChatInfoModalOpen) {
-        setIsChatInfoModalOpen(false);
-      } else if (isEditContactModalOpen) {
-        setIsEditContactModalOpen(false);
-      } else if (isLinkModalOpen) {
-        setIsLinkModalOpen(false);
-      } else if (isLinkTicketModalOpen) {
-        setIsLinkTicketModalOpen(false);
-      } else if (isConfirmNewTicketOpen) {
-        setIsConfirmNewTicketOpen(false);
-      } else if (isDuplicateModalOpen) {
-        setIsDuplicateModalOpen(false);
-      } else if (isFinishModalOpen) {
-        setIsFinishModalOpen(false);
-      } else if (isNewChatModalOpen) {
-        setIsNewChatModalOpen(false);
-      } else if (isQuickRepliesOpen) {
-        setIsQuickRepliesOpen(false);
-      } else if (chatAttachments.length > 0) {
-        setChatAttachments([]);
-      } else if (activeOmniChatId) {
-        setActiveOmniChatId(null);
-      } else if (chatFilter === 'me') {
-        setChatFilter('all');
-      } else {
-        setIsMinimized(true);
-      }
+  // Esc (web) / botão "voltar" (mobile, ver efeito de popstate abaixo) vão
+  // 'voltando' um nível por vez com o chat em primeiro plano (pedido do
+  // usuário, 2026-10-07 pro Esc; 2026-10-28 pro botão voltar): fecha primeiro
+  // o popup/sub-modal mais em cima (um por vez — AssignChatMenu continua só
+  // fechando por clique fora, é externo a este widget); sem nenhum aberto,
+  // segue a cadeia de sempre: anexo(s) pendente(s) -> cancela todos; conversa
+  // aberta -> lista; lista em 'Meus' -> lista 'Todos'; lista em 'Todos' ->
+  // minimiza. Devolve true quando este foi o ÚLTIMO nível (ficou minimizado),
+  // pro efeito de popstate saber se ainda precisa rearmar a armadilha.
+  const chatGoBackOneLevel = React.useCallback((): boolean => {
+    if (previewAttachment) {
+      setPreviewAttachment(null);
+    } else if (isMoreActionsOpen) {
+      setIsMoreActionsOpen(false);
+    } else if (isChatInfoModalOpen) {
+      setIsChatInfoModalOpen(false);
+    } else if (isEditContactModalOpen) {
+      setIsEditContactModalOpen(false);
+    } else if (isLinkModalOpen) {
+      setIsLinkModalOpen(false);
+    } else if (isLinkTicketModalOpen) {
+      setIsLinkTicketModalOpen(false);
+    } else if (isConfirmNewTicketOpen) {
+      setIsConfirmNewTicketOpen(false);
+    } else if (isDuplicateModalOpen) {
+      setIsDuplicateModalOpen(false);
+    } else if (isFinishModalOpen) {
+      setIsFinishModalOpen(false);
+    } else if (isNewChatModalOpen) {
+      setIsNewChatModalOpen(false);
+    } else if (isQuickRepliesOpen) {
+      setIsQuickRepliesOpen(false);
+    } else if (chatAttachments.length > 0) {
+      setChatAttachments([]);
+    } else if (activeOmniChatId) {
+      setActiveOmniChatId(null);
+    } else if (chatFilter === 'me') {
+      setChatFilter('all');
+    } else {
+      setIsMinimized(true);
+      return true;
     }
-    window.addEventListener('keydown', handleEscapeNavigation);
-    return () => window.removeEventListener('keydown', handleEscapeNavigation);
+    return false;
   }, [
-    isMinimized, activeOmniChatId, chatFilter, setActiveOmniChatId, chatAttachments,
+    activeOmniChatId, chatFilter, setActiveOmniChatId, chatAttachments,
     isNewChatModalOpen, isFinishModalOpen, isDuplicateModalOpen, isConfirmNewTicketOpen,
     isLinkTicketModalOpen, isMoreActionsOpen, isChatInfoModalOpen, isEditContactModalOpen,
     isLinkModalOpen, isQuickRepliesOpen, previewAttachment
   ]);
+
+  useEffect(() => {
+    if (isMinimized) return;
+    function handleEscapeNavigation(e: KeyboardEvent) {
+      if (e.key !== 'Escape') return;
+      chatGoBackOneLevel();
+    }
+    window.addEventListener('keydown', handleEscapeNavigation);
+    return () => window.removeEventListener('keydown', handleEscapeNavigation);
+  }, [isMinimized, chatGoBackOneLevel]);
+
+  // Botão "voltar" do Android/navegador mobile replica o Esc (pedido do
+  // usuário, 2026-10-28): sem isso, apertar voltar com o chat aberto saía do
+  // SSX Desk inteiro (ou da tela de trás), em vez de voltar um nível dentro
+  // do próprio chat. Técnica padrão de "armadilha de histórico" pra PWA: ao
+  // abrir o chat, empilha uma entrada vazia (pushState, sem trocar de URL);
+  // o "voltar" do sistema dispara popstate em vez de navegar de verdade —
+  // tratamos como um Esc e, se ainda sobrar algum nível aberto, empilhamos
+  // de novo pra capturar o próximo "voltar". chatGoBackOneLevelRef sempre
+  // chama a versão mais recente da função, sem precisar deste efeito
+  // inteiro re-executar (e empilhar de novo) a cada mudança de estado interno
+  // do chat — só quando abre/fecha de verdade (isMinimized).
+  const chatGoBackOneLevelRef = useRef(chatGoBackOneLevel);
+  useEffect(() => { chatGoBackOneLevelRef.current = chatGoBackOneLevel; }, [chatGoBackOneLevel]);
+  const chatHistoryTrapOwnedRef = useRef(false);
+  useEffect(() => {
+    if (!isMobileViewport || isMinimized) return;
+
+    window.history.pushState({ ssxChatOpen: true }, '');
+    chatHistoryTrapOwnedRef.current = true;
+
+    function handlePopState() {
+      chatHistoryTrapOwnedRef.current = false;
+      const wasLastLevel = chatGoBackOneLevelRef.current();
+      if (!wasLastLevel) {
+        window.history.pushState({ ssxChatOpen: true }, '');
+        chatHistoryTrapOwnedRef.current = true;
+      }
+    }
+    window.addEventListener('popstate', handlePopState);
+    return () => {
+      window.removeEventListener('popstate', handlePopState);
+      // Fechado por outro caminho (botão de minimizar, X, etc.) com a
+      // entrada ainda não consumida: tira ela da pilha sozinho, senão o
+      // próximo "voltar" de verdade só consumiria essa sobra, sem navegar.
+      if (chatHistoryTrapOwnedRef.current) {
+        chatHistoryTrapOwnedRef.current = false;
+        window.history.back();
+      }
+    };
+  }, [isMobileViewport, isMinimized]);
   const [chatSearch, setChatSearch] = useState('');
   const [userQueues, setUserQueues] = useState<string[]>([]);
   const [allQueues, setAllQueues] = useState<any[]>([]);
