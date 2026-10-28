@@ -1954,6 +1954,26 @@ CREATE INDEX IF NOT EXISTS idx_customer_evaluations_company_id ON public.custome
 CREATE INDEX IF NOT EXISTS idx_customer_evaluations_created_at ON public.customer_evaluations USING btree (created_at DESC);
 CREATE INDEX IF NOT EXISTS idx_customer_evaluations_contact_id ON public.customer_evaluations USING btree (contact_id);
 
+-- Etapas de treinamento por empresa (migrations/training_stages.sql,
+-- 2026-10-28) — cadastradas/atualizadas por um sistema externo via API de
+-- integração (app/api/integrations/v1/training-stages); o analista só
+-- visualiza, como lista fixa, dentro do SSX Desk. Independente de
+-- companies.is_in_training: a trilha pode existir mesmo que o indicador mude.
+CREATE TABLE IF NOT EXISTS public.training_stages (
+  id uuid DEFAULT (md5(((random())::text || (clock_timestamp())::text)))::uuid NOT NULL,
+  company_id uuid NOT NULL,
+  name text NOT NULL,
+  status text DEFAULT 'Não concluído'::text NOT NULL,
+  sort_order integer DEFAULT 0 NOT NULL,
+  notes text,
+  created_at timestamptz DEFAULT now() NOT NULL,
+  updated_at timestamptz DEFAULT now() NOT NULL,
+  CONSTRAINT training_stages_pkey PRIMARY KEY (id),
+  CONSTRAINT training_stages_company_id_fkey FOREIGN KEY (company_id) REFERENCES companies(id) ON DELETE CASCADE,
+  CONSTRAINT training_stages_status_check CHECK ((status = ANY (ARRAY['Em andamento'::text, 'Concluído'::text, 'Não concluído'::text])))
+);
+CREATE INDEX IF NOT EXISTS idx_training_stages_company_id ON public.training_stages USING btree (company_id);
+
 -- API de integração externa (lib/integration-auth.ts) ----------------------
 CREATE TABLE IF NOT EXISTS public.integration_api_keys (
   id uuid DEFAULT (md5(((random())::text || (clock_timestamp())::text)))::uuid NOT NULL,

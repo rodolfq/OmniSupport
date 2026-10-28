@@ -40,6 +40,23 @@ const EVALUATION_JOIN = `
   ) lt ON true
 `;
 
+// Etapas de treinamento (training_stages) agregadas por empresa numa única
+// query — cadastradas/atualizadas por outro sistema via
+// /api/integrations/v1/training-stages; aqui só agrega pra ir junto do
+// retorno da empresa, sem N+1 por linha da listagem.
+const TRAINING_STAGES_JOIN = `
+  LEFT JOIN LATERAL (
+    SELECT json_agg(
+      json_build_object(
+        'id', ts.id, 'name', ts.name, 'status', ts.status, 'sortOrder', ts.sort_order,
+        'notes', ts.notes, 'createdAt', ts.created_at, 'updatedAt', ts.updated_at
+      ) ORDER BY ts.sort_order ASC, ts.created_at ASC
+    ) AS items
+    FROM public.training_stages ts
+    WHERE ts.company_id = c.id
+  ) tst ON true
+`;
+
 const COMPANY_SELECT = `
   SELECT
     c.id, c.name, c.industry, c.phone, c.is_in_training, c.id_central,
@@ -47,9 +64,11 @@ const COMPANY_SELECT = `
     ev.knowledge_avg, ev.autonomy_avg, ev.learning_avg, ev.engagement_avg, ev.organization_avg, ev.communication_avg,
     COALESCE(ev.chat_close_count, 0) AS chat_close_count,
     COALESCE(ev.manual_count, 0) AS manual_count,
-    lt.profile_tag AS latest_tag
+    lt.profile_tag AS latest_tag,
+    tst.items AS training_stages_items
   FROM public.companies c
   ${EVALUATION_JOIN}
+  ${TRAINING_STAGES_JOIN}
 `;
 
 function toNumOrNull(v: any) {
@@ -83,6 +102,15 @@ function serializeCompany(row: any) {
     // Só leitura por esta API: é dado de sincronização, reescrito pela
     // Planilha de CS — não aceito em PUT (ver route.ts, 2026-10-21).
     idCentral: row.id_central || null,
+    // Trilha de treinamento (cadastrada/atualizada por outro sistema via
+    // /api/integrations/v1/training-stages). "hasStages" deixa explícito
+    // quando não há nenhuma etapa — nunca confundir com erro ou ausência de
+    // consulta: items: [] + hasStages: false É a resposta correta pra uma
+    // empresa sem trilha cadastrada.
+    trainingStages: {
+      hasStages: Array.isArray(row.training_stages_items) && row.training_stages_items.length > 0,
+      items: row.training_stages_items || [],
+    },
     evaluation: {
       count: Number(row.eval_count) || 0,
       overallAverage,

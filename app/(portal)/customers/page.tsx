@@ -5,10 +5,10 @@ import { useEscapeToClose } from '@/hooks/use-escape-to-close';
 import Link from 'next/link';
 import { assignChatSession } from '@/lib/services/chat-session-actions';
 import { getUsers } from '@/lib/services/user-actions-service';
-import { getCompanies, setCompanyActive, updateCompanyLogo, deleteCompany } from '@/lib/services/company-service';
+import { getCompanies, setCompanyActive, updateCompanyLogo, deleteCompany, getCompanyTrainingStages, TrainingStage } from '@/lib/services/company-service';
 import { Company, User, UserRole, Permission } from '@/lib/types';
-import { Building2, User as UserIcon, Mail, Phone, Plus, MessageCircle, Ticket, ShieldCheck, ShieldOff, Search, X, Check, Pencil, UserPlus, RefreshCw, Headset, Briefcase, Camera, Trash2, ArrowLeft, Loader2, CheckCircle2, Clock, GraduationCap } from 'lucide-react';
-import { cn, normalizeString, normalizePhone, maskPhone } from '@/lib/utils';
+import { Building2, User as UserIcon, Mail, Phone, Plus, MessageCircle, Ticket, ShieldCheck, ShieldOff, Search, X, Check, Pencil, UserPlus, RefreshCw, Headset, Briefcase, Camera, Trash2, ArrowLeft, Loader2, CheckCircle2, Clock, GraduationCap, Circle } from 'lucide-react';
+import { cn, normalizeString, normalizePhone, maskPhone, companyDetailHref } from '@/lib/utils';
 import { NewEmployeeModal } from '@/components/new-employee-modal';
 import { EditEmployeeModal } from '@/components/edit-employee-modal';
 import { NewCompanyModal } from '@/components/new-company-modal';
@@ -211,6 +211,8 @@ export default function CustomersPage() {
   const [users, setUsers] = useState<User[]>([]);
   const [internalUsers, setInternalUsers] = useState<User[]>([]);
   const [selectedCompanyId, setSelectedCompanyId] = useState<string | null>(null);
+  const [trainingStages, setTrainingStages] = useState<TrainingStage[]>([]);
+  const [loadingTrainingStages, setLoadingTrainingStages] = useState(false);
   const [isEmployeeModalOpen, setIsEmployeeModalOpen] = useState(false);
   const [isEditEmployeeModalOpen, setIsEditEmployeeModalOpen] = useState(false);
   const [selectedEmployee, setSelectedEmployee] = useState<User | null>(null);
@@ -432,6 +434,20 @@ if (isCompanyPortalUser) {
   [companies, selectedCompanyId]);
 
   const resolveInternalUser = (id?: string) => internalUsers.find(u => u.id === id);
+
+  // Etapas de treinamento: cadastradas por um sistema externo (API de
+  // integração), o analista só visualiza aqui. Só busca pra empresa em
+  // treinamento — nas demais, a seção nem aparece.
+  useEffect(() => {
+    if (!selectedCompanyId || !selectedCompany?.isInTraining) {
+      setTrainingStages([]);
+      return;
+    }
+    setLoadingTrainingStages(true);
+    getCompanyTrainingStages(selectedCompanyId)
+      .then(setTrainingStages)
+      .finally(() => setLoadingTrainingStages(false));
+  }, [selectedCompanyId, selectedCompany?.isInTraining]);
 
   const companyEmployees = useMemo(() => 
     users
@@ -678,7 +694,7 @@ if (isCompanyPortalUser) {
                   todos os botões, da esquerda pra direita. */}
               <div className="flex flex-wrap items-center gap-2">
                 <Link
-                  href={`/customers/${selectedCompany.id}`}
+                  href={companyDetailHref(selectedCompany)}
                   title="Ver chamados e atendimentos desta empresa"
                   className="flex items-center gap-2 bg-[var(--surface-pill)] text-[var(--text-secondary)] px-4 py-2.5 rounded-lg text-sm font-bold border border-[var(--border-default)] hover:bg-[var(--border-default)] transition-all"
                 >
@@ -770,6 +786,42 @@ if (isCompanyPortalUser) {
               )}
             </div>
             </div>
+
+            {selectedCompany.isInTraining && (
+              <div className="px-5 sm:px-8 py-5 border-t border-[var(--border-default)] space-y-3">
+                <h3 className="text-[10px] font-semibold uppercase tracking-[0.2em] text-[var(--text-tertiary)] flex items-center gap-2">
+                  <GraduationCap size={13} /> Etapas de Treinamento
+                </h3>
+                {loadingTrainingStages ? (
+                  <div className="flex items-center gap-2 text-xs text-[var(--text-tertiary)] font-medium py-2">
+                    <Loader2 size={14} className="animate-spin" /> Carregando...
+                  </div>
+                ) : trainingStages.length === 0 ? (
+                  <p className="text-xs text-[var(--text-tertiary)] font-medium italic">Nenhuma etapa cadastrada.</p>
+                ) : (
+                  <div className="space-y-2">
+                    {trainingStages.map(stage => {
+                      const meta = stage.status === 'Concluído'
+                        ? { icon: CheckCircle2, color: 'text-[var(--text-success)]', chip: 'bg-[var(--surface-success)] text-[var(--text-success)]' }
+                        : stage.status === 'Em andamento'
+                        ? { icon: Clock, color: 'text-[var(--text-warning)]', chip: 'bg-[var(--surface-warning)] text-[var(--text-warning)]' }
+                        : { icon: Circle, color: 'text-[var(--text-tertiary)]', chip: 'bg-[var(--surface-pill)] text-[var(--text-tertiary)]' };
+                      return (
+                        <div key={stage.id} className="flex items-center justify-between gap-3 px-4 py-2.5 rounded-xl border border-[var(--border-default)] bg-[var(--surface-card)]">
+                          <div className="flex items-center gap-2.5 min-w-0">
+                            <meta.icon size={15} className={cn('shrink-0', meta.color)} />
+                            <span className="text-sm font-bold text-[var(--text-primary)] truncate">{stage.name}</span>
+                          </div>
+                          <span className={cn('shrink-0 text-[9px] font-black uppercase tracking-widest px-2 py-1 rounded-lg', meta.chip)}>
+                            {stage.status}
+                          </span>
+                        </div>
+                      );
+                    })}
+                  </div>
+                )}
+              </div>
+            )}
 
             <div className="space-y-4">
               <div className="flex justify-between items-end">

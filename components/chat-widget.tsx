@@ -78,7 +78,7 @@ import { chatHasRequiredTag, isChatTagRequiredError, CHAT_TAG_REQUIRED_MESSAGE }
 import { checkPyvonOutboundStatus, startPyvonConversation, PyvonStartChannel } from '@/lib/services/pyvon-template-service';
 import { PyvonChannelChoice, PortalEligibility } from '@/components/pyvon-channel-choice';
 import { ChatTagPicker, tagAccentBgClass } from '@/components/chat-tag-picker';
-import { cn, maskPhone, matchPhones, safeJsonStringify, normalizeString, normalizePhone } from '@/lib/utils';
+import { cn, maskPhone, matchPhones, safeJsonStringify, normalizeString, normalizePhone, companyDetailHref } from '@/lib/utils';
 import { useApp } from '@/app/app-context';
 import { isEvaluationSnoozed } from '@/lib/evaluation-snooze';
 import { deriveLiveStatus } from '@/lib/presence';
@@ -3347,7 +3347,7 @@ useEffect(() => {
                              return (
                                <div className="flex items-center gap-1.5 flex-wrap">
                                  <a
-                                   href={`/customers/${company.id}`}
+                                   href={companyDetailHref(company)}
                                    target="_blank"
                                    rel="noopener noreferrer"
                                    title="Abrir tela dedicada da empresa"
@@ -3361,7 +3361,7 @@ useEffect(() => {
                                      não há nada a saber. */}
                                  {companyOpenTickets !== null && companyOpenTickets > 0 && (
                                    <a
-                                     href={`/customers/${company.id}`}
+                                     href={companyDetailHref(company)}
                                      target="_blank"
                                      rel="noopener noreferrer"
                                      title={`${companyOpenTickets} ${companyOpenTickets === 1 ? 'chamado em aberto' : 'chamados em aberto'} nesta empresa`}

@@ -40,6 +40,8 @@ const SCOPE_OPTIONS: { value: string; label: string; description: string }[] = [
   { value: 'training-conversations:read', label: 'Conversas de clientes em treinamento — Leitura', description: 'Só a lista de conversas encerradas com clientes em treinamento (data e motivo) — sem mensagens nem telefone' },
   { value: 'companies:read', label: 'Empresas — Leitura', description: 'Listar/consultar empresas (inclui isInTraining e avaliações)' },
   { value: 'companies:write', label: 'Empresas — Escrita', description: 'Atualizar dados da empresa (nome, indústria, telefone, cliente em treinamento) — já inclui leitura' },
+  { value: 'training-stages:read', label: 'Etapas de treinamento — Leitura', description: 'Consultar a trilha de treinamento (itens e status) de uma empresa' },
+  { value: 'training-stages:write', label: 'Etapas de treinamento — Escrita', description: 'Cadastrar, atualizar e excluir itens da trilha de treinamento — já inclui leitura' },
 ];
 
 const METHOD_COLORS: Record<string, string> = {

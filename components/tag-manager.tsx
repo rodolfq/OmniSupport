@@ -1,6 +1,7 @@
 'use client';
 
 import React, { useEffect, useMemo, useRef, useState } from 'react';
+import { createPortal } from 'react-dom';
 import { Plus, Trash2, Tag, ChevronDown, X, Check, Search, FolderTree } from 'lucide-react';
 import { TagConfig, UserRole } from '@/lib/types';
 import { ConfigService } from '@/lib/services/config-service';
@@ -65,6 +66,7 @@ export function TagManager() {
   const [newPrincipalLabel, setNewPrincipalLabel] = useState('');
   const [newPrincipalColor, setNewPrincipalColor] = useState(TAG_COLORS[0]);
   const newPrincipalInputRef = useRef<HTMLInputElement>(null);
+  const newPrincipalSwatchRef = useRef<HTMLButtonElement>(null);
 
   const [deleteTarget, setDeleteTarget] = useState<TagConfig | null>(null);
   const [deleting, setDeleting] = useState(false);
@@ -337,11 +339,12 @@ export function TagManager() {
                 onSubmit={handleCreatePrincipal}
                 className="flex flex-wrap items-center gap-3 bg-[var(--surface-pill)]/50 border border-dashed border-[var(--accent)]/40 rounded-2xl p-4"
               >
-                <ColorSwatchButton color={newPrincipalColor} onClick={() => setColorPickerId('__new_principal__')} size={28} />
+                <ColorSwatchButton ref={newPrincipalSwatchRef} color={newPrincipalColor} onClick={() => setColorPickerId('__new_principal__')} size={28} />
                 {colorPickerId === '__new_principal__' && (
                   <ColorSwatchPopover
                     current={newPrincipalColor}
                     onPick={(c) => { setNewPrincipalColor(c); setColorPickerId(null); }}
+                    anchorRef={newPrincipalSwatchRef}
                   />
                 )}
                 <input
@@ -406,24 +409,52 @@ export function TagManager() {
   );
 }
 
-function ColorSwatchButton({ color, onClick, size = 22 }: { color: typeof TAG_COLORS[number]; onClick: () => void; size?: number }) {
-  return (
-    <button
-      type="button"
-      data-color-picker
-      onClick={onClick}
-      title="Alterar cor"
-      style={{ width: size, height: size }}
-      className={cn('rounded-full shrink-0 ring-2 ring-offset-2 ring-offset-[var(--surface-card)] ring-transparent hover:ring-[var(--border-default)] transition-all', color.bg)}
-    />
-  );
-}
+const ColorSwatchButton = React.forwardRef<HTMLButtonElement, { color: typeof TAG_COLORS[number]; onClick: () => void; size?: number }>(
+  function ColorSwatchButton({ color, onClick, size = 22 }, ref) {
+    return (
+      <button
+        ref={ref}
+        type="button"
+        data-color-picker
+        onClick={onClick}
+        title="Alterar cor"
+        style={{ width: size, height: size }}
+        className={cn('rounded-full shrink-0 ring-2 ring-offset-2 ring-offset-[var(--surface-card)] ring-transparent hover:ring-[var(--border-default)] transition-all', color.bg)}
+      />
+    );
+  }
+);
 
-function ColorSwatchPopover({ current, onPick }: { current: typeof TAG_COLORS[number]; onPick: (c: typeof TAG_COLORS[number]) => void }) {
-  return (
+// Portado pro <body> (createPortal) e posicionado em coordenadas fixas a
+// partir do botão (anchorRef) — nunca mais `absolute` dentro da linha do
+// item. Achado: a linha do principal/subtag é `overflow-hidden` (pros
+// cantos arredondados do card), e um popover `absolute` dentro dela ficava
+// recortado/invisível ("sumindo na tela") sempre que ultrapassava a altura
+// de uma linha só, o que este painel de 200px sempre fazia.
+function ColorSwatchPopover({ current, onPick, anchorRef }: {
+  current: typeof TAG_COLORS[number];
+  onPick: (c: typeof TAG_COLORS[number]) => void;
+  anchorRef: React.RefObject<HTMLButtonElement | null>;
+}) {
+  const [pos, setPos] = useState<{ top: number; left: number } | null>(null);
+  const POPOVER_WIDTH = 200;
+
+  useEffect(() => {
+    const el = anchorRef.current;
+    if (!el) return;
+    const rect = el.getBoundingClientRect();
+    const left = Math.min(rect.left, window.innerWidth - POPOVER_WIDTH - 8);
+    const top = Math.min(rect.bottom + 8, window.innerHeight - 8);
+    setPos({ top, left: Math.max(8, left) });
+  }, [anchorRef]);
+
+  if (!pos) return null;
+
+  return createPortal(
     <div
       data-color-picker
-      className="absolute z-30 top-full mt-2 left-0 bg-[var(--surface-card)] border border-[var(--border-default)] rounded-2xl shadow-xl p-3 grid grid-cols-5 gap-2 w-[200px]"
+      className="fixed z-[999] bg-[var(--surface-card)] border border-[var(--border-default)] rounded-2xl shadow-xl p-3 grid grid-cols-5 gap-2"
+      style={{ top: pos.top, left: pos.left, width: POPOVER_WIDTH }}
     >
       {TAG_COLORS.map(c => (
         <button
@@ -440,7 +471,8 @@ function ColorSwatchPopover({ current, onPick }: { current: typeof TAG_COLORS[nu
           {current.label === c.label && <Check size={13} className={c.text} />}
         </button>
       ))}
-    </div>
+    </div>,
+    document.body
   );
 }
 
@@ -479,6 +511,7 @@ function PrincipalRow({
   onOpenColorPicker, onCommitColor, onDelete,
 }: PrincipalRowProps) {
   const isEditingThis = editingId === principal.id;
+  const swatchRef = useRef<HTMLButtonElement>(null);
 
   return (
     <div className="rounded-2xl border border-[var(--border-default)] bg-[var(--surface-card)] overflow-hidden group/row">
@@ -492,9 +525,9 @@ function PrincipalRow({
         </button>
 
         <div className="relative shrink-0">
-          <ColorSwatchButton color={findColor(colorKey(principal))} onClick={() => isAdmin && onOpenColorPicker(colorPickerId === principal.id ? null : principal.id)} />
+          <ColorSwatchButton ref={swatchRef} color={findColor(colorKey(principal))} onClick={() => isAdmin && onOpenColorPicker(colorPickerId === principal.id ? null : principal.id)} />
           {colorPickerId === principal.id && (
-            <ColorSwatchPopover current={findColor(colorKey(principal))} onPick={(c) => onCommitColor(principal, c)} />
+            <ColorSwatchPopover current={findColor(colorKey(principal))} onPick={(c) => onCommitColor(principal, c)} anchorRef={swatchRef} />
           )}
         </div>
 
@@ -629,6 +662,7 @@ function SubtagChip({
   onDelete: () => void;
 }) {
   const color = findColor(colorKey(tag));
+  const swatchRef = useRef<HTMLButtonElement>(null);
 
   if (isEditing) {
     return (
@@ -649,12 +683,13 @@ function SubtagChip({
   return (
     <span className={cn('relative group/chip inline-flex items-center gap-1.5 pl-1.5 pr-2 py-1 rounded-full text-[11px] font-semibold', color.bg, color.text)}>
       <button
+        ref={swatchRef}
         type="button"
         onClick={isAdmin ? onOpenColorPicker : undefined}
         title={isAdmin ? 'Alterar cor' : undefined}
         className={cn('w-3.5 h-3.5 rounded-full shrink-0', color.bg, 'ring-1 ring-black/10 dark:ring-white/10', isAdmin && 'hover:ring-2 hover:ring-black/20')}
       />
-      {colorPickerOpen && <ColorSwatchPopover current={color} onPick={onCommitColor} />}
+      {colorPickerOpen && <ColorSwatchPopover current={color} onPick={onCommitColor} anchorRef={swatchRef} />}
       <button
         type="button"
         onClick={isAdmin ? onStartEdit : undefined}

@@ -5,6 +5,7 @@ import { hashPassword } from '@/lib/auth-utils';
 import { logAudit } from '@/lib/audit-log';
 import { getCurrentActionUser, getActorEffectivePermissions } from '@/lib/server-auth';
 import { processCompanyLogo } from '@/lib/services/logo-thumb-service';
+import { slugify } from '@/lib/utils';
 import type { CustomerEvaluationScores } from '@/lib/types';
 
 /**
@@ -160,6 +161,70 @@ export async function GET(request: Request) {
         } : null,
         countByOrigin
       });
+    }
+
+    // ------------------------------------------ etapas de treinamento (leitura)
+    // Cadastradas/atualizadas por um sistema externo via API de integração
+    // (app/api/integrations/v1/training-stages) — aqui é só leitura, pro
+    // analista ver a trilha dentro do SSX Desk. Mesma restrição de
+    // evaluation-summary: perfil interno, não exposto à própria empresa.
+    if (tipo === 'training-stages') {
+      const companyId = searchParams.get('companyId');
+      if (!companyId) return NextResponse.json({ error: 'companyId é obrigatório.' }, { status: 400 });
+      if (isCompanyUser) return NextResponse.json({ error: 'Não autorizado.' }, { status: 403 });
+
+      const res = await query(
+        `SELECT id, name, status, sort_order AS "sortOrder", notes, created_at AS "createdAt", updated_at AS "updatedAt"
+           FROM public.training_stages
+          WHERE company_id = $1
+          ORDER BY sort_order ASC, created_at ASC`,
+        [companyId]
+      );
+      return NextResponse.json(res.rows);
+    }
+
+    // --------------------------------------- empresa por idCentral (slug bonito)
+    // Resolve o link "idCentral-nome-da-empresa" (ver lib/utils.ts,
+    // companyDetailHref) pro id interno de verdade. id_central NÃO é único
+    // (confirmado nos dados reais: 9 grupos/19 empresas compartilham o mesmo
+    // em 2026-10-28) — por isso "nameHint" desempata quando há mais de uma
+    // batendo; sem ele, ou sem bater com nenhuma, cai na primeira por
+    // created_at (determinístico, nunca erro — o link não pode quebrar só
+    // porque o nome mudou desde que foi gerado).
+    const idCentral = searchParams.get('idCentral');
+    if (idCentral && !id) {
+      const nameHint = searchParams.get('nameHint') || null;
+      const res = await query(
+        `SELECT id, name, industry, phone,
+                is_in_training AS "isInTraining",
+                training_origin AS "trainingOrigin",
+                training_started_at AS "trainingStartedAt",
+                training_removed_at AS "trainingRemovedAt",
+                is_active AS "isActive",
+                logo_thumb_url AS "logoThumbUrl",
+                cs_responsavel_id AS "csResponsavelId",
+                comercial_responsavel_id AS "comercialResponsavelId",
+                id_central AS "idCentral",
+                decisor_nome AS "decisorNome",
+                decisor_telefone AS "decisorTelefone",
+                (logo_url IS NOT NULL AND logo_url <> '') AS has_logo
+           FROM public.companies WHERE id_central = $1 ORDER BY created_at ASC`,
+        [idCentral]
+      );
+      if (res.rowCount === 0) return NextResponse.json({ error: 'Empresa não encontrada' }, { status: 404 });
+      // Cliente/Funcionário só enxergam a própria empresa, mesmo por este caminho.
+      const candidates = isCompanyUser ? res.rows.filter((r: any) => r.id === actor.company_id) : res.rows;
+      if (candidates.length === 0) return NextResponse.json({ error: 'Não autorizado.' }, { status: 403 });
+      const row = (nameHint && candidates.find((r: any) => slugify(r.name) === nameHint)) || candidates[0];
+      if (isCompanyUser) {
+        delete row.isInTraining;
+        delete row.trainingOrigin;
+        delete row.trainingStartedAt;
+        delete row.trainingRemovedAt;
+      }
+      row.logoUrl = row.has_logo ? `/api/companies/${row.id}/logo` : null;
+      delete row.has_logo;
+      return NextResponse.json(row, { headers: { 'Cache-Control': REFERENCE_CACHE_HEADER } });
     }
 
     // ------------------------------------------------------- empresa por id

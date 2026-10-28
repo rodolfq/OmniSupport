@@ -3,9 +3,9 @@
 import React, { useEffect, useState } from 'react';
 import { useParams, useRouter } from 'next/navigation';
 import Link from 'next/link';
-import { ChevronLeft, Building2, Phone, Ticket as TicketIcon, MessageCircle, Loader2, ThumbsUp, ThumbsDown, Circle } from 'lucide-react';
+import { ChevronLeft, Building2, Phone, Ticket as TicketIcon, MessageCircle, Loader2, ThumbsUp, ThumbsDown, Circle, GraduationCap, CheckCircle2, Clock } from 'lucide-react';
 import { Company, Ticket, User, UserRole } from '@/lib/types';
-import { CompanyService } from '@/lib/services/company-service';
+import { CompanyService, TrainingStage, getCompanyTrainingStages } from '@/lib/services/company-service';
 import { TicketService } from '@/lib/services/ticket-service';
 import { UserService } from '@/lib/services/user-service';
 import { getActiveSessionsByCompany, getChatHistoriesByCompany, CompanyActiveSession, PreviousChatHistoriesResult } from '@/lib/services/chat-service';
@@ -43,11 +43,19 @@ export default function CompanyDetailPage() {
   const [historiesTotal, setHistoriesTotal] = useState(0);
   const [loadingHistories, setLoadingHistories] = useState(true);
 
+  const [trainingStages, setTrainingStages] = useState<TrainingStage[]>([]);
+  const [loadingTrainingStages, setLoadingTrainingStages] = useState(false);
+
+  // companyId (o param da URL) pode ser o UUID interno OU o slug bonito
+  // "idCentral-nome" (ver lib/utils.ts, companyDetailHref) — resolveBySlug
+  // aceita os dois. Tickets/sessões/histórico/etapas de treinamento
+  // precisam do id INTERNO de verdade (é o que as FKs usam), por isso só
+  // disparam depois que a empresa resolve, no efeito seguinte — nunca com o
+  // param cru.
   useEffect(() => {
     if (!companyId) return;
-
     setLoadingCompany(true);
-    CompanyService.getById(companyId)
+    CompanyService.resolveBySlug(companyId)
       .then(setCompany)
       .finally(() => setLoadingCompany(false));
 
@@ -57,29 +65,44 @@ export default function CompanyDetailPage() {
     if (!isCompanyPortalUser) {
       UserService.getAnalysts().then(setInternalUsers).catch(() => setInternalUsers([]));
     }
+  }, [companyId]);
+
+  useEffect(() => {
+    const resolvedId = company?.id;
+    if (!resolvedId) return;
 
     setLoadingTickets(true);
-    TicketService.getByCompanyPaginated(companyId, TICKETS_PAGE_SIZE, 0)
+    TicketService.getByCompanyPaginated(resolvedId, TICKETS_PAGE_SIZE, 0)
       .then(res => { setTickets(res.tickets); setTicketsTotal(res.total); })
       .finally(() => setLoadingTickets(false));
 
     setLoadingActiveSessions(true);
-    getActiveSessionsByCompany(companyId)
+    getActiveSessionsByCompany(resolvedId)
       .then(setActiveSessions)
       .finally(() => setLoadingActiveSessions(false));
 
     setLoadingHistories(true);
-    getChatHistoriesByCompany(companyId, HISTORIES_PAGE_SIZE, 0)
+    getChatHistoriesByCompany(resolvedId, HISTORIES_PAGE_SIZE, 0)
       .then(res => { setHistories(res.histories); setHistoriesTotal(res.total); })
       .finally(() => setLoadingHistories(false));
-  }, [companyId]);
+
+    if (company?.isInTraining && !isCompanyPortalUser) {
+      setLoadingTrainingStages(true);
+      getCompanyTrainingStages(resolvedId)
+        .then(setTrainingStages)
+        .finally(() => setLoadingTrainingStages(false));
+    } else {
+      setTrainingStages([]);
+    }
+  }, [company?.id, company?.isInTraining, isCompanyPortalUser]);
 
   const resolveInternalUser = (id?: string | null) => internalUsers.find(u => u.id === id);
 
   const handleLoadMoreTickets = async () => {
+    if (!company?.id) return;
     setLoadingTickets(true);
     try {
-      const res = await TicketService.getByCompanyPaginated(companyId, TICKETS_PAGE_SIZE, tickets.length);
+      const res = await TicketService.getByCompanyPaginated(company.id, TICKETS_PAGE_SIZE, tickets.length);
       setTickets(prev => [...prev, ...res.tickets]);
       setTicketsTotal(res.total);
     } finally {
@@ -88,9 +111,10 @@ export default function CompanyDetailPage() {
   };
 
   const handleLoadMoreHistories = async () => {
+    if (!company?.id) return;
     setLoadingHistories(true);
     try {
-      const res = await getChatHistoriesByCompany(companyId, HISTORIES_PAGE_SIZE, histories.length);
+      const res = await getChatHistoriesByCompany(company.id, HISTORIES_PAGE_SIZE, histories.length);
       setHistories(prev => [...prev, ...res.histories]);
       setHistoriesTotal(res.total);
     } finally {
@@ -123,6 +147,11 @@ export default function CompanyDetailPage() {
                 {company.industry && <span>{company.industry}</span>}
                 {company.phone && <span className="flex items-center gap-1"><Phone size={11} /> {company.phone}</span>}
               </p>
+              {!isCompanyPortalUser && company.isInTraining && (
+                <span className="inline-flex items-center gap-1.5 mt-2 text-[10px] font-black uppercase tracking-widest px-2.5 py-1 rounded-lg bg-[var(--surface-info)] text-[var(--text-info)]">
+                  <GraduationCap size={12} /> Em treinamento
+                </span>
+              )}
               {!isCompanyPortalUser && (
                 <p className="text-xs text-[var(--text-tertiary)] font-bold uppercase tracking-widest mt-1.5 flex items-center gap-3">
                   <span>CS: <span className="text-[var(--text-secondary)] normal-case">{resolveInternalUser(company.csResponsavelId)?.name || 'Não definido'}</span></span>
@@ -133,6 +162,42 @@ export default function CompanyDetailPage() {
           )}
         </div>
       </div>
+
+      {!isCompanyPortalUser && company?.isInTraining && (
+        <div className="bg-[var(--surface-card)] rounded-2xl border border-[var(--border-default)] shadow-sm p-5 space-y-3">
+          <h2 className="text-xs font-black uppercase tracking-widest text-[var(--text-secondary)] flex items-center gap-2">
+            <GraduationCap size={15} className="text-[var(--text-tertiary)]" /> Etapas de Treinamento
+          </h2>
+          {loadingTrainingStages ? (
+            <div className="flex items-center gap-2 text-xs text-[var(--text-tertiary)] font-medium py-1">
+              <Loader2 size={14} className="animate-spin" /> Carregando...
+            </div>
+          ) : trainingStages.length === 0 ? (
+            <p className="text-xs text-[var(--text-tertiary)] font-medium italic">Nenhuma etapa cadastrada.</p>
+          ) : (
+            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-2">
+              {trainingStages.map(stage => {
+                const meta = stage.status === 'Concluído'
+                  ? { icon: CheckCircle2, color: 'text-[var(--text-success)]', chip: 'bg-[var(--surface-success)] text-[var(--text-success)]' }
+                  : stage.status === 'Em andamento'
+                  ? { icon: Clock, color: 'text-[var(--text-warning)]', chip: 'bg-[var(--surface-warning)] text-[var(--text-warning)]' }
+                  : { icon: Circle, color: 'text-[var(--text-tertiary)]', chip: 'bg-[var(--surface-pill)] text-[var(--text-tertiary)]' };
+                return (
+                  <div key={stage.id} className="flex items-center justify-between gap-2 px-3 py-2.5 rounded-xl border border-[var(--border-default)]">
+                    <div className="flex items-center gap-2 min-w-0">
+                      <meta.icon size={14} className={cn('shrink-0', meta.color)} />
+                      <span className="text-xs font-bold text-[var(--text-primary)] truncate">{stage.name}</span>
+                    </div>
+                    <span className={cn('shrink-0 text-[8px] font-black uppercase tracking-widest px-1.5 py-0.5 rounded-lg', meta.chip)}>
+                      {stage.status}
+                    </span>
+                  </div>
+                );
+              })}
+            </div>
+          )}
+        </div>
+      )}
 
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 flex-1 min-h-0">
         {/* Chamados */}

@@ -26,6 +26,28 @@ export class CompanyService {
     return res.json();
   }
 
+  /**
+   * Resolve o param de app/(portal)/customers/[id]/page.tsx, que aceita dois
+   * formatos: o UUID interno de sempre (links antigos continuam
+   * funcionando), ou o slug "idCentral-nome-da-empresa" (ver
+   * lib/utils.ts, companyDetailHref) — o link "bonito" usado a partir de
+   * 2026-10-28. O servidor desempata por nome quando o idCentral é
+   * compartilhado por mais de uma empresa (não é único).
+   */
+  static async resolveBySlug(param: string): Promise<Company | null> {
+    const isUuid = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(param);
+    if (isUuid) return this.getById(param);
+
+    const match = param.match(/^(\d+)(?:-(.+))?$/);
+    if (!match) return this.getById(param); // formato desconhecido: tenta como id mesmo, devolve null se não achar
+
+    const [, idCentral, nameHint] = match;
+    const qs = nameHint ? `idCentral=${encodeURIComponent(idCentral)}&nameHint=${encodeURIComponent(nameHint)}` : `idCentral=${encodeURIComponent(idCentral)}`;
+    const res = await apiFetch(`/api/companies?${qs}`);
+    if (!res.ok) return null;
+    return res.json();
+  }
+
   /** Criação simples (nome/setor/telefone) — usada pelo "Criar e vincular". */
   static async create(company: Partial<Company>): Promise<Company> {
     return apiJson<Company>('/api/companies', {
@@ -128,6 +150,28 @@ export async function getCustomerEvaluationSummary(
     return await apiJson(`/api/companies?tipo=evaluation-summary&companyId=${encodeURIComponent(companyId)}`);
   } catch (err: any) {
     return { error: err?.message || 'Erro ao carregar avaliações do cliente.' };
+  }
+}
+
+export interface TrainingStage {
+  id: string;
+  name: string;
+  status: 'Em andamento' | 'Concluído' | 'Não concluído';
+  sortOrder: number;
+  notes: string | null;
+  createdAt: string;
+  updatedAt: string;
+}
+
+// Cadastradas/atualizadas por um sistema externo via API de integração
+// (app/api/integrations/v1/training-stages) — aqui é só leitura, pra exibir
+// a trilha dentro do SSX Desk.
+export async function getCompanyTrainingStages(companyId: string): Promise<TrainingStage[]> {
+  try {
+    return await apiJson<TrainingStage[]>(`/api/companies?tipo=training-stages&companyId=${encodeURIComponent(companyId)}`);
+  } catch (err) {
+    console.error('Erro ao carregar etapas de treinamento:', err);
+    return [];
   }
 }
 

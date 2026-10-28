@@ -170,7 +170,7 @@ export const INTEGRATION_ENDPOINTS: EndpointDoc[] = [
     method: 'GET',
     path: '/api/integrations/v1/companies',
     summary: 'Listar ou consultar empresas',
-    description: 'Use para resolver o companyId antes de cadastrar/atualizar um funcionário, ou para consultar o perfil de relacionamento (isInTraining + resumo das avaliações do analista). Sem "id" retorna todas; com "id" retorna uma só. Aceita companies:read, companies:write (que já inclui leitura) ou, por compatibilidade com chaves antigas, employees:read. Cada empresa traz "idCentral", o id do cliente no sistema Central (rastreamento/telemetria) vindo da Planilha de CS — pode ser null e NÃO é único (duas empresas podem compartilhar o mesmo id_central quando são marcas/CNPJs diferentes na mesma conta central).',
+    description: 'Use para resolver o companyId antes de cadastrar/atualizar um funcionário, ou para consultar o perfil de relacionamento (isInTraining + trilha de treinamento + resumo das avaliações do analista). Sem "id" retorna todas; com "id" retorna uma só. Aceita companies:read, companies:write (que já inclui leitura) ou, por compatibilidade com chaves antigas, employees:read. Cada empresa traz "idCentral", o id do cliente no sistema Central (rastreamento/telemetria) vindo da Planilha de CS — pode ser null e NÃO é único (duas empresas podem compartilhar o mesmo id_central quando são marcas/CNPJs diferentes na mesma conta central). "trainingStages" traz a trilha de treinamento (ver /training-stages) já embutida, com "hasStages" deixando explícito quando não há nenhuma etapa cadastrada.',
     scope: 'companies:read',
     params: [{ name: 'id', in: 'query', type: 'uuid', description: 'Retorna só essa empresa.' }],
     exampleResponse: JSON.stringify(
@@ -181,8 +181,15 @@ export const INTEGRATION_ENDPOINTS: EndpointDoc[] = [
             name: 'Empresa Matriz Ltda',
             industry: 'Tecnologia',
             phone: '1140040000',
-            isInTraining: false,
+            isInTraining: true,
             idCentral: '1042',
+            trainingStages: {
+              hasStages: true,
+              items: [
+                { id: 'd4a1...', name: 'Treinamento inicial', status: 'Concluído', sortOrder: 0, notes: null, createdAt: '2026-10-01T12:00:00.000Z', updatedAt: '2026-10-15T09:30:00.000Z' },
+                { id: 'e5b2...', name: 'Configuração do sistema', status: 'Em andamento', sortOrder: 1, notes: null, createdAt: '2026-10-01T12:00:00.000Z', updatedAt: '2026-10-20T14:00:00.000Z' },
+              ],
+            },
             evaluation: {
               count: 3,
               overallAverage: 4.2,
@@ -222,6 +229,7 @@ export const INTEGRATION_ENDPOINTS: EndpointDoc[] = [
           phone: '1140040000',
           isInTraining: false,
           idCentral: '1042',
+          trainingStages: { hasStages: false, items: [] },
           evaluation: {
             count: 3,
             overallAverage: 4.2,
@@ -483,5 +491,105 @@ export const INTEGRATION_ENDPOINTS: EndpointDoc[] = [
       2
     ),
     errors: [...AUTH_ERRORS, scopeError('training-conversations:read'), { status: 400, code: 'VALIDATION_ERROR', description: 'from/to fora do formato AAAA-MM-DD, from depois de to, ou tag que não existe no cadastro.' }],
+  },
+  {
+    id: 'training-stages-list',
+    method: 'GET',
+    path: '/api/integrations/v1/training-stages',
+    summary: 'Listar ou consultar etapas de treinamento',
+    description: 'Lista a trilha de treinamento (itens e status) de uma empresa. Informe "companyId" para listar os itens dessa empresa (ordenados por sortOrder), ou "id" para retornar um único item (ignora companyId). Esta trilha é independente do indicador "isInTraining" da empresa — pode existir mesmo que ele mude depois.',
+    scope: 'training-stages:read',
+    params: [
+      { name: 'id', in: 'query', type: 'uuid', description: 'Retorna só esse item (ignora companyId).' },
+      { name: 'companyId', in: 'query', type: 'uuid', description: 'Lista os itens dessa empresa (ver GET /companies). Obrigatório quando "id" não é informado.' },
+    ],
+    examples: [
+      {
+        label: 'Trilha de uma empresa',
+        description: 'Todos os itens cadastrados para a empresa, na ordem de exibição.',
+        query: { companyId: '<uuid-da-empresa>' },
+      },
+    ],
+    exampleResponse: JSON.stringify(
+      {
+        data: [
+          { id: 'd4a1...', companyId: '56f9...', name: 'Treinamento inicial', status: 'Concluído', sortOrder: 0, notes: null, createdAt: '2026-10-01T12:00:00.000Z', updatedAt: '2026-10-15T09:30:00.000Z' },
+          { id: 'e5b2...', companyId: '56f9...', name: 'Configuração do sistema', status: 'Em andamento', sortOrder: 1, notes: null, createdAt: '2026-10-01T12:00:00.000Z', updatedAt: '2026-10-20T14:00:00.000Z' },
+        ],
+        meta: { total: 2 },
+      },
+      null,
+      2
+    ),
+    errors: [...AUTH_ERRORS, scopeError('training-stages:read'), { status: 400, code: 'VALIDATION_ERROR', description: 'companyId ausente quando "id" não é informado.' }, { status: 404, code: 'NOT_FOUND', description: 'Item não encontrado.' }],
+  },
+  {
+    id: 'training-stages-create',
+    method: 'POST',
+    path: '/api/integrations/v1/training-stages',
+    summary: 'Cadastrar etapa de treinamento',
+    description: 'Cria um novo item na trilha de treinamento de uma empresa. Guarde o "id" devolvido — é ele que você usa depois para atualizar o status deste item (PUT).',
+    scope: 'training-stages:write',
+    params: [
+      { name: 'companyId', in: 'body', type: 'uuid', required: true, description: 'Empresa dona do item (ver GET /companies).' },
+      { name: 'name', in: 'body', type: 'string', required: true, description: 'Nome da etapa.', placeholder: 'Treinamento inicial' },
+      { name: 'status', in: 'body', type: '"Em andamento" | "Concluído" | "Não concluído"', description: 'Padrão: "Não concluído".' },
+      { name: 'sortOrder', in: 'body', type: 'number', description: 'Posição na trilha (ordem de exibição). Padrão: 0.' },
+      { name: 'notes', in: 'body', type: 'string', description: 'Observação livre, opcional.' },
+    ],
+    exampleResponse: JSON.stringify(
+      { data: { id: 'd4a1...', companyId: '56f9...', name: 'Treinamento inicial', status: 'Não concluído', sortOrder: 0, notes: null, createdAt: '2026-10-28T12:00:00.000Z', updatedAt: '2026-10-28T12:00:00.000Z' } },
+      null,
+      2
+    ),
+    errors: [
+      ...AUTH_ERRORS,
+      scopeError('training-stages:write'),
+      { status: 400, code: 'VALIDATION_ERROR', description: 'Campo obrigatório ausente, status fora da lista, sortOrder não é inteiro, ou companyId inexistente.' },
+    ],
+  },
+  {
+    id: 'training-stages-update',
+    method: 'PUT',
+    path: '/api/integrations/v1/training-stages',
+    summary: 'Atualizar etapa de treinamento',
+    description: 'Atualização parcial: envie só os campos que deseja alterar. O "id" vai na query string. É assim que o status de um item avança (ex.: de "Em andamento" para "Concluído") conforme o treinamento progride no sistema de origem.',
+    scope: 'training-stages:write',
+    params: [
+      { name: 'id', in: 'query', type: 'uuid', required: true, description: 'Id do item a atualizar (devolvido pelo POST).' },
+      { name: 'name', in: 'body', type: 'string', description: 'Novo nome.' },
+      { name: 'status', in: 'body', type: '"Em andamento" | "Concluído" | "Não concluído"', description: 'Novo status.', placeholder: 'Concluído' },
+      { name: 'sortOrder', in: 'body', type: 'number', description: 'Nova posição na trilha.' },
+      { name: 'notes', in: 'body', type: 'string', description: 'Nova observação (envie "" para limpar).' },
+    ],
+    exampleResponse: JSON.stringify(
+      { data: { id: 'd4a1...', companyId: '56f9...', name: 'Treinamento inicial', status: 'Concluído', sortOrder: 0, notes: null, createdAt: '2026-10-28T12:00:00.000Z', updatedAt: '2026-10-28T15:00:00.000Z' } },
+      null,
+      2
+    ),
+    errors: [
+      ...AUTH_ERRORS,
+      scopeError('training-stages:write'),
+      { status: 400, code: 'VALIDATION_ERROR', description: 'id ausente, nenhum campo informado, status fora da lista ou sortOrder não é inteiro.' },
+      { status: 404, code: 'NOT_FOUND', description: 'Item não encontrado.' },
+    ],
+  },
+  {
+    id: 'training-stages-delete',
+    method: 'DELETE',
+    path: '/api/integrations/v1/training-stages',
+    summary: 'Excluir etapa de treinamento',
+    description: 'Remove um item cadastrado por engano. Diferente de funcionários/chamados, aqui é exclusão de verdade (sem soft-delete) — nada no sistema referencia este item por fora desta tabela.',
+    scope: 'training-stages:write',
+    params: [
+      { name: 'id', in: 'query', type: 'uuid', required: true, description: 'Id do item a excluir.' },
+    ],
+    exampleResponse: JSON.stringify({ data: { id: 'd4a1...' } }, null, 2),
+    errors: [
+      ...AUTH_ERRORS,
+      scopeError('training-stages:write'),
+      { status: 400, code: 'VALIDATION_ERROR', description: 'Parâmetro id ausente.' },
+      { status: 404, code: 'NOT_FOUND', description: 'Item não encontrado.' },
+    ],
   },
 ];

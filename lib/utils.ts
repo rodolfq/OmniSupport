@@ -34,6 +34,35 @@ export function normalizeString(str: string) {
     .replace(/[\u0300-\u036f]/g, "");
 }
 
+// Slug legível (idCentral + nome) pra montar um link "bonito" pra tela
+// dedicada da empresa, em vez do UUID interno cru. idCentral NÃO é único
+// (duas empresas podem compartilhar o mesmo, quando são marcas/CNPJs
+// diferentes na mesma conta central — confirmado nos dados reais: 9 grupos/
+// 19 empresas em 2026-10-28) — por isso o slug sempre leva idCentral + nome
+// juntos: o nome desempata nos poucos casos de colisão, sem exigir troca na
+// forma como o resto do sistema já referencia a empresa pelo id interno.
+export function slugify(text: string): string {
+  return text
+    .trim()
+    .toLowerCase()
+    .normalize('NFD')
+    .replace(/[̀-ͯ]/g, '')
+    .replace(/[^a-z0-9]+/g, '-')
+    .replace(/^-+|-+$/g, '')
+    .slice(0, 60);
+}
+
+// Link da tela dedicada da empresa (app/(portal)/customers/[id]/page.tsx) —
+// usa o slug "idCentral-nome" quando a empresa tem idCentral cadastrado
+// (a maioria: 434 de 449 hoje), senão cai no UUID interno como sempre foi.
+// A rota aceita os dois formatos (ver resolveCompanySlugParam ali).
+export function companyDetailHref(company: { id: string; idCentral?: string | null; name: string }): string {
+  if (company.idCentral) {
+    return `/customers/${company.idCentral}-${slugify(company.name)}`;
+  }
+  return `/customers/${company.id}`;
+}
+
 export function normalizePhone(phone: string) {
   if (!phone) return "";
   return phone.replace(/\D/g, "");
