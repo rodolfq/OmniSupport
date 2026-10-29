@@ -83,6 +83,15 @@ const CUSTOMER_STATUS_FILTERS: Array<{ value: CustomerStatusFilter; label: strin
 // cadastro real de Configurações > Status, carregado abaixo.
 interface KanbanStatusMeta { value: string; label: string; dot: string; accent: string; isClosed: boolean }
 
+// Único status cujo substatus aparece nesta tela (pedido do usuário,
+// 2026-10-29) — os outros status também têm substatus cadastrado em
+// Configurações, mas "Meus Chamados" só expõe este aqui.
+// Tipado como `string` (não inferido como literal) de propósito: `ticket.status`
+// é `TicketStatus`, um enum fixo que não inclui os status dinâmicos de
+// `config_statuses` — comparar contra um literal faria o TS recusar por "sem
+// overlap"; `string` evita o falso positivo.
+const AGUARDANDO_EQUIPE_INTERNA_LABEL: string = 'Aguardando Equipe Interna';
+
 const MY_TICKETS_KANBAN_COLUMNS: Array<{ status: 'Novo' | 'Em Andamento' | 'Finalizado'; title: string; dot: string; accent: string }> = [
   { status: 'Novo', title: 'Novos', dot: 'bg-[var(--text-info)]', accent: '#2563EB' },
   { status: 'Em Andamento', title: 'Em Andamento', dot: 'bg-[var(--text-warning-strong)]', accent: '#D97706' },
@@ -700,7 +709,7 @@ export default function MyTicketsPage() {
                   return (
                     <div
                       key={c.status}
-                      className="rounded-2xl border-t-4 bg-[var(--surface-card)] overflow-hidden md:w-[280px] md:shrink-0"
+                      className="rounded-2xl border-t-4 bg-[var(--surface-card)] overflow-hidden md:flex-1 md:min-w-[240px]"
                       style={{ borderTopColor: c.accent }}
                     >
                       <div className="flex items-center gap-2 px-4 py-3 border-b border-[var(--border-default)]">
@@ -760,6 +769,9 @@ export default function MyTicketsPage() {
                       <span className="text-[10px] font-semibold uppercase tracking-widest text-[var(--text-tertiary)]">#{ticket.ticketNumber ? String(ticket.ticketNumber).padStart(4, '0') : ticket.id.slice(0, 8)}</span>
                       <span className={cn("px-3 py-1 rounded-full text-[9px] font-semibold uppercase tracking-widest", getStatusColor(ticket.status))}>
                         {getCustomerStatusLabel(ticket.status)}
+                        {ticket.status === AGUARDANDO_EQUIPE_INTERNA_LABEL && ticket.subStatus && (
+                          <span className="opacity-70 normal-case"> · {ticket.subStatus}</span>
+                        )}
                       </span>
                     </div>
 
@@ -905,6 +917,15 @@ function MyTicketKanbanCard({ ticket, notificationCount = 0, onClick, dragging =
         {ticket.title}
       </h4>
 
+      {/* Substatus só faz sentido mostrar aqui pro status "Aguardando Equipe
+          Interna" (pedido do usuário, 2026-10-29) — os demais status também
+          têm substatus cadastrado, mas essa tela só exibe o deste um. */}
+      {ticket.status === AGUARDANDO_EQUIPE_INTERNA_LABEL && ticket.subStatus && (
+        <span className="inline-block mb-2 px-2 py-0.5 rounded-full text-[9px] font-semibold uppercase tracking-wide bg-[var(--surface-pill)] text-[var(--text-secondary)]">
+          {ticket.subStatus}
+        </span>
+      )}
+
       {ticket.tags && ticket.tags.length > 0 && (
         <div className="flex flex-wrap gap-1 mb-2.5">
           {ticket.tags.slice(0, 3).map(tag => (
@@ -995,7 +1016,7 @@ function StaffTicketKanbanColumn({
     <div
       ref={setNodeRef}
       className={cn(
-        "rounded-2xl border-t-4 overflow-hidden md:w-[280px] md:shrink-0 transition-all",
+        "rounded-2xl border-t-4 overflow-hidden md:flex-1 md:min-w-[240px] transition-all",
         isOver ? "bg-[var(--surface-pill)] ring-2 ring-[var(--accent)]/30" : "bg-[var(--surface-card)]"
       )}
       style={{ borderTopColor: col.accent }}

@@ -90,6 +90,19 @@ interface TicketKanbanStatusMeta {
   isClosed: boolean;
 }
 
+// Chave sintética da coluna de substatus (pedido do usuário, 2026-10-29) —
+// nunca bate com um ticket.status real, então não colide com o agrupamento
+// normal por status. Só existe pro substatus "Aguardando Publicação", dentro
+// de "Aguardando Equipe Interna" — os demais substatus continuam dentro da
+// coluna do próprio status pai, sem coluna própria.
+const AGUARDANDO_PUBLICACAO_COLUMN_KEY = '__substatus:Aguardando Publicação__';
+// Tipado como `string` (não inferido como literal) de propósito: `ticket.status`
+// é `TicketStatus`, um enum fixo que não inclui os status dinâmicos de
+// `config_statuses` (ex. esta "Aguardando Equipe Interna") — comparar contra um
+// literal faria o TS recusar por "sem overlap"; `string` evita o falso positivo.
+const AGUARDANDO_PUBLICACAO_PARENT_STATUS: string = 'Aguardando Equipe Interna';
+const AGUARDANDO_PUBLICACAO_SUBSTATUS: string = 'Aguardando Publicação';
+
 const DEFAULT_TICKET_KANBAN_STATUSES: TicketKanbanStatusMeta[] = [
   { value: "Novo", label: "Novo", color: "bg-[var(--surface-info)] text-[var(--text-info)]", dot: "bg-[var(--text-info)]", accent: "#2563EB", isClosed: false },
   { value: "Em Atendimento", label: "Em Atendimento", color: "bg-[var(--surface-warning)] text-[var(--text-warning)]", dot: "bg-[var(--text-warning-strong)]", accent: "#D97706", isClosed: false },
@@ -524,10 +537,30 @@ export function TicketsView({
   // marcado no painel de Filtros — e, marcado, vira a ÚNICA coluna (pedido do
   // usuário, 2026-09-29): sem isso, o board sempre carregava/mostrava chamado
   // fechado misturado com os em aberto, mesmo com o filtro desmarcado.
-  const displayedKanbanStatuses = useMemo(
-    () => kanbanStatuses.filter(s => (effectiveFilters.includeClosed ? s.isClosed : !s.isClosed)),
-    [kanbanStatuses, effectiveFilters.includeClosed]
-  );
+  const displayedKanbanStatuses = useMemo(() => {
+    const base = kanbanStatuses.filter(s => (effectiveFilters.includeClosed ? s.isClosed : !s.isClosed));
+    // Coluna extra só pro substatus "Aguardando Publicação" (pedido do
+    // usuário, 2026-10-29) — nunca aparece junto de "Mostrar chamados
+    // encerrados" (ela é sempre aberta, não faz sentido nesse modo, que já
+    // vira "só a coluna fechada" de propósito). Entra logo depois da coluna
+    // "Aguardando Equipe Interna"; se essa coluna não existir no cadastro
+    // (ex.: status renomeado), cai no início em vez de sumir sem explicação.
+    if (effectiveFilters.includeClosed) return base;
+    const parentIdx = base.findIndex(s => s.value === AGUARDANDO_PUBLICACAO_PARENT_STATUS);
+    const parent = kanbanStatuses.find(s => s.value === AGUARDANDO_PUBLICACAO_PARENT_STATUS);
+    if (!parent) return base;
+    const substatusColumn: TicketKanbanStatusMeta = {
+      value: AGUARDANDO_PUBLICACAO_COLUMN_KEY,
+      label: AGUARDANDO_PUBLICACAO_SUBSTATUS,
+      color: parent.color,
+      dot: parent.dot,
+      accent: parent.accent,
+      isClosed: false,
+    };
+    const result = [...base];
+    result.splice(parentIdx + 1, 0, substatusColumn);
+    return result;
+  }, [kanbanStatuses, effectiveFilters.includeClosed]);
 
   const internalLinksByTicket = useMemo(() => {
     const map = new Map<string, InternalLinkRow[]>();
@@ -597,16 +630,19 @@ export function TicketsView({
     }
   };
 
-  // Muda o status de UM chamado só — usado pelo drag-and-drop do Kanban
+  // Muda o status de UM chamado só — usado pelo drag-and-solto do Kanban
   // (arrastar um card pra outra coluna), reaproveitando o mesmo endpoint da
-  // ação em lote.
-  const handleSingleStatusChange = async (ticketId: string, newStatus: string) => {
+  // ação em lote. newSubStatus só vai explícito quando a coluna de destino
+  // exige um (hoje só "Aguardando Publicação") — omitido, o servidor já zera
+  // o substatus sozinho junto de qualquer troca de status (ver PATCH em
+  // app/api/tickets/route.ts).
+  const handleSingleStatusChange = async (ticketId: string, newStatus: string, newSubStatus?: string | null) => {
     if (!canChangeStatus) {
       toast.error('Você não tem permissão para alterar o status de chamados.');
       return;
     }
     try {
-      await bulkUpdateTickets([ticketId], { status: newStatus });
+      await bulkUpdateTickets([ticketId], newSubStatus !== undefined ? { status: newStatus, subStatus: newSubStatus } : { status: newStatus });
       await loadTickets();
     } catch (error: any) {
       toast.error('Erro ao alterar status: ' + error.message);
@@ -1952,16 +1988,24 @@ function TicketKanbanBoard({
   statuses: TicketKanbanStatusMeta[];
   loading: boolean;
   onEdit: (t: Ticket) => void;
-  onStatusChange: (ticketId: string, newStatus: string) => void;
+  onStatusChange: (ticketId: string, newStatus: string, newSubStatus?: string | null) => void;
 }) {
   const [activeTicket, setActiveTicket] = useState<Ticket | null>(null);
   const sensors = useSensors(
     useSensor(PointerSensor, { activationConstraint: { distance: 8 } })
   );
 
+  // A coluna sintética de "Aguardando Publicação" puxa pra si os tickets que
+  // batem com o par status+substatus — excluídos da coluna normal do status
+  // pai, senão apareceriam duplicados nas duas colunas ao mesmo tempo.
+  const isInSubstatusColumn = (t: Ticket) =>
+    t.status === AGUARDANDO_PUBLICACAO_PARENT_STATUS && t.subStatus === AGUARDANDO_PUBLICACAO_SUBSTATUS;
+
   const columns = statuses.map(status => ({
     ...status,
-    tickets: tickets.filter(t => t.status === status.value)
+    tickets: status.value === AGUARDANDO_PUBLICACAO_COLUMN_KEY
+      ? tickets.filter(isInSubstatusColumn)
+      : tickets.filter(t => t.status === status.value && !isInSubstatusColumn(t))
   }));
 
   const handleDragStart = (event: DragStartEvent) => {
@@ -1974,9 +2018,22 @@ function TicketKanbanBoard({
     const { active, over } = event;
     if (!over) return;
     const ticket = tickets.find(t => t.id === active.id);
-    const targetStatus = String(over.id);
-    if (ticket && ticket.status !== targetStatus) {
-      onStatusChange(String(active.id), targetStatus);
+    if (!ticket) return;
+    const targetKey = String(over.id);
+
+    if (targetKey === AGUARDANDO_PUBLICACAO_COLUMN_KEY) {
+      if (!isInSubstatusColumn(ticket)) {
+        onStatusChange(ticket.id, AGUARDANDO_PUBLICACAO_PARENT_STATUS, AGUARDANDO_PUBLICACAO_SUBSTATUS);
+      }
+      return;
+    }
+    // Saindo da coluna sintética pra uma coluna normal do MESMO status pai
+    // (ex.: de volta pra "Aguardando Equipe Interna"): status não muda, mas
+    // o substatus precisa ser limpo — sem o OR abaixo, a checagem de status
+    // isolada não dispararia nada e o card voltaria sozinho pra "Aguardando
+    // Publicação" na próxima leitura.
+    if (ticket.status !== targetKey || isInSubstatusColumn(ticket)) {
+      onStatusChange(ticket.id, targetKey, null);
     }
   };
 

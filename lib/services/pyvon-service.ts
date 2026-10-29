@@ -1575,17 +1575,33 @@ export class PyvonService {
     } else if (context.withinWindow && context.closedSessionId) {
       // Janela real aberta (cliente escreveu há menos de 24h), mas a única
       // sessão que bate pra este telefone está FECHADA (ex.: ticket
-      // encerrado mais cedo no mesmo dia) — reabre ESSA MESMA sessão (mesmo
-      // canal, mesmo histórico/ticket vinculado) em vez de mandar o template
-      // à toa. Achado 2026-10-21, ticket #5368 (Guilherme/ELITHIUM): sem
-      // isso, "Iniciar Conversa" sempre caía no `else` abaixo mesmo com a
-      // janela aberta, porque uma sessão fechada nunca é devolvida como
-      // `sessionId` (ver resolveOutboundContext) — só reabrir aqui, no ponto
-      // em que vamos mesmo escrever nela, evita repetir o bug de 2026-10-14
-      // (reusar o id de uma fechada SEM reabrir).
-      await query(`UPDATE public.chat_sessions SET status = 'active', updated_at = NOW() WHERE id = $1`, [context.closedSessionId]);
-      emitSessionsChanged({ reason: 'status', sessionId: context.closedSessionId });
-      sessionId = context.closedSessionId;
+      // encerrado mais cedo no mesmo dia) — não manda o template à toa (a
+      // janela está genuinamente aberta), mas também não reabre mais a MESMA
+      // sessão fechada: cria uma conversa NOVA (sem tags nem histórico
+      // herdados da fechada — o histórico antigo continua acessível por
+      // "Carregar histórico anterior", só não vem pré-carregado/aberto).
+      // Achado 2026-10-21 (ticket #5368, Guilherme/ELITHIUM): sem tratar
+      // este caso, "Iniciar Conversa" sempre caía no `else` abaixo mesmo com
+      // a janela aberta, porque uma sessão fechada nunca é devolvida como
+      // `sessionId` (ver resolveOutboundContext). A correção original
+      // reabria a mesma sessão fechada; trocado por criar uma nova em
+      // 2026-10-29 (achado com o cliente João/Mega Rastreamento: a conversa
+      // "nova" vinha com as tags, o histórico E o analista da conversa
+      // anterior — reabrir só dava UPDATE de status, nunca tocava
+      // assignee_id, e claimSessionIfUnassigned só assume quando está NULL,
+      // então o analista antigo ficava mesmo quem clicou "Iniciar Conversa"
+      // sendo outra pessoa). forceAssigneeId abaixo resolve os três de uma
+      // vez: sessão nova nasce sem tags, sem histórico prévio E já atribuída
+      // a quem iniciou.
+      const created = await this.findOrCreateSession(
+        phoneVariants(params.phone),
+        context.cadastroId || 0,
+        customerName,
+        instanceId,
+        { forceAssigneeId: params.actorId }
+      );
+      if (!created) throw new Error('Falha ao criar a conversa.');
+      sessionId = created.id;
       usedTemplate = false;
     } else {
       const templateRes = await query(

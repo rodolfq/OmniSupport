@@ -1,7 +1,8 @@
 'use client';
 
 import React, { useEffect, useRef, useState } from 'react';
-import { Tag as TagIcon, Check, X, Search, ChevronDown } from 'lucide-react';
+import { createPortal } from 'react-dom';
+import { Tag as TagIcon, Check, X, Search, ChevronRight } from 'lucide-react';
 import { TagConfig } from '@/lib/types';
 import { cn, normalizeString } from '@/lib/utils';
 
@@ -50,8 +51,114 @@ export function tagAccentBgClass(tag: TagConfig): string {
   return ACCENT_BG_BY_FAMILY[family];
 }
 
-// Chips das tags já aplicadas + popover hierárquico (principal -> subtags)
-// para vincular/desvincular em tempo real durante o atendimento.
+const SUBMENU_WIDTH = 208;
+const SUBMENU_MAX_HEIGHT = 260;
+
+// Submenu das subtags de UM principal — portado pro <body> e posicionado em
+// coordenadas fixas a partir da própria linha do principal (anchorRef), do
+// lado com mais espaço livre. Achado 2026-10-29: antes as subtags
+// expandiam INLINE dentro do popover principal (empurrando a lista inteira
+// pra baixo) — com uma principal de 10+ subtags (ex.: "Dúvida", depois da
+// reorganização de tags), o popover ficava enorme, "tudo jogado na tela".
+// Como dropdown à parte, o popover principal nunca cresce: cada submenu é
+// um painel próprio, do tamanho só do que cabe (com rolagem se precisar).
+function SubtagSubmenu({
+  kids, selectedTagIds, onToggle, anchorRef
+}: {
+  kids: TagConfig[];
+  selectedTagIds: string[];
+  onToggle: (tag: TagConfig) => void;
+  anchorRef: React.RefObject<HTMLDivElement | null>;
+}) {
+  const [pos, setPos] = useState<{ top: number; left: number } | null>(null);
+
+  useEffect(() => {
+    const el = anchorRef.current;
+    if (!el) return;
+    const rect = el.getBoundingClientRect();
+    const fitsRight = rect.right + 6 + SUBMENU_WIDTH <= window.innerWidth - 8;
+    const left = fitsRight ? rect.right + 6 : Math.max(8, rect.left - SUBMENU_WIDTH - 6);
+    const top = Math.min(rect.top, window.innerHeight - 8 - 40);
+    setPos({ top, left });
+  }, [anchorRef]);
+
+  if (!pos) return null;
+
+  return createPortal(
+    <div
+      data-chat-tag-submenu
+      className="fixed z-[999] bg-[var(--surface-card)] border border-[var(--border-default)] rounded-2xl shadow-xl py-1 overflow-y-auto"
+      style={{ top: pos.top, left: pos.left, width: SUBMENU_WIDTH, maxHeight: SUBMENU_MAX_HEIGHT }}
+    >
+      {kids.map(child => {
+        const childActive = selectedTagIds.includes(child.id);
+        return (
+          <button
+            key={child.id}
+            type="button"
+            onClick={() => onToggle(child)}
+            className="w-full flex items-center gap-2.5 px-3 py-2 text-[11px] font-semibold text-[var(--text-secondary)] hover:bg-[var(--surface-pill)] transition-all"
+          >
+            <span className={cn('w-2 h-2 rounded-full shrink-0', tagAccentBgClass(child))} />
+            <span className="flex-1 text-left truncate">{child.label}</span>
+            {childActive && <Check size={13} className="text-[var(--accent-text)] shrink-0" />}
+          </button>
+        );
+      })}
+    </div>,
+    document.body
+  );
+}
+
+function PrincipalMenuRow({
+  principal, kids, active, expanded, selectedTagIds, onTogglePrincipal, onToggleExpanded, onToggleSubtag
+}: {
+  principal: TagConfig;
+  kids: TagConfig[];
+  active: boolean;
+  expanded: boolean;
+  selectedTagIds: string[];
+  onTogglePrincipal: (p: TagConfig) => void;
+  onToggleExpanded: (id: string) => void;
+  onToggleSubtag: (t: TagConfig) => void;
+}) {
+  const hasKids = kids.length > 0;
+  const rowRef = useRef<HTMLDivElement>(null);
+
+  return (
+    <div ref={rowRef}>
+      <div className="w-full flex items-center gap-1 px-2 hover:bg-[var(--surface-pill)] transition-all">
+        {hasKids ? (
+          <button
+            type="button"
+            onClick={() => onToggleExpanded(principal.id)}
+            className={cn('p-1.5 shrink-0 transition-colors', expanded ? 'text-[var(--accent-text)]' : 'text-[var(--text-tertiary)] hover:text-[var(--text-secondary)]')}
+            title={expanded ? 'Fechar subtags' : 'Ver subtags'}
+          >
+            <ChevronRight size={12} />
+          </button>
+        ) : (
+          <span className="w-[26px] shrink-0" />
+        )}
+        <button
+          type="button"
+          onClick={() => onTogglePrincipal(principal)}
+          className="flex-1 flex items-center gap-2.5 py-2.5 text-xs font-semibold text-[var(--text-secondary)] text-left min-w-0"
+        >
+          <span className={cn('w-2.5 h-2.5 rounded-full shrink-0', tagAccentBgClass(principal))} />
+          <span className="flex-1 text-left truncate">{principal.label}</span>
+          {active && <Check size={14} className="text-[var(--accent-text)] shrink-0" />}
+        </button>
+      </div>
+      {expanded && hasKids && (
+        <SubtagSubmenu kids={kids} selectedTagIds={selectedTagIds} onToggle={onToggleSubtag} anchorRef={rowRef} />
+      )}
+    </div>
+  );
+}
+
+// Chips das tags já aplicadas + popover hierárquico (principal -> submenu de
+// subtags) para vincular/desvincular em tempo real durante o atendimento.
 // `availableTags` já vem filtrado por domain==='chat' por quem usa este
 // componente (chat-widget.tsx) e inclui os dois níveis juntos, flat.
 //
@@ -69,11 +176,20 @@ export function ChatTagPicker({ availableTags, selectedTagIds, onChange, align =
 
   useEffect(() => {
     if (!isOpen) return;
+    function isInsideOwnUi(target: Node) {
+      if (containerRef.current?.contains(target)) return true;
+      // Submenu de subtags é portado pro <body> (fora da árvore deste
+      // componente) — clique nele não pode contar como "clique fora".
+      return !!(target as Element).closest?.('[data-chat-tag-submenu]');
+    }
     function handleClickOutside(e: MouseEvent) {
-      if (containerRef.current && !containerRef.current.contains(e.target as Node)) setIsOpen(false);
+      if (!isInsideOwnUi(e.target as Node)) setIsOpen(false);
     }
     function handleEscape(e: KeyboardEvent) {
-      if (e.key === 'Escape') setIsOpen(false);
+      if (e.key !== 'Escape') return;
+      // Um nível por vez: com algum submenu aberto, Esc fecha só ele.
+      if (expandedIds.size > 0) { setExpandedIds(new Set()); return; }
+      setIsOpen(false);
     }
     window.addEventListener('click', handleClickOutside);
     window.addEventListener('keydown', handleEscape);
@@ -81,9 +197,9 @@ export function ChatTagPicker({ availableTags, selectedTagIds, onChange, align =
       window.removeEventListener('click', handleClickOutside);
       window.removeEventListener('keydown', handleEscape);
     };
-  }, [isOpen]);
+  }, [isOpen, expandedIds]);
 
-  // Busca e expansão somem junto com o popover — reabrir sempre começa do zero.
+  // Busca e submenus somem junto com o popover — reabrir sempre começa do zero.
   useEffect(() => {
     if (isOpen) searchInputRef.current?.focus();
     else { setSearch(''); setExpandedIds(new Set()); }
@@ -192,49 +308,19 @@ export function ChatTagPicker({ availableTags, selectedTagIds, onChange, align =
               const kids = childrenOf(principal.id);
               const hasKids = kids.length > 0;
               const active = selectedTagIds.includes(principal.id);
-              const expanded = hasKids && (expandedIds.has(principal.id) || active || (!!query && kids.some(matchesQuery)));
+              const expanded = hasKids && (expandedIds.has(principal.id) || (!!query && kids.some(matchesQuery)));
               return (
-                <div key={principal.id}>
-                  <div className="w-full flex items-center gap-1 px-2 hover:bg-[var(--surface-pill)] transition-all">
-                    {hasKids ? (
-                      <button
-                        onClick={() => toggleExpanded(principal.id)}
-                        className="p-1.5 shrink-0 text-[var(--text-tertiary)] hover:text-[var(--text-secondary)]"
-                        title={expanded ? 'Recolher' : 'Ver subtags'}
-                      >
-                        <ChevronDown size={12} className={cn('transition-transform', expanded ? 'rotate-0' : '-rotate-90')} />
-                      </button>
-                    ) : (
-                      <span className="w-[26px] shrink-0" />
-                    )}
-                    <button
-                      onClick={() => togglePrincipal(principal)}
-                      className="flex-1 flex items-center gap-2.5 py-2.5 text-xs font-semibold text-[var(--text-secondary)] text-left min-w-0"
-                    >
-                      <span className={cn('w-2.5 h-2.5 rounded-full shrink-0', tagAccentBgClass(principal))} />
-                      <span className="flex-1 text-left truncate">{principal.label}</span>
-                      {active && <Check size={14} className="text-[var(--accent-text)] shrink-0" />}
-                    </button>
-                  </div>
-                  {expanded && (
-                    <div className="pb-1">
-                      {kids.map(child => {
-                        const childActive = selectedTagIds.includes(child.id);
-                        return (
-                          <button
-                            key={child.id}
-                            onClick={() => toggleSubtag(child)}
-                            className="w-full flex items-center gap-2.5 pl-[42px] pr-4 py-2 text-[11px] font-semibold text-[var(--text-secondary)] hover:bg-[var(--surface-pill)] transition-all"
-                          >
-                            <span className={cn('w-2 h-2 rounded-full shrink-0', tagAccentBgClass(child))} />
-                            <span className="flex-1 text-left truncate">{child.label}</span>
-                            {childActive && <Check size={13} className="text-[var(--accent-text)] shrink-0" />}
-                          </button>
-                        );
-                      })}
-                    </div>
-                  )}
-                </div>
+                <PrincipalMenuRow
+                  key={principal.id}
+                  principal={principal}
+                  kids={kids}
+                  active={active}
+                  expanded={expanded}
+                  selectedTagIds={selectedTagIds}
+                  onTogglePrincipal={togglePrincipal}
+                  onToggleExpanded={toggleExpanded}
+                  onToggleSubtag={toggleSubtag}
+                />
               );
             })
           )}

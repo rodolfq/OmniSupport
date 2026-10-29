@@ -4,17 +4,13 @@ Este arquivo orienta o Claude Code (e qualquer novo desenvolvedor) a trabalhar n
 
 ---
 
-## 🚨 MORATÓRIA DE BANCO DE DADOS (vigente desde 2026-10-08, temporária)
+## ✅ Moratória de banco de dados — ENCERRADA (vigorou de 2026-10-08 a 2026-10-29)
 
-**Proibido alterar o banco de produção de qualquer forma — nenhuma migration, nenhum `ALTER`/`CREATE`/`DROP`, nenhum dado corrigido via script, nada —, até o usuário preparar um banco de implementação separado da operação real.** Decisão do usuário em 2026-10-08, depois de dois incidentes reais no dia anterior (ver seção 15, "Pyvon index rollback" e a memória do projeto `project_pyvon_index_rollback.md`): o `DATABASE_URL` do `.env` aponta para o banco REAL, compartilhado com a operação em produção — uma migration aplicada aqui pode quebrar o backend real mesmo sem tocar nele diretamente, porque o deploy do backend é um passo separado, manual, que não acontece na mesma hora.
+**Resolvida em 2026-10-29**: o usuário montou o banco próprio de desenvolvimento/implementação que a moratória estava esperando. **O `DATABASE_URL` do `.env` atual aponta para esse banco de DESENVOLVIMENTO, não para o banco de produção** — produção usa outro banco/`.env`, em outro deploy, que esta sessão não acessa. Confirmado explicitamente pelo usuário: "o banco que está no .env agora é um banco que estamos usando para desenvolvimento. Em produção, usamos outro. Não temos mais preocupação de quebrar alguma coisa."
 
-**O que isso muda na prática** (suspende, só enquanto durar, a antiga permissão permanente de aplicar migrations — ver seção 16 e a memória `feedback_migrations_auto_run.md`):
-- Nenhuma migration nova vai pro banco de produção, mesmo que seja aditiva. Escrever o arquivo em `migrations/` e mirrorar em `schema_postgres.sql` continua normal; **rodar contra o `DATABASE_URL` atual, não**.
-- Nenhum `UPDATE`/`DELETE`/correção de dado direto no banco, mesmo pontual.
-- **Consultas `SELECT` (só leitura) continuam permitidas** — diagnóstico, verificação, achar causa de bug, confirmar hipótese. A trava é só para escrita/alteração de schema.
-- Qualquer item que precise de coluna/tabela nova, ou mudança de dado em produção, fica **listado como pendente**, implementado no código quando fizer sentido mas **sem aplicar a migration**, até a trava ser liberada.
+**O que isso muda na prática**: a trava descrita abaixo (que proibia qualquer `ALTER`/`CREATE`/`DROP`/correção de dado contra o `DATABASE_URL` atual) não vale mais — pode aplicar migration, corrigir dado, rodar schema novo, o que for preciso, **sem pedir permissão antes**, incluindo fora do momento de deploy/push (ver seção 16 e a memória `feedback_migrations_auto_run.md`, que volta a valer sem a ressalva do gatilho "só no deploy" — aqui não há produção real por trás para proteger). Única prudência que continua de bom senso, não por regra: nunca rodar `schema_postgres.sql` (tem `DROP TABLE ... CASCADE` no topo) sem confirmar que é mesmo este banco de dev que se quer resetar.
 
-**Como será liberada**: o usuário vai montar um banco próprio para desenvolvimento/implementação, separado do banco de operação real. Até lá, perguntar antes de qualquer coisa que pareça exigir mudança de banco, mesmo que pareça pequena ou "só aditiva".
+Histórico da moratória (contexto, não mais vigente): decisão do usuário em 2026-10-08, depois de dois incidentes reais no dia anterior em que o `DATABASE_URL` da época apontava pro banco REAL de produção (ver seção 15, "Pyvon index rollback" e a memória do projeto `project_pyvon_index_rollback.md`) — o risco era justamente esse `.env` compartilhado com a operação real, que não existe mais na configuração atual.
 
 ---
 
@@ -89,7 +85,7 @@ npm run lint    # next lint
 
 **Login de desenvolvimento**: o `schema_postgres.sql` semeia um usuário administrador (`admin@systemsat.com.br`) e um cliente de teste (`jose@cliente.com`). As senhas **não ficam documentadas** aqui nem no schema: as mesmas contas existem no banco de produção, e este repositório é versionado — publicar a senha equivale a publicar acesso de administrador. Peça a credencial a quem administra o ambiente.
 
-⚠️ **A CONFIRMAR**: se o Postgres de `DATABASE_URL` no `.env` atual é um banco compartilhado de produção/staging ou um ambiente pessoal — o schema faz `DROP TABLE ... CASCADE` no topo, então **nunca rodar `schema_postgres.sql` contra um banco com dados reais**.
+**Resolvido em 2026-10-29**: o Postgres de `DATABASE_URL` no `.env` atual é um banco próprio de **desenvolvimento**, separado do banco de produção real (que fica em outro `.env`/deploy, fora do alcance desta sessão) — ver a nota no topo deste arquivo. Ainda assim, o schema faz `DROP TABLE ... CASCADE` no topo: antes de rodar `schema_postgres.sql`, confirmar que é mesmo este banco de dev que se quer resetar.
 
 ---
 
@@ -633,7 +629,7 @@ Recomendações objetivas para dois devs trabalharem ao mesmo tempo, dado o que 
 ## Resumo do que ficou marcado ⚠️ A CONFIRMAR
 
 1. Se `.env.example` deveria existir no repositório (hoje não existe, apesar do `.gitignore` já prever um `!.env.example`).
-2. Se o `DATABASE_URL` atual do `.env` aponta para produção/staging ou ambiente pessoal — crítico antes de rodar `schema_postgres.sql` (que dropa tabelas).
+2. ~~Se o `DATABASE_URL` atual do `.env` aponta para produção/staging ou ambiente pessoal~~ — **resolvida em 2026-10-29**: é um banco próprio de desenvolvimento, separado do banco de produção real (ver nota no topo deste arquivo). Ainda assim, nunca rodar `schema_postgres.sql` (dropa tabelas) sem confirmar que é este banco mesmo.
 3. ~~Existência da coluna `companies.is_in_training`~~ — **resolvida**: existe no banco de produção (verificada em 2026-08-12), mas está entre as ~16 colunas ausentes do `schema_postgres.sql`.
 4. Propósito exato de `app/(portal)/activities/page.tsx`.
 5. ~~Rota `app/api/debug-internal-tickets`~~ — **resolvida**: era debug da geração de número de ticket interno, nenhum consumidor. Removida em 2026-08-12.
