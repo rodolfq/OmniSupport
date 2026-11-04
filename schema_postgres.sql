@@ -667,6 +667,13 @@ CREATE INDEX IF NOT EXISTS idx_ticket_messages_ticket_id ON public.ticket_messag
 ALTER TABLE public.ticket_messages
   ADD COLUMN IF NOT EXISTS read_by_customer_at TIMESTAMP WITH TIME ZONE;
 
+-- "Ciente" na mensagem do cliente (migrations/ticket_messages_acknowledged.sql,
+-- 2026-11-04) — marcado só pela equipe, tira o chamado do card "Chamados sem
+-- Resposta" do Dashboard sem precisar responder de fato.
+ALTER TABLE public.ticket_messages
+  ADD COLUMN IF NOT EXISTS acknowledged_at TIMESTAMP WITH TIME ZONE,
+  ADD COLUMN IF NOT EXISTS acknowledged_by UUID REFERENCES public.profiles(id);
+
 -- Minutos úteis do SLA/backlog de chamado (migrations/ticket_business_minutes.sql).
 CREATE OR REPLACE FUNCTION public.ticket_business_minutes(p_from timestamptz, p_to timestamptz)
 RETURNS numeric

@@ -545,6 +545,9 @@ export interface Message {
   // carregada (que Cliente/Funcionário não tem acesso, ver /api/users).
   senderName?: string | null;
   senderAvatarThumbUrl?: string | null;
+  // Papel de quem mandou — só pro botão "Ciente" (2026-11-04) saber se a
+  // mensagem é do cliente/funcionário (só essas podem ser marcadas).
+  senderRole?: string | null;
   text: string;
   timestamp: string;
   isVisibleToCustomer: boolean;
@@ -557,6 +560,10 @@ export interface Message {
   // Cliente leu via WhatsApp (digitou "Prosseguir") — 2026-10-21. Nunca
   // setado localmente; só a resposta real do webhook Pyvon grava isto.
   readByCustomerAt?: string | null;
+  // Botão "Ciente" (2026-11-04): equipe marcou a mensagem do cliente como
+  // vista sem responder de fato — tira o chamado do card "Sem Resposta".
+  acknowledgedAt?: string | null;
+  acknowledgedByName?: string | null;
 }
 
 export interface Attachment {

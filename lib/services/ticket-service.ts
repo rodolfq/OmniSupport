@@ -124,6 +124,19 @@ export class MessageService {
     }
   }
 
+  // Botão "Ciente" (2026-11-04): toggle — devolve o estado NOVO (depois do
+  // toggle), não o antigo.
+  static async acknowledge(messageId: string): Promise<{ acknowledgedAt: string | null; acknowledgedByName: string | null }> {
+    const res = await fetch('/api/tickets', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ action: 'acknowledge-message', messageId })
+    });
+    const body = await res.json().catch(() => null);
+    if (!res.ok) throw new Error(body?.error || 'Erro ao marcar como ciente.');
+    return body;
+  }
+
   static async getByInternalTicket(internalTicketId: string, signal?: AbortSignal): Promise<Message[]> {
     try {
       const res = await fetch(

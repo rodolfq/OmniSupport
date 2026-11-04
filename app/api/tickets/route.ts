@@ -146,10 +146,15 @@ export async function GET(request: NextRequest) {
       // (Cliente/Funcionário recebem 403), então o próprio autor de uma
       // mensagem (inclusive a de quem está vendo) nunca resolvia pra eles:
       // avatar caía no fallback genérico "U" e o nome ficava em branco.
+      // sender_role junto só pro botão "Ciente" (2026-11-04) saber se a
+      // mensagem é do cliente/funcionário — resposta da própria equipe não
+      // tem o que "dar ciência".
       const res = await query(
-        `SELECT m.*, p.name AS sender_name, p.avatar_thumb_url AS sender_avatar_thumb_url
+        `SELECT m.*, p.name AS sender_name, p.avatar_thumb_url AS sender_avatar_thumb_url, p.role AS sender_role,
+                ack.name AS acknowledged_by_name
            FROM public.ticket_messages m
            LEFT JOIN public.profiles p ON p.id = m.author_id
+           LEFT JOIN public.profiles ack ON ack.id = m.acknowledged_by
           WHERE m.ticket_id = $1
           ORDER BY m.created_at DESC`,
         [ticketId]
@@ -160,6 +165,7 @@ export async function GET(request: NextRequest) {
         senderId: m.author_id,
         senderName: m.sender_name,
         senderAvatarThumbUrl: m.sender_avatar_thumb_url,
+        senderRole: m.sender_role,
         text: m.content,
         timestamp: m.created_at,
         isVisibleToCustomer: m.is_visible_to_customer,
@@ -168,7 +174,9 @@ export async function GET(request: NextRequest) {
         // "Check azul" — cliente leu via WhatsApp/"Prosseguir" (2026-10-21).
         // `m.*` tolera a coluna ainda não existir (moratória de banco): vem
         // undefined → null, nunca quebra a rota.
-        readByCustomerAt: m.read_by_customer_at || null
+        readByCustomerAt: m.read_by_customer_at || null,
+        acknowledgedAt: m.acknowledged_at || null,
+        acknowledgedByName: m.acknowledged_by_name || null
       })));
     }
 
@@ -251,7 +259,7 @@ export async function GET(request: NextRequest) {
            SELECT label FROM public.config_statuses WHERE scope = 'ticket' AND is_closed AND parent_status_id IS NULL
          ),
          last_msg AS (
-           SELECT DISTINCT ON (m.ticket_id) m.ticket_id, p.role AS author_role
+           SELECT DISTINCT ON (m.ticket_id) m.ticket_id, p.role AS author_role, m.acknowledged_at
              FROM public.ticket_messages m
              LEFT JOIN public.profiles p ON p.id = m.author_id
             WHERE m.type = 'text'
@@ -263,6 +271,10 @@ export async function GET(request: NextRequest) {
           WHERE t.status NOT IN (SELECT label FROM closed_set)
             AND t.merged_into_id IS NULL
             AND lm.author_role = ANY($1::text[])
+            -- Botão "Ciente" (2026-11-04): equipe marca a última mensagem do
+            -- cliente como vista sem precisar responder (ex.: cliente só
+            -- agradeceu) — tira o chamado desta lista.
+            AND lm.acknowledged_at IS NULL
           ORDER BY t.updated_at ASC
           LIMIT 100`,
         [['Cliente', 'Funcionário']]
@@ -832,6 +844,50 @@ export async function POST(request: Request) {
       }
 
       return NextResponse.json(res.rows[0]);
+    }
+
+    // Botão "Ciente" (pedido do usuário, 2026-11-04): a equipe marca a
+    // mensagem do cliente/funcionário como vista sem precisar responder de
+    // fato — serve pro caso do cliente só agradecer e o chamado ficar presa
+    // no card "Chamados sem Resposta" do Dashboard à toa. Só equipe pode
+    // marcar; toggle (marcar de novo desmarca). Só faz sentido em mensagem do
+    // CLIENTE/FUNCIONÁRIO — mensagem da própria equipe não tem o que "dar
+    // ciência" nela.
+    if (action === 'acknowledge-message') {
+      const actor = await getCurrentActionUser();
+      if (!actor) return NextResponse.json({ error: 'Sessão expirada. Faça login novamente.' }, { status: 401 });
+      if (actor.role === 'Cliente' || actor.role === 'Funcionário') {
+        return NextResponse.json({ error: 'Só disponível para a equipe.' }, { status: 403 });
+      }
+
+      const { messageId } = body;
+      if (!messageId) return NextResponse.json({ error: 'messageId é obrigatório' }, { status: 400 });
+
+      const msgRes = await query(
+        `SELECT m.id, m.acknowledged_at, p.role AS sender_role
+           FROM public.ticket_messages m
+           LEFT JOIN public.profiles p ON p.id = m.author_id
+          WHERE m.id = $1`,
+        [messageId]
+      );
+      if (msgRes.rowCount === 0) return NextResponse.json({ error: 'Mensagem não encontrada.' }, { status: 404 });
+      const msg = msgRes.rows[0];
+      if (msg.sender_role !== 'Cliente' && msg.sender_role !== 'Funcionário') {
+        return NextResponse.json({ error: 'Só mensagens do cliente podem ser marcadas como "Ciente".' }, { status: 400 });
+      }
+
+      const toggledOn = !msg.acknowledged_at;
+      const res = await query(
+        `UPDATE public.ticket_messages
+            SET acknowledged_at = $1, acknowledged_by = $2
+          WHERE id = $3
+          RETURNING acknowledged_at`,
+        [toggledOn ? new Date().toISOString() : null, toggledOn ? actor.id : null, messageId]
+      );
+      return NextResponse.json({
+        acknowledgedAt: res.rows[0].acknowledged_at,
+        acknowledgedByName: toggledOn ? actor.name : null
+      });
     }
 
     return NextResponse.json({ error: 'Action não suportada.' }, { status: 400 });

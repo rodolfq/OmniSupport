@@ -835,6 +835,28 @@ const loadMessages = async () => {
       setActiveTab('internal');
     };
 
+    // Botão "Ciente" (pedido do usuário, 2026-11-04): marca a mensagem do
+    // cliente como vista sem precisar responder de fato — tira o chamado do
+    // card "Chamados sem Resposta" do Dashboard (ex.: cliente só agradeceu).
+    // Toggle: clicar de novo desmarca. Otimista — reverte se a rota falhar.
+    const handleToggleAcknowledgeMessage = async (m: Message) => {
+      const wasAcknowledged = !!m.acknowledgedAt;
+      setMessages(prev => prev.map(msg => msg.id === m.id
+        ? { ...msg, acknowledgedAt: wasAcknowledged ? null : new Date().toISOString(), acknowledgedByName: wasAcknowledged ? null : (currentUser?.name || null) }
+        : msg
+      ));
+      try {
+        const result = await MessageService.acknowledge(m.id);
+        setMessages(prev => prev.map(msg => msg.id === m.id
+          ? { ...msg, acknowledgedAt: result.acknowledgedAt, acknowledgedByName: result.acknowledgedByName }
+          : msg
+        ));
+      } catch (err: any) {
+        setMessages(prev => prev.map(msg => msg.id === m.id ? { ...msg, acknowledgedAt: m.acknowledgedAt, acknowledgedByName: m.acknowledgedByName } : msg));
+        toast.error(err.message || 'Erro ao marcar como ciente.');
+      }
+    };
+
     // Sentido inverso: leva o texto/anexos de uma anotação do Ticket Interno
     // vinculado (painel "Anotações do Ticket Interno", aba do cadeado) pro
     // composer de resposta deste mesmo chamado — já é o mesmo modal/ticket,
@@ -2436,6 +2458,10 @@ const loadMessages = async () => {
                   const senderName = m.senderName || sender?.name || null;
                   const senderAvatarThumbUrl = m.senderAvatarThumbUrl || sender?.avatarThumbUrl;
                   const isNew = isNewSinceLastRead(m);
+                  // Botão "Ciente" (2026-11-04): só em mensagem do
+                  // cliente/funcionário, só pra quem vê o chamado como equipe.
+                  const isFromCustomer = m.senderRole === UserRole.CUSTOMER || m.senderRole === UserRole.EMPLOYEE;
+                  const canAcknowledge = isFromCustomer && !isCompanyUser;
 
                   return (
                     <div key={m.id} className={cn(
@@ -2463,15 +2489,41 @@ const loadMessages = async () => {
                             {isInternal && (
                               <span className="text-[8px] font-semibold px-1 py-0.5 bg-[var(--surface-warning)] text-[var(--text-warning)] rounded uppercase tracking-tighter">Interno</span>
                             )}
-                            {!isCustomer && hasPermission(Permission.INTERNAL_TICKETS_VIEW) && (
-                              <button
-                                type="button"
-                                onClick={() => handleCopyMessageToInternalTicket(m)}
-                                title="Copiar para Ticket Interno"
-                                className="ml-auto opacity-0 group-hover:opacity-100 transition-opacity p-1 rounded text-[var(--text-tertiary)] hover:text-[var(--text-warning)] hover:bg-[var(--surface-warning)] shrink-0"
-                              >
-                                <Copy size={12} />
-                              </button>
+                            {(canAcknowledge || (!isCustomer && hasPermission(Permission.INTERNAL_TICKETS_VIEW))) && (
+                              <div className="ml-auto flex items-center gap-1 shrink-0">
+                                {canAcknowledge && (
+                                  m.acknowledgedAt ? (
+                                    <button
+                                      type="button"
+                                      onClick={() => handleToggleAcknowledgeMessage(m)}
+                                      title={`Marcado como ciente${m.acknowledgedByName ? ` por ${m.acknowledgedByName}` : ''} — clique para desmarcar`}
+                                      className="flex items-center gap-1 px-1.5 py-0.5 rounded-full bg-[var(--surface-success)] text-[var(--text-success)] text-[9px] font-black uppercase tracking-tighter hover:opacity-80 transition-opacity"
+                                    >
+                                      <Check size={10} />
+                                      Ciente
+                                    </button>
+                                  ) : (
+                                    <button
+                                      type="button"
+                                      onClick={() => handleToggleAcknowledgeMessage(m)}
+                                      title='Marcar como "Ciente" — tira este chamado do card "Sem Resposta" sem precisar responder'
+                                      className="opacity-0 group-hover:opacity-100 transition-opacity p-1 rounded text-[var(--text-tertiary)] hover:text-[var(--text-success)] hover:bg-[var(--surface-success)]"
+                                    >
+                                      <Check size={12} />
+                                    </button>
+                                  )
+                                )}
+                                {!isCustomer && hasPermission(Permission.INTERNAL_TICKETS_VIEW) && (
+                                  <button
+                                    type="button"
+                                    onClick={() => handleCopyMessageToInternalTicket(m)}
+                                    title="Copiar para Ticket Interno"
+                                    className="opacity-0 group-hover:opacity-100 transition-opacity p-1 rounded text-[var(--text-tertiary)] hover:text-[var(--text-warning)] hover:bg-[var(--surface-warning)]"
+                                  >
+                                    <Copy size={12} />
+                                  </button>
+                                )}
+                              </div>
                             )}
                           </div>
 <div className={cn(
