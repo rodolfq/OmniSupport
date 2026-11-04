@@ -153,7 +153,14 @@ export function EditEmployeeModal({ isOpen, onClose, user, onSuccess }: { isOpen
   return (
     <AnimatePresence>
       {isOpen && user && (
-        <div className="fixed inset-0 z-[100] flex items-center justify-center p-4">
+        // z-[300], não z-[100]: este modal também é aberto de DENTRO do
+        // widget flutuante de chat ("Ver informações" > "Editar cadastro"),
+        // cujo próprio painel já usa até z-[250] — z-[100] deixava o modal
+        // renderizado atrás do widget (achado do usuário, 2026-11-03). Mesmo
+        // z-index que link-contact-modal.tsx já usa, por ser aberto do mesmo
+        // lugar. Na tela de Empresas (outro ponto de entrada) não há nada
+        // acima de z-[200] pra conflitar, então não regride nada lá.
+        <div className="fixed inset-0 z-[300] flex items-center justify-center p-4">
           <motion.div 
             initial={{ opacity: 0 }}
             animate={{ opacity: 1 }}
@@ -200,7 +207,6 @@ export function EditEmployeeModal({ isOpen, onClose, user, onSuccess }: { isOpen
                     onChange={(e) => setEmail(e.target.value)}
                     placeholder="email@empresa.com"
                     className="w-full bg-[var(--surface-card)] border border-[var(--border-default)] rounded-xl pl-12 pr-4 py-3 text-sm font-medium focus:ring-2 focus:ring-[var(--accent)]/20 focus:border-[var(--accent)] outline-none transition-all"
-                    required
                   />
                 </div>
               </div>
@@ -368,7 +374,7 @@ export function EditEmployeeModal({ isOpen, onClose, user, onSuccess }: { isOpen
           {/* Delete Confirmation Overlay */}
           <AnimatePresence>
             {showDeleteConfirm && (
-              <div className="absolute inset-0 z-[110] flex items-center justify-center p-6">
+              <div className="absolute inset-0 z-[310] flex items-center justify-center p-6">
                 <motion.div 
                   initial={{ opacity: 0 }}
                   animate={{ opacity: 1 }}

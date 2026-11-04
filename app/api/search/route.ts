@@ -5,13 +5,25 @@ import { getCurrentActionUser } from '@/lib/server-auth';
 
 // SQL de "SLA vencido" reutilizado pelo filtro slaOverdue (action=tickets) e
 // pela coluna "overdue" dos chips rápidos (action=quick-counts) — mantido
-// num só lugar pra não divergir entre lista e contagem.
+// num só lugar pra não divergir entre lista e contagem. O segundo NOT EXISTS
+// é a isenção por sub-status (pedido do usuário, 2026-11-03, "Ignora SLA" em
+// Configurações > Status — config_statuses.sla_exempt): chamado num
+// sub-status marcado assim nunca entra aqui, mesma regra de
+// lib/sla.ts (isTicketSlaExempt), só que em SQL pro filtro/contagem server-side.
 const SLA_OVERDUE_SQL = `EXISTS (
           SELECT 1
           FROM public.config_priorities cp
           WHERE cp.label = public.tickets.priority
             AND cp.sla_hours > 0
             AND public.tickets.created_at + make_interval(hours => cp.sla_hours) < NOW()
+        )
+        AND NOT EXISTS (
+          SELECT 1
+          FROM public.config_statuses cs
+          WHERE cs.scope = 'ticket'
+            AND cs.parent_status_id IS NOT NULL
+            AND cs.sla_exempt
+            AND cs.label = public.tickets.sub_status
         )`;
 
 // Status que encerram um chamado — inclui os cadastrados em Configurações >

@@ -107,21 +107,56 @@ export interface TicketSlaStatus {
 /** Vencimento + se já venceu/está perto de vencer — mesma janela de "perto
  * do vencimento" (4h) usada em toda tela que mostra esse aviso. Chamado
  * fechado nunca é tratado como vencido (quem chama decide se filtra fechado
- * antes; esta função só calcula a data, `isClosedTicketStatus` é de quem usa). */
+ * antes; esta função só calcula a data, `isClosedTicketStatus` é de quem usa).
+ * `exempt` (pedido do usuário, 2026-11-03): sub-status marcado "Ignora SLA"
+ * em Configurações > Status (`config_statuses.sla_exempt`) — o Vencimento
+ * continua calculado e exibido (é só informativo), mas nunca conta como
+ * vencido/perto de vencer enquanto o chamado estiver nesse sub-status. Quem
+ * chama decide o exempt via `isTicketSlaExempt` abaixo, mesma convenção de
+ * `isClosedTicketStatus`. */
 export function getTicketSlaStatus(
   createdAt: string,
   priorityLabel: string | null | undefined,
   priorities: TicketPriorityConfig[] | null | undefined,
-  now: Date = new Date()
+  now: Date = new Date(),
+  exempt: boolean = false
 ): TicketSlaStatus {
   const limit = computeTicketSlaLimit(createdAt, priorityLabel, priorities);
   if (!limit) return { limit: null, isOverdue: false, isNear: false };
+  if (exempt) return { limit, isOverdue: false, isNear: false };
   const diffMs = limit.getTime() - now.getTime();
   return {
     limit,
     isOverdue: diffMs < 0,
     isNear: diffMs > 0 && diffMs < 4 * 60 * 60 * 1000,
   };
+}
+
+// Status, como `getTicketSlaStatus` precisa pra achar o sub-status (só os
+// 3 campos que importam aqui — aceita tanto StatusConfig quanto a resposta
+// crua snake_case da API, pra não forçar normalização em quem só quer
+// checar isenção).
+export interface SlaExemptStatusLike {
+  label: string;
+  parentStatusId?: string | null;
+  parent_status_id?: string | null;
+  slaExempt?: boolean;
+  sla_exempt?: boolean;
+}
+
+/** O chamado está num sub-status marcado "Ignora SLA"? Sub-status é
+ * identificado por RÓTULO (igual o próprio `tickets.sub_status`, que não é
+ * FK) — por isso compara `label`, não id. */
+export function isTicketSlaExempt(
+  subStatusLabel: string | null | undefined,
+  statuses: SlaExemptStatusLike[] | null | undefined
+): boolean {
+  if (!subStatusLabel || !statuses?.length) return false;
+  return statuses.some(s =>
+    s.label === subStatusLabel &&
+    (s.parentStatusId ?? s.parent_status_id) &&
+    (s.slaExempt ?? s.sla_exempt)
+  );
 }
 
 // SLA de ticket interno: a prioridade (1-4) reflete o mesmo catálogo de

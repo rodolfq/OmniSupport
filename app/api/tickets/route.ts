@@ -339,7 +339,7 @@ export async function GET(request: NextRequest) {
       const [countRes, res] = await Promise.all([
         query(`SELECT COUNT(*)::int AS count FROM public.tickets WHERE company_id = $1`, [companyId]),
         query(
-          `SELECT id, public_ticket_number, title, status, priority, created_at
+          `SELECT id, public_ticket_number, title, status, priority, created_at, assignee_id
            FROM public.tickets
            WHERE company_id = $1
            ORDER BY (status = ANY($2)) ASC, created_at DESC
@@ -356,7 +356,8 @@ export async function GET(request: NextRequest) {
           title: t.title,
           status: t.status,
           priority: t.priority,
-          createdAt: t.created_at
+          createdAt: t.created_at,
+          assigneeId: t.assignee_id
         }))
       });
     }

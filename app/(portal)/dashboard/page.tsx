@@ -3,8 +3,9 @@
 import React, { useState, useEffect, useMemo, useRef } from 'react';
 import { Ticket as TicketType, TicketStatus, UserRole, TicketPriority, Permission, InternalTicket } from '@/lib/types';
 import { fetchAllTickets } from '@/lib/tickets';
+import { TicketService } from '@/lib/services/ticket-service';
 import { isClosedTicketStatus, isInProgressTicketStatus } from '@/lib/ticket-status';
-import { getTicketSlaStatus } from '@/lib/sla';
+import { getTicketSlaStatus, isTicketSlaExempt } from '@/lib/sla';
 import { fetchStatuses, ConfigService } from '@/lib/services/config-service';
 import { useProfilesLiteQuery, useConfigPrioritiesQuery } from '@/lib/query-hooks';
 import { UserAvatar } from '@/components/user-avatar';
@@ -338,12 +339,30 @@ export default function DashboardPage() {
         setStatuses(loadedStatuses || []);
         setLoading(false);
     
-        // Auto-open ticket from URL param
+        // Auto-open ticket from URL param — é o destino de /tickets/<id|número>
+        // (app/(portal)/tickets/[id]/page.tsx, usado pelo link de "Chamados"
+        // na tela de Empresas e por notificação/e-mail). `tickets` aqui é só
+        // a lista do board (fetchAllTickets sem includeClosed), que exclui
+        // chamado FECHADO de propósito — um chamado encerrado (comum em
+        // "Chamados" de uma empresa, histórico) nunca estava nela, e o
+        // `.find` silenciosamente não achava nada: a página só "ficava" no
+        // Dashboard, sem abrir nada e sem erro (achado do usuário, 2026-11-03).
+        // Corrigido buscando-o direto por id quando não está no lote já
+        // carregado, em vez de depender de ele ter sobrado no board.
         const ticketId = searchParams?.get('ticket');
         if (ticketId) {
           const ticket = tickets.find(t => t.id === ticketId);
           if (ticket) {
             setSelectedTicket(ticket);
+          } else {
+            TicketService.getById(ticketId, controller.signal)
+              .then((fetched) => {
+                if (fetched) setSelectedTicket(fetched);
+                else toast.error('Chamado não encontrado ou sem permissão para vê-lo.');
+              })
+              .catch((err) => {
+                if (err?.name !== 'AbortError') console.error('Error auto-opening ticket from URL:', err);
+              });
           }
         }
       } catch (err: any) {
@@ -445,7 +464,7 @@ export default function DashboardPage() {
       .filter(t => visibleStatuses.has(t.status))
       .map(t => {
         const config = priorities.find(p => p.label === t.priority);
-        const { limit: slaLimit, isOverdue } = getTicketSlaStatus(t.createdAt, t.priority, priorities, now);
+        const { limit: slaLimit, isOverdue } = getTicketSlaStatus(t.createdAt, t.priority, priorities, now, isTicketSlaExempt(t.subStatus, statuses));
         const isNear = !!slaLimit && !isOverdue && (slaLimit.getTime() - now.getTime() < 4 * 60 * 60 * 1000);
         const tier = isOverdue ? 0 : isNear ? 1 : 2;
         // sla_hours do config da prioridade: quanto menor, mais urgente —
@@ -485,16 +504,16 @@ export default function DashboardPage() {
     const unassigned = allTickets.filter(t => t.status === TicketStatus.NEW && !t.assigneeId).length;
     const allActive = allTickets.filter(t => !isClosedTicketStatus(t.status));
     
-    const overdue = allActive.filter(t => getTicketSlaStatus(t.createdAt, t.priority, priorities, now).isOverdue).length;
+    const overdue = allActive.filter(t => getTicketSlaStatus(t.createdAt, t.priority, priorities, now, isTicketSlaExempt(t.subStatus, statuses)).isOverdue).length;
 
-    const nearExpiry = allActive.filter(t => getTicketSlaStatus(t.createdAt, t.priority, priorities, now).isNear).length;
+    const nearExpiry = allActive.filter(t => getTicketSlaStatus(t.createdAt, t.priority, priorities, now, isTicketSlaExempt(t.subStatus, statuses)).isNear).length;
 
     const inProgress = filteredTickets.filter(t => isInProgressTicketStatus(t.status)).length;
     const closed = filteredTickets.filter(t => isClosedTicketStatus(t.status)).length;
     const analystTickets = filteredTickets.filter(t => t.assigneeId === currentUser?.id).length;
 
     return { total, overdue, nearExpiry, inProgress, closed, unassigned, analystTickets };
-  }, [filteredTickets, allTickets, currentUser, priorities]);
+  }, [filteredTickets, allTickets, currentUser, priorities, statuses]);
 
   const groupedTickets = useMemo(() => {
     const groups: { [key: string]: TicketType[] } = {};
@@ -711,19 +730,19 @@ export default function DashboardPage() {
           </div>
           <div className="grid grid-cols-1 lg:grid-cols-4 gap-4">
             {/* Lista de Vencidos */}
-            <PriorityList 
-              title="SLA Vencido" 
-              tickets={allTickets.filter(t => !isClosedTicketStatus(t.status) && getTicketSlaStatus(t.createdAt, t.priority, priorities).isOverdue)}
+            <PriorityList
+              title="SLA Vencido"
+              tickets={allTickets.filter(t => !isClosedTicketStatus(t.status) && getTicketSlaStatus(t.createdAt, t.priority, priorities, undefined, isTicketSlaExempt(t.subStatus, statuses)).isOverdue)}
               color="rose"
               onSelect={setSelectedTicket}
               priorities={priorities}
               users={users}
             />
-            
+
             {/* Lista de Próximos do Vencimento */}
-            <PriorityList 
-              title="Próximos do Vencimento" 
-              tickets={allTickets.filter(t => !isClosedTicketStatus(t.status) && getTicketSlaStatus(t.createdAt, t.priority, priorities).isNear)}
+            <PriorityList
+              title="Próximos do Vencimento"
+              tickets={allTickets.filter(t => !isClosedTicketStatus(t.status) && getTicketSlaStatus(t.createdAt, t.priority, priorities, undefined, isTicketSlaExempt(t.subStatus, statuses)).isNear)}
               color="orange"
               onSelect={setSelectedTicket}
               priorities={priorities}
@@ -906,6 +925,7 @@ export default function DashboardPage() {
                   hasMore={hasMore}
                   remaining={colTickets.length - 20}
                   availablePriorities={priorities}
+                  statuses={statuses}
                   users={users}
                   onSelect={setSelectedTicket}
                   onSeeMore={() => router.push(`/tickets?status=${col.status}`)}
@@ -915,7 +935,7 @@ export default function DashboardPage() {
           </div>
           <DragOverlay dropAnimation={{ duration: 180, easing: 'cubic-bezier(0.18, 0.67, 0.6, 1.22)' }}>
             {activeDashboardTicket && (
-              <TicketCard ticket={activeDashboardTicket} availablePriorities={priorities} users={users} onClick={() => {}} dragging />
+              <TicketCard ticket={activeDashboardTicket} availablePriorities={priorities} statuses={statuses} users={users} onClick={() => {}} dragging />
             )}
           </DragOverlay>
         </DndContext>
@@ -1469,6 +1489,7 @@ function DashboardTicketKanbanColumn({
   hasMore,
   remaining,
   availablePriorities,
+  statuses,
   users,
   onSelect,
   onSeeMore,
@@ -1480,6 +1501,7 @@ function DashboardTicketKanbanColumn({
   hasMore: boolean;
   remaining: number;
   availablePriorities: any[];
+  statuses: any[];
   users: any[];
   onSelect: (t: TicketType) => void;
   onSeeMore: () => void;
@@ -1514,6 +1536,7 @@ function DashboardTicketKanbanColumn({
             key={ticket.id}
             ticket={ticket}
             availablePriorities={availablePriorities}
+            statuses={statuses}
             users={users}
             onClick={() => onSelect(ticket)}
           />
@@ -1536,7 +1559,7 @@ function DashboardTicketKanbanColumn({
   );
 }
 
-function DraggableDashboardTicketCard({ ticket, availablePriorities, users, onClick }: { ticket: TicketType; availablePriorities: any[]; users: any[]; onClick: () => void }) {
+function DraggableDashboardTicketCard({ ticket, availablePriorities, statuses, users, onClick }: { ticket: TicketType; availablePriorities: any[]; statuses: any[]; users: any[]; onClick: () => void }) {
   const { attributes, listeners, setNodeRef, transform, isDragging } = useDraggable({ id: ticket.id });
   return (
     <div
@@ -1546,12 +1569,12 @@ function DraggableDashboardTicketCard({ ticket, availablePriorities, users, onCl
       style={{ transform: transform ? `translate3d(${transform.x}px, ${transform.y}px, 0)` : undefined, opacity: isDragging ? 0.4 : 1 }}
       className="touch-none"
     >
-      <TicketCard ticket={ticket} availablePriorities={availablePriorities} users={users} onClick={onClick} />
+      <TicketCard ticket={ticket} availablePriorities={availablePriorities} statuses={statuses} users={users} onClick={onClick} />
     </div>
   );
 }
 
-function TicketCard({ ticket, availablePriorities, users, onClick, dragging = false }: { ticket: TicketType, availablePriorities: any[], users: any[], onClick: () => void, dragging?: boolean }) {
+function TicketCard({ ticket, availablePriorities, statuses, users, onClick, dragging = false }: { ticket: TicketType, availablePriorities: any[], statuses?: any[], users: any[], onClick: () => void, dragging?: boolean }) {
   const priorityConfig = availablePriorities.find(p => p.label === ticket.priority) || 
                        availablePriorities.find(p => p.label === 'Baixa') || 
                        availablePriorities[0];
@@ -1568,8 +1591,8 @@ function TicketCard({ ticket, availablePriorities, users, onClick, dragging = fa
   // cadastrada; não deveria inventar um Vencimento que a lista/detalhe do
   // chamado não mostrariam nesse mesmo caso).
   const { limit: slaLimit, isOverdue: isOverdueRaw } = useMemo(
-    () => getTicketSlaStatus(ticket.createdAt, ticket.priority, availablePriorities, now),
-    [ticket.createdAt, ticket.priority, availablePriorities]
+    () => getTicketSlaStatus(ticket.createdAt, ticket.priority, availablePriorities, now, isTicketSlaExempt(ticket.subStatus, statuses)),
+    [ticket.createdAt, ticket.priority, availablePriorities, ticket.subStatus, statuses]
   );
   const isOverdue = isOverdueRaw && !isClosedTicketStatus(ticket.status);
   const isNear = slaLimit && !isOverdue && (slaLimit.getTime() - now.getTime() < 4 * 60 * 60 * 1000) && !isClosedTicketStatus(ticket.status);

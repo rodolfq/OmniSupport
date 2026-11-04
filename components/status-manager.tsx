@@ -143,6 +143,20 @@ export function StatusManager({ allowedScopes }: StatusManagerProps = {}) {
     }
   };
 
+  // "Não conta SLA vencido" — só em SUB-status (pedido do usuário, 2026-11-03),
+  // mesmo padrão de handleToggleClosed, mas pra `sla_exempt`. O servidor já
+  // ignora a flag se o status for de topo (sem parentStatusId), então nem
+  // precisa checar isso aqui — só existe botão pra sub-status mesmo.
+  const handleToggleSlaExempt = async (status: StatusConfig) => {
+    if (!isAdmin) return;
+    try {
+      const updated = await ConfigService.saveStatus({ ...status, scope, slaExempt: !status.slaExempt });
+      setStatuses(prev => prev.map(s => s.id === status.id ? updated : s));
+    } catch {
+      toast.error('Erro ao atualizar status.');
+    }
+  };
+
   // Renomear status ou sub-status. O servidor migra, na mesma transação, toda
   // coluna de texto que guarda esse rótulo (chamados, sub-status, tickets
   // internos e o gatilho das mensagens automáticas) — config_statuses é
@@ -317,8 +331,10 @@ export function StatusManager({ allowedScopes }: StatusManagerProps = {}) {
                   isAdmin={isAdmin}
                   children={childrenOf(status.id)}
                   expanded={expanded.has(status.id)}
+                  showSlaExempt={scope === 'ticket'}
                   onToggleExpanded={() => toggleExpanded(status.id)}
                   onToggleClosed={() => handleToggleClosed(status)}
+                  onToggleChildSlaExempt={handleToggleSlaExempt}
                   onDelete={() => handleDelete(status)}
                   onDeleteChild={(child) => handleDelete(child)}
                   onRename={handleRename}
@@ -343,7 +359,7 @@ export function StatusManager({ allowedScopes }: StatusManagerProps = {}) {
           <h4 className="text-sm font-black text-indigo-900 dark:text-[var(--accent-soft-text)] uppercase tracking-tight">Como funciona</h4>
           <p className="text-[10px] text-[var(--accent-text)] font-medium leading-relaxed uppercase tracking-widest">
             "Concluído" é fixo e sempre finaliza o chamado. Outros status também podem finalizar — marque "finaliza o chamado" ao cadastrar.
-            Sub-status são só uma etiqueta informativa dentro do status pai (não mudam coluna do kanban nem SLA). Arraste pela alça pra reordenar.
+            Sub-status são uma etiqueta informativa dentro do status pai (não mudam coluna do kanban) — mas marcar &quot;Ignora SLA&quot; num sub-status tira o chamado da contagem de SLA vencido enquanto ele estiver nele. Arraste pela alça pra reordenar.
           </p>
         </div>
       </div>
@@ -365,7 +381,7 @@ export function StatusManager({ allowedScopes }: StatusManagerProps = {}) {
 }
 
 function StatusRow({
-  status, color, isAdmin, children, expanded, onToggleExpanded, onToggleClosed, onDelete, onDeleteChild, onRename,
+  status, color, isAdmin, children, expanded, showSlaExempt, onToggleExpanded, onToggleClosed, onToggleChildSlaExempt, onDelete, onDeleteChild, onRename,
   addingSub, onStartAddSub, newSubLabel, onChangeSubLabel, onConfirmAddSub, onCancelAddSub,
 }: {
   status: StatusConfig;
@@ -373,8 +389,12 @@ function StatusRow({
   isAdmin: boolean;
   children: StatusConfig[];
   expanded: boolean;
+  // Só escopo 'ticket' mostra o checkbox de SLA nos sub-status — ticket
+  // interno não tem esse conceito de "SLA vencido" configurável por status.
+  showSlaExempt: boolean;
   onToggleExpanded: () => void;
   onToggleClosed: () => void;
+  onToggleChildSlaExempt: (child: StatusConfig) => void;
   onDelete: () => void;
   onDeleteChild: (child: StatusConfig) => void;
   // Serve tanto pro status pai quanto pro sub-status — por isso recebe qual.
@@ -473,8 +493,23 @@ function StatusRow({
                 className="text-xs font-bold text-[var(--text-secondary)]"
                 inputClassName="text-xs font-bold"
               />
+              {showSlaExempt && (
+                <label
+                  className={cn("ml-auto flex items-center gap-1.5 text-[9px] font-black uppercase tracking-widest shrink-0", isAdmin ? "text-[var(--text-secondary)] cursor-pointer" : "text-[var(--text-tertiary)]")}
+                  title='Chamado neste sub-status nunca conta como SLA vencido (Dashboard, chip "Atrasadas")'
+                >
+                  <input
+                    type="checkbox"
+                    checked={!!child.slaExempt}
+                    disabled={!isAdmin}
+                    onChange={() => onToggleChildSlaExempt(child)}
+                    className="rounded border-[var(--border-default)] text-[var(--accent-text)] focus:ring-[var(--accent)] disabled:opacity-50"
+                  />
+                  Ignora SLA
+                </label>
+              )}
               {isAdmin && (
-                <button onClick={() => onDeleteChild(child)} className="ml-auto p-1 text-[var(--text-tertiary)] hover:text-[var(--text-danger)] transition-all">
+                <button onClick={() => onDeleteChild(child)} className={cn("p-1 text-[var(--text-tertiary)] hover:text-[var(--text-danger)] transition-all", !showSlaExempt && "ml-auto")}>
                   <Trash2 size={12} />
                 </button>
               )}

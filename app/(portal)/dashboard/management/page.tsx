@@ -166,11 +166,13 @@ export default function DashboardManagementPage() {
   // janela de tempo própria no servidor (ignoram period/startDate/endDate),
   // mas ainda respeitam fila/instância/empresa — por isso os 5 reagem ao
   // mesmo filterQs.
-  const kpis = useReportFetch<KpisResponse>(DASHBOARD_ENDPOINT, 'kpis', filterQs, ready);
-  const trend = useReportFetch<TrendResponse>(DASHBOARD_ENDPOINT, 'trend', filterQs, true);
-  const comparison = useReportFetch<ComparisonResponse>(DASHBOARD_ENDPOINT, 'comparison', filterQs, true);
-  const loadByHour = useReportFetch<LoadByHourResponse>(DASHBOARD_ENDPOINT, 'load-by-hour', filterQs, ready);
-  const alerts = useReportFetch<AlertsResponse>(DASHBOARD_ENDPOINT, 'alerts', filterQs, ready);
+  // poll: false — a atualização automática (2026-11-03) foi pedida só para
+  // as telas de /reports; esta tela (/dashboard/management) fica de fora.
+  const kpis = useReportFetch<KpisResponse>(DASHBOARD_ENDPOINT, 'kpis', filterQs, ready, '', false);
+  const trend = useReportFetch<TrendResponse>(DASHBOARD_ENDPOINT, 'trend', filterQs, true, '', false);
+  const comparison = useReportFetch<ComparisonResponse>(DASHBOARD_ENDPOINT, 'comparison', filterQs, true, '', false);
+  const loadByHour = useReportFetch<LoadByHourResponse>(DASHBOARD_ENDPOINT, 'load-by-hour', filterQs, ready, '', false);
+  const alerts = useReportFetch<AlertsResponse>(DASHBOARD_ENDPOINT, 'alerts', filterQs, ready, '', false);
 
   const kpisExport: ReportExportConfig = useMemo(() => ({
     title: 'KPIs',

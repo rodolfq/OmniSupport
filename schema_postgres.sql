@@ -236,6 +236,9 @@ CREATE TABLE public.config_statuses (
   is_closed BOOLEAN NOT NULL DEFAULT false,
   sort_order INTEGER NOT NULL DEFAULT 0,
   parent_status_id UUID REFERENCES public.config_statuses(id) ON DELETE CASCADE,
+  -- "Não conta como SLA vencido" — só tem efeito em sub-status (parent_status_id
+  -- preenchido); gravado sempre false num status de topo. Ver migrations/config_statuses_sla_exempt.sql.
+  sla_exempt BOOLEAN NOT NULL DEFAULT false,
   created_at TIMESTAMP WITH TIME ZONE DEFAULT now() NOT NULL,
   UNIQUE (label, scope)
 );

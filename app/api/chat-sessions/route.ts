@@ -548,15 +548,26 @@ export async function POST(request: Request) {
         // reorganização de 2026-10-28; era a principal solta "Atualização de
         // Chamado" antes disso — pedido original do usuário, 2026-10-27) na
         // conversa — se a tag tiver sido apagada do cadastro, só não marca
-        // (nunca impede o vínculo por isso).
+        // (nunca impede o vínculo por isso). A subtag sozinha, sem a
+        // principal "Chamado" junto, deixava a conversa na mesma situação que
+        // a regra de tag obrigatória ao encerrar (2026-10-21) proíbe de
+        // propósito pra quem marca na mão — achado do usuário, 2026-11-03:
+        // vincular pelo menu de 3 pontinhos marcava só "Atualização", sem o
+        // pai. Busca os dois de uma vez (principal pelo id do `parent_tag_id`
+        // da subtag, não por rótulo — mais direto que um 2º SELECT por label
+        // "Chamado").
         const updateTagRes = await client.query(
-          `SELECT id FROM public.config_tags WHERE domain = 'chat' AND label = 'Atualização' AND parent_tag_id IS NOT NULL LIMIT 1`
+          `SELECT id, parent_tag_id FROM public.config_tags WHERE domain = 'chat' AND label = 'Atualização' AND parent_tag_id IS NOT NULL LIMIT 1`
         );
         const updateTagId = updateTagRes.rows[0]?.id;
-        if (updateTagId) {
+        const chamadoTagId = updateTagRes.rows[0]?.parent_tag_id;
+        const autoTagIds = [chamadoTagId, updateTagId].filter(Boolean).map(String);
+        if (autoTagIds.length > 0) {
           await client.query(
-            `UPDATE public.chat_sessions SET tags = CASE WHEN $1::text = ANY(tags) THEN tags ELSE array_append(tags, $1::text) END WHERE id = $2`,
-            [String(updateTagId), session.id]
+            `UPDATE public.chat_sessions SET tags = (
+               SELECT array_agg(DISTINCT t) FROM unnest(tags || $1::text[]) AS t
+             ) WHERE id = $2`,
+            [autoTagIds, session.id]
           );
         }
         await client.query('COMMIT');

@@ -237,6 +237,11 @@ export default function CompanyDetailPage() {
                   <p className="text-sm font-bold text-[var(--text-primary)] truncate mb-1">{t.title}</p>
                   <p className="text-[10px] text-[var(--text-tertiary)] font-medium">
                     {t.priority} · <ClientTime date={t.createdAt} showDate showTime />
+                    {/* internalUsers só é carregado pra Equipe/Administrador/Time
+                        Interno (ver efeito acima) — Cliente/Funcionário nunca tem
+                        como resolver o nome, então nem mostra a linha pra não
+                        aparecer sempre "Sem responsável" à toa. */}
+                    {!isCompanyPortalUser && ` · ${resolveInternalUser(t.assigneeId)?.name || 'Sem responsável'}`}
                   </p>
                 </a>
               ))

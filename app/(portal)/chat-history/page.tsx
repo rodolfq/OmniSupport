@@ -18,7 +18,7 @@ import { StartWhatsAppConversationModal } from '@/components/start-whatsapp-conv
 import { useAutoTranscribeMissingAudio } from '@/hooks/use-auto-transcribe-missing-audio';
 import {
   Search, Clock, User, MessageSquare, ThumbsUp, ThumbsDown, Minus, Filter,
-  ChevronDown, X, FileText, FileDown, Archive, Ticket as TicketIcon, Building2,
+  X, FileText, FileDown, Archive, Ticket as TicketIcon, Building2,
   GripVertical, Columns3, CheckSquare, Square, Shield, Sparkles, RotateCcw, Link2, MessageCircle, RefreshCw, GraduationCap, Loader2
 } from 'lucide-react';
 import { cn, normalizeBrazilianPhoneDigits } from '@/lib/utils';
@@ -1058,7 +1058,6 @@ export default function ChatHistoryPage() {
                 <option key={c.id} value={c.id}>{c.name}</option>
               ))}
             </StyledSelect>
-            <ChevronDown size={14} className="absolute right-2 top-1/2 -translate-y-1/2 text-[var(--text-tertiary)] pointer-events-none" />
           </div>
 
           <div className="relative">
@@ -1073,7 +1072,6 @@ export default function ChatHistoryPage() {
                 <option key={u.id} value={u.id}>{u.name || u.email}</option>
               ))}
             </StyledSelect>
-            <ChevronDown size={14} className="absolute right-2 top-1/2 -translate-y-1/2 text-[var(--text-tertiary)] pointer-events-none" />
           </div>
 
           <div className="relative">
@@ -1088,7 +1086,6 @@ export default function ChatHistoryPage() {
                 <option key={u.id} value={u.id}>{u.name || u.email}</option>
               ))}
             </StyledSelect>
-            <ChevronDown size={14} className="absolute right-2 top-1/2 -translate-y-1/2 text-[var(--text-tertiary)] pointer-events-none" />
           </div>
 
           <div className="relative">
@@ -1103,7 +1100,6 @@ export default function ChatHistoryPage() {
                 <option key={q.id} value={q.id}>{q.name}</option>
               ))}
             </StyledSelect>
-            <ChevronDown size={14} className="absolute right-2 top-1/2 -translate-y-1/2 text-[var(--text-tertiary)] pointer-events-none" />
           </div>
         </div>
 

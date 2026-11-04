@@ -12,12 +12,12 @@ import {
 } from "@/lib/types";
 import { useRouter } from "next/navigation";
 import { useQueryClient } from "@tanstack/react-query";
-import { prefetchTicketModalReferenceData, useProfilesLiteQuery, useConfigPrioritiesQuery } from "@/lib/query-hooks";
+import { prefetchTicketModalReferenceData, useProfilesLiteQuery, useConfigPrioritiesQuery, useConfigStatusesQuery } from "@/lib/query-hooks";
 import { TicketService } from "@/lib/services/ticket-service";
 
 import { SearchFilters, searchTickets, getQuickFilterCounts, QuickFilterCounts } from "@/lib/search";
 import { isClosedTicketStatus, isInProgressTicketStatus } from "@/lib/ticket-status";
-import { getTicketSlaStatus } from "@/lib/sla";
+import { getTicketSlaStatus, isTicketSlaExempt } from "@/lib/sla";
 import { mergeTickets } from "@/lib/services/chat-session-actions";
 import { ConfigService } from "@/lib/services/config-service";
 import { findStatusColor } from "@/lib/status-colors";
@@ -284,6 +284,13 @@ export function TicketsView({
   // vez de só encurtar a janela de desatualização (2026-10-14).
   const prioritiesQuery = useConfigPrioritiesQuery();
   const priorities = (prioritiesQuery.data as any[]) || [];
+  // Lista COMPLETA de status (inclusive sub-status, com `slaExempt`) — mesmo
+  // cache de react-query que o resto da tela já usa pra outras configs, só
+  // pra checar isenção de SLA por sub-status (ver lib/sla.ts,
+  // isTicketSlaExempt). `kanbanStatuses` abaixo é um recorte à parte, só com
+  // os status de TOPO e já no formato do board — não serve pra isso.
+  const allStatusesQuery = useConfigStatusesQuery('ticket');
+  const allStatuses = (allStatusesQuery.data as any[]) || [];
   const [companies, setCompanies] = useState<any[]>([]);
   const [queues, setQueues] = useState<any[]>([]);
   // Só usado pra achar nome/iniciais do responsável (nunca avatar, ver uso
@@ -298,6 +305,19 @@ export function TicketsView({
   const users = useMemo(() => (usersLiteData || []) as any[], [usersLiteData]);
   const lastAutomaticRequestKeyRef = useRef('');
   const referenceDataUserIdRef = useRef('');
+  // Guard de ordem pro `loadTickets()` — mesmo padrão de
+  // `sessionsReloadSeqRef` em chat-widget.tsx. Sem isso, digitar rápido na
+  // busca (cada tecla reseta o debounce de 300ms de ModernSearchBar, mas
+  // chamadas de rede já disparadas continuam correndo) deixava uma resposta
+  // MAIS ANTIGA (ex.: busca por "58", larga, casa muita coisa) sobrescrever
+  // uma resposta MAIS NOVA que já tinha voltado (ex.: busca final "5837",
+  // estreita) se a antiga demorasse mais pra responder — a Tabela/Kanban
+  // ficava mostrando um resultado velho e sem relação com o texto digitado,
+  // enquanto os chips de contagem (protegidos por cleanup de useEffect)
+  // já mostravam o número certo. `loadTickets` é chamado em vários pontos
+  // (efeito de busca, após cada ação em lote) — o guard mora na própria
+  // função pra proteger todos eles de uma vez.
+  const ticketsFetchSeqRef = useRef(0);
 
   // Trocar responsável direto na lista usa a mesma permissão da edição de
   // chamado — é a mesma escrita, só que sem abrir o registro.
@@ -377,6 +397,7 @@ export function TicketsView({
 
   const loadTickets = async () => {
     if (!currentUser) return;
+    const seq = ++ticketsFetchSeqRef.current;
     setLoading(true);
     try {
       // Escopo por papel (Cliente só vê a própria empresa; quem não tem
@@ -392,13 +413,16 @@ export function TicketsView({
         ? await searchTickets(effectiveFilters, 1, kanbanPageSize)
         : await searchTickets(effectiveFilters, currentPage, pageSize);
 
+      // Só aplica se ainda for o pedido mais recente — ver comentário no
+      // `ticketsFetchSeqRef` acima.
+      if (seq !== ticketsFetchSeqRef.current) return;
       setFilteredTickets(result.tickets);
       setTotalCount(result.total);
       setTotalPages(Math.ceil(result.total / pageSize));
     } catch (error) {
       console.error("Error loading tickets:", error);
     } finally {
-      setLoading(false);
+      if (seq === ticketsFetchSeqRef.current) setLoading(false);
     }
   };
 
@@ -842,7 +866,7 @@ export function TicketsView({
   }, [currentPage, totalPages]);
 
   const getSLAStatus = (ticket: Ticket) => {
-    const { limit, isOverdue, isNear } = getTicketSlaStatus(ticket.createdAt, ticket.priority, priorities);
+    const { limit, isOverdue, isNear } = getTicketSlaStatus(ticket.createdAt, ticket.priority, priorities, undefined, isTicketSlaExempt(ticket.subStatus, allStatuses));
     if (!limit) return { label: "---", color: "text-[var(--text-tertiary)]", isOverdue: false };
 
     return {

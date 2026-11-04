@@ -654,28 +654,36 @@ export async function POST(request: Request) {
         const label = isProtected ? 'Concluído' : status.label;
         const isClosed = isProtected ? true : !!status.isClosed;
         const parentStatusId = status.parentStatusId || null;
+        // "Não conta como SLA vencido" — só faz sentido pra SUB-status (pedido
+        // do usuário, 2026-11-03: checkbox igual ao "Finaliza", mas só pras
+        // subtags). Sem `parentStatusId` (status de topo) a flag é ignorada,
+        // gravada sempre false — não existe "status principal isento de SLA"
+        // neste pedido, e permitir confundiria com "Finaliza" (que já tira o
+        // chamado do cálculo de SLA de outro jeito).
+        const slaExempt = parentStatusId ? !!status.slaExempt : false;
 
         let res;
         if (id) {
           res = await query(
-            `INSERT INTO public.config_statuses (id, label, color, scope, is_closed, sort_order, parent_status_id)
-             VALUES ($1, $2, $3, $4, $5, $6, $7)
+            `INSERT INTO public.config_statuses (id, label, color, scope, is_closed, sort_order, parent_status_id, sla_exempt)
+             VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
              ON CONFLICT (id) DO UPDATE SET
                label = EXCLUDED.label,
                color = EXCLUDED.color,
                scope = EXCLUDED.scope,
                is_closed = EXCLUDED.is_closed,
                sort_order = EXCLUDED.sort_order,
-               parent_status_id = EXCLUDED.parent_status_id
+               parent_status_id = EXCLUDED.parent_status_id,
+               sla_exempt = EXCLUDED.sla_exempt
              RETURNING *`,
-            [id, label, status.color, status.scope, isClosed, status.sortOrder ?? 0, parentStatusId]
+            [id, label, status.color, status.scope, isClosed, status.sortOrder ?? 0, parentStatusId, slaExempt]
           );
         } else {
           res = await query(
-            `INSERT INTO public.config_statuses (label, color, scope, is_closed, sort_order, parent_status_id)
-             VALUES ($1, $2, $3, $4, $5, $6)
+            `INSERT INTO public.config_statuses (label, color, scope, is_closed, sort_order, parent_status_id, sla_exempt)
+             VALUES ($1, $2, $3, $4, $5, $6, $7)
              RETURNING *`,
-            [label, status.color, status.scope, isClosed, status.sortOrder ?? 0, parentStatusId]
+            [label, status.color, status.scope, isClosed, status.sortOrder ?? 0, parentStatusId, slaExempt]
           );
         }
         return NextResponse.json(res.rows[0]);

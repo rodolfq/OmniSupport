@@ -210,6 +210,7 @@ export class ConfigService {
       isClosed: s.isClosed ?? s.is_closed ?? false,
       sortOrder: s.sortOrder ?? s.sort_order ?? 0,
       parentStatusId: s.parentStatusId ?? s.parent_status_id ?? null,
+      slaExempt: s.slaExempt ?? s.sla_exempt ?? false,
     }));
     registerClosedStatusLabels(normalized);
     return normalized;
@@ -230,6 +231,7 @@ export class ConfigService {
           isClosed: status.isClosed,
           sortOrder: status.sortOrder,
           parentStatusId: status.parentStatusId ?? null,
+          slaExempt: status.slaExempt,
         }
       })
     });
@@ -244,6 +246,7 @@ export class ConfigService {
       isClosed: saved.isClosed ?? saved.is_closed ?? false,
       sortOrder: saved.sortOrder ?? saved.sort_order ?? 0,
       parentStatusId: saved.parentStatusId ?? saved.parent_status_id ?? null,
+      slaExempt: saved.slaExempt ?? saved.sla_exempt ?? false,
     };
   }
 

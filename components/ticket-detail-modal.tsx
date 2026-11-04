@@ -16,6 +16,7 @@ import { RichEditor } from './rich-editor';
 import { AttachmentGallery, AttachmentPreviewModal, AttachmentChipThumb, isImageAttachment, openAttachmentInNewTab } from './attachment-gallery';
 import { LinkInternalTicketModal } from './link-internal-ticket-modal';
 import { LinkSessionToTicketModal } from './link-session-to-ticket-modal';
+import { StartWhatsAppConversationModal } from './start-whatsapp-conversation-modal';
 import { ChatAttachmentList } from './chat-attachment-list';
 import { ConfirmDialog } from './confirm-dialog';
 import { ClientTime } from './client-time';
@@ -32,7 +33,7 @@ import {
   useConfigRequestTypesQuery, useConfigProductsQuery, useConfigPrioritiesQuery, useInternalTeamsQuery, useQueuesQuery
 } from '@/lib/query-hooks';
 import { isClosedTicketStatus, registerClosedStatusLabels, getCustomerStatusLabel } from '@/lib/ticket-status';
-import { getTicketSlaStatus } from '@/lib/sla';
+import { getTicketSlaStatus, isTicketSlaExempt } from '@/lib/sla';
 import { FieldChange, formatChangeMessage } from '@/lib/ticket-diff';
 import { uploadAttachment } from '@/lib/attachment-upload';
 import { splitAttachmentsByBudget, MAX_ATTACHMENT_TOTAL_LABEL } from '@/lib/attachment-limits';
@@ -68,7 +69,7 @@ function internalStatusMeta(status?: string | null) {
 
 export function TicketDetailModal({ ticket, onClose, initialDraft }: TicketDetailModalProps) {
   const scrollRef = useRef<HTMLDivElement>(null);
-  const { currentUser, hasPermission, triggerRefresh, suppressTicketAssignedNotification, notifications, markTicketNotificationsRead } = useApp();
+  const { currentUser, hasPermission, triggerRefresh, suppressTicketAssignedNotification, notifications, markTicketNotificationsRead, userStatus, setActiveOmniChatId, setIsOmniChatOpen } = useApp();
   const isCustomer = currentUser?.role === UserRole.CUSTOMER;
   // Funcionário também não deve ver o detalhe interno do chamado — antes só
   // Cliente caía neste resumo simplificado, e Funcionário (sem tickets:read)
@@ -129,6 +130,11 @@ export function TicketDetailModal({ ticket, onClose, initialDraft }: TicketDetai
   // aparecer já no momento em que a primeira conversa é vinculada.
   const [isLinkSessionOpen, setIsLinkSessionOpen] = useState(false);
   const [justLinkedSession, setJustLinkedSession] = useState(false);
+  // "Iniciar conversa" com o contato de UMA conversa vinculada específica —
+  // guarda nome/telefone (não é por sessão aberta: dá pra disparar tanto da
+  // linha da lista quanto de dentro do histórico aberto de uma delas) e abre
+  // StartWhatsAppConversationModal igual ao mesmo botão em chat-history/page.tsx.
+  const [startConversationTarget, setStartConversationTarget] = useState<{ phone: string; name: string } | null>(null);
   const [chatSessionData, setChatSessionData] = useState<SessionMessagesResult | null>(null);
   const [isLoadingChatSession, setIsLoadingChatSession] = useState(false);
   // Corte de "não lido" pra este chamado (ver efeito de markTicketNotificationsRead
@@ -593,6 +599,22 @@ const loadMessages = async () => {
    const closeLinkedSession = () => {
      setOpenedSessionId(null);
      setChatSessionData(null);
+   };
+
+   // Mesma exigência de "Iniciar Conversa" de Empresas/Histórico de Conversas:
+   // quem inicia vira o responsável (atribuição em PyvonService.startConversation),
+   // então barra ANTES de abrir o modal — barrar só depois deixaria uma
+   // conversa criada e atribuída a quem acabou de ser recusado.
+   const handleStartConversation = (phone: string | undefined, name: string | undefined) => {
+     if (userStatus !== 'online') {
+       toast.error('Você precisa estar Online para assumir atendimentos!');
+       return;
+     }
+     const digits = String(phone || '').replace(/\D/g, '');
+     setStartConversationTarget({
+       phone: digits.length >= 10 && digits.length <= 13 ? digits : '',
+       name: name || ''
+     });
    };
 
 
@@ -1561,7 +1583,7 @@ const loadMessages = async () => {
                                // telas (achado do usuário, 2026-10-16: aqui dentro
                                // chegou a existir cálculo em horas CORRIDAS,
                                // enquanto a lista já usava horas ÚTEIS).
-                               const { limit, isOverdue } = getTicketSlaStatus(ticket.createdAt, mainPriority, priorities);
+                               const { limit, isOverdue } = getTicketSlaStatus(ticket.createdAt, mainPriority, priorities, undefined, isTicketSlaExempt(ticketSubStatus, statusesQuery.data));
                                const overdue = isOverdue && !isClosedTicketStatus(ticketStatus);
                                return (
                                  <>
@@ -1840,11 +1862,25 @@ const loadMessages = async () => {
                                 const channelLabel = s.channel === 'pyvon' ? 'WhatsApp (Pyvon)' : s.channel === 'whatsapp_baileys' ? 'WhatsApp (não-oficial)' : s.channel === 'widget' ? 'Portal (chat)' : null;
                                 const isOpening = isLoadingChatSession && openedSessionId === s.id;
                                 return (
-                                  <button
+                                  // Era um <button> só — virou <div role="button"> porque agora
+                                  // precisa de um botão de VERDADE aninhado dentro ("Iniciar
+                                  // conversa"), e <button> dentro de <button> é inválido/quebra o
+                                  // clique. Teclado continua funcionando (Enter/Espaço abrem).
+                                  <div
                                     key={s.id}
-                                    onClick={() => openLinkedSession(s.id)}
-                                    disabled={isLoadingChatSession}
-                                    className="w-full text-left p-4 bg-[var(--surface-card)] border border-[var(--border-default)] rounded-2xl hover:border-[var(--accent)]/50 hover:bg-[var(--surface-pill)] transition-all disabled:opacity-60 flex items-center justify-between gap-3"
+                                    role="button"
+                                    tabIndex={isLoadingChatSession ? -1 : 0}
+                                    onClick={() => { if (!isLoadingChatSession) openLinkedSession(s.id); }}
+                                    onKeyDown={(e) => {
+                                      if ((e.key === 'Enter' || e.key === ' ') && !isLoadingChatSession) {
+                                        e.preventDefault();
+                                        openLinkedSession(s.id);
+                                      }
+                                    }}
+                                    className={cn(
+                                      "w-full text-left p-4 bg-[var(--surface-card)] border border-[var(--border-default)] rounded-2xl hover:border-[var(--accent)]/50 hover:bg-[var(--surface-pill)] transition-all flex items-center justify-between gap-3 cursor-pointer",
+                                      isLoadingChatSession && "opacity-60 pointer-events-none"
+                                    )}
                                   >
                                     <div className="min-w-0">
                                       <div className="flex items-center gap-2 flex-wrap">
@@ -1861,13 +1897,25 @@ const loadMessages = async () => {
                                       </div>
                                       <p className="text-sm font-bold text-[var(--text-primary)] mt-1 truncate">{s.customerName || 'Cliente'}</p>
                                       <p className="text-[10px] text-[var(--text-tertiary)] font-medium mt-0.5">
-                                        <ClientTime date={s.startedAt} /> · {s.messageCount} mensagem{s.messageCount === 1 ? '' : 's'}{s.assigneeName ? ` · com ${s.assigneeName}` : ''}
+                                        <ClientTime date={s.startedAt} showDate /> · {s.messageCount} mensagem{s.messageCount === 1 ? '' : 's'}{s.assigneeName ? ` · com ${s.assigneeName}` : ''}
                                       </p>
                                     </div>
-                                    {isOpening
-                                      ? <Loader2 size={16} className="animate-spin text-[var(--accent-text)] shrink-0" />
-                                      : <span className="text-[10px] font-black uppercase tracking-widest text-[var(--accent-text)] shrink-0">Abrir →</span>}
-                                  </button>
+                                    <div className="flex items-center gap-3 shrink-0">
+                                      {hasPermission(Permission.OUTSIDE_QUEUE_VIEW) && s.customerPhone && (
+                                        <button
+                                          type="button"
+                                          onClick={(e) => { e.stopPropagation(); handleStartConversation(s.customerPhone, s.customerName); }}
+                                          title="Iniciar nova conversa com este contato"
+                                          className="p-1.5 text-[var(--text-tertiary)] hover:text-[var(--accent-text)] hover:bg-[var(--surface-pill)] rounded-lg transition-all"
+                                        >
+                                          <MessageCircle size={14} />
+                                        </button>
+                                      )}
+                                      {isOpening
+                                        ? <Loader2 size={16} className="animate-spin text-[var(--accent-text)]" />
+                                        : <span className="text-[10px] font-black uppercase tracking-widest text-[var(--accent-text)]">Abrir →</span>}
+                                    </div>
+                                  </div>
                                 );
                               })}
                             </div>
@@ -1881,6 +1929,22 @@ const loadMessages = async () => {
                           onClose={() => setIsLinkSessionOpen(false)}
                           ticketId={ticket.id}
                           onLinked={handleSessionLinked}
+                        />
+                      )}
+
+                      {startConversationTarget && (
+                        <StartWhatsAppConversationModal
+                          isOpen={!!startConversationTarget}
+                          onClose={() => setStartConversationTarget(null)}
+                          defaultPhone={startConversationTarget.phone}
+                          defaultName={startConversationTarget.name}
+                          onSuccess={(sessionId) => {
+                            // Mesmo caminho de "Iniciar conversa" em Empresas/Histórico de
+                            // Conversas: abre a conversa nova no chat flutuante por cima.
+                            setActiveOmniChatId(sessionId);
+                            setIsOmniChatOpen(true);
+                            setStartConversationTarget(null);
+                          }}
                         />
                       )}
 
@@ -1898,13 +1962,25 @@ const loadMessages = async () => {
                                 </h3>
                                 {chatSessionData && (
                                   <p className="text-[10px] text-[var(--text-tertiary)] font-medium mt-0.5">
-                                    Iniciada em <ClientTime date={chatSessionData.session.startedAt} />
+                                    Iniciada em <ClientTime date={chatSessionData.session.startedAt} showDate />
                                   </p>
                                 )}
                               </div>
-                              <button onClick={closeLinkedSession} title="Fechar (Esc)" className="text-[var(--text-tertiary)] hover:text-[var(--text-secondary)] transition-colors shrink-0">
-                                <X size={18} />
-                              </button>
+                              <div className="flex items-center gap-1 shrink-0">
+                                {chatSessionData?.session.customerPhone && hasPermission(Permission.OUTSIDE_QUEUE_VIEW) && (
+                                  <button
+                                    type="button"
+                                    onClick={() => handleStartConversation(chatSessionData.session.customerPhone, chatSessionData.session.customerName)}
+                                    title="Iniciar nova conversa com este contato"
+                                    className="inline-flex items-center gap-1.5 px-2.5 py-1.5 text-[10px] font-semibold uppercase tracking-widest text-[var(--text-tertiary)] hover:text-[var(--accent-text)] hover:bg-[var(--surface-pill)] rounded-lg transition-all"
+                                  >
+                                    <MessageCircle size={13} /> Iniciar conversa
+                                  </button>
+                                )}
+                                <button onClick={closeLinkedSession} title="Fechar (Esc)" className="p-1.5 text-[var(--text-tertiary)] hover:text-[var(--text-secondary)] transition-colors">
+                                  <X size={18} />
+                                </button>
+                              </div>
                             </div>
                             <div className="flex-1 min-h-0 overflow-y-auto p-5 space-y-3 bg-[var(--surface-page)]">
                               {isLoadingChatSession || !chatSessionData ? (

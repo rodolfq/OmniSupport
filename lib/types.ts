@@ -179,6 +179,9 @@ export interface StatusConfig {
   isClosed?: boolean;
   sortOrder?: number;
   parentStatusId?: string | null;
+  // Só tem efeito em sub-status (parentStatusId preenchido) — marcado, chamado
+  // nesse sub-status nunca conta como SLA vencido (Dashboard, chip "Atrasadas").
+  slaExempt?: boolean;
 }
 
 export interface RolePermission {
