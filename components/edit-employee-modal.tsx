@@ -15,12 +15,32 @@ import { useApp } from '@/app/app-context';
 
 export function EditEmployeeModal({ isOpen, onClose, user, onSuccess }: { isOpen: boolean, onClose: () => void, user: User | null, onSuccess?: () => void }) {
   useEscapeToClose(isOpen, onClose);
-  const { hasPermission } = useApp();
+  const { hasPermission, currentUser } = useApp();
+  // Qualquer um do lado da empresa-cliente (Admin Cliente incluso) — usado
+  // pra esconder campos que só fazem sentido pra quem administra TODAS as
+  // empresas (equipe interna), nunca pra quem está dentro de uma só.
+  const isCompanyPortalViewer = currentUser?.role === UserRole.CUSTOMER || currentUser?.role === UserRole.EMPLOYEE;
+  // Mesma empresa, colega Funcionário — é o escopo que
+  // lib/server-auth.ts (assertUserManageable) agora libera tanto pro Admin
+  // Cliente (role Cliente) quanto pro Funcionário "normal" sobre OUTRO
+  // Funcionário da própria empresa (pedido do usuário, 2026-11-06). Nunca
+  // cobre o próprio Admin Cliente como alvo visto por um Funcionário comum —
+  // mesma restrição do servidor.
+  const isCompanyPeerOfTarget = !!currentUser && !!user &&
+    (currentUser.role === UserRole.CUSTOMER || currentUser.role === UserRole.EMPLOYEE) &&
+    user.role === UserRole.EMPLOYEE &&
+    user.companyId === currentUser.companyId;
   // Achado em 2026-09-23 (varredura de permissões): o botão não tinha
   // nenhuma checagem — ficava visível pra qualquer um que abrisse o modal
   // (via CUSTOMERS_WRITE ou "Admin Cliente"), mesmo sem a permissão que o
-  // servidor de fato exige pra reiniciar senha.
-  const canResetPassword = hasPermission(Permission.USERS_RESET_PASSWORD) || hasPermission(Permission.CUSTOMERS_WRITE);
+  // servidor de fato exige pra reiniciar senha. Hoje o servidor (ver
+  // app/api/users/reset-password/route.ts) também aceita Admin
+  // Cliente/Funcionário "normal" dentro desse mesmo escopo.
+  const canResetPassword = hasPermission(Permission.USERS_RESET_PASSWORD) || hasPermission(Permission.CUSTOMERS_WRITE) || isCompanyPeerOfTarget;
+  // Excluir cadastro continua exclusivo do Admin Cliente (role Cliente) e de
+  // quem administra empresas (CUSTOMERS_WRITE) — Funcionário "normal" ganhou
+  // EDITAR (acima) mas não isso, pedido explícito do usuário 2026-11-06.
+  const canDeleteEmployee = hasPermission(Permission.CUSTOMERS_WRITE) || currentUser?.role === UserRole.CUSTOMER;
   const [name, setName] = useState('');
   const [email, setEmail] = useState('');
   const [role, setRole] = useState(UserRole.EMPLOYEE);
@@ -211,6 +231,15 @@ export function EditEmployeeModal({ isOpen, onClose, user, onSuccess }: { isOpen
                 </div>
               </div>
 
+              {/* "Empresa" nunca aparece pra quem é da própria empresa-cliente
+                  (Admin Cliente incluso) — pedido do usuário, 2026-11-06:
+                  mudar de empresa não é dado de cadastro que faça sentido pra
+                  eles trocarem (é só quem administra TODAS as empresas —
+                  CUSTOMERS_WRITE — que pode fazer isso; o servidor já recusava
+                  em silêncio pra Cliente/Funcionário, ver actorCanReassignCompany
+                  em app/api/users/route.ts, mas o <select> continuava visível e
+                  "mudava" na tela, dando a falsa impressão de que tinha salvo). */}
+              {!isCompanyPortalViewer && (
               <div className="space-y-2">
                 <label className="text-[10px] font-semibold uppercase tracking-widest text-[var(--text-tertiary)] ml-1">Empresa</label>
                 <div className="relative">
@@ -228,6 +257,7 @@ export function EditEmployeeModal({ isOpen, onClose, user, onSuccess }: { isOpen
                   </StyledSelect>
                 </div>
               </div>
+              )}
 
               <div className="space-y-3">
                 <label className="text-[10px] font-semibold uppercase tracking-widest text-[var(--text-tertiary)] ml-1">Telefones (WhatsApp)</label>
@@ -331,7 +361,8 @@ export function EditEmployeeModal({ isOpen, onClose, user, onSuccess }: { isOpen
                 </p>
               </div>
 
-              {/* Danger Zone */}
+              {/* Danger Zone — só Admin Cliente/quem administra empresas */}
+              {canDeleteEmployee && (
               <div className="p-4 bg-[var(--surface-danger)]/50 rounded-2xl border border-[var(--text-danger)]/20 flex items-center justify-between">
                 <div className="flex items-center gap-3">
                   <div className="w-8 h-8 rounded-lg bg-[var(--surface-card)] border border-[var(--text-danger)]/30 flex items-center justify-center text-[var(--text-danger)] shadow-sm">
@@ -351,6 +382,7 @@ export function EditEmployeeModal({ isOpen, onClose, user, onSuccess }: { isOpen
                   Excluir
                 </button>
               </div>
+              )}
 
               <div className="pt-2 flex gap-4">
                 <button

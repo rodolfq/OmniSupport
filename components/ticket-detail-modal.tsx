@@ -1690,7 +1690,10 @@ const loadMessages = async () => {
                           >
                              <option value="">Selecione um contato</option>
                              {allUsers
-                               .filter(u => (u.role === UserRole.EMPLOYEE) && (!companyId || u.companyId === companyId))
+                               // Cliente também é contato válido, não só Funcionário — achado
+                               // 2026-11-05 (chamado #6412): empresa sem nenhum Funcionário
+                               // cadastrado (só a conta "Cliente") nunca aparecia aqui.
+                               .filter(u => (u.role === UserRole.EMPLOYEE || u.role === UserRole.CUSTOMER) && (!companyId || u.companyId === companyId))
                                .map(u => <option key={u.id} value={u.id}>{u.name}</option>)}
                           </StyledSelect>
                        </div>
@@ -1737,8 +1740,10 @@ const loadMessages = async () => {
                                 {allUsers
                                   // Escopado pela empresa do CHAMADO (companyId), não a lista inteira —
                                   // achado 2026-09-30: mostrava funcionário de qualquer empresa-cliente,
-                                  // não só da empresa selecionada aqui.
-                                  .filter(u => u.role === UserRole.EMPLOYEE && u.companyId === companyId && !employeeIds.includes(u.id))
+                                  // não só da empresa selecionada aqui. Cliente também entra (achado
+                                  // 2026-11-05, #6412): empresa só com a conta "Cliente", sem nenhum
+                                  // Funcionário, não tinha ninguém pra adicionar.
+                                  .filter(u => (u.role === UserRole.EMPLOYEE || u.role === UserRole.CUSTOMER) && u.companyId === companyId && !employeeIds.includes(u.id))
                                   .map(u => <option key={u.id} value={u.id}>{u.name}</option>)}
                              </StyledSelect>
                           </div>

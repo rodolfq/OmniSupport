@@ -495,15 +495,18 @@ export function ChatWidget() {
   const selectedChat = customerSessions.find(s => s.id === selectedChatId);
   const isCustomer = [UserRole.CUSTOMER, UserRole.EMPLOYEE].includes(currentUser?.role as UserRole);
 
-  // Citar ("responder" do WhatsApp) só existe no canal Pyvon, pra equipe, e só
-  // pra mensagem que o Pyvon conhece (pyvonQuotable) e não foi apagada.
+  // Citar ("responder", igual ao do WhatsApp) é pra equipe, em qualquer
+  // canal — Pyvon só tem a restrição extra de precisar ser uma mensagem que o
+  // PRÓPRIO Pyvon conhece (pyvonQuotable: só assim dá pra montar o
+  // reply_to_message_id que ele entende); canal widget (chat do portal, sem
+  // WhatsApp no meio) não depende de nenhuma API externa pra citar, então
+  // qualquer mensagem de texto normal da conversa pode ser citada.
   const canQuoteMessage = (m: ChatMessage) =>
     !isCustomer &&
-    selectedChat?.channel === 'pyvon' &&
-    !!m.pyvonQuotable &&
     !m.isDeleted &&
     m.type !== 'internal' &&
-    m.type !== 'system';
+    m.type !== 'system' &&
+    (selectedChat?.channel === 'pyvon' ? !!m.pyvonQuotable : true);
 
   // O rascunho (texto digitado e anexo ainda não enviados) pertence à conversa
   // em que foi composto — igual à citação abaixo. Achado em 2026-09-28: só a
@@ -1942,7 +1945,7 @@ useEffect(() => {
       }
     }
 
-    // Citação: só canal Pyvon e só de mensagem que o Pyvon conhece. replyTo aqui
+    // Citação: válida em qualquer canal (ver canQuoteMessage). replyTo aqui
     // é só a prévia OTIMISTA (aparece já no balão); o servidor descarta o que
     // vem do navegador e grava a citação montada a partir do banco.
     const quotedMessage = replyingTo && canQuoteMessage(replyingTo) ? replyingTo : null;

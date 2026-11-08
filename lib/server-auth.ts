@@ -103,6 +103,21 @@ export async function assertUserManageable(
     return { ok: true, target };
   }
 
+  // Funcionário "normal" (não é o Admin Cliente, que é role 'Cliente') ganha
+  // a mesma capacidade de EDITAR colegas Funcionário da própria empresa —
+  // pedido do usuário, 2026-11-06: hoje só o Admin Cliente e a equipe interna
+  // conseguiam editar um cadastro já criado (Funcionário só criava novo).
+  // Nunca o Admin Cliente (target.role !== 'Funcionário' recusa) — e EXCLUIR
+  // continua exclusivo do Admin Cliente/equipe: bloqueado à parte no handler
+  // DELETE (app/api/users/route.ts), que roda DEPOIS desta checagem de
+  // "gerenciável" e nega especificamente a actor.role === 'Funcionário'.
+  if (actor.role === 'Funcionário') {
+    if (target.company_id !== actor.company_id || target.role !== 'Funcionário') {
+      return { ok: false, error: 'Você só pode gerenciar funcionários da sua própria empresa.' };
+    }
+    return { ok: true, target };
+  }
+
   // Equipe/Time Interno com "Gerenciar clientes" (customers:write) administra
   // Cliente/Funcionário de QUALQUER empresa — mesma permissão que já libera o
   // botão "Editar" em app/(portal)/customers/page.tsx (canEditEmployees) e o

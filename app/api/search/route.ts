@@ -70,6 +70,10 @@ function buildBaseWhere(searchParams: URLSearchParams, closedStatuses: string[])
   // Posição ($N) do número exato do chamado, quando a busca é um número —
   // usada pra ordenar esse chamado primeiro (ver ORDER BY em action=tickets).
   let exactIdParam: number | null = null;
+  // Posição ($N) do texto de busca, quando houver — usada abaixo pra furar o
+  // filtro de "esconder encerrados" em busca por EMPRESA/CLIENTE (ver comentário
+  // no bloco de status).
+  let likeParamForBypass: number | null = null;
 
   if (q) {
     // Painel de Filtros (modern-search-bar.tsx) promete buscar "chamados,
@@ -77,6 +81,7 @@ function buildBaseWhere(searchParams: URLSearchParams, closedStatuses: string[])
     // título — buscar pelo nome do cliente, pela descrição ou pelo número
     // do chamado voltava vazio mesmo com o chamado existindo.
     const likeParam = paramCount;
+    likeParamForBypass = likeParam;
     let searchSql = `title ILIKE $${likeParam}
       OR description ILIKE $${likeParam}
       OR CAST(public_ticket_number AS TEXT) ILIKE $${likeParam}
@@ -103,10 +108,20 @@ function buildBaseWhere(searchParams: URLSearchParams, closedStatuses: string[])
     const closedStatusPlaceholders = closedStatuses.map((_, i) => `$${paramCount + i}`).join(',');
     // A base é quase toda de chamados encerrados: quem digita o número de um
     // chamado antigo quer ele de volta, e não precisa lembrar de marcar
-    // "Mostrar encerrados" antes. Só o número EXATO fura o filtro — o resto
-    // da busca continua escondendo encerrados.
-    const exactIdEscape = exactIdParam ? ` OR public_ticket_number = $${exactIdParam}` : '';
-    sql += ` AND (status NOT IN (${closedStatusPlaceholders})${exactIdEscape})`;
+    // "Mostrar encerrados" antes. Só o número EXATO furava o filtro — o resto
+    // da busca continuava escondendo encerrados, inclusive buscar pelo NOME
+    // DA EMPRESA ou do CLIENTE (achado 2026-11-04: buscar "Nordeste" trazia só
+    // 1 de 31 chamados reais da empresa, porque os outros 30 estavam
+    // encerrados e não tinham como furar o filtro). Mesma lógica do número:
+    // procurar por empresa/cliente é uma busca de identidade, não uma busca
+    // de palavra-chave qualquer — deve sempre trazer TODOS os chamados
+    // daquela empresa/cliente, encerrados ou não.
+    const identityBypass = exactIdParam ? ` OR public_ticket_number = $${exactIdParam}` : '';
+    const companyOrCustomerBypass = likeParamForBypass
+      ? ` OR EXISTS (SELECT 1 FROM public.companies co WHERE co.id = public.tickets.company_id AND co.name ILIKE $${likeParamForBypass})
+          OR EXISTS (SELECT 1 FROM public.profiles cust WHERE cust.id = public.tickets.customer_id AND cust.name ILIKE $${likeParamForBypass})`
+      : '';
+    sql += ` AND (status NOT IN (${closedStatusPlaceholders})${identityBypass}${companyOrCustomerBypass})`;
     params.push(...closedStatuses);
     paramCount += closedStatuses.length;
   }

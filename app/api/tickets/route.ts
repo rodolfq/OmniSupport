@@ -685,8 +685,14 @@ export async function POST(request: Request) {
       // chamado pra funcionário de outra empresa (employee_ids concede
       // visibilidade, ver app/api/search/route.ts).
       if (Array.isArray(ticket.employeeIds) && ticket.employeeIds.length > 0) {
+        // role IN ('Funcionário', 'Cliente'): empresa que só tem a conta
+        // "Cliente" (dono), sem nenhum sub-usuário Funcionário cadastrado,
+        // não tinha NINGUÉM pra adicionar como colaborador — achado
+        // 2026-11-05, chamado #6412 (DELTRACK RASTREADORES, só tem o
+        // "Cliente" Luan, zero Funcionário). Colaborador é "contato da
+        // empresa", e o Cliente é um contato tão válido quanto o Funcionário.
         const validRes = await query(
-          `SELECT id FROM public.profiles WHERE id = ANY($1::uuid[]) AND role = 'Funcionário' AND company_id = $2`,
+          `SELECT id FROM public.profiles WHERE id = ANY($1::uuid[]) AND role IN ('Funcionário', 'Cliente') AND company_id = $2`,
           [ticket.employeeIds, companyId]
         );
         const validIds = new Set(validRes.rows.map((r: any) => r.id));
@@ -728,7 +734,14 @@ export async function POST(request: Request) {
           userId,
           JSON.stringify(ticketAttachments),
           ticket.employeeIds || [],
-          ticket.assigneeId || null
+          // Quem abre o chamado já fica responsável por ele — pedido do usuário,
+          // 2026-11-05: "hoje ele fica sem responsável". Só quando é a EQUIPE
+          // quem abre (isStaffCreator) e ninguém escolheu outro responsável no
+          // formulário; Cliente/Funcionário abrindo o próprio chamado nunca
+          // vira responsável automaticamente (não são staff, não faz sentido).
+          // Mesmo princípio já usado em app/api/chat-sessions/route.ts
+          // (action=create-ticket, `session.assignee_id || actor.id`).
+          ticket.assigneeId || (isStaffCreator ? userId : null)
         ]
       );
 
@@ -1009,8 +1022,12 @@ export async function PUT(request: NextRequest) {
       if (!effectiveCompanyId) {
         return NextResponse.json({ error: 'Chamado sem empresa definida — não é possível adicionar colaboradores.' }, { status: 400 });
       }
+      // role IN ('Funcionário', 'Cliente') — ver comentário equivalente na
+      // criação (action=create), acima: empresa sem nenhum Funcionário
+      // cadastrado (só a conta "Cliente") precisa poder vincular essa conta
+      // como colaborador também.
       const validRes = await query(
-        `SELECT id FROM public.profiles WHERE id = ANY($1::uuid[]) AND role = 'Funcionário' AND company_id = $2`,
+        `SELECT id FROM public.profiles WHERE id = ANY($1::uuid[]) AND role IN ('Funcionário', 'Cliente') AND company_id = $2`,
         [ticket.employeeIds, effectiveCompanyId]
       );
       const validIds = new Set(validRes.rows.map((r: any) => r.id));

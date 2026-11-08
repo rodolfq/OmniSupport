@@ -5,6 +5,7 @@ import { useEscapeToClose } from '@/hooks/use-escape-to-close';
 import { toast } from 'sonner';
 import {
   ChatSession,
+  ChatMessage,
   AnalystStatus,
   User,
   UserRole,
@@ -47,7 +48,7 @@ import { LinkContactModal } from '@/components/link-contact-modal';
 import { AssignChatMenu } from '@/components/assign-chat-menu';
 import { ConfirmDialog } from '@/components/confirm-dialog';
 import { useQueuesQuery } from '@/lib/query-hooks';
-import { fetchChatSessions, saveChatHistory } from '@/lib/services/chat-service';
+import { fetchChatSessions, saveChatHistory, pushChatMessage } from '@/lib/services/chat-service';
 import { renderLinkedText } from '@/components/linked-chat-text';
 import { PhoneContactPanel } from '@/components/phone-contact-panel';
 import { fetchUsers, ConfigService } from '@/lib/services/config-service';
@@ -538,7 +539,49 @@ const handleDeleteNote = async () => {
         transcript: chatHistoryText
       }).catch(err => console.error('Non-critical error saving chat history:', session.id, err));
 
-      const closeResult = await closeChatSessionAfterTicket(session.id, null);
+      // Mensagem de encerramento + pesquisa de satisfação — achado 2026-11-05:
+      // "Finalizar selecionados" (este fluxo) nunca mandava isso, diferente do
+      // "Finalizar Conversa" de components/chat-widget.tsx (que já faz isso há
+      // tempo). Mesma lógica, resumida pra lote: registra sempre no chat (visível
+      // pro cliente logado) e, só quando o canal for WhatsApp de verdade (Pyvon,
+      // com telefone), encaminha sem aguardar — é finalização em LOTE, não pode
+      // travar por chamada de rede de cada sessão.
+      let awaitingSurveyUntil: string | null = null;
+      try {
+        const surveySettings = await ConfigService.getSurveySettings();
+        if (surveySettings?.enabled && surveySettings.message) {
+          const conversationNumber = String(ticketResult.ticketNumber ?? '').padStart(4, '0');
+          const closingMessage = `Sua conversa #${conversationNumber} foi finalizada.\n\n${surveySettings.message}`;
+          const closingChatMessage: ChatMessage = {
+            id: crypto.randomUUID(),
+            senderId: currentUser?.id || '',
+            senderName: 'SSX Desk',
+            text: closingMessage,
+            timestamp: new Date().toISOString(),
+            type: 'system'
+          };
+          await pushChatMessage(session.id, closingChatMessage);
+          awaitingSurveyUntil = new Date(Date.now() + surveySettings.responseWindowHours * 3600_000).toISOString();
+
+          if (session.customerPhone && session.channel && session.channel !== 'widget') {
+            const phone = session.customerPhone.replace(/\D/g, '');
+            if (phone) {
+              const queue = allQueues.find((q: any) => q.id === session.queueId);
+              const instanceId = (queue as any)?.whatsapp_instance_id || (queue as any)?.whatsappInstanceId || 'pyvon';
+              const messageForWhatsApp = currentUser?.name ? `*${currentUser.name}*\n\n${closingMessage}` : closingMessage;
+              fetch('/api/whatsapp/send', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ instanceId, to: phone, message: messageForWhatsApp, sessionId: session.id, messageId: closingChatMessage.id })
+              }).catch(err => console.error('[WhatsApp] Falha ao encaminhar pesquisa de encerramento (finalização em lote):', session.id, err));
+            }
+          }
+        }
+      } catch (surveyError) {
+        console.error('Failed to send closing survey (bulk finish):', session.id, surveyError);
+      }
+
+      const closeResult = await closeChatSessionAfterTicket(session.id, awaitingSurveyUntil);
       if ('error' in closeResult) {
         console.error('Error closing session', session.id, closeResult.error);
         return false;

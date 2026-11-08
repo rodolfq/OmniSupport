@@ -250,7 +250,12 @@ export default function CustomersPage() {
   const canCreateEmployeesAsCompanyAdmin = isCustomerAdmin || currentUser?.role === UserRole.EMPLOYEE;
   const canManageCompanies = hasPermission(Permission.CUSTOMERS_WRITE);
   const canCreateEmployees = canManageCompanies || canCreateEmployeesAsCompanyAdmin;
-  const canEditEmployees = canManageCompanies || isCustomerAdmin;
+  // Editar cadastro já criado: pedido do usuário, 2026-11-06 — "usuários
+  // normais atualmente não tem como editar perfis já criados, só incluir
+  // novos". Mesmo público de quem já cria (canCreateEmployeesAsCompanyAdmin)
+  // — Admin Cliente E Funcionário "normal". Quem NÃO pode é só excluir: essa
+  // trava fica dentro do próprio EditEmployeeModal (prop canDelete).
+  const canEditEmployees = canManageCompanies || canCreateEmployeesAsCompanyAdmin;
   // Cliente/Funcionário editam a logo da PRÓPRIA empresa (a lista já vem
   // filtrada só pra ela — ver loadData), equipe interna edita a de qualquer
   // uma. Ação de imagem, não de dado de negócio: não exige Administrador do

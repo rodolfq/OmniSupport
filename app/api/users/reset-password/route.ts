@@ -3,6 +3,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { query } from '@/lib/db';
 import { hashPassword } from '@/lib/auth-utils';
 import { verifyJWT } from '@/lib/jwt';
+import { assertUserManageable } from '@/lib/server-auth';
 
 function generateTemporaryPassword() {
   return crypto.randomBytes(6).toString('base64url');
@@ -22,7 +23,7 @@ export async function POST(request: NextRequest) {
     }
 
     const actorResult = await query(
-      `SELECT p.role, COALESCE(rp.permissions, '{}'::text[]) AS permissions
+      `SELECT p.id, p.role, p.company_id, COALESCE(rp.permissions, '{}'::text[]) AS permissions
        FROM public.profiles p
        LEFT JOIN public.role_permissions rp ON rp.id = p.access_profile_id
        WHERE p.id = $1`,
@@ -50,14 +51,25 @@ export async function POST(request: NextRequest) {
       || permissions.includes('customers:write')
       || permissions.includes('team:write');
 
-    if (!isFullAdmin && !hasResetPasswordPermission) {
-      return NextResponse.json({ error: 'Voce nao tem permissao para reiniciar senhas.' }, { status: 403 });
-    }
-
     const { userId, password } = await request.json();
 
     if (!userId || typeof userId !== 'string') {
       return NextResponse.json({ error: 'ID do usuario e obrigatorio.' }, { status: 400 });
+    }
+
+    if (!isFullAdmin && !hasResetPasswordPermission) {
+      // Cliente/Funcionário (empresa-cliente) nunca tem role_permissions —
+      // a checagem acima sempre falhava pra eles, e esta rota só funcionava
+      // com login de EQUIPE. Pedido do usuário, 2026-11-06: Admin Cliente e
+      // Funcionário "normal" ganham a mesma capacidade de reiniciar senha de
+      // quem já conseguem EDITAR (mesma regra/escopo de
+      // assertUserManageable — Admin Cliente sobre qualquer Funcionário da
+      // própria empresa; Funcionário "normal" só sobre colega Funcionário,
+      // nunca sobre o Admin Cliente) — sem duplicar a lógica de escopo aqui.
+      const check = await assertUserManageable(actor, userId);
+      if (!check.ok) {
+        return NextResponse.json({ error: 'Voce nao tem permissao para reiniciar senhas.' }, { status: 403 });
+      }
     }
 
     // Mesmo assim, ação mais sensível do sistema — quem não é Administrador

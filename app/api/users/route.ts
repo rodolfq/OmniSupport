@@ -894,6 +894,15 @@ export async function DELETE(request: Request) {
     return NextResponse.json({ error: 'Você não pode excluir sua própria conta.' }, { status: 400 });
   }
 
+  // Funcionário "normal" agora EDITA colega da própria empresa (ver
+  // assertUserManageable, lib/server-auth.ts) mas continua sem poder
+  // EXCLUIR — pedido do usuário, 2026-11-06: "só não poderão excluir outros
+  // cadastros, apenas o admin [Cliente]". Checado antes de assertUserManageable
+  // pra dar o motivo certo (em vez de cair, por acaso, em "não encontrado").
+  if (actor.role === 'Funcionário') {
+    return NextResponse.json({ error: 'Só o Admin Cliente pode excluir cadastros da empresa.' }, { status: 403 });
+  }
+
   const check = await assertUserManageable(actor, id);
   if (!check.ok) {
     return NextResponse.json({ error: check.error }, { status: 403 });
