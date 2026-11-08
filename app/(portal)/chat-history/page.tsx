@@ -19,7 +19,8 @@ import { useAutoTranscribeMissingAudio } from '@/hooks/use-auto-transcribe-missi
 import {
   Search, Clock, User, MessageSquare, ThumbsUp, ThumbsDown, Minus, Filter,
   X, FileText, FileDown, Archive, Ticket as TicketIcon, Building2,
-  GripVertical, Columns3, CheckSquare, Square, Shield, Sparkles, RotateCcw, Link2, MessageCircle, RefreshCw, GraduationCap, Loader2
+  GripVertical, Columns3, CheckSquare, Square, Shield, Sparkles, RotateCcw, Link2, MessageCircle, RefreshCw, GraduationCap, Loader2,
+  ChevronLeft, ChevronRight
 } from 'lucide-react';
 import { cn, normalizeBrazilianPhoneDigits } from '@/lib/utils';
 import { motion, AnimatePresence } from 'motion/react';
@@ -459,15 +460,18 @@ export default function ChatHistoryPage() {
   const [histories, setHistories] = useState<any[]>([]);
   const [totalCount, setTotalCount] = useState(0);
   const [loadingHistories, setLoadingHistories] = useState(true);
-  // Filtros + paginação em lote crescente no servidor (2026-10-21) — antes a
-  // rota trazia TODO o histórico desde sempre (sem LIMIT, filtro só no
-  // navegador) e a tela travava conforme a tabela crescia (achado em
-  // produção). Mesmo padrão de "Carregar mais"/"Carregar todos" do Kanban de
-  // Todos os Chamados (tickets-view.tsx): sempre busca do começo com um
-  // `limit` que só cresce, nunca OFFSET de verdade.
-  const HISTORY_BATCH_SIZE = 150;
-  const HISTORY_MAX_BATCH_SIZE = 3000;
-  const [historyBatchSize, setHistoryBatchSize] = useState(HISTORY_BATCH_SIZE);
+  // Filtros + paginação no servidor. Começou (2026-10-21) como "lote
+  // crescente" (sempre OFFSET 0, só o LIMIT crescia via "Carregar mais"/
+  // "Carregar todos") pra substituir a busca de TODO o histórico de uma vez
+  // (sem LIMIT, filtro só no navegador), que travava a tela conforme a
+  // tabela crescia. Virou paginação numerada de verdade em 2026-11-08 (25 por
+  // página, mesmo padrão do Kanban de Todos os Chamados em tickets-view.tsx)
+  // — o lote crescente ainda "carregava bastante de uma vez" na prática,
+  // porque cada "Carregar mais" rebaixava do zero tudo que já tinha
+  // carregado, só acumulando.
+  const HISTORY_PAGE_SIZE = 25;
+  const [currentPage, setCurrentPage] = useState(1);
+  const totalPages = Math.max(1, Math.ceil(totalCount / HISTORY_PAGE_SIZE));
   // Botão "Atualizar": a tela só recarregava sozinha quando o app pedia
   // (refreshTrigger), então conversa que acabou de ser encerrada — ou uma nota
   // de satisfação que chegou depois — só aparecia recarregando a página inteira.
@@ -612,12 +616,12 @@ export default function ChatHistoryPage() {
   // Carrega (ou recarrega) a lista de conversas e o que alimenta os filtros
   // (filas, clientes, equipe). `manual` = veio do botão "Atualizar": mostra o
   // giro, avisa quantas conversas são novas e recarrega também a lista de equipe.
-  const loadHistories = useCallback(async (manual: boolean, filters: ChatHistoryFilters, limit: number) => {
+  const loadHistories = useCallback(async (manual: boolean, filters: ChatHistoryFilters, page: number) => {
     if (manual) setIsRefreshing(true);
     else setLoadingHistories(true);
     try {
       const [result] = await Promise.all([
-        getChatHistories(filters, limit),
+        getChatHistories(filters, page, HISTORY_PAGE_SIZE),
         fetchQueues().then(setQueues).catch(() => {}),
         CompanyService.getAll().then(setCompanies).catch(() => {}),
         manual ? refetchUsers().catch(() => {}) : Promise.resolve()
@@ -650,11 +654,11 @@ export default function ChatHistoryPage() {
     }
   }, [refetchUsers]);
 
-  // Qualquer filtro mudando volta o lote pro tamanho padrão — senão "Carregar
-  // mais" de um filtro ficava "herdado" pelo próximo (mesmo padrão de
+  // Qualquer filtro mudando volta pra página 1 — senão a paginação de um
+  // filtro ficava "herdada" pelo próximo (mesmo padrão de
   // handleSearch/handleQuickFilterChange em tickets-view.tsx).
   useEffect(() => {
-    setHistoryBatchSize(HISTORY_BATCH_SIZE);
+    setCurrentPage(1);
   }, [search, dateFrom, dateTo, ratingFilter, dissatisfactionFilter, trainingFilter, teamFilter, employeeFilter, companyFilter, queueFilter]);
 
   // Busca com debounce de 300ms (mesmo padrão de ModernSearchBar) — sem isso,
@@ -663,19 +667,23 @@ export default function ChatHistoryPage() {
   useEffect(() => {
     if (!currentUser || !hasPermission(Permission.CHAT_HISTORY_VIEW)) return;
     const filters = buildHistoryFilters();
-    const requestKey = `${currentUser.id}:${historyBatchSize}:${JSON.stringify(filters)}:${refreshTrigger}`;
+    const requestKey = `${currentUser.id}:${currentPage}:${JSON.stringify(filters)}:${refreshTrigger}`;
     if (requestKey === lastHistoryRequestKeyRef.current) return;
     const handler = setTimeout(() => {
       lastHistoryRequestKeyRef.current = requestKey;
-      loadHistories(false, filters, historyBatchSize);
+      loadHistories(false, filters, currentPage);
     }, 300);
     return () => clearTimeout(handler);
-  }, [currentUser?.id, search, dateFrom, dateTo, ratingFilter, dissatisfactionFilter, trainingFilter, teamFilter, employeeFilter, companyFilter, queueFilter, historyBatchSize, refreshTrigger]);
+  }, [currentUser?.id, search, dateFrom, dateTo, ratingFilter, dissatisfactionFilter, trainingFilter, teamFilter, employeeFilter, companyFilter, queueFilter, currentPage, refreshTrigger]);
 
-  // Mesmo teto de "Todos os Chamados" (tickets-view.tsx) — sem ele o botão
-  // prometeria "todos" e a resposta viria cortada em silêncio.
-  const handleHistoryLoadMore = () => setHistoryBatchSize(prev => Math.min(prev + HISTORY_BATCH_SIZE, HISTORY_MAX_BATCH_SIZE));
-  const handleHistoryLoadAll = () => setHistoryBatchSize(Math.min(Math.max(totalCount, HISTORY_BATCH_SIZE), HISTORY_MAX_BATCH_SIZE));
+  const handleHistoryPagination = (newPage: number) => setCurrentPage(newPage);
+  // Mesma janela de 5 números com reticências implícitas do Kanban de Todos
+  // os Chamados (tickets-view.tsx).
+  const historyPaginationPages = useMemo(() => {
+    if (totalPages <= 5) return Array.from({ length: totalPages }, (_, index) => index + 1);
+    const start = Math.min(Math.max(1, currentPage - 2), totalPages - 4);
+    return Array.from({ length: 5 }, (_, index) => start + index);
+  }, [currentPage, totalPages]);
 
   // Deep link vindo de outro relatório (ex.: lista de avaliações negativas
   // do R4) — ?historyId= abre a conversa direto, sem precisar buscar na
@@ -1015,7 +1023,7 @@ export default function ChatHistoryPage() {
           </span>
         )}
         <button
-          onClick={() => loadHistories(true, buildHistoryFilters(), historyBatchSize)}
+          onClick={() => loadHistories(true, buildHistoryFilters(), currentPage)}
           disabled={isRefreshing}
           title="Recarrega as conversas, os filtros (clientes, equipe, filas) e o que estiver aberto"
           className="flex items-center gap-2 px-5 py-3 bg-[var(--surface-card)] border-2 border-[var(--border-default)] text-[var(--text-primary)] rounded-2xl text-[11px] font-semibold uppercase tracking-widest hover:border-[var(--accent)]/40 hover:bg-[var(--surface-pill)] transition-all disabled:opacity-60"
@@ -1296,31 +1304,64 @@ export default function ChatHistoryPage() {
         )}
       </div>
 
-      {/* Lote crescente — mesmo padrão de "Carregar mais"/"Carregar todos" do
-          Kanban de Todos os Chamados (tickets-view.tsx). Sem isso a tela só
-          mostraria sempre o 1º lote, sem jeito nenhum de ver o resto. */}
-      {!loadingHistories && totalCount > histories.length && historyBatchSize < HISTORY_MAX_BATCH_SIZE && (
-        <div className="text-center py-2 flex items-center justify-center gap-4">
-          <button
-            onClick={handleHistoryLoadMore}
-            className="bg-[var(--surface-card)] border border-[var(--border-default)] text-[var(--text-secondary)] px-6 py-2.5 rounded-xl text-[10px] font-semibold uppercase tracking-widest hover:border-[var(--accent)]/40 hover:text-[var(--accent-text)] transition-all shadow-sm active:scale-95"
-          >
-            Carregar mais conversas <span className="text-[var(--accent-text)] ml-1">({totalCount - histories.length})</span>
-          </button>
-          <button
-            onClick={handleHistoryLoadAll}
-            className="text-[10px] font-semibold uppercase tracking-widest text-[var(--text-tertiary)] hover:text-[var(--accent-text)] underline underline-offset-2 transition-all"
-          >
-            Carregar todas
-          </button>
+      {/* Paginação numerada (2026-11-08) — mesmo visual do Kanban de Todos os
+          Chamados (tickets-view.tsx). Substitui o "lote crescente" de
+          2026-10-21: aquele sempre buscava do zero com um LIMIT que só
+          crescia, então cada "Carregar mais" rebaixava de novo tudo que já
+          tinha carregado — continuava "pesado" na prática. Com OFFSET de
+          verdade, cada página busca só a sua fatia de 25. */}
+      {!loadingHistories && (
+        <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between py-2">
+          <p className="text-xs font-bold text-[var(--text-tertiary)]">
+            {totalCount === 0
+              ? 'Nenhuma conversa'
+              : `Exibindo ${(currentPage - 1) * HISTORY_PAGE_SIZE + 1}-${Math.min(currentPage * HISTORY_PAGE_SIZE, totalCount)} de ${totalCount} conversas`}
+          </p>
+
+          {totalPages > 1 && (
+            <div className="flex items-center gap-1.5 justify-center" aria-label="Paginação do histórico de conversas">
+              <button
+                type="button"
+                title="Página anterior"
+                aria-label="Página anterior"
+                disabled={currentPage === 1}
+                onClick={() => handleHistoryPagination(currentPage - 1)}
+                className="flex h-9 w-9 items-center justify-center rounded-lg border border-[var(--border-default)] text-[var(--text-tertiary)] transition-colors hover:border-[var(--accent)]/30 hover:bg-[var(--accent)]/10 hover:text-[var(--accent-text)] disabled:cursor-not-allowed disabled:opacity-40"
+              >
+                <ChevronLeft size={16} />
+              </button>
+
+              {historyPaginationPages.map((pageNumber) => (
+                <button
+                  key={pageNumber}
+                  type="button"
+                  onClick={() => handleHistoryPagination(pageNumber)}
+                  aria-label={`Ir para a página ${pageNumber}`}
+                  aria-current={currentPage === pageNumber ? 'page' : undefined}
+                  className={cn(
+                    "h-9 min-w-9 rounded-lg px-2 text-xs font-black transition-colors",
+                    currentPage === pageNumber
+                      ? "bg-[var(--accent)] text-white shadow-md shadow-indigo-200"
+                      : "border border-[var(--border-default)] text-[var(--text-tertiary)] hover:border-[var(--accent)]/30 hover:bg-[var(--accent)]/10 hover:text-[var(--accent-text)]"
+                  )}
+                >
+                  {pageNumber}
+                </button>
+              ))}
+
+              <button
+                type="button"
+                title="Próxima página"
+                aria-label="Próxima página"
+                disabled={currentPage === totalPages}
+                onClick={() => handleHistoryPagination(currentPage + 1)}
+                className="flex h-9 w-9 items-center justify-center rounded-lg border border-[var(--border-default)] text-[var(--text-tertiary)] transition-colors hover:border-[var(--accent)]/30 hover:bg-[var(--accent)]/10 hover:text-[var(--accent-text)] disabled:cursor-not-allowed disabled:opacity-40"
+              >
+                <ChevronRight size={16} />
+              </button>
+            </div>
+          )}
         </div>
-      )}
-      {/* Chegou no teto e ainda sobra conversa — avisa em vez de deixar os
-          botões sumirem sem explicação. */}
-      {!loadingHistories && totalCount > histories.length && historyBatchSize >= HISTORY_MAX_BATCH_SIZE && (
-        <p className="text-center text-[10px] font-semibold uppercase tracking-widest text-[var(--text-tertiary)] py-2">
-          Mostrando as {histories.length} mais recentes de {totalCount} — refine os filtros para ver o restante.
-        </p>
       )}
 
       {/* Detail modal */}

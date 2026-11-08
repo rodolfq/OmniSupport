@@ -480,14 +480,26 @@ export interface ChatHistoriesResult {
   data: any[];
 }
 
-// Filtros + lote crescente no servidor (2026-10-21) — antes trazia TODO o
-// histórico desde sempre, sem LIMIT nenhum, e filtrava no navegador; a tela
-// travava conforme a tabela crescia (achado em produção). Mesmo padrão de
-// "Carregar mais"/"Carregar todos" já usado no Kanban de Todos os Chamados
-// (ver app/(portal)/tickets/tickets-view.tsx).
-export async function getChatHistories(filters: ChatHistoryFilters = {}, limit = 150): Promise<ChatHistoriesResult | { error: string }> {
+// Filtros + paginação de verdade no servidor. Começou (2026-10-21) como
+// "lote crescente" (sempre OFFSET 0, só o LIMIT crescia via "Carregar
+// mais"/"Carregar todos") pra substituir a busca de TODO o histórico de uma
+// vez (sem LIMIT nenhum, filtro só no navegador) que travava a tela conforme
+// a tabela crescia. Virou paginação numerada de verdade em 2026-11-08 (25 por
+// página, mesmo padrão do Kanban de Todos os Chamados em
+// app/(portal)/tickets/tickets-view.tsx) — o lote crescente ainda baixava
+// "bastante de uma vez" na prática, porque cada "Carregar mais" rebaixava do
+// zero tudo que já tinha carregado, só acumulando.
+export async function getChatHistories(
+  filters: ChatHistoryFilters = {},
+  page = 1,
+  pageSize = 25
+): Promise<ChatHistoriesResult | { error: string }> {
   try {
-    const qs = new URLSearchParams({ action: 'histories', limit: String(limit) });
+    const qs = new URLSearchParams({
+      action: 'histories',
+      limit: String(pageSize),
+      offset: String((Math.max(1, page) - 1) * pageSize)
+    });
     if (filters.search) qs.set('search', filters.search);
     if (filters.dateFrom) qs.set('dateFrom', filters.dateFrom);
     if (filters.dateTo) qs.set('dateTo', filters.dateTo);

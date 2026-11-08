@@ -48,10 +48,6 @@ export function NewInternalTicketModal({ isOpen, onClose, onCreated, initialTitl
   const [loading, setLoading] = useState(false);
 
   const { data: profilesLiteData } = useProfilesLiteQuery({ enabled: isOpen });
-  const analysts = useMemo(
-    () => ((profilesLiteData || []) as User[]).filter((u) => u.role === 'Equipe' || u.role === 'Administrador'),
-    [profilesLiteData]
-  );
 
   const { data: internalTeamsData } = useInternalTeamsQuery({ enabled: isOpen });
   const sortedInternalTeams = useMemo(
@@ -64,6 +60,26 @@ export function NewInternalTicketModal({ isOpen, onClose, onCreated, initialTitl
       : DEFAULT_TEAM_OPTIONS,
     [sortedInternalTeams]
   );
+
+  // Pedido do usuário, 2026-11-08: "Responsável" só pode mostrar quem é da
+  // equipe ESCOLHIDA no campo acima — antes mostrava toda a equipe/
+  // administrador do sistema, de qualquer time. `internalTeamId` é o mesmo id
+  // resolvido no submit (abaixo) — aqui precisa dele ao vivo, pra recalcular
+  // a lista a cada troca de equipe.
+  const selectedInternalTeamId = useMemo(
+    () => sortedInternalTeams.find((t: any) => t.name === team)?.id,
+    [sortedInternalTeams, team]
+  );
+  const analysts = useMemo(() => {
+    const list = (profilesLiteData || []) as User[];
+    return list.filter((u) =>
+      // "Time Interno" é o papel estrutural de quem de fato compõe as equipes
+      // de Dev/Infra/QA/Produto — faltava aqui (só Equipe/Administrador),
+      // então quem mais precisa aparecer como responsável ficava de fora.
+      ['Administrador', 'Equipe', 'Time Interno'].includes(u.role as string) &&
+      (!selectedInternalTeamId || (u.internalTeamIds || []).includes(selectedInternalTeamId))
+    );
+  }, [profilesLiteData, selectedInternalTeamId]);
 
   // Reinicia o formulário a cada abertura — mesmo motivo do NewTicketModal
   // (components/new-ticket-modal.tsx): sem isso, reabrir mostraria os
@@ -151,7 +167,12 @@ export function NewInternalTicketModal({ isOpen, onClose, onCreated, initialTitl
                 <label className="text-[10px] font-semibold text-[var(--text-secondary)] uppercase mb-1 block">Equipe</label>
                 <StyledSelect
                   value={team}
-                  onChange={(e) => setTeam(e.target.value)}
+                  onChange={(e) => {
+                    setTeam(e.target.value);
+                    // Responsável escolhido pode não pertencer à equipe nova
+                    // — limpa pra não gravar alguém de fora dela em silêncio.
+                    setAssignee('');
+                  }}
                   className="w-full px-3 py-2 rounded-lg border border-[var(--border-default)] text-sm font-medium bg-[var(--surface-card)]"
                 >
                   {teams.map((t) => (

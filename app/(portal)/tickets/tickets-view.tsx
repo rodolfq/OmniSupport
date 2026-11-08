@@ -985,6 +985,9 @@ export function TicketsView({
               )}
             >
               {ticket.status}
+              {/* Substatus de QUALQUER status (pedido do usuário, 2026-11-08
+                  — mesmo ajuste em Meus Chamados e no Kanban/Cards acima). */}
+              {ticket.subStatus && <span className="opacity-70 normal-case"> · {ticket.subStatus}</span>}
             </span>
           </td>
         );
@@ -1094,6 +1097,10 @@ export function TicketsView({
             )}
           >
             {t.status}
+            {/* Substatus de QUALQUER status, não só um caso específico (pedido
+                do usuário, 2026-11-08 — mesmo ajuste já feito em Meus
+                Chamados, app/(portal)/my-tickets/page.tsx). */}
+            {t.subStatus && <span className="opacity-70 normal-case"> · {t.subStatus}</span>}
           </span>
         </div>
 
@@ -2164,6 +2171,15 @@ function TicketKanbanCard({ ticket, onEdit, dragging = false }: { ticket: Ticket
       <h4 className="font-bold text-[var(--text-primary)] text-sm mb-2 line-clamp-2 leading-snug italic" title={ticket.title}>
         {ticket.title}
       </h4>
+
+      {/* O status em si já está implícito na coluna — o substatus não, por
+          isso ganha badge própria aqui (pedido do usuário, 2026-11-08; mesmo
+          padrão do Kanban de Meus Chamados, MyTicketKanbanCard). */}
+      {ticket.subStatus && (
+        <span className="inline-block mb-2 px-2 py-0.5 rounded-full text-[9px] font-semibold uppercase tracking-wide bg-[var(--surface-pill)] text-[var(--text-secondary)]">
+          {ticket.subStatus}
+        </span>
+      )}
 
       {ticket.tags && ticket.tags.length > 0 && (
         <div className="flex flex-wrap gap-1 mb-2.5">
