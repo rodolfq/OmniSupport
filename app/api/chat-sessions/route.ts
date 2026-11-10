@@ -8,7 +8,7 @@ import { pickNextQueueAssignee } from '@/lib/services/queue-routing';
 import { runExclusive } from '@/lib/key-mutex';
 import { getCurrentActionUser, getActorEffectivePermissions } from '@/lib/server-auth';
 import { logAudit } from '@/lib/audit-log';
-import { CHAT_TAG_REQUIRED_MESSAGE } from '@/lib/chat-close-rules';
+import { CHAT_TAG_REQUIRED_MESSAGE, CHAT_ALREADY_CLOSED_MESSAGE } from '@/lib/chat-close-rules';
 import { TicketStatus } from '@/lib/types';
 
 // Achado em 2026-09-23 (varredura de permissões): as ações abaixo só
@@ -373,6 +373,20 @@ export async function POST(request: Request) {
       if (isSpam && !(await actorTemAlgumaPermissao(actor, ['chat:mark_spam']))) {
         return NextResponse.json({ error: 'Você não tem permissão para marcar conversas como spam.' }, { status: 403 });
       }
+      // Conversa já encerrada não é encerrada de novo — vale pra pré-checagem
+      // (checkOnly) E pro fechamento em si. Achado 2026-11-10 (chamado #6779):
+      // o encerramento rodou 2x na mesma conversa (2º clique / outra aba), e a
+      // 2ª execução gravou um chat_histories duplicado e reenviou a pesquisa,
+      // que abriu uma conversa nova pelo rodízio para outro analista. Como TODO
+      // caminho de encerramento chama a pré-checagem ANTES de criar chamado,
+      // gravar histórico ou enviar pesquisa, barrar aqui impede todos esses
+      // efeitos de uma vez. O fechamento em si também recusa, pra não
+      // sobrescrever awaiting_survey_until de uma conversa já fechada.
+      const statusRes = await query('SELECT status FROM public.chat_sessions WHERE id = $1', [sessionId]);
+      if (!statusRes.rows[0]) return NextResponse.json({ error: 'Atendimento não encontrado.' }, { status: 404 });
+      if (statusRes.rows[0].status === 'closed') {
+        return NextResponse.json({ error: CHAT_ALREADY_CLOSED_MESSAGE, code: 'already_closed' }, { status: 409 });
+      }
       // Tag obrigatória pra encerrar — vale pra TODO caminho que fecha conversa
       // (Finalizar, Gerar chamado & Finalizar, Fechar como spam, Duplicar, "Encerrar
       // e iniciar nova", finalizar em massa na Central), porque todos passam por aqui.
@@ -386,10 +400,16 @@ export async function POST(request: Request) {
       // a conversa ainda aberta. Não fecha nada.
       if (checkOnly === true) return NextResponse.json({ success: true, canClose: true });
 
-      await query(
-        `UPDATE public.chat_sessions SET status = 'closed', awaiting_survey_until = $1, updated_at = NOW() WHERE id = $2`,
+      // `status <> 'closed'` no próprio UPDATE: fecha a corrida entre a checagem
+      // acima e esta gravação (duas abas encerrando ao mesmo tempo).
+      const closeRes = await query(
+        `UPDATE public.chat_sessions SET status = 'closed', awaiting_survey_until = $1, updated_at = NOW()
+         WHERE id = $2 AND status <> 'closed'`,
         [awaitingSurveyUntil ?? null, sessionId]
       );
+      if (closeRes.rowCount === 0) {
+        return NextResponse.json({ error: CHAT_ALREADY_CLOSED_MESSAGE, code: 'already_closed' }, { status: 409 });
+      }
       emitSessionsChanged({ reason: 'status', sessionId });
       return NextResponse.json({ success: true });
     }

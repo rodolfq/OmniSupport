@@ -74,7 +74,7 @@ import { useProfilesWithAvatarQuery } from '@/lib/query-hooks';
 import { TicketService } from '@/lib/services/ticket-service';
 import { saveTicketFromChatSession, closeChatSessionAfterTicket, checkChatSessionCanClose, assignChatSession, returnChatSessionToQueue, setChatSessionTags } from '@/lib/services/chat-session-actions';
 import { RequiredChatTags } from '@/components/required-chat-tags';
-import { chatHasRequiredTag, isChatTagRequiredError, CHAT_TAG_REQUIRED_MESSAGE } from '@/lib/chat-close-rules';
+import { chatHasRequiredTag, isChatTagRequiredError, isChatAlreadyClosedError, CHAT_TAG_REQUIRED_MESSAGE } from '@/lib/chat-close-rules';
 import { checkPyvonOutboundStatus, startPyvonConversation, PyvonStartChannel } from '@/lib/services/pyvon-template-service';
 import { PyvonChannelChoice, PortalEligibility } from '@/components/pyvon-channel-choice';
 import { ChatTagPicker, tagAccentBgClass } from '@/components/chat-tag-picker';
@@ -2177,6 +2177,11 @@ useEffect(() => {
     // antes de gravar o histórico (que não dá pra desfazer se o fechamento for recusado).
     const pre = await checkChatSessionCanClose(selectedChat.id);
     if ('error' in pre) {
+      if (isChatAlreadyClosedError(pre)) {
+        setIsDuplicateModalOpen(false);
+        await handleConversationAlreadyClosed();
+        return;
+      }
       if (isChatTagRequiredError(pre)) setDuplicateTagBlockVisible(true);
       toast.error(isChatTagRequiredError(pre) ? CHAT_TAG_REQUIRED_MESSAGE : pre.error);
       return;
@@ -2238,6 +2243,17 @@ useEffect(() => {
   const [finishingAction, setFinishingAction] = useState<'generate' | 'finish' | 'spam' | null>(null);
   const finishingRef = useRef(false);
 
+  // O servidor recusou encerrar porque a conversa JÁ está encerrada (2º clique
+  // em Finalizar depois do 1º ter concluído, ou outra aba/analista encerrou
+  // antes). Não é erro de quem clicou: só tira a conversa da tela e atualiza a
+  // lista — ver CHAT_ALREADY_CLOSED_MESSAGE em lib/chat-close-rules.ts.
+  const handleConversationAlreadyClosed = async () => {
+    setIsFinishModalOpen(false);
+    setSelectedChatId(null);
+    toast.info('Esta conversa já foi encerrada.');
+    await reloadAllSessions();
+  };
+
   const handleGenerateTicket = async (closeChat: boolean, closeAsSpam: boolean = false, forceNew: boolean = false) => {
     // Ref (não só o estado): dois cliques no mesmo tick passam pelo state antigo.
     if (finishingRef.current) return;
@@ -2265,6 +2281,10 @@ useEffect(() => {
       if (closeChat) {
         const pre = await checkChatSessionCanClose(selectedChat.id);
         if ('error' in pre) {
+          if (isChatAlreadyClosedError(pre)) {
+            await handleConversationAlreadyClosed();
+            return;
+          }
           if (isChatTagRequiredError(pre)) setFinishTagBlockVisible(true);
           toast.error(isChatTagRequiredError(pre) ? CHAT_TAG_REQUIRED_MESSAGE : pre.error);
           return;
@@ -2448,6 +2468,10 @@ useEffect(() => {
       // aqui só falta marcar a sessão como encerrada.
       const closeResult = await closeChatSessionAfterTicket(selectedChat.id, awaitingSurveyUntil, closeAsSpam);
       if ('error' in closeResult) {
+        if (isChatAlreadyClosedError(closeResult)) {
+          await handleConversationAlreadyClosed();
+          return;
+        }
         console.error('Error closing session:', closeResult.error);
         if (isChatTagRequiredError(closeResult)) setFinishTagBlockVisible(true);
         toast.error(isChatTagRequiredError(closeResult) ? CHAT_TAG_REQUIRED_MESSAGE : 'Erro ao fechar conversa.');

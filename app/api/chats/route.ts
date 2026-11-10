@@ -1500,6 +1500,21 @@ export async function POST(request: Request) {
       let effectiveAssigneeId: string | null = session.assignee_id;
       let effectiveQueueId: string | null = session.queue_id;
 
+      // Mensagem de SISTEMA (aviso de chamado, pesquisa de satisfação) numa
+      // conversa já encerrada nunca abre atendimento novo. Achado 2026-11-10,
+      // chamado #6779/#6780: a pesquisa do encerramento do Mauro foi reenviada
+      // depois de a conversa estar fechada, caiu na regra abaixo (pensada para
+      // o CLIENTE voltar a escrever) e virou uma conversa nova entregue pelo
+      // rodízio ao Pedro — que recebeu a avaliação do atendimento do Mauro.
+      // 20 conversas "fantasmas" assim desde julho. Mensagem normal (texto/
+      // arquivo) segue abrindo conversa nova, como sempre.
+      if (session.status === 'closed' && message?.type === 'system') {
+        return NextResponse.json(
+          { error: 'A conversa já foi encerrada; a mensagem do sistema não foi registrada.', code: 'session_closed' },
+          { status: 409 }
+        );
+      }
+
       if (session.status === 'closed') {
         // Atendimento anterior está de fato encerrado: mensagem nova é outro
         // atendimento, com sessão (e número de conversa) novos — nunca uma
@@ -2457,12 +2472,30 @@ export async function POST(request: Request) {
       // vazio ou negativo (contava a mensagem do próprio cliente e a de template
       // enviada antes da conversa). Fim = relógio do banco; início nunca no futuro;
       // 1ª resposta = public.chat_first_response_seconds (migrations/chat_first_response_seconds.sql).
+      // Não duplica: se a conversa JÁ está encerrada e já tem um histórico
+      // gravado nos últimos 10 min, é o mesmo encerramento chegando de novo
+      // (2º clique em Finalizar, outra aba) — achado 2026-11-10, chamado #6779:
+      // 99 conversas em produção com histórico duplicado, contadas 2x nos
+      // relatórios. As duas condições juntas, e não só "já existe histórico",
+      // porque uma conversa pode ser REABERTA com o mesmo id
+      // (PyvonService.startConversation) e encerrada de novo — esse 2º
+      // encerramento é legítimo e precisa do próprio histórico (a conversa está
+      // aberta quando ele é gravado). Não depende do relógio do navegador: as
+      // duas datas comparadas são do banco.
       const insertHistory = (firstResponseExpr: string) => query(
         `INSERT INTO public.chat_histories (session_id, customer_id, customer_name, customer_phone, assignee_id, started_at, finished_at, duration_seconds, first_response_seconds, rating, transcript)
          SELECT $1::uuid, $2::uuid, $3::text, $4::text, $5::uuid,
                 x.started_at, NOW(), GREATEST(0, EXTRACT(EPOCH FROM (NOW() - x.started_at)))::int,
                 ${firstResponseExpr}, $6::int, $7::text
-           FROM (SELECT LEAST(COALESCE($8::timestamptz, NOW()), NOW()) AS started_at) x`,
+           FROM (SELECT LEAST(COALESCE($8::timestamptz, NOW()), NOW()) AS started_at) x
+          WHERE NOT EXISTS (
+            SELECT 1 FROM public.chat_sessions s
+             WHERE s.id = $1::uuid AND s.status = 'closed'
+               AND EXISTS (
+                 SELECT 1 FROM public.chat_histories h
+                  WHERE h.session_id = s.id AND h.created_at > NOW() - INTERVAL '10 minutes'
+               )
+          )`,
         [
           history.sessionId,
           history.customerId || null,
@@ -2475,14 +2508,19 @@ export async function POST(request: Request) {
           history.startedAt || null
         ]
       );
+      let inserted;
       try {
-        await insertHistory('public.chat_first_response_seconds($1::uuid)');
+        inserted = await insertHistory('public.chat_first_response_seconds($1::uuid)');
       } catch (err: any) {
         // 42883 = função inexistente: código publicado antes da migration. Grava sem o
         // tempo de 1ª resposta (que é recalculável depois) em vez de perder o histórico.
         if (err?.code !== '42883') throw err;
         console.error('[save-history] public.chat_first_response_seconds ausente — aplique migrations/chat_first_response_seconds.sql');
-        await insertHistory('NULL::int');
+        inserted = await insertHistory('NULL::int');
+      }
+      if (inserted.rowCount === 0) {
+        console.warn(`[save-history] histórico duplicado ignorado (conversa ${history.sessionId} já encerrada e com histórico recente)`);
+        return NextResponse.json({ success: true, duplicate: true });
       }
       return NextResponse.json({ success: true });
     }
