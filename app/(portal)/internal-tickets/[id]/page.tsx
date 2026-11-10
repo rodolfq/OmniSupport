@@ -160,6 +160,17 @@ export default function InternalTicketDetailPage() {
   // compartilhado, mesmo filtro que o fetch direto tinha.
   const { data: analystsData } = useAnalystsQuery();
   const analysts = useMemo(() => (analystsData || []) as User[], [analystsData]);
+  // Pedido do usuário, 2026-11-08: "Responsável" só pode mostrar quem é da
+  // equipe ATUAL do ticket (formTeam) — mesma correção já feita na criação
+  // (components/new-internal-ticket-modal.tsx) e na lista/kanban/tabela
+  // (internal-tickets-view.tsx). `analysts` continua intocado pros outros
+  // usos (resolver nome de autor/remetente em notas e histórico) — só esta
+  // lista derivada é escopada, e só pro <select> de Responsável.
+  const scopedAnalysts = useMemo(() => {
+    const teamId = (internalTeamsData || []).find((t: any) => t.name === formTeam)?.id;
+    if (!teamId) return analysts;
+    return analysts.filter((a) => (a.internalTeamIds || []).includes(teamId));
+  }, [analysts, internalTeamsData, formTeam]);
   const [priorities, setPriorities] = useState<any[]>([]);
   const [hotfixes, setHotfixes] = useState<Hotfix[]>([]);
   const [statuses, setStatuses] = useState<KanbanStatusMeta[]>(DEFAULT_KANBAN_STATUSES);
@@ -871,7 +882,7 @@ export default function InternalTicketDetailPage() {
                   <span className="text-[11px] font-semibold uppercase text-[var(--text-tertiary)] w-24 pt-0.5">Responsável</span>
                   <StyledSelect value={formAssignee} onChange={(e) => handleUpdateTicket({ assigneeId: e.target.value })} className="flex-1 bg-transparent border-none outline-none text-sm font-bold text-[var(--text-primary)] cursor-pointer hover:underline">
                     <option value="">Não atribuído</option>
-                    {analysts.map(a => <option key={a.id} value={a.id}>{a.name}</option>)}
+                    {scopedAnalysts.map(a => <option key={a.id} value={a.id}>{a.name}</option>)}
                   </StyledSelect>
                 </div>
                 <div className="flex items-start gap-4">

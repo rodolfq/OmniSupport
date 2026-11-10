@@ -241,10 +241,13 @@ export function InternalTicketsView({
   // Opções do seletor inline de responsável. Inclui "Time Interno", que atende
   // ticket interno mas não entra no filtro `analysts` acima (usado para outra
   // coisa) — quem trabalha nesses tickets precisa poder ser atribuído a eles.
+  // Mantém `internalTeamIds` (ao contrário da versão anterior, que descartava
+  // no .map) — é o que `assignableUsersByTeam` (abaixo de `sortedInternalTeams`,
+  // mais abaixo neste arquivo) usa pra escopar por equipe.
   const assignableUsers = useMemo(
     () => ((profilesLiteData || []) as any[])
       .filter((u) => ["Administrador", "Equipe", "Time Interno"].includes(u.role))
-      .map((u) => ({ id: u.id, name: u.name, avatarThumbUrl: u.avatarThumbUrl })),
+      .map((u) => ({ id: u.id, name: u.name, avatarThumbUrl: u.avatarThumbUrl, internalTeamIds: u.internalTeamIds || [] })),
     [profilesLiteData]
   );
   const [loading, setLoading] = useState(true);
@@ -346,6 +349,25 @@ export function InternalTicketsView({
       : DEFAULT_TEAM_OPTIONS,
     [sortedInternalTeams]
   );
+
+  // Pedido do usuário, 2026-11-08: o seletor de responsável (inline na
+  // tabela/cards/kanban) mostrava TODO MUNDO (qualquer equipe), não só quem
+  // pertence à equipe do próprio ticket — mesma correção já feita na criação
+  // (components/new-internal-ticket-modal.tsx). `teamId` do ticket é o NOME
+  // da equipe (mesmo valor de `teams[].value`, não o uuid), então resolve
+  // pelo nome antes de filtrar por `internalTeamIds` (que são uuids).
+  const assignableUsersByTeam = useMemo(() => {
+    const map = new Map<string, typeof assignableUsers>();
+    sortedInternalTeams.forEach((t: any) => {
+      map.set(t.name, assignableUsers.filter(u => (u.internalTeamIds || []).includes(t.id)));
+    });
+    return map;
+  }, [assignableUsers, sortedInternalTeams]);
+  // Sem equipe reconhecida (ticket legado, ou equipe fora do cadastro atual)
+  // cai pra lista inteira — melhor mostrar todo mundo do que não mostrar
+  // ninguém nesse caso raro.
+  const getAssignableUsersForTeam = (teamName?: string) =>
+    (teamName && assignableUsersByTeam.get(teamName)) || assignableUsers;
 
   // Status (fetched de config_statuses, scope=internal_ticket — cadastrados
   // em Configurações > Geral > Status) — DEFAULT_KANBAN_STATUSES só cobre o
@@ -839,6 +861,7 @@ const openEditModal = (ticket: InternalTicketItem) => {
               teams={teams}
               statuses={statuses}
               assignableUsers={assignableUsers}
+              getAssignableUsersForTeam={getAssignableUsersForTeam}
               onReassign={reassignInternalTicket}
               unreadCount={navBadges.internalTicketsUnreadByTicket[it.uuid || ''] || 0}
             />
@@ -878,6 +901,7 @@ const openEditModal = (ticket: InternalTicketItem) => {
             teams={teams}
             statuses={statuses}
             assignableUsers={assignableUsers}
+            getAssignableUsersForTeam={getAssignableUsersForTeam}
             onReassign={reassignInternalTicket}
             selectedIds={selectedIds}
             onToggleSelect={toggleSelectTicket}
@@ -886,7 +910,7 @@ const openEditModal = (ticket: InternalTicketItem) => {
           />
         </>
       ) : (
-        <KanbanBoard tickets={displayTickets} onEdit={openEditModal} onStatusChange={handleStatusChange} statuses={statuses} assignableUsers={assignableUsers} onReassign={reassignInternalTicket} />
+        <KanbanBoard tickets={displayTickets} onEdit={openEditModal} onStatusChange={handleStatusChange} statuses={statuses} assignableUsers={assignableUsers} getAssignableUsersForTeam={getAssignableUsersForTeam} onReassign={reassignInternalTicket} />
       )}
 
       {/* Modal - Only for creating new tickets */}
@@ -992,17 +1016,23 @@ const openEditModal = (ticket: InternalTicketItem) => {
 // Ticket Card Component
 function TicketCard({
   ticket, onEdit, teams = DEFAULT_TEAM_OPTIONS, statuses = DEFAULT_KANBAN_STATUSES,
-  assignableUsers = [], onReassign, unreadCount = 0
+  assignableUsers = [], getAssignableUsersForTeam, onReassign, unreadCount = 0
 }: {
   ticket: InternalTicketItem;
   onEdit: () => void;
   teams?: typeof DEFAULT_TEAM_OPTIONS;
   statuses?: KanbanStatusMeta[];
   assignableUsers?: { id: string; name: string; avatarThumbUrl?: string | null }[];
+  // Pedido do usuário, 2026-11-08: escopa `assignableUsers` pela equipe DESTE
+  // ticket — sem isso, o seletor sempre mostrava todo mundo, de qualquer
+  // equipe. Opcional (cai pra `assignableUsers` cru) pra não quebrar quem
+  // ainda não passa a função.
+  getAssignableUsersForTeam?: (teamName?: string) => typeof assignableUsers;
   onReassign?: (ticketId: string, assigneeId: string | null) => Promise<void>;
   unreadCount?: number;
 }) {
   const teamOption = teams.find((t) => t.value === ticket.teamId) || teams[0];
+  const scopedAssignableUsers = getAssignableUsersForTeam ? getAssignableUsersForTeam(ticket.teamId) : assignableUsers;
   const statusMeta = statuses.find(s => s.value === (ticket.status || "Novo")) || statuses[0];
 
   return (
@@ -1063,7 +1093,7 @@ function TicketCard({
         {onReassign ? (
           <InlineAssigneePicker
             currentAssigneeId={ticket.assigneeId}
-            options={assignableUsers}
+            options={scopedAssignableUsers}
             emptyLabel="Sem responsável"
             size={24}
             onChange={(id) => onReassign(ticket.uuid!, id)}
@@ -1100,13 +1130,14 @@ function TicketCard({
 // Ticket Table Component
 function TicketTable({
   tickets, onEdit, teams = DEFAULT_TEAM_OPTIONS, statuses = DEFAULT_KANBAN_STATUSES,
-  assignableUsers = [], onReassign, selectedIds, onToggleSelect, onToggleSelectAll, unreadByTicket = {}
+  assignableUsers = [], getAssignableUsersForTeam, onReassign, selectedIds, onToggleSelect, onToggleSelectAll, unreadByTicket = {}
 }: {
   tickets: InternalTicketItem[];
   onEdit: (t: InternalTicketItem) => void;
   teams?: typeof DEFAULT_TEAM_OPTIONS;
   statuses?: KanbanStatusMeta[];
   assignableUsers?: { id: string; name: string; avatarThumbUrl?: string | null }[];
+  getAssignableUsersForTeam?: (teamName?: string) => typeof assignableUsers;
   onReassign?: (ticketUuid: string, assigneeId: string | null) => Promise<void>;
   unreadByTicket?: Record<string, number>;
   // Edição em massa (2026-09-30) — seleção fica só na visão Tabela, mesma
@@ -1151,6 +1182,7 @@ function TicketTable({
             const teamOpt = teams.find((t) => t.value === it.teamId) || teams[0];
             const statusMeta = statuses.find(s => s.value === (it.status || "Novo")) || statuses[0];
             const isSelected = !!selectedIds?.includes(it.uuid!);
+            const scopedAssignableUsers = getAssignableUsersForTeam ? getAssignableUsersForTeam(it.teamId) : assignableUsers;
             return (
               <tr key={it.id} className={cn("hover:bg-[var(--surface-card)]/50 transition-colors cursor-pointer group", isSelected && "bg-[var(--accent)]/5")} onClick={() => onEdit(it)}>
                 {onToggleSelect && (
@@ -1193,7 +1225,7 @@ function TicketTable({
                   {onReassign ? (
                     <InlineAssigneePicker
                       currentAssigneeId={it.assigneeId}
-                      options={assignableUsers}
+                      options={scopedAssignableUsers}
                       emptyLabel="Não atribuído"
                       size={20}
                       className="max-w-[160px]"
@@ -1246,6 +1278,7 @@ function KanbanBoard({
   onStatusChange,
   statuses = DEFAULT_KANBAN_STATUSES,
   assignableUsers = [],
+  getAssignableUsersForTeam,
   onReassign
 }: {
   tickets: InternalTicketItem[];
@@ -1253,6 +1286,7 @@ function KanbanBoard({
   onStatusChange?: (ticketId: string, newStatus: string) => void;
   statuses?: KanbanStatusMeta[];
   assignableUsers?: { id: string; name: string; avatarThumbUrl?: string | null }[];
+  getAssignableUsersForTeam?: (teamName?: string) => typeof assignableUsers;
   onReassign?: (ticketUuid: string, assigneeId: string | null) => Promise<void>;
 }) {
   const [activeTicket, setActiveTicket] = useState<InternalTicketItem | null>(null);
@@ -1285,7 +1319,7 @@ function KanbanBoard({
     <DndContext sensors={sensors} onDragStart={handleDragStart} onDragEnd={handleDragEnd}>
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4 items-start">
         {columns.map((col) => (
-          <KanbanColumn key={col.value} col={col} onEdit={onEdit} assignableUsers={assignableUsers} onReassign={onReassign} />
+          <KanbanColumn key={col.value} col={col} onEdit={onEdit} assignableUsers={assignableUsers} getAssignableUsersForTeam={getAssignableUsersForTeam} onReassign={onReassign} />
         ))}
       </div>
       <DragOverlay dropAnimation={{ duration: 180, easing: 'cubic-bezier(0.18, 0.67, 0.6, 1.22)' }}>
@@ -1297,7 +1331,7 @@ function KanbanBoard({
 
 // Coluna do Kanban — área de soltar (droppable), com destaque visual
 // enquanto um card é arrastado sobre ela.
-function KanbanColumn({ col, onEdit, assignableUsers = [], onReassign }: { col: KanbanStatusMeta & { tickets: InternalTicketItem[] }; onEdit: (t: InternalTicketItem) => void; assignableUsers?: { id: string; name: string; avatarThumbUrl?: string | null }[]; onReassign?: (ticketUuid: string, assigneeId: string | null) => Promise<void> }) {
+function KanbanColumn({ col, onEdit, assignableUsers = [], getAssignableUsersForTeam, onReassign }: { col: KanbanStatusMeta & { tickets: InternalTicketItem[] }; onEdit: (t: InternalTicketItem) => void; assignableUsers?: { id: string; name: string; avatarThumbUrl?: string | null }[]; getAssignableUsersForTeam?: (teamName?: string) => typeof assignableUsers; onReassign?: (ticketUuid: string, assigneeId: string | null) => Promise<void> }) {
   const { setNodeRef, isOver } = useDroppable({ id: col.value });
 
   return (
@@ -1324,7 +1358,7 @@ function KanbanColumn({ col, onEdit, assignableUsers = [], onReassign }: { col: 
           </div>
         ) : (
           col.tickets.map((ticket) => (
-            <DraggableKanbanCard key={ticket.uuid} ticket={ticket} onEdit={onEdit} assignableUsers={assignableUsers} onReassign={onReassign} />
+            <DraggableKanbanCard key={ticket.uuid} ticket={ticket} onEdit={onEdit} assignableUsers={assignableUsers} getAssignableUsersForTeam={getAssignableUsersForTeam} onReassign={onReassign} />
           ))
         )}
       </div>
@@ -1332,7 +1366,7 @@ function KanbanColumn({ col, onEdit, assignableUsers = [], onReassign }: { col: 
   );
 }
 
-function DraggableKanbanCard({ ticket, onEdit, assignableUsers = [], onReassign }: { ticket: InternalTicketItem; onEdit: (t: InternalTicketItem) => void; assignableUsers?: { id: string; name: string; avatarThumbUrl?: string | null }[]; onReassign?: (ticketUuid: string, assigneeId: string | null) => Promise<void> }) {
+function DraggableKanbanCard({ ticket, onEdit, assignableUsers = [], getAssignableUsersForTeam, onReassign }: { ticket: InternalTicketItem; onEdit: (t: InternalTicketItem) => void; assignableUsers?: { id: string; name: string; avatarThumbUrl?: string | null }[]; getAssignableUsersForTeam?: (teamName?: string) => typeof assignableUsers; onReassign?: (ticketUuid: string, assigneeId: string | null) => Promise<void> }) {
   const { attributes, listeners, setNodeRef, transform, isDragging } = useDraggable({ id: ticket.uuid || ticket.id || "" });
   return (
     <div
@@ -1342,18 +1376,19 @@ function DraggableKanbanCard({ ticket, onEdit, assignableUsers = [], onReassign 
       style={{ transform: transform ? `translate3d(${transform.x}px, ${transform.y}px, 0)` : undefined, opacity: isDragging ? 0.4 : 1 }}
       className="touch-none"
     >
-      <KanbanCard ticket={ticket} onEdit={onEdit} assignableUsers={assignableUsers} onReassign={onReassign} />
+      <KanbanCard ticket={ticket} onEdit={onEdit} assignableUsers={assignableUsers} getAssignableUsersForTeam={getAssignableUsersForTeam} onReassign={onReassign} />
     </div>
   );
 }
 
 // KanbanCard Component
-function KanbanCard({ ticket, onEdit, dragging = false, assignableUsers = [], onReassign }: { ticket: InternalTicketItem; onEdit: (t: InternalTicketItem) => void; dragging?: boolean; assignableUsers?: { id: string; name: string; avatarThumbUrl?: string | null }[]; onReassign?: (ticketUuid: string, assigneeId: string | null) => Promise<void> }) {
+function KanbanCard({ ticket, onEdit, dragging = false, assignableUsers = [], getAssignableUsersForTeam, onReassign }: { ticket: InternalTicketItem; onEdit: (t: InternalTicketItem) => void; dragging?: boolean; assignableUsers?: { id: string; name: string; avatarThumbUrl?: string | null }[]; getAssignableUsersForTeam?: (teamName?: string) => typeof assignableUsers; onReassign?: (ticketUuid: string, assigneeId: string | null) => Promise<void> }) {
   // useApp() direto aqui (em vez de perfurar DndContext → KanbanColumn →
   // DraggableKanbanCard) — menos props pra manter em sincronia, mesmo
   // indicativo de "notas novas" de TicketCard/TicketTable (2026-10-21).
   const { navBadges } = useApp();
   const unreadCount = navBadges.internalTicketsUnreadByTicket[ticket.uuid || ''] || 0;
+  const scopedAssignableUsers = getAssignableUsersForTeam ? getAssignableUsersForTeam(ticket.teamId) : assignableUsers;
   return (
     <div
       onClick={() => !dragging && onEdit(ticket)}
@@ -1409,7 +1444,7 @@ function KanbanCard({ ticket, onEdit, dragging = false, assignableUsers = [], on
         {onReassign && !dragging ? (
           <InlineAssigneePicker
             currentAssigneeId={ticket.assigneeId}
-            options={assignableUsers}
+            options={scopedAssignableUsers}
             emptyLabel=""
             size={22}
             onChange={(id) => onReassign(ticket.uuid!, id)}

@@ -629,6 +629,15 @@ export async function GET(request: NextRequest) {
       // volume (2.397 linhas em 2026-10-21) do que chamados costumam ter.
       const requestedLimit = parseInt(searchParams.get('limit') || '150', 10);
       const limit = Math.min(3000, Math.max(1, Number.isFinite(requestedLimit) ? requestedLimit : 150));
+      // Paginação de verdade (2026-11-08) — o "lote crescente" de 2026-10-21
+      // (sempre OFFSET 0, só o LIMIT crescia via "Carregar mais") evitava
+      // pular/duplicar linha se uma conversa nova entrasse no meio, mas cada
+      // "Carregar mais" rebaixava TUDO de novo (inclusive o que já tinha
+      // carregado) — com `limit` pequeno (ver o pageSize=25 do client) isso
+      // ainda "carregava bastante de uma vez" na prática, que era a queixa do
+      // usuário. OFFSET de verdade agora: cada página busca só a sua fatia.
+      const requestedOffset = parseInt(searchParams.get('offset') || '0', 10);
+      const offset = Math.max(0, Number.isFinite(requestedOffset) ? requestedOffset : 0);
 
       const conditions: string[] = [];
       const params: any[] = [];
@@ -688,7 +697,7 @@ export async function GET(request: NextRequest) {
          LEFT JOIN public.queues q ON q.id = s.queue_id`;
 
       const countParams = [...params];
-      params.push(limit);
+      params.push(limit, offset);
       const [countRes, res] = await Promise.all([
         query(`SELECT COUNT(*)::int AS total ${fromSql} ${whereSql}`, countParams),
         query(
@@ -698,7 +707,7 @@ export async function GET(request: NextRequest) {
                   s.ticket_id, s.ticket_number, s.queue_id, q.name as queue_name, s.tags as session_tags
            ${fromSql} ${whereSql}
            ORDER BY h.finished_at DESC
-           LIMIT $${params.length}`,
+           LIMIT $${params.length - 1} OFFSET $${params.length}`,
           params
         )
       ]);
