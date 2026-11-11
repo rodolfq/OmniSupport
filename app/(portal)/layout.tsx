@@ -19,6 +19,7 @@ import { MobileHeader } from '@/components/mobile-header';
 import { MobileBottomNav } from '@/components/mobile-bottom-nav';
 import { NotificationPanel } from '@/components/notification-panel';
 import { GiroStatusPopover } from '@/components/giro-status-popover';
+import { InternalTicketModalHost } from '@/components/internal-ticket-modal-host';
 import { VersionUpdateBanner } from '@/components/version-update-banner';
 import { cn } from '@/lib/utils';
 import { UserRole, Permission } from '@/lib/types';
@@ -282,6 +283,11 @@ export default function PortalLayout({ children }: { children: React.ReactNode }
           </Suspense>
         </main>
         <NewTicketModal />
+        {/* Detalhe de ticket interno por cima de qualquer tela (?internalTicket=).
+            Suspense: o host lê useSearchParams. */}
+        <Suspense fallback={null}>
+          <InternalTicketModalHost />
+        </Suspense>
         <CustomerEvaluationModal />
         {canUseChatWidget && <ChatWidget />}
         <MobileBottomNav />

@@ -2,6 +2,7 @@
 
 import React, { useState, useEffect } from 'react';
 import { useRouter } from 'next/navigation';
+import { useOpenInternalTicket } from '@/components/internal-ticket-modal-host';
 import { useEscapeToClose } from '@/hooks/use-escape-to-close';
 import { Rocket, Plus, Search, Trash2, Pencil, CheckCircle2, XCircle, Clock, AlertTriangle, CalendarDays, History as HistoryIcon, Package, ChevronDown, ExternalLink, LayoutTemplate, FileDown, Layers, AlertOctagon, Link2 } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
@@ -94,6 +95,7 @@ function formatDateTime(iso: string): string {
 export function HotfixesContent() {
   const { hasPermission } = useApp();
   const router = useRouter();
+  const openInternalTicket = useOpenInternalTicket();
   const [hotfixes, setHotfixes] = useState<Hotfix[]>([]);
   const [users, setUsers] = useState<User[]>([]);
   const [products, setProducts] = useState<ProductConfig[]>([]);
@@ -921,7 +923,7 @@ export function HotfixesContent() {
                                 {tickets.map(t => (
                                   <li key={t.id}>
                                     <button
-                                      onClick={() => router.push(`/internal-tickets/${t.id}`)}
+                                      onClick={() => openInternalTicket(t.id)}
                                       className="flex items-center gap-2 text-xs font-semibold text-[var(--accent-text)] hover:underline text-left"
                                     >
                                       <ExternalLink size={12} className="shrink-0" />

@@ -4,6 +4,7 @@ import React, { useEffect, useState, useCallback } from 'react';
 import { motion, AnimatePresence } from 'motion/react';
 import { X, CheckCircle2, RotateCcw, Trash2, ExternalLink, Plus, Search } from 'lucide-react';
 import { useRouter } from 'next/navigation';
+import { useOpenInternalTicket } from '@/components/internal-ticket-modal-host';
 import { toast } from 'sonner';
 import { useEscapeToClose } from '@/hooks/use-escape-to-close';
 import { ReleaseCycle, ReleaseItem, User } from '@/lib/types';
@@ -30,6 +31,7 @@ interface ReleaseItemDrawerProps {
 export function ReleaseItemDrawer({ cycle, item, isOpen, onClose, canEdit, users, onChanged }: ReleaseItemDrawerProps) {
   useEscapeToClose(isOpen, onClose);
   const router = useRouter();
+  const openInternalTicket = useOpenInternalTicket();
 
   const [name, setName] = useState(item.name);
   const [description, setDescription] = useState(item.description || '');
@@ -245,7 +247,7 @@ export function ReleaseItemDrawer({ cycle, item, isOpen, onClose, canEdit, users
                     <ul className="space-y-1">
                       {linked.internalTickets.map(t => (
                         <li key={t.id} className="flex items-center justify-between gap-2 group">
-                          <button onClick={() => router.push(`/internal-tickets/${t.id}`)} className="flex items-center gap-1.5 text-xs font-semibold text-[var(--accent-text)] hover:underline truncate">
+                          <button onClick={() => openInternalTicket(t.id)} className="flex items-center gap-1.5 text-xs font-semibold text-[var(--accent-text)] hover:underline truncate">
                             <ExternalLink size={11} className="shrink-0" />
                             {t.internalTicketNumber ? `int-${String(t.internalTicketNumber).padStart(4, '0')} — ` : ''}{t.title}
                           </button>

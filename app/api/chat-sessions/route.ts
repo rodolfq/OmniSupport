@@ -10,6 +10,7 @@ import { getCurrentActionUser, getActorEffectivePermissions } from '@/lib/server
 import { logAudit } from '@/lib/audit-log';
 import { CHAT_TAG_REQUIRED_MESSAGE, CHAT_ALREADY_CLOSED_MESSAGE } from '@/lib/chat-close-rules';
 import { TicketStatus } from '@/lib/types';
+import { fillTicketDescriptionFromChat } from '@/lib/services/ticket-chat-summary';
 
 // Achado em 2026-09-23 (varredura de permissões): as ações abaixo só
 // checavam "sessão válida" — qualquer papel autenticado atribuía, transferia,
@@ -479,6 +480,17 @@ export async function POST(request: Request) {
         );
 
         await client.query('COMMIT');
+
+        // Resumo da conversa na descrição (2026-11-11, pedido do usuário) —
+        // só para chamado que nasce ABERTO; com "Fechar imediatamente" não.
+        // Em segundo plano, sem await: a IA leva segundos e pode falhar, e o
+        // chamado já está criado (ver lib/services/ticket-chat-summary.ts).
+        if (!closeTicketImmediately) {
+          fillTicketDescriptionFromChat(ticketId, sessionId).catch(err =>
+            console.error(`[ticket-chat-summary] Falha no chamado ${ticketId}:`, err)
+          );
+        }
+
         return NextResponse.json({ ticketId, ticketNumber });
       } catch (err) {
         await client.query('ROLLBACK');

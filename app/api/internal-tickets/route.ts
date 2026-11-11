@@ -52,6 +52,27 @@ function toInternalTicket(row: any, parentTicketId?: string) {
   };
 }
 
+// Colunas das LISTAGENS (action=list e action=board) — 2026-11-11, análise de
+// performance. Antes era `SELECT *`, que mandava a descrição inteira de cada
+// ticket (HTML do editor, incluindo imagem colada em base64 — no banco de dev,
+// 45 tickets davam 1,8 MB de JSON, com descrição de até 1,2 MB) e o
+// `search_vector` (tsvector) que ninguém lê no navegador. Listagem só mostra
+// uma prévia de texto, então `description` aqui é essa prévia: sem `data:`
+// URI, sem tag HTML, até 300 caracteres. Mesmo nome de campo de propósito —
+// as telas que consomem (lista, dashboard, meus chamados, modal de vincular)
+// já tratavam o campo como texto de prévia. A descrição completa continua
+// vindo só pela action=detail, que é onde se edita.
+const LIST_COLUMNS = `
+  id, internal_ticket_number, title, team_id, internal_team_id, assignee_id,
+  priority, tags, creator_id, status, created_at, updated_at, sla_limit,
+  expected_publish_date, hotfix_id, effort_id, outcome_id, sub_status,
+  resolved_at, qa_rejected, late_delivery, environment_rejected, release_item_id,
+  left(btrim(regexp_replace(regexp_replace(regexp_replace(
+    coalesce(description, ''),
+    'data:[^"'' >]+', '', 'g'),
+    '<[^>]*>', ' ', 'g'),
+    '(&nbsp;|\\s)+', ' ', 'g')), 300) AS description`;
+
 function toMessage(row: any) {
   return {
     id: row.id,
@@ -159,7 +180,7 @@ export async function GET(request: NextRequest) {
 
       const where = conditions.length ? `WHERE ${conditions.join(' AND ')}` : '';
       const res = await query(
-        `SELECT * FROM public.internal_tickets ${where} ORDER BY updated_at DESC LIMIT ${limit}`,
+        `SELECT ${LIST_COLUMNS} FROM public.internal_tickets ${where} ORDER BY updated_at DESC LIMIT ${limit}`,
         params
       );
       // Linha crua (snake_case) de propósito, diferente das outras actions:
@@ -176,7 +197,9 @@ export async function GET(request: NextRequest) {
       // eram CINCO consultas saindo do navegador: a página, a contagem total,
       // os responsáveis, os vínculos com chamado e o número de comentários.
       const page = Math.max(1, Number(searchParams.get('page')) || 1);
-      const pageSize = Math.min(Number(searchParams.get('pageSize')) || 20, 100);
+      // Teto de 5000 (era 100): a tela de Tickets Internos carrega o recorte
+      // inteiro de uma vez, sem "Carregar mais" (pedido do usuário, 2026-11-11).
+      const pageSize = Math.min(Number(searchParams.get('pageSize')) || 20, 5000);
       const offset = (page - 1) * pageSize;
 
       const conditions: string[] = [];
@@ -185,9 +208,30 @@ export async function GET(request: NextRequest) {
         params.push(value);
         conditions.push(sql.replace('$?', `$${params.length}`));
       };
+      // Índice do parâmetro com o número exato buscado (ver `search` abaixo).
+      let exactNumberParam: number | null = null;
 
       const search = (searchParams.get('search') || '').trim();
-      if (search) addCondition('title ILIKE $?', `%${search}%`);
+      if (search) {
+        // Título OU número do ticket (2026-11-11, achado do usuário: buscar
+        // "0037" na tela não achava o int-0037 — só a action=list aceitava
+        // número). Mesma regra de lá: "37", "0037" ou "int-0037" batem
+        // contra internal_ticket_number.
+        //
+        // O número EXATO entra como OR por fora de todos os outros filtros
+        // (ver `where` abaixo): quem digita o número quer aquele ticket, mesmo
+        // que ele esteja encerrado com "Mostrar encerrados" desmarcado ou seja
+        // de outra equipe — antes ele simplesmente "não existia". Quem só bate
+        // pelo TÍTULO continua respeitando os filtros de visão/equipe/etc.
+        // (abertos e encerrados vêm juntos em qualquer busca — ver
+        // `closedOnly` abaixo).
+        const numeroBuscado = search.replace(/^int-/i, '').replace(/^0+(?=\d)/, '');
+        addCondition('title ILIKE $?', `%${search}%`);
+        if (/^\d+$/.test(numeroBuscado)) {
+          params.push(Number(numeroBuscado));
+          exactNumberParam = params.length;
+        }
+      }
       // team_id é a coluna de TEXTO (nome da equipe), diferente de
       // internal_team_id, que é a FK — a tela filtra pela primeira.
       const teamId = searchParams.get('teamId');
@@ -202,6 +246,40 @@ export async function GET(request: NextRequest) {
       if (teamIds.length > 0) addCondition('team_id = ANY($?)', teamIds);
       const assigneeId = searchParams.get('assigneeId');
       if (assigneeId) addCondition('assignee_id = $?', assigneeId);
+
+      // Recorte de visão da tela (2026-11-11, pedido do usuário): "Minha
+      // equipe" é a visão PADRÃO, "Atribuído a mim" é a outra opção, e sem
+      // `scope` continua "Todos". É FILTRO, não permissão (ver o comentário
+      // de VISIBILIDADE acima) — quem escolhe "Todos" vê tudo. Fica no
+      // servidor porque a lista é paginada: filtrar no client recortaria só
+      // a página carregada, e a paginação/total mentiriam.
+      // O usuário vem do cookie, não da query — trocar o parâmetro não deve
+      // listar como se fosse de outra pessoa.
+      const scope = searchParams.get('scope');
+      if (scope === 'team' || scope === 'assigned') {
+        const user = await getSessionUser(request);
+        if (!user) return NextResponse.json({ error: 'Não autenticado.' }, { status: 401 });
+        if (scope === 'assigned') {
+          addCondition('assignee_id = $?', user.id);
+        } else {
+          const teamUuids: string[] = user.internal_team_ids || [];
+          // Sem equipe, "Minha equipe" é vazio de verdade (a tela nem oferece
+          // a opção nesse caso — ver internal-tickets-view.tsx).
+          if (teamUuids.length === 0) {
+            conditions.push('false');
+          } else {
+            // Casa pela FK OU pelo nome: a tela e os tickets mais antigos
+            // usam team_id (TEXTO, nome da equipe), e nem todo ticket tem
+            // internal_team_id preenchido.
+            params.push(teamUuids);
+            const p = params.length;
+            conditions.push(
+              `(internal_team_id = ANY($${p}::uuid[]) OR team_id IN (SELECT name FROM public.internal_teams WHERE id = ANY($${p}::uuid[])))`
+            );
+          }
+        }
+      }
+
       const status = searchParams.get('status');
       if (status) addCondition('status = $?', status);
       const priority = searchParams.get('priority');
@@ -224,21 +302,38 @@ export async function GET(request: NextRequest) {
       // um rótulo fixo: status é configurável, e amarrar em 'Concluído'
       // quebraria assim que alguém criasse outro status final.
       const includeClosed = searchParams.get('includeClosed') === '1';
-      if (!includeClosed && !status) {
+      // closedOnly=1 (2026-11-11, pedido do usuário): a tela de Tickets
+      // Internos, com "Mostrar encerrados" marcado, mostra SÓ os encerrados —
+      // no Kanban só a(s) coluna(s) fechada(s) aparecem, e o que está aberto
+      // não precisa vir junto. É o lado mais volumoso da tabela, então trazer
+      // só ele evita pesar o dobro.
+      const closedOnly = searchParams.get('closedOnly') === '1';
+      // Com BUSCA por texto (título ou número), abertos e encerrados vêm
+      // juntos, ignorando "Mostrar encerrados" (pedido do usuário,
+      // 2026-11-11): a busca já é um filtro específico, e quem procura algo
+      // pelo nome quase sempre quer achar também o que já foi concluído.
+      if (!status && !search && (closedOnly || !includeClosed)) {
         const fechadosRes = await query(
           `SELECT label FROM public.config_statuses WHERE scope = 'internal_ticket' AND is_closed = true`
         );
         const fechados = fechadosRes.rows.map((r: any) => r.label);
-        if (fechados.length > 0) {
+        if (closedOnly) {
+          // Sem nenhum status fechado cadastrado, "só encerrados" é vazio.
+          if (fechados.length === 0) conditions.push('false');
+          else { params.push(fechados); conditions.push(`status = ANY($${params.length})`); }
+        } else if (fechados.length > 0) {
           params.push(fechados);
           conditions.push(`status <> ALL($${params.length})`);
         }
       }
 
-      const where = conditions.length ? `WHERE ${conditions.join(' AND ')}` : '';
+      const filtros = conditions.length ? conditions.join(' AND ') : 'true';
+      const where = exactNumberParam
+        ? `WHERE (internal_ticket_number = $${exactNumberParam} OR (${filtros}))`
+        : (conditions.length ? `WHERE ${filtros}` : '');
       const [rowsRes, countRes] = await Promise.all([
         query(
-          `SELECT * FROM public.internal_tickets ${where}
+          `SELECT ${LIST_COLUMNS} FROM public.internal_tickets ${where}
             ORDER BY created_at DESC LIMIT ${pageSize} OFFSET ${offset}`,
           params
         ),
@@ -249,12 +344,23 @@ export async function GET(request: NextRequest) {
       const pageIds = rows.map((r: any) => r.id);
       const assigneeIds = [...new Set(rows.map((r: any) => r.assignee_id).filter(Boolean))];
 
-      const [assigneesRes, linksRes, labelsRes, commentsRes] = await Promise.all([
+      const [assigneesRes, linksRes, commentsRes] = await Promise.all([
         assigneeIds.length
           ? query('SELECT id, name, avatar_thumb_url FROM public.profiles WHERE id = ANY($1)', [assigneeIds])
           : Promise.resolve({ rows: [] as any[] }),
-        query('SELECT ticket_id, internal_ticket_id FROM public.ticket_internal_links'),
-        query('SELECT id, public_ticket_number FROM public.tickets'),
+        // Só os vínculos dos tickets DESTA resposta, e só os números dos
+        // chamados que aparecem neles — antes vinham a tabela de vínculos
+        // inteira e a de chamados inteira (no dev, 5.949 linhas / 427 KB a
+        // cada carga da lista, pra exibir meia dúzia de "#1234").
+        pageIds.length
+          ? query(
+              `SELECT l.ticket_id, l.internal_ticket_id, t.public_ticket_number
+                 FROM public.ticket_internal_links l
+                 LEFT JOIN public.tickets t ON t.id = l.ticket_id
+                WHERE l.internal_ticket_id = ANY($1)`,
+              [pageIds]
+            )
+          : Promise.resolve({ rows: [] as any[] }),
         pageIds.length
           ? query(
               `SELECT internal_ticket_id, COUNT(*)::int AS total
@@ -271,8 +377,10 @@ export async function GET(request: NextRequest) {
         assignees[a.id] = { name: a.name, avatarThumbUrl: a.avatar_thumb_url };
       }
       const ticketLabels: Record<string, string> = {};
-      for (const t of labelsRes.rows) {
-        ticketLabels[t.id] = `#${t.public_ticket_number || String(t.id).slice(0, 8)}`;
+      for (const l of linksRes.rows) {
+        // Chamado apagado (LEFT JOIN sem par) fica de fora: a tela já mostra
+        // "Ticket removido" quando não acha o rótulo.
+        if (l.public_ticket_number != null) ticketLabels[l.ticket_id] = `#${l.public_ticket_number}`;
       }
       // A contagem agora vem agrupada no SQL — antes o navegador recebia uma
       // linha por mensagem só para contá-las em memória.
@@ -283,7 +391,7 @@ export async function GET(request: NextRequest) {
         tickets: rows,
         total: countRes.rows[0]?.total || 0,
         assignees,
-        links: linksRes.rows,
+        links: linksRes.rows.map((l: any) => ({ ticket_id: l.ticket_id, internal_ticket_id: l.internal_ticket_id })),
         ticketLabels,
         commentCounts
       });

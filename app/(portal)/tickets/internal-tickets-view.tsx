@@ -19,9 +19,10 @@ import { toast } from "sonner";
 import {
   Plus, Search, Filter, Clock, Edit3, Loader2,
   MessageCircle, Link2, User as UserIcon, Inbox, AlertTriangle, Flame,
-  CheckSquare, Square, X
+  CheckSquare, Square, X, Users
 } from "lucide-react";
 import { useRouter } from "next/navigation";
+import { useOpenInternalTicket } from "@/components/internal-ticket-modal-host";
 import {
   DndContext, DragOverlay, useDraggable, useDroppable, PointerSensor, useSensor, useSensors,
   type DragStartEvent, type DragEndEvent
@@ -36,6 +37,10 @@ interface InternalTicketItem extends InternalTicket {
 }
 
 const ITEMS_PER_PAGE = 20;
+// A tela carrega TODOS os tickets do recorte de uma vez (2026-11-11, pedido
+// do usuário: sem "Carregar mais"). Teto de segurança igual ao da action=board
+// no servidor — passou disso, aparece um aviso pedindo pra refinar o filtro.
+const MAX_ITEMS = 5000;
 
 // Prioridade como barras (Linear-style) em vez de bolinha repetida — lê mais
 // rápido num board cheio de cards e escala melhor visualmente.
@@ -66,13 +71,14 @@ interface KanbanStatusMeta {
   color: string;
   dot: string;
   accent: string;
+  isClosed?: boolean;
 }
 
 const DEFAULT_KANBAN_STATUSES: KanbanStatusMeta[] = [
   { value: "Novo", label: "Novo", color: "bg-[var(--surface-info)] text-[var(--text-info)]", dot: "bg-[var(--text-info)]", accent: "#2563EB" },
   { value: "Em Andamento", label: "Em Andamento", color: "bg-[var(--surface-warning)] text-[var(--text-warning)]", dot: "bg-[var(--text-warning-strong)]", accent: "#D97706" },
   { value: "Em Espera", label: "Em Espera", color: "bg-[var(--surface-pill)] text-[var(--text-secondary)]", dot: "bg-[var(--text-secondary)]", accent: "#64748B" },
-  { value: "Concluído", label: "Concluído", color: "bg-[var(--surface-success)] text-[var(--text-success)]", dot: "bg-[var(--text-success)]", accent: "#16A34A" },
+  { value: "Concluído", label: "Concluído", color: "bg-[var(--surface-success)] text-[var(--text-success)]", dot: "bg-[var(--text-success)]", accent: "#16A34A", isClosed: true },
 ];
 
 // Cor de avatar/tag consistente por texto (mesmo nome/tag sempre com a
@@ -164,8 +170,19 @@ interface FiltrosSalvos {
   dateFrom: string;
   dateTo: string;
   showClosed: boolean;
+  // Preferência separada pro Kanban (2026-11-11, pedido do usuário): nasce
+  // DESLIGADA (sem a coluna "Concluído") e NÃO é restaurada — toda entrada ou
+  // recarga volta a esconder os encerrados. Tabela/Cards guardam a própria.
+  showClosedKanban: boolean;
   quickFilter: "all" | "mine" | "unassigned" | "overdue" | "high";
+  viewScope: ViewScope;
 }
+
+// Recorte principal da lista (2026-11-11, pedido do usuário): "Minha equipe"
+// é o padrão; "Todos" e "Atribuído a mim" são as alternativas. Aplicado no
+// SERVIDOR (parâmetro `scope` da action=board), porque a lista é paginada —
+// diferente dos chips rápidos ao lado, que recortam só a página carregada.
+type ViewScope = "team" | "all" | "assigned";
 
 const FILTROS_PADRAO: FiltrosSalvos = {
   searchTerm: "",
@@ -176,7 +193,9 @@ const FILTROS_PADRAO: FiltrosSalvos = {
   dateFrom: "",
   dateTo: "",
   showClosed: false,
+  showClosedKanban: false,
   quickFilter: "all",
+  viewScope: "team",
 };
 
 function carregarFiltros(): FiltrosSalvos {
@@ -197,7 +216,12 @@ function carregarFiltros(): FiltrosSalvos {
       dateFrom: typeof p.dateFrom === 'string' ? p.dateFrom : "",
       dateTo: typeof p.dateTo === 'string' ? p.dateTo : "",
       showClosed: p.showClosed === true,
+      showClosedKanban: false, // nunca restaurado, ver FiltrosSalvos
       quickFilter: ["all", "mine", "unassigned", "overdue", "high"].includes(p.quickFilter) ? p.quickFilter : "all",
+      // NÃO restaura (2026-11-11, pedido do usuário): toda entrada ou
+      // recarga da tela abre em "Minha equipe", mesmo que a pessoa tenha
+      // trocado pra "Todos" antes. Os demais filtros continuam salvos.
+      viewScope: "team",
     };
   } catch {
     return FILTROS_PADRAO;
@@ -226,7 +250,8 @@ export function InternalTicketsView({
   openNewModal?: boolean;
 }) {
   const router = useRouter();
-  const { currentUser, hasPermission, triggerRefresh, navBadges } = useApp();
+  const { currentUser, hasPermission, refreshTrigger, navBadges } = useApp();
+  const openInternalTicket = useOpenInternalTicket();
   const [tickets, setTickets] = useState<InternalTicketItem[]>([]);
   // Só usado em <select> de filtro/responsável (sem avatar, ver componente
   // Avatar local — só aceita {name,size}) — via hook compartilhado "lite"
@@ -271,6 +296,14 @@ export function InternalTicketsView({
 
 // Filters
   const [searchTerm, setSearchTerm] = useState(FILTROS_PADRAO.searchTerm);
+  // Busca só vai ao servidor 300ms depois da última tecla (2026-11-11,
+  // análise de performance): antes cada letra digitada disparava uma carga
+  // completa da lista. Mesmo intervalo do ModernSearchBar dos chamados.
+  const [debouncedSearch, setDebouncedSearch] = useState(FILTROS_PADRAO.searchTerm);
+  useEffect(() => {
+    const h = setTimeout(() => setDebouncedSearch(searchTerm), 300);
+    return () => clearTimeout(h);
+  }, [searchTerm]);
   // Várias equipes de uma vez: o normal é acompanhar a própria E as vizinhas
   // com quem o trabalho cruza, não uma só.
   const [filterTeams, setFilterTeams] = useState<string[]>(FILTROS_PADRAO.filterTeams);
@@ -282,11 +315,25 @@ export function InternalTicketsView({
   // Encerrados fora por padrão: abrir a tela carregando todo o histórico
   // concluído é justamente o que ninguém está procurando.
   const [showClosed, setShowClosed] = useState(FILTROS_PADRAO.showClosed);
+  const [showClosedKanban, setShowClosedKanban] = useState(FILTROS_PADRAO.showClosedKanban);
+  const isKanban = viewMode === "kanban";
+  const effectiveShowClosed = isKanban ? showClosedKanban : showClosed;
+  const setEffectiveShowClosed = isKanban ? setShowClosedKanban : setShowClosed;
   const [showFilters, setShowFilters] = useState(false);
   // Chips de atalho — a mesma ideia do "Minhas tarefas"/"Sem responsável"
   // que Jira/Linear/ClickUp sempre têm de cara, sem precisar abrir filtro
   // avançado pra isso.
   const [quickFilter, setQuickFilter] = useState<"all" | "mine" | "unassigned" | "overdue" | "high">(FILTROS_PADRAO.quickFilter);
+  const [viewScope, setViewScope] = useState<ViewScope>(FILTROS_PADRAO.viewScope);
+  const [totalCount, setTotalCount] = useState(0);
+  // Carrega o recorte inteiro de uma vez (2026-11-11, pedido do usuário):
+  // a tela antes mostrava só os 20 primeiros e depois tinha "Carregar mais".
+  // Sem equipe interna (ex.: Administrador fora de qualquer equipe), "Minha
+  // equipe" não teria o que mostrar — a opção some e a tela cai em "Todos",
+  // sem mexer na preferência salva (se a pessoa entrar numa equipe depois, a
+  // visão padrão volta a valer sozinha).
+  const hasTeam = (currentUser?.internalTeamIds?.length ?? 0) > 0;
+  const effectiveScope: ViewScope = viewScope === "team" && !hasTeam ? "all" : viewScope;
 
   // Restauração das preferências salvas.
   //
@@ -300,6 +347,7 @@ export function InternalTicketsView({
   useEffect(() => {
     const salvos = carregarFiltros();
     setSearchTerm(salvos.searchTerm);
+    setDebouncedSearch(salvos.searchTerm);
     setFilterTeams(salvos.filterTeams);
     setFilterAssignee(salvos.filterAssignee);
     setFilterStatus(salvos.filterStatus);
@@ -322,7 +370,7 @@ export function InternalTicketsView({
     if (!hidratado) return; // não sobrescrever o salvo com os padrões antes de ler
     const atual: FiltrosSalvos = {
       searchTerm, filterTeams, filterAssignee, filterStatus,
-      filterPriority, dateFrom, dateTo, showClosed, quickFilter
+      filterPriority, dateFrom, dateTo, showClosed, showClosedKanban: false, quickFilter, viewScope: "team"
     };
     try {
       localStorage.setItem(FILTROS_STORAGE_KEY, JSON.stringify(atual));
@@ -373,6 +421,19 @@ export function InternalTicketsView({
   // em Configurações > Geral > Status) — DEFAULT_KANBAN_STATUSES só cobre o
   // primeiro render, antes do fetch resolver.
   const [statuses, setStatuses] = useState<KanbanStatusMeta[]>(DEFAULT_KANBAN_STATUSES);
+  // Colunas do Kanban (2026-11-11, pedido do usuário): desmarcado, só as
+  // colunas abertas; marcado, SÓ as fechadas (is_closed, ex.: "Concluído") —
+  // nunca as duas juntas, mesmo padrão do Kanban de "Todos os Chamados". O
+  // servidor também só devolve os encerrados nesse caso (closedOnly=1). Só o
+  // Kanban: `statuses` continua completo pros seletores de status (lote, cards).
+  // Exceção: com BUSCA (título ou número) todas as colunas aparecem — o
+  // servidor devolve abertos e encerrados juntos nesse caso (ver
+  // action=board), e sem a coluna o ticket encerrado achado ficaria invisível.
+  const temBusca = debouncedSearch.trim().length > 0;
+  const kanbanStatuses = useMemo(
+    () => (temBusca ? statuses : statuses.filter((st) => (showClosedKanban ? !!st.isClosed : !st.isClosed))),
+    [statuses, showClosedKanban, temBusca]
+  );
 
 // Modal states
   const [showNewModal, setShowNewModal] = useState(false);
@@ -398,19 +459,21 @@ export function InternalTicketsView({
       // Uma chamada resolve página, total, responsáveis, vínculos e
       // contagem de comentários — antes eram cinco consultas encadeadas
       // saindo do navegador (ver action=board em app/api/internal-tickets).
-      const qs = new URLSearchParams({ page: String(page), pageSize: String(ITEMS_PER_PAGE) });
-      if (searchTerm) qs.set('search', searchTerm);
+      const qs = new URLSearchParams({ page: '1', pageSize: String(MAX_ITEMS) });
+      if (debouncedSearch) qs.set('search', debouncedSearch);
       if (filterTeams.length > 0) qs.set('teamIds', filterTeams.join(','));
       if (filterAssignee) qs.set('assigneeId', filterAssignee);
       if (filterStatus) qs.set('status', filterStatus);
       if (filterPriority) qs.set('priority', filterPriority);
       if (dateFrom) qs.set('dateFrom', dateFrom);
       if (dateTo) qs.set('dateTo', dateTo);
-      if (showClosed) qs.set('includeClosed', '1');
+      // Marcado = só os encerrados, em qualquer visão (Tabela/Cards/Kanban).
+      if (effectiveShowClosed) qs.set('closedOnly', '1');
+      if (effectiveScope !== 'all') qs.set('scope', effectiveScope);
 
-      // Nenhum recorte automático por equipe aqui: ticket interno é visível a
-      // todo o time (ver app/api/internal-tickets/route.ts). Quem quiser ver
-      // só a própria equipe usa o filtro de equipes, que fica salvo.
+      // O recorte por equipe é FILTRO (viewScope, padrão "Minha equipe"),
+      // não permissão: ticket interno é visível a todo o time (ver
+      // app/api/internal-tickets/route.ts) e "Todos" mostra tudo.
 
       const boardRes = await fetch(`/api/internal-tickets?action=board&${qs}`);
       if (!boardRes.ok) throw new Error(`Falha ao carregar tickets internos (HTTP ${boardRes.status}).`);
@@ -418,6 +481,7 @@ export function InternalTicketsView({
 
       const internalData = board.tickets || [];
       setTotalPages(Math.max(1, Math.ceil((board.total || 0) / ITEMS_PER_PAGE)));
+      setTotalCount(board.total || 0);
 
       const assigneeMap = new Map<string, { name: string; avatarThumbUrl: string | null }>(
         Object.entries(board.assignees || {}) as any
@@ -426,10 +490,16 @@ export function InternalTicketsView({
       const ticketMap = new Map<string, string>(Object.entries(board.ticketLabels || {}) as any);
       const commentCountMap = new Map<string, number>(Object.entries(board.commentCounts || {}) as any);
 
+      // Vínculos agrupados uma vez (antes: varrer a lista de vínculos inteira
+      // para cada ticket).
+      const linksByInternal = new Map<string, string[]>();
+      for (const l of links as any[]) {
+        const arr = linksByInternal.get(l.internal_ticket_id);
+        if (arr) arr.push(l.ticket_id); else linksByInternal.set(l.internal_ticket_id, [l.ticket_id]);
+      }
+
       setTickets((internalData || []).map((it: any) => {
-        const linkedIds = (links || [])
-          .filter((l: any) => l.internal_ticket_id === it.id)
-          .map((l: any) => l.ticket_id);
+        const linkedIds = linksByInternal.get(it.id) || [];
 
         // Calculate SLA remaining
         let slaRemaining = null;
@@ -473,6 +543,13 @@ export function InternalTicketsView({
           status: it.status || "Novo",
           tags: it.tags || [],
           commentCount: commentCountMap.get(it.id) || 0,
+          // A linha vem em snake_case do servidor e a tabela lê estes quatro
+          // em camelCase — sem o mapeamento as colunas Sub-status/Resolvido/
+          // QA/Entrega ficavam sempre "-" (achado na análise de 2026-11-11).
+          subStatus: it.sub_status ?? null,
+          resolvedAt: it.resolved_at ?? null,
+          qaRejected: !!it.qa_rejected,
+          lateDelivery: !!it.late_delivery,
         };
       }));
     } catch (error) {
@@ -485,12 +562,14 @@ export function InternalTicketsView({
     // controle muda de estado mas a lista não recarrega, e o filtro parece
     // simplesmente não funcionar. filterStatus já estava faltando antes —
     // trocar o status no filtro avançado também não surtia efeito.
-  }, [currentUser, searchTerm, filterTeams, filterAssignee, filterStatus, filterPriority, dateFrom, dateTo, showClosed]);
+  }, [currentUser, debouncedSearch, filterTeams, filterAssignee, filterStatus, filterPriority, dateFrom, dateTo, effectiveShowClosed, effectiveScope]);
 
   useEffect(() => {
     if (!hidratado) return; // espera a restauração dos filtros salvos
     fetchTickets(1);
-  }, [hidratado, fetchTickets, triggerRefresh]);
+  // refreshTrigger (o NÚMERO), não triggerRefresh (a função, que nunca muda):
+  // com a função aqui, salvar algo no modal do ticket não recarregava a lista.
+  }, [hidratado, fetchTickets, refreshTrigger]);
 
   // Edição em massa — troca o campo de todos os selecionados numa chamada só
   // (InternalTicketService.bulkUpdate → POST /api/internal-tickets,
@@ -572,7 +651,7 @@ export function InternalTicketsView({
         if (topLevel.length > 0) {
           setStatuses(topLevel.map(s => {
             const c = findStatusColor(s.color);
-            return { value: s.label, label: s.label, color: `${c.bg} ${c.text}`, dot: c.dot, accent: c.accent };
+            return { value: s.label, label: s.label, color: `${c.bg} ${c.text}`, dot: c.dot, accent: c.accent, isClosed: !!s.isClosed };
           }));
         }
       } catch (error) {
@@ -591,7 +670,9 @@ export function InternalTicketsView({
     setDateFrom("");
     setDateTo("");
     setShowClosed(false);
+    setShowClosedKanban(true);
     setQuickFilter("all");
+    setViewScope("team");
   };
 
   // Quantos filtros avançados estão valendo — vira o contador no botão
@@ -599,8 +680,11 @@ export function InternalTicketsView({
   // com a barra fechada, a lista volta recortada sem nada explicando por quê.
   const filtrosAtivos = useMemo(() => (
     (filterTeams.length > 0 ? 1 : 0) + (filterAssignee ? 1 : 0) + (filterStatus ? 1 : 0)
-    + (filterPriority ? 1 : 0) + (dateFrom ? 1 : 0) + (dateTo ? 1 : 0) + (showClosed ? 1 : 0)
-  ), [filterTeams, filterAssignee, filterStatus, filterPriority, dateFrom, dateTo, showClosed]);
+    + (filterPriority ? 1 : 0) + (dateFrom ? 1 : 0) + (dateTo ? 1 : 0)
+    // Conta só quando difere do padrão da visão — senão o Kanban, que nasce
+    // com encerrados ligados, abriria sempre anunciando um filtro "ativo".
+    + (effectiveShowClosed !== (isKanban ? FILTROS_PADRAO.showClosedKanban : FILTROS_PADRAO.showClosed) ? 1 : 0)
+  ), [filterTeams, filterAssignee, filterStatus, filterPriority, dateFrom, dateTo, effectiveShowClosed, isKanban]);
 
   // Aplicado sobre o que já veio do servidor — os filtros avançados (equipe,
   // responsável, status, prioridade, data) já filtraram lá; os chips rápidos
@@ -625,7 +709,8 @@ export function InternalTicketsView({
   }), [tickets, currentUser?.id]);
 
 const openEditModal = (ticket: InternalTicketItem) => {
-     router.push(`/internal-tickets/${ticket.id}`);
+     // Modal por cima da lista (?internalTicket=), não mais outra página.
+     openInternalTicket(ticket.id || ticket.uuid || "");
    };
 
    const handleStatusChange = async (ticketUuid: string, newStatus: string) => {
@@ -680,7 +765,7 @@ const openEditModal = (ticket: InternalTicketItem) => {
             <Search size={18} className="absolute left-3 top-1/2 -translate-y-1/2 text-[var(--text-tertiary)]" />
             <input
               type="text"
-              placeholder="Buscar por título..."
+              placeholder="Buscar por título ou número (ex.: 37 ou int-0037)..."
               value={searchTerm}
               onChange={(e) => setSearchTerm(e.target.value)}
               className="w-full pl-10 pr-4 py-2.5 rounded-xl border border-[var(--border-default)] focus:border-[var(--text-warning-strong)] outline-none text-sm font-medium"
@@ -707,18 +792,46 @@ const openEditModal = (ticket: InternalTicketItem) => {
           </button>
         </div>
 
-        {/* Quick filter chips */}
+        {/* Visão principal (servidor) + chips rápidos (página carregada) */}
         <div className="flex items-center gap-2 flex-wrap mb-1">
+          <div role="radiogroup" aria-label="Visão dos tickets" className="flex items-center gap-1 p-1 rounded-full bg-[var(--surface-pill)]">
+            {[
+              ...(hasTeam ? [{ key: "team" as const, label: "Minha equipe", icon: Users }] : []),
+              { key: "all" as const, label: "Todos", icon: Inbox },
+              { key: "assigned" as const, label: "Atribuído a mim", icon: UserIcon },
+            ].map((opt) => (
+              <button
+                key={opt.key}
+                role="radio"
+                aria-checked={effectiveScope === opt.key}
+                onClick={() => setViewScope(opt.key)}
+                className={cn(
+                  "px-3 py-1.5 rounded-full text-[10px] font-bold uppercase tracking-wide transition-all flex items-center gap-1.5",
+                  effectiveScope === opt.key
+                    ? "bg-[var(--text-warning-strong)] text-white shadow-sm"
+                    : "text-[var(--text-secondary)] hover:text-[var(--text-primary)]"
+                )}
+              >
+                <opt.icon size={11} />
+                {opt.label}
+                {/* Total vem do servidor: só a visão ativa tem número
+                    confiável — as outras não são consultadas à toa. */}
+                {effectiveScope === opt.key && !loading && (
+                  <span className="px-1.5 rounded-full text-[9px] bg-white/20">{totalCount}</span>
+                )}
+              </button>
+            ))}
+          </div>
+          <span className="w-px h-5 bg-[var(--border-default)] mx-1" aria-hidden />
           {[
-            { key: "all" as const, label: "Todos", icon: Inbox, count: tickets.length },
-            { key: "mine" as const, label: "Minhas", icon: UserIcon, count: quickFilterCounts.mine },
+            { key: "mine" as const, label: "Meus", icon: UserIcon, count: quickFilterCounts.mine },
             { key: "unassigned" as const, label: "Sem responsável", icon: Inbox, count: quickFilterCounts.unassigned },
             { key: "overdue" as const, label: "Atrasadas", icon: AlertTriangle, count: quickFilterCounts.overdue },
             { key: "high" as const, label: "Alta prioridade", icon: Flame, count: quickFilterCounts.high },
           ].map((chip) => (
             <button
               key={chip.key}
-              onClick={() => setQuickFilter(chip.key)}
+              onClick={() => setQuickFilter(quickFilter === chip.key ? "all" : chip.key)}
               className={cn(
                 "px-3 py-1.5 rounded-full text-[10px] font-bold uppercase tracking-wide transition-all flex items-center gap-1.5 border",
                 quickFilter === chip.key
@@ -812,8 +925,8 @@ const openEditModal = (ticket: InternalTicketItem) => {
                 <label className="flex items-center gap-2 px-3 py-2 rounded-lg border border-[var(--border-default)] cursor-pointer select-none hover:bg-[var(--surface-pill)] transition-colors">
                   <input
                     type="checkbox"
-                    checked={showClosed}
-                    onChange={(e) => setShowClosed(e.target.checked)}
+                    checked={effectiveShowClosed}
+                    onChange={(e) => setEffectiveShowClosed(e.target.checked)}
                     className="w-4 h-4 rounded border-[var(--border-default)] accent-[var(--accent)] cursor-pointer"
                   />
                   <span className="text-xs font-medium text-[var(--text-secondary)]">
@@ -910,7 +1023,13 @@ const openEditModal = (ticket: InternalTicketItem) => {
           />
         </>
       ) : (
-        <KanbanBoard tickets={displayTickets} onEdit={openEditModal} onStatusChange={handleStatusChange} statuses={statuses} assignableUsers={assignableUsers} getAssignableUsersForTeam={getAssignableUsersForTeam} onReassign={reassignInternalTicket} />
+        <KanbanBoard tickets={displayTickets} onEdit={openEditModal} onStatusChange={handleStatusChange} statuses={kanbanStatuses} assignableUsers={assignableUsers} getAssignableUsersForTeam={getAssignableUsersForTeam} onReassign={reassignInternalTicket} />
+      )}
+
+      {!loading && tickets.length < totalCount && (
+        <p className="text-center text-xs text-[var(--text-tertiary)]">
+          Mostrando os {tickets.length} mais recentes de {totalCount} — refine os filtros para ver o restante.
+        </p>
       )}
 
       {/* Modal - Only for creating new tickets */}
@@ -1351,7 +1470,10 @@ function KanbanColumn({ col, onEdit, assignableUsers = [], getAssignableUsersFor
         </span>
       </div>
 
-      <div className="p-3 space-y-2.5 min-h-[120px]">
+      {/* Scroll por coluna (2026-11-11, pedido do usuário) — mesmo padrão do
+          Kanban do Dashboard: rolar uma coluna longa não arrasta a tela toda.
+          Altura pela janela (não fixa) pra aproveitar telas maiores. */}
+      <div className="p-3 space-y-2.5 min-h-[120px] max-h-[calc(100vh-16rem)] overflow-y-auto scrollbar-thin">
         {col.tickets.length === 0 ? (
           <div className={cn("text-center py-8 rounded-xl border-2 border-dashed transition-colors", isOver ? "border-[var(--text-warning-strong)]/40" : "border-[var(--border-default)]")}>
             <p className="text-[10px] text-[var(--text-tertiary)] font-medium uppercase tracking-wide">Arraste um card aqui</p>

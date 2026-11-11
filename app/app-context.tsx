@@ -487,6 +487,20 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     }
   }, [addNotification, triggerRefresh]);
 
+  // Comparação por valor dos contadores (ordem das chaves irrelevante: o
+  // servidor agrupa sem ORDER BY, então a ordem pode variar entre chamadas).
+  const sameNavBadges = (a: NavBadges, b: NavBadges) => {
+    const sameMap = (x: Record<string, number>, y: Record<string, number>) => {
+      const kx = Object.keys(x);
+      if (kx.length !== Object.keys(y).length) return false;
+      return kx.every(k => x[k] === y[k]);
+    };
+    return a.chatInternalUnread === b.chatInternalUnread
+      && a.myTicketsUnread === b.myTicketsUnread
+      && a.internalTicketsUnread === b.internalTicketsUnread
+      && sameMap(a.myTicketsUnreadByTicket, b.myTicketsUnreadByTicket)
+      && sameMap(a.internalTicketsUnreadByTicket, b.internalTicketsUnreadByTicket);
+  };
   const [navBadges, setNavBadges] = useState<NavBadges>({ chatInternalUnread: 0, myTicketsUnread: 0, myTicketsUnreadByTicket: {}, internalTicketsUnread: 0, internalTicketsUnreadByTicket: {} });
 
   const refreshNavBadges = React.useCallback(async () => {
@@ -495,13 +509,19 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       const res = await fetch('/api/notifications/badges', { credentials: 'include' });
       if (!res.ok) return;
       const data = await res.json();
-      setNavBadges({
+      const next: NavBadges = {
         chatInternalUnread: data.chatInternalUnread || 0,
         myTicketsUnread: data.myTicketsUnread || 0,
         myTicketsUnreadByTicket: data.myTicketsUnreadByTicket || {},
         internalTicketsUnread: data.internalTicketsUnread || 0,
         internalTicketsUnreadByTicket: data.internalTicketsUnreadByTicket || {}
-      });
+      };
+      // Só troca o estado quando algum número MUDOU (2026-11-11, análise de
+      // performance). Este polling roda a cada 3s e sempre devolvia um objeto
+      // novo — o que re-renderizava o AppProvider e, com ele, TODA tela que
+      // usa useApp() (lista de tickets internos com centenas de cards, o
+      // detalhe com o editor...), a cada 3 segundos, mesmo sem nada novo.
+      setNavBadges(prev => (sameNavBadges(prev, next) ? prev : next));
     } catch (error) {
       console.error('Erro ao buscar notificações da sidebar:', error);
     }

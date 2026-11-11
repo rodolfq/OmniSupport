@@ -60,6 +60,24 @@ export async function getOrGenerateChatSummary(historyId: string): Promise<ChatS
     throw new ChatSummaryGenerationError('Esta conversa não tem transcrição registrada para resumir.');
   }
 
+  const summaryText = await summarizeTranscriptWithAi(transcript, row.customer_name);
+
+  const generatedAt = new Date().toISOString();
+  await query(
+    `UPDATE public.chat_histories SET summary = $1, summary_generated_at = $2 WHERE id = $3`,
+    [summaryText, generatedAt, historyId]
+  );
+
+  return { summary: summaryText, generatedAt, cached: false };
+}
+
+/**
+ * A chamada à IA em si, separada de getOrGenerateChatSummary (2026-11-11) pra
+ * ser reaproveitada pelo resumo que entra na descrição do chamado gerado pelo
+ * chat (lib/services/ticket-chat-summary.ts) — mesmo modelo e mesmas
+ * instruções do "Chat Resumido", pra os dois resumos terem o mesmo jeito.
+ */
+export async function summarizeTranscriptWithAi(transcript: string, customerName?: string | null): Promise<string> {
   // getGroqClient() lança AssistantNotConfiguredError se nem o override de
   // Configurações > Agente de IA nem GROQ_API_KEY estiverem setados —
   // propagada pro chamador (rota da API), não capturada aqui, pra virar um
@@ -79,7 +97,7 @@ export async function getOrGenerateChatSummary(historyId: string): Promise<ChatS
       { role: 'system', content: SUMMARY_SYSTEM_INSTRUCTION },
       {
         role: 'user',
-        content: `Conversa com ${row.customer_name || 'o cliente'}:\n\n${truncateTranscriptForSummary(transcript)}`
+        content: `Conversa com ${customerName || 'o cliente'}:\n\n${truncateTranscriptForSummary(transcript)}`
       }
     ]
   });
@@ -88,12 +106,5 @@ export async function getOrGenerateChatSummary(historyId: string): Promise<ChatS
   if (!summaryText) {
     throw new ChatSummaryGenerationError('O modelo de IA não retornou nenhum resumo — tente novamente em instantes.');
   }
-
-  const generatedAt = new Date().toISOString();
-  await query(
-    `UPDATE public.chat_histories SET summary = $1, summary_generated_at = $2 WHERE id = $3`,
-    [summaryText, generatedAt, historyId]
-  );
-
-  return { summary: summaryText, generatedAt, cached: false };
+  return summaryText;
 }

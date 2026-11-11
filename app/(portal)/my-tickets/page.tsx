@@ -29,6 +29,7 @@ import { CustomerDashboardPanel } from '@/components/customer-dashboard-panel';
 import { NotificationCountBadge, UnreadDot } from '@/components/notification-count-badge';
 import { isClosedTicketStatus, getCustomerStatusLabel } from '@/lib/ticket-status';
 import { useSearchParams, useRouter } from 'next/navigation';
+import { useOpenInternalTicket } from '@/components/internal-ticket-modal-host';
 import { ConfigService } from '@/lib/services/config-service';
 import { usePersistedViewMode } from '@/hooks/use-persisted-view-mode';
 import { findStatusColor } from '@/lib/status-colors';
@@ -133,6 +134,8 @@ export default function MyTicketsPage() {
   const { currentUser, hasPermission, setIsNewTicketModalOpen, refreshTrigger, triggerRefresh, navBadges } = useApp();
   const searchParams = useSearchParams();
   const router = useRouter();
+  // Ticket interno abre por cima desta tela (?internalTicket=), sem sair dela.
+  const openInternalTicket = useOpenInternalTicket();
   const [allTickets, setAllTickets] = useState<Ticket[]>([]); // Renamed from tickets = useState<Ticket[]>([])
   const [search, setSearch] = useState('');
   const [filter, setFilter] = useState<CustomerStatusFilter>('all');
@@ -565,7 +568,7 @@ export default function MyTicketsPage() {
                       initial={{ opacity: 0, y: 20 }}
                       animate={{ opacity: 1, y: 0 }}
                       whileHover={{ y: -2 }}
-                      onClick={() => router.push(`/internal-tickets/${it.uuid}`)}
+                      onClick={() => openInternalTicket(it.uuid)}
                       className={cn(
                         "relative bg-[var(--surface-card)] border border-[var(--border-default)] rounded-2xl p-6 shadow-sm cursor-pointer transition-all hover:shadow-md hover:border-[var(--text-warning-strong)]/40 group flex flex-col",
                         view === 'list' && "flex-row items-center gap-6 py-4"

@@ -19,6 +19,7 @@ import { TicketDetailModal } from '@/components/ticket-detail-modal';
 import { FilterBar } from '@/components/filter-bar';
 import { UnreadDot } from '@/components/notification-count-badge';
 import { useSearchParams, useRouter } from 'next/navigation';
+import { useOpenInternalTicket } from '@/components/internal-ticket-modal-host';
 import {
   DndContext,
   DragOverlay,
@@ -966,6 +967,8 @@ export default function DashboardPage() {
 // board de chamados acima (StatCard, colunas por status), com dados e cores
 // vindas de config_statuses (scope=internal_ticket), igual /internal-tickets.
 function InternalDashboard({ tickets, loading, router, statuses, onStatusChange }: { tickets: InternalTicketItem[]; loading: boolean; router: ReturnType<typeof useRouter>; statuses: InternalStatusMeta[]; onStatusChange: (ticketUuid: string, newStatus: string) => void }) {
+  // Abre por cima do Dashboard (?internalTicket=), sem sair dele.
+  const openInternalTicket = useOpenInternalTicket();
   const [activeInternalTicket, setActiveInternalTicket] = useState<InternalTicketItem | null>(null);
   const internalKanbanSensors = useSensors(useSensor(PointerSensor, { activationConstraint: { distance: 8 } }));
   const handleInternalDragStart = (event: DragStartEvent) => {
@@ -1099,7 +1102,7 @@ function InternalDashboard({ tickets, loading, router, statuses, onStatusChange 
                 {stats.stale.slice(0, 5).map(t => (
                   <div
                     key={t.uuid}
-                    onClick={() => router.push(`/internal-tickets/${t.uuid}`)}
+                    onClick={() => openInternalTicket(t.uuid)}
                     className="cursor-pointer flex items-center justify-between gap-2 p-2 rounded-lg hover:bg-[var(--surface-pill)] transition-colors"
                   >
                     <span className="text-xs font-semibold text-[var(--text-secondary)] truncate">{t.title}</span>
@@ -1162,6 +1165,8 @@ function InternalDashboardKanbanColumn({ col, router }: { col: InternalStatusMet
 }
 
 function DraggableInternalDashboardTicketCard({ ticket, router }: { ticket: InternalTicketItem; router: ReturnType<typeof useRouter> }) {
+  // Abre por cima do Dashboard (?internalTicket=), sem sair dele.
+  const openInternalTicket = useOpenInternalTicket();
   const { attributes, listeners, setNodeRef, transform, isDragging } = useDraggable({ id: ticket.uuid });
   return (
     <div
@@ -1171,7 +1176,7 @@ function DraggableInternalDashboardTicketCard({ ticket, router }: { ticket: Inte
       style={{ transform: transform ? `translate3d(${transform.x}px, ${transform.y}px, 0)` : undefined, opacity: isDragging ? 0.4 : 1 }}
       className="touch-none"
     >
-      <InternalDashboardTicketCard ticket={ticket} onClick={() => router.push(`/internal-tickets/${ticket.uuid}`)} />
+      <InternalDashboardTicketCard ticket={ticket} onClick={() => openInternalTicket(ticket.uuid!)} />
     </div>
   );
 }
@@ -1221,6 +1226,8 @@ function InternalPriorityList({ title, tickets, color, router }: {
   color: 'rose' | 'orange' | 'amber',
   router: ReturnType<typeof useRouter>
 }) {
+  // Abre por cima do Dashboard (?internalTicket=), sem sair dele.
+  const openInternalTicket = useOpenInternalTicket();
   if (tickets.length === 0) return null;
 
   const bgColors = {
@@ -1251,7 +1258,7 @@ function InternalPriorityList({ title, tickets, color, router }: {
         {tickets.slice(0, 5).map(t => (
           <div
             key={t.uuid}
-            onClick={() => router.push(`/internal-tickets/${t.uuid}`)}
+            onClick={() => openInternalTicket(t.uuid)}
             className="group cursor-pointer bg-[var(--surface-card)]/80 backdrop-blur-sm p-3 rounded-xl border border-[var(--surface-card)] hover:border-[var(--border-default)] transition-all flex items-center justify-between gap-3 shadow-sm"
           >
             <div className="flex-1 min-w-0">
