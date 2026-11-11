@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { query } from '@/lib/db';
 import { verifyJWT } from '@/lib/jwt';
 import { computeInternalTicketSla } from '@/lib/sla';
-import { persistAttachments } from '@/lib/services/attachment-storage';
+import { persistAttachments, externalizeInlineImages } from '@/lib/services/attachment-storage';
 import { getActorEffectivePermissions } from '@/lib/server-auth';
 import { getTicketConfig } from '@/lib/services/ticket-points-service';
 import { Permission } from '@/lib/types';
@@ -437,6 +437,9 @@ export async function POST(request: NextRequest) {
       const { ticket, parentTicketId } = body;
       if (!ticket?.title) return NextResponse.json({ error: 'O título é obrigatório.' }, { status: 400 });
       if (!ticket?.creatorId) return NextResponse.json({ error: 'creatorId é obrigatório.' }, { status: 400 });
+      // Imagem colada na descrição (base64 dentro do HTML) vai pro disco —
+      // ver externalizeInlineImages em lib/services/attachment-storage.ts.
+      ticket.description = await externalizeInlineImages(ticket.description);
 
       const priorityRes = await query('SELECT label, sla_hours FROM public.config_priorities');
       const priority = ticket.priority || 1;
@@ -557,6 +560,9 @@ export async function POST(request: NextRequest) {
       const { id, ids, fields } = body;
       const targetIds: string[] = Array.isArray(ids) && ids.length > 0 ? ids : (id ? [id] : []);
       if (targetIds.length === 0 || !fields) return NextResponse.json({ error: 'id(s) e fields são obrigatórios.' }, { status: 400 });
+      if (typeof fields.description === 'string') {
+        fields.description = await externalizeInlineImages(fields.description);
+      }
 
       // Desmarcar "Reprovação de QA"/"Ambiente reprovado" (true → false) exige
       // internal:qa_override além de internal:edit — qualquer um com acesso ao
@@ -685,6 +691,10 @@ export async function POST(request: NextRequest) {
       // ganhava isso de graça pelo tradutor. Sem esta linha, o base64 voltaria
       // a inflar o banco (ver lib/services/attachment-storage.ts).
       const attachments = await persistAttachments(message.attachments || []);
+      // Imagem colada no texto da nota (base64 dentro do HTML) vai pro disco.
+      // Foi exatamente uma nota destas (448 mil caracteres) que travou a
+      // produção em 2026-11-11 — ver externalizeInlineImages.
+      message.text = await externalizeInlineImages(message.text);
 
       const res = await query(
         `INSERT INTO public.internal_ticket_messages

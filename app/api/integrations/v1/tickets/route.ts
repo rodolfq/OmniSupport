@@ -9,6 +9,7 @@ import {
 } from '@/lib/integration-auth';
 import { logAudit } from '@/lib/audit-log';
 import { handleTicketCreated, handleTicketUpdated } from '@/lib/services/automation-service';
+import { externalizeInlineImages } from '@/lib/services/attachment-storage';
 
 // Leitura, criação e atualização de chamados para a plataforma externa. Ao
 // pedir um chamado específico (?id=), inclui também as mensagens visíveis ao
@@ -287,7 +288,9 @@ export async function POST(request: Request) {
        RETURNING ${TICKET_COLUMNS}`,
       [
         title,
-        description,
+        // Sistema externo pode mandar HTML com imagem embutida em base64 —
+        // vai pro disco como no resto do app (ver externalizeInlineImages).
+        await externalizeInlineImages(description),
         body.priority || 'Baixa',
         body.categoryId || null,
         body.requestTypeId || null,

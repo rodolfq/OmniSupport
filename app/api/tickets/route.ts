@@ -5,7 +5,7 @@ import { verifyJWT } from '@/lib/jwt';
 import { handleTicketCreated, handleTicketUpdated, handleTicketMessageCreated } from '@/lib/services/automation-service';
 import { notifyUser } from '@/lib/services/push-service';
 import { getTeamUserIds, getTicketRecipients, pushToTicketRecipients, ticketLabel } from '@/lib/services/notification-recipients';
-import { persistAttachments } from '@/lib/services/attachment-storage';
+import { persistAttachments, externalizeInlineImages } from '@/lib/services/attachment-storage';
 import { getCurrentActionUser } from '@/lib/server-auth';
 import { logAudit } from '@/lib/audit-log';
 import { TicketStatus } from '@/lib/types';
@@ -714,6 +714,10 @@ export async function POST(request: Request) {
       // Anexo chega do client como data: URL e é gravado em disco aqui (ver
       // lib/services/attachment-storage.ts) — no banco fica só a URL curta.
       const ticketAttachments = await persistAttachments(ticket.attachments || []);
+      // Imagem colada na descrição (base64 dentro do HTML) também vai pro
+      // disco — ver externalizeInlineImages. Reaproveitado pelo ticket interno
+      // automático do "Time Interno", mais abaixo.
+      ticket.description = await externalizeInlineImages(ticket.description);
 
       const res = await query(
         `INSERT INTO public.tickets (title, description, status, priority, queue_id, category_id, request_type_id, product_id, tags, company_id, customer_id, created_by, attachments_data, employee_ids, assignee_id)
@@ -810,6 +814,7 @@ export async function POST(request: Request) {
       // Anexo chega do client como data: URL e é gravado em disco aqui (ver
       // lib/services/attachment-storage.ts) — no banco fica só a URL curta.
       const messageAttachments = await persistAttachments(message.attachments || []);
+      message.text = await externalizeInlineImages(message.text);
 
       const res = await query(
         `INSERT INTO public.ticket_messages (id, ticket_id, author_id, content, created_at, is_visible_to_customer, type, attachments_data)
@@ -981,6 +986,14 @@ export async function PUT(request: NextRequest) {
     // gravação passa por aqui com title/description/status/priority juntos,
     // mesmo quando o usuário só trocou o responsável ou escreveu uma nota.
     // Qualquer regra nova neste laço tem que aguentar esse cenário.
+    // Imagem colada na descrição (base64 dentro do HTML) vai pro disco antes de
+    // gravar — ver externalizeInlineImages. Como toda gravação manda o chamado
+    // inteiro (comentário acima), uma descrição ANTIGA que ainda tenha base64
+    // também é convertida no primeiro salvamento depois desta mudança.
+    if (typeof ticket.description === 'string') {
+      ticket.description = await externalizeInlineImages(ticket.description);
+    }
+
     const FIELDS: Record<string, string> = {
       title: 'title',
       description: 'description',

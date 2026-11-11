@@ -201,6 +201,56 @@ export async function persistAttachments(attachments?: Attachment[] | null): Pro
   );
 }
 
+// <img src="data:image/...;base64,..."> DENTRO de um texto rico (descrição de
+// chamado/ticket interno, nota) — o atributo src com a imagem embutida.
+// Alcance limitado antes do src (`{0,2000}`) pra regex nunca varrer o texto
+// inteiro a partir de um "<img" sem fechamento.
+const INLINE_DATA_IMAGE_RE = /(<img\b[^>]{0,2000}?\bsrc\s*=\s*)(["'])(data:image\/[a-z0-9.+-]+;base64,[A-Za-z0-9+/=\s]*)\2/gi;
+
+/**
+ * Tira imagens embutidas em base64 de um HTML de texto rico, gravando cada uma
+ * no volume de anexos e trocando o src pelo link (/api/files/...). Achado em
+ * 2026-11-11: uma imagem colada numa nota de ticket interno ficou gravada como
+ * 448 mil caracteres de base64 DENTRO do texto e travou o servidor de produção
+ * em 100% de CPU (ver prepareTextForEmbedding em embedding-service.ts). Na
+ * varredura do mesmo dia havia ainda 50 descrições de chamado (25,8 MB) e 4 de
+ * ticket interno no mesmo formato. O editor (components/rich-editor.tsx) já
+ * envia a imagem como arquivo, mas isto cobre o resto: HTML colado de outro
+ * site/app com imagem embutida, aba com a versão antiga aberta, integração.
+ *
+ * Mesmas garantias de persistAttachments: idempotente (texto sem data: passa
+ * igual) e tolerante a falha (se a gravação de UMA imagem falhar, ela fica
+ * inline como antes — perder a imagem seria pior que o banco crescer).
+ */
+export async function externalizeInlineImages<T extends string | null | undefined>(html: T): Promise<T> {
+  if (typeof html !== 'string' || !html.includes('data:image/')) return html;
+
+  const matches = [...html.matchAll(INLINE_DATA_IMAGE_RE)];
+  if (matches.length === 0) return html;
+
+  let result = '';
+  let cursor = 0;
+  for (const m of matches) {
+    const [whole, prefix, quote, dataUrl] = m;
+    const start = m.index ?? 0;
+    result += html.slice(cursor, start);
+    let replacement = whole;
+    try {
+      const parsed = parseDataUrl(dataUrl.replace(/\s+/g, ''));
+      if (parsed && parsed.buffer.byteLength > 0) {
+        const stored = await storeAttachmentBuffer(parsed.buffer, parsed.mimeType, 'imagem-colada');
+        replacement = `${prefix}${quote}${stored.url}${quote}`;
+      }
+    } catch (err) {
+      console.error('[attachment-storage] Falha ao gravar imagem embutida no texto, mantendo inline:', err);
+    }
+    result += replacement;
+    cursor = start + whole.length;
+  }
+  result += html.slice(cursor);
+  return result as T;
+}
+
 // Mesma conversão, mas sobre um registro cru de tabela (as duas formas que o
 // projeto usa: coluna `attachments_data` e `metadata.attachments`). Existe pro
 // tradutor do shim Supabase (app/api/compat/supabase/route.ts), por onde ainda

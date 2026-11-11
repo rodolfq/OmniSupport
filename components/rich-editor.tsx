@@ -18,6 +18,31 @@ import {
   Heading1, Heading2, Quote, Undo, Redo
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
+import { toast } from 'sonner';
+import { uploadAttachment } from '@/lib/attachment-upload';
+
+// Imagem dentro do texto rico vira ARQUIVO no volume de anexos, e o HTML
+// guarda só o link (/api/files/...). Achado em 2026-11-11: no modo 'full' a
+// imagem colada/arrastada entrava no HTML como base64 (allowBase64) — uma nota
+// de ticket interno ficou com 448 mil caracteres e travou o servidor de
+// produção em 100% de CPU; havia ainda 50 descrições de chamado (25,8 MB) no
+// mesmo formato. O servidor também converte o que escapar daqui (ver
+// externalizeInlineImages em lib/services/attachment-storage.ts).
+function imageFilesFrom(list: DataTransferItemList | FileList | null | undefined): File[] {
+  if (!list) return [];
+  const files: File[] = [];
+  for (let i = 0; i < list.length; i++) {
+    const entry = list[i] as DataTransferItem | File;
+    const file = 'getAsFile' in entry ? (entry.kind === 'file' ? entry.getAsFile() : null) : entry;
+    if (file && file.type.startsWith('image/')) files.push(file);
+  }
+  return files;
+}
+
+async function dataUrlToBlob(dataUrl: string): Promise<Blob> {
+  const res = await fetch(dataUrl);
+  return res.blob();
+}
 
 interface RichEditorProps {
   content: string;
@@ -66,6 +91,67 @@ export function RichEditor({ content, onChange, placeholder = 'Comece a digitar.
   // Ref sempre atualizada resolve isso sem precisar recriar o editor.
   const onPasteImagesRef = useRef(onPasteImages);
   useEffect(() => { onPasteImagesRef.current = onPasteImages; }, [onPasteImages]);
+
+  // handlePaste/handleDrop são lidos só na criação do editor (ver acima), e
+  // precisam da instância do editor pra inserir a imagem depois do upload.
+  const editorRef = useRef<ReturnType<typeof useEditor>>(null);
+  // src base64 que já estão sendo enviados — a varredura roda a cada update
+  // e não pode subir a mesma imagem duas vezes.
+  const uploadingSrcsRef = useRef<Set<string>>(new Set());
+
+  // Sobe as imagens como arquivo e insere no texto com o link, na posição em
+  // que foram coladas/soltas (limitada ao tamanho atual do documento, que pode
+  // ter mudado enquanto o upload rodava).
+  const insertUploadedImages = useCallback(async (files: File[], pos: number) => {
+    const ed = editorRef.current;
+    if (!ed || files.length === 0) return;
+    const toastId = toast.loading(files.length > 1 ? `Enviando ${files.length} imagens...` : 'Enviando imagem...');
+    try {
+      const uploaded = await Promise.all(files.map(f => uploadAttachment(f, f.name || 'imagem-colada.png')));
+      const current = editorRef.current;
+      if (!current || current.isDestroyed) return;
+      const at = Math.min(pos, current.state.doc.content.size);
+      current.chain().focus().insertContentAt(at, uploaded.map(a => ({ type: 'image', attrs: { src: a.url } }))).run();
+      toast.dismiss(toastId);
+    } catch (err: any) {
+      toast.error(err?.message || 'Não foi possível enviar a imagem.', { id: toastId });
+    }
+  }, []);
+
+  // Rede de segurança: imagem que entrou no texto como base64 por outro
+  // caminho (HTML colado de outro site/app com a imagem embutida, conteúdo
+  // antigo carregado no editor) é enviada como arquivo e o src é trocado pelo
+  // link. Se o envio falhar, a imagem fica como está — o servidor ainda
+  // converte ao salvar.
+  const externalizeDataImages = useCallback(() => {
+    const ed = editorRef.current;
+    if (!ed || ed.isDestroyed) return;
+    const pending: string[] = [];
+    ed.state.doc.descendants(node => {
+      const src = node.type.name === 'image' ? String(node.attrs.src || '') : '';
+      if (src.startsWith('data:image/') && !uploadingSrcsRef.current.has(src)) pending.push(src);
+    });
+    for (const src of pending) {
+      uploadingSrcsRef.current.add(src);
+      dataUrlToBlob(src)
+        .then(blob => uploadAttachment(blob, `imagem-colada.${(blob.type.split('/')[1] || 'png').replace(/[^a-z0-9]/gi, '')}`))
+        .then(att => {
+          const current = editorRef.current;
+          if (!current || current.isDestroyed) return;
+          const { tr } = current.state;
+          let changed = false;
+          current.state.doc.descendants((node, pos) => {
+            if (node.type.name === 'image' && node.attrs.src === src) {
+              tr.setNodeMarkup(pos, undefined, { ...node.attrs, src: att.url });
+              changed = true;
+            }
+          });
+          if (changed) current.view.dispatch(tr);
+        })
+        .catch(err => console.error('[rich-editor] Falha ao enviar imagem embutida, mantendo no texto:', err))
+        .finally(() => uploadingSrcsRef.current.delete(src));
+    }
+  }, []);
 
   const editor = useEditor({
     immediatelyRender: false,
@@ -117,7 +203,9 @@ export function RichEditor({ content, onChange, placeholder = 'Comece a digitar.
     content,
     onUpdate: ({ editor }) => {
       isInternalUpdate.current = true;
-      onChange(editor.getHTML());
+      const html = editor.getHTML();
+      onChange(html);
+      if (!isSimple && html.includes('data:image/')) externalizeDataImages();
     },
     editorProps: {
       attributes: {
@@ -133,26 +221,42 @@ export function RichEditor({ content, onChange, placeholder = 'Comece a digitar.
       // 'simple', que nem tem o node de imagem no schema, ver o prop acima).
       // Sem onPasteImages (ou paste sem imagem), devolve `false` e o Tiptap
       // segue com o comportamento padrão de sempre.
-      handlePaste: (_view, event) => {
-        const callback = onPasteImagesRef.current;
-        if (!callback) return false;
-        const items = event.clipboardData?.items;
-        if (!items || items.length === 0) return false;
-
-        const files: File[] = [];
-        for (let i = 0; i < items.length; i++) {
-          if (items[i].type.startsWith('image/')) {
-            const file = items[i].getAsFile();
-            if (file) files.push(file);
-          }
-        }
+      // Com onPasteImages: a imagem vira ANEXO (comportamento de sempre). Sem
+      // ele, no modo 'full': sobe como arquivo e entra no texto com o link, em
+      // vez de base64 (ver imageFilesFrom no topo).
+      handlePaste: (view, event) => {
+        const files = imageFilesFrom(event.clipboardData?.items);
         if (files.length === 0) return false;
 
-        callback(files);
+        const callback = onPasteImagesRef.current;
+        if (callback) {
+          callback(files);
+          return true;
+        }
+        if (isSimple) return false;
+
+        insertUploadedImages(files, view.state.selection.from);
+        return true;
+      },
+      // Arrastar imagem do computador pra dentro do editor — mesmo destino do
+      // colar. Arrasto interno (mover um trecho do próprio texto) passa direto.
+      handleDrop: (view, event, _slice, moved) => {
+        if (moved || isSimple) return false;
+        const files = imageFilesFrom(event.dataTransfer?.files);
+        if (files.length === 0) return false;
+        const coords = view.posAtCoords({ left: event.clientX, top: event.clientY });
+        event.preventDefault();
+        insertUploadedImages(files, coords?.pos ?? view.state.selection.from);
         return true;
       },
     },
   });
+
+  useEffect(() => {
+    editorRef.current = editor;
+    // Conteúdo carregado já com base64 (descrição antiga) também é convertido.
+    if (editor && !isSimple && editor.getHTML().includes('data:image/')) externalizeDataImages();
+  }, [editor, isSimple, externalizeDataImages]);
 
   // Ensure editor is editable
   useEffect(() => {
@@ -401,14 +505,8 @@ export function RichEditor({ content, onChange, placeholder = 'Comece a digitar.
           accept="image/*" 
           onChange={(e) => {
             const file = e.target.files?.[0];
-            if (file) {
-              const reader = new FileReader();
-              reader.onload = (event) => {
-                const src = event.target?.result as string;
-                editor.chain().focus().setImage({ src }).run();
-              };
-              reader.readAsDataURL(file);
-            }
+            // Sobe como arquivo (antes lia como base64 e embutia no texto).
+            if (file) insertUploadedImages([file], editor.state.selection.from);
           }}
         />
       </div>

@@ -52,10 +52,54 @@ function enqueueLocal<T>(job: () => Promise<T>): Promise<T> {
   return run;
 }
 
+// Teto de caracteres que chega ao modelo. Achado 2026-11-11 (produção em 100%
+// de CPU, app inteira sem responder): uma nota de ticket interno com uma imagem
+// colada no editor, gravada como <img src="data:...;base64,..."> no próprio
+// texto (448.731 caracteres), travou o processo. O tokenizer do
+// @huggingface/transformers é JS puro e roda na thread PRINCIPAL — com meio
+// milhão de caracteres de base64 ele fica alocando/descartando memória sem
+// fim, o event loop para (nem /api/health responde) e, como o item nunca
+// termina nem é marcado como processado, volta a travar segundos depois de
+// cada restart (o scheduler pega o mesmo item em 15s). O modelo só aproveita
+// os primeiros ~128 tokens, então cortar em alguns milhares de caracteres não
+// perde nada de significado.
+const MAX_EMBED_CHARS = 4000;
+
+/**
+ * Deixa só o texto legível pra vetorizar: tira imagem/arquivo embutido como
+ * data: URL (o caso real acima), tags HTML do editor rico (Tiptap grava HTML
+ * em ticket_messages/internal_ticket_messages), entidades HTML comuns e espaço
+ * repetido, e corta em MAX_EMBED_CHARS. Ordem importa: o data: URL sai ANTES
+ * das tags, senão um <img> com base64 gigante passa inteiro pela regex de tag.
+ */
+export function prepareTextForEmbedding(raw: string): string {
+  return raw
+    .replace(/data:[a-z0-9.+-]+\/[a-z0-9.+-]+(?:;[a-z0-9=.+-]+)*,[A-Za-z0-9+/=%_-]*/gi, ' ')
+    // Sem o base64, o que sobra de útil cabe com folga em 50 mil caracteres —
+    // corta aqui pra que as regex seguintes nunca trabalhem num texto enorme.
+    .slice(0, 50_000)
+    // Alcance limitado: com `[^>]*` sem teto, cada "<" sem fechamento (ex.:
+    // "a < b") varreria até o fim do texto — quadrático num texto grande.
+    .replace(/<[^>]{0,2000}>/g, ' ')
+    .replace(/&nbsp;/gi, ' ')
+    .replace(/&amp;/gi, '&')
+    .replace(/&lt;/gi, '<')
+    .replace(/&gt;/gi, '>')
+    .replace(/&quot;/gi, '"')
+    .replace(/&#39;/gi, "'")
+    .replace(/\s+/g, ' ')
+    .trim()
+    .slice(0, MAX_EMBED_CHARS);
+}
+
 export async function embedText(text: string): Promise<number[]> {
+  // Teto também aqui, não só na fila: embedText é chamado direto pela busca
+  // do Agente de IA com a pergunta do usuário — nenhum caminho pode mandar
+  // texto sem limite pro tokenizer na thread principal.
+  const input = text.length > MAX_EMBED_CHARS ? text.slice(0, MAX_EMBED_CHARS) : text;
   return enqueueLocal(async () => {
     const embedder = await getEmbedder();
-    const output = await embedder(text, { pooling: 'mean', normalize: true });
+    const output = await embedder(input, { pooling: 'mean', normalize: true });
     return Array.from(output.data as Float32Array);
   });
 }
@@ -111,9 +155,14 @@ async function processQueueItem(item: { id: number; source_type: string; source_
 
     // Linha pode não existir mais (apagada depois de entrar na fila) ou não
     // ter texto (mensagem só com anexo, ex: imagem/áudio sem legenda) —
-    // nada pra vetorizar, marca como processado e segue.
-    if (row && typeof row.content === 'string' && row.content.trim()) {
-      const embedding = await embedText(row.content);
+    // nada pra vetorizar, marca como processado e segue. O texto é limpo
+    // ANTES (ver prepareTextForEmbedding): uma nota que é só uma imagem colada
+    // vira texto vazio e é pulada, em vez de travar o processo inteiro.
+    // ai_embeddings.content guarda a versão limpa — é o trecho que a busca do
+    // Agente de IA devolve, e não faz sentido guardar base64/HTML ali.
+    const content = row && typeof row.content === 'string' ? prepareTextForEmbedding(row.content) : '';
+    if (content) {
+      const embedding = await embedText(content);
       await query(
         `INSERT INTO public.ai_embeddings (source_type, source_id, parent_id, content, embedding, source_created_at)
          VALUES ($1, $2, $3, $4, $5, $6)
@@ -121,7 +170,7 @@ async function processQueueItem(item: { id: number; source_type: string; source_
            content = EXCLUDED.content,
            embedding = EXCLUDED.embedding,
            parent_id = EXCLUDED.parent_id`,
-        [item.source_type, item.source_id, row.parent_id !== null ? String(row.parent_id) : null, row.content, embedding, row.created_at]
+        [item.source_type, item.source_id, row.parent_id !== null ? String(row.parent_id) : null, content, embedding, row.created_at]
       );
     }
     await markProcessed(item.id);
