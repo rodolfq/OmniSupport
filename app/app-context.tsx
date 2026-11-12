@@ -190,6 +190,16 @@ const DEFAULT_SETTINGS: NotificationSettings = {
   osNotificationsEnabled: true,
 };
 
+// O sininho guarda só avisos de CHAMADO e de TICKET INTERNO (2026-11-12,
+// pedido do usuário). Os demais — conversa (chat_*), chat interno, resposta de
+// pesquisa, hotfix vencido, lembrete de agenda — continuam avisando na hora
+// (toast, som, notificação do sistema), mas não ficam gravados no sininho.
+// 'customer_evaluation_prompt' fica: é aviso de chamado e o sininho é o único
+// lugar de onde o cliente abre a avaliação.
+export function isBellNotification(type: string): boolean {
+  return type.startsWith('ticket_') || type.startsWith('internal_ticket_') || type === 'customer_evaluation_prompt';
+}
+
 export function getNotificationTargetHref(notif: Pick<AppNotification, 'type' | 'targetId'>, isCompanyUser: boolean): string | null {
   if (!notif.targetId) return null;
   // targetId aqui é chat_histories.id, não chat_sessions.id — precisa vir
@@ -403,11 +413,13 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       if (newNotif.sourceId) {
         notificationSourceIdsRef.current.add(`${recipientId}:${newNotif.sourceId}`);
       }
-      setNotifications(prev => {
-        const updated = [newNotif, ...prev].slice(0, 100);
-        localStorage.setItem('omni_notif_history', safeJsonStringify(updated));
-        return updated;
-      });
+      if (isBellNotification(newNotif.type)) {
+        setNotifications(prev => {
+          const updated = [newNotif, ...prev].slice(0, 100);
+          localStorage.setItem('omni_notif_history', safeJsonStringify(updated));
+          return updated;
+        });
+      }
       
       const soundType = notif.type === 'internal_chat_message' ? 'internal_chat' : notif.type.startsWith('chat_') ? 'chat' : 'system';
       playSound(soundType);
@@ -994,7 +1006,10 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
         parsedNotifications
           .filter((n: AppNotification) => n.sourceId && n.recipientId)
           .forEach((n: AppNotification) => notificationSourceIdsRef.current.add(`${n.recipientId}:${n.sourceId}`));
-        setNotifications(parsedNotifications);
+        // Avisos de chat gravados antes da regra do sininho (isBellNotification)
+        // saem da lista — o sourceId continua registrado acima, então não
+        // voltam a disparar como novos.
+        setNotifications((parsedNotifications as AppNotification[]).filter(n => isBellNotification(n.type)));
       } catch (e) {
         console.error('Error loading notifications', e);
       }

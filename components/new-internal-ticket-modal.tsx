@@ -1,23 +1,8 @@
 'use client';
 
-import React, { useEffect, useMemo, useState } from 'react';
-import { useEscapeToClose } from '@/hooks/use-escape-to-close';
-import { motion, AnimatePresence } from 'motion/react';
-import { toast } from 'sonner';
-import { StyledSelect } from '@/components/styled-select';
-import { useApp } from '@/app/app-context';
-import { User } from '@/lib/types';
-import { InternalTicketService } from '@/lib/services/ticket-service';
-import { useInternalTeamsQuery, useProfilesLiteQuery } from '@/lib/query-hooks';
-
-// Mesmo fallback de app/(portal)/tickets/internal-tickets-view.tsx, usado
-// enquanto internal_teams ainda não carregou (ou está vazia).
-const DEFAULT_TEAM_OPTIONS = [
-  { value: 'Desenvolvimento', label: 'Desenvolvimento' },
-  { value: 'Infraestrutura', label: 'Infraestrutura' },
-  { value: 'QA / Testes', label: 'QA / Testes' },
-  { value: 'Produto', label: 'Produto' },
-];
+import React from 'react';
+import { InternalTicketDetailModal } from '@/components/internal-ticket-detail-modal';
+import { useOpenInternalTicket } from '@/components/internal-ticket-modal-host';
 
 interface NewInternalTicketModalProps {
   isOpen: boolean;
@@ -29,204 +14,34 @@ interface NewInternalTicketModalProps {
   initialDescription?: string;
 }
 
-// Extraído do TicketModal que antes vivia só dentro de
-// app/(portal)/tickets/internal-tickets-view.tsx — precisava ser reaberto
-// também fora daquela tela (transformar mensagem do chat interno em ticket
-// interno, ver app/(portal)/chat-internal/page.tsx). Diferente do original,
-// este componente é autossuficiente: busca seus próprios dados de
-// referência (equipes/analistas) e chama InternalTicketService.save
-// sozinho, em vez de depender de estado levantado pelo pai. A tela de
-// Tickets Internos continua dona da edição (isso aqui só cobre criação).
+/**
+ * "Novo Ticket Interno" (lista de Tickets Internos e "Criar ticket interno"
+ * a partir de uma mensagem do Chat Interno).
+ *
+ * Desde 2026-11-12 (pedido do usuário) não é mais um formulário em modal: abre
+ * a própria tela do ticket interno em modo criação (InternalTicketDetailModal
+ * com `creating`), já com a cara de um ticket aberto e o botão "Criar ticket"
+ * no lugar de Assumir/Finalizar/Salvar. Ao criar, o ticket de verdade abre
+ * por cima da tela atual (mesmo ?internalTicket= de qualquer outro clique).
+ *
+ * As props continuam as mesmas de antes, então quem abria não mudou.
+ */
 export function NewInternalTicketModal({ isOpen, onClose, onCreated, initialTitle, initialDescription }: NewInternalTicketModalProps) {
-  useEscapeToClose(isOpen, onClose);
-  const { currentUser } = useApp();
-  const [title, setTitle] = useState('');
-  const [description, setDescription] = useState('');
-  const [team, setTeam] = useState('Desenvolvimento');
-  const [priority, setPriority] = useState(1);
-  const [assignee, setAssignee] = useState('');
-  const [loading, setLoading] = useState(false);
-
-  const { data: profilesLiteData } = useProfilesLiteQuery({ enabled: isOpen });
-
-  const { data: internalTeamsData } = useInternalTeamsQuery({ enabled: isOpen });
-  const sortedInternalTeams = useMemo(
-    () => [...(internalTeamsData || [])].sort((a: any, b: any) => a.name.localeCompare(b.name)),
-    [internalTeamsData]
-  );
-  const teams = useMemo(
-    () => sortedInternalTeams.length > 0
-      ? sortedInternalTeams.map((t: any) => ({ value: t.name, label: t.name }))
-      : DEFAULT_TEAM_OPTIONS,
-    [sortedInternalTeams]
-  );
-
-  // Pedido do usuário, 2026-11-08: "Responsável" só pode mostrar quem é da
-  // equipe ESCOLHIDA no campo acima — antes mostrava toda a equipe/
-  // administrador do sistema, de qualquer time. `internalTeamId` é o mesmo id
-  // resolvido no submit (abaixo) — aqui precisa dele ao vivo, pra recalcular
-  // a lista a cada troca de equipe.
-  const selectedInternalTeamId = useMemo(
-    () => sortedInternalTeams.find((t: any) => t.name === team)?.id,
-    [sortedInternalTeams, team]
-  );
-  const analysts = useMemo(() => {
-    const list = (profilesLiteData || []) as User[];
-    return list.filter((u) =>
-      // "Time Interno" é o papel estrutural de quem de fato compõe as equipes
-      // de Dev/Infra/QA/Produto — faltava aqui (só Equipe/Administrador),
-      // então quem mais precisa aparecer como responsável ficava de fora.
-      ['Administrador', 'Equipe', 'Time Interno'].includes(u.role as string) &&
-      (!selectedInternalTeamId || (u.internalTeamIds || []).includes(selectedInternalTeamId))
-    );
-  }, [profilesLiteData, selectedInternalTeamId]);
-
-  // Reinicia o formulário a cada abertura — mesmo motivo do NewTicketModal
-  // (components/new-ticket-modal.tsx): sem isso, reabrir mostraria os
-  // valores da última criação.
-  useEffect(() => {
-    if (!isOpen) return;
-    setTitle(initialTitle || '');
-    setDescription(initialDescription || '');
-    setTeam('Desenvolvimento');
-    setPriority(1);
-    setAssignee('');
-  }, [isOpen, initialTitle, initialDescription]);
-
+  const openInternalTicket = useOpenInternalTicket();
   if (!isOpen) return null;
-
-  const handleSubmit = async () => {
-    if (!currentUser || !title || loading) return;
-    setLoading(true);
-    try {
-      const savedId = await InternalTicketService.save({
-        title,
-        description,
-        teamId: team,
-        internalTeamId: sortedInternalTeams.find((t: any) => t.name === team)?.id,
-        priority,
-        assigneeId: assignee || undefined,
-        creatorId: currentUser.id,
-        tags: [],
-      });
-      // ID e título no cartão (savedId vem como "int-0001").
-      toast.success(`Ticket interno ${savedId ? String(savedId).toUpperCase() + ' ' : ''}criado com sucesso!`, { description: title });
-      onCreated?.(savedId);
-      onClose();
-    } catch (error) {
-      console.error('Error saving internal ticket:', error);
-      toast.error('Erro ao salvar: ' + ((error as any)?.message || 'erro desconhecido'));
-    } finally {
-      setLoading(false);
-    }
-  };
-
   return (
-    <AnimatePresence>
-      <motion.div
-        initial={{ opacity: 0 }}
-        animate={{ opacity: 1 }}
-        exit={{ opacity: 0 }}
-        className="fixed inset-0 bg-black/50 flex items-center justify-center z-[100] p-4"
-        onClick={onClose}
-      >
-        <motion.div
-          initial={{ scale: 0.9, opacity: 0 }}
-          animate={{ scale: 1, opacity: 1 }}
-          exit={{ scale: 0.9, opacity: 0 }}
-          className="bg-[var(--surface-card)] rounded-2xl p-6 max-w-lg w-full"
-          onClick={(e) => e.stopPropagation()}
-        >
-          <h2 className="text-lg font-black text-[var(--text-primary)] mb-4 uppercase">
-            Novo Ticket Interno
-          </h2>
-
-          <div className="space-y-4">
-            <div>
-              <label className="text-[10px] font-semibold text-[var(--text-secondary)] uppercase mb-1 block">Título *</label>
-              <input
-                value={title}
-                onChange={(e) => setTitle(e.target.value)}
-                placeholder="Título do ticket"
-                className="w-full px-3 py-2 rounded-lg border border-[var(--border-default)] focus:border-[var(--text-warning-strong)] outline-none text-sm font-medium"
-              />
-            </div>
-
-            <div>
-              <label className="text-[10px] font-semibold text-[var(--text-secondary)] uppercase mb-1 block">Descrição</label>
-              <textarea
-                value={description}
-                onChange={(e) => setDescription(e.target.value)}
-                placeholder="Detalhes técnicos..."
-                className="w-full px-3 py-2 rounded-lg border border-[var(--border-default)] focus:border-[var(--text-warning-strong)] outline-none text-sm min-h-[100px]"
-              />
-            </div>
-
-            <div className="grid grid-cols-2 gap-4">
-              <div>
-                <label className="text-[10px] font-semibold text-[var(--text-secondary)] uppercase mb-1 block">Equipe</label>
-                <StyledSelect
-                  value={team}
-                  onChange={(e) => {
-                    setTeam(e.target.value);
-                    // Responsável escolhido pode não pertencer à equipe nova
-                    // — limpa pra não gravar alguém de fora dela em silêncio.
-                    setAssignee('');
-                  }}
-                  className="w-full px-3 py-2 rounded-lg border border-[var(--border-default)] text-sm font-medium bg-[var(--surface-card)]"
-                >
-                  {teams.map((t) => (
-                    <option key={t.value} value={t.value}>{t.label}</option>
-                  ))}
-                </StyledSelect>
-              </div>
-
-              <div>
-                <label className="text-[10px] font-semibold text-[var(--text-secondary)] uppercase mb-1 block">Prioridade</label>
-                <StyledSelect
-                  value={priority}
-                  onChange={(e) => setPriority(Number(e.target.value))}
-                  className="w-full px-3 py-2 rounded-lg border border-[var(--border-default)] text-sm font-medium bg-[var(--surface-card)]"
-                >
-                  <option value={1}>Baixa</option>
-                  <option value={2}>Média</option>
-                  <option value={3}>Alta</option>
-                </StyledSelect>
-              </div>
-            </div>
-
-            <div>
-              <label className="text-[10px] font-semibold text-[var(--text-secondary)] uppercase mb-1 block">Responsável</label>
-              <StyledSelect
-                value={assignee}
-                onChange={(e) => setAssignee(e.target.value)}
-                className="w-full px-3 py-2 rounded-lg border border-[var(--border-default)] text-sm font-medium bg-[var(--surface-card)]"
-              >
-                <option value="">Não atribuído</option>
-                {analysts.map((a) => (
-                  <option key={a.id} value={a.id}>{a.name}</option>
-                ))}
-              </StyledSelect>
-            </div>
-          </div>
-
-          <div className="flex gap-3 mt-6">
-            <button
-              onClick={onClose}
-              className="flex-1 px-4 py-2 rounded-lg border border-[var(--border-default)] text-[var(--text-secondary)] hover:bg-[var(--surface-card)] transition-all text-sm font-bold"
-            >
-              Cancelar
-            </button>
-            <button
-              onClick={handleSubmit}
-              disabled={!title || loading}
-              className="flex-1 px-4 py-2 rounded-lg bg-[var(--text-warning-strong)] text-white font-black uppercase tracking-widest hover:bg-[var(--accent-warning-hover)] transition-all disabled:opacity-50 text-sm"
-            >
-              {loading ? 'Criando...' : 'Criar'}
-            </button>
-          </div>
-        </motion.div>
-      </motion.div>
-    </AnimatePresence>
+    <InternalTicketDetailModal
+      // Desmontado a cada fechamento (return null acima), então o rascunho é
+      // lido uma vez só, na abertura — mudar as props depois não apaga o que
+      // a pessoa já digitou.
+      ticketRef=""
+      creating={{ title: initialTitle || '', description: initialDescription || '' }}
+      onClose={onClose}
+      onCreated={(id) => {
+        onCreated?.(id);
+        onClose();
+        if (id) openInternalTicket(id);
+      }}
+    />
   );
 }

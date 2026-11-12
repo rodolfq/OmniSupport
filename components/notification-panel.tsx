@@ -68,12 +68,6 @@ export function NotificationPanel({ notifications, onMarkRead, onItemClick }: No
     <div className="flex flex-col h-full min-h-0">
       <div className="p-4 border-b border-[var(--border-default)] flex items-center justify-between bg-[var(--surface-pill)]/50 shrink-0">
         <h3 className="text-[10px] font-semibold uppercase tracking-widest text-[var(--text-primary)]">Notificações</h3>
-        <button
-          onClick={() => notifications.forEach(n => onMarkRead(n.id))}
-          className="text-[9px] font-semibold uppercase text-[var(--text-tertiary)] hover:text-[var(--text-danger)] transition-all flex items-center gap-1"
-        >
-          <Check size={10} /> Marcar Lidas
-        </button>
       </div>
       <div className="flex-1 min-h-0 overflow-y-auto">
         {notifications.length === 0 ? (

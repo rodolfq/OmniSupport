@@ -151,7 +151,9 @@ export class MessageService {
     }
   }
 
-  static async createInternal(message: Message, internalTicketId: string): Promise<void> {
+  // Devolve a mensagem como o servidor a gravou (2026-11-12) — quem chama
+  // pode pô-la direto na lista em vez de recarregar todas as notas.
+  static async createInternal(message: Message, internalTicketId: string): Promise<Message | null> {
     const res = await fetch('/api/internal-tickets', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
@@ -161,6 +163,7 @@ export class MessageService {
       const body = await res.json().catch(() => null);
       throw new Error(body?.error || 'Erro ao gravar a mensagem.');
     }
+    return (await res.json().catch(() => null)) as Message | null;
   }
 }
 

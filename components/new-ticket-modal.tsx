@@ -46,13 +46,105 @@ import { createTicket } from "@/lib/tickets";
 import { RichEditor } from "./rich-editor";
 import { AttachmentPreviewModal, AttachmentChipThumb, isImageAttachment } from "./attachment-gallery";
 import { NewEmployeeModal } from "./new-employee-modal";
+import { TicketDetailModal } from "./ticket-detail-modal";
+import { TicketService } from "@/lib/services/ticket-service";
 
 // Valor sentinela pra distinguir "escolheu criar funcionário novo" de um
 // id de usuário de verdade no <select> de Solicitante Principal — nunca
 // colide com um uuid real.
 const NEW_EMPLOYEE_OPTION_VALUE = "__new_employee__";
 
+/**
+ * Ponto de entrada de "Novo Chamado" (montado uma vez no layout do portal e
+ * aberto por setIsNewTicketModalOpen de qualquer tela).
+ *
+ * Desde 2026-11-12 (pedido do usuário) a EQUIPE abre o chamado direto na tela
+ * de detalhe, em modo criação — mesma cara de um chamado já aberto, com o
+ * botão "Criar chamado" no lugar de Salvar/Assumir (TicketDetailModal,
+ * prop `creating`). Cliente/Funcionário continuam com o formulário simples
+ * abaixo (CustomerNewTicketModal), que mostra só o que faz sentido pra eles.
+ */
 export function NewTicketModal() {
+  const { currentUser } = useApp();
+  const isCompanyUser = currentUser?.role === UserRole.CUSTOMER || currentUser?.role === UserRole.EMPLOYEE;
+  return isCompanyUser ? <CustomerNewTicketModal /> : <StaffNewTicket />;
+}
+
+function StaffNewTicket() {
+  const {
+    isNewTicketModalOpen,
+    setIsNewTicketModalOpen,
+    currentUser,
+    preselectedUserId,
+    setPreselectedUserId,
+    preselectedCompanyId,
+    setPreselectedCompanyId,
+    prefilledTicketTitle,
+    setPrefilledTicketTitle,
+    prefilledTicketDescription,
+    setPrefilledTicketDescription,
+  } = useApp();
+  // O rascunho é montado UMA vez por abertura e fica estável: a tela de
+  // detalhe reinicia os campos sempre que o objeto `ticket` muda, então
+  // recriá-lo a cada render apagaria o que a pessoa digitou.
+  const [draft, setDraft] = useState<Ticket | null>(null);
+  // Depois de "Criar chamado", a mesma tela passa a mostrar o chamado real.
+  const [created, setCreated] = useState<Ticket | null>(null);
+
+  useEffect(() => {
+    if (!isNewTicketModalOpen || !currentUser) {
+      setDraft(null);
+      setCreated(null);
+      return;
+    }
+    const now = new Date().toISOString();
+    setDraft({
+      id: "",
+      title: prefilledTicketTitle || "",
+      description: prefilledTicketDescription || "",
+      status: TicketStatus.NEW,
+      // Mesmos padrões do formulário antigo: prioridade "Baixa", quem abre
+      // como responsável (é o que o servidor faria sem responsável escolhido).
+      priority: "Baixa" as any,
+      companyId: preselectedCompanyId || "",
+      customerId: preselectedUserId || "",
+      employeeIds: preselectedUserId ? [preselectedUserId] : [],
+      tags: [],
+      assigneeId: currentUser.id,
+      attachments: [],
+      createdAt: now,
+      updatedAt: now,
+    } as Ticket);
+    // Pré-seleções e rascunho do context já foram copiados pro rascunho.
+    setPreselectedUserId(null);
+    setPreselectedCompanyId(null);
+    setPrefilledTicketTitle(null);
+    setPrefilledTicketDescription(null);
+    // Só a ABERTURA monta o rascunho — os valores do context são lidos nesse
+    // instante e limpos logo em seguida.
+  }, [isNewTicketModalOpen, currentUser?.id]);
+
+  const close = () => setIsNewTicketModalOpen(false);
+
+  const handleCreated = async (ticketId: string) => {
+    const fresh = await TicketService.getById(ticketId).catch(() => null);
+    if (fresh) setCreated(fresh);
+    else close();
+  };
+
+  return (
+    <AnimatePresence>
+      {isNewTicketModalOpen && created && (
+        <TicketDetailModal key={created.id} ticket={created} onClose={close} />
+      )}
+      {isNewTicketModalOpen && !created && draft && (
+        <TicketDetailModal key="novo-chamado" ticket={draft} creating onCreated={handleCreated} onClose={close} />
+      )}
+    </AnimatePresence>
+  );
+}
+
+function CustomerNewTicketModal() {
   const {
     isNewTicketModalOpen,
     setIsNewTicketModalOpen,
@@ -735,7 +827,8 @@ export function NewTicketModal() {
                 <RichEditor
                   content={description}
                   onChange={setDescription}
-                  placeholder="Explique o que aconteceu, passos para reproduzir, insira imagens ou vídeos..."
+                  toolbar="basic"
+                  placeholder="Explique o que aconteceu, passos para reproduzir, insira imagens..."
                   minHeight="200px"
                 />
               </div>

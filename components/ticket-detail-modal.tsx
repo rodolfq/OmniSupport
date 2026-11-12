@@ -37,6 +37,12 @@ import { getTicketSlaStatus, isTicketSlaExempt } from '@/lib/sla';
 import { FieldChange, formatChangeMessage } from '@/lib/ticket-diff';
 import { uploadAttachment } from '@/lib/attachment-upload';
 import { splitAttachmentsByBudget, MAX_ATTACHMENT_TOTAL_LABEL } from '@/lib/attachment-limits';
+import { createTicket } from '@/lib/tickets';
+import { NewEmployeeModal } from './new-employee-modal';
+import { useQueryClient } from '@tanstack/react-query';
+
+// Valor-sentinela da opção "+ Criar novo funcionário" no Contato (modo criação).
+const NEW_EMPLOYEE_OPTION = '__new_employee__';
 
 interface TicketDetailModalProps {
   ticket: Ticket | null;
@@ -44,6 +50,15 @@ interface TicketDetailModalProps {
   // Pré-preenche o composer de resposta ao abrir — usado pelo fluxo de
   // "Copiar para Chamado" a partir de um Ticket Interno (app/(portal)/tickets/tickets-view.tsx).
   initialDraft?: { text: string; attachments: Attachment[]; visibleToCustomer: boolean } | null;
+  // MODO CRIAÇÃO (2026-11-12, pedido do usuário): a abertura de chamado pela
+  // equipe usa ESTA tela, já com a cara de chamado aberto, em vez do
+  // formulário em modal. `ticket` chega como um rascunho (sem id) montado por
+  // NewTicketModal; nada é gravado ao mexer nos campos — o botão "Criar
+  // chamado" junta tudo e cria. Abas e painel que só existem para um chamado
+  // de verdade (notas, histórico, ticket interno, conversa) ficam ocultos.
+  creating?: boolean;
+  // Chamado criado: quem abriu troca o rascunho pelo chamado de verdade.
+  onCreated?: (ticketId: string) => void;
 }
 
 // Mesmo vocabulário de cor do Kanban em /internal-tickets — não inventa
@@ -67,8 +82,10 @@ function internalStatusMeta(status?: string | null) {
   }
 }
 
-export function TicketDetailModal({ ticket, onClose, initialDraft }: TicketDetailModalProps) {
+export function TicketDetailModal({ ticket, onClose, initialDraft, creating = false, onCreated }: TicketDetailModalProps) {
+  const isCreating = creating;
   const scrollRef = useRef<HTMLDivElement>(null);
+  const queryClient = useQueryClient();
   const { currentUser, hasPermission, triggerRefresh, suppressTicketAssignedNotification, notifications, markTicketNotificationsRead, userStatus, setActiveOmniChatId, setIsOmniChatOpen } = useApp();
   const isCustomer = currentUser?.role === UserRole.CUSTOMER;
   // Funcionário também não deve ver o detalhe interno do chamado — antes só
@@ -247,7 +264,19 @@ export function TicketDetailModal({ ticket, onClose, initialDraft }: TicketDetai
   const [mainTags, setMainTags] = useState(ticket?.tags || []);
   const [customerId, setCustomerId] = useState(ticket?.customerId || '');
   const [companyId, setCompanyId] = useState(ticket?.companyId || '');
-  const [isEditingDescription, setIsEditingDescription] = useState(false);
+  // Em modo criação a descrição já nasce em edição (não há "Editar/Salvar").
+  const [isEditingDescription, setIsEditingDescription] = useState(creating);
+  // Modo criação: anexos do chamado ainda não criado, o envio em andamento e o
+  // modal de "+ Criar novo funcionário".
+  const [draftAttachments, setDraftAttachments] = useState<Attachment[]>(() => (creating ? ticket?.attachments || [] : []));
+  const [isUploadingDraftAttachment, setIsUploadingDraftAttachment] = useState(false);
+  const [isSubmittingCreate, setIsSubmittingCreate] = useState(false);
+  const [isNewEmployeeOpen, setIsNewEmployeeOpen] = useState(false);
+  const draftFileInputRef = useRef<HTMLInputElement>(null);
+  // Esc com o cadastro de funcionário aberto por cima fecha só ele — o
+  // listener de Esc do chamado (mais abaixo) lê este ref.
+  const newEmployeeOpenRef = useRef(false);
+  newEmployeeOpenRef.current = isNewEmployeeOpen;
   const [companies, setCompanies] = useState<any[]>([]);
   const [internalTeams, setInternalTeams] = useState<Array<{id: string, name: string}>>([]);
   // member_ids em snake_case de propósito — vem de `SELECT *` sem remapear
@@ -408,6 +437,23 @@ export function TicketDetailModal({ ticket, onClose, initialDraft }: TicketDetai
     productsQuery.data, prioritiesQuery.data, companiesQuery.data, internalTeamsQuery.data, queuesQuery.data
   ]);
 
+  // Fila padrão do chamado novo: "Suporte" (regra de 2026-10-20, a mesma do
+  // formulário antigo), ou a fila de que o operador é membro se "Suporte" não
+  // existir. Só enquanto o campo estiver vazio — não sobrescreve escolha.
+  useEffect(() => {
+    if (!isCreating || mainQueue || queues.length === 0) return;
+    const suporte = queues.find(q => q.name === 'Suporte');
+    const minha = currentUser ? queues.find(q => q.member_ids?.includes(currentUser.id)) : undefined;
+    const escolhida = suporte || minha;
+    if (escolhida) setMainQueue(escolhida.id);
+  }, [isCreating, queues, mainQueue, currentUser]);
+
+  useEffect(() => {
+    if (!isCreating || companyId || !customerId || allUsers.length === 0) return;
+    const contato = allUsers.find(u => u.id === customerId);
+    if (contato?.companyId) setCompanyId(contato.companyId);
+  }, [isCreating, companyId, customerId, allUsers]);
+
   useEffect(() => {
     if (!ticket) return;
 
@@ -426,8 +472,10 @@ export function TicketDetailModal({ ticket, onClose, initialDraft }: TicketDetai
     setCompanyId(ticket.companyId || '');
     lastSavedRef.current = ticket;
     setEmployeeIds(ticket.employeeIds || []);
-    loadMessages();
-    loadInternalTickets();
+    if (!isCreating) {
+      loadMessages();
+      loadInternalTickets();
+    }
 
     // Zera o número do ícone "Meus Chamados" na sidebar pra ESTE chamado —
     // só faz sentido pra quem é o responsável (é dele que a contagem soma),
@@ -435,7 +483,7 @@ export function TicketDetailModal({ ticket, onClose, initialDraft }: TicketDetai
     // (unreadSinceRef) pra destacar, no corpo do chamado, exatamente o que
     // gerou a notificação — sem isso, a marca "Novo" já teria desaparecido
     // no instante seguinte (o upsert já avançou o cursor pra agora).
-    if (currentUser && ticket.assigneeId === currentUser.id) {
+    if (!isCreating && currentUser && ticket.assigneeId === currentUser.id) {
       setUnreadSince(null);
       markTicketNotificationsRead(ticket.id).then(previousReadAt => setUnreadSince(previousReadAt));
     } else {
@@ -516,7 +564,7 @@ export function TicketDetailModal({ ticket, onClose, initialDraft }: TicketDetai
   useEffect(() => {
     if (!ticket) return;
     const handleKeyDown = (event: KeyboardEvent) => {
-      if (event.key === 'Escape') handleRequestClose();
+      if (event.key === 'Escape' && !newEmployeeOpenRef.current) handleRequestClose();
     };
     document.addEventListener('keydown', handleKeyDown);
     return () => document.removeEventListener('keydown', handleKeyDown);
@@ -681,18 +729,27 @@ const loadMessages = async () => {
         return;
       }
 
+      // A anotação usa o rótulo do ticket interno (int-0001), não o id do
+      // banco — achado do usuário, 2026-11-12: aqui só chega o id (uuid), e a
+      // anotação saía "Vinculou ao ticket interno d803c0…". A lista de
+      // vinculados recarregada logo em seguida já traz o rótulo formatado, então
+      // ela é buscada ANTES de gravar a anotação (e alimenta a tela também).
+      const linkedList = await InternalTicketService.getByParentAll(ticket.id).catch(() => null);
+      if (linkedList) setInternalTickets(linkedList);
+      const linkedLabel = linkedList?.find(it => it.uuid === internalTicketId)?.id || internalTicketId;
+
       const msg: Message = {
         id: Math.random().toString(36).substr(2, 9),
         ticketId: ticket.id,
         senderId: currentUser.id,
-        text: `Vinculou ao ticket interno ${internalTicketId}`,
+        text: `Vinculou ao ticket interno ${linkedLabel}`,
         timestamp: new Date().toISOString(),
         isVisibleToCustomer: false,
         type: 'internal'
       };
       await MessageService.create(msg);
       loadMessages();
-      await loadInternalTickets();
+      if (!linkedList) await loadInternalTickets();
       setShowLinkModal(false);
       toast.success('Ticket interno vinculado com sucesso');
 
@@ -1072,6 +1129,9 @@ const loadMessages = async () => {
   // sequência (ex.: categoria, depois responsável, depois prioridade) virarem
   // uma gravação só — e um evento de automação só, não um por campo.
   const scheduleTicketSave = (overrides: Partial<Ticket>) => {
+    // Modo criação: o valor já está no estado da tela (quem chama faz o
+    // setX antes); não existe chamado pra gravar até "Criar chamado".
+    if (isCreating) return;
     pendingOverridesRef.current = { ...pendingOverridesRef.current, ...overrides };
     setSaveStatus('saving');
     if (saveTimerRef.current) clearTimeout(saveTimerRef.current);
@@ -1082,6 +1142,7 @@ const loadMessages = async () => {
   // pendente): grava imediatamente, incorporando qualquer alteração ainda
   // não commitada pelo debounce.
   const flushTicketSave = (overrides: Partial<Ticket> = {}) => {
+    if (isCreating) return Promise.resolve();
     if (saveTimerRef.current) {
       clearTimeout(saveTimerRef.current);
       saveTimerRef.current = null;
@@ -1154,10 +1215,105 @@ const loadMessages = async () => {
   // recarregava com o dado antigo antes disso, dando a impressão de que
   // tinha sido perdida.
   const handleRequestClose = async () => {
+    if (isCreating) { onClose(); return; }
     if (saveTimerRef.current || Object.keys(pendingOverridesRef.current).length > 0) {
       await flushTicketSave();
     }
     onClose();
+  };
+
+  // Upload de anexo do chamado ainda não criado — mesmo fluxo e limites do
+  // formulário antigo (multipart de verdade, ver lib/attachment-upload.ts).
+  const handleDraftFiles = async (files: FileList | File[] | null) => {
+    if (!files) return;
+    const existingBytes = draftAttachments.reduce((sum, a) => sum + (a.size || 0), 0);
+    const { accepted, rejected } = splitAttachmentsByBudget(Array.from(files), existingBytes);
+    rejected.forEach(file => toast.error(`${file.name} excede o limite de ${MAX_ATTACHMENT_TOTAL_LABEL} por envio.`));
+    if (accepted.length === 0) return;
+    setIsUploadingDraftAttachment(true);
+    try {
+      for (const file of accepted) {
+        try {
+          const attachment = await uploadAttachment(file);
+          setDraftAttachments(prev => [...prev, attachment]);
+        } catch {
+          toast.error(`Erro ao fazer upload de ${file.name}`);
+        }
+      }
+    } finally {
+      setIsUploadingDraftAttachment(false);
+    }
+  };
+
+  // "Criar chamado": as mesmas regras do formulário antigo — título, empresa e
+  // contato, mais Fila/Tipo/Produto (obrigatórios para a equipe desde
+  // 2026-10-20, conferidos também no servidor).
+  const handleCreateTicket = async () => {
+    if (!currentUser || isSubmittingCreate) return;
+    const faltando: string[] = [];
+    if (!ticketTitle.trim()) faltando.push('Título');
+    if (!companyId) faltando.push('Cliente');
+    if (!customerId) faltando.push('Contato');
+    if (!mainQueue) faltando.push('Fila');
+    if (!mainRequestType) faltando.push('Tipo');
+    if (!mainProduct) faltando.push('Produto');
+    if (faltando.length > 0) {
+      toast.error(`Preencha antes de criar: ${faltando.join(', ')}.`);
+      return;
+    }
+    if (isUploadingDraftAttachment) {
+      toast.error('Aguarde o envio dos anexos terminar.');
+      return;
+    }
+    setIsSubmittingCreate(true);
+    try {
+      const draft: Ticket = {
+        ...ticket,
+        id: '',
+        title: ticketTitle.trim(),
+        description: ticketDescription,
+        status: ticketStatus as any,
+        subStatus: ticketSubStatus ?? null,
+        priority: mainPriority as any,
+        companyId,
+        customerId,
+        queueId: mainQueue || undefined,
+        categoryId: mainCategory || undefined,
+        requestTypeId: mainRequestType || undefined,
+        productId: mainProduct || undefined,
+        employeeIds,
+        tags: mainTags,
+        assigneeId: assigneeId || undefined,
+        attachments: draftAttachments,
+        createdAt: new Date().toISOString(),
+        updatedAt: new Date().toISOString()
+      };
+      const created = await createTicket(draft);
+      const label = created.ticketNumber ? `#${String(created.ticketNumber).padStart(4, '0')}` : '';
+      toast.success(`Chamado ${label} criado com sucesso!`.replace('  ', ' '), { description: draft.title });
+      triggerRefresh();
+      if (created.id) onCreated?.(created.id);
+      else onClose();
+    } catch (err: any) {
+      console.error('Erro ao criar chamado:', err);
+      toast.error(err?.message || 'Erro ao criar o chamado.');
+    } finally {
+      setIsSubmittingCreate(false);
+    }
+  };
+
+  // Funcionário criado pelo "+ Criar novo funcionário" do Contato: entra na
+  // lista (invalida o cache de perfis) e já fica selecionado como contato e
+  // colaborador — mesmo comportamento do formulário antigo.
+  const handleEmployeeCreated = async ({ id }: { id: string; name: string }) => {
+    setIsNewEmployeeOpen(false);
+    await Promise.all([
+      queryClient.invalidateQueries({ queryKey: ['ref', 'profiles-lite'] }),
+      profilesQuery.refetch()
+    ]);
+    setCustomerId(id);
+    setEmployeeIds(prev => (prev.includes(id) ? prev : [...prev, id]));
+    toast.success('Funcionário criado e selecionado como contato.');
   };
 
   // Link curto e compartilhável (/tickets/<número>) — mesmo usado nos
@@ -1222,7 +1378,7 @@ const loadMessages = async () => {
       >
         {/* Alternador Detalhes/Conversa — só em telas <md, onde os dois
             painéis não cabem lado a lado */}
-        <div className="md:hidden flex bg-[var(--surface-pill)] p-1 gap-1 border-b border-[var(--border-default)] shrink-0">
+        <div className={cn("md:hidden flex bg-[var(--surface-pill)] p-1 gap-1 border-b border-[var(--border-default)] shrink-0", isCreating && "!hidden")}>
           <button
             onClick={() => setMobilePanel('details')}
             className={cn(
@@ -1246,19 +1402,36 @@ const loadMessages = async () => {
         {/* Left Side: Ticket Info */}
         <div className={cn(
           "flex-1 flex-col min-w-0 bg-[var(--surface-card)] overflow-y-auto md:overflow-visible",
-          mobilePanel === 'details' ? "flex" : "hidden md:flex"
+          mobilePanel === 'details' || isCreating ? "flex" : "hidden md:flex"
         )}>
           {/* Header Bar */}
           <div className="border-b border-[var(--border-default)] bg-[var(--surface-card)]/50">
             {/* Linha 1: identidade do chamado + ações */}
             <div className="px-8 pt-4 pb-2 flex items-center justify-between gap-6">
               <div className="flex items-center gap-3 min-w-0 flex-1">
-                <span className="text-xs font-black text-[var(--accent-text)] bg-[var(--accent)]/10 px-2 py-0.5 rounded tracking-widest shrink-0">#{ticket.ticketNumber ? String(ticket.ticketNumber).padStart(4, '0') : ticket.id.slice(0, 8)}</span>
-                <span className="text-[var(--text-tertiary)] font-bold shrink-0">/</span>
-                <span className="text-sm font-bold text-[var(--text-primary)] truncate min-w-0">{ticket.title}</span>
+                <span className="text-xs font-black text-[var(--accent-text)] bg-[var(--accent)]/10 px-2 py-0.5 rounded tracking-widest shrink-0">
+                  {isCreating ? 'NOVO CHAMADO' : <>#{ticket.ticketNumber ? String(ticket.ticketNumber).padStart(4, '0') : ticket.id.slice(0, 8)}</>}
+                </span>
+                {!isCreating && (
+                  <>
+                    <span className="text-[var(--text-tertiary)] font-bold shrink-0">/</span>
+                    <span className="text-sm font-bold text-[var(--text-primary)] truncate min-w-0">{ticket.title}</span>
+                  </>
+                )}
               </div>
               <div className="flex items-center gap-3 shrink-0">
-                {!isCompanyUser && (
+                {isCreating ? (
+                  <div className="flex items-center gap-2 pr-3 border-r border-[var(--border-default)]">
+                    <button
+                      onClick={handleCreateTicket}
+                      disabled={isSubmittingCreate || isUploadingDraftAttachment}
+                      className="flex items-center gap-2 px-4 py-2 bg-[var(--accent)] hover:bg-[var(--accent-hover)] text-white rounded-xl text-xs font-black uppercase tracking-widest shadow-lg transition-all disabled:opacity-60"
+                    >
+                      {isSubmittingCreate ? <Loader2 size={16} className="animate-spin" /> : <Check size={16} />}
+                      Criar chamado
+                    </button>
+                  </div>
+                ) : !isCompanyUser && (
                   <div className="flex items-center gap-2 pr-3 border-r border-[var(--border-default)]">
                     {!assigneeId && (
                       <button
@@ -1288,6 +1461,7 @@ const loadMessages = async () => {
                   </div>
                 )}
                 <div className="flex items-center gap-1">
+                  {!isCreating && (
                   <div ref={actionsMenuRef} className="relative">
                     <button
                       type="button"
@@ -1334,6 +1508,7 @@ const loadMessages = async () => {
                       </div>
                     )}
                   </div>
+                  )}
                   <button onClick={() => setIsFocused(!isFocused)} className="p-2 hover:bg-[var(--border-default)] rounded-xl transition-all text-[var(--text-tertiary)]">
                     {isFocused ? <Minimize2 size={18} /> : <Maximize2 size={18} />}
                   </button>
@@ -1347,12 +1522,18 @@ const loadMessages = async () => {
             {/* Linha de criação — data + quem criou (ticket.createdBy é o
                 autor de verdade, gravado no INSERT; nunca editável). */}
             <div className="px-8 pb-2 -mt-1">
+              {isCreating ? (
+                <span className="text-[10px] font-medium text-[var(--text-tertiary)]">
+                  Preencha os dados e clique em <strong>Criar chamado</strong>. Nada é gravado antes disso.
+                </span>
+              ) : (
               <span className="text-[10px] font-medium text-[var(--text-tertiary)]">
                 Criado em <ClientTime date={ticket.createdAt} showDate showTime />
                 {ticket.createdBy && (
                   <> · por {allUsers.find(u => u.id === ticket.createdBy)?.name || 'Usuário removido'}</>
                 )}
               </span>
+              )}
             </div>
 
             {/* Linha 2: status do chamado (linha própria, sem disputar espaço com os botões) */}
@@ -1460,8 +1641,11 @@ const loadMessages = async () => {
                {!isCustomer && hasPermission(Permission.TICKETS_READ) ? (
                  <input
                    value={ticketTitle}
+                   autoFocus={isCreating && !ticketTitle}
+                   placeholder={isCreating ? 'Título do chamado' : undefined}
                    onChange={(e) => setTicketTitle(e.target.value)}
                    onBlur={() => {
+                     if (isCreating) return;
                      if (!ticketTitle.trim()) {
                        setTicketTitle(ticket.title);
                        return;
@@ -1507,7 +1691,7 @@ const loadMessages = async () => {
                     {/* Column 1 */}
                     <div className="space-y-3">
                        <div className="flex items-start gap-4">
-                          <span className="text-[11px] font-semibold uppercase text-[var(--text-tertiary)] w-24 pt-0.5">Fila</span>
+                          <span className="text-[11px] font-semibold uppercase text-[var(--text-tertiary)] w-24 pt-0.5">Fila{isCreating && <span className="text-[var(--text-danger)]"> *</span>}</span>
                           <StyledSelect
                             value={mainQueue}
                             onChange={(e) => {
@@ -1524,7 +1708,7 @@ const loadMessages = async () => {
                           </StyledSelect>
                        </div>
                        <div className="flex items-start gap-4">
-                          <span className="text-[11px] font-semibold uppercase text-[var(--text-tertiary)] w-24 pt-0.5">Tipo</span>
+                          <span className="text-[11px] font-semibold uppercase text-[var(--text-tertiary)] w-24 pt-0.5">Tipo{isCreating && <span className="text-[var(--text-danger)]"> *</span>}</span>
                           <StyledSelect
                             value={mainRequestType}
                             onChange={(e) => {
@@ -1543,7 +1727,7 @@ const loadMessages = async () => {
                           </StyledSelect>
                        </div>
                        <div className="flex items-start gap-4">
-                          <span className="text-[11px] font-semibold uppercase text-[var(--text-tertiary)] w-24 pt-0.5">Produto</span>
+                          <span className="text-[11px] font-semibold uppercase text-[var(--text-tertiary)] w-24 pt-0.5">Produto{isCreating && <span className="text-[var(--text-danger)]"> *</span>}</span>
                           <StyledSelect
                             value={mainProduct}
                             onChange={(e) => {
@@ -1657,7 +1841,7 @@ const loadMessages = async () => {
                     {/* Column 2 */}
                     <div className="space-y-3">
                        <div className="flex items-start gap-4">
-                          <span className="text-[11px] font-semibold uppercase text-[var(--text-tertiary)] w-24 pt-0.5">Cliente</span>
+                          <span className="text-[11px] font-semibold uppercase text-[var(--text-tertiary)] w-24 pt-0.5">Cliente{isCreating && <span className="text-[var(--text-danger)]"> *</span>}</span>
                           <StyledSelect 
                              value={companyId}
                              onChange={(e) => {
@@ -1678,17 +1862,26 @@ const loadMessages = async () => {
                           </StyledSelect>
                        </div>
                        <div className="flex items-start gap-4">
-                          <span className="text-[11px] font-semibold uppercase text-[var(--text-tertiary)] w-24 pt-0.5">Contato</span>
+                          <span className="text-[11px] font-semibold uppercase text-[var(--text-tertiary)] w-24 pt-0.5">Contato{isCreating && <span className="text-[var(--text-danger)]"> *</span>}</span>
 <StyledSelect 
                               value={customerId || ''}
                               onChange={(e) => {
                                const val = e.target.value;
+                               if (val === NEW_EMPLOYEE_OPTION) {
+                                 setIsNewEmployeeOpen(true);
+                                 return;
+                               }
                                setCustomerId(val);
+                               // Na abertura, o contato também passa a
+                               // acompanhar o chamado (era assim no formulário).
+                               if (isCreating && val) setEmployeeIds(prev => (prev.includes(val) ? prev : [...prev, val]));
                                scheduleTicketSave({ customerId: val });
                              }}
+                              disabled={isCreating && !companyId}
                              className="text-sm font-bold text-[var(--text-secondary)] bg-transparent border-none outline-none focus:ring-2 focus:ring-[var(--accent)]/10 rounded px-1 -ml-1 cursor-pointer hover:bg-[var(--surface-card)] transition-all"
                           >
                              <option value="">Selecione um contato</option>
+                             {isCreating && companyId && <option value={NEW_EMPLOYEE_OPTION}>+ Criar novo funcionário</option>}
                              {allUsers
                                // Cliente também é contato válido, não só Funcionário — achado
                                // 2026-11-05 (chamado #6412): empresa sem nenhum Funcionário
@@ -1783,7 +1976,7 @@ const loadMessages = async () => {
                          Descrição
                        </button>
                      )}
-{currentUser?.role !== UserRole.EMPLOYEE && hasPermission(Permission.INTERNAL_TICKETS_VIEW) && (
+{!isCreating && currentUser?.role !== UserRole.EMPLOYEE && hasPermission(Permission.INTERNAL_TICKETS_VIEW) && (
                        <button 
                          onClick={() => setActiveTab('internal')}
                          className={cn(
@@ -1794,6 +1987,7 @@ const loadMessages = async () => {
                          <Lock size={12} /> Ticket Interno
                        </button>
                      )}
+                      {!isCreating && (
                       <button
                         onClick={() => setActiveTab('history')}
                         className={cn(
@@ -1807,6 +2001,7 @@ const loadMessages = async () => {
                           <span className="absolute top-2 right-2 w-1.5 h-1.5 rounded-full bg-[var(--accent)] animate-pulse" />
                         )}
                       </button>
+                      )}
                       <button 
                         onClick={() => setActiveTab('attachments')}
                         className={cn(
@@ -1814,9 +2009,9 @@ const loadMessages = async () => {
                           activeTab === 'attachments' ? "border-[var(--accent)] text-[var(--accent-text)]" : "border-transparent text-[var(--text-tertiary)] hover:text-[var(--text-secondary)]"
                         )}
                       >
-                        <Paperclip size={12} /> {allAttachments.length > 0 && <span className="w-1.5 h-1.5 rounded-full bg-[var(--accent)] animate-pulse" />} Anexos
+                        <Paperclip size={12} /> {(isCreating ? draftAttachments.length : allAttachments.length) > 0 && <span className="w-1.5 h-1.5 rounded-full bg-[var(--accent)] animate-pulse" />} Anexos
                       </button>
-                      {(ticket.chatSessionId || justLinkedSession || canLinkChat) && (
+                      {!isCreating && (ticket.chatSessionId || justLinkedSession || canLinkChat) && (
                         <button
                           onClick={() => { setActiveTab('chat'); loadLinkedSessions(); }}
                           className={cn(
@@ -1835,7 +2030,7 @@ const loadMessages = async () => {
                        <div className="space-y-4">
 <div className="flex items-center justify-between">
                               <h3 className="text-xs font-black uppercase text-[var(--text-tertiary)] tracking-widest">Descrição do Chamado</h3>
-                              {currentUser?.role !== UserRole.EMPLOYEE && (
+                              {!isCreating && currentUser?.role !== UserRole.EMPLOYEE && (
                                 <button
                                   onClick={() => isEditingDescription ? saveMainTicketDescription() : setIsEditingDescription(true)}
                                   className="text-xs font-black text-[var(--accent-text)] uppercase hover:underline"
@@ -1845,16 +2040,52 @@ const loadMessages = async () => {
                               )}
                            </div>
                            {isEditingDescription ? (
-                             <RichEditor content={ticketDescription} onChange={setTicketDescription} minHeight="300px" />
+                             <RichEditor toolbar="basic" content={ticketDescription} onChange={setTicketDescription} minHeight="300px" />
                            ) : (
                              <div className="text-sm font-medium text-[var(--text-secondary)] leading-relaxed prose prose-sm max-w-none prose-p:my-2 prose-img:rounded-xl prose-img:border" dangerouslySetInnerHTML={{ __html: ticketDescription }} />
                            )}
                        </div>
                      )}
 
-                     {activeTab === 'attachments' && (
+                     {activeTab === 'attachments' && !isCreating && (
                         <div className="animate-in fade-in slide-in-from-bottom-2 duration-300">
                            <AttachmentGallery attachments={allAttachments} />
+                        </div>
+                      )}
+
+                     {activeTab === 'attachments' && isCreating && (
+                        <div className="space-y-4 animate-in fade-in slide-in-from-bottom-2 duration-300">
+                          <div
+                            onDragOver={(e) => e.preventDefault()}
+                            onDrop={(e) => { e.preventDefault(); handleDraftFiles(e.dataTransfer.files); }}
+                            onClick={() => draftFileInputRef.current?.click()}
+                            className="cursor-pointer rounded-xl border-2 border-dashed border-[var(--border-default)] hover:border-[var(--accent)] p-6 text-center transition-colors"
+                          >
+                            {isUploadingDraftAttachment ? (
+                              <span className="inline-flex items-center gap-2 text-xs font-semibold text-[var(--text-tertiary)]"><Loader2 size={14} className="animate-spin" /> Enviando anexo...</span>
+                            ) : (
+                              <span className="text-xs font-semibold text-[var(--text-tertiary)]">Clique ou arraste arquivos para anexar ao chamado</span>
+                            )}
+                            <input
+                              ref={draftFileInputRef}
+                              type="file"
+                              multiple
+                              className="hidden"
+                              onChange={(e) => { handleDraftFiles(e.target.files); e.target.value = ''; }}
+                            />
+                          </div>
+                          {draftAttachments.length > 0 && (
+                            <div className="flex flex-wrap gap-2">
+                              {draftAttachments.map(att => (
+                                <span key={att.id} className="inline-flex items-center gap-2 px-3 py-1.5 rounded-lg bg-[var(--surface-pill)] text-xs font-semibold text-[var(--text-secondary)]">
+                                  <Paperclip size={12} /> {att.name}
+                                  <button onClick={() => setDraftAttachments(prev => prev.filter(a => a.id !== att.id))} className="hover:text-[var(--text-danger)]" title="Remover anexo">
+                                    <X size={12} />
+                                  </button>
+                                </span>
+                              ))}
+                            </div>
+                          )}
                         </div>
                       )}
 
@@ -2220,7 +2451,9 @@ const loadMessages = async () => {
         {/* Right Side: Activity/Chat Panel */}
         <div className={cn(
           "w-full md:w-[450px] border-l border-[var(--border-default)] flex-col bg-[var(--surface-card)]/50 min-h-0",
-          mobilePanel === 'chat' ? "flex" : "hidden md:flex"
+          mobilePanel === 'chat' ? "flex" : "hidden md:flex",
+          // Notas/histórico só existem depois de criado o chamado.
+          isCreating && "!hidden"
         )}>
            {/* Top Tabs */}
            <div className="px-6 py-4 border-b border-[var(--border-default)] bg-[var(--surface-card)] flex items-center justify-between">
@@ -2379,6 +2612,7 @@ const loadMessages = async () => {
                        content={message}
                        onChange={setMessage}
                        placeholder="Nota do ticket interno..."
+                       toolbar="basic"
                        minHeight="100px"
                        maxHeight="35vh"
                        onPasteImages={handleMessagePasteImages}
@@ -2660,6 +2894,14 @@ const loadMessages = async () => {
       excludeIds={internalTickets.map(it => it.uuid).filter(Boolean) as string[]}
     />
     <AttachmentPreviewModal attachment={previewAttachment} onClose={() => setPreviewAttachment(null)} />
+    {isCreating && (
+      <NewEmployeeModal
+        isOpen={isNewEmployeeOpen}
+        onClose={() => setIsNewEmployeeOpen(false)}
+        companyId={companyId}
+        onSuccess={handleEmployeeCreated}
+      />
+    )}
     <ConfirmDialog
       isOpen={isDuplicateConfirmOpen}
       onClose={() => setIsDuplicateConfirmOpen(false)}

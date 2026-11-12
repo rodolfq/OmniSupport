@@ -8,6 +8,8 @@ import { getTicketConfig } from '@/lib/services/ticket-points-service';
 import { Permission } from '@/lib/types';
 import { logAudit } from '@/lib/audit-log';
 import { ticketPriorityToStars, cascadePriorityFromInternalTicket, reconcilePriorityOnLink } from '@/lib/services/priority-sync-service';
+import { queueInternalTicketChangeEmail } from '@/lib/services/internal-ticket-notifications';
+import { formatChangeMessage, FieldChange } from '@/lib/ticket-diff';
 
 // Rota dos tickets internos — criada para tirar o InternalTicketService do
 // shim de compatibilidade Supabase (ver lib/services/ticket-service.ts).
@@ -17,6 +19,12 @@ import { ticketPriorityToStars, cascadePriorityFromInternalTicket, reconcilePrio
 // escopo fechado: o client não escolhe mais tabela nem coluna.
 //
 // Sessão é garantida pelo middleware.ts, como nas demais rotas do portal.
+
+// Papéis que trabalham ticket interno. Editar/apagar nota do histórico não tem
+// permissão própria (decisão do usuário, 2026-11-12: "permissões gerais") —
+// vale pra quem já escreve nota, ou seja, internal:edit (exigido no início do
+// POST, pra toda action) + papel de equipe.
+const INTERNAL_TEAM_ROLES = ['Administrador', 'Equipe', 'Time Interno'];
 
 function formatId(number: number | null, uuid: string): string {
   return `int-${number ? String(number).padStart(4, '0') : uuid}`;
@@ -655,6 +663,10 @@ export async function POST(request: NextRequest) {
         );
       }
 
+      if (ticket.assigneeId && ticket.assigneeId !== user.id) {
+        queueInternalTicketChangeEmail({ internalTicketId: row.id, actorId: user.id, actorName: user.name, kind: 'created' });
+      }
+
       return NextResponse.json({ uuid: row.id, id: formatId(row.internal_ticket_number, row.id) });
     }
 
@@ -665,12 +677,19 @@ export async function POST(request: NextRequest) {
       // pelas chaves enviadas: ausente não toca a coluna, null limpa — mesma
       // semântica do PUT de chamado. `save` não serve aqui porque não cobre
       // status, prazo, hotfix nem a classificação.
-      const { id, ids, fields } = body;
+      const { id, ids, fields, logEntries, returnMessages } = body;
       const targetIds: string[] = Array.isArray(ids) && ids.length > 0 ? ids : (id ? [id] : []);
       if (targetIds.length === 0 || !fields) return NextResponse.json({ error: 'id(s) e fields são obrigatórios.' }, { status: 400 });
       if (typeof fields.description === 'string') {
         fields.description = await externalizeInlineImages(fields.description);
       }
+      // Edição em MASSA (lista de Tickets Internos) não gravava registro de
+      // alteração nenhum — e sem registro ninguém era avisado. Guarda o
+      // "antes" dos 4 campos que ela altera pra registrar depois do UPDATE.
+      const isBulk = Array.isArray(ids) && ids.length > 0;
+      const bulkBefore = isBulk
+        ? (await query(`SELECT id, status, assignee_id, team_id, priority FROM public.internal_tickets WHERE id = ANY($1::text[])`, [targetIds])).rows
+        : [];
 
       // Desmarcar "Reprovação de QA"/"Ambiente reprovado" (true → false) exige
       // internal:qa_override além de internal:edit — qualquer um com acesso ao
@@ -769,7 +788,67 @@ export async function POST(request: NextRequest) {
           .catch(err => console.error('[priority-sync] Falha ao sincronizar prioridade em massa pros chamados vinculados:', err));
       }
 
-      return NextResponse.json({ success: true, updated: res.rowCount });
+      // Registros de alteração e notas atualizadas NA MESMA chamada (2026-11-12,
+      // performance): a tela de detalhe fazia gravar → registrar alteração →
+      // registrar descrição → recarregar notas, quatro idas em fila a cada
+      // gravação. Só pra edição de UM ticket (a em massa não manda nada disso).
+      // Opcional e compatível: sem esses campos, a resposta é a de sempre.
+      const singleId = targetIds.length === 1 && !isBulk ? targetIds[0] : null;
+
+      if (isBulk && bulkBefore.length > 0) {
+        const nomes = new Map<string, string>();
+        const idsPessoas = [...new Set([...bulkBefore.map((r: any) => r.assignee_id), fields.assigneeId].filter(Boolean))];
+        if (idsPessoas.length > 0) {
+          (await query('SELECT id, name FROM public.profiles WHERE id = ANY($1)', [idsPessoas])).rows
+            .forEach((pp: any) => nomes.set(pp.id, pp.name));
+        }
+        const nomeDe = (pid: string | null) => (pid ? nomes.get(pid) || 'alguém' : 'Não atribuído');
+        for (const antes of bulkBefore as any[]) {
+          const changes: FieldChange[] = [];
+          if (fields.status !== undefined && fields.status !== antes.status) changes.push({ label: 'Estágio', from: antes.status || 'Novo', to: fields.status });
+          if (fields.assigneeId !== undefined && (fields.assigneeId || null) !== (antes.assignee_id || null)) changes.push({ label: 'Responsável', from: nomeDe(antes.assignee_id), to: nomeDe(fields.assigneeId || null) });
+          if (fields.teamId !== undefined && fields.teamId !== antes.team_id) changes.push({ label: 'Equipe', from: antes.team_id || 'Sem equipe', to: fields.teamId || 'Sem equipe' });
+          if (fields.priority !== undefined && Number(fields.priority) !== Number(antes.priority)) changes.push({ label: 'Prioridade', from: String(antes.priority ?? '—'), to: String(fields.priority) });
+          if (changes.length === 0) continue;
+          const text = formatChangeMessage(changes);
+          await query(
+            `INSERT INTO public.internal_ticket_messages (internal_ticket_id, author_id, content, type, attachments_data)
+             VALUES ($1, $2, $3, 'system', '[]')`,
+            [antes.id, user.id, text]
+          ).catch(err => console.error('[internal-tickets update] Falha ao registrar alteração em massa:', err));
+          queueInternalTicketChangeEmail({ internalTicketId: antes.id, actorId: user.id, actorName: user.name, kind: 'change', text });
+        }
+      }
+
+      if (singleId && Array.isArray(logEntries)) {
+        for (const entry of logEntries.slice(0, 5)) {
+          const text = typeof entry?.text === 'string' ? entry.text.slice(0, 5000) : '';
+          const type = entry?.type === 'system_log' ? 'system_log' : 'system';
+          if (!text) continue;
+          // Falha no registro não desfaz a gravação do ticket (mesma regra do
+          // InternalTicketService.logEvent, que era quem fazia isto).
+          await query(
+            `INSERT INTO public.internal_ticket_messages (internal_ticket_id, author_id, content, type, attachments_data)
+             VALUES ($1, $2, $3, $4, '[]')`,
+            [singleId, user.id, text, type]
+          ).catch(err => console.error('[internal-tickets update] Falha ao registrar alteração:', err));
+        }
+        const textoAviso = logEntries
+          .map((e: any) => (typeof e?.text === 'string' ? e.text : ''))
+          .filter(Boolean)
+          .join('\n');
+        if (textoAviso) queueInternalTicketChangeEmail({ internalTicketId: singleId, actorId: user.id, actorName: user.name, kind: 'change', text: textoAviso });
+      }
+      let messages: any[] | undefined;
+      if (singleId && returnMessages) {
+        const msgRes = await query(
+          `SELECT * FROM public.internal_ticket_messages WHERE internal_ticket_id = $1 ORDER BY created_at DESC`,
+          [singleId]
+        );
+        messages = msgRes.rows.map(toMessage);
+      }
+
+      return NextResponse.json({ success: true, updated: res.rowCount, ...(messages ? { messages } : {}) });
     }
 
     if (action === 'link') {
@@ -817,7 +896,124 @@ export async function POST(request: NextRequest) {
           JSON.stringify(attachments)
         ]
       );
+      const tipo = message.type || 'text';
+      queueInternalTicketChangeEmail({
+        internalTicketId,
+        actorId: message.senderId || user.id,
+        actorName: user.name,
+        kind: tipo === 'system' || tipo === 'system_log' ? 'change' : 'note',
+        text: message.text
+      });
       return NextResponse.json(toMessage(res.rows[0]));
+    }
+
+    if (action === 'edit-message') {
+      // Editar nota do histórico (2026-11-12, pedido do usuário) — mesma regra
+      // da exclusão: quem escreve nota (internal:edit), sem permissão própria.
+      // Registro automático ('system'/'system_log') não se edita: é o sistema
+      // contando o que mudou, reescrevê-lo faria o histórico mentir.
+      const { messageId, text } = body;
+      if (!messageId) return NextResponse.json({ error: 'messageId é obrigatório.' }, { status: 400 });
+      const user = await getSessionUser(request);
+      if (!user) return NextResponse.json({ error: 'Não autenticado.' }, { status: 401 });
+      if (!INTERNAL_TEAM_ROLES.includes(user.role)) {
+        return NextResponse.json({ error: 'Apenas a equipe pode editar mensagens de ticket interno.' }, { status: 403 });
+      }
+
+      const msgRes = await query(
+        `SELECT m.id, m.internal_ticket_id, m.content, m.type, m.attachments_data, it.internal_ticket_number
+           FROM public.internal_ticket_messages m
+           JOIN public.internal_tickets it ON it.id = m.internal_ticket_id
+          WHERE m.id::text = $1`,
+        [String(messageId)]
+      );
+      const msg = msgRes.rows[0];
+      if (!msg) return NextResponse.json({ error: 'Mensagem não encontrada.' }, { status: 404 });
+      if (msg.type === 'system' || msg.type === 'system_log') {
+        return NextResponse.json({ error: 'Registros automáticos de alteração não podem ser editados.' }, { status: 400 });
+      }
+
+      // Imagem colada vai pro disco, como em toda gravação de texto rico.
+      const newText: string = await externalizeInlineImages(typeof text === 'string' ? text : '');
+      const plain = newText.replace(/<[^>]*>/g, '').replace(/&nbsp;/g, ' ').trim();
+      const hasImage = /<img\b/i.test(newText);
+      const hasAttachments = Array.isArray(msg.attachments_data) && msg.attachments_data.length > 0;
+      if (!plain && !hasImage && !hasAttachments) {
+        return NextResponse.json({ error: 'A nota não pode ficar vazia — para remover, apague a mensagem.' }, { status: 400 });
+      }
+      if (newText === msg.content) return NextResponse.json({ success: true, text: newText, unchanged: true });
+
+      await query('UPDATE public.internal_ticket_messages SET content = $1 WHERE id = $2', [newText, msg.id]);
+      // Recoloca na fila do Agente de IA pra reindexar o texto novo (o gatilho
+      // do banco só enfileira no INSERT). Tabela opcional.
+      await query(`INSERT INTO public.ai_embedding_queue (source_type, source_id) VALUES ('internal_ticket_message', $1)`, [msg.id]).catch(() => {});
+
+      logAudit({
+        actorId: user.id,
+        actorName: user.name,
+        action: 'update',
+        entityType: 'internal_ticket',
+        entityId: msg.internal_ticket_id,
+        entityLabel: formatId(msg.internal_ticket_number, msg.internal_ticket_id),
+        changes: {
+          mensagemEditada: msg.id,
+          antes: String(msg.content || '').slice(0, 20000),
+          depois: newText.slice(0, 20000)
+        }
+      });
+      return NextResponse.json({ success: true, text: newText });
+    }
+
+    if (action === 'delete-message') {
+      // Apagar mensagem do histórico (2026-11-12, pedido do usuário). Sem
+      // permissão própria — decisão do usuário: "podem ser permissões gerais".
+      // Vale pra quem escreve nota (internal:edit, checado no início do POST).
+      // Qualquer mensagem (nota ou registro automático). Conteúdo vai pro audit_log.
+      const { messageId } = body;
+      if (!messageId) return NextResponse.json({ error: 'messageId é obrigatório.' }, { status: 400 });
+      const user = await getSessionUser(request);
+      if (!user) return NextResponse.json({ error: 'Não autenticado.' }, { status: 401 });
+
+      // id::text: id malformado vira "não encontrada", não erro 500 de uuid.
+      const msgRes = await query(
+        `SELECT m.id, m.internal_ticket_id, m.author_id, m.content, m.type, m.created_at, it.internal_ticket_number
+           FROM public.internal_ticket_messages m
+           JOIN public.internal_tickets it ON it.id = m.internal_ticket_id
+          WHERE m.id::text = $1`,
+        [String(messageId)]
+      );
+      const msg = msgRes.rows[0];
+      if (!msg) return NextResponse.json({ error: 'Mensagem não encontrada.' }, { status: 404 });
+
+      if (!INTERNAL_TEAM_ROLES.includes(user.role)) {
+        return NextResponse.json({ error: 'Apenas a equipe pode apagar mensagens de ticket interno.' }, { status: 403 });
+      }
+
+      await query('DELETE FROM public.internal_ticket_messages WHERE id = $1', [msg.id]);
+      // Tira também da busca do Agente de IA — senão ele continuaria citando
+      // um texto que não existe mais no ticket. Tabelas opcionais (só existem
+      // com a migration de embeddings): erro aqui não desfaz a exclusão.
+      await query(`DELETE FROM public.ai_embeddings WHERE source_type = 'internal_ticket_message' AND source_id = $1`, [msg.id]).catch(() => {});
+      await query(`DELETE FROM public.ai_embedding_queue WHERE source_type = 'internal_ticket_message' AND source_id = $1 AND processed_at IS NULL`, [msg.id]).catch(() => {});
+
+      // O conteúdo apagado fica guardado no Log de Alterações — some do
+      // ticket, mas não some sem rastro.
+      logAudit({
+        actorId: user.id,
+        actorName: user.name,
+        action: 'delete',
+        entityType: 'internal_ticket',
+        entityId: msg.internal_ticket_id,
+        entityLabel: formatId(msg.internal_ticket_number, msg.internal_ticket_id),
+        changes: {
+          mensagemApagada: msg.id,
+          tipo: msg.type,
+          autor: msg.author_id,
+          criadaEm: msg.created_at,
+          conteudo: String(msg.content || '').slice(0, 20000)
+        }
+      });
+      return NextResponse.json({ success: true });
     }
 
     return NextResponse.json({ error: `Action não suportada: ${action}` }, { status: 400 });

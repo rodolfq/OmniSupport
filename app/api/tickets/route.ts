@@ -9,7 +9,7 @@ import { persistAttachments, externalizeInlineImages } from '@/lib/services/atta
 import { getCurrentActionUser } from '@/lib/server-auth';
 import { logAudit } from '@/lib/audit-log';
 import { TicketStatus } from '@/lib/types';
-import { ticketPriorityToStars, cascadePriorityFromTicket } from '@/lib/services/priority-sync-service';
+import { cascadePriorityFromTicket } from '@/lib/services/priority-sync-service';
 
 async function getTicketActor(request: NextRequest) {
   const token = request.cookies.get('token')?.value;
@@ -769,41 +769,13 @@ export async function POST(request: Request) {
         })))).catch(err => console.error('[push] Falha ao notificar novo chamado:', err));
       }
 
-      // Se o usuário for "Time Interno", criar ticket interno automaticamente.
-      // internal_tickets.team_id é um conceito próprio (texto legado, não FK)
-      // e não deve ser derivado de nenhum campo do chamado principal — o time
-      // interno terá seus próprios marcadores, à parte.
-      //
-      // Prioridade herdada do chamado (estrelas) + vínculo em
-      // ticket_internal_links (2026-10-20, pedido do usuário — "chamados e
-      // tickets internos vinculados devem ter a mesma quantidade de
-      // estrelas"): antes nascia sempre com 1 estrela e sem nenhum vínculo
-      // gravado, mesmo sendo claramente o par um-do-outro.
-      if (userRole === 'Time Interno') {
-        const inheritedStars = ticketPriorityToStars(newTicket.priority);
-        const autoInternal = await query(
-          `INSERT INTO public.internal_tickets (title, description, team_id, creator_id, priority)
-           VALUES ($1, $2, $3, $4, $5)
-           RETURNING id, internal_ticket_number`,
-          [
-            ticket.title || 'Ticket Interno',
-            ticket.description || '',
-            'Desenvolvimento',
-            userId,
-            inheritedStars
-          ]
-        );
-        const autoInternalId = autoInternal.rows[0].id;
-        await query(
-          `INSERT INTO public.ticket_internal_links (ticket_id, internal_ticket_id) VALUES ($1, $2) ON CONFLICT DO NOTHING`,
-          [newTicket.id, autoInternalId]
-        );
-        logAudit({
-          actorId: userId, actorName: sessionActor?.name || 'Sistema', action: 'create', entityType: 'internal_ticket', entityId: autoInternalId,
-          entityLabel: `int-${String(autoInternal.rows[0].internal_ticket_number).padStart(4, '0')}`,
-          changes: { field: 'priority', to: inheritedStars, reason: 'inherited_from_ticket', sourceTicketId: newTicket.id }
-        });
-      }
+      // REMOVIDO (2026-11-12, pedido do usuário): quando quem abria o chamado
+      // era "Time Interno", nascia junto um ticket interno automático
+      // (equipe "Desenvolvimento", vinculado ao chamado). Abrir chamado agora
+      // é só abrir chamado — ticket interno é aberto de propósito, pelo
+      // botão de Novo Ticket ou pela aba de tickets internos do chamado.
+      // A herança de estrelas na abertura via chamado (parentTicketId) continua
+      // em app/api/internal-tickets/route.ts.
 
       return NextResponse.json({ success: true, ticket: newTicket });
     }

@@ -182,6 +182,22 @@ export default function MyTicketsPage() {
   // refreshTrigger atualizam em silêncio, sem a lista piscar.
   const [loadingTickets, setLoadingTickets] = useState(true);
   const [loadingInternal, setLoadingInternal] = useState(true);
+  // Aba "Meus Tickets Internos" (2026-11-12, pedido do usuário): por padrão só
+  // os em andamento; o checkbox "Mostrar concluídos" traz os encerrados junto.
+  // Não fica salvo — toda entrada volta ao padrão. "Encerrado" vem do
+  // cadastro (config_statuses.is_closed, escopo internal_ticket), não de um
+  // rótulo fixo; "Concluído" é só o fallback enquanto o cadastro não chega.
+  const [showClosedInternal, setShowClosedInternal] = useState(false);
+  const [closedInternalLabels, setClosedInternalLabels] = useState<string[]>(['Concluído']);
+  useEffect(() => {
+    if (!isInternalRole) return;
+    ConfigService.getStatuses('internal_ticket')
+      .then(data => {
+        const fechados = (data || []).filter((st: any) => st.isClosed).map((st: any) => st.label);
+        if (fechados.length > 0) setClosedInternalLabels(fechados);
+      })
+      .catch(() => {});
+  }, [isInternalRole]);
 
   // Colunas do Kanban pra quem é da equipe interna — mesmo cadastro
   // (Configurações > Geral > Status) usado no board de "Todos os Chamados".
@@ -371,11 +387,14 @@ export default function MyTicketsPage() {
 
   const filteredInternalTickets = useMemo(() => {
     const normalQuery = normalizeString(search);
-    if (!normalQuery) return internalTickets;
-    return internalTickets.filter(t =>
+    const base = showClosedInternal
+      ? internalTickets
+      : internalTickets.filter(t => !closedInternalLabels.includes(t.status || 'Novo'));
+    if (!normalQuery) return base;
+    return base.filter(t =>
       normalizeString(t.title).includes(normalQuery) || normalizeString(t.displayId).includes(normalQuery)
     );
-  }, [internalTickets, search]);
+  }, [internalTickets, search, showClosedInternal, closedInternalLabels]);
 
   const visibleInternalTickets = useMemo(() => {
     return filteredInternalTickets.slice(0, visibleCount);
@@ -566,7 +585,19 @@ export default function MyTicketsPage() {
       {/* Content */}
       <div className="space-y-8">
         {ticketMode === 'internal' ? (
-          loadingInternal ? (
+          <>
+          <label className="flex items-center gap-2 cursor-pointer w-fit select-none">
+            <input
+              type="checkbox"
+              checked={showClosedInternal}
+              onChange={(e) => setShowClosedInternal(e.target.checked)}
+              className="w-4 h-4 rounded border-[var(--border-default)] accent-[var(--text-warning-strong)] cursor-pointer"
+            />
+            <span className="text-[10px] font-semibold uppercase tracking-widest text-[var(--text-tertiary)]">
+              Mostrar concluídos
+            </span>
+          </label>
+          {loadingInternal ? (
             <div className="flex items-center justify-center py-20">
               <div className="w-8 h-8 border-2 border-[var(--text-warning-strong)]/30 border-t-[var(--text-warning-strong)] rounded-full animate-spin" />
             </div>
@@ -661,8 +692,8 @@ export default function MyTicketsPage() {
               <div className="w-16 h-16 bg-[var(--surface-pill)] rounded-xl flex items-center justify-center mx-auto mb-6 text-[var(--text-tertiary)]">
                  <FolderKanban size={32} />
               </div>
-              <h3 className="text-lg font-bold text-[var(--text-primary)] tracking-tight mb-2">Nenhum ticket interno seu</h3>
-              <p className="text-[var(--text-tertiary)] font-medium mb-6">Você ainda não é responsável nem criou nenhum ticket interno.</p>
+              <h3 className="text-lg font-bold text-[var(--text-primary)] tracking-tight mb-2">{internalTickets.length > 0 && !showClosedInternal ? 'Nenhum ticket interno em andamento' : 'Nenhum ticket interno seu'}</h3>
+              <p className="text-[var(--text-tertiary)] font-medium mb-6">{internalTickets.length > 0 && !showClosedInternal ? 'Os seus tickets internos estão concluídos — marque "Mostrar concluídos" para vê-los.' : 'Você ainda não é responsável nem criou nenhum ticket interno.'}</p>
               <button
                 onClick={() => router.push('/tickets?mode=internal')}
                 className="inline-flex items-center gap-2 bg-[var(--text-warning-strong)] hover:bg-[var(--accent-warning-hover)] text-white px-6 py-2.5 rounded-lg text-sm font-semibold shadow-md transition-all"
@@ -671,7 +702,8 @@ export default function MyTicketsPage() {
                 Criar Ticket Interno
               </button>
             </div>
-          )
+          )}
+          </>
         ) : loadingTickets ? (
           <div className="flex flex-col items-center justify-center gap-3 py-20 text-[var(--text-tertiary)]">
             <div className="w-8 h-8 border-2 border-[var(--accent)]/30 border-t-[var(--accent)] rounded-full animate-spin" />

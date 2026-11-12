@@ -256,7 +256,10 @@ export async function GET(request: NextRequest) {
          JOIN public.internal_tickets it ON it.id = m.internal_ticket_id
          WHERE m.created_at > $1
            AND (m.author_id IS NULL OR m.author_id <> $2::uuid)
-           AND m.type <> 'system_log'
+           -- 'system_log' (mudança de descrição) só avisa o criador e o
+           -- responsável (2026-11-12: "toda mudança" notifica os dois); a
+           -- equipe e os vinculados seguem sem esse aviso, como antes.
+           AND (m.type <> 'system_log' OR it.assignee_id = $2::uuid OR it.creator_id = $2::uuid)
            AND (
              it.assignee_id = $2::uuid
              OR it.creator_id = $2::uuid
@@ -275,10 +278,10 @@ export async function GET(request: NextRequest) {
 
       internalMessages.rows.forEach((message) => {
         const label = internalTicketLabel(message.internal_ticket_number, message.internal_ticket_id);
-        const isStatusEvent = message.msg_type === 'system';
+        const isStatusEvent = message.msg_type === 'system' || message.msg_type === 'system_log';
         events.push({
           sourceId: `internal_ticket_${isStatusEvent ? 'status' : 'message'}:${message.id}`,
-          title: isStatusEvent ? `Status atualizado em ${label}` : `Nova mensagem em ${label}`,
+          title: isStatusEvent ? `${label} atualizado` : `Nova nota em ${label}`,
           message: message.content,
           type: isStatusEvent ? 'internal_ticket_status' : 'internal_ticket_message',
           targetId: message.internal_ticket_id,

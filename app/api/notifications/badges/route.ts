@@ -81,14 +81,21 @@ export async function GET(request: NextRequest) {
     try {
       const fechadosInternoRes = await query(`SELECT label FROM public.config_statuses WHERE scope = 'internal_ticket' AND is_closed = true`);
       const fechadosInterno = fechadosInternoRes.rows.map((r: any) => r.label);
+      // Conta também os tickets em que a pessoa é CRIADORA ou RESPONSÁVEL,
+      // mesmo que ela nunca os tenha aberto (2026-11-12, pedido do usuário) —
+      // antes só entrava ticket já aberto alguma vez (JOIN nas leituras), então
+      // um ticket recém-atribuído nunca mostrava contador. Sem leitura
+      // registrada, conta desde a criação do ticket. Qualquer outro ticket
+      // continua contando só depois da primeira abertura, como antes.
       const internalRes = await query(
         `SELECT m.internal_ticket_id, COUNT(*)::int AS cnt
            FROM public.internal_ticket_messages m
            JOIN public.internal_tickets it ON it.id = m.internal_ticket_id
-           JOIN public.internal_ticket_notification_reads r ON r.internal_ticket_id = it.id AND r.user_id = $1
+           LEFT JOIN public.internal_ticket_notification_reads r ON r.internal_ticket_id = it.id AND r.user_id = $1
           WHERE (it.status IS NULL OR it.status <> ALL($2))
+            AND (r.user_id IS NOT NULL OR it.creator_id = $1 OR it.assignee_id = $1)
             AND m.author_id IS DISTINCT FROM $1
-            AND m.created_at > r.last_read_at
+            AND m.created_at > COALESCE(r.last_read_at, it.created_at)
           GROUP BY m.internal_ticket_id`,
         [userId, fechadosInterno]
       );

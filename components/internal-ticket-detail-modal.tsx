@@ -22,16 +22,19 @@ import {
   Copy,
   Maximize2,
   Minimize2,
-  Layers
+  Layers,
+  Trash2,
+  Pencil
 } from 'lucide-react';
+import { ConfirmDialog } from '@/components/confirm-dialog';
 import { RichEditor } from '@/components/rich-editor';
 import { motion } from 'motion/react';
 import { toast } from 'sonner';
 import { ClientTime } from '@/components/client-time';
 import { FieldChange, formatChangeMessage } from '@/lib/ticket-diff';
 import { INTERNAL_PRIORITY_LABELS, computeInternalTicketSla } from '@/lib/sla';
-import { fetchPriorities, ConfigService } from '@/lib/services/config-service';
-import { useAnalystsQuery, useConfigEffortsQuery, useConfigOutcomesQuery, useInternalTeamsQuery } from '@/lib/query-hooks';
+import { useAnalystsQuery, useConfigEffortsQuery, useConfigOutcomesQuery, useInternalTeamsQuery, useConfigPrioritiesQuery, useConfigStatusesQuery } from '@/lib/query-hooks';
+import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { findStatusColor } from '@/lib/status-colors';
 import { uploadAttachment } from '@/lib/attachment-upload';
 import { splitAttachmentsByBudget, MAX_ATTACHMENT_TOTAL_LABEL } from '@/lib/attachment-limits';
@@ -104,18 +107,101 @@ function toDateOnly(iso?: string | null) {
 // na URL — a tela de trás (lista, Dashboard, Meus Chamados...) continua lá,
 // igual ao chamado do cliente (ticket-detail-modal.tsx). A rota
 // /internal-tickets/[id] virou só um redirecionador, pros links diretos.
-export function InternalTicketDetailModal({ ticketRef, onClose }: { ticketRef: string; onClose: () => void }) {
+// Título com estado PRÓPRIO (2026-11-12, performance): digitar mexe só neste
+// campo — o ticket inteiro (1.600+ linhas, 3 editores, histórico, grade de
+// campos) não se redesenha mais a cada tecla, que era a causa do atraso ao
+// digitar. Entrega o valor ao pai só no blur (onCommit); onDraft mantém o
+// rascunho num ref do pai, pra "Criar ticket" ler o texto mesmo sem blur.
+const TitleField = React.memo(function TitleField({ value, placeholder, autoFocus, onDraft, onCommit }: {
+  value: string;
+  placeholder?: string;
+  autoFocus?: boolean;
+  onDraft: (v: string) => void;
+  onCommit: (v: string) => void;
+}) {
+  const [local, setLocal] = useState(value);
+  const focusedRef = React.useRef(false);
+  // Valor vindo de fora (ticket recarregado) só entra se a pessoa não estiver
+  // digitando nele agora.
+  useEffect(() => { if (!focusedRef.current) setLocal(value); }, [value]);
+  return (
+    <input
+      value={local}
+      autoFocus={autoFocus}
+      placeholder={placeholder}
+      onFocus={() => { focusedRef.current = true; }}
+      onChange={(e) => { setLocal(e.target.value); onDraft(e.target.value); }}
+      onBlur={() => { focusedRef.current = false; onCommit(local); }}
+      onKeyDown={(e) => { if (e.key === 'Enter') (e.target as HTMLInputElement).blur(); }}
+      title={local}
+      className="flex-1 min-w-[16rem] text-2xl font-black text-[var(--text-primary)] tracking-tight leading-tight bg-transparent border border-transparent rounded-lg -mx-2 px-2 py-0.5 hover:border-[var(--border-default)] focus:border-[var(--accent)] focus:outline-none transition-colors truncate"
+    />
+  );
+});
+
+// MODO CRIAÇÃO (2026-11-12, pedido do usuário): "Novo Ticket" abre ESTA
+// tela, já com a cara de ticket aberto, em vez do formulário em modal.
+// `creating` traz título/descrição iniciais; nada é gravado ao mexer nos
+// campos — o botão "Criar ticket" cria. Abas e painel que só existem para um
+// ticket de verdade (chamados vinculados, anexos das notas, histórico, notas)
+// ficam ocultos. Ver NewInternalTicketModal, que é quem abre assim.
+export interface InternalTicketCreateDraft { title?: string; description?: string }
+
+export function InternalTicketDetailModal({ ticketRef, onClose, creating, onCreated }: {
+  ticketRef: string;
+  onClose: () => void;
+  creating?: InternalTicketCreateDraft | null;
+  // Ticket criado: recebe o id formatado (int-0001) — quem abriu decide o que
+  // mostrar em seguida.
+  onCreated?: (id: string) => void;
+}) {
+  const isCreating = !!creating;
   const router = useRouter();
   const { currentUser, triggerRefresh, setPendingTicketDraft, hasPermission, markInternalTicketNotificationsRead } = useApp();
   // Desmarcar (true → false) exige permissão extra — ver nota em
   // app/api/internal-tickets/route.ts (action=update). Marcar continua
   // liberado pra quem edita o ticket.
   const canOverrideQaRejection = hasPermission(Permission.INTERNAL_QA_OVERRIDE);
-  const [ticket, setTicket] = useState<InternalTicketWithExtras | null>(null);
+  // Apagar/editar mensagem do histórico (2026-11-12): sem permissão própria
+  // (decisão do usuário: "permissões gerais") — vale pra quem já pode
+  // escrever nota no ticket interno (internal:edit, exigido em todo POST da
+  // rota). Apagar vale pra qualquer mensagem; editar, só pra nota — registro
+  // automático de alteração não se edita. A regra de verdade é no servidor
+  // (delete-message / edit-message em app/api/internal-tickets/route.ts).
+  const canManageMessages = hasPermission(Permission.INTERNAL_TICKETS_EDIT);
+  const canEditMessage = (m: Message) => canManageMessages && m.type !== 'system' && m.type !== 'system_log';
+  const [editingMessageId, setEditingMessageId] = useState<string | null>(null);
+  const [editingText, setEditingText] = useState('');
+  const [isSavingEdit, setIsSavingEdit] = useState(false);
+  const [messageToDelete, setMessageToDelete] = useState<Message | null>(null);
+  const [isDeletingMessage, setIsDeletingMessage] = useState(false);
+  const [ticket, setTicket] = useState<InternalTicketWithExtras | null>(() => creating ? ({
+    uuid: '',
+    id: '',
+    title: creating.title || '',
+    description: creating.description || '',
+    teamId: 'Desenvolvimento',
+    priority: 1,
+    tags: [],
+    status: 'Novo',
+    createdAt: new Date().toISOString(),
+  } as unknown as InternalTicketWithExtras) : null);
+  const [isSubmittingCreate, setIsSubmittingCreate] = useState(false);
   const [messages, setMessages] = useState<Message[]>([]);
   const [linkedTickets, setLinkedTickets] = useState<LinkedTicket[]>([]);
-  const [loading, setLoading] = useState(true);
-  const [input, setInput] = useState('');
+  const [loading, setLoading] = useState(!creating);
+  // Rascunhos do que está sendo DIGITADO ficam em ref, não em estado
+  // (2026-11-12, performance): estado no componente raiz redesenhava a tela
+  // toda a cada tecla. O valor só vira estado quando é entregue (blur/enviar).
+  const titleDraftRef = React.useRef(creating?.title || '');
+  const descriptionDraftRef = React.useRef(creating?.description || '');
+  const noteDraftRef = React.useRef('');
+  const editingTextRef = React.useRef('');
+  // Só muda quando a nota passa de vazia pra preenchida (e vice-versa) — é o
+  // que habilita o botão Enviar, sem redesenhar a cada tecla.
+  const [noteHasText, setNoteHasText] = useState(false);
+  // Trocar a key recria o editor da nota vazio depois do envio.
+  const [composerKey, setComposerKey] = useState(0);
   const [isUploading, setIsUploading] = useState(false);
   const [previewAttachments, setPreviewAttachments] = useState<Attachment[]>([]);
   const [activeTab, setActiveTab] = useState<'description' | 'linked' | 'attachments' | 'history'>('description');
@@ -124,8 +210,8 @@ export function InternalTicketDetailModal({ ticketRef, onClose }: { ticketRef: s
   // abre em ~90vw e o botão expande para tela cheia.
   const [isFocused, setIsFocused] = useState(false);
 
-  const [formTitle, setFormTitle] = useState('');
-  const [formDescription, setFormDescription] = useState('');
+  const [formTitle, setFormTitle] = useState(creating?.title || '');
+  const [formDescription, setFormDescription] = useState(creating?.description || '');
   const [formTeam, setFormTeam] = useState('Desenvolvimento');
   // Equipes de verdade (internal_teams), não a lista fixa de placeholder —
   // ver comentário de DEFAULT_TEAM_OPTIONS acima.
@@ -142,8 +228,6 @@ export function InternalTicketDetailModal({ ticketRef, onClose }: { ticketRef: s
   const [formSubStatus, setFormSubStatus] = useState<string | null>(null);
   const [formQaRejected, setFormQaRejected] = useState(false);
   const [formEnvironmentRejected, setFormEnvironmentRejected] = useState(false);
-  // Sub-status por status principal (ex.: 'Resolvido' -> ['Aguardando Publicação', 'Aguardando Data de Hotfix']).
-  const [subStatusMap, setSubStatusMap] = useState<Record<string, string[]>>({});
   const [formTags, setFormTags] = useState('');
   const [formExpectedPublish, setFormExpectedPublish] = useState('');
   const [formHotfixId, setFormHotfixId] = useState('');
@@ -178,9 +262,43 @@ export function InternalTicketDetailModal({ ticketRef, onClose }: { ticketRef: s
     if (!teamId) return analysts;
     return analysts.filter((a) => (a.internalTeamIds || []).includes(teamId));
   }, [analysts, internalTeamsData, formTeam]);
-  const [priorities, setPriorities] = useState<any[]>([]);
-  const [hotfixes, setHotfixes] = useState<Hotfix[]>([]);
-  const [statuses, setStatuses] = useState<KanbanStatusMeta[]>(DEFAULT_KANBAN_STATUSES);
+  // Prioridades, status e hotfixes vêm do cache compartilhado (React Query,
+  // lib/query-hooks.ts) — antes eram buscados do zero a cada abertura de
+  // ticket (2026-11-12, performance).
+  const queryClient = useQueryClient();
+  const { data: prioritiesData } = useConfigPrioritiesQuery();
+  const priorities = useMemo(
+    () => ((prioritiesData || []) as any[]).map((p: any) => ({ ...p, slaHours: p.slaHours ?? p.sla_hours, sla_hours: p.sla_hours ?? p.slaHours })),
+    [prioritiesData]
+  );
+  const { data: hotfixesData } = useQuery({ queryKey: ['ref', 'hotfixes'], queryFn: () => getHotfixes() });
+  const hotfixes = useMemo(() => (hotfixesData || []) as Hotfix[], [hotfixesData]);
+  const { data: statusesData } = useConfigStatusesQuery('internal_ticket');
+  const { statuses, subStatusMap } = useMemo(() => {
+    const data = ((statusesData || []) as any[]).map((st: any) => ({
+      ...st,
+      parentStatusId: st.parentStatusId ?? st.parent_status_id ?? null,
+      isClosed: !!(st.isClosed ?? st.is_closed),
+    }));
+    const topLevel = data.filter(st => !st.parentStatusId);
+    const porId = new Map(data.map(st => [st.id, st]));
+    const mapa: Record<string, string[]> = {};
+    for (const st of data) {
+      if (!st.parentStatusId) continue;
+      const pai = porId.get(st.parentStatusId);
+      if (pai) (mapa[pai.label] ??= []).push(st.label);
+    }
+    const lista: KanbanStatusMeta[] = topLevel.length > 0
+      ? topLevel.map(st => {
+          const c = findStatusColor(st.color);
+          return { value: st.label, label: st.label, color: `${c.bg} ${c.text}`, isClosed: !!st.isClosed };
+        })
+      : DEFAULT_KANBAN_STATUSES;
+    return { statuses: lista, subStatusMap: mapa };
+  }, [statusesData]);
+  // B: nome do autor por id, montado uma vez — o histórico fazia uma busca na
+  // lista de analistas por mensagem, a cada redesenho.
+  const analystsById = useMemo(() => new Map(analysts.map(a => [a.id, a])), [analysts]);
   // "Concluído" é configurável (config_statuses, scope internal_ticket), então
   // a checagem usa a lista carregada em vez de comparar com rótulo fixo.
   const needsClassification = useMemo(
@@ -260,6 +378,8 @@ export function InternalTicketDetailModal({ ticketRef, onClose }: { ticketRef: s
       });
       setFormTitle(data.title || '');
       setFormDescription(data.description || '');
+      titleDraftRef.current = data.title || '';
+      descriptionDraftRef.current = data.description || '';
       setFormTeam(data.team_id || 'Desenvolvimento');
       setFormPriority(data.priority || 1);
       setFormAssignee(data.assignee_id || '');
@@ -276,42 +396,13 @@ export function InternalTicketDetailModal({ ticketRef, onClose }: { ticketRef: s
     finally { setLoading(false); }
   }, [ticketId, currentUser]);
 
-  const fetchPriorityConfig = useCallback(async () => {
-    const data = await fetchPriorities();
-    setPriorities(data || []);
-  }, []);
-
-  const fetchHotfixList = useCallback(async () => {
-    const data = await getHotfixes();
-    setHotfixes((data || []) as Hotfix[]);
-  }, []);
-
-  const fetchStatusConfig = useCallback(async () => {
-    const data = await ConfigService.getStatuses('internal_ticket');
-    const topLevel = data.filter(s => !s.parentStatusId);
-    const porId = new Map(data.map(s => [s.id, s]));
-    const mapa: Record<string, string[]> = {};
-    for (const s of data) {
-      if (!s.parentStatusId) continue;
-      const pai = porId.get(s.parentStatusId);
-      if (pai) (mapa[pai.label] ??= []).push(s.label);
-    }
-    setSubStatusMap(mapa);
-    if (topLevel.length > 0) {
-      setStatuses(topLevel.map(s => {
-        const c = findStatusColor(s.color);
-        return { value: s.label, label: s.label, color: `${c.bg} ${c.text}`, isClosed: !!s.isClosed };
-      }));
-    }
-  }, []);
-
   const loadMessages = useCallback(async () => {
     if (!ticket?.uuid) return;
     try { const msgs = await MessageService.getByInternalTicket(ticket.uuid); setMessages(msgs); }
     catch (error) { console.error('Error loading messages:', error); }
   }, [ticket?.uuid]);
 
-  useEffect(() => { fetchTicket(); fetchPriorityConfig(); fetchHotfixList(); fetchStatusConfig(); }, [fetchTicket, fetchPriorityConfig, fetchHotfixList, fetchStatusConfig]);
+  useEffect(() => { fetchTicket(); }, [fetchTicket]);
   useEffect(() => { if (ticket) loadMessages(); }, [ticket?.uuid]);
 
   useEffect(() => {
@@ -364,9 +455,20 @@ export function InternalTicketDetailModal({ ticketRef, onClose }: { ticketRef: s
   };
 
   const handleSendMessage = async () => {
-    if ((!input.trim() && previewAttachments.length === 0) || !ticket || !currentUser) return;
-    const newMessage: Message = { id: Math.random().toString(36).substr(2, 9), ticketId: ticket.uuid, senderId: currentUser.id, text: input, timestamp: new Date().toISOString(), isVisibleToCustomer: false, type: 'internal', attachments: previewAttachments.length > 0 ? previewAttachments : undefined };
-    try { await MessageService.createInternal(newMessage, ticket.uuid); setInput(''); setPreviewAttachments([]); loadMessages(); triggerRefresh(); }
+    const text = noteDraftRef.current;
+    if ((!noteHasText && previewAttachments.length === 0) || !ticket || !currentUser) return;
+    const newMessage: Message = { id: Math.random().toString(36).substr(2, 9), ticketId: ticket.uuid, senderId: currentUser.id, text, timestamp: new Date().toISOString(), isVisibleToCustomer: false, type: 'internal', attachments: previewAttachments.length > 0 ? previewAttachments : undefined };
+    try {
+      const created = await MessageService.createInternal(newMessage, ticket.uuid);
+      noteDraftRef.current = '';
+      setNoteHasText(false);
+      setComposerKey(k => k + 1);
+      setPreviewAttachments([]);
+      // Lista vem em ordem DESC (mais nova primeiro).
+      if (created?.id) setMessages(prev => [created, ...prev]);
+      else loadMessages();
+      markChanged();
+    }
     catch (error: any) { console.error('Erro ao enviar mensagem do ticket interno:', error); toast.error(error?.message || 'Erro ao enviar mensagem'); }
   };
 
@@ -374,19 +476,138 @@ export function InternalTicketDetailModal({ ticketRef, onClose }: { ticketRef: s
   // valor antigo por causa do closure do React não ter visto o setState
   // anterior ainda — foi assim que o botão de status ficava "um clique
   // atrasado" antes desta correção.
-  const handleUpdateTicket = async (overrides: Partial<{ status: string; assigneeId: string; subStatus: string | null; qaRejected: boolean; environmentRejected: boolean }> = {}) => {
+  // Todo campo que grava na hora passa o valor NOVO por aqui (2026-11-12): o
+  // padrão antigo `setX(v); setTimeout(() => handleUpdateTicket(), 0)` lia o
+  // valor ANTIGO (closure do render anterior) — trocar Equipe/Esforço/
+  // Desfecho/Hotfix/estrelas não gravava até o próximo Salvar, e fechar o
+  // ticket antes perdia a troca.
+  const handleUpdateTicket = async (overrides: Partial<{
+    status: string; assigneeId: string; subStatus: string | null; qaRejected: boolean; environmentRejected: boolean;
+    title: string; description: string; teamId: string; priority: number; hotfixId: string; expectedPublish: string;
+    effortId: string; outcomeId: string;
+  }> = {}) => {
     if (!ticket) return;
+    if (isCreating) {
+      // Ticket ainda não existe: só aplica na tela o que veio por override
+      // (alguns controles passam o valor só por aqui, sem setX antes).
+      if ('status' in overrides && overrides.status !== undefined) setFormStatus(overrides.status);
+      if ('subStatus' in overrides) setFormSubStatus(overrides.subStatus ?? null);
+      if ('assigneeId' in overrides) setFormAssignee(overrides.assigneeId || '');
+      if ('qaRejected' in overrides) setFormQaRejected(!!overrides.qaRejected);
+      if ('environmentRejected' in overrides) setFormEnvironmentRejected(!!overrides.environmentRejected);
+      if ('title' in overrides) setFormTitle(overrides.title ?? '');
+      if ('description' in overrides) setFormDescription(overrides.description ?? '');
+      if ('teamId' in overrides) setFormTeam(overrides.teamId ?? '');
+      if ('priority' in overrides && overrides.priority !== undefined) setFormPriority(overrides.priority);
+      if ('hotfixId' in overrides) setFormHotfixId(overrides.hotfixId ?? '');
+      if ('expectedPublish' in overrides) setFormExpectedPublish(overrides.expectedPublish ?? '');
+      if ('effortId' in overrides) setFormEffortId(overrides.effortId ?? '');
+      if ('outcomeId' in overrides) setFormOutcomeId(overrides.outcomeId ?? '');
+      return;
+    }
     const nextStatus = overrides.status ?? formStatus;
     const nextSubStatus = 'subStatus' in overrides ? (overrides.subStatus ?? null) : formSubStatus;
     const nextQaRejected = 'qaRejected' in overrides ? !!overrides.qaRejected : formQaRejected;
     const nextEnvironmentRejected = 'environmentRejected' in overrides ? !!overrides.environmentRejected : formEnvironmentRejected;
     const nextAssignee = 'assigneeId' in overrides ? (overrides.assigneeId || '') : formAssignee;
+    const fTitle = 'title' in overrides ? (overrides.title ?? '') : formTitle;
+    const fDescription = 'description' in overrides ? (overrides.description ?? '') : formDescription;
+    const fTeam = 'teamId' in overrides ? (overrides.teamId ?? '') : formTeam;
+    const fPriority = 'priority' in overrides && overrides.priority !== undefined ? overrides.priority : formPriority;
+    const fHotfixId = 'hotfixId' in overrides ? (overrides.hotfixId ?? '') : formHotfixId;
+    const fExpectedPublish = 'expectedPublish' in overrides ? (overrides.expectedPublish ?? '') : formExpectedPublish;
+    const fEffortId = 'effortId' in overrides ? (overrides.effortId ?? '') : formEffortId;
+    const fOutcomeId = 'outcomeId' in overrides ? (overrides.outcomeId ?? '') : formOutcomeId;
     const tags = formTags.split(',').map(s => s.trim()).filter(Boolean);
     // Vencimento nunca é digitado — reflete a prioridade atual, calculada a
     // partir do SLA (em horas) configurado em Configurações > Prioridades,
     // contado desde a criação do ticket.
-    const slaIso = computeInternalTicketSla(formPriority, ticket.createdAt || new Date().toISOString(), priorities);
-    const expectedPublishIso = formExpectedPublish ? new Date(`${formExpectedPublish}T00:00:00`).toISOString() : null;
+    const slaIso = computeInternalTicketSla(fPriority, ticket.createdAt || new Date().toISOString(), priorities);
+    const expectedPublishIso = fExpectedPublish ? new Date(`${fExpectedPublish}T00:00:00`).toISOString() : null;
+
+    // Nada mudou em relação ao que está salvo: não grava nem avisa (achado do
+    // usuário, 2026-11-12). Este handler roda no blur de título, descrição e
+    // demais campos — antes, só clicar numa caixa de texto e sair já gravava o
+    // ticket inteiro e mostrava "Ticket atualizado". O vencimento (slaIso)
+    // fica de fora da comparação de propósito: ele é RECALCULADO a cada
+    // chamada a partir da prioridade e pode diferir do valor guardado (regra
+    // de SLA mudou depois, arredondamento) sem ninguém ter mexido em nada —
+    // só conta como mudança quando a prioridade muda.
+    const semMudanca =
+      nextStatus === (ticket.status || 'Novo') &&
+      (nextSubStatus ?? null) === (ticket.subStatus ?? null) &&
+      nextQaRejected === !!ticket.qaRejected &&
+      nextEnvironmentRejected === !!ticket.environmentRejected &&
+      nextAssignee === (ticket.assigneeId || '') &&
+      fTeam === (ticket.teamId || '') &&
+      fPriority === ticket.priority &&
+      fTitle === (ticket.title || '') &&
+      tags.join(', ') === (ticket.tags || []).join(', ') &&
+      fExpectedPublish === toDateOnly(ticket.expectedPublishDate) &&
+      fHotfixId === (ticket.hotfixId || '') &&
+      fEffortId === (ticket.effortId || '') &&
+      fOutcomeId === (ticket.outcomeId || '') &&
+      fDescription === (ticket.description || '');
+    if (semMudanca) return;
+
+    // Mensagem única com todos os campos alterados nessa gravação (formato
+    // "de → para (Campo)"), em vez de um evento por campo — assim uma
+    // sequência de edições (status, depois responsável, depois prioridade)
+    // que o debounce/blur juntou numa gravação só vira um post só também.
+    const changes: FieldChange[] = [];
+    if (nextStatus !== (ticket.status || 'Novo')) {
+      changes.push({ label: 'Estágio', from: ticket.status || 'Novo', to: nextStatus });
+    }
+    if (nextAssignee !== (ticket.assigneeId || '')) {
+      const fromName = ticket.assigneeId ? (analystsById.get(ticket.assigneeId)?.name || 'alguém') : 'Não atribuído';
+      const toName = nextAssignee ? (analystsById.get(nextAssignee)?.name || 'alguém') : 'Não atribuído';
+      changes.push({ label: 'Responsável', from: fromName, to: toName });
+    }
+    if (fTeam !== (ticket.teamId || '')) {
+      changes.push({ label: 'Equipe', from: ticket.teamId || 'Sem equipe', to: fTeam || 'Sem equipe' });
+    }
+    if (fPriority !== ticket.priority) {
+      changes.push({ label: 'Prioridade', from: INTERNAL_PRIORITY_LABELS[ticket.priority] || String(ticket.priority), to: INTERNAL_PRIORITY_LABELS[fPriority] || String(fPriority) });
+    }
+    if (fTitle !== ticket.title) {
+      changes.push({ label: 'Título', from: ticket.title, to: fTitle });
+    }
+    const prevTags = (ticket.tags || []).join(', ');
+    const nextTags = tags.join(', ');
+    if (prevTags !== nextTags) {
+      changes.push({ label: 'Marcadores', from: prevTags || 'Nenhum', to: nextTags || 'Nenhum' });
+    }
+    const fmtDateTime = (iso: string | null) => iso ? new Date(iso).toLocaleString('pt-BR', { day: '2-digit', month: '2-digit', year: 'numeric', hour: '2-digit', minute: '2-digit' }) : 'Sem prazo';
+    const prevSla = ticket.slaLimit || null;
+    if (fPriority !== ticket.priority && slaIso !== prevSla) {
+      changes.push({ label: 'Vencimento', from: fmtDateTime(prevSla), to: fmtDateTime(slaIso) });
+    }
+    const prevExpectedPublish = ticket.expectedPublishDate || null;
+    if (expectedPublishIso !== prevExpectedPublish) {
+      const fmtDate = (iso: string | null) => iso ? new Date(iso).toLocaleDateString('pt-BR', { day: '2-digit', month: '2-digit', year: 'numeric' }) : 'Não definida';
+      changes.push({ label: 'Publicação Prevista', from: fmtDate(prevExpectedPublish), to: fmtDate(expectedPublishIso) });
+    }
+    const prevHotfixId = ticket.hotfixId || '';
+    if (fHotfixId !== prevHotfixId) {
+      const hotfixName = (id: string) => id ? (hotfixes.find(h => h.id === id)?.name || 'hotfix removido') : 'Nenhum';
+      changes.push({ label: 'Hotfix', from: hotfixName(prevHotfixId), to: hotfixName(fHotfixId) });
+    }
+    if (fEffortId !== (ticket.effortId || '')) {
+      const effortName = (id: string) => id ? (efforts.find(e => e.id === id)?.label || 'removido') : 'Não classificado';
+      changes.push({ label: 'Esforço', from: effortName(ticket.effortId || ''), to: effortName(fEffortId) });
+    }
+    if (fOutcomeId !== (ticket.outcomeId || '')) {
+      const outcomeName = (id: string) => id ? (outcomes.find(o => o.id === id)?.label || 'removido') : 'Não classificado';
+      changes.push({ label: 'Desfecho', from: outcomeName(ticket.outcomeId || ''), to: outcomeName(fOutcomeId) });
+    }
+    // Edição de descrição é registrada, mas não vira mensagem no feed —
+    // só entra na aba Histórico ('system_log', filtrado do feed principal).
+    const descriptionChanged = fDescription !== ticket.description;
+    // Vão junto com a gravação (uma ida só, 2026-11-12) — o servidor grava os
+    // registros e devolve as notas já atualizadas.
+    const logEntries: { text: string; type: 'system' | 'system_log' }[] = [];
+    if (changes.length > 0) logEntries.push({ text: formatChangeMessage(changes), type: 'system' });
+    if (descriptionChanged) logEntries.push({ text: 'Descrição atualizada', type: 'system_log' });
 
     try {
       const updateRes = await fetch('/api/internal-tickets', {
@@ -396,10 +617,10 @@ export function InternalTicketDetailModal({ ticketRef, onClose }: { ticketRef: s
           action: 'update',
           id: ticket.uuid,
           fields: {
-            title: formTitle,
-            description: formDescription,
-            teamId: formTeam,
-            priority: formPriority,
+            title: fTitle,
+            description: fDescription,
+            teamId: fTeam,
+            priority: fPriority,
             assigneeId: nextAssignee || null,
             status: nextStatus,
             subStatus: nextSubStatus,
@@ -408,10 +629,12 @@ export function InternalTicketDetailModal({ ticketRef, onClose }: { ticketRef: s
             tags,
             slaLimit: slaIso,
             expectedPublishDate: expectedPublishIso,
-            hotfixId: formHotfixId || null,
-            effortId: formEffortId || null,
-            outcomeId: formOutcomeId || null
-          }
+            hotfixId: fHotfixId || null,
+            effortId: fEffortId || null,
+            outcomeId: fOutcomeId || null
+          },
+          logEntries,
+          returnMessages: logEntries.length > 0
         })
       });
       if (!updateRes.ok) {
@@ -419,74 +642,159 @@ export function InternalTicketDetailModal({ ticketRef, onClose }: { ticketRef: s
         throw new Error(errBody?.error || 'Erro ao salvar o ticket interno.');
       }
 
-      // Mensagem única com todos os campos alterados nessa gravação (formato
-      // "de → para (Campo)"), em vez de um evento por campo — assim uma
-      // sequência de edições (status, depois responsável, depois prioridade)
-      // que o debounce/blur juntou numa gravação só vira um post só também.
-      const changes: FieldChange[] = [];
-      if (nextStatus !== (ticket.status || 'Novo')) {
-        changes.push({ label: 'Estágio', from: ticket.status || 'Novo', to: nextStatus });
-      }
-      if (nextAssignee !== (ticket.assigneeId || '')) {
-        const fromName = ticket.assigneeId ? (analysts.find(a => a.id === ticket.assigneeId)?.name || 'alguém') : 'Não atribuído';
-        const toName = nextAssignee ? (analysts.find(a => a.id === nextAssignee)?.name || 'alguém') : 'Não atribuído';
-        changes.push({ label: 'Responsável', from: fromName, to: toName });
-      }
-      if (formTeam !== (ticket.teamId || '')) {
-        changes.push({ label: 'Equipe', from: ticket.teamId || 'Sem equipe', to: formTeam || 'Sem equipe' });
-      }
-      if (formPriority !== ticket.priority) {
-        changes.push({ label: 'Prioridade', from: INTERNAL_PRIORITY_LABELS[ticket.priority] || String(ticket.priority), to: INTERNAL_PRIORITY_LABELS[formPriority] || String(formPriority) });
-      }
-      if (formTitle !== ticket.title) {
-        changes.push({ label: 'Título', from: ticket.title, to: formTitle });
-      }
-      const prevTags = (ticket.tags || []).join(', ');
-      const nextTags = tags.join(', ');
-      if (prevTags !== nextTags) {
-        changes.push({ label: 'Marcadores', from: prevTags || 'Nenhum', to: nextTags || 'Nenhum' });
-      }
-      const fmtDateTime = (iso: string | null) => iso ? new Date(iso).toLocaleString('pt-BR', { day: '2-digit', month: '2-digit', year: 'numeric', hour: '2-digit', minute: '2-digit' }) : 'Sem prazo';
-      const prevSla = ticket.slaLimit || null;
-      if (slaIso !== prevSla) {
-        changes.push({ label: 'Vencimento', from: fmtDateTime(prevSla), to: fmtDateTime(slaIso) });
-      }
-      const prevExpectedPublish = ticket.expectedPublishDate || null;
-      if (expectedPublishIso !== prevExpectedPublish) {
-        const fmtDate = (iso: string | null) => iso ? new Date(iso).toLocaleDateString('pt-BR', { day: '2-digit', month: '2-digit', year: 'numeric' }) : 'Não definida';
-        changes.push({ label: 'Publicação Prevista', from: fmtDate(prevExpectedPublish), to: fmtDate(expectedPublishIso) });
-      }
-      const prevHotfixId = ticket.hotfixId || '';
-      if (formHotfixId !== prevHotfixId) {
-        const hotfixName = (id: string) => id ? (hotfixes.find(h => h.id === id)?.name || 'hotfix removido') : 'Nenhum';
-        changes.push({ label: 'Hotfix', from: hotfixName(prevHotfixId), to: hotfixName(formHotfixId) });
-      }
-      if (formEffortId !== (ticket.effortId || '')) {
-        const effortName = (id: string) => id ? (efforts.find(e => e.id === id)?.label || 'removido') : 'Não classificado';
-        changes.push({ label: 'Esforço', from: effortName(ticket.effortId || ''), to: effortName(formEffortId) });
-      }
-      if (formOutcomeId !== (ticket.outcomeId || '')) {
-        const outcomeName = (id: string) => id ? (outcomes.find(o => o.id === id)?.label || 'removido') : 'Não classificado';
-        changes.push({ label: 'Desfecho', from: outcomeName(ticket.outcomeId || ''), to: outcomeName(formOutcomeId) });
-      }
-      if (changes.length > 0) {
-        await InternalTicketService.logEvent(ticket.uuid, currentUser?.id, formatChangeMessage(changes));
-      }
-      // Edição de descrição é registrada, mas não vira mensagem no feed —
-      // só entra na aba Histórico ('system_log', filtrado do feed principal).
-      const descriptionChanged = formDescription !== ticket.description;
-      if (descriptionChanged) {
-        await InternalTicketService.logEvent(ticket.uuid, currentUser?.id, 'Descrição atualizada', 'system_log');
-      }
+      const updateBody = await updateRes.json().catch(() => null);
 
       setFormStatus(nextStatus);
       setFormAssignee(nextAssignee);
-      setTicket(prev => prev ? { ...prev, status: nextStatus as InternalTicketWithExtras['status'], assigneeId: nextAssignee, tags, teamId: formTeam, priority: formPriority, title: formTitle, slaLimit: slaIso, expectedPublishDate: expectedPublishIso, hotfixId: formHotfixId || null, effortId: formEffortId || null, outcomeId: formOutcomeId || null, description: formDescription } : prev);
-      if (changes.length > 0 || descriptionChanged) loadMessages();
+      setFormTitle(fTitle);
+      setFormDescription(fDescription);
+      setFormTeam(fTeam);
+      setFormPriority(fPriority);
+      setFormHotfixId(fHotfixId);
+      setFormExpectedPublish(fExpectedPublish);
+      setFormEffortId(fEffortId);
+      setFormOutcomeId(fOutcomeId);
+      setTicket(prev => prev ? { ...prev, status: nextStatus as InternalTicketWithExtras['status'], assigneeId: nextAssignee, tags, teamId: fTeam, priority: fPriority, title: fTitle, slaLimit: slaIso, expectedPublishDate: expectedPublishIso, hotfixId: fHotfixId || null, effortId: fEffortId || null, outcomeId: fOutcomeId || null, description: fDescription, subStatus: nextSubStatus, qaRejected: nextQaRejected, environmentRejected: nextEnvironmentRejected } : prev);
+      if (Array.isArray(updateBody?.messages)) setMessages(updateBody.messages);
+      else if (logEntries.length > 0) loadMessages();
       toast.success('Ticket atualizado');
-      triggerRefresh();
+      markChanged();
     } catch (error) {
       toast.error('Erro ao atualizar ticket');
+    }
+  };
+
+  // Sempre a versão mais nova de handleUpdateTicket, pros callbacks estáveis
+  // abaixo (o título e os editores são memoizados / guardam o callback da
+  // criação — com a função direta eles chamariam uma versão velha).
+  const handleUpdateTicketRef = React.useRef(handleUpdateTicket);
+  handleUpdateTicketRef.current = handleUpdateTicket;
+  const onTitleDraft = useCallback((v: string) => { titleDraftRef.current = v; }, []);
+  const onTitleCommit = useCallback((v: string) => {
+    titleDraftRef.current = v;
+    handleUpdateTicketRef.current({ title: v });
+  }, []);
+  const onDescriptionDraft = useCallback((html: string) => { descriptionDraftRef.current = html; }, []);
+  const onDescriptionCommit = useCallback(() => {
+    handleUpdateTicketRef.current({ description: descriptionDraftRef.current });
+  }, []);
+  const onNoteDraft = useCallback((html: string) => {
+    noteDraftRef.current = html;
+    const has = /<img\b/i.test(html) || html.replace(/<[^>]*>/g, '').replace(/&nbsp;/g, ' ').trim().length > 0;
+    setNoteHasText(prev => (prev === has ? prev : has));
+  }, []);
+  const onEditDraft = useCallback((html: string) => { editingTextRef.current = html; }, []);
+
+  // "Criar ticket": a action=save cria com os campos básicos (título, equipe,
+  // responsável, prioridade, marcadores, descrição); o resto (status,
+  // sub-status, hotfix, esforço, desfecho, publicação prevista, QA/ambiente)
+  // só é aceito pela action=update, então vai numa 2ª chamada — e só quando
+  // algum deles foi preenchido.
+  const handleCreateTicket = async () => {
+    if (!currentUser || isSubmittingCreate) return;
+    const createTitle = titleDraftRef.current.trim();
+    const createDescription = descriptionDraftRef.current;
+    if (!createTitle) {
+      toast.error('Preencha o título antes de criar.');
+      return;
+    }
+    setIsSubmittingCreate(true);
+    try {
+      const tags = formTags.split(',').map(t => t.trim()).filter(Boolean);
+      const internalTeam = (internalTeamsData || []).find((t: any) => t.name === formTeam) as any;
+      const saved = await InternalTicketService.saveWithDetails({
+        title: createTitle,
+        description: createDescription,
+        teamId: formTeam,
+        internalTeamId: internalTeam?.id,
+        priority: formPriority,
+        assigneeId: formAssignee || undefined,
+        creatorId: currentUser.id,
+        tags,
+      } as InternalTicket);
+
+      const extras: Record<string, any> = {};
+      if (formStatus && formStatus !== 'Novo') extras.status = formStatus;
+      if (formSubStatus) { extras.status = formStatus; extras.subStatus = formSubStatus; }
+      if (formHotfixId) extras.hotfixId = formHotfixId;
+      if (formEffortId) extras.effortId = formEffortId;
+      if (formOutcomeId) extras.outcomeId = formOutcomeId;
+      if (formExpectedPublish) extras.expectedPublishDate = new Date(`${formExpectedPublish}T00:00:00`).toISOString();
+      if (formQaRejected) extras.qaRejected = true;
+      if (formEnvironmentRejected) extras.environmentRejected = true;
+      if (Object.keys(extras).length > 0) {
+        const res = await fetch('/api/internal-tickets', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ action: 'update', id: saved.uuid, fields: extras })
+        });
+        if (!res.ok) {
+          const body = await res.json().catch(() => null);
+          toast.warning(`Ticket criado, mas alguns campos não foram gravados: ${body?.error || 'erro ao atualizar'}`);
+        }
+      }
+
+      toast.success(`Ticket interno ${String(saved.id || '').toUpperCase()} criado com sucesso!`, { description: createTitle });
+      markChanged();
+      if (onCreated) onCreated(saved.id);
+      else onClose();
+    } catch (error: any) {
+      console.error('Erro ao criar ticket interno:', error);
+      toast.error(error?.message || 'Erro ao criar o ticket interno.');
+    } finally {
+      setIsSubmittingCreate(false);
+    }
+  };
+
+  const startEditMessage = (m: Message) => {
+    setEditingMessageId(m.id);
+    setEditingText(m.text || '');
+    editingTextRef.current = m.text || '';
+  };
+
+  const handleSaveEdit = async () => {
+    if (!editingMessageId || isSavingEdit) return;
+    setIsSavingEdit(true);
+    try {
+      const res = await fetch('/api/internal-tickets', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ action: 'edit-message', messageId: editingMessageId, text: editingTextRef.current })
+      });
+      const body = await res.json().catch(() => null);
+      if (!res.ok) throw new Error(body?.error || 'Erro ao editar a nota.');
+      setMessages(prev => prev.map(m => (m.id === editingMessageId ? { ...m, text: body?.text ?? editingTextRef.current } : m)));
+      setEditingMessageId(null);
+      setEditingText('');
+      if (!body?.unchanged) toast.success('Nota editada');
+    } catch (error: any) {
+      toast.error(error?.message || 'Erro ao editar a nota.');
+    } finally {
+      setIsSavingEdit(false);
+    }
+  };
+
+  const handleDeleteMessage = async () => {
+    if (!messageToDelete || isDeletingMessage) return;
+    setIsDeletingMessage(true);
+    try {
+      const res = await fetch('/api/internal-tickets', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ action: 'delete-message', messageId: messageToDelete.id })
+      });
+      if (!res.ok) {
+        const body = await res.json().catch(() => null);
+        throw new Error(body?.error || 'Erro ao apagar a mensagem.');
+      }
+      setMessages(prev => prev.filter(m => m.id !== messageToDelete.id));
+      setMessageToDelete(null);
+      toast.success('Mensagem apagada');
+      markChanged();
+    } catch (error: any) {
+      toast.error(error?.message || 'Erro ao apagar a mensagem.');
+    } finally {
+      setIsDeletingMessage(false);
     }
   };
 
@@ -551,9 +859,30 @@ export function InternalTicketDetailModal({ ticketRef, onClose }: { ticketRef: s
   // Fecha igual ao chamado do cliente (ticket-detail-modal.tsx): backdrop,
   // Esc e X chamam o mesmo caminho — quem decide o que acontece (tirar o
   // ?internalTicket= da URL, deixando a tela de trás como estava) é o host.
+  // Atualização das listas por trás (Tickets Internos, Dashboard, Meus
+  // Chamados, outras abas): uma vez só, quando o ticket fecha — não a cada
+  // gravação/nota (2026-11-12, performance: cada triggerRefresh mandava a
+  // lista ao fundo baixar tudo de novo, várias vezes por edição). O cleanup
+  // cobre o caso de sair do ticket sem passar pelo fechar (link pra outra tela).
+  const changedRef = React.useRef(false);
+  const triggerRefreshRef = React.useRef(triggerRefresh);
+  triggerRefreshRef.current = triggerRefresh;
+  const markChanged = () => { changedRef.current = true; };
+  // Ao sair do ticket, marca de novo como lido: o que chegou ENQUANTO ele
+  // estava aberto (nota de outra pessoa) já foi visto — sem isto o contador
+  // do card voltava a acender ao fechar (2026-11-12).
+  const markReadRef = React.useRef(markInternalTicketNotificationsRead);
+  markReadRef.current = markInternalTicketNotificationsRead;
+  const openTicketUuidRef = React.useRef<string | null>(null);
+  openTicketUuidRef.current = ticket?.uuid || null;
+  useEffect(() => () => {
+    if (changedRef.current) { changedRef.current = false; triggerRefreshRef.current(); }
+    if (openTicketUuidRef.current) markReadRef.current(openTicketUuidRef.current).catch(() => {});
+  }, []);
   const handleRequestClose = useCallback(() => {
+    if (changedRef.current) { changedRef.current = false; triggerRefresh(); }
     onClose();
-  }, [onClose]);
+  }, [onClose, triggerRefresh]);
 
   useEffect(() => {
     const handleKeyDown = (event: KeyboardEvent) => {
@@ -565,11 +894,13 @@ export function InternalTicketDetailModal({ ticketRef, onClose }: { ticketRef: s
       if (showCreateHotfixModal) { setShowCreateHotfixModal(false); return; }
       if (showLinkTicketModal) { setShowLinkTicketModal(false); return; }
       if (copyPickerFor) { setCopyPickerFor(null); return; }
+      if (messageToDelete) { setMessageToDelete(null); return; }
+      if (editingMessageId) { setEditingMessageId(null); setEditingText(''); return; }
       handleRequestClose();
     };
     document.addEventListener('keydown', handleKeyDown);
     return () => document.removeEventListener('keydown', handleKeyDown);
-  }, [handleRequestClose, showCreateHotfixModal, showLinkTicketModal, copyPickerFor]);
+  }, [handleRequestClose, showCreateHotfixModal, showLinkTicketModal, copyPickerFor, messageToDelete, editingMessageId]);
 
   // Link direto pro ticket interno, mesmo padrão do "Copiar link" do chamado
   // do cliente (handleCopyTicketLink, ticket-detail-modal.tsx) — número
@@ -600,14 +931,14 @@ export function InternalTicketDetailModal({ ticketRef, onClose }: { ticketRef: s
         toast.error(result.error);
         return;
       }
-      await fetchHotfixList();
+      await queryClient.invalidateQueries({ queryKey: ['ref', 'hotfixes'] });
       // saveHotfix não devolve o id do novo registro — busca pelo nome+data
       // recém-criados na lista atualizada pra já deixar selecionado.
       const created = (await getHotfixes()).find(h => h.name === newHotfixName.trim() && h.expectedDate === newHotfixDate);
       if (created) {
         setFormHotfixId(created.id);
         setFormExpectedPublish(created.expectedDate);
-        setTimeout(() => handleUpdateTicket({}), 0);
+        handleUpdateTicket({ hotfixId: created.id, expectedPublish: created.expectedDate });
       }
       toast.success('Hotfix criado.');
       setShowCreateHotfixModal(false);
@@ -622,7 +953,7 @@ export function InternalTicketDetailModal({ ticketRef, onClose }: { ticketRef: s
 
   if (loading || !ticket) {
     return (
-      <div className="fixed inset-0 z-[160] flex items-center justify-center bg-slate-900/40 backdrop-blur-sm">
+      <div className="fixed inset-0 z-[160] flex items-center justify-center bg-slate-900/50">
         <Loader2 className="w-8 h-8 text-[var(--text-warning-strong)] animate-spin" />
       </div>
     );
@@ -642,7 +973,7 @@ export function InternalTicketDetailModal({ ticketRef, onClose }: { ticketRef: s
         animate={{ opacity: 1 }}
         exit={{ opacity: 0 }}
         onClick={handleRequestClose}
-        className="absolute inset-0 bg-slate-900/40 backdrop-blur-sm"
+        className="absolute inset-0 bg-slate-900/50"
       />
       <motion.div
         initial={{ x: '100%' }}
@@ -655,130 +986,147 @@ export function InternalTicketDetailModal({ ticketRef, onClose }: { ticketRef: s
           isFocused ? "w-full" : "w-full md:max-w-[90vw]"
         )}
       >
-      {/* Header superior — mesma estrutura do chamado do cliente
-          (ticket-detail-modal.tsx): linha 1 identidade+ações, linha 2
-          "Criado em", linha 3 status. Campos específicos de ticket interno
-          continuam os mesmos (Equipe em vez de Fila, etc.), só o CHROME
-          (classes, ordem, agrupamento) foi copiado, pedido do usuário
-          2026-09-30. */}
+      {/* Header superior — chrome derivado do chamado do cliente
+          (ticket-detail-modal.tsx, 2026-09-30), compactado em 2026-11-12. */}
       <div className="border-b border-[var(--border-default)] bg-[var(--surface-card)]/50">
-        <div className="px-8 pt-4 pb-2 flex items-center justify-between gap-6">
+        {/* Layout compacto (2026-11-12, pedido do usuário: "tudo muito grande").
+            Linha 1: identidade (número + criado em) à esquerda, ações à
+            direita. Linha 2: título à esquerda e status à direita, nas
+            extremidades — o título saiu da área rolável e o status deixou de
+            ocupar uma linha só pra ele, liberando altura pro conteúdo. */}
+        <div className="px-6 pt-3 pb-1 flex items-center justify-between gap-4">
           <div className="flex items-center gap-3 min-w-0 flex-1">
-            <span className="text-xs font-black text-[var(--text-danger)] bg-[var(--surface-danger)] px-2 py-0.5 rounded tracking-widest shrink-0">#{ticket.id}</span>
-            <span className="text-[var(--text-tertiary)] font-bold shrink-0">/</span>
-            <span className="text-sm font-bold text-[var(--text-primary)] truncate min-w-0">{ticket.title}</span>
+            <span className="text-[11px] font-black text-[var(--text-danger)] bg-[var(--surface-danger)] px-2 py-0.5 rounded tracking-widest shrink-0">{isCreating ? 'NOVO TICKET INTERNO' : <>#{ticket.id}</>}</span>
+            <span className="text-[10px] font-medium text-[var(--text-tertiary)] truncate min-w-0">
+              {isCreating ? (
+                <>Preencha os dados e clique em <strong>Criar ticket</strong>. Nada é gravado antes disso.</>
+              ) : (
+                <>Criado em <ClientTime date={ticket.createdAt} showDate showTime />{ticket.creatorName && <> · por {ticket.creatorName}</>}</>
+              )}
+            </span>
           </div>
-          <div className="flex items-center gap-3 shrink-0">
-            <div className="flex items-center gap-2 pr-3 border-r border-[var(--border-default)]">
+          <div className="flex items-center gap-2 shrink-0">
+            {isCreating ? (
+            <div className="flex items-center gap-2 pr-2 border-r border-[var(--border-default)]">
+              <button
+                onClick={handleCreateTicket}
+                disabled={isSubmittingCreate}
+                className="flex items-center gap-1.5 px-3 py-1.5 bg-[var(--text-warning-strong)] hover:bg-[var(--accent-warning-hover)] text-white rounded-lg text-[11px] font-black uppercase tracking-widest shadow-sm transition-all disabled:opacity-60"
+              >
+                {isSubmittingCreate && <Loader2 size={13} className="animate-spin" />}
+                Criar ticket
+              </button>
+            </div>
+            ) : (
+            <div className="flex items-center gap-2 pr-2 border-r border-[var(--border-default)]">
               {!formAssignee && (
                 <button
                   onClick={() => { if (currentUser) { setFormAssignee(currentUser.id); handleUpdateTicket({ assigneeId: currentUser.id }); } }}
-                  className="px-4 py-2 bg-[var(--text-warning-strong)] hover:bg-[var(--accent-warning-hover)] text-white rounded-xl text-xs font-black uppercase tracking-widest shadow-lg transition-all"
+                  className="px-3 py-1.5 bg-[var(--text-warning-strong)] hover:bg-[var(--accent-warning-hover)] text-white rounded-lg text-[11px] font-black uppercase tracking-widest shadow-sm transition-all"
                 >
                   Assumir
                 </button>
               )}
               <button
                 onClick={() => { setFormStatus('Concluído'); handleUpdateTicket({ status: 'Concluído' }); }}
-                className="px-4 py-2 bg-[var(--text-success)] hover:bg-emerald-700 text-white rounded-xl text-xs font-black uppercase tracking-widest shadow-lg transition-all"
+                className="px-3 py-1.5 bg-[var(--text-success)] hover:bg-emerald-700 text-white rounded-lg text-[11px] font-black uppercase tracking-widest shadow-sm transition-all"
               >
                 Finalizar
               </button>
               <button
                 onClick={() => handleUpdateTicket()}
-                className="flex items-center gap-2 px-4 py-2 bg-[var(--text-warning-strong)] hover:bg-[var(--accent-warning-hover)] text-white rounded-xl text-xs font-black uppercase tracking-widest shadow-lg transition-all"
+                className="flex items-center gap-2 px-3 py-1.5 bg-[var(--text-warning-strong)] hover:bg-[var(--accent-warning-hover)] text-white rounded-lg text-[11px] font-black uppercase tracking-widest shadow-sm transition-all"
               >
                 Salvar
               </button>
             </div>
-            <div className="flex items-center gap-1">
+            )}
+            <div className="flex items-center">
               <button
+                hidden={isCreating}
                 onClick={handleCopyTicketLink}
                 title="Copiar link do ticket interno"
-                className="p-2 hover:bg-[var(--border-default)] rounded-xl transition-all text-[var(--text-tertiary)]"
+                className="p-1.5 hover:bg-[var(--border-default)] rounded-lg transition-all text-[var(--text-tertiary)]"
               >
-                <Link2 size={18} />
+                <Link2 size={16} />
               </button>
-              <button onClick={() => setIsFocused(!isFocused)} className="p-2 hover:bg-[var(--border-default)] rounded-xl transition-all text-[var(--text-tertiary)]">
-                {isFocused ? <Minimize2 size={18} /> : <Maximize2 size={18} />}
+              <button onClick={() => setIsFocused(!isFocused)} title={isFocused ? 'Reduzir' : 'Tela cheia'} className="p-1.5 hover:bg-[var(--border-default)] rounded-lg transition-all text-[var(--text-tertiary)]">
+                {isFocused ? <Minimize2 size={16} /> : <Maximize2 size={16} />}
               </button>
-              <button onClick={handleRequestClose} title="Fechar (Esc)" className="p-2 hover:bg-[var(--surface-danger)] rounded-xl transition-all text-[var(--text-tertiary)] hover:text-[var(--text-danger)]">
-                <X size={18} />
+              <button onClick={handleRequestClose} title="Fechar (Esc)" className="p-1.5 hover:bg-[var(--surface-danger)] rounded-lg transition-all text-[var(--text-tertiary)] hover:text-[var(--text-danger)]">
+                <X size={16} />
               </button>
             </div>
           </div>
         </div>
 
-        {/* Linha de criação — igual ao chamado do cliente (data + quem abriu) */}
-        <div className="px-8 pb-2 -mt-1">
-          <span className="text-[10px] font-medium text-[var(--text-tertiary)]">
-            Criado em <ClientTime date={ticket.createdAt} showDate showTime />
-            {ticket.creatorName && <> · por {ticket.creatorName}</>}
-          </span>
-        </div>
+        {/* Os status terminam exatamente onde começa o painel de histórico:
+            à direita fica um espaço da mesma largura do painel (md:w-[340px]
+            xl:w-[400px], as MESMAS classes do painel lá embaixo — mudar uma
+            exige mudar a outra). Sem o painel (criação), não há espaço. */}
+        <div className="flex">
+        <div className="flex-1 min-w-0 px-6 pb-3 flex items-center justify-between gap-x-6 gap-y-2 flex-wrap">
+          <TitleField
+            value={formTitle}
+            autoFocus={isCreating && !formTitle}
+            placeholder={isCreating ? 'Título do ticket interno' : 'Título'}
+            onDraft={onTitleDraft}
+            onCommit={onTitleCommit}
+          />
+          <div className="flex flex-col items-end gap-1.5 shrink-0 max-w-full">
+            {statuses.length > 0 ? (
+              <div className="inline-flex flex-wrap justify-end bg-[var(--surface-pill)] p-0.5 rounded-lg max-w-full">
+                {statuses.map((status) => (
+                  <button
+                    key={status.value}
+                    onClick={() => { setFormStatus(status.value); setFormSubStatus(null); handleUpdateTicket({ status: status.value, subStatus: null }); }}
+                    className={cn(
+                      "px-2.5 py-1 text-[10px] font-semibold uppercase rounded-md transition-all whitespace-nowrap",
+                      formStatus === status.value ? "bg-[var(--surface-card)] text-[var(--text-warning)] shadow-sm" : "text-[var(--text-tertiary)] hover:bg-[var(--border-default)]/50"
+                    )}
+                  >
+                    {status.label}
+                  </button>
+                ))}
+              </div>
+            ) : (
+              <div className="inline-flex items-center gap-1.5 px-2 py-1.5 rounded-lg bg-[var(--surface-pill)] animate-pulse">
+                <div className="w-9 h-3 rounded bg-[var(--border-default)]" />
+                <div className="w-9 h-3 rounded bg-[var(--border-default)]" />
+                <div className="w-9 h-3 rounded bg-[var(--border-default)]" />
+              </div>
+            )}
 
-        {/* Status — mesmo agrupamento em pill do chamado do cliente */}
-        <div className="px-8 pb-3">
-          {statuses.length > 0 ? (
-            <div className="inline-flex bg-[var(--surface-pill)] p-0.5 rounded-lg">
-              {statuses.map((status) => (
-                <button
-                  key={status.value}
-                  onClick={() => { setFormStatus(status.value); setFormSubStatus(null); handleUpdateTicket({ status: status.value, subStatus: null }); }}
-                  className={cn(
-                    "px-3 py-1 text-[10px] font-semibold uppercase rounded-md transition-all whitespace-nowrap",
-                    formStatus === status.value ? "bg-[var(--surface-card)] text-[var(--text-warning)] shadow-sm" : "text-[var(--text-tertiary)] hover:bg-[var(--border-default)]/50"
-                  )}
-                >
-                  {status.label}
-                </button>
-              ))}
-            </div>
-          ) : (
-            <div className="inline-flex items-center gap-1.5 px-2 py-1.5 rounded-lg bg-[var(--surface-pill)] animate-pulse">
-              <div className="w-9 h-3 rounded bg-[var(--border-default)]" />
-              <div className="w-9 h-3 rounded bg-[var(--border-default)]" />
-              <div className="w-9 h-3 rounded bg-[var(--border-default)]" />
-            </div>
-          )}
-        </div>
-
-        {/* Sub-status do status escolhido (ex.: Resolvido > Aguardando Publicação) */}
-        {(subStatusMap[formStatus] ?? []).length > 0 && (
-          <div className="px-8 pb-3 flex flex-wrap items-center gap-1.5">
-            <span className="text-[10px] font-bold uppercase tracking-widest text-[var(--text-tertiary)] mr-1">{formStatus} &gt;</span>
-            {(subStatusMap[formStatus] ?? []).map(sub => (
-              <button
-                key={sub}
-                type="button"
-                onClick={() => { setFormSubStatus(sub); handleUpdateTicket({ status: formStatus, subStatus: sub }); }}
-                className={cn(
-                  "px-2.5 py-1 text-[10px] font-semibold rounded-md transition-all",
-                  formSubStatus === sub ? "bg-[var(--accent)] text-white" : "bg-[var(--surface-pill)] text-[var(--text-secondary)] hover:bg-[var(--border-default)]/50"
-                )}
-              >
-                {sub}
-              </button>
-            ))}
+            {/* Sub-status do status escolhido (ex.: Resolvido > Aguardando Publicação) */}
+            {(subStatusMap[formStatus] ?? []).length > 0 && (
+              <div className="flex flex-wrap items-center justify-end gap-1">
+                <span className="text-[9px] font-bold uppercase tracking-widest text-[var(--text-tertiary)] mr-0.5">{formStatus} &gt;</span>
+                {(subStatusMap[formStatus] ?? []).map(sub => (
+                  <button
+                    key={sub}
+                    type="button"
+                    onClick={() => { setFormSubStatus(sub); handleUpdateTicket({ status: formStatus, subStatus: sub }); }}
+                    className={cn(
+                      "px-2 py-0.5 text-[10px] font-semibold rounded-md transition-all",
+                      formSubStatus === sub ? "bg-[var(--accent)] text-white" : "bg-[var(--surface-pill)] text-[var(--text-secondary)] hover:bg-[var(--border-default)]/50"
+                    )}
+                  >
+                    {sub}
+                  </button>
+                ))}
+              </div>
+            )}
           </div>
-        )}
-
+        </div>
+        <div aria-hidden className={cn("hidden md:block md:w-[340px] xl:w-[400px] shrink-0", isCreating && "md:hidden")} />
+        </div>
       </div>
 
       {/* Área principal */}
       <div className="flex-1 flex overflow-hidden">
         {/* Conteúdo principal */}
-        <div className="flex-1 min-w-0 bg-[var(--surface-card)] overflow-y-auto">
-          <div className="px-8 py-8 space-y-6">
-            {/* Título grande, igual ao chamado do cliente */}
-            <input
-              value={formTitle}
-              onChange={(e) => setFormTitle(e.target.value)}
-              onBlur={() => handleUpdateTicket()}
-              onKeyDown={(e) => { if (e.key === 'Enter') (e.target as HTMLInputElement).blur(); }}
-              className="w-full text-3xl font-black text-[var(--text-primary)] tracking-tight leading-tight bg-transparent border border-transparent rounded-lg -mx-2 px-2 hover:border-[var(--border-default)] focus:border-[var(--accent)] focus:outline-none transition-colors"
-            />
-
+        <div className="flex-1 min-w-0 bg-[var(--surface-card)] overflow-y-auto flex flex-col">
+          <div className="px-6 pt-4 pb-6 space-y-4 flex-1 flex flex-col">
             {/* Controle de entrega, logo abaixo do titulo. Prazo e entrega sao automaticos;
                 Reprovacao de QA e Ambiente reprovado sao marcacoes manuais, sem pontuacao. */}
             {(() => {
@@ -799,9 +1147,9 @@ export function InternalTicketDetailModal({ ticketRef, onClose }: { ticketRef: s
               }
               const fmt = (d: Date) => d.toLocaleString('pt-BR', { timeZone: 'America/Sao_Paulo', day: '2-digit', month: '2-digit', year: 'numeric', hour: '2-digit', minute: '2-digit', hour12: false });
               return (
-                <div className="rounded-xl border border-[var(--border-default)] bg-[var(--surface-pill)]/40 p-4 space-y-3">
+                <div className="rounded-xl border border-[var(--border-default)] bg-[var(--surface-pill)]/40 px-4 py-3 space-y-2">
                   <p className="text-[10px] font-black uppercase tracking-widest text-[var(--text-tertiary)]">Controle de entrega</p>
-                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-x-12 gap-y-3 text-xs">
+                  <div className="grid grid-cols-1 xl:grid-cols-2 gap-x-8 gap-y-3 text-xs">
                     <div className="flex items-start gap-3">
                       <span className="text-[11px] font-semibold uppercase text-[var(--text-tertiary)] w-40 shrink-0 pt-0.5">Prazo do desenvolvimento</span>
                       <div className="flex flex-col gap-0.5 min-w-0">
@@ -878,11 +1226,11 @@ export function InternalTicketDetailModal({ ticketRef, onClose }: { ticketRef: s
                 campos PRÓPRIOS de ticket interno no lugar dos de chamado
                 (Equipe em vez de Fila, Hotfix/Esforço/Desfecho em vez de
                 Categoria/Tipo/Produto, sem Cliente/Contato/Colaboradores). */}
-            <div className="grid grid-cols-1 sm:grid-cols-2 gap-x-12 gap-y-4">
-              <div className="space-y-3">
+            <div className="grid grid-cols-1 xl:grid-cols-2 gap-x-8 gap-y-2.5">
+              <div className="space-y-2">
                 <div className="flex items-start gap-4">
                   <span className="text-[11px] font-semibold uppercase text-[var(--text-tertiary)] w-24 pt-0.5">Equipe</span>
-                  <StyledSelect value={formTeam} onChange={(e) => { setFormTeam(e.target.value); setTimeout(() => handleUpdateTicket(), 0); }} className="flex-1 bg-transparent border-none outline-none text-sm font-bold text-[var(--text-primary)] cursor-pointer hover:underline">
+                  <StyledSelect value={formTeam} onChange={(e) => { const v = e.target.value; setFormTeam(v); handleUpdateTicket({ teamId: v }); }} className="flex-1 bg-transparent border-none outline-none text-sm font-bold text-[var(--text-primary)] cursor-pointer hover:underline">
                     {teamOptions.map(t => <option key={t.value} value={t.value}>{t.label}</option>)}
                   </StyledSelect>
                 </div>
@@ -912,7 +1260,7 @@ export function InternalTicketDetailModal({ ticketRef, onClose }: { ticketRef: s
                         setFormHotfixId(nextHotfixId);
                         const selected = hotfixes.find(h => h.id === nextHotfixId);
                         if (selected) setFormExpectedPublish(selected.expectedDate);
-                        setTimeout(() => handleUpdateTicket(), 0);
+                        handleUpdateTicket({ hotfixId: nextHotfixId, ...(selected ? { expectedPublish: selected.expectedDate } : {}) });
                       }}
                       className="w-full bg-transparent border-none outline-none text-sm font-bold text-[var(--text-primary)] cursor-pointer hover:underline"
                     >
@@ -966,7 +1314,7 @@ export function InternalTicketDetailModal({ ticketRef, onClose }: { ticketRef: s
                   />
                 </div>
               </div>
-              <div className="space-y-3">
+              <div className="space-y-2">
                 {/* Classificação da solução. Fica visível o tempo todo (e não
                     só ao concluir) porque quem está resolvendo às vezes já
                     sabe o desfecho no meio do caminho; o selo "falta" só
@@ -982,7 +1330,7 @@ export function InternalTicketDetailModal({ ticketRef, onClose }: { ticketRef: s
                   </span>
                   <StyledSelect
                     value={formEffortId}
-                    onChange={(e) => { setFormEffortId(e.target.value); setTimeout(() => handleUpdateTicket(), 0); }}
+                    onChange={(e) => { const v = e.target.value; setFormEffortId(v); handleUpdateTicket({ effortId: v }); }}
                     className="flex-1 bg-transparent border-none outline-none text-sm font-bold text-[var(--text-primary)] cursor-pointer hover:underline"
                   >
                     <option value="">Não classificado</option>
@@ -1003,7 +1351,7 @@ export function InternalTicketDetailModal({ ticketRef, onClose }: { ticketRef: s
                   </span>
                   <StyledSelect
                     value={formOutcomeId}
-                    onChange={(e) => { setFormOutcomeId(e.target.value); setTimeout(() => handleUpdateTicket(), 0); }}
+                    onChange={(e) => { const v = e.target.value; setFormOutcomeId(v); handleUpdateTicket({ outcomeId: v }); }}
                     className="flex-1 bg-transparent border-none outline-none text-sm font-bold text-[var(--text-primary)] cursor-pointer hover:underline"
                   >
                     <option value="">Não classificado</option>
@@ -1018,7 +1366,7 @@ export function InternalTicketDetailModal({ ticketRef, onClose }: { ticketRef: s
                 <div className="flex items-start gap-4">
                   <span className="text-[11px] font-semibold uppercase text-[var(--text-tertiary)] w-24 pt-0.5">Prioridade</span>
                   <div className="flex items-center gap-1">{[1, 2, 3, 4].map(star => (
-                    <button key={star} onClick={() => { setFormPriority(star); setTimeout(() => handleUpdateTicket(), 0); }}>
+                    <button key={star} onClick={() => { setFormPriority(star); handleUpdateTicket({ priority: star }); }}>
                       <Star size={16} className={cn(star <= formPriority ? "fill-amber-400 text-[var(--text-warning)]" : "text-slate-300")} />
                     </button>
                   ))}</div>
@@ -1040,36 +1388,39 @@ export function InternalTicketDetailModal({ ticketRef, onClose }: { ticketRef: s
 
             {/* Abas — mesmo padrão visual do chamado do cliente (underline,
                 Histórico só com ícone, Anexos com badge de ponto). */}
-            <div className="mt-12 border-t border-[var(--border-default)]">
+            <div className="mt-2 border-t border-[var(--border-default)] flex-1 flex flex-col">
               <div className="flex border-b border-[var(--border-default)]">
                 <button
                   onClick={() => setActiveTab('description')}
                   className={cn(
-                    "px-6 py-3 text-[11px] font-semibold uppercase tracking-widest border-b-2 transition-all",
+                    "px-4 py-2 text-[11px] font-semibold uppercase tracking-widest border-b-2 transition-all",
                     activeTab === 'description' ? "border-[var(--text-warning-strong)] text-[var(--text-warning)]" : "border-transparent text-[var(--text-tertiary)] hover:text-[var(--text-secondary)]"
                   )}
                 >
                   Descrição
                 </button>
                 <button
+                  hidden={isCreating}
                   onClick={() => setActiveTab('linked')}
                   className={cn(
-                    "px-6 py-3 text-[11px] font-semibold uppercase tracking-widest border-b-2 transition-all flex items-center gap-2",
+                    "px-4 py-2 text-[11px] font-semibold uppercase tracking-widest border-b-2 transition-all flex items-center gap-2",
                     activeTab === 'linked' ? "border-[var(--text-warning-strong)] text-[var(--text-warning)]" : "border-transparent text-[var(--text-tertiary)] hover:text-[var(--text-secondary)]"
                   )}
                 >
                   <Link2 size={12} /> Chamados Vinculados {linkedTickets.length > 0 && `(${linkedTickets.length})`}
                 </button>
                 <button
+                  hidden={isCreating}
                   onClick={() => setActiveTab('attachments')}
                   className={cn(
-                    "px-6 py-3 text-[11px] font-semibold uppercase tracking-widest border-b-2 transition-all flex items-center gap-2",
+                    "px-4 py-2 text-[11px] font-semibold uppercase tracking-widest border-b-2 transition-all flex items-center gap-2",
                     activeTab === 'attachments' ? "border-[var(--text-warning-strong)] text-[var(--text-warning)]" : "border-transparent text-[var(--text-tertiary)] hover:text-[var(--text-secondary)]"
                   )}
                 >
                   <Paperclip size={12} /> {messages.some(m => (m.attachments || []).length > 0) && <span className="w-1.5 h-1.5 rounded-full bg-[var(--text-warning-strong)] animate-pulse" />} Anexos
                 </button>
                 <button
+                  hidden={isCreating}
                   onClick={() => setActiveTab('history')}
                   className={cn(
                     "relative px-4 py-3 border-b-2 transition-all flex items-center justify-center",
@@ -1081,15 +1432,15 @@ export function InternalTicketDetailModal({ ticketRef, onClose }: { ticketRef: s
                 </button>
               </div>
 
-              <div className="py-8">
+              <div className="pt-4 flex-1 flex flex-col">
             {activeTab === 'description' && (
-              <div onBlur={() => handleUpdateTicket()}>
-                <h2 className="text-xs font-semibold text-[var(--text-tertiary)] uppercase mb-4">DESCRIÇÃO DO CHAMADO</h2>
-                <RichEditor content={formDescription} onChange={setFormDescription} minHeight="320px" placeholder="Detalhes técnicos, passos pra reproduzir, notas do desenvolvedor..." />
+              <div onBlur={onDescriptionCommit} className="flex-1 flex flex-col">
+                <h2 className="text-xs font-semibold text-[var(--text-tertiary)] uppercase mb-2">Descrição</h2>
+                <RichEditor fill toolbar="basic" content={formDescription} onChange={onDescriptionDraft} minHeight="200px" placeholder="Detalhes técnicos, passos pra reproduzir, notas do desenvolvedor..." />
               </div>
             )}
             {activeTab === 'linked' && (
-              <div className="min-h-96">
+              <div className="min-h-48">
                 <div className="flex items-center justify-between mb-4">
                   <h2 className="text-xs font-semibold text-[var(--text-tertiary)] uppercase">CHAMADOS QUE ESTE TICKET INTERNO ATENDE</h2>
                   <button
@@ -1100,7 +1451,7 @@ export function InternalTicketDetailModal({ ticketRef, onClose }: { ticketRef: s
                   </button>
                 </div>
                 {linkedTickets.length === 0 ? (
-                  <div className="text-center py-12">
+                  <div className="text-center py-8">
                     <Link2 size={32} className="mx-auto text-slate-300 mb-2" />
                     <p className="text-xs text-[var(--text-tertiary)]">Nenhum chamado vinculado — este ticket interno é independente.</p>
                   </div>
@@ -1122,11 +1473,11 @@ export function InternalTicketDetailModal({ ticketRef, onClose }: { ticketRef: s
               </div>
             )}
             {activeTab === 'attachments' && (
-              <div className="min-h-96">
+              <div className="min-h-48">
                 {(() => {
                   const allAttachments = messages.flatMap(m => m.attachments || []);
                   return allAttachments.length === 0 ? (
-                    <div className="text-center py-12">
+                    <div className="text-center py-8">
                       <Paperclip size={32} className="mx-auto text-slate-300 mb-2" />
                       <p className="text-xs text-[var(--text-tertiary)]">Nenhum anexo</p>
                     </div>
@@ -1145,27 +1496,40 @@ export function InternalTicketDetailModal({ ticketRef, onClose }: { ticketRef: s
               </div>
             )}
             {activeTab === 'history' && (
-              <div className="min-h-96">
+              <div className="min-h-48">
                 {(() => {
                   const changeLog = messages.filter(m => m.type === 'system' || m.type === 'system_log');
                   return changeLog.length === 0 ? (
-                    <div className="text-center py-12">
+                    <div className="text-center py-8">
                       <History size={32} className="mx-auto text-slate-300 mb-2" />
                       <p className="text-xs text-[var(--text-tertiary)]">Nenhuma alteração registrada</p>
                     </div>
                   ) : (
                     <div className="space-y-3 max-h-[32rem] overflow-y-auto pr-1">
                       {[...changeLog].reverse().map((entry) => {
-                        const author = analysts.find(a => a.id === entry.senderId)?.name || 'Sistema';
+                        const author = analystsById.get(entry.senderId || '')?.name || 'Sistema';
                         return (
-                          <div key={entry.id} className="flex gap-3 p-3 rounded-xl border border-dashed border-[var(--border-default)] bg-[var(--surface-pill)]/50">
+                          <div key={entry.id} className="group flex gap-3 p-3 rounded-xl border border-dashed border-[var(--border-default)] bg-[var(--surface-pill)]/50">
                             <div className="w-8 h-8 rounded-full bg-[var(--surface-card)] flex items-center justify-center shrink-0">
                               <History size={14} className="text-[var(--text-tertiary)]" />
                             </div>
                             <div className="flex-1 min-w-0">
                               <div className="flex items-center justify-between gap-4 mb-1">
                                 <span className="text-xs font-bold text-[var(--text-primary)] truncate">{author}</span>
-                                <span className="text-[10px] font-medium text-[var(--text-tertiary)] shrink-0"><ClientTime date={entry.timestamp} showDate={true} /></span>
+                                <span className="flex items-center gap-1 shrink-0">
+                                  <span className="text-[10px] font-medium text-[var(--text-tertiary)]"><ClientTime date={entry.timestamp} showDate={true} /></span>
+                                  {canManageMessages && (
+                                    <button
+                                      type="button"
+                                      onClick={() => setMessageToDelete(entry)}
+                                      title="Apagar registro"
+                                      aria-label="Apagar registro"
+                                      className="opacity-0 group-hover:opacity-100 focus:opacity-100 transition-opacity p-1 rounded text-[var(--text-tertiary)] hover:text-[var(--text-danger)] hover:bg-[var(--surface-danger)]"
+                                    >
+                                      <Trash2 size={12} />
+                                    </button>
+                                  )}
+                                </span>
                               </div>
                               <p className="text-xs text-[var(--text-secondary)] leading-relaxed whitespace-pre-wrap">{entry.text}</p>
                             </div>
@@ -1183,16 +1547,16 @@ export function InternalTicketDetailModal({ ticketRef, onClose }: { ticketRef: s
         </div>
 
         {/* Painel lateral direito — histórico único (comentários + eventos de sistema) —
-            mesma largura fixa (450px) e padding (p-6) do painel direito do chamado do
+            largura 450px/padding p-6 só em tela grande (2026-11-12: em resolução menor encolhe pra 320-380px e p-3 — pedido do usuário, "tudo muito grande"). Antes era igual ao painel direito do chamado do
             cliente (ticket-detail-modal.tsx), que antes disputava espaço via flex-[1]
             contra o flex-[0.73] do conteúdo principal e acabava bem mais largo. */}
-        <div className="w-full md:w-[450px] border-l border-[var(--border-default)] flex flex-col h-full shrink-0">
+        <div hidden={isCreating} className="w-full md:w-[340px] xl:w-[400px] border-l border-[var(--border-default)] flex flex-col h-full shrink-0">
           <div className="px-4 py-3 border-b border-[var(--border-default)] flex items-center">
-            <span className="text-xs font-bold uppercase text-[var(--text-warning)] border-b-2 border-[var(--text-warning-strong)] flex items-center gap-1">
+            <span className="text-xs font-bold uppercase text-[var(--text-warning)] flex items-center gap-1">
               <Clock size={14} /> HISTÓRICO
             </span>
           </div>
-          <div className="flex-1 overflow-y-auto p-6">
+          <div className="flex-1 overflow-y-auto p-4">
             {(() => {
               // Edição de descrição ('system_log') não aparece aqui — só na
               // aba Histórico, junto com o resto.
@@ -1210,7 +1574,7 @@ export function InternalTicketDetailModal({ ticketRef, onClose }: { ticketRef: s
               <div className="space-y-3">
                 {visibleMessages.map((msg) => {
                   const isSystem = msg.type === 'system';
-                  const sender = analysts.find(a => a.id === msg.senderId);
+                  const sender = analystsById.get(msg.senderId || '');
                   return (
                     <div key={msg.id} className={cn(
                       "group rounded-lg p-3 border",
@@ -1221,21 +1585,69 @@ export function InternalTicketDetailModal({ ticketRef, onClose }: { ticketRef: s
                         <span className="text-[10px] font-bold text-[var(--text-warning)]">
                           <ClientTime date={msg.timestamp} showDate={true} />
                         </span>
-                        {!isSystem && (
-                          <button
-                            type="button"
-                            onClick={() => handleCopyMessageToTicket(msg)}
-                            title="Copiar para Chamado"
-                            className="ml-auto opacity-0 group-hover:opacity-100 transition-opacity p-1 rounded text-[var(--text-tertiary)] hover:text-[var(--accent-text)] hover:bg-[var(--surface-pill)] shrink-0"
-                          >
-                            <Copy size={12} />
-                          </button>
-                        )}
+                        <div className="ml-auto flex items-center gap-0.5 shrink-0">
+                          {!isSystem && (
+                            <button
+                              type="button"
+                              onClick={() => handleCopyMessageToTicket(msg)}
+                              title="Copiar para Chamado"
+                              className="opacity-0 group-hover:opacity-100 focus:opacity-100 transition-opacity p-1 rounded text-[var(--text-tertiary)] hover:text-[var(--accent-text)] hover:bg-[var(--surface-pill)]"
+                            >
+                              <Copy size={12} />
+                            </button>
+                          )}
+                          {canEditMessage(msg) && editingMessageId !== msg.id && (
+                            <button
+                              type="button"
+                              onClick={() => startEditMessage(msg)}
+                              title="Editar nota"
+                              aria-label="Editar nota"
+                              className="opacity-0 group-hover:opacity-100 focus:opacity-100 transition-opacity p-1 rounded text-[var(--text-tertiary)] hover:text-[var(--text-warning)] hover:bg-[var(--surface-pill)]"
+                            >
+                              <Pencil size={12} />
+                            </button>
+                          )}
+                          {canManageMessages && (
+                            <button
+                              type="button"
+                              onClick={() => setMessageToDelete(msg)}
+                              title="Apagar mensagem"
+                              aria-label="Apagar mensagem"
+                              className="opacity-0 group-hover:opacity-100 focus:opacity-100 transition-opacity p-1 rounded text-[var(--text-tertiary)] hover:text-[var(--text-danger)] hover:bg-[var(--surface-danger)]"
+                            >
+                              <Trash2 size={12} />
+                            </button>
+                          )}
+                        </div>
                       </div>
+                      {editingMessageId === msg.id ? (
+                        <div className="space-y-2">
+                          <RichEditor toolbar="basic" content={editingText} onChange={onEditDraft} minHeight="80px" maxHeight="35vh" />
+                          <div className="flex justify-end gap-2">
+                            <button
+                              type="button"
+                              onClick={() => { setEditingMessageId(null); setEditingText(''); }}
+                              disabled={isSavingEdit}
+                              className="px-3 py-1 rounded-lg text-xs font-bold border border-[var(--border-default)] text-[var(--text-secondary)] hover:bg-[var(--surface-pill)] disabled:opacity-50"
+                            >
+                              Cancelar
+                            </button>
+                            <button
+                              type="button"
+                              onClick={handleSaveEdit}
+                              disabled={isSavingEdit}
+                              className="px-3 py-1 rounded-lg text-xs font-bold bg-[var(--accent-warning-hover)] text-white hover:opacity-90 disabled:opacity-50 flex items-center gap-1"
+                            >
+                              {isSavingEdit && <Loader2 size={12} className="animate-spin" />} Salvar
+                            </button>
+                          </div>
+                        </div>
+                      ) : (
                       <p
                         className={cn("text-sm whitespace-pre-wrap", isSystem ? "text-[var(--text-tertiary)]" : "text-[var(--text-secondary)]")}
                         dangerouslySetInnerHTML={{ __html: msg.text }}
                       />
+                      )}
                     </div>
                   );
                 })}
@@ -1244,14 +1656,14 @@ export function InternalTicketDetailModal({ ticketRef, onClose }: { ticketRef: s
             })()}
           </div>
           <div className="p-4 border-t border-[var(--border-default)]">
-            <RichEditor content={input} onChange={setInput} placeholder="Digite sua nota interna..." minHeight="80px" maxHeight="35vh" />
+            <RichEditor key={composerKey} toolbar="basic" content="" onChange={onNoteDraft} placeholder="Digite sua nota interna..." minHeight="80px" maxHeight="35vh" />
             <div className="flex justify-between items-center mt-3">
               <button onClick={() => fileInputRef.current?.click()} disabled={isUploading} className="px-3 py-1 rounded-lg text-xs font-bold border border-[var(--border-default)] text-[var(--text-secondary)] hover:bg-[var(--surface-card)] flex items-center gap-1 disabled:opacity-50">
                 {isUploading ? <Loader2 size={14} className="animate-spin" /> : <Paperclip size={14} />} {isUploading ? 'ENVIANDO...' : 'ANEXAR'}
               </button>
               <input ref={fileInputRef} type="file" multiple onChange={handleFileSelect} className="hidden" />
-              <button onClick={handleSendMessage} disabled={(!input.trim() && previewAttachments.length === 0) || isUploading}
-                className="px-4 py-1.5 rounded-lg text-xs font-bold bg-[var(--accent-warning-hover)] text-white hover:opacity-90 disabled:opacity-50 flex items-center gap-1">
+              <button onClick={handleSendMessage} disabled={(!noteHasText && previewAttachments.length === 0) || isUploading}
+                className="px-4 py-1.5 rounded-lg text-xs font-bold bg-[var(--accent-warning-hover)] text-white hover:opacity-90 disabled:bg-[var(--surface-pill)] disabled:text-[var(--text-tertiary)] disabled:cursor-not-allowed disabled:hover:opacity-100 flex items-center gap-1">
                 <Send size={14} /> ENVIAR
               </button>
             </div>
@@ -1348,6 +1760,16 @@ export function InternalTicketDetailModal({ ticketRef, onClose }: { ticketRef: s
       )}
 
       {/* Picker: escolher entre os chamados já vinculados ao copiar uma nota */}
+      <ConfirmDialog
+        isOpen={!!messageToDelete}
+        onClose={() => { if (!isDeletingMessage) setMessageToDelete(null); }}
+        onConfirm={handleDeleteMessage}
+        title="Apagar mensagem?"
+        description="A mensagem some do histórico deste ticket para todo mundo e não pode ser recuperada pela tela. O conteúdo fica guardado no Log de Alterações."
+        confirmLabel="Apagar"
+        variant="danger"
+      />
+
       {copyPickerFor && (
         <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-[200] p-4" onClick={() => setCopyPickerFor(null)}>
           <div className="bg-[var(--surface-card)] rounded-2xl p-6 max-w-lg w-full max-h-[80vh] flex flex-col" onClick={(e) => e.stopPropagation()}>

@@ -62,7 +62,15 @@ interface RichEditorProps {
   // correspondentes nem entram no editor nesse modo — não é só esconder o
   // botão da barra, o atalho de teclado e o autoformat (ex.: "# " virar
   // título) também ficam desligados.
-  toolbar?: 'full' | 'simple';
+  //
+  // 'basic' (2026-11-12, pedido do usuário — descrição de chamado e ticket
+  // interno, e notas do ticket interno): mesmos recursos de texto do
+  // 'simple' (só negrito e itálico; sem título, lista, citação, código, link,
+  // vídeo), MAS mantém o node de imagem. Descrição tem print colado no meio
+  // do texto, e sem o node o Tiptap descartaria essas imagens ao abrir pra
+  // editar — elas sumiriam ao salvar. Colar/arrastar imagem continua subindo
+  // como arquivo e entrando no texto, igual ao 'full'.
+  toolbar?: 'full' | 'simple' | 'basic';
   // Colar uma imagem (print/screenshot, Ctrl+V) vira ANEXO de verdade via
   // este callback, em vez de tentar embutir no texto rico — necessário no
   // modo 'simple' (nem tem o node de imagem no schema, ver acima) e mantém
@@ -70,10 +78,18 @@ interface RichEditorProps {
   // em chat-widget.tsx). Sem este prop, colar imagem continua não fazendo
   // nada (comportamento de sempre em modo 'full').
   onPasteImages?: (files: File[]) => void;
+  // Ocupa toda a altura disponível do pai (que precisa ser flex coluna) — a
+  // área de texto estica e rola por dentro. Usado na descrição do ticket
+  // interno, que vai até o fim da tela (2026-11-12). minHeight continua
+  // valendo como piso.
+  fill?: boolean;
 }
 
-export function RichEditor({ content, onChange, placeholder = 'Comece a digitar...', minHeight = '150px', maxHeight, toolbar = 'full', onPasteImages }: RichEditorProps) {
+export function RichEditor({ content, onChange, placeholder = 'Comece a digitar...', minHeight = '150px', maxHeight, toolbar = 'full', onPasteImages, fill = false }: RichEditorProps) {
   const isSimple = toolbar === 'simple';
+  // 'simple' e 'basic': só negrito/itálico (ver o prop). A diferença entre os
+  // dois é só a imagem — isSimple continua decidindo isso.
+  const isTextOnly = toolbar !== 'full';
   const [isUrlModalOpen, setIsUrlModalOpen] = React.useState<'link' | 'image' | 'youtube' | null>(null);
   const [urlInputValue, setUrlInputValue] = React.useState('');
 
@@ -155,10 +171,16 @@ export function RichEditor({ content, onChange, placeholder = 'Comece a digitar.
 
   const editor = useEditor({
     immediatelyRender: false,
+    // O editor se redesenha a cada transação (tecla, seleção) — só ELE, que é
+    // barato. Necessário desde que telas grandes (ticket interno, 2026-11-12)
+    // deixaram de guardar o texto em estado a cada tecla, por performance:
+    // antes, era o redesenho do PAI que fazia os botões de negrito/itálico
+    // acenderem conforme o cursor.
+    shouldRerenderOnTransaction: true,
     extensions: [
       StarterKit.configure({
         link: false,
-        ...(isSimple ? {
+        ...(isTextOnly ? {
           heading: false,
           blockquote: false,
           bulletList: false,
@@ -182,7 +204,7 @@ export function RichEditor({ content, onChange, placeholder = 'Comece a digitar.
             class: 'rounded-xl max-w-full my-4 border border-[var(--border-default)] shadow-sm',
           },
         }),
-        Link.configure({
+        ...(isTextOnly ? [] : [Link.configure({
           openOnClick: false,
           HTMLAttributes: {
             class: 'text-[var(--accent-text)] underline font-medium',
@@ -194,7 +216,7 @@ export function RichEditor({ content, onChange, placeholder = 'Comece a digitar.
           HTMLAttributes: {
             class: 'rounded-xl overflow-hidden my-4 shadow-lg mx-auto',
           },
-        }),
+        })]),
       ]),
       Placeholder.configure({
         placeholder,
@@ -317,7 +339,7 @@ export function RichEditor({ content, onChange, placeholder = 'Comece a digitar.
   if (!editor) return null;
 
   return (
-    <div className="w-full border border-[var(--border-default)] rounded-2xl overflow-hidden bg-[var(--surface-card)] group focus-within:ring-4 focus-within:ring-[var(--accent)]/10 focus-within:border-[var(--accent)] transition-all">
+    <div className={cn("w-full border border-[var(--border-default)] rounded-2xl overflow-hidden bg-[var(--surface-card)] group focus-within:ring-4 focus-within:ring-[var(--accent)]/10 focus-within:border-[var(--accent)] transition-all", fill && "flex-1 flex flex-col min-h-0")}>
       {/* Toolbar */}
       <div className="bg-[var(--surface-card)] border-b border-[var(--border-default)] p-2 flex flex-wrap gap-1 items-center">
         <button
@@ -336,7 +358,7 @@ export function RichEditor({ content, onChange, placeholder = 'Comece a digitar.
         >
           <Italic size={16} />
         </button>
-        {!isSimple && (
+        {!isTextOnly && (
           <>
             <div className="w-px h-4 bg-[var(--text-tertiary)] mx-1" />
             <button
@@ -462,7 +484,7 @@ export function RichEditor({ content, onChange, placeholder = 'Comece a digitar.
 {/* Editor Content Area */}
         <div
           style={maxHeight ? { minHeight, maxHeight, overflowY: 'auto' } : { minHeight }}
-          className="cursor-text bg-[var(--surface-card)] relative"
+          className={cn("cursor-text bg-[var(--surface-card)] relative", fill && "flex-1 overflow-y-auto")}
           onClick={handleContainerClick}
         >
           <EditorContent editor={editor} className="outline-none focus:outline-none pointer-events-auto" />
@@ -486,7 +508,7 @@ export function RichEditor({ content, onChange, placeholder = 'Comece a digitar.
           >
             <Italic size={14} />
           </button>
-          {!isSimple && (
+          {!isTextOnly && (
             <button
               type="button"
               onClick={() => openUrlModal('link')}
