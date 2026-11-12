@@ -153,6 +153,36 @@ export async function storeAttachmentBuffer(
   return { relativePath, url: `${ATTACHMENT_URL_PREFIX}${relativePath}`, size: buffer.byteLength };
 }
 
+/**
+ * Foto de perfil em ARQUIVO, não mais em base64 dentro de profiles.avatar_url
+ * (2026-11-12, economia de espaço: eram ~65 MB de fotos no banco, que também
+ * pesavam todo dump/backup).
+ *
+ * O nome do arquivo é o hash do CONTEÚDO (`avatars/<sha1>.<ext>`), não um
+ * uuid como nos anexos: a sincronização do Bitrix24 baixa a foto de todo
+ * mundo de novo a cada execução e o perfil pode ser salvo várias vezes com a
+ * mesma foto — com nome aleatório cada uma dessas vezes deixaria uma cópia
+ * órfã no disco. Mesmo conteúdo = mesmo arquivo, gravado uma vez só.
+ *
+ * Devolve a URL (/api/files/avatars/...) ou null se o valor não for uma
+ * imagem em `data:` URL. Quem lê continua sendo /api/users/<id>/avatar.
+ */
+export async function storeAvatarDataUrl(dataUrl: string | null | undefined): Promise<string | null> {
+  if (!dataUrl || !dataUrl.startsWith('data:image/')) return null;
+  const parsed = parseDataUrl(dataUrl);
+  if (!parsed || parsed.buffer.byteLength === 0) return null;
+  const hash = crypto.createHash('sha1').update(parsed.buffer).digest('hex');
+  const relativePath = `avatars/${hash}.${extensionFor(parsed.mimeType)}`;
+  const absolute = path.join(getAttachmentsDir(), 'avatars', `${hash}.${extensionFor(parsed.mimeType)}`);
+  try {
+    await fs.access(absolute);
+  } catch {
+    await fs.mkdir(path.dirname(absolute), { recursive: true });
+    await fs.writeFile(absolute, parsed.buffer);
+  }
+  return `${ATTACHMENT_URL_PREFIX}${relativePath}`;
+}
+
 export function parseDataUrl(dataUrl: string): { buffer: Buffer; mimeType: string } | null {
   if (!dataUrl?.startsWith('data:')) return null;
   const commaIndex = dataUrl.indexOf(',');

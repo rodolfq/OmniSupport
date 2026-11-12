@@ -1,4 +1,5 @@
 import sharp from 'sharp';
+import { readAttachmentFile, ATTACHMENT_URL_PREFIX } from '@/lib/services/attachment-storage';
 
 // Miniatura só pra exibir em listas com muitos avatares ao mesmo tempo (linha
 // de Chamados, linha de Tickets Internos) — não substitui avatar_url, que
@@ -39,6 +40,11 @@ async function renderAvatar(avatarUrl: string | null | undefined, dim: number, q
       const parsed = parseDataUrl(avatarUrl);
       if (!parsed) return null;
       buffer = parsed;
+    } else if (avatarUrl.startsWith(ATTACHMENT_URL_PREFIX)) {
+      // Foto já gravada em arquivo (storeAvatarDataUrl, desde 2026-11-12).
+      const fromDisk = await readAttachmentFile(avatarUrl.slice(ATTACHMENT_URL_PREFIX.length));
+      if (!fromDisk) return null;
+      buffer = fromDisk;
     } else if (avatarUrl.startsWith('http://') || avatarUrl.startsWith('https://')) {
       const res = await fetch(avatarUrl);
       if (!res.ok) return null;

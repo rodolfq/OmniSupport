@@ -7,6 +7,7 @@ import { hashPassword } from '@/lib/auth-utils';
 // ajudante de autorização não deve ser chamável de fora.
 import { getCurrentActionUser, assertUserManageable, getAdminTeamIds, getActorEffectivePermissions } from '@/lib/server-auth';
 import { generateAvatarThumb, generateAvatarMedium } from '@/lib/services/avatar-thumb-service';
+import { storeAvatarDataUrl } from '@/lib/services/attachment-storage';
 import { canForceOthersOffline } from '@/lib/services/presence-authorization';
 import { logAudit } from '@/lib/audit-log';
 import { Permission } from '@/lib/types';
@@ -794,6 +795,10 @@ export async function PUT(request: Request) {
     const isNewImage = !!incomingAvatar && incomingAvatar.startsWith('data:');
     const avatarThumbUrl = isNewImage ? await generateAvatarThumb(incomingAvatar) : null;
     const avatarMediumUrl = isNewImage ? await generateAvatarMedium(incomingAvatar) : null;
+    // A foto inteira vai pra ARQUIVO (2026-11-12) — no banco fica só o
+    // endereço. As miniaturas (48px/192px, poucos KB) continuam em `data:`
+    // URL de propósito: são lidas embutidas nas listagens.
+    const storedAvatarUrl = isNewImage ? await storeAvatarDataUrl(incomingAvatar) : null;
 
     // E-mail é opcional (migrations/profiles_email_opcional.sql). Campo
     // esvaziado na tela vira NULL, nunca string vazia: '' = '' é verdadeiro no
@@ -834,7 +839,7 @@ export async function PUT(request: Request) {
         user.mustChangePassword,
         user.viewAllCompanyTickets,
         isAdmin,
-        isNewImage ? incomingAvatar : null,
+        isNewImage ? (storedAvatarUrl || incomingAvatar) : null,
         internalTeamIds || '{}',
         user.isActive,
         user.id,

@@ -223,6 +223,15 @@ export default function DashboardPage() {
   ));
   const [internalTickets, setInternalTickets] = useState<InternalTicketItem[]>([]);
   const [loadingInternal, setLoadingInternal] = useState(false);
+  // "Já carregou ao menos uma vez" (2026-11-12, pedido do usuário): antes o
+  // Dashboard abria mostrando contadores zerados e board vazio enquanto os
+  // dados ainda vinham, como se não houvesse chamado nenhum. Até a 1ª carga
+  // terminar, o conteúdo dá lugar a um loading. Recargas depois disso
+  // (refreshTrigger, a cada notificação) continuam silenciosas — só o
+  // "Sincronizando..." do título — pra tela não piscar.
+  const [ticketsReady, setTicketsReady] = useState(false);
+  const [internalReady, setInternalReady] = useState(false);
+  useEffect(() => { if (!loading) setTicketsReady(true); }, [loading]);
   const [internalStatuses, setInternalStatuses] = useState<InternalStatusMeta[]>([]);
 
   // Nenhuma das duas permissões é dependente da outra: quem perde/ganha uma
@@ -295,6 +304,7 @@ export default function DashboardPage() {
         console.error('Error loading internal tickets for dashboard:', err);
       } finally {
         setLoadingInternal(false);
+        setInternalReady(true);
       }
     }
     loadInternal();
@@ -304,6 +314,9 @@ export default function DashboardPage() {
     const controller = new AbortController();
     
     async function loadData() {
+      // Sessão ainda carregando: sem usuário, canSeeTickets dá false e o
+      // caminho "sem permissão" abaixo encerrava o loading antes da hora.
+      if (!currentUser) return;
       if ([UserRole.CUSTOMER, UserRole.EMPLOYEE].includes(currentUser?.role as UserRole)) {
         router.push('/my-tickets');
         return;
@@ -328,6 +341,14 @@ export default function DashboardPage() {
           fetchAllTickets(controller.signal),
           fetchStatuses(controller.signal, 'ticket')
         ]);
+
+        // fetchAllTickets ENGOLE o cancelamento e devolve [] (lib/tickets.ts) —
+        // sem esta checagem, a 1ª carga cancelada (o efeito roda de novo logo
+        // ao abrir a tela, quando sessão/URL terminam de chegar) era aceita
+        // como "nenhum chamado": o loading acabava, tudo aparecia zerado e só
+        // segundos depois a carga de verdade preenchia a tela (achado do
+        // usuário, 2026-11-12). A execução nova do efeito é quem termina.
+        if (controller.signal.aborted) return;
         
         let tickets = loadedTickets;
         
@@ -675,7 +696,12 @@ export default function DashboardPage() {
         </div>
       )}
 
-      {dashboardMode === 'tickets' && canSeeTickets ? (
+      {dashboardMode === 'tickets' && canSeeTickets && !ticketsReady ? (
+        <div className="flex flex-col items-center justify-center gap-3 py-24 text-[var(--text-tertiary)]">
+          <div className="w-8 h-8 border-2 border-[var(--accent)]/30 border-t-[var(--accent)] rounded-full animate-spin" />
+          <p className="text-xs font-medium">Carregando chamados...</p>
+        </div>
+      ) : dashboardMode === 'tickets' && canSeeTickets ? (
       <>
       <FilterBar
         originalTickets={allTickets}
@@ -943,7 +969,7 @@ export default function DashboardPage() {
       )}
       </>
       ) : canSeeInternal ? (
-        <InternalDashboard tickets={internalTickets} loading={loadingInternal} router={router} statuses={internalStatuses} onStatusChange={handleInternalKanbanStatusChange} />
+        <InternalDashboard tickets={internalTickets} loading={!internalReady} router={router} statuses={internalStatuses} onStatusChange={handleInternalKanbanStatusChange} />
       ) : null}
 
       <AnimatePresence>

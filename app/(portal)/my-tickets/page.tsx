@@ -176,7 +176,12 @@ export default function MyTicketsPage() {
     !canSeeTickets && canSeeInternal ? 'internal' : 'tickets'
   ));
   const [internalTickets, setInternalTickets] = useState<InternalTicketItem[]>([]);
-  const [loadingInternal, setLoadingInternal] = useState(false);
+  // Começam em true (2026-11-12, pedido do usuário): antes a tela abria em
+  // "nenhum chamado" enquanto a lista ainda estava carregando, e parecia
+  // vazia de verdade. Só a PRIMEIRA carga mostra o loading — recargas por
+  // refreshTrigger atualizam em silêncio, sem a lista piscar.
+  const [loadingTickets, setLoadingTickets] = useState(true);
+  const [loadingInternal, setLoadingInternal] = useState(true);
 
   // Colunas do Kanban pra quem é da equipe interna — mesmo cadastro
   // (Configurações > Geral > Status) usado no board de "Todos os Chamados".
@@ -271,7 +276,17 @@ export default function MyTicketsPage() {
 
   useEffect(() => {
     async function loadData() {
-        const filtered = await loadTickets();
+        // Sem usuário ainda (sessão carregando) não há o que buscar — o
+        // loading continua até ele chegar.
+        if (!currentUser) return;
+        let filtered: Ticket[] = [];
+        try {
+          filtered = await loadTickets();
+        } catch (error) {
+          console.error('Error loading tickets:', error);
+        } finally {
+          setLoadingTickets(false);
+        }
 
         const ticketId = searchParams?.get('ticket');
         if (ticketId) {
@@ -282,7 +297,7 @@ export default function MyTicketsPage() {
         }
     }
     loadData();
-  }, [loadTickets, refreshTrigger, searchParams]);
+  }, [loadTickets, refreshTrigger, searchParams, currentUser]);
 
   useEffect(() => {
     async function loadInternal() {
@@ -657,6 +672,11 @@ export default function MyTicketsPage() {
               </button>
             </div>
           )
+        ) : loadingTickets ? (
+          <div className="flex flex-col items-center justify-center gap-3 py-20 text-[var(--text-tertiary)]">
+            <div className="w-8 h-8 border-2 border-[var(--accent)]/30 border-t-[var(--accent)] rounded-full animate-spin" />
+            <p className="text-xs font-medium">Carregando chamados...</p>
+          </div>
         ) : view === 'kanban' ? (
           // Mesmo visual do Kanban de "Todos os Chamados" (colunas com barra
           // de cor no topo + card com estrelas/tags). Cliente/Funcionário

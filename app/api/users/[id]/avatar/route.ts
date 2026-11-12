@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { createHash } from 'crypto';
 import { query } from '@/lib/db';
+import { readAttachmentFile, ATTACHMENT_URL_PREFIX } from '@/lib/services/attachment-storage';
 
 // Serve a foto de perfil como IMAGEM, em vez de embutir o base64 na listagem.
 //
@@ -23,6 +24,32 @@ import { query } from '@/lib/db';
 
 const DATA_URL_RE = /^data:([^;,]+)(;base64)?,(.*)$/s;
 
+// Desde 2026-11-12 a foto mora em ARQUIVO (avatar_url = /api/files/avatars/...,
+// ver storeAvatarDataUrl em lib/services/attachment-storage.ts). Esta rota
+// aceita as duas formas: registro antigo ainda em `data:` URL continua
+// funcionando até scripts/migrate-avatars-to-disk.js passar por ele.
+const MIME_BY_EXT: Record<string, string> = {
+  jpg: 'image/jpeg', jpeg: 'image/jpeg', png: 'image/png', webp: 'image/webp',
+  gif: 'image/gif', svgxml: 'image/svg+xml', svg: 'image/svg+xml', avif: 'image/avif', bmp: 'image/bmp'
+};
+
+async function loadAvatar(value: string): Promise<{ buffer: Buffer; mime: string } | null> {
+  if (value.startsWith(ATTACHMENT_URL_PREFIX)) {
+    const relative = value.slice(ATTACHMENT_URL_PREFIX.length);
+    const buffer = await readAttachmentFile(relative);
+    if (!buffer) return null;
+    const ext = (relative.split('.').pop() || '').toLowerCase();
+    return { buffer, mime: MIME_BY_EXT[ext] || 'application/octet-stream' };
+  }
+  const match = DATA_URL_RE.exec(value);
+  if (!match) return null;
+  const [, mime, isBase64, payload] = match;
+  const buffer = isBase64
+    ? Buffer.from(payload, 'base64')
+    : Buffer.from(decodeURIComponent(payload), 'utf8');
+  return { buffer, mime };
+}
+
 export async function GET(
   request: NextRequest,
   { params }: { params: Promise<{ id: string }> }
@@ -33,24 +60,20 @@ export async function GET(
   // rota pública, e esta não está na lista.
   try {
     const res = await query('SELECT avatar_url FROM public.profiles WHERE id = $1', [id]);
-    const dataUrl: string | null = res.rows[0]?.avatar_url || null;
-    if (!dataUrl) {
+    const stored: string | null = res.rows[0]?.avatar_url || null;
+    if (!stored) {
       return NextResponse.json({ error: 'Sem foto.' }, { status: 404 });
     }
 
-    const match = DATA_URL_RE.exec(dataUrl);
-    if (!match) {
-      // Valor que não é `data:` URL — provavelmente lixo gravado por algum
-      // caminho antigo. Melhor 404 (a tela cai no fallback com a inicial do
-      // nome) do que devolver conteúdo quebrado como se fosse imagem.
-      console.error('[avatar] avatar_url do perfil %s não é uma data: URL', id);
+    const avatar = await loadAvatar(stored);
+    if (!avatar) {
+      // Nem arquivo existente nem `data:` URL — lixo de algum caminho antigo
+      // ou arquivo que sumiu do volume. Melhor 404 (a tela cai no fallback com
+      // a inicial do nome) do que devolver conteúdo quebrado como imagem.
+      console.error('[avatar] foto do perfil %s indisponível (%s)', id, stored.slice(0, 60));
       return NextResponse.json({ error: 'Foto inválida.' }, { status: 404 });
     }
-
-    const [, mime, isBase64, payload] = match;
-    const buffer = isBase64
-      ? Buffer.from(payload, 'base64')
-      : Buffer.from(decodeURIComponent(payload), 'utf8');
+    const { buffer, mime } = avatar;
 
     // ETag em cima do conteúdo: trocar a foto invalida o cache na hora, sem
     // precisar de "cache busting" na URL (que a listagem teria que saber

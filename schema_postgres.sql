@@ -1809,7 +1809,9 @@ CREATE TABLE public.ai_embeddings (
   source_id UUID NOT NULL,
   parent_id TEXT,
   content TEXT NOT NULL,
-  embedding DOUBLE PRECISION[] NOT NULL,
+  -- REAL[] (4 bytes/número), não DOUBLE PRECISION[] — o modelo já gera Float32;
+  -- ver migrations/ai_embeddings_real.sql.
+  embedding REAL[] NOT NULL,
   source_created_at TIMESTAMP WITH TIME ZONE NOT NULL,
   indexed_at TIMESTAMP WITH TIME ZONE DEFAULT now() NOT NULL
 );

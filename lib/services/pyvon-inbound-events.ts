@@ -112,6 +112,36 @@ async function retryDueInboundEvents(): Promise<number> {
   return claimed.rows.length;
 }
 
+// Limpeza (2026-11-12, economia de espaço): esta tabela guarda o payload CRU
+// de toda mensagem recebida, e só precisa dele até a mensagem estar no banco
+// (chat_messages). Evento 'processed'/'ignored' com mais de 90 dias é
+// apagado. NUNCA apaga 'pending'/'failed'/'dead' — é a garantia de que
+// "nenhum evento some" (ver o topo do arquivo). Em lotes pequenos, pra não
+// segurar a tabela durante o webhook.
+const RETENTION_DAYS = 90;
+const CLEANUP_INTERVAL_MS = 6 * 60 * 60 * 1000; // a cada 6h; o 1º, 5 min depois do boot
+const CLEANUP_BATCH = 2000;
+
+export async function purgeOldInboundEvents(): Promise<number> {
+  let total = 0;
+  for (;;) {
+    const res = await query(
+      `DELETE FROM public.pyvon_inbound_events
+        WHERE id IN (
+          SELECT id FROM public.pyvon_inbound_events
+           WHERE status IN ('processed', 'ignored')
+             AND COALESCE(processed_at, updated_at) < now() - make_interval(days => $1)
+           LIMIT $2
+        )`,
+      [RETENTION_DAYS, CLEANUP_BATCH]
+    );
+    total += res.rowCount || 0;
+    if ((res.rowCount || 0) < CLEANUP_BATCH) break;
+  }
+  if (total > 0) console.log(`[Pyvon] Limpeza: ${total} evento(s) de entrada com mais de ${RETENTION_DAYS} dias apagado(s).`);
+  return total;
+}
+
 export function startPyvonInboundRetryScheduler(): void {
   if (global.pyvonInboundRetrySchedulerStarted) return;
   global.pyvonInboundRetrySchedulerStarted = true;
@@ -121,4 +151,10 @@ export function startPyvonInboundRetryScheduler(): void {
       console.error('[Pyvon] Falha no reprocessamento de mensagens recebidas:', err);
     });
   }, POLL_INTERVAL_MS);
+
+  const runCleanup = () => purgeOldInboundEvents().catch(err => {
+    console.error('[Pyvon] Falha na limpeza de eventos de entrada antigos:', err);
+  });
+  setTimeout(runCleanup, 5 * 60 * 1000);
+  setInterval(runCleanup, CLEANUP_INTERVAL_MS);
 }
