@@ -2,6 +2,7 @@ import { NextResponse } from 'next/server';
 import { query } from '@/lib/db';
 import { getCurrentActionUser } from '@/lib/server-auth';
 import { PyvonService } from '@/lib/services/pyvon-service';
+import { findOpenChatForContact, openChatConflictMessage } from '@/lib/services/open-chat-guard';
 
 // Ponto único de "iniciar conversa por telefone" — usado pelo botão "Iniciar
 // Conversa" (Empresas > Decisor), pelo WhatsApp de cada funcionário (Empresas)
@@ -79,6 +80,18 @@ export async function POST(request: Request) {
     const { phone, name, channel: rawChannel, profileId } = await request.json();
     if (!phone?.trim()) return NextResponse.json({ error: 'Informe o telefone do cliente.' }, { status: 400 });
     const channel: Channel = rawChannel === 'portal' ? 'portal' : 'whatsapp';
+
+    // Contato com conversa já aberta (qualquer canal) não ganha outra: avisa
+    // quem está com ela. Checado antes de tudo — inclusive do template, que
+    // sairia para o cliente mesmo com a conversa recusada (ver open-chat-guard.ts).
+    const phoneProfile = await findPortalProfileByPhone(phone);
+    const conflict = await findOpenChatForContact({ phone, profileIds: [profileId, phoneProfile?.id] });
+    if (conflict) {
+      return NextResponse.json(
+        { error: openChatConflictMessage(conflict, actor.id), code: 'open_chat_exists', sessionId: conflict.sessionId },
+        { status: 409 }
+      );
+    }
 
     if (channel === 'portal') {
       // Portal: nunca manda template nem fala com o WhatsApp. Usa o perfil

@@ -7,7 +7,8 @@ import { useApp } from '@/app/app-context';
 import { InternalTicket, Message, User, Hotfix, EffortConfig, OutcomeConfig, Permission } from '@/lib/types';
 import { MessageService, InternalTicketService } from '@/lib/services/ticket-service';
 import { getHotfixes, saveHotfix } from '@/lib/services/queue-service';
-import { cn, selectableOptions } from '@/lib/utils';
+import { cn, selectableOptions, htmlHasContent } from '@/lib/utils';
+import { ChatAttachmentList } from '@/components/chat-attachment-list';
 import {
   Paperclip,
   Star,
@@ -455,7 +456,8 @@ export function InternalTicketDetailModal({ ticketRef, onClose, creating, onCrea
   };
 
   const handleSendMessage = async () => {
-    const text = noteDraftRef.current;
+    // Nota só com anexo vai com texto vazio (o editor devolve "<p></p>").
+    const text = noteHasText ? noteDraftRef.current : '';
     if ((!noteHasText && previewAttachments.length === 0) || !ticket || !currentUser) return;
     const newMessage: Message = { id: Math.random().toString(36).substr(2, 9), ticketId: ticket.uuid, senderId: currentUser.id, text, timestamp: new Date().toISOString(), isVisibleToCustomer: false, type: 'internal', attachments: previewAttachments.length > 0 ? previewAttachments : undefined };
     try {
@@ -1643,10 +1645,17 @@ export function InternalTicketDetailModal({ ticketRef, onClose, creating, onCrea
                           </div>
                         </div>
                       ) : (
-                      <p
-                        className={cn("text-sm whitespace-pre-wrap", isSystem ? "text-[var(--text-tertiary)]" : "text-[var(--text-secondary)]")}
-                        dangerouslySetInnerHTML={{ __html: msg.text }}
-                      />
+                      <>
+                        {htmlHasContent(msg.text) && (
+                          <p
+                            className={cn("text-sm whitespace-pre-wrap", isSystem ? "text-[var(--text-tertiary)]" : "text-[var(--text-secondary)]")}
+                            dangerouslySetInnerHTML={{ __html: msg.text }}
+                          />
+                        )}
+                        {/* Anexos da nota — antes só apareciam na aba Anexos, e a nota
+                            só com arquivo ficava como um balão em branco. */}
+                        <ChatAttachmentList attachments={msg.attachments || []} />
+                      </>
                       )}
                     </div>
                   );
@@ -1656,6 +1665,19 @@ export function InternalTicketDetailModal({ ticketRef, onClose, creating, onCrea
             })()}
           </div>
           <div className="p-4 border-t border-[var(--border-default)]">
+            {previewAttachments.length > 0 && (
+              <div className="flex flex-wrap gap-2 mb-2">
+                {previewAttachments.map(att => (
+                  <div key={att.id} className="flex items-center gap-1 px-2 py-1 bg-[var(--surface-pill)] rounded-lg text-[10px] text-[var(--text-secondary)]">
+                    <Paperclip size={10} />
+                    <span className="truncate max-w-[160px]">{att.name}</span>
+                    <button type="button" onClick={() => setPreviewAttachments(prev => prev.filter(a => a.id !== att.id))} title="Remover anexo" aria-label={`Remover ${att.name}`} className="text-[var(--text-danger)]">
+                      <X size={10} />
+                    </button>
+                  </div>
+                ))}
+              </div>
+            )}
             <RichEditor key={composerKey} toolbar="basic" content="" onChange={onNoteDraft} placeholder="Digite sua nota interna..." minHeight="80px" maxHeight="35vh" />
             <div className="flex justify-between items-center mt-3">
               <button onClick={() => fileInputRef.current?.click()} disabled={isUploading} className="px-3 py-1 rounded-lg text-xs font-bold border border-[var(--border-default)] text-[var(--text-secondary)] hover:bg-[var(--surface-card)] flex items-center gap-1 disabled:opacity-50">

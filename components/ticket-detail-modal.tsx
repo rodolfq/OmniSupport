@@ -7,7 +7,7 @@ import { X, User, MessageCircle, Clock, Link2, Paperclip, Save, Maximize2, Minim
 import { motion } from 'motion/react';
 import { createPortal } from 'react-dom';
 import { Ticket, TicketStatus, User as UserType, Message, UserRole, StatusConfig, Company, Attachment, PriorityConfig, CategoryConfig, RequestTypeConfig, ProductConfig, InternalTicket, Permission, TicketEvaluation } from '@/lib/types';
-import { cn, selectableOptions, linkifyPlainUrls } from '@/lib/utils';
+import { cn, selectableOptions, linkifyPlainUrls, htmlHasContent } from '@/lib/utils';
 import { useApp } from '@/app/app-context';
 import { Star, MoreHorizontal, ThumbsUp, ThumbsDown } from 'lucide-react';
 import { TicketMergeModal } from './ticket-merge-modal';
@@ -2558,12 +2558,15 @@ const loadMessages = async () => {
                                 <Copy size={12} />
                               </button>
                             </div>
+                            {/* Nota só com anexo não ganha balão vazio. */}
+                            {htmlHasContent(m.text) && (
                             <div
                               className="p-3 rounded-2xl text-sm leading-relaxed shadow-sm prose prose-sm max-w-none break-words bg-[var(--surface-warning)] border border-[var(--border-alert)] text-[var(--text-warning)] border-l-4 border-l-amber-400 prose-amber"
                               dangerouslySetInnerHTML={{ __html: linkifyPlainUrls(m.text) }}
                             />
+                            )}
                             {m.attachments && m.attachments.length > 0 && (
-                              <div className="mt-3 pt-3 border-t border-[var(--border-default)]">
+                              <div className={cn(htmlHasContent(m.text) && "mt-3 pt-3 border-t border-[var(--border-default)]")}>
                                 <div className="flex flex-wrap gap-2">
                                   {m.attachments.map(att => {
                                     const isImage = isImageAttachment(att);

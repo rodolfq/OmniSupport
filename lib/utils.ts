@@ -265,3 +265,12 @@ export function safeJsonStringify(obj: any) {
     return '"[Serialization Failed]"';
   }
 }
+
+// Texto rico (HTML do editor) tem conteúdo de verdade? `<p></p>`, `<p><br></p>`
+// e espaços contam como vazio; imagem colada conta como conteúdo. Usado para
+// não desenhar balão vazio quando a nota é só anexo.
+export function htmlHasContent(html: string | null | undefined): boolean {
+  if (!html) return false;
+  if (/<img\b/i.test(html)) return true;
+  return html.replace(/<[^>]*>/g, '').replace(/&nbsp;/g, ' ').trim().length > 0;
+}

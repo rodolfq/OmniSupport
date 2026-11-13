@@ -2,6 +2,7 @@ import { NextResponse } from 'next/server';
 import { query } from '@/lib/db';
 import { getCurrentActionUser } from '@/lib/server-auth';
 import { PyvonService } from '@/lib/services/pyvon-service';
+import { findOpenChatForContact, openChatConflictMessage } from '@/lib/services/open-chat-guard';
 
 // Inicia conversa fora da janela de 24h via template aprovado (bot-template)
 // — botão "Iniciar conversa por WhatsApp" no chamado/empresa. Ação de
@@ -19,6 +20,14 @@ export async function POST(request: Request) {
     const { templateName, phone, cadastroId, name, language, variables, channelId, contentPreview } = await request.json();
     if (!templateName?.trim()) return NextResponse.json({ error: 'Escolha um template.' }, { status: 400 });
     if (!phone && !cadastroId) return NextResponse.json({ error: 'Informe o telefone do cliente.' }, { status: 400 });
+
+    // Mesma trava de start-conversation: contato com conversa aberta não ganha outra.
+    if (phone) {
+      const conflict = await findOpenChatForContact({ phone });
+      if (conflict) {
+        return NextResponse.json({ error: openChatConflictMessage(conflict, actor.id), code: 'open_chat_exists', sessionId: conflict.sessionId }, { status: 409 });
+      }
+    }
 
     const instRes = await query(`SELECT id FROM public.whatsapp_instances WHERE provider = 'pyvon' LIMIT 1`);
     const instanceId = instRes.rows[0]?.id;
