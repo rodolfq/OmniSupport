@@ -167,6 +167,15 @@ export async function GET(request: NextRequest) {
         params.push(teamId);
         conditions.push(`internal_team_id = $${params.length}`);
       }
+      // Fila escolhida na seleção de filas do Dashboard (2026-11-16):
+      // id da fila, ou "none" = tickets antigos, sem fila.
+      const queueIdParam = searchParams.get('queueId');
+      if (queueIdParam === 'none') {
+        conditions.push('internal_queue_id IS NULL');
+      } else if (queueIdParam && /^[0-9a-f-]{36}$/i.test(queueIdParam)) {
+        params.push(queueIdParam);
+        conditions.push(`internal_queue_id = $${params.length}::uuid`);
+      }
       const hotfixId = searchParams.get('hotfixId');
       if (hotfixId) {
         // Usado pelo histórico de Hotfix/Publicação (Configurações), pra
@@ -199,6 +208,29 @@ export async function GET(request: NextRequest) {
       // como displayId e tempo restante de SLA. Devolver camelCase aqui
       // obrigaria a reescrever os três mapeamentos junto — e esta etapa é
       // troca de transporte, não de formato.
+      return NextResponse.json(res.rows);
+    }
+
+    if (action === 'queue-overview') {
+      // Números de cada fila para os cards da seleção de filas (2026-11-16,
+      // padrão "equipes" do Odoo): só tickets ABERTOS (status não fechado).
+      // queue_id NULL = tickets antigos, sem fila. Contagem por fila inteira
+      // — quem pode ver qual fila a tela decide (ver internal-queue-picker).
+      const user = await getSessionUser(request);
+      if (!user) return NextResponse.json({ error: 'Não autenticado.' }, { status: 401 });
+      const res = await query(
+        `SELECT it.internal_queue_id AS queue_id,
+                count(*)::int AS open,
+                count(*) FILTER (WHERE it.assignee_id IS NULL)::int AS unassigned,
+                count(*) FILTER (WHERE it.sla_limit IS NOT NULL AND it.sla_limit < now())::int AS overdue,
+                count(*) FILTER (WHERE COALESCE(it.priority, 1) >= 3)::int AS high,
+                count(*) FILTER (WHERE it.assignee_id = $1::uuid)::int AS mine
+           FROM public.internal_tickets it
+          WHERE COALESCE(it.status, 'Novo') NOT IN (
+                  SELECT label FROM public.config_statuses WHERE scope = 'internal_ticket' AND is_closed = true)
+          GROUP BY it.internal_queue_id`,
+        [user.id]
+      );
       return NextResponse.json(res.rows);
     }
 
@@ -558,6 +590,19 @@ export async function POST(request: NextRequest) {
       }
     }
 
+    // Fila obrigatória (2026-11-16, pedido do usuário): todo ticket interno
+    // novo nasce numa fila ATIVA, e quem já está numa fila não pode voltar a
+    // "Sem fila" — assim o card "Sem fila" da seleção de filas some sozinho
+    // depois que os tickets antigos forem passados para as filas deles.
+    // As telas já exigiam a fila; isto fecha a rota para quem chamar direto.
+    const queueError = async (queueId: unknown): Promise<string | null> => {
+      if (typeof queueId !== 'string' || !/^[0-9a-f-]{36}$/i.test(queueId)) return 'Escolha a fila do ticket interno.';
+      const q = await query('SELECT is_active FROM public.internal_ticket_queues WHERE id = $1::uuid', [queueId]);
+      if ((q.rowCount ?? 0) === 0) return 'Fila não encontrada. Atualize a página (F5) e escolha outra.';
+      if (!q.rows[0].is_active) return 'Esta fila está desativada. Escolha outra fila.';
+      return null;
+    };
+
     if (action === 'save') {
       const { ticket, parentTicketId } = body;
       if (!ticket?.title) return NextResponse.json({ error: 'O título é obrigatório.' }, { status: 400 });
@@ -570,6 +615,10 @@ export async function POST(request: NextRequest) {
       const priority = ticket.priority || 1;
 
       if (ticket.uuid) {
+        if (ticket.internalQueueId) {
+          const err = await queueError(ticket.internalQueueId);
+          if (err) return NextResponse.json({ error: err }, { status: 400 });
+        }
         // O prazo é recalculado a cada gravação, ancorado na CRIAÇÃO do
         // ticket (não em "agora"): sem isso, mudar a prioridade deixaria o
         // prazo congelado no valor calculado quando ele nasceu. Mesma regra do
@@ -584,7 +633,7 @@ export async function POST(request: NextRequest) {
               SET title = $1, team_id = $2, internal_team_id = $3, assignee_id = $4,
                   priority = $5, tags = $6, creator_id = $7, description = $8,
                   sla_limit = $9, updated_at = NOW(),
-                  internal_queue_id = CASE WHEN $11::boolean THEN $12::uuid ELSE internal_queue_id END
+                  internal_queue_id = CASE WHEN $11::boolean AND $12::uuid IS NOT NULL THEN $12::uuid ELSE internal_queue_id END
             WHERE id = $10
         RETURNING id, internal_ticket_number`,
           [
@@ -612,6 +661,9 @@ export async function POST(request: NextRequest) {
         );
         return NextResponse.json({ uuid: row.id, id: formatId(row.internal_ticket_number, row.id) });
       }
+
+      const createQueueError = await queueError(ticket.internalQueueId);
+      if (createQueueError) return NextResponse.json({ error: createQueueError }, { status: 400 });
 
       // Ticket interno NOVO, aberto a partir de um chamado existente
       // (parentTicketId): herda a prioridade (estrelas) do chamado — "As
@@ -695,6 +747,22 @@ export async function POST(request: NextRequest) {
       if (targetIds.length === 0 || !fields) return NextResponse.json({ error: 'id(s) e fields são obrigatórios.' }, { status: 400 });
       if (typeof fields.description === 'string') {
         fields.description = await externalizeInlineImages(fields.description);
+      }
+      if (fields.internalQueueId) {
+        const err = await queueError(fields.internalQueueId);
+        if (err) return NextResponse.json({ error: err }, { status: 400 });
+      } else if (fields.internalQueueId !== undefined) {
+        // A tela de detalhe reenvia a fila em toda gravação: num ticket antigo
+        // (ainda sem fila) o vazio é só "não mexi" e segue editável. Tirar a
+        // fila de quem já tem uma é que não pode.
+        const comFila = await query(
+          'SELECT 1 FROM public.internal_tickets WHERE id = ANY($1::text[]) AND internal_queue_id IS NOT NULL LIMIT 1',
+          [targetIds]
+        );
+        if ((comFila.rowCount ?? 0) > 0) {
+          return NextResponse.json({ error: 'Ticket interno não pode ficar sem fila.' }, { status: 400 });
+        }
+        delete fields.internalQueueId;
       }
       // Edição em MASSA (lista de Tickets Internos) não gravava registro de
       // alteração nenhum — e sem registro ninguém era avisado. Guarda o
