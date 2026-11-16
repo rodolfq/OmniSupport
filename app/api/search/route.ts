@@ -5,17 +5,22 @@ import { getCurrentActionUser } from '@/lib/server-auth';
 
 // SQL de "SLA vencido" reutilizado pelo filtro slaOverdue (action=tickets) e
 // pela coluna "overdue" dos chips rápidos (action=quick-counts) — mantido
-// num só lugar pra não divergir entre lista e contagem. O segundo NOT EXISTS
-// é a isenção por sub-status (pedido do usuário, 2026-11-03, "Ignora SLA" em
-// Configurações > Status — config_statuses.sla_exempt): chamado num
-// sub-status marcado assim nunca entra aqui, mesma regra de
-// lib/sla.ts (isTicketSlaExempt), só que em SQL pro filtro/contagem server-side.
+// num só lugar pra não divergir entre lista e contagem. `ticket_sla_deadline`
+// (migrations/ticket_sla_business_days.sql) é a MESMA fórmula de
+// lib/sla.ts::computeTicketSlaLimit, portada pra SQL — antes esta query
+// somava horas CORRIDAS direto (nem dia útil, nem expediente), divergindo da
+// data mostrada dentro do chamado; pedido do usuário, 2026-11-16, pra
+// alinhar os dois. O segundo NOT EXISTS é a isenção por sub-status (pedido
+// do usuário, 2026-11-03, "Ignora SLA" em Configurações > Status —
+// config_statuses.sla_exempt): chamado num sub-status marcado assim nunca
+// entra aqui, mesma regra de lib/sla.ts (isTicketSlaExempt), só que em SQL
+// pro filtro/contagem server-side.
 const SLA_OVERDUE_SQL = `EXISTS (
           SELECT 1
           FROM public.config_priorities cp
           WHERE cp.label = public.tickets.priority
             AND cp.sla_hours > 0
-            AND public.tickets.created_at + make_interval(hours => cp.sla_hours) < NOW()
+            AND public.ticket_sla_deadline(public.tickets.created_at, cp.label, cp.sla_hours) < NOW()
         )
         AND NOT EXISTS (
           SELECT 1

@@ -146,7 +146,11 @@ export function TicketAnalystDashboard({ rows, time, objetivos, pontos, amostraM
   const composicao = useMemo(() => {
     const soma = (f: (r: TicketAnalystRow) => number) => rows.reduce((acc, r) => acc + f(r), 0);
     return [
-      { rotulo: 'SLA', valor: soma(r => r.points.sla), apenasPenalidade: false },
+      // SLA removido da composição por enquanto (mesma decisão de
+      // lib/ticket-points.ts::computeTicketPoints, 2026-11-16) — não faz
+      // sentido mostrar uma barra de pontos que não entra no total ao lado.
+      // Pra reativar, descomentar esta linha.
+      // { rotulo: 'SLA', valor: soma(r => r.points.sla), apenasPenalidade: false },
       { rotulo: '1ª resposta', valor: soma(r => r.points.primeiraResposta), apenasPenalidade: false },
       { rotulo: 'Nasce resolvido', valor: soma(r => r.points.resolvidoPrimeiroContato), apenasPenalidade: false },
       // Backlog e Reabertura só descontam (nunca somam) — soma 0 é o MELHOR
@@ -298,7 +302,7 @@ export function TicketAnalystDashboard({ rows, time, objetivos, pontos, amostraM
                 <div className="border-t border-[var(--border-default)] pt-3">
                   <p className="mb-2 text-[10px] font-bold uppercase tracking-wider text-[var(--text-tertiary)]">De onde vêm os pontos</p>
                   <div className="flex flex-wrap gap-1.5">
-                    <Chip rotulo="SLA" pontos={r.points.sla} />
+                    {/* SLA removido por enquanto — ver computeTicketPoints. */}
                     <Chip rotulo="1ª resposta" pontos={r.points.primeiraResposta} />
                     <Chip rotulo="Nasce resolvido" pontos={r.points.resolvidoPrimeiroContato} />
                     <Chip rotulo="Backlog" pontos={r.points.backlog} />
