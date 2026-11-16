@@ -21,6 +21,7 @@ import { StyledSelect } from '@/components/styled-select';
 import {
   useProfilesLiteQuery,
   useInternalTeamsQuery,
+  useInternalTicketQueuesQuery,
   useAnalystsQuery,
   useConfigEffortsQuery,
   useConfigOutcomesQuery
@@ -116,7 +117,7 @@ function num(value: number | null, digits = 0): string {
 
 const ASSIGNEE_EXPORT_COLUMNS: ReportExportConfig<AssigneeRow>['columns'] = [
   { key: 'assigneeName', label: 'Responsável' },
-  { key: 'teamName', label: 'Equipe', format: (v) => (v as string) || '—' },
+  { key: 'teamName', label: 'Fila', format: (v) => (v as string) || '—' },
   { key: 'open', label: 'Em aberto' },
   { key: 'weightedOpenLoad', label: 'Carga ponderada' },
   { key: 'closed', label: 'Concluídos no período' },
@@ -161,6 +162,10 @@ export default function ReportWorkloadPage() {
   const [outcomeFilter, setOutcomeFilter] = useState('');
   const { data: internalTeamsData } = useInternalTeamsQuery();
   const internalTeams = useMemo(() => (internalTeamsData || []) as any[], [internalTeamsData]);
+  // Filtro "Fila" (2026-11-13): filas de ticket interno, mais as equipes para
+  // os tickets antigos, que não têm fila (o servidor agrupa assim também).
+  const { data: internalQueuesData } = useInternalTicketQueuesQuery();
+  const internalQueues = useMemo(() => (internalQueuesData || []) as any[], [internalQueuesData]);
   const { data: analystsData } = useAnalystsQuery();
   const analysts = useMemo(() => (analystsData || []) as any[], [analystsData]);
   const { data: effortsData } = useConfigEffortsQuery();
@@ -252,14 +257,15 @@ export default function ReportWorkloadPage() {
           PRÓPRIOS de ticket interno entram via `children`. */}
       <MetricsFilterBar value={filter} onChange={setFilter} onFilterSummaryChange={setFilterSummary} showScopeFilters={false}>
         <div className="space-y-1.5">
-          <label className="text-[10px] font-semibold uppercase text-[var(--text-tertiary)] tracking-widest ml-1">Equipe</label>
+          <label className="text-[10px] font-semibold uppercase text-[var(--text-tertiary)] tracking-widest ml-1">Fila</label>
           <StyledSelect
             value={teamFilter}
             onChange={(e) => setTeamFilter(e.target.value)}
             className="min-w-[160px] bg-[var(--surface-card)] border border-[var(--border-default)] rounded-xl px-4 py-2.5 text-sm font-bold focus:ring-2 focus:ring-[var(--accent)]/20 outline-none"
           >
             <option value="">Todas</option>
-            {internalTeams.map((t: any) => <option key={t.id} value={t.id}>{t.name}</option>)}
+            {internalQueues.map((q: any) => <option key={q.id} value={q.id}>{q.name}</option>)}
+            {internalTeams.map((t: any) => <option key={t.id} value={t.id}>{t.name} (equipe, tickets antigos)</option>)}
           </StyledSelect>
         </div>
         <div className="space-y-1.5">

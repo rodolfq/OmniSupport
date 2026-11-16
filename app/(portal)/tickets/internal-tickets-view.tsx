@@ -7,11 +7,11 @@ import { NotificationCountBadge, UnreadDot } from '@/components/notification-cou
 import { cn } from "@/lib/utils";
 import { motion, AnimatePresence } from "motion/react";
 import { useApp } from "@/app/app-context";
-import { InternalTicket, Permission, User } from "@/lib/types";
+import { InternalTicket, Permission, User, InternalTicketQueue } from "@/lib/types";
 import { InternalTicketService } from "@/lib/services/ticket-service";
 import { NewInternalTicketModal } from "@/components/new-internal-ticket-modal";
 import { ConfigService } from "@/lib/services/config-service";
-import { useInternalTeamsQuery, useProfilesLiteQuery } from "@/lib/query-hooks";
+import { useInternalTeamsQuery, useProfilesLiteQuery, useInternalTicketQueuesQuery } from "@/lib/query-hooks";
 import { findStatusColor } from "@/lib/status-colors";
 import { InlineAssigneePicker } from "@/components/inline-assignee-picker";
 import { MultiSelectFilter } from "@/components/multi-select-filter";
@@ -29,6 +29,9 @@ import {
 } from "@dnd-kit/core";
 
 interface InternalTicketItem extends InternalTicket {
+  // Agrupamento exibido na lista (2026-11-13): o id da FILA, ou
+  // "team:<nome>" para ticket antigo, que só tem equipe.
+  groupKey?: string;
   linkedTicketTitles?: string[];
   assigneeName?: string;
   assigneeAvatarThumbUrl?: string | null;
@@ -209,7 +212,9 @@ function carregarFiltros(): FiltrosSalvos {
     // string quebra a montagem da query silenciosamente.
     return {
       searchTerm: typeof p.searchTerm === 'string' ? p.searchTerm : "",
-      filterTeams: Array.isArray(p.filterTeams) ? p.filterTeams.filter((t: any) => typeof t === 'string') : [],
+      // Desde 2026-11-13 guarda ids de FILA (ou "none" = sem fila). Nomes de
+      // equipe salvos antes são descartados — mandá-los como fila quebraria a busca.
+      filterTeams: Array.isArray(p.filterTeams) ? p.filterTeams.filter((t: any) => typeof t === 'string' && (t === 'none' || /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(t))) : [],
       filterAssignee: typeof p.filterAssignee === 'string' ? p.filterAssignee : "",
       filterStatus: typeof p.filterStatus === 'string' ? p.filterStatus : "",
       filterPriority: typeof p.filterPriority === 'string' ? p.filterPriority : "",
@@ -332,7 +337,12 @@ export function InternalTicketsView({
   // equipe" não teria o que mostrar — a opção some e a tela cai em "Todos",
   // sem mexer na preferência salva (se a pessoa entrar numa equipe depois, a
   // visão padrão volta a valer sozinha).
-  const hasTeam = (currentUser?.internalTeamIds?.length ?? 0) > 0;
+  // "Minhas filas" (2026-11-13, era "Minha equipe"): vale pra quem é membro
+  // de alguma fila ou tem equipe (os tickets antigos, sem fila, seguem pela equipe).
+  const { data: internalQueuesData } = useInternalTicketQueuesQuery();
+  const internalQueues = useMemo(() => (internalQueuesData || []) as InternalTicketQueue[], [internalQueuesData]);
+  const hasTeam = (currentUser?.internalTeamIds?.length ?? 0) > 0
+    || internalQueues.some(q => !!currentUser?.id && q.memberIds.includes(currentUser.id));
   const effectiveScope: ViewScope = viewScope === "team" && !hasTeam ? "all" : viewScope;
 
   // Restauração das preferências salvas.
@@ -387,15 +397,28 @@ export function InternalTicketsView({
     () => [...(internalTeamsData || [])].sort((a: any, b: any) => a.name.localeCompare(b.name)),
     [internalTeamsData]
   );
+  // O que aparece como "Fila" em cada ticket (2026-11-13): as filas, mais as
+  // equipes antigas (só para os tickets que ainda não têm fila). O primeiro
+  // item é o "Sem fila", usado quando nada casa.
+  const queueOptions = useMemo(
+    () => internalQueues.filter(q => q.isActive).map(q => ({
+      value: q.id,
+      label: q.name,
+      color: "bg-[var(--accent)]/20 text-[var(--accent-text)]"
+    })),
+    [internalQueues]
+  );
   const teams = useMemo(
-    () => sortedInternalTeams.length > 0
-      ? sortedInternalTeams.map((t: any) => ({
-          value: t.name,
-          label: t.name,
-          color: "bg-[var(--accent)]/20 text-[var(--accent-text)]"
-        }))
-      : DEFAULT_TEAM_OPTIONS,
-    [sortedInternalTeams]
+    () => [
+      { value: '', label: 'Sem fila', color: "bg-[var(--surface-pill)] text-[var(--text-tertiary)]" },
+      ...internalQueues.map(q => ({ value: q.id, label: q.name, color: "bg-[var(--accent)]/20 text-[var(--accent-text)]" })),
+      ...sortedInternalTeams.map((t: any) => ({
+        value: `team:${t.name}`,
+        label: `${t.name} (equipe)`,
+        color: "bg-[var(--surface-pill)] text-[var(--text-secondary)]"
+      })),
+    ],
+    [internalQueues, sortedInternalTeams]
   );
 
   // Pedido do usuário, 2026-11-08: o seletor de responsável (inline na
@@ -414,8 +437,14 @@ export function InternalTicketsView({
   // Sem equipe reconhecida (ticket legado, ou equipe fora do cadastro atual)
   // cai pra lista inteira — melhor mostrar todo mundo do que não mostrar
   // ninguém nesse caso raro.
-  const getAssignableUsersForTeam = (teamName?: string) =>
-    (teamName && assignableUsersByTeam.get(teamName)) || assignableUsers;
+  // Recebe o groupKey do ticket: fila → membros dela; "team:<nome>" (ticket
+  // antigo) → membros da equipe; sem nada → todo mundo.
+  const getAssignableUsersForTeam = (groupKey?: string) => {
+    if (!groupKey) return assignableUsers;
+    if (groupKey.startsWith('team:')) return assignableUsersByTeam.get(groupKey.slice(5)) || assignableUsers;
+    const members = new Set(internalQueues.find(q => q.id === groupKey)?.memberIds || []);
+    return assignableUsers.filter(u => members.has(u.id));
+  };
 
   // Status (fetched de config_statuses, scope=internal_ticket — cadastrados
   // em Configurações > Geral > Status) — DEFAULT_KANBAN_STATUSES só cobre o
@@ -461,7 +490,7 @@ export function InternalTicketsView({
       // saindo do navegador (ver action=board em app/api/internal-tickets).
       const qs = new URLSearchParams({ page: '1', pageSize: String(MAX_ITEMS) });
       if (debouncedSearch) qs.set('search', debouncedSearch);
-      if (filterTeams.length > 0) qs.set('teamIds', filterTeams.join(','));
+      if (filterTeams.length > 0) qs.set('queueIds', filterTeams.join(','));
       if (filterAssignee) qs.set('assigneeId', filterAssignee);
       if (filterStatus) qs.set('status', filterStatus);
       if (filterPriority) qs.set('priority', filterPriority);
@@ -535,6 +564,8 @@ export function InternalTicketsView({
           assigneeId: it.assignee_id || undefined,
           creatorId: it.creator_id || undefined,
           teamId: it.team_id || undefined,
+          internalQueueId: it.internal_queue_id || null,
+          groupKey: it.internal_queue_id || (it.team_id ? `team:${it.team_id}` : ''),
           parentTicketIds: linkedIds,
           linkedTicketTitles: linkedIds.map((id: string) => ticketMap.get(id) || "Ticket removido").filter(Boolean),
           assigneeName: it.assignee_id ? assigneeMap.get(it.assignee_id)?.name || null : null,
@@ -574,7 +605,7 @@ export function InternalTicketsView({
   // Edição em massa — troca o campo de todos os selecionados numa chamada só
   // (InternalTicketService.bulkUpdate → POST /api/internal-tickets,
   // action=update com `ids`) e recarrega a lista.
-  const handleBulkFieldChange = async (fields: Partial<{ status: string; assigneeId: string; teamId: string; priority: number }>, successMessage: string) => {
+  const handleBulkFieldChange = async (fields: Partial<{ status: string; assigneeId: string; teamId: string; internalQueueId: string; priority: number }>, successMessage: string) => {
     if (selectedIds.length === 0) return;
     setIsBulkSaving(true);
     try {
@@ -796,7 +827,7 @@ const openEditModal = (ticket: InternalTicketItem) => {
         <div className="flex items-center gap-2 flex-wrap mb-1">
           <div role="radiogroup" aria-label="Visão dos tickets" className="flex items-center gap-1 p-1 rounded-full bg-[var(--surface-pill)]">
             {[
-              ...(hasTeam ? [{ key: "team" as const, label: "Minha equipe", icon: Users }] : []),
+              ...(hasTeam ? [{ key: "team" as const, label: "Minhas filas", icon: Users }] : []),
               { key: "all" as const, label: "Todos", icon: Inbox },
               { key: "assigned" as const, label: "Atribuído a mim", icon: UserIcon },
             ].map((opt) => (
@@ -861,12 +892,12 @@ const openEditModal = (ticket: InternalTicketItem) => {
                 {/* Múltipla escolha: acompanhar duas ou três equipes ao mesmo
                     tempo é o caso comum de quem trabalha atravessado. */}
                 <MultiSelectFilter
-                  options={teams.map((t) => ({ value: t.value, label: t.label }))}
+                  options={[...queueOptions.map((t) => ({ value: t.value, label: t.label })), { value: 'none', label: 'Sem fila (tickets antigos)' }]}
                   selected={filterTeams}
                   onChange={setFilterTeams}
-                  allLabel="Todas Equipes"
-                  itemLabelPlural="equipes"
-                  searchPlaceholder="Buscar equipe..."
+                  allLabel="Todas as Filas"
+                  itemLabelPlural="filas"
+                  searchPlaceholder="Buscar fila..."
                 />
 
                 <StyledSelect
@@ -997,7 +1028,7 @@ const openEditModal = (ticket: InternalTicketItem) => {
                   Transferir
                 </button>
                 <button onClick={() => setIsBulkTeamOpen(true)} className="px-3 py-1.5 rounded-lg text-[10px] font-bold uppercase tracking-widest border border-[var(--border-default)] text-[var(--text-secondary)] hover:bg-[var(--surface-pill)] transition-all">
-                  Mudar Equipe
+                  Mudar Fila
                 </button>
                 <button onClick={() => setIsBulkPriorityOpen(true)} className="px-3 py-1.5 rounded-lg text-[10px] font-bold uppercase tracking-widest border border-[var(--border-default)] text-[var(--text-secondary)] hover:bg-[var(--surface-pill)] transition-all">
                   Alterar Prioridade
@@ -1091,14 +1122,14 @@ const openEditModal = (ticket: InternalTicketItem) => {
       {isBulkTeamOpen && (
         <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-[200] p-4" onClick={() => setIsBulkTeamOpen(false)}>
           <div className="bg-[var(--surface-card)] rounded-2xl p-6 max-w-md w-full" onClick={(e) => e.stopPropagation()}>
-            <h3 className="text-lg font-black text-[var(--text-primary)] mb-1 uppercase">Mudar Equipe</h3>
+            <h3 className="text-lg font-black text-[var(--text-primary)] mb-1 uppercase">Mudar Fila</h3>
             <p className="text-sm text-[var(--text-tertiary)] mb-4">{selectedIds.length} ticket(s) selecionado(s)</p>
-            <div className="grid grid-cols-2 gap-3">
-              {teams.map(t => (
+            <div className="grid grid-cols-2 gap-3 max-h-[60vh] overflow-y-auto">
+              {queueOptions.map(t => (
                 <button
                   key={t.value}
                   disabled={isBulkSaving}
-                  onClick={() => handleBulkFieldChange({ teamId: t.value }, `${selectedIds.length} ticket(s) movido(s) para ${t.label}`)}
+                  onClick={() => handleBulkFieldChange({ internalQueueId: t.value }, `${selectedIds.length} ticket(s) movido(s) para ${t.label}`)}
                   className={cn("py-3 rounded-xl text-[10px] font-semibold uppercase tracking-widest border transition-all disabled:opacity-50", t.color)}
                 >
                   {t.label}
@@ -1150,8 +1181,8 @@ function TicketCard({
   onReassign?: (ticketId: string, assigneeId: string | null) => Promise<void>;
   unreadCount?: number;
 }) {
-  const teamOption = teams.find((t) => t.value === ticket.teamId) || teams[0];
-  const scopedAssignableUsers = getAssignableUsersForTeam ? getAssignableUsersForTeam(ticket.teamId) : assignableUsers;
+  const teamOption = teams.find((t) => t.value === (ticket.groupKey || '')) || teams[0];
+  const scopedAssignableUsers = getAssignableUsersForTeam ? getAssignableUsersForTeam(ticket.groupKey) : assignableUsers;
   const statusMeta = statuses.find(s => s.value === (ticket.status || "Novo")) || statuses[0];
 
   return (
@@ -1286,7 +1317,7 @@ function TicketTable({
             <th className="px-4 py-3 text-left text-[10px] font-semibold uppercase text-[var(--text-tertiary)]">Número</th>
             <th className="px-4 py-3 text-left text-[10px] font-semibold uppercase text-[var(--text-tertiary)]">Título</th>
             <th className="px-4 py-3 text-left text-[10px] font-semibold uppercase text-[var(--text-tertiary)]">Status</th>
-            <th className="px-4 py-3 text-left text-[10px] font-semibold uppercase text-[var(--text-tertiary)]">Equipe</th>
+            <th className="px-4 py-3 text-left text-[10px] font-semibold uppercase text-[var(--text-tertiary)]">Fila</th>
             <th className="px-4 py-3 text-left text-[10px] font-semibold uppercase text-[var(--text-tertiary)]">Prioridade</th>
             <th className="px-4 py-3 text-left text-[10px] font-semibold uppercase text-[var(--text-tertiary)]">Responsável</th>
             <th className="px-4 py-3 text-left text-[10px] font-semibold uppercase text-[var(--text-tertiary)]">SLA</th>
@@ -1298,10 +1329,10 @@ function TicketTable({
         </thead>
         <tbody className="divide-y divide-[var(--border-default)]">
           {tickets.map((it) => {
-            const teamOpt = teams.find((t) => t.value === it.teamId) || teams[0];
+            const teamOpt = teams.find((t) => t.value === (it.groupKey || '')) || teams[0];
             const statusMeta = statuses.find(s => s.value === (it.status || "Novo")) || statuses[0];
             const isSelected = !!selectedIds?.includes(it.uuid!);
-            const scopedAssignableUsers = getAssignableUsersForTeam ? getAssignableUsersForTeam(it.teamId) : assignableUsers;
+            const scopedAssignableUsers = getAssignableUsersForTeam ? getAssignableUsersForTeam(it.groupKey) : assignableUsers;
             return (
               <tr key={it.id} className={cn("hover:bg-[var(--surface-card)]/50 transition-colors cursor-pointer group", isSelected && "bg-[var(--accent)]/5")} onClick={() => onEdit(it)}>
                 {onToggleSelect && (
@@ -1510,7 +1541,7 @@ function KanbanCard({ ticket, onEdit, dragging = false, assignableUsers = [], ge
   // indicativo de "notas novas" de TicketCard/TicketTable (2026-10-21).
   const { navBadges } = useApp();
   const unreadCount = navBadges.internalTicketsUnreadByTicket[ticket.uuid || ''] || 0;
-  const scopedAssignableUsers = getAssignableUsersForTeam ? getAssignableUsersForTeam(ticket.teamId) : assignableUsers;
+  const scopedAssignableUsers = getAssignableUsersForTeam ? getAssignableUsersForTeam(ticket.groupKey) : assignableUsers;
   return (
     <div
       onClick={() => !dragging && onEdit(ticket)}

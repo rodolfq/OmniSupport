@@ -8,7 +8,14 @@ export class ChatService {
   // check, cinza) as mensagens das sessões desse usuário (cliente dono ou
   // analista responsável) só de sincronizar a lista — ver app/api/chats/route.ts.
   static async getSessions(userId?: string): Promise<ChatSession[]> {
-    const url = userId ? `/api/chats?action=sessions&userId=${encodeURIComponent(userId)}` : '/api/chats?action=sessions';
+    // Com userId é o widget de chat, que só mostra conversa aberta (ou
+    // encerrada ainda na janela da pesquisa) — pede só essas (openOnly). Sem
+    // isso vinham TODAS as conversas já existentes a cada recarga (2026-11-13).
+    // A Central de Atendimento chama sem userId e continua recebendo tudo
+    // (ela lista as encerradas em "Registros").
+    const url = userId
+      ? `/api/chats?action=sessions&openOnly=1&userId=${encodeURIComponent(userId)}`
+      : '/api/chats?action=sessions';
     const res = await fetch(url);
     if (!res.ok) {
       const body = await res.json().catch(() => ({}));
@@ -41,6 +48,19 @@ export class ChatService {
     if (!res.ok) throw new Error('Error pushing message via API');
     const data = await res.json().catch(() => ({}));
     return data.sessionId || sessionId;
+  }
+
+  // Igual a pushMessage, mas devolve também `duplicate` — o servidor recusa
+  // uma segunda mensagem de encerramento na mesma conversa (ver push-message).
+  static async pushMessageWithResult(sessionId: string, message: ChatMessage): Promise<{ sessionId: string; duplicate: boolean }> {
+    const res = await fetch('/api/chats', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ action: 'push-message', sessionId, message })
+    });
+    if (!res.ok) throw new Error('Error pushing message via API');
+    const data = await res.json().catch(() => ({}));
+    return { sessionId: data.sessionId || sessionId, duplicate: data.duplicate === true };
   }
 
   static async sendTyping(sessionId: string, userId: string, userName: string): Promise<void> {

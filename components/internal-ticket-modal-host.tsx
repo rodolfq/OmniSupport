@@ -3,6 +3,7 @@
 import React, { useCallback } from 'react';
 import { usePathname, useRouter, useSearchParams } from 'next/navigation';
 import { InternalTicketDetailModal } from '@/components/internal-ticket-detail-modal';
+import { AnimatePresence } from 'motion/react';
 
 // Parâmetro de URL que abre o ticket interno como modal sobre QUALQUER tela
 // do portal (2026-11-11). Valor: o que a action=detail aceita — uuid, número
@@ -49,8 +50,13 @@ export function InternalTicketModalHost() {
     router.replace(withParam(pathname, searchParams ?? new URLSearchParams(), null), { scroll: false });
   }, [router, pathname, searchParams]);
 
-  if (!ref) return null;
   // key: trocar de um ticket pro outro (ex.: link dentro do próprio modal)
   // remonta do zero, sem carregar estado de formulário do anterior.
-  return <InternalTicketDetailModal key={ref} ticketRef={ref} onClose={handleClose} />;
+  // AnimatePresence: segura o painel na tela até a animação de saída terminar
+  // (antes ele sumia na hora ao fechar, 2026-11-13).
+  return (
+    <AnimatePresence>
+      {ref && <InternalTicketDetailModal key={ref} ticketRef={ref} onClose={handleClose} />}
+    </AnimatePresence>
+  );
 }

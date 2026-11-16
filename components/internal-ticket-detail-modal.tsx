@@ -4,7 +4,7 @@ import React, { useState, useEffect, useCallback, useMemo } from 'react';
 import { StyledSelect } from '@/components/styled-select';
 import { useRouter } from 'next/navigation';
 import { useApp } from '@/app/app-context';
-import { InternalTicket, Message, User, Hotfix, EffortConfig, OutcomeConfig, Permission } from '@/lib/types';
+import { InternalTicket, Message, User, Hotfix, EffortConfig, OutcomeConfig, Permission, InternalTicketQueue } from '@/lib/types';
 import { MessageService, InternalTicketService } from '@/lib/services/ticket-service';
 import { getHotfixes, saveHotfix } from '@/lib/services/queue-service';
 import { cn, selectableOptions, htmlHasContent } from '@/lib/utils';
@@ -34,7 +34,7 @@ import { toast } from 'sonner';
 import { ClientTime } from '@/components/client-time';
 import { FieldChange, formatChangeMessage } from '@/lib/ticket-diff';
 import { INTERNAL_PRIORITY_LABELS, computeInternalTicketSla } from '@/lib/sla';
-import { useAnalystsQuery, useConfigEffortsQuery, useConfigOutcomesQuery, useInternalTeamsQuery, useConfigPrioritiesQuery, useConfigStatusesQuery } from '@/lib/query-hooks';
+import { useAnalystsQuery, useConfigEffortsQuery, useConfigOutcomesQuery, useInternalTeamsQuery, useConfigPrioritiesQuery, useConfigStatusesQuery, useInternalTicketQueuesQuery } from '@/lib/query-hooks';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { findStatusColor } from '@/lib/status-colors';
 import { uploadAttachment } from '@/lib/attachment-upload';
@@ -53,20 +53,6 @@ interface LinkedTicket {
   title: string;
   ticketNumber?: number;
 }
-
-// Fallback só pra quando internal_teams ainda não carregou (ou está vazia) —
-// mesmo padrão de internal-tickets-view.tsx/new-internal-ticket-modal.tsx.
-// Achado em 2026-10-23 (usuário perguntando por que "Suporte" não aparecia
-// pra escolher): esta tela usava essa lista fixa como ÚNICA fonte, nunca
-// lendo a tabela internal_teams de verdade — 4 nomes de placeholder (só
-// "Desenvolvimento" coincide com uma equipe real) escondiam as outras 4
-// equipes cadastradas (CRC - CS, Hardware, Suporte, Treinamento).
-const DEFAULT_TEAM_OPTIONS = [
-  { value: "Desenvolvimento", label: "Desenvolvimento", color: "bg-[var(--accent)]/20 text-[var(--accent-text)]" },
-  { value: "Infraestrutura", label: "Infraestrutura", color: "bg-[var(--surface-success)] text-[var(--text-success)]" },
-  { value: "QA / Testes", label: "QA / Testes", color: "bg-[var(--surface-warning)] text-[var(--text-warning)]" },
-  { value: "Produto", label: "Produto", color: "bg-purple-100 dark:bg-purple-500/20 text-purple-700 dark:text-purple-300" },
-];
 
 interface KanbanStatusMeta {
   value: string;
@@ -181,7 +167,7 @@ export function InternalTicketDetailModal({ ticketRef, onClose, creating, onCrea
     id: '',
     title: creating.title || '',
     description: creating.description || '',
-    teamId: 'Desenvolvimento',
+    teamId: '',
     priority: 1,
     tags: [],
     status: 'Novo',
@@ -213,16 +199,15 @@ export function InternalTicketDetailModal({ ticketRef, onClose, creating, onCrea
 
   const [formTitle, setFormTitle] = useState(creating?.title || '');
   const [formDescription, setFormDescription] = useState(creating?.description || '');
-  const [formTeam, setFormTeam] = useState('Desenvolvimento');
-  // Equipes de verdade (internal_teams), não a lista fixa de placeholder —
-  // ver comentário de DEFAULT_TEAM_OPTIONS acima.
+  const [formTeam, setFormTeam] = useState(creating ? '' : 'Desenvolvimento');
+  // Fila (2026-11-13): substitui a Equipe no ticket interno. Ticket antigo
+  // fica sem fila e mostra a equipe (formTeam) só para consulta.
+  const [formQueueId, setFormQueueId] = useState('');
+  const { data: internalQueuesData } = useInternalTicketQueuesQuery();
+  const internalQueues = useMemo(() => (internalQueuesData || []) as InternalTicketQueue[], [internalQueuesData]);
+  // Equipes (internal_teams): só para ticket ANTIGO, que ainda não tem fila
+  // (lista de responsáveis pela equipe e o texto "Equipe (antiga)").
   const { data: internalTeamsData } = useInternalTeamsQuery();
-  const teamOptions = useMemo(() => {
-    const sorted = [...(internalTeamsData || [])].sort((a: any, b: any) => a.name.localeCompare(b.name, 'pt-BR'));
-    return sorted.length > 0
-      ? sorted.map((t: any) => ({ value: t.name, label: t.name }))
-      : DEFAULT_TEAM_OPTIONS;
-  }, [internalTeamsData]);
   const [formPriority, setFormPriority] = useState(1);
   const [formAssignee, setFormAssignee] = useState('');
   const [formStatus, setFormStatus] = useState('Novo');
@@ -252,17 +237,41 @@ export function InternalTicketDetailModal({ ticketRef, onClose, creating, onCrea
   // compartilhado, mesmo filtro que o fetch direto tinha.
   const { data: analystsData } = useAnalystsQuery();
   const analysts = useMemo(() => (analystsData || []) as User[], [analystsData]);
+  // Quem pode ser marcado com @ nas notas (2026-11-16): a equipe toda. Quem é
+  // marcado passa a receber as atualizações do ticket por e-mail até ele fechar.
+  const mentionItems = useMemo(
+    () => [...analysts].sort((a, b) => a.name.localeCompare(b.name, 'pt-BR')).map(a => ({ id: a.id, label: a.name })),
+    [analysts]
+  );
   // Pedido do usuário, 2026-11-08: "Responsável" só pode mostrar quem é da
   // equipe ATUAL do ticket (formTeam) — mesma correção já feita na criação
   // (components/new-internal-ticket-modal.tsx) e na lista/kanban/tabela
   // (internal-tickets-view.tsx). `analysts` continua intocado pros outros
   // usos (resolver nome de autor/remetente em notas e histórico) — só esta
   // lista derivada é escopada, e só pro <select> de Responsável.
+  // Desde 2026-11-13 o recorte é pela FILA: só os membros dela. Ticket antigo
+  // (sem fila) continua pela equipe. O responsável atual sempre aparece, mesmo
+  // que não seja membro (senão a lista mostraria "Não atribuído" sem ser).
   const scopedAnalysts = useMemo(() => {
-    const teamId = (internalTeamsData || []).find((t: any) => t.name === formTeam)?.id;
-    if (!teamId) return analysts;
-    return analysts.filter((a) => (a.internalTeamIds || []).includes(teamId));
-  }, [analysts, internalTeamsData, formTeam]);
+    let list = analysts;
+    if (formQueueId) {
+      const members = new Set(internalQueues.find(q => q.id === formQueueId)?.memberIds || []);
+      list = analysts.filter(a => members.has(a.id));
+    } else {
+      const teamId = (internalTeamsData || []).find((t: any) => t.name === formTeam)?.id;
+      if (teamId) list = analysts.filter((a) => (a.internalTeamIds || []).includes(teamId));
+    }
+    if (formAssignee && !list.some(a => a.id === formAssignee)) {
+      const atual = analysts.find(a => a.id === formAssignee);
+      if (atual) list = [...list, atual];
+    }
+    return list;
+  }, [analysts, internalTeamsData, formTeam, formQueueId, internalQueues, formAssignee]);
+  // Filas oferecidas: as ativas, mais a atual mesmo que tenha sido desativada.
+  const queueOptions = useMemo(
+    () => internalQueues.filter(q => q.isActive || q.id === formQueueId),
+    [internalQueues, formQueueId]
+  );
   // Prioridades, status e hotfixes vêm do cache compartilhado (React Query,
   // lib/query-hooks.ts) — antes eram buscados do zero a cada abertura de
   // ticket (2026-11-12, performance).
@@ -356,6 +365,7 @@ export function InternalTicketDetailModal({ ticketRef, onClose, creating, onCrea
         internalTicketNumber: data.internal_ticket_number,
         title: data.title,
         teamId: data.team_id,
+        internalQueueId: data.internal_queue_id ?? null,
         assigneeId: data.assignee_id,
         priority: data.priority,
         tags: data.tags || [],
@@ -381,7 +391,8 @@ export function InternalTicketDetailModal({ ticketRef, onClose, creating, onCrea
       setFormDescription(data.description || '');
       titleDraftRef.current = data.title || '';
       descriptionDraftRef.current = data.description || '';
-      setFormTeam(data.team_id || 'Desenvolvimento');
+      setFormTeam(data.team_id || '');
+      setFormQueueId(data.internal_queue_id || '');
       setFormPriority(data.priority || 1);
       setFormAssignee(data.assignee_id || '');
       setFormStatus(data.status || 'Novo');
@@ -485,7 +496,7 @@ export function InternalTicketDetailModal({ ticketRef, onClose, creating, onCrea
   // ticket antes perdia a troca.
   const handleUpdateTicket = async (overrides: Partial<{
     status: string; assigneeId: string; subStatus: string | null; qaRejected: boolean; environmentRejected: boolean;
-    title: string; description: string; teamId: string; priority: number; hotfixId: string; expectedPublish: string;
+    title: string; description: string; teamId: string; queueId: string; priority: number; hotfixId: string; expectedPublish: string;
     effortId: string; outcomeId: string;
   }> = {}) => {
     if (!ticket) return;
@@ -500,6 +511,7 @@ export function InternalTicketDetailModal({ ticketRef, onClose, creating, onCrea
       if ('title' in overrides) setFormTitle(overrides.title ?? '');
       if ('description' in overrides) setFormDescription(overrides.description ?? '');
       if ('teamId' in overrides) setFormTeam(overrides.teamId ?? '');
+      if ('queueId' in overrides) setFormQueueId(overrides.queueId ?? '');
       if ('priority' in overrides && overrides.priority !== undefined) setFormPriority(overrides.priority);
       if ('hotfixId' in overrides) setFormHotfixId(overrides.hotfixId ?? '');
       if ('expectedPublish' in overrides) setFormExpectedPublish(overrides.expectedPublish ?? '');
@@ -515,6 +527,7 @@ export function InternalTicketDetailModal({ ticketRef, onClose, creating, onCrea
     const fTitle = 'title' in overrides ? (overrides.title ?? '') : formTitle;
     const fDescription = 'description' in overrides ? (overrides.description ?? '') : formDescription;
     const fTeam = 'teamId' in overrides ? (overrides.teamId ?? '') : formTeam;
+    const fQueue = 'queueId' in overrides ? (overrides.queueId ?? '') : formQueueId;
     const fPriority = 'priority' in overrides && overrides.priority !== undefined ? overrides.priority : formPriority;
     const fHotfixId = 'hotfixId' in overrides ? (overrides.hotfixId ?? '') : formHotfixId;
     const fExpectedPublish = 'expectedPublish' in overrides ? (overrides.expectedPublish ?? '') : formExpectedPublish;
@@ -542,6 +555,7 @@ export function InternalTicketDetailModal({ ticketRef, onClose, creating, onCrea
       nextEnvironmentRejected === !!ticket.environmentRejected &&
       nextAssignee === (ticket.assigneeId || '') &&
       fTeam === (ticket.teamId || '') &&
+      fQueue === (ticket.internalQueueId || '') &&
       fPriority === ticket.priority &&
       fTitle === (ticket.title || '') &&
       tags.join(', ') === (ticket.tags || []).join(', ') &&
@@ -567,6 +581,10 @@ export function InternalTicketDetailModal({ ticketRef, onClose, creating, onCrea
     }
     if (fTeam !== (ticket.teamId || '')) {
       changes.push({ label: 'Equipe', from: ticket.teamId || 'Sem equipe', to: fTeam || 'Sem equipe' });
+    }
+    if (fQueue !== (ticket.internalQueueId || '')) {
+      const nomeFila = (id: string) => id ? (internalQueues.find(q => q.id === id)?.name || 'fila removida') : 'Sem fila';
+      changes.push({ label: 'Fila', from: nomeFila(ticket.internalQueueId || ''), to: nomeFila(fQueue) });
     }
     if (fPriority !== ticket.priority) {
       changes.push({ label: 'Prioridade', from: INTERNAL_PRIORITY_LABELS[ticket.priority] || String(ticket.priority), to: INTERNAL_PRIORITY_LABELS[fPriority] || String(fPriority) });
@@ -622,6 +640,7 @@ export function InternalTicketDetailModal({ ticketRef, onClose, creating, onCrea
             title: fTitle,
             description: fDescription,
             teamId: fTeam,
+            internalQueueId: fQueue || null,
             priority: fPriority,
             assigneeId: nextAssignee || null,
             status: nextStatus,
@@ -651,12 +670,13 @@ export function InternalTicketDetailModal({ ticketRef, onClose, creating, onCrea
       setFormTitle(fTitle);
       setFormDescription(fDescription);
       setFormTeam(fTeam);
+      setFormQueueId(fQueue);
       setFormPriority(fPriority);
       setFormHotfixId(fHotfixId);
       setFormExpectedPublish(fExpectedPublish);
       setFormEffortId(fEffortId);
       setFormOutcomeId(fOutcomeId);
-      setTicket(prev => prev ? { ...prev, status: nextStatus as InternalTicketWithExtras['status'], assigneeId: nextAssignee, tags, teamId: fTeam, priority: fPriority, title: fTitle, slaLimit: slaIso, expectedPublishDate: expectedPublishIso, hotfixId: fHotfixId || null, effortId: fEffortId || null, outcomeId: fOutcomeId || null, description: fDescription, subStatus: nextSubStatus, qaRejected: nextQaRejected, environmentRejected: nextEnvironmentRejected } : prev);
+      setTicket(prev => prev ? { ...prev, status: nextStatus as InternalTicketWithExtras['status'], assigneeId: nextAssignee, tags, teamId: fTeam, internalQueueId: fQueue || null, priority: fPriority, title: fTitle, slaLimit: slaIso, expectedPublishDate: expectedPublishIso, hotfixId: fHotfixId || null, effortId: fEffortId || null, outcomeId: fOutcomeId || null, description: fDescription, subStatus: nextSubStatus, qaRejected: nextQaRejected, environmentRejected: nextEnvironmentRejected } : prev);
       if (Array.isArray(updateBody?.messages)) setMessages(updateBody.messages);
       else if (logEntries.length > 0) loadMessages();
       toast.success('Ticket atualizado');
@@ -700,15 +720,18 @@ export function InternalTicketDetailModal({ ticketRef, onClose, creating, onCrea
       toast.error('Preencha o título antes de criar.');
       return;
     }
+    if (!formQueueId) {
+      toast.error('Escolha a fila do ticket interno.');
+      return;
+    }
     setIsSubmittingCreate(true);
     try {
       const tags = formTags.split(',').map(t => t.trim()).filter(Boolean);
-      const internalTeam = (internalTeamsData || []).find((t: any) => t.name === formTeam) as any;
+      // Ticket novo nasce só com FILA (2026-11-13); a equipe fica vazia.
       const saved = await InternalTicketService.saveWithDetails({
         title: createTitle,
         description: createDescription,
-        teamId: formTeam,
-        internalTeamId: internalTeam?.id,
+        internalQueueId: formQueueId,
         priority: formPriority,
         assigneeId: formAssignee || undefined,
         creatorId: currentUser.id,
@@ -984,7 +1007,9 @@ export function InternalTicketDetailModal({ ticketRef, onClose, creating, onCrea
         transition={{ type: 'spring', damping: 25, stiffness: 200 }}
         onClick={(e) => e.stopPropagation()}
         className={cn(
-          "relative bg-[var(--surface-card)] h-full shadow-2xl border-l border-[var(--border-default)] flex flex-col transition-all duration-500 ease-in-out",
+          // Só a largura transita por CSS — ver o mesmo comentário em
+          // ticket-detail-modal.tsx (fechar sumia sem animar, 2026-11-13).
+          "relative bg-[var(--surface-card)] h-full shadow-2xl border-l border-[var(--border-default)] flex flex-col transition-[max-width] duration-500 ease-in-out",
           isFocused ? "w-full" : "w-full md:max-w-[90vw]"
         )}
       >
@@ -1231,10 +1256,21 @@ export function InternalTicketDetailModal({ ticketRef, onClose, creating, onCrea
             <div className="grid grid-cols-1 xl:grid-cols-2 gap-x-8 gap-y-2.5">
               <div className="space-y-2">
                 <div className="flex items-start gap-4">
-                  <span className="text-[11px] font-semibold uppercase text-[var(--text-tertiary)] w-24 pt-0.5">Equipe</span>
-                  <StyledSelect value={formTeam} onChange={(e) => { const v = e.target.value; setFormTeam(v); handleUpdateTicket({ teamId: v }); }} className="flex-1 bg-transparent border-none outline-none text-sm font-bold text-[var(--text-primary)] cursor-pointer hover:underline">
-                    {teamOptions.map(t => <option key={t.value} value={t.value}>{t.label}</option>)}
-                  </StyledSelect>
+                  <span className="text-[11px] font-semibold uppercase text-[var(--text-tertiary)] w-24 pt-0.5">Fila</span>
+                  <div className="flex-1 min-w-0">
+                    <StyledSelect
+                      value={formQueueId}
+                      onChange={(e) => { const v = e.target.value; setFormQueueId(v); handleUpdateTicket({ queueId: v }); }}
+                      className="w-full bg-transparent border-none outline-none text-sm font-bold text-[var(--text-primary)] cursor-pointer hover:underline"
+                    >
+                      <option value="">{isCreating ? 'Escolha a fila...' : 'Sem fila'}</option>
+                      {queueOptions.map(q => <option key={q.id} value={q.id}>{q.name}{q.isActive ? '' : ' (inativa)'}</option>)}
+                    </StyledSelect>
+                    {/* Ticket antigo: a equipe de antes fica só para consulta. */}
+                    {!formQueueId && formTeam && (
+                      <p className="text-[10px] text-[var(--text-tertiary)] mt-0.5">Equipe (antiga): {formTeam}</p>
+                    )}
+                  </div>
                 </div>
                 <div className="flex items-start gap-4">
                   <span className="text-[11px] font-semibold uppercase text-[var(--text-tertiary)] w-24 pt-0.5">Responsável</span>
@@ -1624,7 +1660,7 @@ export function InternalTicketDetailModal({ ticketRef, onClose, creating, onCrea
                       </div>
                       {editingMessageId === msg.id ? (
                         <div className="space-y-2">
-                          <RichEditor toolbar="basic" content={editingText} onChange={onEditDraft} minHeight="80px" maxHeight="35vh" />
+                          <RichEditor toolbar="basic" content={editingText} onChange={onEditDraft} minHeight="80px" maxHeight="35vh" mentionItems={mentionItems} />
                           <div className="flex justify-end gap-2">
                             <button
                               type="button"
@@ -1678,7 +1714,7 @@ export function InternalTicketDetailModal({ ticketRef, onClose, creating, onCrea
                 ))}
               </div>
             )}
-            <RichEditor key={composerKey} toolbar="basic" content="" onChange={onNoteDraft} placeholder="Digite sua nota interna..." minHeight="80px" maxHeight="35vh" />
+            <RichEditor key={composerKey} toolbar="basic" content="" onChange={onNoteDraft} placeholder="Digite sua nota interna... (@ para marcar alguém)" minHeight="80px" maxHeight="35vh" mentionItems={mentionItems} />
             <div className="flex justify-between items-center mt-3">
               <button onClick={() => fileInputRef.current?.click()} disabled={isUploading} className="px-3 py-1 rounded-lg text-xs font-bold border border-[var(--border-default)] text-[var(--text-secondary)] hover:bg-[var(--surface-card)] flex items-center gap-1 disabled:opacity-50">
                 {isUploading ? <Loader2 size={14} className="animate-spin" /> : <Paperclip size={14} />} {isUploading ? 'ENVIANDO...' : 'ANEXAR'}
@@ -1750,7 +1786,7 @@ export function InternalTicketDetailModal({ ticketRef, onClose, creating, onCrea
               <input
                 autoFocus
                 type="text"
-                placeholder="Buscar chamado por título..."
+                placeholder="Buscar chamado por número ou título..."
                 value={ticketSearch}
                 onChange={(e) => setTicketSearch(e.target.value)}
                 className="w-full pl-9 pr-3 py-2 rounded-lg border border-[var(--border-default)] text-sm focus:border-[var(--text-warning-strong)] outline-none"

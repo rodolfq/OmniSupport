@@ -80,7 +80,6 @@ import { PyvonChannelChoice, PortalEligibility } from '@/components/pyvon-channe
 import { ChatTagPicker, tagAccentBgClass } from '@/components/chat-tag-picker';
 import { cn, maskPhone, matchPhones, safeJsonStringify, normalizeString, normalizePhone, companyDetailHref } from '@/lib/utils';
 import { useApp } from '@/app/app-context';
-import { isEvaluationSnoozed } from '@/lib/evaluation-snooze';
 import { deriveLiveStatus } from '@/lib/presence';
 import { useSearchParams, usePathname, useRouter } from 'next/navigation';
 import { LinkContactModal } from '@/components/link-contact-modal';
@@ -257,7 +256,6 @@ export function ChatWidget() {
     setActiveOmniChatId,
     triggerRefresh,
     userStatus,
-    openEvaluationModal,
     hasPermission
   } = useApp();
   const searchParams = useSearchParams();
@@ -812,11 +810,26 @@ export function ChatWidget() {
   // chip reage na hora); o evento SSE 'tags-updated' mantém quem mais estiver
   // vendo a mesma conversa sincronizado. Em erro, desfaz reaplicando o estado
   // anterior.
+  //
+  // "A tag sai e volta sozinha" (2026-11-13): o guard de ordem dos reloads
+  // (sessionsReloadSeqRef) só compara um reload com outro — um reload que JÁ
+  // estava em voo quando a tag foi clicada, ou que começou antes de o servidor
+  // gravar, trazia a sessão SEM a tag nova e apagava a escolha da tela até o
+  // próximo reload. Agora a escolha fica guardada em pendingTagsRef enquanto o
+  // servidor não confirma, e todo reload aplica por cima (withPendingTags); o
+  // contador também é avançado antes e depois de gravar, descartando os
+  // reloads pedidos antes.
   const handleChatTagsChange = async (sessionId: string, tagIds: string[]) => {
     const previous = customerSessions.find(s => s.id === sessionId)?.tags || [];
+    const version = (pendingTagsRef.current.get(sessionId)?.version || 0) + 1;
+    pendingTagsRef.current.set(sessionId, { tags: tagIds, version });
+    sessionsReloadSeqRef.current++;
     setCustomerSessions(prev => prev.map(s => s.id === sessionId ? { ...s, tags: tagIds } : s));
 
     const result = await setChatSessionTags(sessionId, tagIds, currentUser?.id);
+    sessionsReloadSeqRef.current++;
+    // Só libera se ninguém trocou a tag de novo enquanto esta gravava.
+    if (pendingTagsRef.current.get(sessionId)?.version === version) pendingTagsRef.current.delete(sessionId);
     if ('error' in result) {
       toast.error('Erro ao atualizar os marcadores da conversa.');
       setCustomerSessions(prev => prev.map(s => s.id === sessionId ? { ...s, tags: previous } : s));
@@ -889,6 +902,15 @@ export function ChatWidget() {
   // até o próximo reload corrigir de novo. Sem fila nem cancelamento de
   // requisição — só "o último que FOI PEDIDO, não o último que RESPONDEU, vale".
   const sessionsReloadSeqRef = useRef(0);
+  // Tags escolhidas que o servidor ainda não confirmou (ver handleChatTagsChange).
+  const pendingTagsRef = useRef(new Map<string, { tags: string[]; version: number }>());
+  const withPendingTags = React.useCallback((sessions: ChatSession[]): ChatSession[] => {
+    if (pendingTagsRef.current.size === 0) return sessions;
+    return sessions.map(s => {
+      const pending = pendingTagsRef.current.get(s.id);
+      return pending ? { ...s, tags: pending.tags } : s;
+    });
+  }, []);
 
   // Ponto único pra um reload COMPLETO de customerSessions fora dos dois
   // efeitos acima (ex.: depois de vincular contato, editar cadastro, vincular
@@ -901,7 +923,7 @@ export function ChatWidget() {
   const reloadAllSessions = React.useCallback(async (signal?: AbortSignal, userId?: string) => {
     const mySeq = ++sessionsReloadSeqRef.current;
     const sessions = await fetchChatSessions(signal, userId);
-    if (mySeq === sessionsReloadSeqRef.current) setCustomerSessions(sessions);
+    if (mySeq === sessionsReloadSeqRef.current) setCustomerSessions(withPendingTags(sessions));
     return sessions;
   }, []);
 
@@ -1420,7 +1442,7 @@ export function ChatWidget() {
         // um reload mais novo enquanto este estava em voo (ver comentário do
         // sessionsReloadSeqRef).
         if (mySeq !== sessionsReloadSeqRef.current) return;
-        setCustomerSessions(sessions);
+        setCustomerSessions(withPendingTags(sessions));
       } catch (err: any) {
         const errMsg = String(err?.message ?? '');
         if (err?.name === 'AbortError' || errMsg.includes('aborted')) {
@@ -1472,7 +1494,7 @@ export function ChatWidget() {
           // conversa, de QUALQUER analista) pode disparar este reload bem na
           // hora em que outro já estava em voo — sem isso, o que responder
           // por último "ganhava" mesmo sendo o pedido mais ANTIGO.
-          if (mySeq === sessionsReloadSeqRef.current) setCustomerSessions(sessions);
+          if (mySeq === sessionsReloadSeqRef.current) setCustomerSessions(withPendingTags(sessions));
         }).catch(() => {});
       }, 150);
     };
@@ -1567,6 +1589,8 @@ export function ChatWidget() {
         }
 
         if (payload?.type === 'tags-updated') {
+          // Eco da própria troca ainda não confirmada: a tela já mostra o valor certo.
+          if (pendingTagsRef.current.has(payload.sessionId)) return;
           setCustomerSessions(prev => prev.map(s => s.id === payload.sessionId ? { ...s, tags: (payload.tags as string[]) || [] } : s));
           return;
         }
@@ -2275,6 +2299,11 @@ useEffect(() => {
 
     finishingRef.current = true;
     setFinishingAction(closeAsSpam ? 'spam' : closeChat ? 'finish' : 'generate');
+    // Configuração da pesquisa buscada JÁ, em paralelo com as checagens
+    // abaixo (2026-11-13): antes era uma ida a mais, em fila, só no fim.
+    const surveySettingsPromise = closeChat && !closeAsSpam
+      ? fetchSurveySettings().catch(() => null)
+      : Promise.resolve(null);
     try {
       // Encerrar exige tag. Pergunta ANTES de criar o chamado: se o servidor
       // recusasse só no fim, sobraria um chamado criado com a conversa aberta.
@@ -2427,7 +2456,7 @@ useEffect(() => {
       let awaitingSurveyUntil: string | null = null;
       if (!closeAsSpam) {
         try {
-          const surveySettings = await fetchSurveySettings();
+          const surveySettings = await surveySettingsPromise;
           if (surveySettings?.enabled && surveySettings.message) {
             const conversationNumber = String(createdTicketNumber ?? selectedChat.ticketNumber ?? '').padStart(4, '0');
             const closingMessage = `Sua conversa #${conversationNumber} foi finalizada.\n\n${surveySettings.message}`;
@@ -2438,9 +2467,12 @@ useEffect(() => {
               senderName: 'SSX Desk',
               text: closingMessage,
               timestamp: new Date().toISOString(),
-              type: 'system'
+              type: 'system',
+              // Marca a mensagem como "encerramento": o servidor grava só uma
+              // por conversa (ver push-message em app/api/chats/route.ts).
+              metadata: { closingSurvey: true }
             };
-            await pushChatMessage(selectedChat.id, closingChatMessage);
+            const pushed = await ChatService.pushMessageWithResult(selectedChat.id, closingChatMessage);
             awaitingSurveyUntil = new Date(Date.now() + surveySettings.responseWindowHours * 3600_000).toISOString();
 
             // Não aguarda: o encaminhamento pro Pyvon é uma chamada de rede
@@ -2449,7 +2481,10 @@ useEffect(() => {
             // dando a impressão de que o chat não fechava. O aviso de
             // encerramento já foi registrado no chat acima (pushChatMessage);
             // o envio ao WhatsApp é best-effort.
-            forwardMessageToWhatsApp({
+            // Já havia uma mensagem de encerramento nesta conversa (clique
+            // repetido, ou outro analista finalizando junto): não reenvia a
+            // avaliação ao cliente.
+            if (!pushed.duplicate) forwardMessageToWhatsApp({
               sessionId: selectedChat.id,
               messageId: closingChatMessage.id,
               customerPhone: selectedChat.customerPhone,
@@ -2478,33 +2513,20 @@ useEffect(() => {
         return;
       }
 
-      // Convite pra avaliar a empresa-cliente (perfil interno, nunca visível
-      // a ela) — só faz sentido pra um atendimento de verdade, com o contato
-      // vinculado a uma empresa conhecida (sem isso não há em qual cadastro
-      // gravar a avaliação), que não foi encerrado como spam, e que não
-      // esteja "silenciado" (ver botão Recusar por 1 semana no modal). Abre
-      // o modal direto — antes só disparava uma notificação no sino, que
-      // não deixava claro que dava pra agir ali mesmo.
-      const evaluationCompany = selectedChatContact?.companyId
-        ? companies.find(c => c.id === selectedChatContact.companyId)
-        : null;
-      if (!closeAsSpam && evaluationCompany && currentUser && !isEvaluationSnoozed(currentUser.id, evaluationCompany.id)) {
-        openEvaluationModal({
-          companyId: evaluationCompany.id,
-          companyName: evaluationCompany.name,
-          chatSessionId: selectedChat.id,
-          contactId: selectedChatContact?.id,
-          contactName: selectedChatContact?.name
-        });
-      }
+      // O convite pro analista avaliar a empresa-cliente ao encerrar a
+      // conversa (CustomerEvaluationModal) foi removido em 2026-11-13, a
+      // pedido do usuário.
 
       setIsFinishModalOpen(false);
       setSelectedChatId(null);
-      // Fechar a sessão muda se ela ainda deve aparecer na lista (depende da
-      // janela de pesquisa de satisfação) — menos direto de reproduzir num
-      // patch local que os outros pontos desta função; mantém o reload, só
-      // protegido contra a mesma corrida dos demais (reloadAllSessions).
-      await reloadAllSessions();
+      // A conversa sai da lista NA HORA (2026-11-13): antes o fluxo esperava
+      // o recarregamento completo de todas as conversas (pesado) e ela ficava
+      // aparecendo aberta por alguns segundos depois de finalizar. O reload
+      // continua, em segundo plano, para acertar o resto da lista.
+      const closedId = selectedChat.id;
+      sessionsReloadSeqRef.current++;
+      setCustomerSessions(prev => prev.filter(s => s.id !== closedId));
+      reloadAllSessions().catch(() => {});
       setTicketTitle('');
       toast.success(
         hadExistingTicket

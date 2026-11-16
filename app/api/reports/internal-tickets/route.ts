@@ -108,11 +108,13 @@ export async function GET(request: NextRequest) {
               i.created_at, i.resolved_at, i.qa_rejected, i.late_delivery,
               COALESCE(cs.is_closed, false) AS is_closed,
               p.id AS assignee_id, p.name AS assignee_name,
-              tm.id AS team_id, tm.name AS team_name,
+              -- Fila (2026-11-13); ticket antigo, sem fila, fica pela equipe.
+              COALESCE(iq.id, tm.id) AS team_id, COALESCE(iq.name, tm.name) AS team_name,
               ticket_business_minutes(i.created_at, COALESCE(i.resolved_at, NOW())) AS minutos_uteis
        FROM public.internal_tickets i
        LEFT JOIN public.profiles p ON p.id = i.assignee_id
        LEFT JOIN public.internal_teams tm ON tm.id = i.internal_team_id
+       LEFT JOIN public.internal_ticket_queues iq ON iq.id = i.internal_queue_id
        LEFT JOIN public.config_statuses cs
               ON cs.label = i.status AND cs.scope = 'internal_ticket' AND cs.parent_status_id IS NULL
        WHERE (i.created_at AT TIME ZONE 'America/Sao_Paulo')::date BETWEEN $1::date AND $2::date`,

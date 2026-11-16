@@ -9,6 +9,7 @@ import { Permission } from '@/lib/types';
 import { logAudit } from '@/lib/audit-log';
 import { ticketPriorityToStars, cascadePriorityFromInternalTicket, reconcilePriorityOnLink } from '@/lib/services/priority-sync-service';
 import { queueInternalTicketChangeEmail } from '@/lib/services/internal-ticket-notifications';
+import { registerMentions, extractMentionIds } from '@/lib/services/internal-ticket-mentions';
 import { formatChangeMessage, FieldChange } from '@/lib/ticket-diff';
 
 // Rota dos tickets internos — criada para tirar o InternalTicketService do
@@ -39,6 +40,7 @@ function toInternalTicket(row: any, parentTicketId?: string) {
     title: row.title,
     teamId: row.team_id,
     internalTeamId: row.internal_team_id,
+    internalQueueId: row.internal_queue_id ?? null,
     assigneeId: row.assignee_id,
     priority: row.priority,
     tags: row.tags || [],
@@ -71,7 +73,7 @@ function toInternalTicket(row: any, parentTicketId?: string) {
 // já tratavam o campo como texto de prévia. A descrição completa continua
 // vindo só pela action=detail, que é onde se edita.
 const LIST_COLUMNS = `
-  id, internal_ticket_number, title, team_id, internal_team_id, assignee_id,
+  id, internal_ticket_number, title, team_id, internal_team_id, internal_queue_id, assignee_id,
   priority, tags, creator_id, status, created_at, updated_at, sla_limit,
   expected_publish_date, hotfix_id, effort_id, outcome_id, sub_status,
   resolved_at, qa_rejected, late_delivery, environment_rejected, release_item_id,
@@ -252,6 +254,16 @@ export async function GET(request: NextRequest) {
         .map(s => s.trim())
         .filter(Boolean);
       if (teamIds.length > 0) addCondition('team_id = ANY($?)', teamIds);
+      // Filtro por FILA (2026-11-13) — substitui o de equipe na tela. O valor
+      // especial "none" pega os tickets sem fila (os antigos).
+      const queueIds = (searchParams.get('queueIds') || '').split(',').map(x => x.trim()).filter(Boolean);
+      if (queueIds.length > 0) {
+        const realIds = queueIds.filter(x => x !== 'none');
+        const parts: string[] = [];
+        if (realIds.length > 0) { params.push(realIds); parts.push(`internal_queue_id = ANY($${params.length}::uuid[])`); }
+        if (queueIds.includes('none')) parts.push('internal_queue_id IS NULL');
+        conditions.push(`(${parts.join(' OR ')})`);
+      }
       const assigneeId = searchParams.get('assigneeId');
       if (assigneeId) addCondition('assignee_id = $?', assigneeId);
 
@@ -270,21 +282,18 @@ export async function GET(request: NextRequest) {
         if (scope === 'assigned') {
           addCondition('assignee_id = $?', user.id);
         } else {
+          // "Minhas filas" (2026-11-13, era "Minha equipe"): tickets das
+          // filas de que a pessoa é membro + os tickets ANTIGOS (sem fila) da
+          // equipe dela — esses continuam ligados só à equipe.
           const teamUuids: string[] = user.internal_team_ids || [];
-          // Sem equipe, "Minha equipe" é vazio de verdade (a tela nem oferece
-          // a opção nesse caso — ver internal-tickets-view.tsx).
-          if (teamUuids.length === 0) {
-            conditions.push('false');
-          } else {
-            // Casa pela FK OU pelo nome: a tela e os tickets mais antigos
-            // usam team_id (TEXTO, nome da equipe), e nem todo ticket tem
-            // internal_team_id preenchido.
-            params.push(teamUuids);
-            const p = params.length;
-            conditions.push(
-              `(internal_team_id = ANY($${p}::uuid[]) OR team_id IN (SELECT name FROM public.internal_teams WHERE id = ANY($${p}::uuid[])))`
-            );
-          }
+          params.push(user.id);
+          const pu = params.length;
+          params.push(teamUuids);
+          const pt = params.length;
+          conditions.push(
+            `(internal_queue_id IN (SELECT id FROM public.internal_ticket_queues WHERE $${pu}::uuid = ANY(member_ids))`
+            + ` OR (internal_queue_id IS NULL AND (internal_team_id = ANY($${pt}::uuid[]) OR team_id IN (SELECT name FROM public.internal_teams WHERE id = ANY($${pt}::uuid[])))))`
+          );
         }
       }
 
@@ -574,7 +583,8 @@ export async function POST(request: NextRequest) {
           `UPDATE public.internal_tickets
               SET title = $1, team_id = $2, internal_team_id = $3, assignee_id = $4,
                   priority = $5, tags = $6, creator_id = $7, description = $8,
-                  sla_limit = $9, updated_at = NOW()
+                  sla_limit = $9, updated_at = NOW(),
+                  internal_queue_id = CASE WHEN $11::boolean THEN $12::uuid ELSE internal_queue_id END
             WHERE id = $10
         RETURNING id, internal_ticket_number`,
           [
@@ -587,7 +597,9 @@ export async function POST(request: NextRequest) {
             ticket.creatorId,
             ticket.description || '',
             slaLimit,
-            ticket.uuid
+            ticket.uuid,
+            'internalQueueId' in ticket,
+            ticket.internalQueueId || null
           ]
         );
         if (res.rowCount === 0) return NextResponse.json({ error: 'Ticket interno não encontrado.' }, { status: 404 });
@@ -626,8 +638,8 @@ export async function POST(request: NextRequest) {
       const res = await query(
         `INSERT INTO public.internal_tickets
            (title, team_id, internal_team_id, assignee_id, priority, tags, creator_id, description,
-            sla_limit, internal_ticket_number)
-         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9,
+            sla_limit, internal_queue_id, internal_ticket_number)
+         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10,
                  (SELECT COALESCE(MAX(internal_ticket_number), 0) + 1 FROM public.internal_tickets))
          RETURNING id, internal_ticket_number`,
         [
@@ -639,7 +651,8 @@ export async function POST(request: NextRequest) {
           ticket.tags || [],
           ticket.creatorId,
           ticket.description || '',
-          slaLimit
+          slaLimit,
+          ticket.internalQueueId || null
         ]
       );
 
@@ -688,8 +701,19 @@ export async function POST(request: NextRequest) {
       // "antes" dos 4 campos que ela altera pra registrar depois do UPDATE.
       const isBulk = Array.isArray(ids) && ids.length > 0;
       const bulkBefore = isBulk
-        ? (await query(`SELECT id, status, assignee_id, team_id, priority FROM public.internal_tickets WHERE id = ANY($1::text[])`, [targetIds])).rows
+        ? (await query(`SELECT id, status, assignee_id, team_id, internal_queue_id, priority FROM public.internal_tickets WHERE id = ANY($1::text[])`, [targetIds])).rows
         : [];
+      // Esta gravação FECHA o ticket? Quem foi marcado com @ (seguidor) ainda
+      // recebe o e-mail desta mudança, e depois para (2026-11-16).
+      let closedLabels: string[] = [];
+      const statusBefore = new Map<string, string | null>();
+      if (fields.status !== undefined) {
+        closedLabels = (await query(`SELECT label FROM public.config_statuses WHERE scope = 'internal_ticket' AND is_closed = true`)).rows.map((r: any) => r.label);
+        (await query(`SELECT id, status FROM public.internal_tickets WHERE id = ANY($1::text[])`, [targetIds])).rows
+          .forEach((r: any) => statusBefore.set(r.id, r.status));
+      }
+      const closingNowFor = (tid: string) =>
+        fields.status !== undefined && closedLabels.includes(fields.status) && !closedLabels.includes(statusBefore.get(tid) || '');
 
       // Desmarcar "Reprovação de QA"/"Ambiente reprovado" (true → false) exige
       // internal:qa_override além de internal:edit — qualquer um com acesso ao
@@ -719,6 +743,7 @@ export async function POST(request: NextRequest) {
         description: 'description',
         teamId: 'team_id',
         internalTeamId: 'internal_team_id',
+        internalQueueId: 'internal_queue_id',
         assigneeId: 'assignee_id',
         status: 'status',
         priority: 'priority',
@@ -739,7 +764,14 @@ export async function POST(request: NextRequest) {
       for (const [key, column] of Object.entries(COLUMNS)) {
         if (!(key in fields) || fields[key] === undefined) continue;
         const raw = fields[key];
-        params.push(ARRAY_FIELDS.has(key) ? (raw ?? []) : (raw === '' ? null : (raw ?? null)));
+        // Descrição é NOT NULL no banco: vazia continua '' (2026-11-16, int-11163
+        // — ticket criado sem descrição dava 500 em QUALQUER edição, porque o ''
+        // virava NULL aqui). Os demais campos seguem com '' = NULL (sem valor).
+        params.push(
+          ARRAY_FIELDS.has(key) ? (raw ?? [])
+            : key === 'description' ? (raw ?? '')
+            : (raw === '' ? null : (raw ?? null))
+        );
         sets.push(`${column} = $${params.length}`);
       }
       if (sets.length === 0) return NextResponse.json({ error: 'Nenhum campo informado.' }, { status: 400 });
@@ -803,11 +835,17 @@ export async function POST(request: NextRequest) {
             .forEach((pp: any) => nomes.set(pp.id, pp.name));
         }
         const nomeDe = (pid: string | null) => (pid ? nomes.get(pid) || 'alguém' : 'Não atribuído');
+        const filas = new Map<string, string>();
+        if (fields.internalQueueId !== undefined) {
+          (await query('SELECT id, name FROM public.internal_ticket_queues')).rows.forEach((q: any) => filas.set(q.id, q.name));
+        }
+        const nomeFila = (qid: string | null) => (qid ? filas.get(qid) || 'Fila removida' : 'Sem fila');
         for (const antes of bulkBefore as any[]) {
           const changes: FieldChange[] = [];
           if (fields.status !== undefined && fields.status !== antes.status) changes.push({ label: 'Estágio', from: antes.status || 'Novo', to: fields.status });
           if (fields.assigneeId !== undefined && (fields.assigneeId || null) !== (antes.assignee_id || null)) changes.push({ label: 'Responsável', from: nomeDe(antes.assignee_id), to: nomeDe(fields.assigneeId || null) });
           if (fields.teamId !== undefined && fields.teamId !== antes.team_id) changes.push({ label: 'Equipe', from: antes.team_id || 'Sem equipe', to: fields.teamId || 'Sem equipe' });
+          if (fields.internalQueueId !== undefined && (fields.internalQueueId || null) !== (antes.internal_queue_id || null)) changes.push({ label: 'Fila', from: nomeFila(antes.internal_queue_id), to: nomeFila(fields.internalQueueId || null) });
           if (fields.priority !== undefined && Number(fields.priority) !== Number(antes.priority)) changes.push({ label: 'Prioridade', from: String(antes.priority ?? '—'), to: String(fields.priority) });
           if (changes.length === 0) continue;
           const text = formatChangeMessage(changes);
@@ -816,7 +854,7 @@ export async function POST(request: NextRequest) {
              VALUES ($1, $2, $3, 'system', '[]')`,
             [antes.id, user.id, text]
           ).catch(err => console.error('[internal-tickets update] Falha ao registrar alteração em massa:', err));
-          queueInternalTicketChangeEmail({ internalTicketId: antes.id, actorId: user.id, actorName: user.name, kind: 'change', text });
+          queueInternalTicketChangeEmail({ internalTicketId: antes.id, actorId: user.id, actorName: user.name, kind: 'change', text, closingNow: closingNowFor(antes.id) });
         }
       }
 
@@ -837,7 +875,7 @@ export async function POST(request: NextRequest) {
           .map((e: any) => (typeof e?.text === 'string' ? e.text : ''))
           .filter(Boolean)
           .join('\n');
-        if (textoAviso) queueInternalTicketChangeEmail({ internalTicketId: singleId, actorId: user.id, actorName: user.name, kind: 'change', text: textoAviso });
+        if (textoAviso) queueInternalTicketChangeEmail({ internalTicketId: singleId, actorId: user.id, actorName: user.name, kind: 'change', text: textoAviso, closingNow: closingNowFor(singleId) });
       }
       let messages: any[] | undefined;
       if (singleId && returnMessages) {
@@ -897,12 +935,16 @@ export async function POST(request: NextRequest) {
         ]
       );
       const tipo = message.type || 'text';
+      // Marcados com @ viram seguidores do ticket e recebem aviso próprio.
+      const mentionedIds = tipo === 'system' || tipo === 'system_log' ? [] : await registerMentions(internalTicketId, message.text);
       queueInternalTicketChangeEmail({
+        mentionedIds,
         internalTicketId,
         actorId: message.senderId || user.id,
         actorName: user.name,
         kind: tipo === 'system' || tipo === 'system_log' ? 'change' : 'note',
-        text: message.text
+        text: message.text,
+        attachmentNames: attachments.map((a: any) => a?.name).filter(Boolean)
       });
       return NextResponse.json(toMessage(res.rows[0]));
     }
@@ -944,6 +986,16 @@ export async function POST(request: NextRequest) {
       if (newText === msg.content) return NextResponse.json({ success: true, text: newText, unchanged: true });
 
       await query('UPDATE public.internal_ticket_messages SET content = $1 WHERE id = $2', [newText, msg.id]);
+      // Quem passou a ser marcado nesta edição vira seguidor e é avisado; quem
+      // já estava marcado antes não recebe o aviso de novo.
+      const jaMarcados = new Set(extractMentionIds(msg.content));
+      const novos = (await registerMentions(msg.internal_ticket_id, newText)).filter(id => !jaMarcados.has(id));
+      if (novos.length > 0) {
+        queueInternalTicketChangeEmail({
+          internalTicketId: msg.internal_ticket_id, actorId: user.id, actorName: user.name,
+          kind: 'note', text: newText, mentionedIds: novos, onlyMentioned: true
+        });
+      }
       // Recoloca na fila do Agente de IA pra reindexar o texto novo (o gatilho
       // do banco só enfileira no INSERT). Tabela opcional.
       await query(`INSERT INTO public.ai_embedding_queue (source_type, source_id) VALUES ('internal_ticket_message', $1)`, [msg.id]).catch(() => {});

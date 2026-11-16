@@ -145,7 +145,7 @@ const EXPORT_TICKETS: ReportExportConfig<TicketRow>['columns'] = [
   { key: 'status', label: 'Status' },
   { key: 'subStatus', label: 'Sub-status', format: (v) => (v as string) || '—' },
   { key: 'estrelas', label: 'Prioridade (estrelas)' },
-  { key: 'equipe', label: 'Equipe', format: (v) => (v as string) || '—' },
+  { key: 'equipe', label: 'Fila', format: (v) => (v as string) || '—' },
   { key: 'responsavel', label: 'Responsável', format: (v) => (v as string) || 'Sem responsável' },
   { key: 'criadoEm', label: 'Criado em', format: (v) => formatDate(v as string) },
   { key: 'entregaReal', label: 'Entrega real', format: (v) => formatDate(v as string | null) },
@@ -246,13 +246,13 @@ export default function ReportInternalTicketsPage() {
         periods={PERIOD_PRESETS}
       >
         <div className="space-y-1.5">
-          <label className="text-[10px] font-semibold uppercase text-[var(--text-tertiary)] tracking-widest ml-1">Equipe</label>
+          <label className="text-[10px] font-semibold uppercase text-[var(--text-tertiary)] tracking-widest ml-1">Fila</label>
           <StyledSelect
             value={teamId}
             onChange={(e) => setTeamId(e.target.value)}
             className="min-w-[180px] bg-[var(--surface-card)] border border-[var(--border-default)] rounded-xl px-4 py-2.5 text-sm font-bold focus:ring-2 focus:ring-[var(--accent)]/20 outline-none"
           >
-            <option value="">Todas as equipes</option>
+            <option value="">Todas as filas</option>
             {(data?.opcoes.equipes ?? []).map(e => <option key={e.id} value={e.id}>{e.nome}</option>)}
           </StyledSelect>
         </div>

@@ -256,32 +256,25 @@ export async function GET(request: NextRequest) {
          JOIN public.internal_tickets it ON it.id = m.internal_ticket_id
          WHERE m.created_at > $1
            AND (m.author_id IS NULL OR m.author_id <> $2::uuid)
-           -- 'system_log' (mudança de descrição) só avisa o criador e o
-           -- responsável (2026-11-12: "toda mudança" notifica os dois); a
-           -- equipe e os vinculados seguem sem esse aviso, como antes.
-           AND (m.type <> 'system_log' OR it.assignee_id = $2::uuid OR it.creator_id = $2::uuid)
-           AND (
-             it.assignee_id = $2::uuid
-             OR it.creator_id = $2::uuid
-             OR it.internal_team_id = ANY($3::uuid[])
-             OR EXISTS (
-               SELECT 1 FROM public.ticket_internal_links til
-               JOIN public.tickets t ON t.id = til.ticket_id
-               WHERE til.internal_ticket_id = it.id
-                 AND (t.assignee_id = $2::uuid OR t.created_by = $2::uuid OR $2::uuid = ANY(COALESCE(t.employee_ids, '{}'::uuid[])))
-             )
-           )
+           -- Só o CRIADOR e o RESPONSÁVEL atual são avisados (2026-11-13,
+           -- pedido do usuário). Antes também entravam toda a equipe do
+           -- ticket e quem estava nos chamados vinculados — o aviso chegava
+           -- pra todo mundo.
+           -- + quem foi marcado com @ NESTA nota (2026-11-16), só nela.
+           AND (it.assignee_id = $2::uuid OR it.creator_id = $2::uuid
+                OR (m.type NOT IN ('system', 'system_log') AND m.content LIKE $3))
          ORDER BY m.created_at ASC
          LIMIT 50`,
-        [since, user.id, user.internal_team_ids || []]
+        [since, user.id, `%data-id="${user.id}"%`]
       );
 
       internalMessages.rows.forEach((message) => {
         const label = internalTicketLabel(message.internal_ticket_number, message.internal_ticket_id);
         const isStatusEvent = message.msg_type === 'system' || message.msg_type === 'system_log';
+        const mentionedMe = !isStatusEvent && String(message.content || '').includes(`data-id="${user.id}"`);
         events.push({
           sourceId: `internal_ticket_${isStatusEvent ? 'status' : 'message'}:${message.id}`,
-          title: isStatusEvent ? `${label} atualizado` : `Nova nota em ${label}`,
+          title: isStatusEvent ? `${label} atualizado` : mentionedMe ? `Você foi mencionado em ${label}` : `Nova nota em ${label}`,
           message: message.content,
           type: isStatusEvent ? 'internal_ticket_status' : 'internal_ticket_message',
           targetId: message.internal_ticket_id,

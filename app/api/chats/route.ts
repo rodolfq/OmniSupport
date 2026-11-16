@@ -92,9 +92,17 @@ export async function GET(request: NextRequest) {
       // Obter todas as sessões e suas respectivas mensagens.
       // Sessões cujo "telefone" tem mais dígitos do que um número real (E.164, até 15)
       // são resquícios de mensagens de grupo/broadcast processadas por engano no passado.
+      // openOnly=1 (widget de chat): só conversa aberta ou encerrada ainda na
+      // janela da pesquisa — as únicas que o widget mostra. Sem isso, cada
+      // recarga do widget (a cada 30 s, a cada evento em tempo real e a cada
+      // "Finalizar", em cada analista conectado) baixava TODAS as conversas
+      // já existentes (2026-11-13). A Central de Atendimento não manda o
+      // parâmetro: ela lista as encerradas em "Registros".
+      const openOnly = searchParams.get('openOnly') === '1';
       const sessionsRes = await query(
         `SELECT * FROM public.chat_sessions
-         WHERE customer_phone IS NULL OR length(regexp_replace(customer_phone, '\\D', '', 'g')) <= 15
+         WHERE (customer_phone IS NULL OR length(regexp_replace(customer_phone, '\\D', '', 'g')) <= 15)
+           ${openOnly ? `AND (status <> 'closed' OR (awaiting_survey_until IS NOT NULL AND awaiting_survey_until > NOW()))` : ''}
          ORDER BY COALESCE(last_message_at, updated_at, created_at) DESC`
       );
 
@@ -111,6 +119,10 @@ export async function GET(request: NextRequest) {
            FROM public.chat_sessions s
            WHERE m.session_id = s.id
              AND (s.customer_id = $1::uuid OR s.assignee_id = $1::uuid)
+             -- Conversa encerrada não precisa mais de "entregue": sem este
+             -- filtro o UPDATE varria o histórico inteiro do analista a cada
+             -- recarga da lista (2026-11-13).
+             AND s.status <> 'closed'
              AND m.sender_id IS DISTINCT FROM $1
              AND NOT ($1::uuid = ANY(m.delivered_by))`,
           [deliveredForUserId]
@@ -1522,6 +1534,28 @@ export async function POST(request: Request) {
           { error: 'A conversa já foi encerrada; a mensagem do sistema não foi registrada.', code: 'session_closed' },
           { status: 409 }
         );
+      }
+
+      // Mensagem de encerramento (com a pesquisa) é UMA por conversa
+      // (2026-11-13): o "Finalizar" demorava, o analista clicava de novo (ou
+      // outro analista finalizava a mesma conversa ao mesmo tempo) e o cliente
+      // recebia a avaliação duas vezes — 9 conversas assim em 7 dias. Se já
+      // existe uma nos últimos 30 min desta conversa ainda aberta, não grava
+      // outra e avisa quem chamou (duplicate) para não reenviar ao WhatsApp.
+      // Reconhece pela marca nova (metadata.closingSurvey) e pelo texto fixo,
+      // que cobre mensagens gravadas antes da marca existir.
+      if (message?.type === 'system' && message?.metadata?.closingSurvey === true) {
+        const jaTem = await query(
+          `SELECT id FROM public.chat_messages
+            WHERE session_id = $1 AND type = 'system'
+              AND (metadata->>'closingSurvey' = 'true' OR text LIKE 'Sua conversa #% foi finalizada.%')
+              AND created_at > NOW() - interval '30 minutes'
+            LIMIT 1`,
+          [sessionId]
+        );
+        if (jaTem.rows[0]) {
+          return NextResponse.json({ success: true, sessionId, duplicate: true, existingMessageId: jaTem.rows[0].id });
+        }
       }
 
       if (session.status === 'closed') {

@@ -1,86 +1,12 @@
 import { query } from '../db';
 import { EmailService } from './email-service';
 import { wrapEmailHtml, ticketRefBlock } from '../email-templates';
+import { notifyUser } from './push-service';
 
-// Linha crua de public.internal_tickets (snake_case), como vem de
-// INSERT/UPDATE ... RETURNING * na rota compat (ver app/api/compat/supabase/route.ts).
-export interface InternalTicketRow {
-  id: string;
-  internal_ticket_number: number;
-  title: string;
-  internal_team_id: string | null;
-  assignee_id: string | null;
-  status: string;
-}
-
-// Tickets internos não têm nenhuma automação hoje (nem WhatsApp, nem
-// e-mail) — diferente de public.tickets, o destinatário aqui é a EQUIPE
-// (profiles.internal_team_ids), não um cliente. Texto fixo no código, mesmo
-// padrão simples do notifyAssigneeByEmail em automation-service.ts, em vez
-// de tentar encaixar num sistema de Mensagens Automáticas pensado pra
-// chamado-cliente.
-async function notifyInternalTeamByEmail(ticket: InternalTicketRow, reason: 'created' | 'assigned'): Promise<void> {
-  if (!ticket.internal_team_id) return;
-
-  const teamRes = await query('SELECT name FROM public.internal_teams WHERE id = $1', [ticket.internal_team_id]);
-  const teamName = teamRes.rows[0]?.name || 'sua equipe';
-
-  const membersRes = await query('SELECT email, name FROM public.profiles WHERE $1 = ANY(internal_team_ids)', [ticket.internal_team_id]);
-  const members = membersRes.rows.filter((m: any) => m.email);
-  if (members.length === 0) return;
-
-  const ticketLabel = `#${String(ticket.internal_ticket_number ?? '').padStart(4, '0')}`;
-  const baseUrl = process.env.NEXT_PUBLIC_APP_URL;
-  // Número simples (mesmo padrão de /tickets/4940 pro chamado de cliente),
-  // não o id interno (UUID) — pedido do usuário, 2026-10-21. A rota aceita
-  // os dois (ver app/api/internal-tickets/route.ts, action=detail).
-  const link = baseUrl ? `${baseUrl}/internal-tickets/${ticket.internal_ticket_number}` : null;
-
-  const subject = reason === 'created'
-    ? `Novo ticket interno ${ticketLabel} para ${teamName} — SSX Desk`
-    : `Ticket interno ${ticketLabel} atribuído — SSX Desk`;
-
-  const intro = reason === 'created'
-    ? `Um novo ticket interno foi aberto para o time <strong>${teamName}</strong>.`
-    : `Um ticket interno do time <strong>${teamName}</strong> teve um responsável atribuído.`;
-
-  // Mesmo template/layout dos e-mails de chamado ao cliente (wrapEmailHtml +
-  // ticketRefBlock) — cabeçalho com a marca, número/título do ticket sempre
-  // em linha própria e destacada, e botão de CTA de verdade (não só um link
-  // cru) pro operador abrir o ticket rapidamente.
-  const bodyHtml = `
-    <p style="margin:0 0 10px;">${intro}</p>
-    ${ticketRefBlock(ticketLabel, ticket.title)}
-  `.trim();
-  const html = wrapEmailHtml({ bodyHtml, ctaUrl: link, ctaLabel: 'Abrir ticket interno' });
-
-  for (const member of members) {
-    try {
-      await EmailService.send(member.email, subject, html);
-    } catch (err) {
-      console.error(`[email] Falha ao notificar ${member.email} sobre ticket interno ${ticket.id}:`, err);
-    }
-  }
-}
-
-/** Chamar sem await (fire-and-forget) na criação de um ticket interno. */
-export function handleInternalTicketCreated(ticket: InternalTicketRow): void {
-  notifyInternalTeamByEmail(ticket, 'created').catch(err => console.error('[email] handleInternalTicketCreated:', err));
-}
-
-/** Chamar sem await (fire-and-forget) na atualização de um ticket interno. */
-export function handleInternalTicketUpdated(oldTicket: InternalTicketRow | null | undefined, newTicket: InternalTicketRow | null | undefined): void {
-  if (!oldTicket || !newTicket) return;
-  (async () => {
-    if (oldTicket.internal_team_id !== newTicket.internal_team_id && newTicket.internal_team_id) {
-      await notifyInternalTeamByEmail(newTicket, 'created');
-      return;
-    }
-    if (oldTicket.assignee_id !== newTicket.assignee_id && newTicket.assignee_id) {
-      await notifyInternalTeamByEmail(newTicket, 'assigned');
-    }
-  })().catch(err => console.error('[email] handleInternalTicketUpdated:', err));
-}
+// Os antigos avisos por e-mail para a EQUIPE INTEIRA do ticket
+// (notifyInternalTeamByEmail / handleInternalTicketCreated / Updated) foram
+// removidos em 2026-11-13: não eram chamados por nenhuma rota desde a
+// mudança abaixo, e a regra do usuário é avisar só criador e responsável.
 
 // ---------------------------------------------------------------------------
 // Toda mudança em ticket interno avisa por e-mail o CRIADOR e o RESPONSÁVEL
@@ -91,6 +17,13 @@ export function handleInternalTicketUpdated(oldTicket: InternalTicketRow | null 
 //
 // Chamado pela rota (app/api/internal-tickets/route.ts) logo depois de gravar
 // — fire-and-forget: SMTP desligado/fora do ar nunca atrapalha a gravação.
+//
+// SEGUIDORES (2026-11-16, pedido do usuário): quem foi marcado com @ numa nota
+// (internal_tickets.follower_ids) também recebe o e-mail de toda atualização,
+// enquanto o ticket estiver aberto. Com o ticket concluído/fechado deixa de
+// receber — só a mudança que FECHA o ticket ainda chega a eles (closingNow),
+// pra saberem que terminou. Quem é marcado NESTA nota recebe um e-mail próprio
+// ("mencionou você") + push, no lugar do aviso comum.
 
 function escapeHtml(text: string): string {
   return text.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
@@ -119,21 +52,44 @@ export async function notifyInternalTicketChange(params: {
   actorName?: string | null;
   kind: InternalTicketChangeKind;
   text?: string;
+  // Nomes dos arquivos anexados à nota — nota só com anexo ia por e-mail
+  // sem nada além do título.
+  attachmentNames?: string[];
+  // Marcados com @ NESTA nota: recebem o aviso "mencionou você" (e-mail + push).
+  mentionedIds?: string[];
+  // Esta mudança acabou de fechar o ticket — seguidores ainda recebem esta.
+  closingNow?: boolean;
+  // Só avisa os marcados (edição de nota que acrescentou alguém).
+  onlyMentioned?: boolean;
 }): Promise<void> {
   const { internalTicketId, actorId, kind } = params;
-  const tRes = await query(
-    `SELECT it.id, it.internal_ticket_number, it.title, it.creator_id, it.assignee_id
-       FROM public.internal_tickets it WHERE it.id = $1`,
-    [internalTicketId]
-  );
-  const t = tRes.rows[0];
+  let t: any;
+  try {
+    t = (await query(
+      `SELECT it.id, it.internal_ticket_number, it.title, it.creator_id, it.assignee_id, it.status,
+              COALESCE(it.follower_ids, '{}') AS follower_ids,
+              EXISTS (SELECT 1 FROM public.config_statuses cs
+                       WHERE cs.scope = 'internal_ticket' AND cs.is_closed AND cs.label = it.status) AS is_closed
+         FROM public.internal_tickets it WHERE it.id = $1`,
+      [internalTicketId]
+    )).rows[0];
+  } catch (err: any) {
+    // 42703: follower_ids ainda não existe (código publicado antes da migration).
+    if (err?.code !== '42703') throw err;
+    t = (await query(
+      `SELECT it.id, it.internal_ticket_number, it.title, it.creator_id, it.assignee_id, '{}'::uuid[] AS follower_ids, false AS is_closed
+         FROM public.internal_tickets it WHERE it.id = $1`,
+      [internalTicketId]
+    )).rows[0];
+  }
   if (!t) return;
 
-  const recipientIds = [...new Set([t.creator_id, t.assignee_id].filter(Boolean) as string[])]
-    .filter(id => id !== actorId);
-  if (recipientIds.length === 0) return;
-  const peopleRes = await query(`SELECT id, name, email FROM public.profiles WHERE id = ANY($1) AND email IS NOT NULL`, [recipientIds]);
-  if (peopleRes.rows.length === 0) return;
+  const mentioned = [...new Set((params.mentionedIds || []).filter(id => id && id !== actorId))];
+  const followers: string[] = (!t.is_closed || params.closingNow) ? (t.follower_ids || []) : [];
+  const recipientIds = params.onlyMentioned ? [] : [...new Set([t.creator_id, t.assignee_id, ...followers].filter(Boolean) as string[])]
+    .filter(id => id !== actorId && !mentioned.includes(id));
+  if (recipientIds.length === 0 && mentioned.length === 0) return;
+  const peopleRes = await query(`SELECT id, name, email FROM public.profiles WHERE id = ANY($1) AND email IS NOT NULL`, [[...recipientIds, ...mentioned]]);
 
   let actorName = params.actorName || null;
   if (!actorName && actorId) {
@@ -154,7 +110,11 @@ export async function notifyInternalTicketChange(params: {
     : kind === 'created'
       ? `<strong>${quem}</strong> abriu um ticket interno com você como responsável:`
       : `<strong>${quem}</strong> alterou o ticket interno:`;
-  const detalhe = params.text ? textToEmailHtml(params.text) : '';
+  const anexos = (params.attachmentNames || []).filter(Boolean).slice(0, 10);
+  const detalhe = (params.text ? textToEmailHtml(params.text) : '')
+    + (anexos.length
+      ? `<p style="margin:6px 0 0;"><strong>Anexo${anexos.length > 1 ? 's' : ''}:</strong> ${anexos.map(escapeHtml).join(', ')}</p>`
+      : '');
   const bodyHtml = `
     <p style="margin:0 0 10px;">${intro}</p>
     ${ticketRefBlock(label, t.title)}
@@ -162,14 +122,35 @@ export async function notifyInternalTicketChange(params: {
   `.trim();
   const html = wrapEmailHtml({ bodyHtml, ctaUrl: link, ctaLabel: 'Abrir ticket interno' });
 
+  // Aviso de MENÇÃO: mesmo conteúdo, com assunto e abertura próprios.
+  const mentionSubject = `${actorName || 'Alguém'} mencionou você no ticket interno ${label} — SSX Desk`;
+  const mentionHtml = wrapEmailHtml({
+    bodyHtml: `
+      <p style="margin:0 0 10px;"><strong>${quem}</strong> mencionou você numa nota do ticket interno. Você passa a receber as atualizações dele por e-mail até ele ser concluído.</p>
+      ${ticketRefBlock(label, t.title)}
+      ${detalhe ? `<div style="margin:12px 0 0;padding:12px;border-radius:8px;background:#f5f5f5;">${detalhe}</div>` : ''}
+    `.trim(),
+    ctaUrl: link,
+    ctaLabel: 'Abrir ticket interno'
+  });
+
   for (const person of peopleRes.rows) {
+    const isMention = mentioned.includes(person.id);
     try {
-      await EmailService.send(person.email, subject, html);
+      await EmailService.send(person.email, isMention ? mentionSubject : subject, isMention ? mentionHtml : html);
     } catch (err: any) {
       // SMTP desligado é o caso comum em dev — uma linha só, sem stack.
       console.error(`[email] Ticket interno ${label}: aviso a ${person.email} não enviado — ${err?.message || err}`);
     }
   }
+
+  // Push imediato só para quem foi marcado (o resto já recebe pelo sino).
+  await Promise.all(mentioned.map(id => notifyUser(id, {
+    title: `${actorName || 'Alguém'} mencionou você em ${label}`,
+    body: t.title || 'Ticket interno',
+    url: `/internal-tickets/${t.internal_ticket_number}`,
+    tag: `internal_ticket_mention:${t.id}`
+  }).catch(() => {})));
 }
 
 /** Fire-and-forget: nunca lança, nunca atrasa quem chamou. */

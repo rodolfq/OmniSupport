@@ -20,6 +20,7 @@ import {
 import { cn } from '@/lib/utils';
 import { toast } from 'sonner';
 import { uploadAttachment } from '@/lib/attachment-upload';
+import { createMentionExtension, MentionItem } from './rich-editor-mention';
 
 // Imagem dentro do texto rico vira ARQUIVO no volume de anexos, e o HTML
 // guarda só o link (/api/files/...). Achado em 2026-11-11: no modo 'full' a
@@ -83,9 +84,16 @@ interface RichEditorProps {
   // interno, que vai até o fim da tela (2026-11-12). minHeight continua
   // valendo como piso.
   fill?: boolean;
+  // Pessoas que podem ser marcadas com @ (2026-11-16, notas do ticket
+  // interno). Sem a lista, o @ não abre sugestão — mas a marcação já gravada
+  // continua aparecendo (o node é registrado sempre, ver rich-editor-mention.ts).
+  mentionItems?: MentionItem[];
 }
 
-export function RichEditor({ content, onChange, placeholder = 'Comece a digitar...', minHeight = '150px', maxHeight, toolbar = 'full', onPasteImages, fill = false }: RichEditorProps) {
+export function RichEditor({ content, onChange, placeholder = 'Comece a digitar...', minHeight = '150px', maxHeight, toolbar = 'full', onPasteImages, fill = false, mentionItems }: RichEditorProps) {
+  // Lida a cada "@" (o editor é criado uma vez só; a lista pode chegar depois).
+  const mentionItemsRef = useRef<MentionItem[]>(mentionItems || []);
+  useEffect(() => { mentionItemsRef.current = mentionItems || []; }, [mentionItems]);
   const isSimple = toolbar === 'simple';
   // 'simple' e 'basic': só negrito/itálico (ver o prop). A diferença entre os
   // dois é só a imagem — isSimple continua decidindo isso.
@@ -221,6 +229,7 @@ export function RichEditor({ content, onChange, placeholder = 'Comece a digitar.
       Placeholder.configure({
         placeholder,
       }),
+      createMentionExtension(() => mentionItemsRef.current),
     ],
     content,
     onUpdate: ({ editor }) => {

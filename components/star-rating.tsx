@@ -3,10 +3,9 @@
 import React, { useState } from 'react';
 import { Star } from 'lucide-react';
 
-// Widget de 1-5 estrelas clicáveis, usado tanto no modal de avaliação
-// (components/customer-evaluation-modal.tsx) quanto direto no cadastro da
-// empresa (components/new-company-modal.tsx) — mesmo componente pra manter
-// os dois editáveis do mesmo jeito.
+// Widget de 1-5 estrelas clicáveis, usado na avaliação interna da
+// empresa-cliente, direto no cadastro da
+// empresa (components/new-company-modal.tsx).
 //
 // value === null representa "não avaliado" nesse critério — fica vazio (sem
 // estrela preenchida) e não entra na média. Clicar na estrela que já está

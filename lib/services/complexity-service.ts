@@ -151,7 +151,9 @@ export async function getInternalTicketComplexity(
             i.status,
             i.priority,
             i.assignee_id,
-            i.internal_team_id,
+            -- Fila (2026-11-13) no lugar da equipe; ticket antigo, sem fila,
+            -- continua agrupado pela equipe.
+            COALESCE(iq.id, i.internal_team_id) AS internal_team_id,
             i.hotfix_id,
             i.effort_id,
             i.outcome_id,
@@ -160,7 +162,7 @@ export async function getInternalTicketComplexity(
             i.created_at,
             i.updated_at,
             p.name  AS assignee_name,
-            tm.name AS team_name,
+            COALESCE(iq.name, tm.name) AS team_name,
             h.name  AS hotfix_name,
             e.label AS effort_label,
             e.weight AS effort_weight,
@@ -177,6 +179,7 @@ export async function getInternalTicketComplexity(
      FROM public.internal_tickets i
      LEFT JOIN public.profiles p ON p.id = i.assignee_id
      LEFT JOIN public.internal_teams tm ON tm.id = i.internal_team_id
+     LEFT JOIN public.internal_ticket_queues iq ON iq.id = i.internal_queue_id
      LEFT JOIN public.hotfixes h ON h.id = i.hotfix_id
      LEFT JOIN public.config_effort_levels e ON e.id = i.effort_id
      LEFT JOIN public.config_outcomes o ON o.id = i.outcome_id

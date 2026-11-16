@@ -5,7 +5,7 @@ import { useSearchParams } from 'next/navigation';
 import {
   User, Lock, Save, Plus, Key, Globe, Bell, Database, Loader2, Clock, MessageCircleMore, Plug, Mail, Bot,
   UserCog, ShieldCheck, Library, RefreshCw as RefreshCwIcon, Rocket, CalendarRange, UserPlus,
-  Award
+  Award, Layers
 } from 'lucide-react';
 import { cn, maskPhone } from '@/lib/utils';
 import { Permission, UserRole } from '@/lib/types';
@@ -34,18 +34,19 @@ import { WeekendScheduleContent } from '@/components/weekend-schedule-content';
 import { HotfixesContent } from '@/components/hotfixes-content';
 import { UserCreationLogContent } from '@/components/user-creation-log-content';
 import { RankingSettingsHub } from '@/components/ranking-settings-hub';
+import { InternalTicketQueuesContent } from '@/components/internal-ticket-queues-content';
 
 type Tab =
   | 'profile' | 'security' | 'notifications'
   | 'team' | 'permissions' | 'history'
-  | 'queues' | 'giro' | 'weekend-schedule' | 'whatsapp' | 'hotfixes'
+  | 'queues' | 'internal-queues' | 'giro' | 'weekend-schedule' | 'whatsapp' | 'hotfixes'
   | 'system' | 'ai-assistant' | 'automated-messages' | 'integrations' | 'email' | 'user-creation-log'
   | 'ranking-points';
 
 const VALID_TABS: Tab[] = [
   'profile', 'security', 'notifications',
   'team', 'permissions', 'history',
-  'queues', 'giro', 'weekend-schedule', 'whatsapp', 'hotfixes',
+  'queues', 'internal-queues', 'giro', 'weekend-schedule', 'whatsapp', 'hotfixes',
   'system', 'ai-assistant', 'automated-messages', 'integrations', 'email', 'user-creation-log', 'ranking-points'
 ];
 
@@ -195,10 +196,13 @@ export default function SettingsPage() {
               </SettingsNavGroup>
             )}
 
-            {(hasPermission(Permission.QUEUES_MANAGE) || canViewGiro || hasPermission(Permission.WHATSAPP_MANAGE) || hasPermission(Permission.HOTFIXES_MANAGE)) && (
+            {(hasPermission(Permission.QUEUES_MANAGE) || hasPermission(Permission.INTERNAL_QUEUES_MANAGE) || canViewGiro || hasPermission(Permission.WHATSAPP_MANAGE) || hasPermission(Permission.HOTFIXES_MANAGE)) && (
               <SettingsNavGroup title="Atendimento">
                 {hasPermission(Permission.QUEUES_MANAGE) && (
                   <SettingsNavLink icon={<Library size={16} />} label="Filas" active={activeTab === 'queues'} onClick={() => setActiveTab('queues')} />
+                )}
+                {hasPermission(Permission.INTERNAL_QUEUES_MANAGE) && (
+                  <SettingsNavLink icon={<Layers size={16} />} label="Filas de Ticket Interno" active={activeTab === 'internal-queues'} onClick={() => setActiveTab('internal-queues')} />
                 )}
                 {canViewGiro && (
                   <SettingsNavLink icon={<RefreshCwIcon size={16} />} label="Giro de Atendimento" active={activeTab === 'giro'} onClick={() => setActiveTab('giro')} />
@@ -248,6 +252,7 @@ export default function SettingsPage() {
           {activeTab === 'team' && canViewTeam && <TeamContent />}
           {activeTab === 'permissions' && canViewPermissions && <PermissionsContent />}
           {activeTab === 'queues' && hasPermission(Permission.QUEUES_MANAGE) && <QueuesContent />}
+          {activeTab === 'internal-queues' && hasPermission(Permission.INTERNAL_QUEUES_MANAGE) && <InternalTicketQueuesContent />}
           {activeTab === 'giro' && canViewGiro && <GiroContent />}
           {activeTab === 'weekend-schedule' && canViewGiro && <WeekendScheduleContent />}
           {activeTab === 'hotfixes' && hasPermission(Permission.HOTFIXES_MANAGE) && <HotfixesContent />}

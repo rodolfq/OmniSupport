@@ -21,7 +21,6 @@ const ALL_NOTIFICATION_TOGGLES = [
   { key: 'internal_chat_message', label: 'Mensagem no Chat Interno', audience: 'team' },
   { key: 'internal_ticket_message', label: 'Mensagem em Ticket Interno', audience: 'team' },
   { key: 'internal_ticket_status', label: 'Status de Ticket Interno', audience: 'team' },
-  { key: 'customer_evaluation_prompt', label: 'Pedido de Avaliação de Cliente', audience: 'team' },
   { key: 'hotfix_overdue', label: 'Hotfix Atrasado', audience: 'team' },
   { key: 'calendar_event', label: 'Lembrete de Evento (Google Agenda)', audience: 'team' },
 ] as const;

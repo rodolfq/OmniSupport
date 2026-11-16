@@ -93,7 +93,10 @@ export async function GET(request: NextRequest) {
            JOIN public.internal_tickets it ON it.id = m.internal_ticket_id
            LEFT JOIN public.internal_ticket_notification_reads r ON r.internal_ticket_id = it.id AND r.user_id = $1
           WHERE (it.status IS NULL OR it.status <> ALL($2))
-            AND (r.user_id IS NOT NULL OR it.creator_id = $1 OR it.assignee_id = $1)
+            -- Só criador e responsável atual (2026-11-13, pedido do usuário:
+            -- notificação de ticket interno é só desses dois). Antes contava
+            -- também pra qualquer um que já tivesse aberto o ticket.
+            AND (it.creator_id = $1 OR it.assignee_id = $1)
             AND m.author_id IS DISTINCT FROM $1
             AND m.created_at > COALESCE(r.last_read_at, it.created_at)
           GROUP BY m.internal_ticket_id`,

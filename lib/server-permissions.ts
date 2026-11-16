@@ -79,6 +79,10 @@ export function assertCanManageGiro(): Promise<PermissionCheck> {
   return assertPermission('giro:manage', 'Você não tem permissão para gerenciar o Giro de Atendimento.');
 }
 
+export function assertCanManageInternalQueues(): Promise<PermissionCheck> {
+  return assertPermission('internal:queues_manage', 'Você não tem permissão para configurar as filas de ticket interno.');
+}
+
 /** Converte a checagem no status HTTP correto: 401 sem sessão, 403 sem direito. */
 export function permissionErrorStatus(error: string): number {
   return error === 'Sessão inválida.' ? 401 : 403;

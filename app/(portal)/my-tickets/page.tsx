@@ -908,15 +908,17 @@ export default function MyTicketsPage() {
         )}
       </div>
 
-      {selectedTicket && (
-        <TicketDetailModal
-          ticket={selectedTicket}
-          onClose={async () => {
-            setSelectedTicket(null);
-            await loadTickets();
-          }}
-        />
-      )}
+      <AnimatePresence>
+        {selectedTicket && (
+          <TicketDetailModal
+            ticket={selectedTicket}
+            onClose={async () => {
+              setSelectedTicket(null);
+              await loadTickets();
+            }}
+          />
+        )}
+      </AnimatePresence>
 
       <TicketEvaluationModal
         isOpen={!!evaluatingTicket}

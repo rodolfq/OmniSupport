@@ -96,11 +96,16 @@ export async function GET(request: NextRequest) {
       // interno): só id, título e número, com teto de resultados.
       const search = (searchParams.get('search') || '').trim();
       const limit = Math.min(Number(searchParams.get('limit')) || 20, 50);
+      // Número do chamado também (2026-11-16, achado do usuário: só achava pelo
+      // título). Aceita "6779", "#6779" ou "06779"; o número exato vem primeiro.
+      const numero = search.replace(/^#/, '').replace(/^0+(?=\d)/, '');
+      const isNumero = /^\d+$/.test(numero);
       const res = search
         ? await query(
             `SELECT id, title, public_ticket_number FROM public.tickets
-              WHERE title ILIKE $1 ORDER BY created_at DESC LIMIT ${limit}`,
-            [`%${search}%`]
+              WHERE title ILIKE $1 ${isNumero ? 'OR public_ticket_number::text = $2' : ''}
+              ORDER BY ${isNumero ? '(public_ticket_number::text = $2) DESC,' : ''} created_at DESC LIMIT ${limit}`,
+            isNumero ? [`%${search}%`, numero] : [`%${search}%`]
           )
         : await query(
             `SELECT id, title, public_ticket_number FROM public.tickets

@@ -6,7 +6,7 @@ import { UserAvatar } from '@/components/user-avatar';
 import { X, User, MessageCircle, Clock, Link2, Paperclip, Save, Maximize2, Minimize2, Send, Lock, History, Download, File, Image as ImageIcon, Film, Loader2, Check, CheckCheck, Copy, GitMerge } from 'lucide-react';
 import { motion } from 'motion/react';
 import { createPortal } from 'react-dom';
-import { Ticket, TicketStatus, User as UserType, Message, UserRole, StatusConfig, Company, Attachment, PriorityConfig, CategoryConfig, RequestTypeConfig, ProductConfig, InternalTicket, Permission, TicketEvaluation } from '@/lib/types';
+import { Ticket, TicketStatus, User as UserType, Message, UserRole, StatusConfig, Company, Attachment, PriorityConfig, CategoryConfig, RequestTypeConfig, ProductConfig, InternalTicket, Permission, TicketEvaluation, InternalTicketQueue } from '@/lib/types';
 import { cn, selectableOptions, linkifyPlainUrls, htmlHasContent } from '@/lib/utils';
 import { useApp } from '@/app/app-context';
 import { Star, MoreHorizontal, ThumbsUp, ThumbsDown } from 'lucide-react';
@@ -30,7 +30,7 @@ import { CompanyService } from '@/lib/services/company-service';
 import { ConfigService } from '@/lib/services/config-service';
 import {
   useCompaniesQuery, useProfilesWithAvatarQuery, useConfigStatusesQuery, useConfigCategoriesQuery,
-  useConfigRequestTypesQuery, useConfigProductsQuery, useConfigPrioritiesQuery, useInternalTeamsQuery, useQueuesQuery
+  useConfigRequestTypesQuery, useConfigProductsQuery, useConfigPrioritiesQuery, useInternalTeamsQuery, useQueuesQuery, useInternalTicketQueuesQuery
 } from '@/lib/query-hooks';
 import { isClosedTicketStatus, registerClosedStatusLabels, getCustomerStatusLabel } from '@/lib/ticket-status';
 import { getTicketSlaStatus, isTicketSlaExempt } from '@/lib/sla';
@@ -317,7 +317,10 @@ export function TicketDetailModal({ ticket, onClose, initialDraft, creating = fa
   const [internalTickets, setInternalTickets] = useState<InternalTicket[]>([]);
   const [showCreatePanel, setShowCreatePanel] = useState(false);
   const [itTitle, setItTitle] = useState('');
-  const [itTeam, setItTeam] = useState('Desenvolvimento');
+  // Fila do ticket interno criado daqui (2026-11-13, substitui a equipe).
+  const [itQueueId, setItQueueId] = useState('');
+  const internalQueuesQuery = useInternalTicketQueuesQuery();
+  const internalQueues = ((internalQueuesQuery.data || []) as InternalTicketQueue[]).filter(q => q.isActive);
   const [itAssignee, setItAssignee] = useState('');
   const [itPriority, setItPriority] = useState(1);
   const [showLinkModal, setShowLinkModal] = useState(false);
@@ -674,21 +677,23 @@ const loadMessages = async () => {
 
    const resetCreateForm = () => {
      setItTitle(`Interno: ${ticket?.title || ''}`);
-     setItTeam('Desenvolvimento');
+     setItQueueId('');
      setItAssignee('');
      setItPriority(1);
    };
 
    const handleCreateInternalTicket = async () => {
       if (!currentUser || !ticket || !itTitle.trim()) return;
-      const team = internalTeams.find(t => t.name === itTeam);
+      if (!itQueueId) {
+        toast.error('Escolha a fila do ticket interno.');
+        return;
+      }
       const newIT: InternalTicket = {
         id: undefined,
         parentTicketId: ticket.id,
         parentTicketIds: [ticket.id],
         title: itTitle,
-        teamId: itTeam,
-        internalTeamId: team ? team.id : undefined,
+        internalQueueId: itQueueId,
         assigneeId: itAssignee || undefined,
         priority: itPriority,
         tags: [],
@@ -1372,7 +1377,10 @@ const loadMessages = async () => {
         exit={{ x: '100%' }}
         transition={{ type: 'spring', damping: 25, stiffness: 200 }}
         className={cn(
-          "relative bg-[var(--surface-card)] h-full shadow-2xl border-l border-[var(--border-default)] flex flex-col md:flex-row transition-all duration-500 ease-in-out",
+          // Só a largura transita por CSS (botão de tela cheia): transition-all
+          // pegava também o deslize da animação e, ao FECHAR, o painel sumia
+          // sem animar (2026-11-13).
+          "relative bg-[var(--surface-card)] h-full shadow-2xl border-l border-[var(--border-default)] flex flex-col md:flex-row transition-[max-width] duration-500 ease-in-out",
           isFocused ? "w-full" : "w-full md:max-w-[90vw]"
         )}
       >
@@ -2345,16 +2353,16 @@ const loadMessages = async () => {
                                </div>
                                <div className="grid grid-cols-2 gap-4">
                                   <div className="flex flex-col gap-1.5">
-                                     <label className="text-[10px] font-semibold uppercase text-[var(--text-tertiary)]">Equipe</label>
+                                     <label className="text-[10px] font-semibold uppercase text-[var(--text-tertiary)]">Fila</label>
                                      <StyledSelect
-                                       value={itTeam}
-                                       onChange={(e) => setItTeam(e.target.value)}
+                                       value={itQueueId}
+                                       onChange={(e) => { setItQueueId(e.target.value); setItAssignee(''); }}
                                        className="bg-[var(--surface-card)] border border-[var(--border-default)] rounded-lg px-3 py-2 text-xs font-bold text-[var(--text-secondary)] focus:border-[var(--text-warning-strong)] outline-none"
                                      >
-                                       {internalTeams.map(t => (
-                                         <option key={t.id} value={t.name}>{t.name}</option>
+                                       <option value="">Escolha a fila...</option>
+                                       {internalQueues.map(q => (
+                                         <option key={q.id} value={q.id}>{q.name}</option>
                                        ))}
-                                       <option value="">Sem equipe</option>
                                      </StyledSelect>
                                   </div>
                                   <div className="flex flex-col gap-1.5">
@@ -2366,7 +2374,7 @@ const loadMessages = async () => {
                                      >
                                        <option value="">Não atribuído</option>
                                        {analysts
-                                          .filter(a => !itTeam || (a as any).internalTeamIds?.includes(internalTeams.find(t => t.name === itTeam)?.id || ''))
+                                          .filter(a => !itQueueId || (internalQueues.find(q => q.id === itQueueId)?.memberIds || []).includes(a.id))
                                           .map(a => <option key={a.id} value={a.id}>{a.name}</option>)}
                                      </StyledSelect>
                                   </div>
@@ -2614,7 +2622,9 @@ const loadMessages = async () => {
                      <RichEditor
                        content={message}
                        onChange={setMessage}
-                       placeholder="Nota do ticket interno..."
+                       placeholder="Nota do ticket interno... (@ para marcar alguém)"
+                       // @ marca alguém da equipe na nota do TICKET INTERNO (2026-11-16).
+                       mentionItems={analysts.map(a => ({ id: a.id, label: a.name }))}
                        toolbar="basic"
                        minHeight="100px"
                        maxHeight="35vh"

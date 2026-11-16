@@ -321,7 +321,7 @@ export default function ReportsPage() {
 
       {/* Avaliação interna de clientes: o inverso da pesquisa de satisfação
           acima — aqui é o analista avaliando o cliente, nunca visível a ele
-          (ver components/customer-evaluation-modal.tsx). */}
+          (feita no cadastro da empresa, components/new-company-modal.tsx). */}
       <div className="space-y-6">
         <div className="flex flex-wrap justify-between items-end gap-3">
           <div>

@@ -157,6 +157,10 @@ export enum Permission {
   REPORTS_INTERNAL = 'reports:internal',
   // Regras do ticket interno (estrelas e dias para a regra de 2 dias), em Configurações > Pontuação do Ranking.
   INTERNAL_RULES_CONFIG = 'internal:rules_config',
+  // Configurar as Filas de ticket interno (nome, membros, ativa) — tela em
+  // Configurações > Atendimento > Filas de Ticket Interno (2026-11-13).
+  // Backfill: quem tinha settings:system_internal ou settings:system.
+  INTERNAL_QUEUES_MANAGE = 'internal:queues_manage',
   // Widget flutuante do Agente de IA (busca em chat com cliente, chat de
   // grupo interno, chamados e tickets internos) — concedida por padrão aos
   // perfis de Equipe/Time Interno na migration que introduziu o agente (ver
@@ -448,6 +452,9 @@ export interface InternalTicket {
   title: string;
   teamId?: string;
   internalTeamId?: string;
+  // Fila do ticket interno (2026-11-13) — substitui a equipe na tela; ticket
+  // antigo fica sem fila e mostra a equipe (teamId) só para consulta.
+  internalQueueId?: string | null;
   assigneeId?: string;
   priority: number;
   tags: string[];
@@ -782,6 +789,9 @@ export interface ChatMessage {
     replyToMessageId?: string;
     // Mensagem citada ("responder" do WhatsApp) — canal Pyvon.
     replyTo?: ChatReplyQuote;
+    // Mensagem de encerramento com a pesquisa — o servidor grava só uma por
+    // conversa (push-message, app/api/chats/route.ts).
+    closingSurvey?: boolean;
   };
   attachments?: Attachment[];
 }
@@ -1430,4 +1440,14 @@ export interface TicketTimeTotals {
   slaSemHistorico: number;
   slaPendentes: number;
   backlog: number;
+}
+
+// Fila de ticket interno (public.internal_ticket_queues, 2026-11-13). Não é a
+// fila de atendimento de chat (Queue / public.queues).
+export interface InternalTicketQueue {
+  id: string;
+  name: string;
+  memberIds: string[];
+  isActive: boolean;
+  sortOrder: number;
 }

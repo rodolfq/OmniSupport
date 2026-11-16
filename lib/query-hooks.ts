@@ -66,6 +66,10 @@ const configOutcomesDef = { queryKey: ['ref', 'config_outcomes'], queryFn: () =>
 
 const internalTeamsDef = { queryKey: ['ref', 'internal_teams'], queryFn: () => getJson('/api/config?type=internal-teams') };
 const queuesDef = { queryKey: ['ref', 'queues'], queryFn: () => getJson('/api/config?type=queues') };
+// Filas de TICKET INTERNO (2026-11-13) — não confundir com queuesDef acima
+// (filas de atendimento de chat).
+export const INTERNAL_TICKET_QUEUES_KEY = ['ref', 'internal_ticket_queues'];
+const internalTicketQueuesDef = { queryKey: INTERNAL_TICKET_QUEUES_KEY, queryFn: () => getJson('/api/internal-ticket-queues') };
 
 // Papéis "de equipe" (Administrador/Equipe/Time Interno) — mesmo filtro de
 // /api/users?type=analysts. Só usar onde o consumidor precisar exatamente
@@ -145,6 +149,10 @@ export function useConfigOutcomesQuery(options?: QueryOptions) {
 
 export function useInternalTeamsQuery(options?: QueryOptions) {
   return useQuery({ ...internalTeamsDef, enabled: options?.enabled });
+}
+
+export function useInternalTicketQueuesQuery(options?: QueryOptions) {
+  return useQuery({ ...internalTicketQueuesDef, enabled: options?.enabled });
 }
 
 export function useQueuesQuery(options?: QueryOptions) {

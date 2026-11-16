@@ -3,6 +3,7 @@
 import React from 'react';
 import { InternalTicketDetailModal } from '@/components/internal-ticket-detail-modal';
 import { useOpenInternalTicket } from '@/components/internal-ticket-modal-host';
+import { AnimatePresence } from 'motion/react';
 
 interface NewInternalTicketModalProps {
   isOpen: boolean;
@@ -28,10 +29,13 @@ interface NewInternalTicketModalProps {
  */
 export function NewInternalTicketModal({ isOpen, onClose, onCreated, initialTitle, initialDescription }: NewInternalTicketModalProps) {
   const openInternalTicket = useOpenInternalTicket();
-  if (!isOpen) return null;
+  // AnimatePresence: animação de saída ao fechar (2026-11-13).
   return (
+    <AnimatePresence>
+    {isOpen && (
     <InternalTicketDetailModal
-      // Desmontado a cada fechamento (return null acima), então o rascunho é
+      key="novo-ticket-interno"
+      // Desmontado a cada fechamento (some quando isOpen vira false), então o rascunho é
       // lido uma vez só, na abertura — mudar as props depois não apaga o que
       // a pessoa já digitou.
       ticketRef=""
@@ -43,5 +47,7 @@ export function NewInternalTicketModal({ isOpen, onClose, onCreated, initialTitl
         if (id) openInternalTicket(id);
       }}
     />
+    )}
+    </AnimatePresence>
   );
 }

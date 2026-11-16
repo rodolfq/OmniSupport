@@ -1,5 +1,6 @@
 'use client';
 
+import { shouldThisTabAlert, startVisibleTabHeartbeat } from '@/lib/notification-tab-claim';
 import React, { createContext, useContext, useState, useEffect, useRef } from 'react';
 import { User, UserRole, Permission, AbsenceReason, Attachment } from '@/lib/types';
 import { safeJsonStringify } from '@/lib/utils';
@@ -129,12 +130,6 @@ interface AppContextType {
   absenceReasons: AbsenceReason[];
   setUserStatus: (status: 'online' | 'away' | 'offline', reason?: string) => void;
   refreshAbsenceReasons: () => Promise<void>;
-  // Modal global de avaliação interna da empresa-cliente (ver
-  // CustomerEvaluationModal) — disparado ao encerrar um chat, ou pelo clique
-  // na notificação de avaliação. Edição direta fica no cadastro da empresa.
-  evaluationModalTarget: EvaluationModalTarget | null;
-  openEvaluationModal: (target: EvaluationModalTarget) => void;
-  closeEvaluationModal: () => void;
   navBadges: NavBadges;
   refreshNavBadges: () => Promise<void>;
   markTicketNotificationsRead: (ticketId: string) => Promise<string | null>;
@@ -156,16 +151,6 @@ export interface NavBadges {
   // mostrar o indicativo em toda tela que lista ticket interno.
   internalTicketsUnread: number;
   internalTicketsUnreadByTicket: Record<string, number>;
-}
-
-export interface EvaluationModalTarget {
-  companyId: string;
-  companyName: string;
-  chatSessionId?: string;
-  // Contato (pessoa) que gerou o atendimento — opcional, só quando a
-  // avaliação nasce de um chat encerrado (ver chat-widget.tsx).
-  contactId?: string;
-  contactName?: string;
 }
 
 const AppContext = createContext<AppContextType | undefined>(undefined);
@@ -194,10 +179,10 @@ const DEFAULT_SETTINGS: NotificationSettings = {
 // pedido do usuário). Os demais — conversa (chat_*), chat interno, resposta de
 // pesquisa, hotfix vencido, lembrete de agenda — continuam avisando na hora
 // (toast, som, notificação do sistema), mas não ficam gravados no sininho.
-// 'customer_evaluation_prompt' fica: é aviso de chamado e o sininho é o único
-// lugar de onde o cliente abre a avaliação.
+// O pedido de avaliação de cliente ('customer_evaluation_prompt') saiu junto
+// com a funcionalidade (2026-11-13): avisos antigos desse tipo somem do sino.
 export function isBellNotification(type: string): boolean {
-  return type.startsWith('ticket_') || type.startsWith('internal_ticket_') || type === 'customer_evaluation_prompt';
+  return type.startsWith('ticket_') || type.startsWith('internal_ticket_');
 }
 
 export function getNotificationTargetHref(notif: Pick<AppNotification, 'type' | 'targetId'>, isCompanyUser: boolean): string | null {
@@ -210,11 +195,7 @@ export function getNotificationTargetHref(notif: Pick<AppNotification, 'type' | 
   if (notif.type === 'internal_chat_message') return '/chat-internal';
   if (notif.type.startsWith('internal_ticket_')) return `/internal-tickets/${notif.targetId}`;
   if (notif.type === 'hotfix_overdue') return '/settings?tab=hotfixes';
-  // Não tem link de página — a ação é abrir o modal de avaliação, só possível
-  // pelo clique no sino (ver NotificationPanel), não pela notificação nativa
-  // do SO.
-  if (notif.type === 'customer_evaluation_prompt') return null;
-  // Idem: o destino é o link do evento/reunião do Google (em meta.eventUrl),
+  // O destino é o link do evento/reunião do Google (em meta.eventUrl),
   // externo ao SSX Desk — não faz sentido navegar a aba inteira pra lá só por
   // causa da notificação nativa do SO clicada em segundo plano. Quem quer
   // abrir o evento usa o botão dedicado (CalendarEventReminder/NotificationPanel).
@@ -269,13 +250,6 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
   const [isOmniChatExpanded, setIsOmniChatExpanded] = useState(false);
   const [activeOmniChatId, setActiveOmniChatId] = useState<string | null>(null);
   const [refreshTrigger, setRefreshTrigger] = useState(0);
-  const [evaluationModalTarget, setEvaluationModalTarget] = useState<EvaluationModalTarget | null>(null);
-  const openEvaluationModal = React.useCallback((target: EvaluationModalTarget) => {
-    setEvaluationModalTarget(target);
-  }, []);
-  const closeEvaluationModal = React.useCallback(() => {
-    setEvaluationModalTarget(null);
-  }, []);
 
   const userRef = useRef<User | null>(null);
   const activeChatRef = useRef<string | null>(null);
@@ -421,6 +395,12 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
         });
       }
       
+      // Som, toast e notificação do SO saem em UMA aba só (2026-11-13): a
+      // visível; sem nenhuma visível, a primeira que reivindicar. O sininho
+      // (acima) continua sendo gravado em todas. Ver lib/notification-tab-claim.ts.
+      const alertKey = `${recipientId}:${newNotif.sourceId || `${notif.type}:${notif.title}:${newNotif.message}`}`;
+      shouldThisTabAlert(alertKey).then(alertHere => {
+      if (!alertHere) return;
       const soundType = notif.type === 'internal_chat_message' ? 'internal_chat' : notif.type.startsWith('chat_') ? 'chat' : 'system';
       playSound(soundType);
 
@@ -461,6 +441,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
           console.error('Error showing OS notification:', e);
         }
       }
+      }).catch(() => {});
     }
   }, [playSound]);
 
@@ -625,6 +606,9 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     const title = 'Fim do horário de almoço';
     const message = 'Seus 60 minutos de almoço terminaram.';
 
+    // O cronômetro roda em toda aba aberta: avisa numa só (ver addNotification).
+    shouldThisTabAlert(`lunch:${userRef.current?.id || ''}:${new Date().toISOString().slice(0, 16)}`).then(alertHere => {
+    if (!alertHere) return;
     showTimedToast(title, { description: message }, 8000);
     playSound('system');
 
@@ -651,7 +635,11 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
         console.error('Error showing lunch OS notification:', e);
       }
     }
+    }).catch(() => {});
   }, [playSound]);
+
+  // Presença de "aba visível" para a coordenação de avisos entre abas.
+  useEffect(() => startVisibleTabHeartbeat(), []);
 
   useEffect(() => {
     refreshAbsenceReasons();
@@ -1187,9 +1175,6 @@ return (
       absenceReasons,
       setUserStatus,
       refreshAbsenceReasons,
-      evaluationModalTarget,
-      openEvaluationModal,
-      closeEvaluationModal,
       navBadges,
       refreshNavBadges,
       markTicketNotificationsRead,

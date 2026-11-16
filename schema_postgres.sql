@@ -31,6 +31,7 @@ DROP TABLE IF EXISTS public.queues CASCADE;
 DROP TABLE IF EXISTS public.profiles CASCADE;
 DROP TABLE IF EXISTS public.companies CASCADE;
 DROP TABLE IF EXISTS public.internal_tickets CASCADE;
+DROP TABLE IF EXISTS public.internal_ticket_queues CASCADE;
 DROP TABLE IF EXISTS public.internal_teams CASCADE;
 DROP TABLE IF EXISTS public.ticket_internal_links CASCADE;
 DROP TABLE IF EXISTS public.internal_ticket_messages CASCADE;
@@ -1487,6 +1488,21 @@ ALTER TABLE public.tickets
 
 CREATE INDEX IF NOT EXISTS idx_tickets_queue_id ON public.tickets(queue_id);
 
+-- Filas de ticket interno (migrations/internal_ticket_queues.sql, 2026-11-13).
+-- Substituem o campo "Equipe" no ticket interno; NÃO são public.queues (filas
+-- de atendimento de chat). Uma pessoa pode estar em várias (member_ids).
+CREATE TABLE public.internal_ticket_queues (
+  id UUID PRIMARY KEY DEFAULT md5(random()::text || clock_timestamp()::text)::uuid,
+  name TEXT NOT NULL,
+  member_ids UUID[] NOT NULL DEFAULT '{}',
+  is_active BOOLEAN NOT NULL DEFAULT true,
+  sort_order INTEGER NOT NULL DEFAULT 0,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+  updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+CREATE UNIQUE INDEX IF NOT EXISTS uq_internal_ticket_queues_name ON public.internal_ticket_queues (lower(name));
+CREATE INDEX IF NOT EXISTS idx_internal_ticket_queues_members ON public.internal_ticket_queues USING GIN (member_ids);
+
 -- Internal Tickets Table
 CREATE TABLE public.internal_tickets (
   id TEXT PRIMARY KEY DEFAULT (md5(random()::text || clock_timestamp()::text)::text),
@@ -1495,6 +1511,8 @@ CREATE TABLE public.internal_tickets (
   description TEXT NOT NULL DEFAULT '',
   team_id TEXT,
   internal_team_id UUID REFERENCES public.internal_teams(id) ON DELETE SET NULL,
+  internal_queue_id UUID REFERENCES public.internal_ticket_queues(id) ON DELETE SET NULL, -- Fila (substitui a equipe na tela; tickets antigos ficam sem fila)
+  follower_ids UUID[] NOT NULL DEFAULT '{}', -- marcados com @ nas notas: recebem e-mail das atualizações até o ticket fechar (migrations/internal_ticket_followers.sql)
   assignee_id UUID REFERENCES public.profiles(id) ON DELETE SET NULL,
   priority INTEGER DEFAULT 1,
   tags TEXT[] DEFAULT '{}',
@@ -1524,6 +1542,7 @@ CREATE TABLE public.internal_tickets (
 CREATE INDEX IF NOT EXISTS idx_internal_tickets_number ON public.internal_tickets(internal_ticket_number);
 CREATE INDEX IF NOT EXISTS idx_internal_tickets_status ON public.internal_tickets(status);
 CREATE INDEX IF NOT EXISTS idx_internal_tickets_assignee_id ON public.internal_tickets(assignee_id);
+CREATE INDEX IF NOT EXISTS idx_internal_tickets_queue ON public.internal_tickets(internal_queue_id);
 CREATE INDEX IF NOT EXISTS idx_internal_tickets_internal_team_id ON public.internal_tickets(internal_team_id);
 CREATE INDEX IF NOT EXISTS idx_internal_tickets_search_vector ON public.internal_tickets USING GIN (search_vector);
 CREATE INDEX IF NOT EXISTS idx_internal_tickets_release_item_id ON public.internal_tickets(release_item_id);
