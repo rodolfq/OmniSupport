@@ -161,10 +161,16 @@ export interface TicketPointsBreakdown {
 }
 
 export function computeTicketPoints(c: TicketCounts, p: TicketPontos): TicketPointsBreakdown {
+  // SLA removido do TOTAL por enquanto (pedido do usuário, 2026-11-16, logo
+  // depois de mudar o próprio cálculo de vencimento do SLA de chamado pra
+  // dias úteis — ver lib/sla.ts): chamado com SLA vencido (aberto ou
+  // fechado) não deve mais impactar a pontuação do analista, até reavaliar
+  // com a nova régua. Continua CALCULADO (nada se perde) — só não entra na
+  // soma. Pra reativar: somar `sla` de volta no `total` abaixo.
   const sla = c.slaOk * p.slaCumprido + c.slaMiss * p.slaDescumprido;
   const primeiraResposta = c.frNoPrazo * p.primeiraRespostaNoPrazo + c.frForaPrazo * p.primeiraRespostaForaPrazo;
   const resolvidoPrimeiroContato = c.nasceramResolvidos * p.resolvidoPrimeiroContato;
   const backlog = c.backlog * p.backlog;
   const reabertura = c.reaberturas * p.reabertura;
-  return { sla, primeiraResposta, resolvidoPrimeiroContato, backlog, reabertura, total: sla + primeiraResposta + resolvidoPrimeiroContato + backlog + reabertura };
+  return { sla, primeiraResposta, resolvidoPrimeiroContato, backlog, reabertura, total: primeiraResposta + resolvidoPrimeiroContato + backlog + reabertura };
 }

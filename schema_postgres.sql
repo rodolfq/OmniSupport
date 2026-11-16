@@ -753,6 +753,101 @@ BEGIN
 END;
 $$;
 
+-- SLA de chamado (config_priorities.sla_hours) em DIAS ÚTEIS inteiros, não
+-- mais em horas úteis corridas (migrations/ticket_sla_business_days.sql,
+-- 2026-11-16) — NÃO confundir com ticket_business_deadline/
+-- ticket_business_minutes acima, que são de outra regra (backlog/"dias sem
+-- interação" de Ticket Interno, migrations/ticket_business_deadline.sql).
+-- Mesma fórmula de lib/sla.ts::addBusinessDays/computeTicketSlaLimit,
+-- espelhada aqui pro card "SLA Vencido" do Dashboard/filtros rápidos (ver
+-- app/api/search/route.ts) não divergir da data mostrada no chamado.
+CREATE OR REPLACE FUNCTION public.ticket_sla_deadline_business_hours(
+  p_created_at timestamptz,
+  p_sla_hours integer
+) RETURNS timestamptz AS $$
+DECLARE
+  v_local timestamp;
+  v_remaining_minutes numeric;
+  v_end_of_day timestamp;
+  v_available_minutes numeric;
+BEGIN
+  v_local := p_created_at AT TIME ZONE 'America/Sao_Paulo';
+
+  IF EXTRACT(HOUR FROM v_local) >= 18 THEN
+    v_local := date_trunc('day', v_local) + interval '1 day' + interval '8 hours';
+  ELSIF EXTRACT(HOUR FROM v_local) < 8 THEN
+    v_local := date_trunc('day', v_local) + interval '8 hours';
+  END IF;
+  WHILE EXTRACT(DOW FROM v_local) IN (0, 6) LOOP
+    v_local := date_trunc('day', v_local) + interval '1 day' + interval '8 hours';
+  END LOOP;
+
+  v_remaining_minutes := p_sla_hours * 60;
+  WHILE v_remaining_minutes > 0 LOOP
+    v_end_of_day := date_trunc('day', v_local) + interval '18 hours';
+    v_available_minutes := EXTRACT(EPOCH FROM (v_end_of_day - v_local)) / 60;
+
+    IF v_remaining_minutes <= v_available_minutes THEN
+      v_local := v_local + make_interval(mins => v_remaining_minutes::int);
+      v_remaining_minutes := 0;
+    ELSE
+      v_remaining_minutes := v_remaining_minutes - v_available_minutes;
+      v_local := v_end_of_day;
+      LOOP
+        v_local := date_trunc('day', v_local) + interval '1 day' + interval '8 hours';
+        EXIT WHEN EXTRACT(DOW FROM v_local) NOT IN (0, 6);
+      END LOOP;
+    END IF;
+  END LOOP;
+
+  RETURN v_local AT TIME ZONE 'America/Sao_Paulo';
+END;
+$$ LANGUAGE plpgsql IMMUTABLE;
+
+CREATE OR REPLACE FUNCTION public.ticket_sla_deadline_business_days(
+  p_created_at timestamptz,
+  p_sla_days integer
+) RETURNS timestamptz AS $$
+DECLARE
+  v_cursor date;
+  v_remaining integer;
+BEGIN
+  v_cursor := (p_created_at AT TIME ZONE 'America/Sao_Paulo')::date + 1; -- nunca conta o dia da abertura
+  v_remaining := GREATEST(1, p_sla_days);
+
+  LOOP
+    IF EXTRACT(DOW FROM v_cursor) NOT IN (0, 6) THEN
+      v_remaining := v_remaining - 1;
+      EXIT WHEN v_remaining = 0;
+    END IF;
+    v_cursor := v_cursor + 1;
+  END LOOP;
+
+  RETURN (v_cursor::timestamp + interval '8 hours') AT TIME ZONE 'America/Sao_Paulo';
+END;
+$$ LANGUAGE plpgsql IMMUTABLE;
+
+-- "Urgente" fica de fora da contagem por dias inteiros (decisão do usuário) —
+-- continua em horas úteis; mesmo rótulo hardcoded de
+-- lib/sla.ts::HOURLY_SLA_PRIORITY_LABEL.
+CREATE OR REPLACE FUNCTION public.ticket_sla_deadline(
+  p_created_at timestamptz,
+  p_priority_label text,
+  p_sla_hours integer
+) RETURNS timestamptz AS $$
+BEGIN
+  IF p_sla_hours IS NULL OR p_sla_hours <= 0 THEN
+    RETURN NULL;
+  END IF;
+
+  IF p_priority_label = 'Urgente' THEN
+    RETURN public.ticket_sla_deadline_business_hours(p_created_at, p_sla_hours);
+  END IF;
+
+  RETURN public.ticket_sla_deadline_business_days(p_created_at, GREATEST(1, ROUND(p_sla_hours / 24.0)::int));
+END;
+$$ LANGUAGE plpgsql IMMUTABLE;
+
 -- Histórico de status de chamado e gatilho (migrations/ticket_status_history.sql).
 CREATE TABLE IF NOT EXISTS public.ticket_status_history (
   id UUID PRIMARY KEY DEFAULT (md5(random()::text || clock_timestamp()::text)::uuid),

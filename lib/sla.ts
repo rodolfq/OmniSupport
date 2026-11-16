@@ -33,6 +33,9 @@ function snapToBusinessStart(from: Date): Date {
  * Soma `hours` horas ÚTEIS (8h-18h, seg-sex) a partir de `fromIso`, pulando
  * fim de semana — substitui a antiga soma de horas corridas (createdAt +
  * hours*3600000) usada no cálculo de SLA de chamado.
+ *
+ * Só usada hoje pra prioridade "Urgente" (ver HOURLY_SLA_PRIORITY_LABEL
+ * abaixo) — as demais prioridades usam `addBusinessDays`.
  */
 export function addBusinessHours(fromIso: string, hours: number): Date {
   let cursor = snapToBusinessStart(new Date(fromIso));
@@ -57,6 +60,45 @@ export function addBusinessHours(fromIso: string, hours: number): Date {
   }
   return cursor;
 }
+
+/**
+ * Soma `days` DIAS ÚTEIS inteiros a partir de `fromIso` — pedido do usuário,
+ * 2026-11-16 (chamado #7054: SLA "15 dias" = 360h úteis virava 04/01/2027 em
+ * vez de ~28/11, porque a conta era em HORAS úteis de 8h-18h, não em dias
+ * inteiros). Regras explícitas do pedido:
+ *   - o dia da ABERTURA nunca conta (a contagem começa no dia seguinte);
+ *   - a hora da abertura não importa — não há fração de dia;
+ *   - cada dia útil (seg-sex, sem feriado cadastrado — mesma convenção de
+ *     `isWeekendDate` acima) que vier depois consome 1 dia do prazo;
+ *   - o vencimento cai no INÍCIO do expediente (8h) do dia útil que fecha a
+ *     contagem.
+ */
+export function addBusinessDays(fromIso: string, days: number): Date {
+  const cursor = new Date(fromIso);
+  cursor.setHours(0, 0, 0, 0);
+  cursor.setDate(cursor.getDate() + 1); // nunca conta o dia da abertura
+
+  let remaining = Math.max(1, Math.round(days));
+  while (true) {
+    if (!isWeekendDate(cursor)) {
+      remaining--;
+      if (remaining === 0) break;
+    }
+    cursor.setDate(cursor.getDate() + 1);
+  }
+  cursor.setHours(BUSINESS_DAY_START_HOUR, 0, 0, 0);
+  return cursor;
+}
+
+// "Urgente" fica de fora da contagem por dias inteiros (decisão do usuário,
+// 2026-11-16): virar dia útil inteiro quase dobraria o prazo real da
+// prioridade mais crítica (ex.: aberto sexta à tarde só venceria na
+// segunda). Só ela continua em `addBusinessHours`; as demais (Baixa/Média/
+// Alta e qualquer prioridade nova) usam `addBusinessDays`. Mesmo rótulo
+// hardcoded espelhado em app/api/search/route.ts (`ticket_sla_deadline`,
+// função Postgres) — mudar aqui sem mudar lá quebra a consistência entre a
+// tela do chamado e o card "SLA Vencido" do Dashboard.
+export const HOURLY_SLA_PRIORITY_LABEL = 'Urgente';
 
 // Prioridade, como ela chega de GET /api/config?type=priorities (sla_hours,
 // snake_case puro — ver app/api/config/route.ts) ou de algum consumidor mais
@@ -95,13 +137,21 @@ export function computeTicketSlaLimit(
   const config = (priorities || []).find(p => p.label === priorityLabel);
   const hours = config?.sla_hours ?? config?.slaHours;
   if (!hours) return null;
-  return addBusinessHours(createdAt, hours);
+  // Urgente continua em horas úteis; as demais viram dias úteis inteiros
+  // (o campo de Configurações continua guardando HORAS — só a fórmula lê
+  // esse número como `horas / 24 = dias`, pedido do usuário 2026-11-16).
+  if (priorityLabel === HOURLY_SLA_PRIORITY_LABEL) {
+    return addBusinessHours(createdAt, hours);
+  }
+  return addBusinessDays(createdAt, hours / 24);
 }
 
 export interface TicketSlaStatus {
   limit: Date | null;
   isOverdue: boolean;
-  isNear: boolean; // vence em menos de 4h úteis/corridas, ainda não vencido
+  // Urgente: vence em menos de 4h de relógio, ainda não vencido. Demais
+  // prioridades (dias úteis): vence HOJE, ainda não vencido.
+  isNear: boolean;
 }
 
 /** Vencimento + se já venceu/está perto de vencer — mesma janela de "perto
@@ -125,11 +175,20 @@ export function getTicketSlaStatus(
   if (!limit) return { limit: null, isOverdue: false, isNear: false };
   if (exempt) return { limit, isOverdue: false, isNear: false };
   const diffMs = limit.getTime() - now.getTime();
-  return {
-    limit,
-    isOverdue: diffMs < 0,
-    isNear: diffMs > 0 && diffMs < 4 * 60 * 60 * 1000,
-  };
+  const isOverdue = diffMs < 0;
+  // Urgente: mantém a janela de "perto de vencer" em horas de relógio (4h),
+  // igual sempre foi — faz sentido numa escala de horas.
+  if (priorityLabel === HOURLY_SLA_PRIORITY_LABEL) {
+    return { limit, isOverdue, isNear: diffMs > 0 && diffMs < 4 * 60 * 60 * 1000 };
+  }
+  // Demais prioridades (dias úteis inteiros): "perto de vencer" = o
+  // vencimento cai no mesmo dia de calendário de `now`, ainda não vencido —
+  // janela de horas não faz sentido numa escala de dias. Não documentado no
+  // pedido original; avisar se quiser outro critério.
+  const sameCalendarDay = limit.getFullYear() === now.getFullYear()
+    && limit.getMonth() === now.getMonth()
+    && limit.getDate() === now.getDate();
+  return { limit, isOverdue, isNear: !isOverdue && sameCalendarDay };
 }
 
 // Status, como `getTicketSlaStatus` precisa pra achar o sub-status (só os
