@@ -1285,7 +1285,11 @@ export function InternalTicketDetailModal({ ticketRef, onClose, creating, onCrea
                       onChange={(e) => { const v = e.target.value; setFormQueueId(v); handleUpdateTicket({ queueId: v }); }}
                       className="w-full bg-transparent border-none outline-none text-sm font-bold text-[var(--text-primary)] cursor-pointer hover:underline"
                     >
-                      <option value="">{isCreating ? 'Escolha a fila...' : 'Sem fila'}</option>
+                      {/* Fila obrigatória (2026-11-16): "Sem fila" só aparece, desabilitado,
+                          enquanto o ticket antigo ainda não foi posto numa fila. */}
+                      {(isCreating || !formQueueId) && (
+                        <option value="" disabled>{isCreating ? 'Escolha a fila...' : 'Sem fila — escolha uma'}</option>
+                      )}
                       {queueOptions.map(q => <option key={q.id} value={q.id}>{q.name}{q.isActive ? '' : ' (inativa)'}</option>)}
                     </StyledSelect>
                     {/* Ticket antigo: a equipe de antes fica só para consulta. */}

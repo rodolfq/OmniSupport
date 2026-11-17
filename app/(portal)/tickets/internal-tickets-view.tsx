@@ -14,14 +14,15 @@ import { ConfigService } from "@/lib/services/config-service";
 import { useInternalTeamsQuery, useProfilesLiteQuery, useInternalTicketQueuesQuery } from "@/lib/query-hooks";
 import { findStatusColor } from "@/lib/status-colors";
 import { InlineAssigneePicker } from "@/components/inline-assignee-picker";
-import { MultiSelectFilter } from "@/components/multi-select-filter";
+
 import { toast } from "sonner";
 import {
   Plus, Search, Filter, Clock, Edit3, Loader2,
-  MessageCircle, Link2, User as UserIcon, Inbox, AlertTriangle, Flame,
-  CheckSquare, Square, X, Users
+  MessageCircle, Link2, User as UserIcon, Inbox,
+  CheckSquare, Square, X, ArrowLeft as ArrowLeftIcon
 } from "lucide-react";
-import { useRouter } from "next/navigation";
+import { useRouter, useSearchParams } from "next/navigation";
+import { InternalQueuePicker, InternalQueueQuickFilter, internalQueueLabel, useVisibleInternalQueues } from "@/components/internal-queue-picker";
 import { useOpenInternalTicket } from "@/components/internal-ticket-modal-host";
 import {
   DndContext, DragOverlay, useDraggable, useDroppable, PointerSensor, useSensor, useSensors,
@@ -329,21 +330,25 @@ export function InternalTicketsView({
   // que Jira/Linear/ClickUp sempre têm de cara, sem precisar abrir filtro
   // avançado pra isso.
   const [quickFilter, setQuickFilter] = useState<"all" | "mine" | "unassigned" | "overdue" | "high">(FILTROS_PADRAO.quickFilter);
-  const [viewScope, setViewScope] = useState<ViewScope>(FILTROS_PADRAO.viewScope);
+  // Fila escolhida (2026-11-16, pedido do usuário): a tela abre na seleção de
+  // filas (InternalQueuePicker) e só lista tickets depois que uma é escolhida.
+  // Fica na URL (?fila=) — voltar/atualizar a página mantém a fila aberta.
+  // Substitui os recortes "Minhas filas / Todos / Atribuído a mim".
+  const searchParams = useSearchParams();
+  const selectedQueue = searchParams?.get('fila') || null;
+  const { allQueues: allInternalQueues, canSeeAll: canSeeAllQueues } = useVisibleInternalQueues();
+  const openQueue = useCallback((key: string | null, qf?: InternalQueueQuickFilter) => {
+    const params = new URLSearchParams(searchParams?.toString() || '');
+    params.set('mode', 'internal');
+    if (key) params.set('fila', key); else params.delete('fila');
+    setQuickFilter(qf || 'all');
+    router.replace(`/tickets?${params.toString()}`, { scroll: false });
+  }, [router, searchParams]);
   const [totalCount, setTotalCount] = useState(0);
   // Carrega o recorte inteiro de uma vez (2026-11-11, pedido do usuário):
   // a tela antes mostrava só os 20 primeiros e depois tinha "Carregar mais".
-  // Sem equipe interna (ex.: Administrador fora de qualquer equipe), "Minha
-  // equipe" não teria o que mostrar — a opção some e a tela cai em "Todos",
-  // sem mexer na preferência salva (se a pessoa entrar numa equipe depois, a
-  // visão padrão volta a valer sozinha).
-  // "Minhas filas" (2026-11-13, era "Minha equipe"): vale pra quem é membro
-  // de alguma fila ou tem equipe (os tickets antigos, sem fila, seguem pela equipe).
   const { data: internalQueuesData } = useInternalTicketQueuesQuery();
   const internalQueues = useMemo(() => (internalQueuesData || []) as InternalTicketQueue[], [internalQueuesData]);
-  const hasTeam = (currentUser?.internalTeamIds?.length ?? 0) > 0
-    || internalQueues.some(q => !!currentUser?.id && q.memberIds.includes(currentUser.id));
-  const effectiveScope: ViewScope = viewScope === "team" && !hasTeam ? "all" : viewScope;
 
   // Restauração das preferências salvas.
   //
@@ -358,7 +363,8 @@ export function InternalTicketsView({
     const salvos = carregarFiltros();
     setSearchTerm(salvos.searchTerm);
     setDebouncedSearch(salvos.searchTerm);
-    setFilterTeams(salvos.filterTeams);
+    // Fila vem da seleção de filas (?fila=), não mais do filtro salvo.
+    setFilterTeams([]);
     setFilterAssignee(salvos.filterAssignee);
     setFilterStatus(salvos.filterStatus);
     setFilterPriority(salvos.filterPriority);
@@ -369,7 +375,7 @@ export function InternalTicketsView({
     // Filtro avançado já aberto quando algum deles está valendo — senão a
     // lista volta recortada por um filtro invisível, que é o jeito mais rápido
     // de alguém achar que "sumiram tickets".
-    const temFiltroAvancado = salvos.filterTeams.length > 0 || !!salvos.filterAssignee
+    const temFiltroAvancado = !!salvos.filterAssignee
       || !!salvos.filterStatus || !!salvos.filterPriority || !!salvos.dateFrom || !!salvos.dateTo
       || salvos.showClosed;
     if (temFiltroAvancado) setShowFilters(true);
@@ -466,6 +472,7 @@ export function InternalTicketsView({
 
 // Modal states
   const [showNewModal, setShowNewModal] = useState(false);
+  const [pickerRefresh, setPickerRefresh] = useState(0);
 
   // Mesma checagem de permissão do botão "Novo Ticket" abaixo — sem ela, o
   // link do Dashboard abriria o modal pra quem só tem permissão de VER
@@ -473,13 +480,13 @@ export function InternalTicketsView({
   useEffect(() => {
     if (openNewModal && hasPermission(Permission.INTERNAL_TICKETS_EDIT)) {
       setShowNewModal(true);
-      router.replace('/tickets?mode=internal');
+      router.replace(selectedQueue ? `/tickets?mode=internal&fila=${encodeURIComponent(selectedQueue)}` : '/tickets?mode=internal');
     }
   }, [openNewModal]);
 
   // View mode state
   const fetchTickets = useCallback(async (page = 1, isLoadMore = false) => {
-    if (!currentUser) return;
+    if (!currentUser || !selectedQueue) return;
 
     if (isLoadMore) setLoadingMore(true);
     else setLoading(true);
@@ -490,7 +497,11 @@ export function InternalTicketsView({
       // saindo do navegador (ver action=board em app/api/internal-tickets).
       const qs = new URLSearchParams({ page: '1', pageSize: String(MAX_ITEMS) });
       if (debouncedSearch) qs.set('search', debouncedSearch);
-      if (filterTeams.length > 0) qs.set('queueIds', filterTeams.join(','));
+      // Recorte pela fila escolhida ('all' = todas). Tickets antigos (sem fila)
+      // de quem não vê tudo: só os da própria equipe (scope=team, que no
+      // servidor casa fila-da-pessoa OU equipe da pessoa para os sem fila).
+      if (selectedQueue && selectedQueue !== 'all') qs.set('queueIds', selectedQueue);
+      if (selectedQueue === 'none' && !canSeeAllQueues) qs.set('scope', 'team');
       if (filterAssignee) qs.set('assigneeId', filterAssignee);
       if (filterStatus) qs.set('status', filterStatus);
       if (filterPriority) qs.set('priority', filterPriority);
@@ -498,11 +509,6 @@ export function InternalTicketsView({
       if (dateTo) qs.set('dateTo', dateTo);
       // Marcado = só os encerrados, em qualquer visão (Tabela/Cards/Kanban).
       if (effectiveShowClosed) qs.set('closedOnly', '1');
-      if (effectiveScope !== 'all') qs.set('scope', effectiveScope);
-
-      // O recorte por equipe é FILTRO (viewScope, padrão "Minha equipe"),
-      // não permissão: ticket interno é visível a todo o time (ver
-      // app/api/internal-tickets/route.ts) e "Todos" mostra tudo.
 
       const boardRes = await fetch(`/api/internal-tickets?action=board&${qs}`);
       if (!boardRes.ok) throw new Error(`Falha ao carregar tickets internos (HTTP ${boardRes.status}).`);
@@ -593,7 +599,7 @@ export function InternalTicketsView({
     // controle muda de estado mas a lista não recarrega, e o filtro parece
     // simplesmente não funcionar. filterStatus já estava faltando antes —
     // trocar o status no filtro avançado também não surtia efeito.
-  }, [currentUser, debouncedSearch, filterTeams, filterAssignee, filterStatus, filterPriority, dateFrom, dateTo, effectiveShowClosed, effectiveScope]);
+  }, [currentUser, debouncedSearch, selectedQueue, canSeeAllQueues, filterAssignee, filterStatus, filterPriority, dateFrom, dateTo, effectiveShowClosed]);
 
   useEffect(() => {
     if (!hidratado) return; // espera a restauração dos filtros salvos
@@ -703,19 +709,18 @@ export function InternalTicketsView({
     setShowClosed(false);
     setShowClosedKanban(true);
     setQuickFilter("all");
-    setViewScope("team");
   };
 
   // Quantos filtros avançados estão valendo — vira o contador no botão
   // "Filtros". Filtro salvo que não se anuncia é filtro que some da vista:
   // com a barra fechada, a lista volta recortada sem nada explicando por quê.
   const filtrosAtivos = useMemo(() => (
-    (filterTeams.length > 0 ? 1 : 0) + (filterAssignee ? 1 : 0) + (filterStatus ? 1 : 0)
+    (filterAssignee ? 1 : 0) + (filterStatus ? 1 : 0)
     + (filterPriority ? 1 : 0) + (dateFrom ? 1 : 0) + (dateTo ? 1 : 0)
     // Conta só quando difere do padrão da visão — senão o Kanban, que nasce
     // com encerrados ligados, abriria sempre anunciando um filtro "ativo".
     + (effectiveShowClosed !== (isKanban ? FILTROS_PADRAO.showClosedKanban : FILTROS_PADRAO.showClosed) ? 1 : 0)
-  ), [filterTeams, filterAssignee, filterStatus, filterPriority, dateFrom, dateTo, effectiveShowClosed, isKanban]);
+  ), [filterAssignee, filterStatus, filterPriority, dateFrom, dateTo, effectiveShowClosed, isKanban]);
 
   // Aplicado sobre o que já veio do servidor — os filtros avançados (equipe,
   // responsável, status, prioridade, data) já filtraram lá; os chips rápidos
@@ -727,7 +732,7 @@ export function InternalTicketsView({
       if (quickFilter === "mine") return t.assigneeId === currentUser?.id || t.creatorId === currentUser?.id;
       if (quickFilter === "unassigned") return !t.assigneeId;
       if (quickFilter === "overdue") return t.slaRemaining === "Expirado";
-      if (quickFilter === "high") return t.priority === 3;
+      if (quickFilter === "high") return (t.priority || 1) >= 3;
       return true;
     });
   }, [tickets, quickFilter, currentUser?.id]);
@@ -736,7 +741,7 @@ export function InternalTicketsView({
     mine: tickets.filter(t => t.assigneeId === currentUser?.id || t.creatorId === currentUser?.id).length,
     unassigned: tickets.filter(t => !t.assigneeId).length,
     overdue: tickets.filter(t => t.slaRemaining === "Expirado").length,
-    high: tickets.filter(t => t.priority === 3).length,
+    high: tickets.filter(t => (t.priority || 1) >= 3).length,
   }), [tickets, currentUser?.id]);
 
 const openEditModal = (ticket: InternalTicketItem) => {
@@ -761,6 +766,40 @@ const openEditModal = (ticket: InternalTicketItem) => {
        console.error('Error updating status:', error);
      }
    };
+
+  // Nenhuma fila escolhida: a tela é a seleção de filas (cards por fila).
+  if (!selectedQueue) {
+    return (
+      <div className="space-y-8">
+        <div className="bg-[var(--surface-card)] border border-[var(--border-default)] rounded-3xl p-4 sm:p-6">
+          <div className="flex items-center justify-between gap-4 flex-wrap">
+            <div>
+              <h1 className="text-2xl font-black text-[var(--text-primary)]">Tickets Internos</h1>
+              <p className="text-sm text-[var(--text-tertiary)] mt-1">Gerencie tickets internos de desenvolvimento e manutenção</p>
+            </div>
+            <div className="flex items-center gap-3 flex-wrap">
+              {viewToggle}
+              {hasPermission(Permission.INTERNAL_TICKETS_EDIT) && (
+                <button
+                  onClick={() => setShowNewModal(true)}
+                  className="px-4 py-2 bg-[var(--text-warning-strong)] text-white rounded-xl text-xs font-semibold uppercase tracking-widest hover:bg-[var(--accent-warning-hover)] transition-all flex items-center gap-2 whitespace-nowrap"
+                >
+                  <Plus size={16} />
+                  Novo Ticket
+                </button>
+              )}
+            </div>
+          </div>
+        </div>
+        <InternalQueuePicker onSelect={(key, qf) => openQueue(key, qf)} refreshKey={pickerRefresh} />
+        <NewInternalTicketModal
+          isOpen={showNewModal}
+          onClose={() => setShowNewModal(false)}
+          onCreated={() => setPickerRefresh(n => n + 1)}
+        />
+      </div>
+    );
+  }
 
   return (
     // Mesmo wrapper "space-y-8" solto de Chamados (tickets-view.tsx), sem
@@ -823,60 +862,32 @@ const openEditModal = (ticket: InternalTicketItem) => {
           </button>
         </div>
 
-        {/* Visão principal (servidor) + chips rápidos (página carregada) */}
+        {/* Fila aberta + recorte vindo do card (2026-11-16): substitui a linha
+            "Minhas filas / Todos / Atribuído a mim" e os atalhos. */}
         <div className="flex items-center gap-2 flex-wrap mb-1">
-          <div role="radiogroup" aria-label="Visão dos tickets" className="flex items-center gap-1 p-1 rounded-full bg-[var(--surface-pill)]">
-            {[
-              ...(hasTeam ? [{ key: "team" as const, label: "Minhas filas", icon: Users }] : []),
-              { key: "all" as const, label: "Todos", icon: Inbox },
-              { key: "assigned" as const, label: "Atribuído a mim", icon: UserIcon },
-            ].map((opt) => (
-              <button
-                key={opt.key}
-                role="radio"
-                aria-checked={effectiveScope === opt.key}
-                onClick={() => setViewScope(opt.key)}
-                className={cn(
-                  "px-3 py-1.5 rounded-full text-[10px] font-bold uppercase tracking-wide transition-all flex items-center gap-1.5",
-                  effectiveScope === opt.key
-                    ? "bg-[var(--text-warning-strong)] text-white shadow-sm"
-                    : "text-[var(--text-secondary)] hover:text-[var(--text-primary)]"
-                )}
-              >
-                <opt.icon size={11} />
-                {opt.label}
-                {/* Total vem do servidor: só a visão ativa tem número
-                    confiável — as outras não são consultadas à toa. */}
-                {effectiveScope === opt.key && !loading && (
-                  <span className="px-1.5 rounded-full text-[9px] bg-white/20">{totalCount}</span>
-                )}
-              </button>
-            ))}
-          </div>
-          <span className="w-px h-5 bg-[var(--border-default)] mx-1" aria-hidden />
-          {[
-            { key: "mine" as const, label: "Meus", icon: UserIcon, count: quickFilterCounts.mine },
-            { key: "unassigned" as const, label: "Sem responsável", icon: Inbox, count: quickFilterCounts.unassigned },
-            { key: "overdue" as const, label: "Atrasadas", icon: AlertTriangle, count: quickFilterCounts.overdue },
-            { key: "high" as const, label: "Alta prioridade", icon: Flame, count: quickFilterCounts.high },
-          ].map((chip) => (
+          <button
+            type="button"
+            onClick={() => openQueue(null)}
+            className="px-3 py-1.5 rounded-full text-[10px] font-bold uppercase tracking-wide border border-[var(--border-default)] text-[var(--text-secondary)] hover:border-[var(--text-warning-strong)]/40 flex items-center gap-1.5"
+          >
+            <ArrowLeftIcon size={11} /> Trocar fila
+          </button>
+          <span className="px-3 py-1.5 rounded-full text-[10px] font-bold uppercase tracking-wide bg-[var(--text-warning-strong)] text-white flex items-center gap-1.5">
+            {internalQueueLabel(selectedQueue, allInternalQueues)}
+            {!loading && <span className="px-1.5 rounded-full text-[9px] bg-white/20">{totalCount}</span>}
+          </span>
+          {quickFilter !== "all" && (
             <button
-              key={chip.key}
-              onClick={() => setQuickFilter(quickFilter === chip.key ? "all" : chip.key)}
-              className={cn(
-                "px-3 py-1.5 rounded-full text-[10px] font-bold uppercase tracking-wide transition-all flex items-center gap-1.5 border",
-                quickFilter === chip.key
-                  ? "bg-[var(--text-warning-strong)] border-[var(--text-warning-strong)] text-white shadow-sm"
-                  : "bg-[var(--surface-card)] border-[var(--border-default)] text-[var(--text-secondary)] hover:border-[var(--text-warning-strong)]/40"
-              )}
+              type="button"
+              onClick={() => setQuickFilter("all")}
+              title="Tirar este recorte"
+              className="px-3 py-1.5 rounded-full text-[10px] font-bold uppercase tracking-wide border border-[var(--text-warning-strong)] text-[var(--text-warning)] flex items-center gap-1.5"
             >
-              <chip.icon size={11} />
-              {chip.label}
-              <span className={cn("px-1.5 rounded-full text-[9px]", quickFilter === chip.key ? "bg-white/20" : "bg-[var(--surface-pill)]")}>
-                {chip.count}
-              </span>
+              {({ mine: "Meus", unassigned: "Sem responsável", overdue: "Atrasados", high: "Alta prioridade" } as Record<string, string>)[quickFilter]}
+              <span className="px-1.5 rounded-full text-[9px] bg-[var(--surface-pill)]">{(quickFilterCounts as any)[quickFilter]}</span>
+              <X size={11} />
             </button>
-          ))}
+          )}
         </div>
 
         {/* Advanced Filters */}
@@ -889,17 +900,6 @@ const openEditModal = (ticket: InternalTicketItem) => {
               className="overflow-hidden"
             >
               <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-3 pt-3 border-t border-[var(--border-default)]">
-                {/* Múltipla escolha: acompanhar duas ou três equipes ao mesmo
-                    tempo é o caso comum de quem trabalha atravessado. */}
-                <MultiSelectFilter
-                  options={[...queueOptions.map((t) => ({ value: t.value, label: t.label })), { value: 'none', label: 'Sem fila (tickets antigos)' }]}
-                  selected={filterTeams}
-                  onChange={setFilterTeams}
-                  allLabel="Todas as Filas"
-                  itemLabelPlural="filas"
-                  searchPlaceholder="Buscar fila..."
-                />
-
                 <StyledSelect
                   value={filterAssignee}
                   onChange={(e) => setFilterAssignee(e.target.value)}

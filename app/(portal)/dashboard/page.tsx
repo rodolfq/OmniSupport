@@ -11,7 +11,7 @@ import { useProfilesLiteQuery, useConfigPrioritiesQuery } from '@/lib/query-hook
 import { UserAvatar } from '@/components/user-avatar';
 import { findStatusColor } from '@/lib/status-colors';
 import { useApp } from '@/app/app-context';
-import { Plus, Clock, AlertCircle, User, Lock, Ticket as TicketIcon, FolderKanban, Users, LayoutGrid, List as ListIcon, Settings2, Eye, EyeOff, ChevronUp, ChevronDown } from 'lucide-react';
+import { Plus, Clock, AlertCircle, User, Lock, Ticket as TicketIcon, FolderKanban, Users, LayoutGrid, List as ListIcon, Settings2, Eye, EyeOff, ChevronUp, ChevronDown, ArrowLeft } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import { toast } from 'sonner';
 import { cn } from '@/lib/utils';
@@ -20,6 +20,7 @@ import { FilterBar } from '@/components/filter-bar';
 import { UnreadDot } from '@/components/notification-count-badge';
 import { useSearchParams, useRouter } from 'next/navigation';
 import { useOpenInternalTicket } from '@/components/internal-ticket-modal-host';
+import { InternalQueuePicker, internalQueueLabel, useVisibleInternalQueues } from '@/components/internal-queue-picker';
 import {
   DndContext,
   DragOverlay,
@@ -117,6 +118,10 @@ export default function DashboardPage() {
   // /api/users?type=all buscado do zero a cada carga do Dashboard.
   const { data: usersLiteData } = useProfilesLiteQuery();
   const users = useMemo(() => usersLiteData || [], [usersLiteData]);
+  // Nome/miniatura do responsável preenchidos na RENDERIZAÇÃO, não na carga
+  // dos tickets (2026-11-16): logo após o login a lista de pessoas ainda não
+  // tinha chegado quando os tickets internos carregavam, e "Carga da Equipe"
+  // ficava sem as pessoas até recarregar a página (aí a lista já estava em cache).
   const [selectedTicket, setSelectedTicket] = useState<TicketType | null>(null);
 
   // Organizar/ocultar colunas e alternar kanban/lista no board de chamados —
@@ -222,6 +227,29 @@ export default function DashboardPage() {
     !canSeeTickets && canSeeInternal ? 'internal' : 'tickets'
   ));
   const [internalTickets, setInternalTickets] = useState<InternalTicketItem[]>([]);
+  // Fila escolhida no painel de Tickets Internos (2026-11-16, pedido do
+  // usuário): o painel abre na seleção de filas e só mostra o Dashboard da
+  // fila escolhida. Fica na URL (?fila=), igual à lista de Tickets Internos.
+  const selectedInternalQueue = searchParams?.get('fila') || null;
+  const { allQueues: allInternalQueues } = useVisibleInternalQueues();
+  const selectInternalQueue = (key: string | null) => {
+    const params = new URLSearchParams(searchParams?.toString() || '');
+    if (key) params.set('fila', key); else params.delete('fila');
+    const qs = params.toString();
+    setInternalReady(false);
+    setInternalTickets([]);
+    router.replace(qs ? `/dashboard?${qs}` : '/dashboard', { scroll: false });
+  };
+  const internalTicketsWithNames = useMemo(() => {
+    if (users.length === 0) return internalTickets;
+    const byId = new Map<string, any>((users as any[]).map((u: any) => [u.id, u]));
+    return internalTickets.map(t => {
+      const u = t.assigneeId ? byId.get(t.assigneeId) : null;
+      return u && (!t.assigneeName || !t.assigneeAvatarThumbUrl)
+        ? { ...t, assigneeName: t.assigneeName || u.name, assigneeAvatarThumbUrl: t.assigneeAvatarThumbUrl || u.avatarThumbUrl || null }
+        : t;
+    });
+  }, [internalTickets, users]);
   const [loadingInternal, setLoadingInternal] = useState(false);
   // "Já carregou ao menos uma vez" (2026-11-12, pedido do usuário): antes o
   // Dashboard abria mostrando contadores zerados e board vazio enquanto os
@@ -244,7 +272,7 @@ export default function DashboardPage() {
 
   useEffect(() => {
     async function loadInternal() {
-      if (!currentUser || !canSeeInternal || dashboardMode !== 'internal') return;
+      if (!currentUser || !canSeeInternal || dashboardMode !== 'internal' || !selectedInternalQueue) return;
       setLoadingInternal(true);
       try {
         const statusConfigs = await ConfigService.getStatuses('internal_ticket');
@@ -256,8 +284,17 @@ export default function DashboardPage() {
         // Quem não vê todos os tickets internos enxerga só os das próprias
         // equipes — e é o SERVIDOR que resolve quais são, a partir da sessão
         // (scope=my-teams), em vez de o client mandar a lista de ids.
-        const scope = hasPermission(Permission.INTERNAL_TICKETS_VIEW_ALL) ? 'all' : 'my-teams';
-        const res = await fetch(`/api/internal-tickets?action=list&scope=${scope}`);
+        // Recorte pela fila escolhida. "Sem fila" de quem
+        // não vê tudo: só os da própria equipe (scope=my-teams).
+        const canSeeAllInternal = hasPermission(Permission.INTERNAL_TICKETS_VIEW_ALL);
+        const qs = new URLSearchParams({ action: 'list' });
+        if (selectedInternalQueue === 'all') {
+          qs.set('scope', canSeeAllInternal ? 'all' : 'my-teams');
+        } else {
+          qs.set('queueId', selectedInternalQueue);
+          qs.set('scope', selectedInternalQueue === 'none' && !canSeeAllInternal ? 'my-teams' : 'all');
+        }
+        const res = await fetch(`/api/internal-tickets?${qs.toString()}`);
         if (!res.ok) throw new Error('Falha ao carregar tickets internos.');
         const data = await res.json();
 
@@ -308,7 +345,7 @@ export default function DashboardPage() {
       }
     }
     loadInternal();
-  }, [currentUser?.id, canSeeInternal, dashboardMode, hasPermission, refreshTrigger]);
+  }, [currentUser?.id, canSeeInternal, dashboardMode, hasPermission, refreshTrigger, selectedInternalQueue]);
 
   useEffect(() => {
     const controller = new AbortController();
@@ -968,8 +1005,24 @@ export default function DashboardPage() {
         </DndContext>
       )}
       </>
+      ) : canSeeInternal && !selectedInternalQueue ? (
+        <InternalQueuePicker onSelect={(key) => selectInternalQueue(key)} refreshKey={refreshTrigger} />
       ) : canSeeInternal ? (
-        <InternalDashboard tickets={internalTickets} loading={!internalReady} router={router} statuses={internalStatuses} onStatusChange={handleInternalKanbanStatusChange} />
+        <>
+          <div className="flex items-center gap-2 flex-wrap -mt-2">
+            <button
+              type="button"
+              onClick={() => selectInternalQueue(null)}
+              className="px-3 py-1.5 rounded-full text-[10px] font-bold uppercase tracking-wide border border-[var(--border-default)] text-[var(--text-secondary)] hover:border-[var(--text-warning-strong)]/40 flex items-center gap-1.5"
+            >
+              <ArrowLeft size={11} /> Trocar fila
+            </button>
+            <span className="px-3 py-1.5 rounded-full text-[10px] font-bold uppercase tracking-wide bg-[var(--text-warning-strong)] text-white">
+              {internalQueueLabel(selectedInternalQueue, allInternalQueues)}
+            </span>
+          </div>
+          <InternalDashboard tickets={internalTicketsWithNames} loading={!internalReady} router={router} statuses={internalStatuses} onStatusChange={handleInternalKanbanStatusChange} />
+        </>
       ) : null}
 
       <AnimatePresence>
@@ -1021,7 +1074,7 @@ function InternalDashboard({ tickets, loading, router, statuses, onStatusChange 
     // Mesma semântica de "Novos Sem Analista" dos chamados: só o que acabou
     // de chegar e ninguém pegou ainda, não qualquer ticket ativo sem dono.
     const unassignedNew = active.filter(t => t.status === 'Novo' && !t.assigneeId);
-    const highPriority = active.filter(t => t.priority === 3);
+    const highPriority = active.filter(t => (t.priority || 1) >= 3);
     // "Parado" é um sinal diferente de SLA vencido: SLA é opcional em ticket
     // interno (poucos analistas preenchem), então isso cobre o caso mais
     // comum — o ticket simplesmente não anda há dias.
