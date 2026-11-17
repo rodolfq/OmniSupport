@@ -635,26 +635,83 @@ export async function POST(request: NextRequest) {
       // propósito: a sequência ficou para trás dos números já gravados (há
       // registros como 111 e 11111 vindos de criação manual), então confiar
       // nela hoje geraria colisão.
-      const res = await query(
-        `INSERT INTO public.internal_tickets
+      //
+      // Duplo clique/retry na criação (achado pelo usuário, 2026-11-16):
+      // `creationRequestId` é um UUID gerado pelo CLIENT, um por tentativa de
+      // criação (reaproveitado em todo clique duplo/retry dessa mesma
+      // tentativa — ver lib/services/ticket-service.ts). O ON CONFLICT DO
+      // NOTHING torna o INSERT idempotente de verdade (não só "o botão ficou
+      // desabilitado" — cobre também duas requisições batendo quase ao mesmo
+      // tempo, antes do client reagir): quem perde a corrida não cria um
+      // segundo ticket, simplesmente devolve o que a outra requisição já
+      // criou. `creationRequestId` ausente (chamador antigo/script) nunca
+      // colide — ver o índice parcial em migrations/internal_ticket_creation_request_id.sql.
+      const creationRequestId = typeof ticket.creationRequestId === 'string' && ticket.creationRequestId.trim()
+        ? ticket.creationRequestId.trim()
+        : null;
+      const insertInternalTicketSql = `INSERT INTO public.internal_tickets
            (title, team_id, internal_team_id, assignee_id, priority, tags, creator_id, description,
-            sla_limit, internal_queue_id, internal_ticket_number)
+            sla_limit, internal_queue_id, internal_ticket_number, creation_request_id)
          VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10,
-                 (SELECT COALESCE(MAX(internal_ticket_number), 0) + 1 FROM public.internal_tickets))
-         RETURNING id, internal_ticket_number`,
-        [
-          ticket.title,
-          ticket.teamId || null,
-          ticket.internalTeamId || null,
-          ticket.assigneeId || null,
-          effectivePriority,
-          ticket.tags || [],
-          ticket.creatorId,
-          ticket.description || '',
-          slaLimit,
-          ticket.internalQueueId || null
-        ]
-      );
+                 (SELECT COALESCE(MAX(internal_ticket_number), 0) + 1 FROM public.internal_tickets), $11)
+         ON CONFLICT (creation_request_id) WHERE creation_request_id IS NOT NULL DO NOTHING
+         RETURNING id, internal_ticket_number`;
+      const insertInternalTicketParams = [
+        ticket.title,
+        ticket.teamId || null,
+        ticket.internalTeamId || null,
+        ticket.assigneeId || null,
+        effectivePriority,
+        ticket.tags || [],
+        ticket.creatorId,
+        ticket.description || '',
+        slaLimit,
+        ticket.internalQueueId || null,
+        creationRequestId
+      ];
+
+      let res;
+      try {
+        res = await query(insertInternalTicketSql, insertInternalTicketParams);
+      } catch (insertError: any) {
+        // Duas requisições com o MESMO creationRequestId podem chegar ao
+        // Postgres tão perto uma da outra que nenhuma commitou ainda quando
+        // a outra calcula o próprio internal_ticket_number (MAX+1) — nesse
+        // caso elas colidem ali ANTES do ON CONFLICT (que só cobre
+        // creation_request_id) entrar em ação, e o erro sai como 23505 em
+        // vez de "0 linhas". Testado contra o banco de dev com duas
+        // inserções de verdade em paralelo (Promise.all) — é o único jeito
+        // de reproduzir. Reagir igual ao "perdeu a corrida" de baixo: devolve
+        // o ticket que a outra request já criou.
+        if (insertError?.code === '23505' && creationRequestId) {
+          const existing = await query(
+            'SELECT id, internal_ticket_number FROM public.internal_tickets WHERE creation_request_id = $1',
+            [creationRequestId]
+          );
+          if ((existing.rowCount ?? 0) > 0) {
+            const row = existing.rows[0];
+            return NextResponse.json({ uuid: row.id, id: formatId(row.internal_ticket_number, row.id) });
+          }
+        }
+        throw insertError;
+      }
+
+      if (res.rowCount === 0) {
+        // Perdeu a corrida: outra requisição com o MESMO creationRequestId já
+        // criou o ticket (clique duplo que passou da trava do client, ou
+        // retry de rede). Devolve o que já existe — nunca cria um segundo, e
+        // nunca repete vínculo/e-mail/log abaixo, que já aconteceram na
+        // primeira.
+        if (!creationRequestId) {
+          return NextResponse.json({ error: 'Erro ao criar ticket interno.' }, { status: 500 });
+        }
+        const existing = await query(
+          'SELECT id, internal_ticket_number FROM public.internal_tickets WHERE creation_request_id = $1',
+          [creationRequestId]
+        );
+        const row = existing.rows[0];
+        return NextResponse.json({ uuid: row.id, id: formatId(row.internal_ticket_number, row.id) });
+      }
 
       const row = res.rows[0];
 

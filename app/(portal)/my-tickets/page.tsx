@@ -276,6 +276,15 @@ export default function MyTicketsPage() {
         return t.customerId === currentUser.id;
       }
       if (currentUser.role === UserRole.EMPLOYEE) {
+        // Mesmo ativador de Cliente, acima: "ver todos os chamados da
+        // empresa" (view_all_company_tickets), restaurado em
+        // components/edit-employee-modal.tsx (2026-11-17). Sem este `if`, o
+        // Funcionário continuava preso a "só os próprios" mesmo com o
+        // ativador ligado — o servidor (GET /api/tickets) já devolve só os
+        // da PRÓPRIA empresa (isCompanyScopedActor), nunca de outra.
+        if (currentUser.viewAllCompanyTickets) {
+          return t.companyId === currentUser.companyId;
+        }
         return t.customerId === currentUser.id || t.employeeIds?.includes(currentUser.id);
       }
       // Equipe/Time Interno usando "Meus Chamados": só o que é

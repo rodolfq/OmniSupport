@@ -446,6 +446,10 @@ export interface InternalTicket {
   devDeadline?: { at: string | null; days: number; minStars: number; applies: boolean } | null;
   id?: string; // Formatted ID like "int-0001"
   uuid?: string; // Real UUID from database
+  // Chave de idempotência contra duplo clique/retry na CRIAÇÃO (2026-11-16)
+  // — um UUID por tentativa, reaproveitado em todo clique duplo/retry dessa
+  // mesma tentativa. Servidor ignora em updates. Ver InternalTicketService.saveWithDetails.
+  creationRequestId?: string;
   parentTicketId?: string;
   parentTicketIds?: string[];
   internalTicketNumber?: number;

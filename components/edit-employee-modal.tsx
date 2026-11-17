@@ -3,7 +3,7 @@
 import React, { useState, useEffect, useMemo } from 'react';
 import { useEscapeToClose } from '@/hooks/use-escape-to-close';
 import { StyledSelect } from '@/components/styled-select';
-import { X, Save, Mail, Phone, ShieldCheck, ShieldOff, Lock, Plus, Trash2, AlertTriangle, Copy, Check } from 'lucide-react';
+import { X, Save, Mail, Phone, ShieldCheck, ShieldOff, Lock, Eye, EyeOff, Plus, Trash2, AlertTriangle, Copy, Check } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import { Permission, UserRole, type User, type Company } from '@/lib/types';
 import { UserService } from '@/lib/services/user-service';
@@ -41,6 +41,11 @@ export function EditEmployeeModal({ isOpen, onClose, user, onSuccess }: { isOpen
   // quem administra empresas (CUSTOMERS_WRITE) — Funcionário "normal" ganhou
   // EDITAR (acima) mas não isso, pedido explícito do usuário 2026-11-06.
   const canDeleteEmployee = hasPermission(Permission.CUSTOMERS_WRITE) || currentUser?.role === UserRole.CUSTOMER;
+  // O ativador "ver todos os chamados da empresa" só faz sentido pra quem é
+  // usuário do lado empresa-cliente — Equipe/Administrador/Time Interno já
+  // veem tudo por outro caminho (ver app/api/tickets/route.ts,
+  // isCompanyScopedActor), o campo nem é lido pra eles.
+  const targetIsCompanyUser = user?.role === UserRole.EMPLOYEE || user?.role === UserRole.CUSTOMER;
   const [name, setName] = useState('');
   const [email, setEmail] = useState('');
   const [role, setRole] = useState(UserRole.EMPLOYEE);
@@ -52,6 +57,20 @@ export function EditEmployeeModal({ isOpen, onClose, user, onSuccess }: { isOpen
   const { data: companiesData } = useCompaniesQuery({ enabled: isOpen });
   const companies = useMemo(() => (companiesData || []) as Company[], [companiesData]);
   const [isActive, setIsActive] = useState(true);
+  // "Ver todos os chamados da empresa" (profiles.view_all_company_tickets) —
+  // restaurado em 2026-11-17 (pedido do usuário). Só faz sentido pra quem é
+  // usuário do lado empresa-cliente (Cliente/Funcionário); o Admin da
+  // empresa (1º Cliente, criado junto com ela) já nasce com isso TRUE
+  // (app/api/companies/route.ts), então o toggle aqui serve sobretudo pra
+  // Funcionário e para um 2º Cliente que eventualmente exista. NUNCA cruza
+  // empresa: o servidor (hasCompanyAccessToTicket, isCompanyScopedActor em
+  // app/api/tickets/route.ts; buildScopeWhere em app/api/search/route.ts)
+  // sempre exige `ticket.company_id === actor.company_id` além do flag — a
+  // própria empresa do usuário continua travada em company_id, que este
+  // modal nem deixa mudar pra quem está dentro da empresa (ver "Empresa"
+  // acima). Se algum dia alguém pedir pra isso valer entre empresas
+  // diferentes, é um bug de segurança, não uma feature — nunca implementar.
+  const [viewAllCompanyTickets, setViewAllCompanyTickets] = useState(false);
 
   const [loading, setLoading] = useState(false);
   const [saveSuccess, setSaveSuccess] = useState(false);
@@ -75,6 +94,7 @@ export function EditEmployeeModal({ isOpen, onClose, user, onSuccess }: { isOpen
       setPhones(userPhones);
 
       setIsActive(user.isActive ?? true);
+      setViewAllCompanyTickets(user.viewAllCompanyTickets || false);
     }
   }, [isOpen, user?.id]);
 
@@ -91,9 +111,7 @@ export function EditEmployeeModal({ isOpen, onClose, user, onSuccess }: { isOpen
         phones,
         phone: phones[0] || '', // Keep single phone for compatibility
         companyId,
-        // Funcionário sempre enxerga só os próprios chamados — sem opção de
-        // ver todos os chamados da empresa (ver ROADMAP/pedido).
-        viewAllCompanyTickets: false,
+        viewAllCompanyTickets,
         isActive
       };
       await UserService.save(updatedUser);
@@ -359,6 +377,35 @@ export function EditEmployeeModal({ isOpen, onClose, user, onSuccess }: { isOpen
                     ? "Login autorizado. O usuário pode acessar o sistema normalmente."
                     : "Login bloqueado. O usuário não conseguirá mais acessar o sistema."}
                 </p>
+
+                {targetIsCompanyUser && (
+                  <>
+                    <div className="h-px bg-[var(--border-default)] w-full" />
+
+                    <div className="flex items-center justify-between">
+                      <div className="flex items-center gap-3">
+                        <div className="w-8 h-8 rounded-lg bg-[var(--surface-card)] border border-[var(--border-default)] flex items-center justify-center text-[var(--text-secondary)] shadow-sm">
+                          {viewAllCompanyTickets ? <Eye size={14} /> : <EyeOff size={14} />}
+                        </div>
+                        <div>
+                          <p className="text-[11px] font-black text-[var(--text-primary)] uppercase tracking-wider">Visibilidade de Chamados</p>
+                          <p className="text-[10px] text-[var(--text-tertiary)] font-bold uppercase tracking-widest">Ver todos da empresa</p>
+                        </div>
+                      </div>
+                      <div
+                        onClick={() => setViewAllCompanyTickets(!viewAllCompanyTickets)}
+                        className={`w-12 h-6 rounded-full p-1 cursor-pointer transition-all ${viewAllCompanyTickets ? 'bg-[var(--accent)]' : 'bg-[var(--border-default)]'}`}
+                      >
+                        <div className={`w-4 h-4 rounded-full bg-[var(--surface-card)] shadow-sm transition-transform ${viewAllCompanyTickets ? 'translate-x-6' : 'translate-x-0'}`} />
+                      </div>
+                    </div>
+                    <p className="text-[9px] text-[var(--text-tertiary)] font-bold uppercase leading-relaxed">
+                      {viewAllCompanyTickets
+                        ? `Pode visualizar todos os chamados de ${companies.find(c => c.id === companyId)?.name || 'sua empresa'} — nunca de outra empresa.`
+                        : "Visualiza apenas os próprios chamados (como solicitante ou colaborador adicionado)."}
+                    </p>
+                  </>
+                )}
               </div>
 
               {/* Danger Zone — só Admin Cliente/quem administra empresas */}
