@@ -790,7 +790,16 @@ export function ChatWidget() {
       toast.success(targetUserId ? 'Atendimento transferido com sucesso!' : 'Atendimento assumido com sucesso!');
       await reloadAllSessions();
     } else {
-      toast.error('Erro ao atualizar o atendimento.');
+      // Mensagem específica do servidor quando houver (ex.: "analista está
+      // offline agora") — mostrar só o texto genérico escondia exatamente o
+      // motivo que o usuário precisava ver pra entender por que a
+      // transferência foi recusada (achado 2026-11-18, junto da checagem de
+      // presença em app/api/chat-sessions/route.ts).
+      toast.error(result.error || 'Erro ao atualizar o atendimento.');
+      // A lista de "Enviar para" pode estar desatualizada (poll de 30s) —
+      // recarrega pra tirar quem já não está mais disponível, sem esperar o
+      // próximo ciclo.
+      await reloadAllSessions();
     }
   };
 
