@@ -174,7 +174,19 @@ async function buildScopeWhere(
   const params: any[] = [];
   let paramCount = paramStart;
 
-  if (actor.role === 'Cliente') {
+  // Cliente E Funcionário são usuário de empresa-cliente — os dois só podem
+  // ver chamado da PRÓPRIA empresa, e dentro dela só os próprios a menos que
+  // tenham "ver todos os chamados da empresa" (view_all_company_tickets).
+  // ACHADO 2026-11-17, ao implementar o ativador para Funcionário (pedido do
+  // usuário): esta função só tratava 'Cliente' — um Funcionário autenticado
+  // chamando esta rota direto (GET /api/search?action=tickets ou
+  // ?action=quick-counts) caía no "sem else pra papel interno" comentado
+  // abaixo e recebia TODO chamado de TODA empresa, sem filtro nenhum. Não é
+  // hipotético: a tela /tickets só esconde o menu pra Funcionário (nav-items),
+  // a API em si não checava nada — corrigido tratando os dois papéis como o
+  // mesmo "ator de empresa-cliente", igual a isCompanyScopedActor em
+  // app/api/tickets/route.ts.
+  if (actor.role === 'Cliente' || actor.role === 'Funcionário') {
     sql += ` AND company_id = $${paramCount}`;
     params.push(actor.company_id);
     paramCount++;
@@ -191,7 +203,7 @@ async function buildScopeWhere(
   // chamado da empresa pra qualquer um deles, sem escopar por responsável —
   // decisão do usuário (2026-09-14). "Meus Chamados" é quem restringe a
   // "meu ou sem responsável" (ver app/(portal)/my-tickets/page.tsx),
-  // /tickets não. Só Cliente é escopado por empresa, acima.
+  // /tickets não. Só Cliente/Funcionário são escopados por empresa, acima.
 
   return { sql, params, paramCount };
 }
@@ -339,8 +351,12 @@ export async function GET(request: Request) {
         return NextResponse.json({ error: 'Acesso restrito a Cliente/Funcionário.' }, { status: 403 });
       }
 
+      // Guarda acima já garante Cliente OU Funcionário — os dois seguem a
+      // mesma regra do flag (antes só Cliente contava aqui, então o
+      // dashboard de um Funcionário com a visibilidade ligada mostrava
+      // escopo "self" mesmo tendo acesso à empresa toda).
       const profileRes = await query('SELECT view_all_company_tickets FROM public.profiles WHERE id = $1', [actor.id]);
-      const viewAll = actor.role === 'Cliente' && !!profileRes.rows[0]?.view_all_company_tickets;
+      const viewAll = !!profileRes.rows[0]?.view_all_company_tickets;
 
       const scopeSql = viewAll ? 'company_id = $1' : '(customer_id = $1 OR $1 = ANY(employee_ids))';
       const scopeParam = viewAll ? actor.company_id : actor.id;

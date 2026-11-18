@@ -324,6 +324,21 @@ export function TicketDetailModal({ ticket, onClose, initialDraft, creating = fa
   const [itAssignee, setItAssignee] = useState('');
   const [itPriority, setItPriority] = useState(1);
   const [showLinkModal, setShowLinkModal] = useState(false);
+  // Trava de duplo clique na criação do ticket interno (achado pelo usuário,
+  // 2026-11-16: 2 cliques rápidos criavam 2 tickets). Ref, não state: o
+  // check precisa valer já no instante do clique, antes de qualquer
+  // re-render — mesmo padrão já usado no guard de gravação de áudio do chat
+  // widget (startingRecordingRef). isCreatingIT (state) só serve pra
+  // desabilitar o botão na tela; quem bloqueia de verdade é o ref.
+  const isCreatingITRef = useRef(false);
+  const [isCreatingIT, setIsCreatingIT] = useState(false);
+  // Um UUID por TENTATIVA de criação, reaproveitado em todo clique duplo
+  // dessa mesma tentativa — é a chave de idempotência que o servidor usa
+  // pra nunca criar dois tickets pro mesmo clique (ver app/api/internal-tickets/route.ts).
+  // Null = painel fechado/sem tentativa em andamento; gerado ao abrir o
+  // painel e descartado ao fechar/criar com sucesso, pra uma criação NOVA
+  // (outro clique em "+ Novo") sempre ganhar um id novo.
+  const createITRequestIdRef = useRef<string | null>(null);
   // Guarda o texto/anexos de uma mensagem do chamado enquanto o analista
   // vincula um Ticket Interno (fluxo "Copiar para Ticket Interno" sem
   // nenhum vínculo ainda) — aplicado assim que handleLinkInternalTicket
@@ -680,13 +695,23 @@ const loadMessages = async () => {
      setItQueueId('');
      setItAssignee('');
      setItPriority(1);
+     // Painel reaberto = tentativa de criação NOVA, nunca reaproveita o id da
+     // tentativa anterior (senão um 2º ticket legítimo, criado depois de o
+     // 1º já ter sido salvo, seria descartado como "duplicata" pelo servidor).
+     createITRequestIdRef.current = null;
    };
 
    const handleCreateInternalTicket = async () => {
-      if (!currentUser || !ticket || !itTitle.trim()) return;
+      if (!currentUser || !ticket || !itTitle.trim() || isCreatingITRef.current) return;
       if (!itQueueId) {
         toast.error('Escolha a fila do ticket interno.');
         return;
+      }
+      isCreatingITRef.current = true;
+      setIsCreatingIT(true);
+      try {
+      if (!createITRequestIdRef.current) {
+        createITRequestIdRef.current = crypto.randomUUID();
       }
       const newIT: InternalTicket = {
         id: undefined,
@@ -701,6 +726,7 @@ const loadMessages = async () => {
         description: '',
         createdAt: new Date().toISOString(),
         updatedAt: new Date().toISOString(),
+        creationRequestId: createITRequestIdRef.current,
       };
       const savedId = await InternalTicketService.save(newIT, ticket.id);
 
@@ -717,7 +743,20 @@ const loadMessages = async () => {
       loadMessages();
       await loadInternalTickets();
       setShowCreatePanel(false);
+      // Sucesso: descarta o id da tentativa, pra próxima abertura do painel
+      // nascer com um novo (ver resetCreateForm).
+      createITRequestIdRef.current = null;
       toast.success('Ticket interno criado');
+      } catch (error: any) {
+        // Erro de rede/servidor: MANTÉM o id da tentativa — se o usuário
+        // tentar de novo é o mesmo clique lógico, e o servidor deduplica por
+        // esse id caso a 1ª chamada tenha de fato ido adiante (resposta
+        // perdida, mas o INSERT aconteceu).
+        toast.error(error?.message || 'Erro ao criar o ticket interno.');
+      } finally {
+        isCreatingITRef.current = false;
+        setIsCreatingIT(false);
+      }
     };
 
     const handleLinkInternalTicket = async (internalTicketId: string) => {
@@ -2390,13 +2429,14 @@ const loadMessages = async () => {
                                   </div>
                                </div>
                                <div className="flex justify-end gap-2">
-                                  <button onClick={() => setShowCreatePanel(false)} className="px-4 py-2 rounded-lg text-xs font-bold text-[var(--text-secondary)] hover:bg-[var(--surface-card)]">Cancelar</button>
+                                  <button onClick={() => setShowCreatePanel(false)} disabled={isCreatingIT} className="px-4 py-2 rounded-lg text-xs font-bold text-[var(--text-secondary)] hover:bg-[var(--surface-card)] disabled:opacity-50">Cancelar</button>
                                   <button
                                     onClick={handleCreateInternalTicket}
-                                    disabled={!itTitle.trim()}
-                                    className="px-4 py-2 rounded-lg text-xs font-black uppercase tracking-widest bg-[var(--text-warning-strong)] text-white hover:bg-[var(--accent-warning-hover)] disabled:opacity-50"
+                                    disabled={!itTitle.trim() || isCreatingIT}
+                                    className="px-4 py-2 rounded-lg text-xs font-black uppercase tracking-widest bg-[var(--text-warning-strong)] text-white hover:bg-[var(--accent-warning-hover)] disabled:opacity-50 flex items-center gap-1.5"
                                   >
-                                    Criar Ticket Interno
+                                    {isCreatingIT && <Loader2 size={13} className="animate-spin" />}
+                                    {isCreatingIT ? 'Criando...' : 'Criar Ticket Interno'}
                                   </button>
                                </div>
                             </div>

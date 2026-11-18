@@ -175,6 +175,19 @@ export function InternalTicketDetailModal({ ticketRef, onClose, creating, onCrea
     createdAt: new Date().toISOString(),
   } as unknown as InternalTicketWithExtras) : null);
   const [isSubmittingCreate, setIsSubmittingCreate] = useState(false);
+  // Ref paralelo ao state acima (achado do usuário, 2026-11-16): `state` só
+  // reflete no `disabled` do botão depois do RE-RENDER, e dois cliques bem
+  // rápidos podem cair os dois na mesma janela, antes de o React desabilitar
+  // o botão de verdade — os dois leriam isSubmittingCreate=false do closure
+  // antigo. O ref é síncrono, checado e setado ANTES de qualquer await, e
+  // fecha essa janela (mesmo padrão do startingRecordingRef do chat widget).
+  const isSubmittingCreateRef = React.useRef(false);
+  // Um UUID por tentativa de criação — chave de idempotência que o servidor
+  // usa pra nunca criar dois tickets pro mesmo clique, mesmo se as duas
+  // travas acima falharem (ver app/api/internal-tickets/route.ts). Este
+  // componente é desmontado a cada fechamento (ver new-internal-ticket-modal.tsx),
+  // então um ref lazy basta — nunca precisa ser resetado manualmente.
+  const createRequestIdRef = React.useRef<string | null>(null);
   const [messages, setMessages] = useState<Message[]>([]);
   const [linkedTickets, setLinkedTickets] = useState<LinkedTicket[]>([]);
   const [loading, setLoading] = useState(!creating);
@@ -714,7 +727,7 @@ export function InternalTicketDetailModal({ ticketRef, onClose, creating, onCrea
   // só é aceito pela action=update, então vai numa 2ª chamada — e só quando
   // algum deles foi preenchido.
   const handleCreateTicket = async () => {
-    if (!currentUser || isSubmittingCreate) return;
+    if (!currentUser || isSubmittingCreate || isSubmittingCreateRef.current) return;
     const createTitle = titleDraftRef.current.trim();
     const createDescription = descriptionDraftRef.current;
     if (!createTitle) {
@@ -725,8 +738,12 @@ export function InternalTicketDetailModal({ ticketRef, onClose, creating, onCrea
       toast.error('Escolha a fila do ticket interno.');
       return;
     }
+    isSubmittingCreateRef.current = true;
     setIsSubmittingCreate(true);
     try {
+      if (!createRequestIdRef.current) {
+        createRequestIdRef.current = crypto.randomUUID();
+      }
       const tags = formTags.split(',').map(t => t.trim()).filter(Boolean);
       // Ticket novo nasce só com FILA (2026-11-13); a equipe fica vazia.
       const saved = await InternalTicketService.saveWithDetails({
@@ -737,6 +754,7 @@ export function InternalTicketDetailModal({ ticketRef, onClose, creating, onCrea
         assigneeId: formAssignee || undefined,
         creatorId: currentUser.id,
         tags,
+        creationRequestId: createRequestIdRef.current,
       } as InternalTicket);
 
       const extras: Record<string, any> = {};
@@ -767,7 +785,11 @@ export function InternalTicketDetailModal({ ticketRef, onClose, creating, onCrea
     } catch (error: any) {
       console.error('Erro ao criar ticket interno:', error);
       toast.error(error?.message || 'Erro ao criar o ticket interno.');
+      // Mantém createRequestIdRef: um reenvio depois de erro é o MESMO
+      // clique lógico, e o servidor deduplica por esse id caso a 1ª chamada
+      // tenha de fato ido adiante (resposta perdida, mas o INSERT aconteceu).
     } finally {
+      isSubmittingCreateRef.current = false;
       setIsSubmittingCreate(false);
     }
   };

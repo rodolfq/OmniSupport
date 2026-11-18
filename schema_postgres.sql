@@ -1629,6 +1629,11 @@ CREATE TABLE public.internal_tickets (
   qa_rejected BOOLEAN NOT NULL DEFAULT false, -- Reprovação de QA (manual, sem pontuação)
   late_delivery BOOLEAN NOT NULL DEFAULT false, -- Atraso na entrega: resolvido depois do prazo (horas úteis)
   environment_rejected BOOLEAN NOT NULL DEFAULT false, -- Ambiente reprovado (manual, sem pontuação; migrations/internal_ticket_environment_rejected.sql)
+  -- Chave de idempotência contra duplo clique/retry na criação (2026-11-16,
+  -- migrations/internal_ticket_creation_request_id.sql) — ver o INSERT em
+  -- app/api/internal-tickets/route.ts (action=save). NULL em todo INSERT que
+  -- não vem da tela de criação (script, importação).
+  creation_request_id UUID,
   -- Full-text search (Agente de IA, search_internal_tickets) — ver
   -- comentário equivalente em public.tickets.
   search_vector TSVECTOR GENERATED ALWAYS AS (to_tsvector('portuguese', coalesce(title, '') || ' ' || coalesce(description, ''))) STORED
@@ -1640,6 +1645,9 @@ CREATE INDEX IF NOT EXISTS idx_internal_tickets_assignee_id ON public.internal_t
 CREATE INDEX IF NOT EXISTS idx_internal_tickets_queue ON public.internal_tickets(internal_queue_id);
 CREATE INDEX IF NOT EXISTS idx_internal_tickets_internal_team_id ON public.internal_tickets(internal_team_id);
 CREATE INDEX IF NOT EXISTS idx_internal_tickets_search_vector ON public.internal_tickets USING GIN (search_vector);
+CREATE UNIQUE INDEX IF NOT EXISTS uq_internal_tickets_creation_request_id
+  ON public.internal_tickets(creation_request_id)
+  WHERE creation_request_id IS NOT NULL;
 CREATE INDEX IF NOT EXISTS idx_internal_tickets_release_item_id ON public.internal_tickets(release_item_id);
 
 -- Ticket Internal Links Table
