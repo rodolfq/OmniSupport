@@ -264,14 +264,18 @@ export function InternalTicketsView({
   // filtrado no client, mesmo papel (Equipe/Administrador) que a busca
   // direta trazia, sem pagar avatar_url de ninguém.
   const { data: profilesLiteData } = useProfilesLiteQuery();
+  // Filtro "Responsável": mesmos papéis que podem ser responsáveis por ticket
+  // interno (2026-11-18 — antes ficava de fora o "Time Interno", papel de quase
+  // todo o Suporte, e o filtro não achava a Bianca, o Rafael etc.).
   const analysts = useMemo(
-    () => ((profilesLiteData || []) as User[]).filter((u) => u.role === "Equipe" || u.role === "Administrador"),
+    () => ((profilesLiteData || []) as User[])
+      .filter((u) => u.role === "Equipe" || u.role === "Administrador" || u.role === "Time Interno")
+      .sort((a, b) => (a.name || '').localeCompare(b.name || '', 'pt-BR')),
     [profilesLiteData]
   );
 
   // Opções do seletor inline de responsável. Inclui "Time Interno", que atende
-  // ticket interno mas não entra no filtro `analysts` acima (usado para outra
-  // coisa) — quem trabalha nesses tickets precisa poder ser atribuído a eles.
+  // ticket interno — quem trabalha nesses tickets precisa poder ser atribuído a eles.
   // Mantém `internalTeamIds` (ao contrário da versão anterior, que descartava
   // no .map) — é o que `assignableUsersByTeam` (abaixo de `sortedInternalTeams`,
   // mais abaixo neste arquivo) usa pra escopar por equipe.

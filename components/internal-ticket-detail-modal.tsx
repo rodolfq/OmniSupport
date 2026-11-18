@@ -9,6 +9,7 @@ import { MessageService, InternalTicketService } from '@/lib/services/ticket-ser
 import { getHotfixes, saveHotfix } from '@/lib/services/queue-service';
 import { cn, selectableOptions, htmlHasContent } from '@/lib/utils';
 import { ChatAttachmentList } from '@/components/chat-attachment-list';
+import { HtmlComImagensAmpliaveis } from '@/components/html-com-imagens-ampliaveis';
 import {
   Paperclip,
   Star,
@@ -1687,9 +1688,11 @@ export function InternalTicketDetailModal({ ticketRef, onClose, creating, onCrea
                       ) : (
                       <>
                         {htmlHasContent(msg.text) && (
-                          <p
+                          // Imagem colada no texto da nota abre no mesmo modal dos anexos.
+                          <HtmlComImagensAmpliaveis
+                            as="p"
+                            html={msg.text}
                             className={cn("text-sm whitespace-pre-wrap", isSystem ? "text-[var(--text-tertiary)]" : "text-[var(--text-secondary)]")}
-                            dangerouslySetInnerHTML={{ __html: msg.text }}
                           />
                         )}
                         {/* Anexos da nota — antes só apareciam na aba Anexos, e a nota

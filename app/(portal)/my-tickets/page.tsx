@@ -2,7 +2,7 @@
 
 import React, { useState, useEffect, useMemo } from 'react';
 import { useApp } from '@/app/app-context';
-import { Ticket, Permission, UserRole, InternalTicket } from '@/lib/types';
+import { Ticket, Permission, UserRole, InternalTicket, InternalTicketQueue, User } from '@/lib/types';
 import { fetchAllTickets } from '@/lib/tickets';
 import {
   Search,
@@ -18,7 +18,9 @@ import {
   FolderKanban,
   Kanban,
   Star,
-  ThumbsUp
+  ThumbsUp,
+  Layers,
+  UserRound
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import { toast } from 'sonner';
@@ -30,6 +32,8 @@ import { NotificationCountBadge, UnreadDot } from '@/components/notification-cou
 import { isClosedTicketStatus, getCustomerStatusLabel } from '@/lib/ticket-status';
 import { useSearchParams, useRouter } from 'next/navigation';
 import { useOpenInternalTicket } from '@/components/internal-ticket-modal-host';
+import { UserAvatar } from '@/components/user-avatar';
+import { useAnalystsQuery, useInternalTicketQueuesQuery } from '@/lib/query-hooks';
 import { ConfigService } from '@/lib/services/config-service';
 import { usePersistedViewMode } from '@/hooks/use-persisted-view-mode';
 import { findStatusColor } from '@/lib/status-colors';
@@ -176,6 +180,22 @@ export default function MyTicketsPage() {
     !canSeeTickets && canSeeInternal ? 'internal' : 'tickets'
   ));
   const [internalTickets, setInternalTickets] = useState<InternalTicketItem[]>([]);
+  // Fila e responsável direto no card (2026-11-18, pedido do usuário): antes o
+  // card mostrava a equipe (team_id, forma antiga) e só o id do responsável.
+  // Mesmas fontes que o modal do ticket já usa — /api/users?type=analysts traz
+  // a miniatura da foto (~1,3kB por pessoa), e a listagem continua leve. Só
+  // carrega com a aba Tickets Internos aberta.
+  const abaInternaAtiva = canSeeInternal && ticketMode === 'internal';
+  const { data: analystsData, isLoading: loadingAnalysts } = useAnalystsQuery({ enabled: abaInternaAtiva });
+  const { data: internalQueuesData } = useInternalTicketQueuesQuery({ enabled: abaInternaAtiva });
+  const analystsById = useMemo(
+    () => new Map(((analystsData || []) as User[]).map(a => [a.id, a])),
+    [analystsData]
+  );
+  const queueNameById = useMemo(
+    () => new Map(((internalQueuesData || []) as InternalTicketQueue[]).map(q => [q.id, q.name])),
+    [internalQueuesData]
+  );
   // Começam em true (2026-11-12, pedido do usuário): antes a tela abria em
   // "nenhum chamado" enquanto a lista ainda estava carregando, e parecia
   // vazia de verdade. Só a PRIMEIRA carga mostra o loading — recargas por
@@ -330,6 +350,7 @@ export default function MyTicketsPage() {
           uuid: it.id,
           displayId: `INT-${it.internal_ticket_number?.toString().padStart(4, '0') || it.id.slice(0, 8)}`,
           teamId: it.team_id,
+          internalQueueId: it.internal_queue_id ?? null,
           assigneeId: it.assignee_id,
           creatorId: it.creator_id,
           priority: it.priority,
@@ -607,6 +628,10 @@ export default function MyTicketsPage() {
                 {visibleInternalTickets.map(it => {
                   const meta = INTERNAL_STATUS_META[it.status || 'Novo'] || INTERNAL_STATUS_META['Novo'];
                   const isCreatorOnly = it.creatorId === currentUser?.id && it.assigneeId !== currentUser?.id;
+                  const responsavel = it.assigneeId ? analystsById.get(it.assigneeId) : undefined;
+                  const nomeResponsavel = responsavel?.name || (loadingAnalysts ? 'Carregando…' : 'Usuário não encontrado');
+                  // Tickets antigos não têm fila (só a equipe da forma anterior).
+                  const nomeFila = it.internalQueueId ? (queueNameById.get(it.internalQueueId) || 'Fila') : 'Sem fila';
                   return (
                     <motion.div
                       key={it.uuid}
@@ -638,8 +663,13 @@ export default function MyTicketsPage() {
                         </p>
 
                         <div className="flex flex-wrap gap-2 mb-4">
-                          <span className="bg-[var(--surface-pill)] text-[var(--text-tertiary)] px-2 py-1 rounded-md text-[9px] font-semibold uppercase tracking-widest">
-                            {it.teamId || 'Sem equipe'}
+                          <span
+                            title={`Fila: ${nomeFila}`}
+                            className="bg-[var(--surface-pill)] text-[var(--text-tertiary)] px-2 py-1 rounded-md text-[9px] font-semibold uppercase tracking-widest flex items-center gap-1.5"
+                          >
+                            <Layers size={10} aria-hidden="true" />
+                            <span className="sr-only">Fila: </span>
+                            {nomeFila}
                           </span>
                           {isCreatorOnly && (
                             <span className="bg-[var(--surface-pill)] text-[var(--text-tertiary)] px-2 py-1 rounded-md text-[9px] font-semibold uppercase tracking-widest">
@@ -656,12 +686,36 @@ export default function MyTicketsPage() {
                       </div>
 
                       <div className={cn("flex items-center justify-between pt-4 border-t border-[var(--border-default)]", view === 'list' && "border-t-0 pt-0")}>
-                        <div className="flex items-center gap-1">
+                        <div className="flex items-center gap-1 shrink-0">
                           {[1, 2, 3].map(star => (
                             <div key={star} className={cn("w-1.5 h-4 rounded-full", star <= (it.priority || 1) ? "bg-[var(--text-warning-strong)]" : "bg-[var(--border-default)]")} />
                           ))}
                         </div>
-                        <ChevronRight className="text-[var(--text-tertiary)] group-hover:text-[var(--text-warning)] transition-all transform group-hover:translate-x-1" size={18} />
+                        <div
+                          className={cn("flex items-center gap-2 min-w-0 flex-1 mx-3", view === 'list' && "max-w-[14rem]")}
+                          title={it.assigneeId ? `Responsável: ${nomeResponsavel}` : 'Sem responsável'}
+                        >
+                          {it.assigneeId ? (
+                            <>
+                              <UserAvatar
+                                name={responsavel?.name}
+                                thumbUrl={responsavel?.avatarThumbUrl}
+                                size={22}
+                                fallbackClassName="bg-[var(--surface-pill)] text-[var(--text-tertiary)] font-bold"
+                              />
+                              <span className="text-xs font-semibold text-[var(--text-secondary)] truncate">
+                                <span className="sr-only">Responsável: </span>
+                                {nomeResponsavel}
+                              </span>
+                            </>
+                          ) : (
+                            <>
+                              <UserRound size={16} className="text-[var(--text-tertiary)] shrink-0" aria-hidden="true" />
+                              <span className="text-xs font-medium italic text-[var(--text-tertiary)] truncate">Sem responsável</span>
+                            </>
+                          )}
+                        </div>
+                        <ChevronRight className="text-[var(--text-tertiary)] group-hover:text-[var(--text-warning)] transition-all transform group-hover:translate-x-1 shrink-0" size={18} />
                       </div>
                     </motion.div>
                   );
@@ -814,7 +868,9 @@ export default function MyTicketsPage() {
                     <div className="flex items-center justify-between mb-3">
                       <span className="text-[10px] font-semibold uppercase tracking-widest text-[var(--text-tertiary)]">#{ticket.ticketNumber ? String(ticket.ticketNumber).padStart(4, '0') : ticket.id.slice(0, 8)}</span>
                       <span className={cn("px-3 py-1 rounded-full text-[9px] font-semibold uppercase tracking-widest", getStatusColor(ticket.status))}>
-                        {getCustomerStatusLabel(ticket.status)}
+                        {/* Equipe vê o status REAL (2026-11-18); a cor segue os 3 estados
+                            de sempre (novo/andamento/finalizado), a pedido do usuário. */}
+                        {isInternalRole ? (ticket.status || 'Novo') : getCustomerStatusLabel(ticket.status)}
                         {ticket.subStatus && (
                           <span className="opacity-70 normal-case"> · {ticket.subStatus}</span>
                         )}

@@ -5,8 +5,8 @@ import { useEscapeToClose } from '@/hooks/use-escape-to-close';
 import { StyledSelect } from '@/components/styled-select';
 import { motion, AnimatePresence } from 'motion/react';
 import { Search } from 'lucide-react';
-import { useInternalTeamsQuery } from '@/lib/query-hooks';
-import { InternalTicket } from '@/lib/types';
+import { useInternalTicketQueuesQuery } from '@/lib/query-hooks';
+import { InternalTicket, InternalTicketQueue } from '@/lib/types';
 
 interface LinkInternalTicketModalProps {
   isOpen: boolean;
@@ -20,13 +20,20 @@ interface LinkInternalTicketModalProps {
 export function LinkInternalTicketModal({ isOpen, onClose, onLink, excludeIds = [] }: LinkInternalTicketModalProps) {
   useEscapeToClose(isOpen, onClose);
   const [allTickets, setAllTickets] = useState<InternalTicket[]>([]);
-  const { data: teamsData } = useInternalTeamsQuery();
-  const teams = React.useMemo(
-    () => ([...(teamsData || [])] as Array<{ id: string, name: string }>).sort((a, b) => a.name.localeCompare(b.name)),
-    [teamsData]
+  // Filtro por FILA de ticket interno (2026-11-17) — antes era por equipe,
+  // que deixou de ser o agrupamento do ticket interno. "none" = tickets
+  // antigos, ainda sem fila.
+  const { data: queuesData } = useInternalTicketQueuesQuery();
+  const queues = React.useMemo(
+    () => ((queuesData || []) as InternalTicketQueue[]),
+    [queuesData]
+  );
+  const activeQueues = React.useMemo(
+    () => queues.filter(q => q.isActive).sort((a, b) => a.name.localeCompare(b.name, 'pt-BR')),
+    [queues]
   );
   const [search, setSearch] = useState('');
-  const [teamFilter, setTeamFilter] = useState('');
+  const [queueFilter, setQueueFilter] = useState('');
   const [loading, setLoading] = useState(false);
   const [debouncedSearch, setDebouncedSearch] = useState('');
 
@@ -46,11 +53,7 @@ export function LinkInternalTicketModal({ isOpen, onClose, onLink, excludeIds = 
       setLoading(true);
       const params = new URLSearchParams({ action: 'list', limit: '50' });
       if (debouncedSearch) params.set('search', debouncedSearch);
-      // O filtro da tela é por NOME da equipe; a rota espera o id.
-      if (teamFilter) {
-        const team = teams.find(t => t.name === teamFilter);
-        if (team) params.set('teamId', team.id);
-      }
+      if (queueFilter) params.set('queueId', queueFilter);
 
       let data: any[] = [];
       try {
@@ -65,6 +68,7 @@ export function LinkInternalTicketModal({ isOpen, onClose, onLink, excludeIds = 
         title: it.title,
         teamId: it.team_id,
         internalTeamId: it.internal_team_id,
+        internalQueueId: it.internal_queue_id ?? null,
         assigneeId: it.assignee_id,
         priority: it.priority,
         tags: it.tags || [],
@@ -79,7 +83,7 @@ export function LinkInternalTicketModal({ isOpen, onClose, onLink, excludeIds = 
     };
     
     fetchTickets();
-  }, [isOpen, debouncedSearch, teamFilter, teams]);
+  }, [isOpen, debouncedSearch, queueFilter]);
 
   return (
     <AnimatePresence>
@@ -114,14 +118,16 @@ export function LinkInternalTicketModal({ isOpen, onClose, onLink, excludeIds = 
                 />
               </div>
 <StyledSelect
-               value={teamFilter}
-               onChange={(e) => setTeamFilter(e.target.value)}
+               value={queueFilter}
+               onChange={(e) => setQueueFilter(e.target.value)}
+               aria-label="Filtrar por fila"
                className="px-3 py-2 rounded-lg border border-[var(--border-default)] text-xs font-bold uppercase"
              >
-               <option value="">Todas equipes</option>
-               {teams.map(team => (
-                 <option key={team.id} value={team.name}>{team.name}</option>
+               <option value="">Todas as filas</option>
+               {activeQueues.map(q => (
+                 <option key={q.id} value={q.id}>{q.name}</option>
                ))}
+               <option value="none">Sem fila</option>
              </StyledSelect>
             </div>
 
@@ -146,7 +152,11 @@ export function LinkInternalTicketModal({ isOpen, onClose, onLink, excludeIds = 
                           </span>
                         )}
                       </div>
-                      <p className="text-xs text-[var(--text-tertiary)] mt-1">{t.teamId || 'Sem equipe'}</p>
+                      <p className="text-xs text-[var(--text-tertiary)] mt-1">
+                        {t.internalQueueId
+                          ? (queues.find(q => q.id === t.internalQueueId)?.name || 'Fila removida')
+                          : (t.teamId ? `Sem fila · Equipe (antiga): ${t.teamId}` : 'Sem fila')}
+                      </p>
                     </button>
                   ))}
                 </div>
