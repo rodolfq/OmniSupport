@@ -37,6 +37,8 @@ import { useAnalystsQuery, useInternalTicketQueuesQuery } from '@/lib/query-hook
 import { ConfigService } from '@/lib/services/config-service';
 import { usePersistedViewMode } from '@/hooks/use-persisted-view-mode';
 import { findStatusColor } from '@/lib/status-colors';
+import { TicketExportButton } from '@/components/ticket-export-button';
+import type { ReportExportColumn } from '@/lib/export/table-export';
 import {
   DndContext,
   DragOverlay,
@@ -463,6 +465,60 @@ export default function MyTicketsPage() {
     }
   };
 
+  // Exportação (pedido do usuário, 2026-11-18): usa a MESMA lista já
+  // filtrada em memória (filteredTickets/filteredInternalTickets, antes do
+  // slice de visibleCount) — "Meus Chamados" já carrega tudo de uma vez
+  // (fetchAllTickets), então não precisa de uma busca própria como "Todos os
+  // Chamados" (que só tem uma página carregada por vez).
+  const fmtDateTime = (iso?: string | null) => {
+    if (!iso) return '';
+    const d = new Date(iso);
+    return Number.isNaN(d.getTime()) ? '' : d.toLocaleString('pt-BR', { day: '2-digit', month: '2-digit', year: 'numeric', hour: '2-digit', minute: '2-digit' });
+  };
+
+  // Colunas SEM `format`: as linhas (buildTicketExportRows/
+  // buildInternalTicketExportRows, abaixo) já chegam com tudo formatado em
+  // texto pt-BR — é uma lista de consulta, não um relatório numérico que
+  // precise do valor bruto pra recalcular no Excel, então XLSX e PDF saem
+  // iguais sem duplicar a formatação em dois lugares.
+  const ticketExportColumns: ReportExportColumn<any>[] = [
+    { key: 'numero', label: 'Número' },
+    { key: 'titulo', label: 'Título' },
+    { key: 'status', label: 'Status' },
+    { key: 'prioridade', label: 'Prioridade' },
+    { key: 'abertoEm', label: 'Aberto em' },
+    { key: 'atualizadoEm', label: 'Atualizado em' },
+  ];
+
+  const internalTicketExportColumns: ReportExportColumn<any>[] = [
+    { key: 'ticket', label: 'Ticket' },
+    { key: 'titulo', label: 'Título' },
+    { key: 'status', label: 'Status' },
+    { key: 'fila', label: 'Fila' },
+    { key: 'responsavel', label: 'Responsável' },
+    { key: 'vencimento', label: 'Vencimento' },
+    { key: 'atualizadoEm', label: 'Atualizado em' },
+  ];
+
+  const buildTicketExportRows = () => filteredTickets.map(t => ({
+    numero: t.ticketNumber ? `#${String(t.ticketNumber).padStart(4, '0')}` : '',
+    titulo: t.title,
+    status: t.status,
+    prioridade: t.priority,
+    abertoEm: fmtDateTime(t.createdAt),
+    atualizadoEm: fmtDateTime(t.updatedAt),
+  }));
+
+  const buildInternalTicketExportRows = () => filteredInternalTickets.map(it => ({
+    ticket: it.displayId,
+    titulo: it.title,
+    status: it.status || 'Novo',
+    fila: it.internalQueueId ? (queueNameById.get(it.internalQueueId) || 'Fila') : 'Sem fila',
+    responsavel: it.assigneeId ? (analystsById.get(it.assigneeId)?.name || 'Usuário não encontrado') : 'Sem responsável',
+    vencimento: fmtDateTime(it.slaLimit),
+    atualizadoEm: fmtDateTime(it.updatedAt),
+  }));
+
   return (
     <div className="space-y-8 animate-in fade-in duration-500">
       {/* Header */}
@@ -610,6 +666,17 @@ export default function MyTicketsPage() {
              </button>
            )}
         </div>
+
+        <TicketExportButton
+          getRows={ticketMode === 'tickets' ? buildTicketExportRows : buildInternalTicketExportRows}
+          columns={ticketMode === 'tickets' ? ticketExportColumns : internalTicketExportColumns}
+          title={ticketMode === 'tickets' ? 'Meus Chamados' : 'Meus Tickets Internos'}
+          filterSummary={[
+            search ? `Busca: "${search}"` : '',
+            ticketMode === 'tickets' ? `Filtro: ${CUSTOMER_STATUS_FILTERS.find(s => s.value === filter)?.label || filter}` : (showClosedInternal ? 'Incluindo concluídos' : 'Só em aberto'),
+          ].filter(Boolean).join(' · ')}
+          fileBase={ticketMode === 'tickets' ? 'meus-chamados' : 'meus-tickets-internos'}
+        />
       </div>
 
       {/* Content */}

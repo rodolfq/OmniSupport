@@ -21,6 +21,8 @@ import { getTicketSlaStatus, isTicketSlaExempt } from "@/lib/sla";
 import { mergeTickets } from "@/lib/services/chat-session-actions";
 import { ConfigService } from "@/lib/services/config-service";
 import { findStatusColor } from "@/lib/status-colors";
+import { TicketExportButton } from "@/components/ticket-export-button";
+import type { ReportExportColumn } from "@/lib/export/table-export";
 import {
   FileText,
   ChevronLeft,
@@ -1137,6 +1139,74 @@ export function TicketsView({
     );
   };
 
+  // Exportação (pedido do usuário, 2026-11-18). `filteredTickets`/
+  // `visibleTickets` aqui são só a PÁGINA/lote atual (Tabela pede 10 por
+  // vez, Kanban um lote crescente) — exportar "os chamados filtrados" de
+  // verdade exige buscar de novo com `effectiveFilters`, ignorando a
+  // paginação da tela, até o mesmo teto de 500 que o Kanban já usa em
+  // "Carregar todos" (ver KANBAN_MAX_PAGE_SIZE acima).
+  const EXPORT_PAGE_SIZE = 500;
+
+  const fmtExportDateTime = (iso?: string | null) => {
+    if (!iso) return '';
+    const d = new Date(iso);
+    return Number.isNaN(d.getTime()) ? '' : d.toLocaleString('pt-BR', { day: '2-digit', month: '2-digit', year: 'numeric', hour: '2-digit', minute: '2-digit' });
+  };
+
+  const ticketExportColumns: ReportExportColumn<any>[] = [
+    { key: 'numero', label: 'Número' },
+    { key: 'titulo', label: 'Título' },
+    { key: 'cliente', label: 'Cliente' },
+    { key: 'responsavel', label: 'Responsável' },
+    { key: 'status', label: 'Status' },
+    { key: 'prioridade', label: 'Prioridade' },
+    { key: 'vencimento', label: 'Vencimento' },
+    { key: 'abertoEm', label: 'Aberto em' },
+  ];
+
+  const buildTicketExportRows = async () => {
+    const result = await searchTickets(effectiveFilters, 1, EXPORT_PAGE_SIZE);
+    if (result.total > EXPORT_PAGE_SIZE) {
+      toast.info(`Exportando os ${EXPORT_PAGE_SIZE} chamados mais recentes de ${result.total} — refine os filtros para exportar o restante.`);
+    }
+    return result.tickets.map((t) => {
+      const company = companies.find((c) => c.id === t.companyId);
+      const assignee = users.find((u: any) => u.id === t.assigneeId);
+      const exempt = isTicketSlaExempt(t.subStatus, allStatuses);
+      const { limit } = getTicketSlaStatus(t.createdAt, t.priority, priorities, undefined, exempt);
+      return {
+        numero: t.ticketNumber ? `#${String(t.ticketNumber).padStart(4, '0')}` : '',
+        titulo: t.title,
+        cliente: company?.name || '',
+        responsavel: assignee?.name || 'Sem responsável',
+        status: t.status,
+        prioridade: t.priority,
+        vencimento: exempt ? 'Isento' : fmtExportDateTime(limit as any),
+        abertoEm: fmtExportDateTime(t.createdAt),
+      };
+    });
+  };
+
+  const buildExportFilterSummary = () => {
+    const parts: string[] = [];
+    if (effectiveFilters.query) parts.push(`Busca: "${effectiveFilters.query}"`);
+    if (effectiveFilters.status) parts.push(`Status: ${effectiveFilters.status}`);
+    if (effectiveFilters.priority) parts.push(`Prioridade: ${effectiveFilters.priority}`);
+    if (effectiveFilters.companyId) {
+      const c = companies.find((co) => co.id === effectiveFilters.companyId);
+      if (c) parts.push(`Cliente: ${c.name}`);
+    }
+    if (effectiveFilters.startDate || effectiveFilters.endDate) {
+      parts.push(`Período: ${effectiveFilters.startDate || '…'} a ${effectiveFilters.endDate || '…'}`);
+    }
+    if (effectiveFilters.slaOverdue) parts.push('SLA vencido');
+    if (effectiveFilters.unassigned) parts.push('Sem responsável');
+    if (effectiveFilters.highPriority) parts.push('Alta prioridade');
+    if (effectiveFilters.includeClosed) parts.push('Incluindo encerrados');
+    if (quickFilter !== 'all') parts.push(`Atalho: ${quickFilter === 'mine' ? 'Minhas' : quickFilter === 'unassigned' ? 'Sem responsável' : quickFilter === 'overdue' ? 'Atrasadas' : 'Alta prioridade'}`);
+    return parts.length ? parts.join(' · ') : 'Sem filtros aplicados';
+  };
+
   return (
     <div className="space-y-8">
       {/* Header — mesmo tratamento de cartão (fundo, borda, cantos, densidade
@@ -1155,6 +1225,13 @@ export function TicketsView({
         </div>
         <div className="flex items-center gap-3 flex-wrap">
           {viewToggle}
+          <TicketExportButton
+            getRows={buildTicketExportRows}
+            columns={ticketExportColumns}
+            title="Chamados"
+            filterSummary={buildExportFilterSummary()}
+            fileBase="chamados"
+          />
           <button
             onClick={() => setIsNewTicketModalOpen(true)}
             className="px-4 py-2 bg-[var(--accent)] hover:bg-[var(--accent-hover)] text-white rounded-xl text-xs font-semibold uppercase tracking-widest transition-all flex items-center gap-2 whitespace-nowrap"
