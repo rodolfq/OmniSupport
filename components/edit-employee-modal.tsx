@@ -46,6 +46,16 @@ export function EditEmployeeModal({ isOpen, onClose, user, onSuccess }: { isOpen
   // veem tudo por outro caminho (ver app/api/tickets/route.ts,
   // isCompanyScopedActor), o campo nem é lido pra eles.
   const targetIsCompanyUser = user?.role === UserRole.EMPLOYEE || user?.role === UserRole.CUSTOMER;
+  // Quem pode mudar o acesso de empresa (ver todos os chamados / administrador
+  // da empresa) — mesma regra do servidor (PUT de app/api/users/route.ts):
+  // Administrador do sistema, equipe com "Gerenciar clientes" ou o
+  // administrador da própria empresa. Nunca no próprio cadastro nem por um
+  // Funcionário comum.
+  const canManageCompanyAccess = !!currentUser && !!user && targetIsCompanyUser && currentUser.id !== user.id && (
+    currentUser.role === UserRole.ADMIN ||
+    (currentUser.role === UserRole.CUSTOMER && user.companyId === currentUser.companyId) ||
+    (!isCompanyPortalViewer && hasPermission(Permission.CUSTOMERS_WRITE))
+  );
   const [name, setName] = useState('');
   const [email, setEmail] = useState('');
   const [role, setRole] = useState(UserRole.EMPLOYEE);
@@ -71,6 +81,9 @@ export function EditEmployeeModal({ isOpen, onClose, user, onSuccess }: { isOpen
   // acima). Se algum dia alguém pedir pra isso valer entre empresas
   // diferentes, é um bug de segurança, não uma feature — nunca implementar.
   const [viewAllCompanyTickets, setViewAllCompanyTickets] = useState(false);
+  // "Administrador da empresa" = role Cliente (2026-11-19): promove/rebaixa
+  // sem recadastrar. O servidor recusa tirar o último administrador.
+  const [isCompanyAdmin, setIsCompanyAdmin] = useState(false);
 
   const [loading, setLoading] = useState(false);
   const [saveSuccess, setSaveSuccess] = useState(false);
@@ -95,6 +108,7 @@ export function EditEmployeeModal({ isOpen, onClose, user, onSuccess }: { isOpen
 
       setIsActive(user.isActive ?? true);
       setViewAllCompanyTickets(user.viewAllCompanyTickets || false);
+      setIsCompanyAdmin(user.role === UserRole.CUSTOMER);
     }
   }, [isOpen, user?.id]);
 
@@ -111,8 +125,10 @@ export function EditEmployeeModal({ isOpen, onClose, user, onSuccess }: { isOpen
         phones,
         phone: phones[0] || '', // Keep single phone for compatibility
         companyId,
-        viewAllCompanyTickets,
-        isActive
+        isActive,
+        // Só manda o acesso de empresa quando quem edita pode mudá-lo — o
+        // servidor também ignora, mas assim nada "parece salvo" à toa.
+        ...(canManageCompanyAccess ? { viewAllCompanyTickets, isCompanyAdmin } : {})
       };
       await UserService.save(updatedUser);
       setSaveSuccess(true);
@@ -378,8 +394,42 @@ export function EditEmployeeModal({ isOpen, onClose, user, onSuccess }: { isOpen
                     : "Login bloqueado. O usuário não conseguirá mais acessar o sistema."}
                 </p>
 
-                {targetIsCompanyUser && (
+                {canManageCompanyAccess && (
                   <>
+                    <div className="h-px bg-[var(--border-default)] w-full" />
+
+                    <div className="flex items-center justify-between">
+                      <div className="flex items-center gap-3">
+                        <div className="w-8 h-8 rounded-lg bg-[var(--surface-card)] border border-[var(--border-default)] flex items-center justify-center text-[var(--text-secondary)] shadow-sm">
+                          <ShieldCheck size={14} />
+                        </div>
+                        <div>
+                          <p className="text-[11px] font-black text-[var(--text-primary)] uppercase tracking-wider">Administrador da empresa</p>
+                          <p className="text-[10px] text-[var(--text-tertiary)] font-bold uppercase tracking-widest">Gerencia os acessos da empresa</p>
+                        </div>
+                      </div>
+                      <div
+                        role="switch"
+                        aria-checked={isCompanyAdmin}
+                        aria-label="Administrador da empresa"
+                        onClick={() => {
+                          const next = !isCompanyAdmin;
+                          setIsCompanyAdmin(next);
+                          // Administrador normalmente acompanha tudo da empresa;
+                          // dá pra desligar a visibilidade logo abaixo.
+                          if (next) setViewAllCompanyTickets(true);
+                        }}
+                        className={`w-12 h-6 rounded-full p-1 cursor-pointer transition-all ${isCompanyAdmin ? 'bg-[var(--accent)]' : 'bg-[var(--border-default)]'}`}
+                      >
+                        <div className={`w-4 h-4 rounded-full bg-[var(--surface-card)] shadow-sm transition-transform ${isCompanyAdmin ? 'translate-x-6' : 'translate-x-0'}`} />
+                      </div>
+                    </div>
+                    <p className="text-[9px] text-[var(--text-tertiary)] font-bold uppercase leading-relaxed">
+                      {isCompanyAdmin
+                        ? "Pode cadastrar, editar e excluir os acessos da própria empresa."
+                        : "Acesso comum da empresa."}
+                    </p>
+
                     <div className="h-px bg-[var(--border-default)] w-full" />
 
                     <div className="flex items-center justify-between">

@@ -315,6 +315,32 @@ export function TicketDetailModal({ ticket, onClose, initialDraft, creating = fa
   // vinculados (N:N via ticket_internal_links), então isso é sempre uma
   // lista, nunca um registro único.
   const [internalTickets, setInternalTickets] = useState<InternalTicket[]>([]);
+  // "Ao concluir, fechar também os tickets internos vinculados" (2026-11-19,
+  // pedido do usuário). Vale só para ESTE fechamento — não é configuração
+  // salva. Ref junto com o state porque a gravação do status passa pelo
+  // debounce (commitTicketSave roda depois, com o closure antigo).
+  const [closeLinkedInternal, setCloseLinkedInternal] = useState(false);
+  const closeLinkedInternalRef = useRef(false);
+  useEffect(() => { closeLinkedInternalRef.current = closeLinkedInternal; }, [closeLinkedInternal]);
+  // Status FECHADOS do cadastro de ticket interno (Configurações > Status,
+  // escopo internal_ticket) — o primeiro pela ordem é o que o ticket interno
+  // recebe ao ser fechado junto com o chamado.
+  const [internalClosedLabels, setInternalClosedLabels] = useState<string[]>([]);
+  useEffect(() => {
+    if (internalTickets.length === 0 || internalClosedLabels.length > 0) return;
+    ConfigService.getStatuses('internal_ticket')
+      .then((list: any[]) => {
+        const closed = (list || [])
+          .filter(st => st.isClosed && !st.parentStatusId)
+          .sort((a, b) => (a.sortOrder ?? 0) - (b.sortOrder ?? 0))
+          .map(st => st.label);
+        setInternalClosedLabels(closed.length > 0 ? closed : ['Concluído']);
+      })
+      .catch(() => setInternalClosedLabels(['Concluído']));
+  }, [internalTickets.length]);
+  const openLinkedInternal = internalTickets.filter(it => !!it.uuid && !(internalClosedLabels.length > 0
+    ? internalClosedLabels.includes(it.status || '')
+    : isClosedTicketStatus(it.status || '')));
   const [showCreatePanel, setShowCreatePanel] = useState(false);
   const [itTitle, setItTitle] = useState('');
   // Fila do ticket interno criado daqui (2026-11-13, substitui a equipe).
@@ -1143,10 +1169,32 @@ const loadMessages = async () => {
       changes.push({ label: 'Contato', from: fromName, to: toName });
     }
 
+    // Fechamento AGORA (aberto -> fechado), com a caixa marcada: fecha junto
+    // os tickets internos vinculados que ainda estão abertos.
+    const closingNow = isClosedTicketStatus(statusToSave as string) && !isClosedTicketStatus(prev.status);
+    const internalToClose = closingNow && closeLinkedInternalRef.current
+      ? openLinkedInternal.map(it => it.uuid as string)
+      : [];
+
     setSaveStatus('saving');
     try {
       await TicketService.update(updated);
       lastSavedRef.current = updated;
+      if (internalToClose.length > 0) {
+        // Mesma ação da edição em massa da lista de Tickets Internos: grava o
+        // histórico e avisa criador/responsável/seguidores como uma mudança
+        // de status feita à mão. Falhar aqui não desfaz o fechamento do chamado.
+        try {
+          await InternalTicketService.bulkUpdate(internalToClose, { status: internalClosedLabels[0] || 'Concluído' });
+          toast.success(internalToClose.length === 1
+            ? 'Ticket interno vinculado também foi fechado.'
+            : `${internalToClose.length} tickets internos vinculados também foram fechados.`);
+          setCloseLinkedInternal(false);
+          loadInternalTickets();
+        } catch (err: any) {
+          toast.error(`Chamado fechado, mas não foi possível fechar os tickets internos: ${err?.message || 'erro'}`);
+        }
+      }
       if (changes.length > 0 && currentUser) {
         await MessageService.create({
           id: Math.random().toString(36).substr(2, 9),
@@ -1673,6 +1721,20 @@ const loadMessages = async () => {
                   </div>
                 )}
               </div>
+            )}
+            {!isCompanyUser && canChangeStatus && hasPermission(Permission.INTERNAL_TICKETS_EDIT)
+              && openLinkedInternal.length > 0 && !isClosedTicketStatus((lastSavedRef.current || ticket).status) && (
+              <label className="mx-8 mb-3 flex items-center gap-2 text-[11px] font-semibold text-[var(--text-secondary)] cursor-pointer select-none w-fit">
+                <input
+                  type="checkbox"
+                  checked={closeLinkedInternal}
+                  onChange={(e) => setCloseLinkedInternal(e.target.checked)}
+                  className="accent-[var(--accent)]"
+                />
+                {openLinkedInternal.length === 1
+                  ? `Ao concluir este chamado, fechar também o ticket interno vinculado (${openLinkedInternal[0].id})`
+                  : `Ao concluir este chamado, fechar também os ${openLinkedInternal.length} tickets internos vinculados`}
+              </label>
             )}
             {ticket.mergedIntoId && (
               <div className="mx-8 mb-3 px-3 py-2 rounded-xl bg-[var(--surface-pill)] border border-[var(--border-default)] flex items-center gap-2 text-[10px] font-semibold uppercase tracking-widest text-[var(--text-tertiary)]">

@@ -726,8 +726,46 @@ export async function PUT(request: Request) {
     // essa trava, qualquer usuário autenticado podia virar Administrador só
     // chamando este endpoint com {role:'Administrador'}.
     const isSystemAdmin = actor.role === 'Administrador';
-    const role = isSystemAdmin ? (user.role ?? target.role) : target.role;
-    const isAdmin = isSystemAdmin ? (user.isAdmin ?? target.is_admin) : target.is_admin;
+    let role = isSystemAdmin ? (user.role ?? target.role) : target.role;
+    let isAdmin = isSystemAdmin ? (user.isAdmin ?? target.is_admin) : target.is_admin;
+
+    // Acesso de empresa-cliente (2026-11-19, pedido do usuário): "ver todos os
+    // chamados da empresa" e "administrador da empresa" (role Cliente — é o
+    // papel que de fato dá poder de administrar a empresa, ver
+    // assertUserManageable) só mudam por quem administra: Administrador do
+    // sistema, equipe com "Gerenciar clientes" (customers:write) ou o
+    // administrador da PRÓPRIA empresa (role Cliente). Nunca por autoedição e
+    // nunca por um Funcionário comum editando colega — antes o
+    // view_all_company_tickets era gravado sem checagem nenhuma, então um
+    // Funcionário podia ligá-lo em si mesmo (ou num colega) chamando esta rota.
+    const targetIsCompanyUser = ['Cliente', 'Funcionário'].includes(target.role);
+    let canManageCompanyAccess = false;
+    if (actor.id !== user.id && targetIsCompanyUser) {
+      if (isSystemAdmin) canManageCompanyAccess = true;
+      else if (actor.role === 'Cliente') canManageCompanyAccess = !!actor.company_id && target.company_id === actor.company_id;
+      else if (actor.role !== 'Funcionário') {
+        canManageCompanyAccess = (await getActorEffectivePermissions(actor.id)).includes(Permission.CUSTOMERS_WRITE);
+      }
+    }
+    const viewAllToSave = canManageCompanyAccess && typeof user.viewAllCompanyTickets === 'boolean'
+      ? user.viewAllCompanyTickets
+      : null; // null = mantém o que está gravado (COALESCE no UPDATE)
+    if (canManageCompanyAccess && typeof user.isCompanyAdmin === 'boolean') {
+      const wasAdmin = target.role === 'Cliente';
+      if (wasAdmin && !user.isCompanyAdmin) {
+        // Tirar o último administrador deixaria a empresa sem ninguém que
+        // cadastre/edite/exclua os próprios usuários.
+        const outros = await query(
+          "SELECT 1 FROM public.profiles WHERE company_id = $1 AND role = 'Cliente' AND id <> $2 AND COALESCE(is_active, true) LIMIT 1",
+          [target.company_id, user.id]
+        );
+        if (!outros.rowCount) {
+          return NextResponse.json({ error: 'Esta empresa precisa ter ao menos um administrador. Torne outro acesso administrador antes de tirar este.' }, { status: 400 });
+        }
+      }
+      role = user.isCompanyAdmin ? 'Cliente' : 'Funcionário';
+      isAdmin = !!user.isCompanyAdmin;
+    }
     const internalTeamIds = isSystemAdmin ? (user.internalTeamIds ?? target.internal_team_ids) : target.internal_team_ids;
     // Empresa é um caso à parte: mudar de empresa um Cliente/Funcionário não é
     // escalação de privilégio (não é o campo que decide o que a pessoa PODE
@@ -837,7 +875,7 @@ export async function PUT(request: Request) {
         companyId || null,
         user.phone ?? null,
         user.mustChangePassword,
-        user.viewAllCompanyTickets,
+        viewAllToSave,
         isAdmin,
         isNewImage ? (storedAvatarUrl || incomingAvatar) : null,
         internalTeamIds || '{}',
