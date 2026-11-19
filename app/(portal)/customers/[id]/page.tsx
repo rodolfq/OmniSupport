@@ -3,7 +3,7 @@
 import React, { useEffect, useState } from 'react';
 import { useParams, useRouter } from 'next/navigation';
 import Link from 'next/link';
-import { ChevronLeft, Building2, Phone, Ticket as TicketIcon, MessageCircle, Loader2, ThumbsUp, ThumbsDown, Circle, GraduationCap, CheckCircle2, Clock } from 'lucide-react';
+import { ChevronLeft, Building2, Phone, Ticket as TicketIcon, MessageCircle, Loader2, ThumbsUp, ThumbsDown, Circle, GraduationCap } from 'lucide-react';
 import { Company, Ticket, User, UserRole } from '@/lib/types';
 import { CompanyService, TrainingStage, getCompanyTrainingStages } from '@/lib/services/company-service';
 import { TicketService } from '@/lib/services/ticket-service';
@@ -11,6 +11,7 @@ import { UserService } from '@/lib/services/user-service';
 import { getActiveSessionsByCompany, getChatHistoriesByCompany, CompanyActiveSession, PreviousChatHistoriesResult } from '@/lib/services/chat-service';
 import { isClosedTicketStatus } from '@/lib/ticket-status';
 import { ClientTime } from '@/components/client-time';
+import { TrainingStagesTimeline } from '@/components/training-stages-timeline';
 import { cn } from '@/lib/utils';
 import { useApp } from '@/app/app-context';
 
@@ -175,26 +176,7 @@ export default function CompanyDetailPage() {
           ) : trainingStages.length === 0 ? (
             <p className="text-xs text-[var(--text-tertiary)] font-medium italic">Nenhuma etapa cadastrada.</p>
           ) : (
-            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-2">
-              {trainingStages.map(stage => {
-                const meta = stage.status === 'Concluído'
-                  ? { icon: CheckCircle2, color: 'text-[var(--text-success)]', chip: 'bg-[var(--surface-success)] text-[var(--text-success)]' }
-                  : stage.status === 'Em andamento'
-                  ? { icon: Clock, color: 'text-[var(--text-warning)]', chip: 'bg-[var(--surface-warning)] text-[var(--text-warning)]' }
-                  : { icon: Circle, color: 'text-[var(--text-tertiary)]', chip: 'bg-[var(--surface-pill)] text-[var(--text-tertiary)]' };
-                return (
-                  <div key={stage.id} className="flex items-center justify-between gap-2 px-3 py-2.5 rounded-xl border border-[var(--border-default)]">
-                    <div className="flex items-center gap-2 min-w-0">
-                      <meta.icon size={14} className={cn('shrink-0', meta.color)} />
-                      <span className="text-xs font-bold text-[var(--text-primary)] truncate">{stage.name}</span>
-                    </div>
-                    <span className={cn('shrink-0 text-[8px] font-black uppercase tracking-widest px-1.5 py-0.5 rounded-lg', meta.chip)}>
-                      {stage.status}
-                    </span>
-                  </div>
-                );
-              })}
-            </div>
+            <TrainingStagesTimeline stages={trainingStages} className="max-w-md" />
           )}
         </div>
       )}
