@@ -15,7 +15,7 @@ import { useQueryClient } from "@tanstack/react-query";
 import { prefetchTicketModalReferenceData, useProfilesLiteQuery, useConfigPrioritiesQuery, useConfigStatusesQuery } from "@/lib/query-hooks";
 import { TicketService } from "@/lib/services/ticket-service";
 
-import { SearchFilters, searchTickets, getQuickFilterCounts, QuickFilterCounts } from "@/lib/search";
+import { SearchFilters, searchTickets, getQuickFilterCounts, QuickFilterCounts, TicketSort } from "@/lib/search";
 import { isClosedTicketStatus, isInProgressTicketStatus } from "@/lib/ticket-status";
 import { getTicketSlaStatus, isTicketSlaExempt } from "@/lib/sla";
 import { mergeTickets } from "@/lib/services/chat-session-actions";
@@ -411,9 +411,11 @@ export function TicketsView({
       // Kanban sempre busca a partir da página 1, com o LOTE crescente de
       // kanbanPageSize (ver comentário na declaração do state) — Tabela/Cards
       // continuam com a paginação numerada de sempre.
+      // Kanban não tem cabeçalho clicável — ordenação só vale pra
+      // Tabela/Cards (sortConfig.key já é um dos ids válidos de `columns`).
       const result = viewMode === "kanban"
         ? await searchTickets(effectiveFilters, 1, kanbanPageSize)
-        : await searchTickets(effectiveFilters, currentPage, pageSize);
+        : await searchTickets(effectiveFilters, currentPage, pageSize, sortConfig as TicketSort | null);
 
       // Só aplica se ainda for o pedido mais recente — ver comentário no
       // `ticketsFetchSeqRef` acima.
@@ -454,11 +456,11 @@ export function TicketsView({
     if (!currentUser?.id) return;
     const requestKey = viewMode === "kanban"
       ? `${currentUser.id}:kanban:${kanbanPageSize}:${JSON.stringify(effectiveFilters)}:${refreshTrigger}`
-      : `${currentUser.id}:${currentPage}:${JSON.stringify(effectiveFilters)}:${refreshTrigger}`;
+      : `${currentUser.id}:${currentPage}:${JSON.stringify(effectiveFilters)}:${JSON.stringify(sortConfig)}:${refreshTrigger}`;
     if (lastAutomaticRequestKeyRef.current === requestKey) return;
     lastAutomaticRequestKeyRef.current = requestKey;
     loadTickets();
-  }, [currentUser?.id, currentPage, viewMode, kanbanPageSize, effectiveFilters, refreshTrigger]);
+  }, [currentUser?.id, currentPage, viewMode, kanbanPageSize, effectiveFilters, sortConfig, refreshTrigger]);
 
   // Contagens dos chips — independem de qual chip está ativo (mostram as 5
   // colunas de uma vez), só acompanham os Filtros avançados/busca de texto.
@@ -792,6 +794,14 @@ export function TicketsView({
     setTags(data);
   };
 
+  // Ordena no SERVIDOR agora (ver ORDER BY em app/api/search/route.ts) — o
+  // clique no cabeçalho só reordenava `filteredTickets`, que na Tabela é
+  // só a PÁGINA atual (pageSize=10, paginação numerada real). Reordenar
+  // isso localmente nunca tocava os chamados das outras páginas: clicar
+  // "Responsável" parecia ordenar, mas só embaralhava os 10 já carregados.
+  // Achado do usuário, 2026-11-19. Troca de ordenação volta pra página 1
+  // (mesmo padrão de troca de filtro) — a página 2 do sort antigo não
+  // corresponde a nada na ordem nova.
   const handleSort = (key: string) => {
     let direction: "asc" | "desc" = "asc";
     if (
@@ -802,61 +812,13 @@ export function TicketsView({
       direction = "desc";
     }
     setSortConfig({ key, direction });
+    setCurrentPage(1);
   };
 
-  const sortedTickets = useMemo(() => {
-    if (!sortConfig) return filteredTickets;
-
-    return [...filteredTickets].sort((a, b) => {
-      let aValue: any = "";
-      let bValue: any = "";
-
-      switch (sortConfig.key) {
-        case "id":
-          aValue = a.ticketNumber || 0;
-          bValue = b.ticketNumber || 0;
-          break;
-        case "title":
-          aValue = a.title;
-          bValue = b.title;
-          break;
-        case "company":
-          aValue = companies.find((c) => c.id === a.companyId)?.name || "";
-          bValue = companies.find((c) => c.id === b.companyId)?.name || "";
-          break;
-        case "assignee":
-          aValue = users.find((u) => u.id === a.assigneeId)?.name || "";
-          bValue = users.find((u) => u.id === b.assigneeId)?.name || "";
-          break;
-        case "status":
-          aValue = a.status;
-          bValue = b.status;
-          break;
-        case "priority":
-          const priorityOrder = ["Baixa", "Média", "Alta", "Urgente"];
-          aValue = priorityOrder.indexOf(a.priority as string);
-          bValue = priorityOrder.indexOf(b.priority as string);
-          break;
-        case "sla":
-          const slaValue = (ticket: Ticket) => {
-            if (isClosedTicketStatus(ticket.status)) return "";
-            const limit = getTicketSlaStatus(ticket.createdAt, ticket.priority, priorities).limit;
-            return limit ? limit.getTime() : "";
-          };
-          aValue = slaValue(a);
-          bValue = slaValue(b);
-          break;
-      }
-
-      if (aValue < bValue) return sortConfig.direction === "asc" ? -1 : 1;
-      if (aValue > bValue) return sortConfig.direction === "asc" ? 1 : -1;
-      return 0;
-    });
-  }, [filteredTickets, sortConfig, companies, users]);
-
-  const visibleTickets = useMemo(() => {
-    return sortedTickets;
-  }, [sortedTickets]);
+  // `filteredTickets` já vem do servidor na ordem certa (com sortConfig) —
+  // nada a reordenar aqui. `visibleTickets` existe só porque outros pontos
+  // da tela (seleção em lote, "Carregar mais") já esperam esse nome.
+  const visibleTickets = filteredTickets;
 
   const paginationPages = useMemo(() => {
     if (totalPages <= 5) {

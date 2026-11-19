@@ -38,10 +38,21 @@ export interface SearchResult {
   hasMore: boolean;
 }
 
+// Ordenação por coluna (clique no cabeçalho da Tabela, tickets-view.tsx) — o
+// `sortBy`/`sortDir` vão pro servidor e decidem o ORDER BY de verdade,
+// porque a lista é paginada: ordenar só o que já chegou (como era antes)
+// reordenava apenas os `pageSize` itens da página atual, nunca o conjunto
+// filtrado inteiro. Ver o ORDER BY em app/api/search/route.ts (action=tickets).
+export interface TicketSort {
+  key: 'id' | 'title' | 'company' | 'assignee' | 'status' | 'priority' | 'sla';
+  direction: 'asc' | 'desc';
+}
+
 export async function searchTickets(
   filters: SearchFilters,
   page: number = 1,
   pageSize: number = 10,
+  sort?: TicketSort | null,
   signal?: AbortSignal
 ): Promise<SearchResult> {
   const qParams = new URLSearchParams({
@@ -58,7 +69,8 @@ export async function searchTickets(
     highPriority: String(filters.highPriority || false),
     includeClosed: String(filters.includeClosed || false),
     page: String(page),
-    pageSize: String(pageSize)
+    pageSize: String(pageSize),
+    ...(sort ? { sortBy: sort.key, sortDir: sort.direction } : {}),
   });
 
   const res = await fetch(`/api/search?${qParams.toString()}`, { signal });

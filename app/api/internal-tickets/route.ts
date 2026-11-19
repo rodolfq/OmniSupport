@@ -197,6 +197,27 @@ export async function GET(request: NextRequest) {
         }
       }
 
+      // `openOnly=1` (achado do usuário, 2026-11-19): esta action nunca
+      // filtrou por status — serve de propósito pra quem quer TUDO (Meus
+      // Chamados, que filtra "mostrar concluídos" no próprio client; o
+      // histórico de um Hotfix em Configurações; a busca do vínculo de
+      // Release Item). O painel de Tickets Internos do Dashboard é o único
+      // que quer só o trabalho ABERTO — sem este filtro, um ticket recém
+      // concluído (updated_at muda ao fechar) subia pro topo da lista
+      // "ORDER BY updated_at DESC", como se ainda estivesse pendente.
+      // Mesma fonte de "fechado" que action=board já usa (config_statuses.
+      // is_closed, nunca um rótulo fixo — status é configurável).
+      if (searchParams.get('openOnly') === '1') {
+        const fechadosRes = await query(
+          `SELECT label FROM public.config_statuses WHERE scope = 'internal_ticket' AND is_closed = true`
+        );
+        const fechados = fechadosRes.rows.map((r: any) => r.label);
+        if (fechados.length > 0) {
+          params.push(fechados);
+          conditions.push(`COALESCE(status, 'Novo') <> ALL($${params.length})`);
+        }
+      }
+
       const where = conditions.length ? `WHERE ${conditions.join(' AND ')}` : '';
       const res = await query(
         `SELECT ${LIST_COLUMNS} FROM public.internal_tickets ${where} ORDER BY updated_at DESC LIMIT ${limit}`,

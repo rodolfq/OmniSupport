@@ -287,7 +287,11 @@ export default function DashboardPage() {
         // Recorte pela fila escolhida. "Sem fila" de quem
         // não vê tudo: só os da própria equipe (scope=my-teams).
         const canSeeAllInternal = hasPermission(Permission.INTERNAL_TICKETS_VIEW_ALL);
-        const qs = new URLSearchParams({ action: 'list' });
+        // openOnly=1 (2026-11-19, achado do usuário): sem isso, um ticket
+        // recém concluído (updated_at muda ao fechar) aparecia no topo deste
+        // painel — a mesma exclusão que `action=board`/queue-overview já
+        // aplicam por padrão, só que esta rota nunca teve.
+        const qs = new URLSearchParams({ action: 'list', openOnly: '1' });
         if (selectedInternalQueue === 'all') {
           qs.set('scope', canSeeAllInternal ? 'all' : 'my-teams');
         } else {
