@@ -7,6 +7,7 @@ import { assignChatSession } from '@/lib/services/chat-session-actions';
 import { getUsers } from '@/lib/services/user-actions-service';
 import { getCompanies, setCompanyActive, updateCompanyLogo, deleteCompany, getCompanyTrainingStages, TrainingStage } from '@/lib/services/company-service';
 import { TrainingStagesTimeline } from '@/components/training-stages-timeline';
+import { TrainingStatusBadge } from '@/components/training-status-badge';
 import { Company, User, UserRole, Permission } from '@/lib/types';
 import { Building2, User as UserIcon, Mail, Phone, Plus, MessageCircle, Ticket, ShieldCheck, ShieldOff, Search, X, Check, Pencil, UserPlus, RefreshCw, Headset, Briefcase, Camera, Trash2, ArrowLeft, Loader2, CheckCircle2, Clock, GraduationCap } from 'lucide-react';
 import { cn, normalizeString, normalizePhone, maskPhone, companyDetailHref } from '@/lib/utils';
@@ -445,7 +446,7 @@ if (isCompanyPortalUser) {
   // integração), o analista só visualiza aqui. Só busca pra empresa em
   // treinamento — nas demais, a seção nem aparece.
   useEffect(() => {
-    if (!selectedCompanyId || !selectedCompany?.isInTraining) {
+    if (!selectedCompanyId || !selectedCompany?.trainingStatus) {
       setTrainingStages([]);
       return;
     }
@@ -453,7 +454,7 @@ if (isCompanyPortalUser) {
     getCompanyTrainingStages(selectedCompanyId)
       .then(setTrainingStages)
       .finally(() => setLoadingTrainingStages(false));
-  }, [selectedCompanyId, selectedCompany?.isInTraining]);
+  }, [selectedCompanyId, selectedCompany?.trainingStatus]);
 
   const companyEmployees = useMemo(() => 
     users
@@ -561,16 +562,9 @@ if (isCompanyPortalUser) {
                       Desativada
                     </span>
                   )}
-                  {/* Em treinamento: perfil interno — isInTraining nem chega ao
-                      navegador de quem é da própria empresa. */}
-                  {c.isInTraining && (
-                    <span
-                      title="Cliente em treinamento — visível só pra equipe interna"
-                      className="inline-flex items-center gap-1 mt-0.5 text-[9px] font-black uppercase tracking-widest px-1.5 py-0.5 rounded bg-[var(--surface-info)] text-[var(--text-info)]"
-                    >
-                      <GraduationCap size={10} /> Em treinamento
-                    </span>
-                  )}
+                  {/* Status de treinamento: perfil interno — trainingStatus nem
+                      chega ao navegador de quem é da própria empresa. */}
+                  <TrainingStatusBadge status={c.trainingStatus} size="sm" className="mt-0.5" />
                 </div>
               </button>
               );
@@ -681,16 +675,13 @@ if (isCompanyPortalUser) {
                     "text-xl sm:text-2xl font-black tracking-tight leading-tight break-words",
                     selectedCompany.isActive === false ? "text-[var(--text-tertiary)]" : "text-[var(--text-primary)]"
                   )}>{selectedCompany.name}</h1>
-                  {selectedCompany.isInTraining && (
-                    <span
-                      title={selectedCompany.trainingOrigin === 'planilha'
-                        ? 'Atribuído automaticamente pela importação da planilha de CS'
-                        : 'Cliente em treinamento — visível só pra equipe interna'}
-                      className="inline-flex items-center gap-1.5 mt-2 text-[10px] font-black uppercase tracking-widest px-2.5 py-1 rounded-lg bg-[var(--surface-info)] text-[var(--text-info)]"
-                    >
-                      <GraduationCap size={12} /> Em treinamento
-                    </span>
-                  )}
+                  <TrainingStatusBadge
+                    status={selectedCompany.trainingStatus}
+                    className="mt-2"
+                    title={selectedCompany.trainingStatus === 'em_treinamento' && selectedCompany.trainingOrigin === 'planilha'
+                      ? 'Atribuído automaticamente pela importação da planilha de CS'
+                      : undefined}
+                  />
                   {/* Setor removido do cabeçalho a pedido: continua no cadastro
                       (Editar Empresa) e no card da lista lateral. */}
                 </div>
@@ -793,7 +784,7 @@ if (isCompanyPortalUser) {
             </div>
             </div>
 
-            {selectedCompany.isInTraining && (
+            {!!selectedCompany.trainingStatus && (
               <div className="px-5 sm:px-8 py-5 border-t border-[var(--border-default)] space-y-3">
                 <h3 className="text-[10px] font-semibold uppercase tracking-[0.2em] text-[var(--text-tertiary)] flex items-center gap-2">
                   <GraduationCap size={13} /> Etapas de Treinamento

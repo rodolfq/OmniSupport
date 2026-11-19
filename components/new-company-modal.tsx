@@ -2,10 +2,10 @@
 
 import React, { useState } from 'react';
 import { useEscapeToClose } from '@/hooks/use-escape-to-close';
-import { X, Building2, Phone, Mail, Lock, UserPlus, RefreshCw, Eye, EyeOff, GraduationCap, ShieldAlert, AlertTriangle, ShieldOff, ShieldCheck, Headset, Briefcase, Trash2, Hash } from 'lucide-react';
+import { X, Building2, Phone, Mail, Lock, UserPlus, RefreshCw, Eye, EyeOff, GraduationCap, CheckCircle2, ShieldAlert, AlertTriangle, ShieldOff, ShieldCheck, Headset, Briefcase, Trash2, Hash } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import { saveCompany, getCustomerEvaluationSummary, updateCompanyTraining, saveCustomerEvaluation } from '@/lib/services/company-service';
-import { Company, User, Permission, type CustomerEvaluationScores, type CustomerEvaluationSummary, type CustomerProfileTag, MIN_RELIABLE_EVALUATION_COUNT } from '@/lib/types';
+import { Company, User, Permission, type CompanyTrainingStatus, type CustomerEvaluationScores, type CustomerEvaluationSummary, type CustomerProfileTag, MIN_RELIABLE_EVALUATION_COUNT } from '@/lib/types';
 import { maskPhone, cn } from '@/lib/utils';
 import { useApp } from '@/app/app-context';
 import { StarRating } from '@/components/star-rating';
@@ -25,6 +25,12 @@ const CRITERIA_LABELS: { key: keyof CustomerEvaluationScores; label: string }[] 
   { key: 'engagementScore', label: 'Engajamento' },
   { key: 'organizationScore', label: 'Organização das demandas' },
   { key: 'communicationScore', label: 'Comunicação' }
+];
+
+const TRAINING_STATUS_OPTIONS: { value: CompanyTrainingStatus; label: string; activeClass: string }[] = [
+  { value: null, label: 'Nenhum', activeClass: 'bg-[var(--surface-card)] text-[var(--text-secondary)] shadow-sm' },
+  { value: 'em_treinamento', label: 'Em treinamento', activeClass: 'bg-[var(--accent)] text-white shadow-sm' },
+  { value: 'treinamento_concluido', label: 'Concluído', activeClass: 'bg-[var(--text-success)] text-white shadow-sm' },
 ];
 
 const TAG_INFO: Record<CustomerProfileTag, { emoji: string; label: string }> = {
@@ -79,7 +85,10 @@ export function NewCompanyModal({ isOpen, onClose, onSuccess, company, showInter
 
   // Perfil interno — nunca exposto ao cliente, só faz sentido pra uma
   // empresa que já existe (precisa de um id pra vincular as avaliações).
-  const [isInTraining, setIsInTraining] = useState(false);
+  // 3 estados (2026-11-19, substituiu o toggle booleano "Cliente em
+  // Treinamento" a pedido do usuário): null = nenhum, 'em_treinamento',
+  // 'treinamento_concluido'.
+  const [trainingStatus, setTrainingStatus] = useState<CompanyTrainingStatus>(null);
   const [evaluationSummary, setEvaluationSummary] = useState<CustomerEvaluationSummary | null>(null);
   const [loadingSummary, setLoadingSummary] = useState(false);
   const [evalScores, setEvalScores] = useState<CustomerEvaluationScores>(EMPTY_EVAL_SCORES);
@@ -92,7 +101,7 @@ export function NewCompanyModal({ isOpen, onClose, onSuccess, company, showInter
     if (company) {
       setName(company.name || '');
       setPhone(company.phone || '');
-      setIsInTraining(company.isInTraining || false);
+      setTrainingStatus(company.trainingStatus ?? null);
       setCsResponsavelId(company.csResponsavelId || '');
       setComercialResponsavelId(company.comercialResponsavelId || '');
       setDecisorNome(company.decisorNome || '');
@@ -104,7 +113,7 @@ export function NewCompanyModal({ isOpen, onClose, onSuccess, company, showInter
       setAdminEmail('');
       setAdminPassword(generateTemporaryPassword());
       setAdminPhone('');
-      setIsInTraining(false);
+      setTrainingStatus(null);
       setCsResponsavelId('');
       setComercialResponsavelId('');
       setDecisorNome('');
@@ -176,11 +185,11 @@ export function NewCompanyModal({ isOpen, onClose, onSuccess, company, showInter
       }
 
       if (isEditing && showInternalSection && company) {
-        // Só quando o toggle MUDOU e quem salva pode mexer nele: a ação exige
+        // Só quando o status MUDOU e quem salva pode mexer nele: a ação exige
         // customers:training no servidor, e quem edita a empresa sem essa
         // permissão não pode tomar erro num "Salvar" comum.
-        if (canManageTraining && isInTraining !== !!company.isInTraining) {
-          const trainingResult = await updateCompanyTraining(company.id, isInTraining);
+        if (canManageTraining && trainingStatus !== (company.trainingStatus ?? null)) {
+          const trainingResult = await updateCompanyTraining(company.id, trainingStatus);
           if ('error' in trainingResult && trainingResult.error) throw new Error(trainingResult.error);
         }
 
@@ -467,29 +476,35 @@ export function NewCompanyModal({ isOpen, onClose, onSuccess, company, showInter
                     <p className="text-[10px] font-black text-[var(--text-warning)] uppercase tracking-widest">Perfil interno — só a equipe vê</p>
                   </div>
 
-                  <div className="flex items-center justify-between">
-                    <div className="flex items-center gap-3">
-                      <div className="w-8 h-8 rounded-lg bg-[var(--surface-card)] border border-[var(--border-default)] flex items-center justify-center text-[var(--text-secondary)] shadow-sm">
-                        <GraduationCap size={14} />
+                  <div className="flex items-center justify-between gap-3 flex-wrap">
+                    <div className="flex items-center gap-3 min-w-0">
+                      <div className="w-8 h-8 rounded-lg bg-[var(--surface-card)] border border-[var(--border-default)] flex items-center justify-center text-[var(--text-secondary)] shadow-sm shrink-0">
+                        {trainingStatus === 'treinamento_concluido' ? <CheckCircle2 size={14} /> : <GraduationCap size={14} />}
                       </div>
-                      <div>
-                        <p className="text-[11px] font-black text-[var(--text-primary)] uppercase tracking-wider">Cliente em Treinamento</p>
+                      <div className="min-w-0">
+                        <p className="text-[11px] font-black text-[var(--text-primary)] uppercase tracking-wider">Status de Treinamento</p>
                         <p className="text-[10px] text-[var(--text-tertiary)] font-bold uppercase tracking-widest">Mostra um aviso pra equipe no chat com a empresa</p>
                         {/* De onde veio o status — a importação da planilha marca sozinha
-                            (entrada de 2026 em diante) e, depois de removido, nunca devolve. */}
-                        {isInTraining && company?.trainingOrigin === 'planilha' && (
+                            (entrada de 2026 em diante) e, depois de sair de "Em
+                            treinamento", nunca devolve sozinha. */}
+                        {trainingStatus === 'em_treinamento' && company?.trainingOrigin === 'planilha' && (
                           <p className="text-[10px] text-[var(--text-info)] font-semibold mt-1">
                             Atribuído automaticamente pela importação da planilha{company.trainingStartedAt ? ` em ${formatDateBr(company.trainingStartedAt)}` : ''}.
                           </p>
                         )}
-                        {isInTraining && company?.trainingOrigin === 'manual' && (
+                        {trainingStatus === 'em_treinamento' && company?.trainingOrigin === 'manual' && (
                           <p className="text-[10px] text-[var(--text-tertiary)] font-semibold mt-1">
                             Marcado manualmente{company.trainingStartedAt ? ` em ${formatDateBr(company.trainingStartedAt)}` : ''}.
                           </p>
                         )}
-                        {!isInTraining && company?.trainingRemovedAt && (
+                        {trainingStatus === 'treinamento_concluido' && (
+                          <p className="text-[10px] text-[var(--text-success)] font-semibold mt-1">
+                            Marcado manualmente como concluído.
+                          </p>
+                        )}
+                        {trainingStatus !== 'em_treinamento' && company?.trainingRemovedAt && (
                           <p className="text-[10px] text-[var(--text-warning)] font-semibold mt-1">
-                            Removido em {formatDateBr(company.trainingRemovedAt)} — a importação da planilha não marca de novo; só manualmente.
+                            Saiu de &quot;Em treinamento&quot; em {formatDateBr(company.trainingRemovedAt)} — a importação da planilha não marca de novo; só manualmente.
                           </p>
                         )}
                         {!canManageTraining && (
@@ -497,17 +512,24 @@ export function NewCompanyModal({ isOpen, onClose, onSuccess, company, showInter
                         )}
                       </div>
                     </div>
-                    <button
-                      type="button"
-                      role="switch"
-                      aria-checked={isInTraining}
-                      aria-label="Cliente em treinamento"
-                      disabled={!canManageTraining}
-                      onClick={() => setIsInTraining(!isInTraining)}
-                      className={`w-12 h-6 rounded-full p-1 transition-all shrink-0 disabled:opacity-50 ${isInTraining ? 'bg-[var(--accent)]' : 'bg-[var(--border-default)]'}`}
-                    >
-                      <div className={`w-4 h-4 rounded-full bg-[var(--surface-card)] shadow-sm transition-transform ${isInTraining ? 'translate-x-6' : 'translate-x-0'}`} />
-                    </button>
+                    <div role="radiogroup" aria-label="Status de treinamento" className="flex items-center gap-1 p-1 rounded-xl bg-[var(--surface-pill)] shrink-0">
+                      {TRAINING_STATUS_OPTIONS.map(opt => (
+                        <button
+                          key={opt.value ?? 'none'}
+                          type="button"
+                          role="radio"
+                          aria-checked={trainingStatus === opt.value}
+                          disabled={!canManageTraining}
+                          onClick={() => setTrainingStatus(opt.value)}
+                          className={cn(
+                            'px-2.5 py-1.5 rounded-lg text-[10px] font-black uppercase tracking-wide transition-all disabled:opacity-50 disabled:cursor-not-allowed',
+                            trainingStatus === opt.value ? opt.activeClass : 'text-[var(--text-tertiary)] hover:text-[var(--text-secondary)]'
+                          )}
+                        >
+                          {opt.label}
+                        </button>
+                      ))}
+                    </div>
                   </div>
 
                   <div className="h-px bg-[var(--border-default)] w-full" />

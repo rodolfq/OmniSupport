@@ -260,22 +260,23 @@ X-RateLimit-Reset: 1786994325 <span class="c">// epoch em segundos</span></div>
       </table>
       <div class="code-label">Resposta 200 (resumida)</div>
       <div class="code-block">{ <span class="k">"data"</span>: [{ <span class="k">"id"</span>: <span class="s">"56f9..."</span>, <span class="k">"name"</span>: <span class="s">"Empresa Matriz Ltda"</span>, <span class="k">"industry"</span>: <span class="s">"Tecnologia"</span>,
-  <span class="k">"isInTraining"</span>: false, <span class="k">"idCentral"</span>: <span class="s">"1042"</span>, <span class="k">"evaluation"</span>: { <span class="k">"count"</span>: 3, <span class="k">"overallAverage"</span>: 4.2, <span class="k">"latestTag"</span>: <span class="s">"technical"</span> } }] }</div>
+  <span class="k">"trainingStatus"</span>: <span class="s">"em_treinamento"</span>, <span class="k">"idCentral"</span>: <span class="s">"1042"</span>, <span class="k">"evaluation"</span>: { <span class="k">"count"</span>: 3, <span class="k">"overallAverage"</span>: 4.2, <span class="k">"latestTag"</span>: <span class="s">"technical"</span> } }] }</div>
     </div>
   </div>
 
   <div class="endpoint">
     <div class="endpoint-head"><span class="method put">PUT</span><span class="endpoint-path">/api/integrations/v1/companies?id=</span><span class="endpoint-scope chip">companies:write</span></div>
     <div class="endpoint-body">
-      <p>Atualização parcial — envie só os campos que quer mudar. Inclui o indicador <b>"cliente em treinamento"</b>, que mostra um aviso pra equipe interna no chat. As notas de avaliação em si não são editáveis por esta API, só pelo portal.</p>
+      <p>Atualização parcial — envie só os campos que quer mudar. Inclui o <b>status de treinamento</b>, que mostra um aviso pra equipe interna no chat. As notas de avaliação em si não são editáveis por esta API, só pelo portal.</p>
       <table class="ptable">
         <tr><th>Campo</th><th>Onde</th><th>Descrição</th></tr>
         <tr><td class="name">id</td><td class="type">query</td><td class="req">obrigatório</td></tr>
         <tr><td class="name">name</td><td class="type">body</td><td>Novo nome.</td></tr>
         <tr><td class="name">industry</td><td class="type">body</td><td>Novo ramo/indústria.</td></tr>
         <tr><td class="name">phone</td><td class="type">body</td><td>Novo telefone.</td></tr>
-        <tr><td class="name">isInTraining</td><td class="type">body</td><td>boolean.</td></tr>
+        <tr><td class="name">trainingStatus</td><td class="type">body</td><td>"em_treinamento" / "treinamento_concluido" / null (limpa o status).</td></tr>
       </table>
+      <div class="callout danger"><span class="ico">⚠</span><p><code>isInTraining</code> (boolean) foi <b>removido</b> em 2026-11-19 — quem ainda mandar esse campo recebe <b>400 VALIDATION_ERROR</b>.</p></div>
     </div>
   </div>
 

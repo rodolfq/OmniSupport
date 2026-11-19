@@ -304,20 +304,27 @@ export interface CustomerEvaluationSummary {
   countByOrigin: { chatClose: number; manual: number };
 }
 
+export type CompanyTrainingStatus = 'em_treinamento' | 'treinamento_concluido' | null;
+
 export interface Company {
   id: string;
   name: string;
   industry?: string;
   phone?: string;
-  // Perfil interno da empresa-cliente (nunca exposto a ela): marca cliente em
+  // Perfil interno da empresa-cliente (nunca exposto a ela): status de
   // treinamento — mostra um indicador no chat visível só pra equipe interna
   // (ver components/chat-widget.tsx). Ver CustomerEvaluation acima para o
   // histórico de avaliações por trás da média mostrada no cadastro.
-  isInTraining?: boolean;
-  // Como o "em treinamento" atual começou ('planilha' = importação automática,
-  // 'manual', 'integracao'), quando começou e quando foi REMOVIDO pela última
-  // vez — training_removed_at preenchido significa que a importação nunca mais
-  // marca esta empresa sozinha (só manualmente). Só pra equipe interna.
+  //
+  // 3 estados (2026-11-19, substituiu o campo booleano isInTraining a pedido
+  // do usuário): null = nenhum status, 'em_treinamento', ou
+  // 'treinamento_concluido'.
+  trainingStatus?: CompanyTrainingStatus;
+  // Como o status ATUAL começou ('planilha' = importação automática, 'manual',
+  // 'integracao'), quando começou (só quando entrou em "em_treinamento") e
+  // quando saiu de "em_treinamento" pela última vez (pra qualquer dos outros
+  // dois estados) — trainingRemovedAt preenchido significa que a importação
+  // nunca mais marca esta empresa sozinha (só manualmente). Só pra equipe interna.
   trainingOrigin?: 'planilha' | 'manual' | 'integracao' | null;
   trainingStartedAt?: string | null;
   trainingRemovedAt?: string | null;

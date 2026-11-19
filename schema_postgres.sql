@@ -2092,7 +2092,7 @@ CREATE INDEX IF NOT EXISTS idx_customer_evaluations_contact_id ON public.custome
 -- 2026-10-28) — cadastradas/atualizadas por um sistema externo via API de
 -- integração (app/api/integrations/v1/training-stages); o analista só
 -- visualiza, como lista fixa, dentro do SSX Desk. Independente de
--- companies.is_in_training: a trilha pode existir mesmo que o indicador mude.
+-- companies.training_status: a trilha pode existir mesmo que o status mude.
 CREATE TABLE IF NOT EXISTS public.training_stages (
   id uuid DEFAULT (md5(((random())::text || (clock_timestamp())::text)))::uuid NOT NULL,
   company_id uuid NOT NULL,
@@ -2244,11 +2244,16 @@ ALTER TABLE public.chat_messages ADD COLUMN IF NOT EXISTS edited_at timestamptz;
 ALTER TABLE public.chat_messages ADD COLUMN IF NOT EXISTS deleted_at timestamptz;
 ALTER TABLE public.chat_messages ADD COLUMN IF NOT EXISTS deleted_by uuid;
 ALTER TABLE public.chat_messages ADD COLUMN IF NOT EXISTS delivered_by uuid[] DEFAULT '{}'::uuid[];
-ALTER TABLE public.companies ADD COLUMN IF NOT EXISTS is_in_training boolean DEFAULT false NOT NULL;
--- Empresa em treinamento atribuída pela importação da planilha de CS: origem,
--- início e ÚLTIMA REMOÇÃO (training_removed_at é o que impede a importação de
--- devolver o status). O gatilho registra tudo em qualquer caminho de escrita —
--- ver migrations/company_training_auto.sql.
+-- Status de treinamento da empresa — 3 estados (2026-11-19, substituiu o
+-- campo booleano is_in_training): NULL (nenhum), 'em_treinamento' ou
+-- 'treinamento_concluido'. Origem, início e ÚLTIMA SAÍDA de "em_treinamento"
+-- (training_removed_at é o que impede a importação da Planilha de CS de
+-- devolver o status sozinha). O gatilho registra tudo em qualquer caminho de
+-- escrita — ver migrations/company_training_auto.sql e
+-- migrations/company_training_status.sql.
+ALTER TABLE public.companies ADD COLUMN IF NOT EXISTS training_status TEXT;
+ALTER TABLE public.companies ADD CONSTRAINT companies_training_status_check
+  CHECK (training_status IS NULL OR training_status IN ('em_treinamento', 'treinamento_concluido'));
 ALTER TABLE public.companies ADD COLUMN IF NOT EXISTS training_origin TEXT;
 ALTER TABLE public.companies ADD COLUMN IF NOT EXISTS training_started_at TIMESTAMP WITH TIME ZONE;
 ALTER TABLE public.companies ADD COLUMN IF NOT EXISTS training_removed_at TIMESTAMP WITH TIME ZONE;
@@ -2256,22 +2261,28 @@ ALTER TABLE public.companies ADD COLUMN IF NOT EXISTS training_removed_at TIMEST
 CREATE OR REPLACE FUNCTION public.companies_training_track() RETURNS trigger AS $$
 BEGIN
   IF TG_OP = 'INSERT' THEN
-    IF NEW.is_in_training THEN
+    IF NEW.training_status = 'em_treinamento' THEN
       NEW.training_started_at := COALESCE(NEW.training_started_at, now());
+    END IF;
+    IF NEW.training_status IS NOT NULL THEN
       NEW.training_origin := COALESCE(NEW.training_origin, 'manual');
     END IF;
     RETURN NEW;
   END IF;
 
-  IF NEW.is_in_training IS DISTINCT FROM OLD.is_in_training THEN
-    IF NEW.is_in_training THEN
-      NEW.training_started_at := now();
+  IF NEW.training_status IS DISTINCT FROM OLD.training_status THEN
+    IF NEW.training_status IS NOT NULL THEN
+      IF NEW.training_status = 'em_treinamento' THEN
+        NEW.training_started_at := now();
+      END IF;
       IF NEW.training_origin IS NOT DISTINCT FROM OLD.training_origin THEN
         NEW.training_origin := 'manual';
       END IF;
     ELSE
-      NEW.training_removed_at := now();
       NEW.training_origin := NULL;
+    END IF;
+    IF OLD.training_status = 'em_treinamento' THEN
+      NEW.training_removed_at := now();
     END IF;
   END IF;
   RETURN NEW;
@@ -2280,7 +2291,7 @@ $$ LANGUAGE plpgsql;
 
 DROP TRIGGER IF EXISTS trg_companies_training_track ON public.companies;
 CREATE TRIGGER trg_companies_training_track
-  BEFORE INSERT OR UPDATE OF is_in_training ON public.companies
+  BEFORE INSERT OR UPDATE OF training_status ON public.companies
   FOR EACH ROW EXECUTE PROCEDURE public.companies_training_track();
 -- Logo da empresa-cliente (ver migrations/companies_logo.sql) — mesmo padrão
 -- de profiles.avatar_url/avatar_thumb_url.

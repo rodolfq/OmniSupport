@@ -18,13 +18,16 @@ import { hashPassword } from '../auth-utils';
  * fetch começa a falhar com HTML de login em vez de CSV; o erro abaixo tenta
  * deixar isso claro em vez de estourar um parse genérico.
  *
- * Empresa EM TREINAMENTO (2026-09-28): toda empresa com data de entrada
- * (coluna D, "4 - Entrada", DD/MM/AAAA) de 2026 em diante entra em treinamento
- * por aqui — e SÓ por aqui. Uma vez removido o status (por quem tem a permissão
- * customers:training, ou por qualquer caminho: o gatilho de companies grava
- * training_removed_at), a importação NUNCA o devolve, por mais que a planilha
- * seja importada de novo; só volta manualmente. A importação também nunca
- * REMOVE o status: só adiciona, e só a quem nunca foi removida.
+ * Empresa EM TREINAMENTO (2026-09-28; campo virou 3 estados em 2026-11-19 —
+ * ver companies.training_status): toda empresa com data de entrada (coluna D,
+ * "4 - Entrada", DD/MM/AAAA) de 2026 em diante entra em treinamento
+ * (training_status = 'em_treinamento') por aqui — e SÓ por aqui. Uma vez que o
+ * status sai de "em_treinamento" (pra vazio OU pra "treinamento_concluido" —
+ * por quem tem a permissão customers:training, ou por qualquer caminho: o
+ * gatilho de companies grava training_removed_at), a importação NUNCA o
+ * devolve, por mais que a planilha seja importada de novo; só volta
+ * manualmente. A importação também nunca REMOVE nem REBAIXA o status: só
+ * adiciona "em_treinamento", e só a quem nunca saiu dele antes.
  *
  * Casamento de empresa por NOME (case-insensitive, mesmo espírito do antigo
  * sync do Bitrix) — id_central NÃO é chave única aqui: duas linhas podem
@@ -324,7 +327,7 @@ export async function syncCompaniesFromSheet(creation?: SyncCreationInfo): Promi
         const comercialProfileId = comercialName ? await resolveProfileIdByName(comercialName, unresolvedComercialSet) : null;
 
         const existing = await query(
-          'SELECT id, decisor_nome, decisor_telefone, is_in_training, training_removed_at FROM public.companies WHERE lower(name) = lower($1)',
+          'SELECT id, decisor_nome, decisor_telefone, training_status, training_removed_at FROM public.companies WHERE lower(name) = lower($1)',
           [name]
         );
 
@@ -352,16 +355,19 @@ export async function syncCompaniesFromSheet(creation?: SyncCreationInfo): Promi
             [idCentral, csProfileId, comercialProfileId, decisorNome, decisorTelefone, companyId]
           );
           updated++;
-          // Treinamento: só ADICIONA, e só a quem nunca foi removida. O UPDATE
-          // repete as duas condições pra ser atômico (duas linhas da planilha
-          // pra mesma empresa, ou uma remoção no meio da importação).
-          if (entersTraining && !existing.rows[0].is_in_training) {
+          // Treinamento: só ADICIONA "em_treinamento", e só a quem nunca saiu
+          // desse status antes (nem pra vazio, nem pra "concluído" — os dois
+          // gravam training_removed_at ao sair, e a planilha nunca reaplica
+          // depois disso, de propósito). O UPDATE repete as duas condições
+          // pra ser atômico (duas linhas da planilha pra mesma empresa, ou uma
+          // remoção no meio da importação).
+          if (entersTraining && existing.rows[0].training_status !== 'em_treinamento') {
             if (existing.rows[0].training_removed_at) {
               trainingAlreadyRemovedIds.add(companyId);
             } else {
               const marked = await query(
-                `UPDATE public.companies SET is_in_training = true, training_origin = 'planilha'
-                  WHERE id = $1 AND is_in_training = false AND training_removed_at IS NULL
+                `UPDATE public.companies SET training_status = 'em_treinamento', training_origin = 'planilha'
+                  WHERE id = $1 AND training_status IS DISTINCT FROM 'em_treinamento' AND training_removed_at IS NULL
                   RETURNING id`,
                 [companyId]
               );
@@ -374,11 +380,11 @@ export async function syncCompaniesFromSheet(creation?: SyncCreationInfo): Promi
           const inserted = await query(
             `INSERT INTO public.companies
                (name, id_central, cs_responsavel_id, comercial_responsavel_id, decisor_nome, decisor_telefone,
-                is_in_training, training_origin)
+                training_status, training_origin)
              VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
              RETURNING id`,
             [name, idCentral, csProfileId, comercialProfileId, decisorNome, decisorTelefone,
-             entersTraining, entersTraining ? 'planilha' : null]
+             entersTraining ? 'em_treinamento' : null, entersTraining ? 'planilha' : null]
           );
           created++;
           if (entersTraining) trainingApplied++;

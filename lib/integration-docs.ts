@@ -170,7 +170,7 @@ export const INTEGRATION_ENDPOINTS: EndpointDoc[] = [
     method: 'GET',
     path: '/api/integrations/v1/companies',
     summary: 'Listar ou consultar empresas',
-    description: 'Use para resolver o companyId antes de cadastrar/atualizar um funcionário, ou para consultar o perfil de relacionamento (isInTraining + trilha de treinamento + resumo das avaliações do analista). Sem "id" retorna todas; com "id" retorna uma só. Aceita companies:read, companies:write (que já inclui leitura) ou, por compatibilidade com chaves antigas, employees:read. Cada empresa traz "idCentral", o id do cliente no sistema Central (rastreamento/telemetria) vindo da Planilha de CS — pode ser null e NÃO é único (duas empresas podem compartilhar o mesmo id_central quando são marcas/CNPJs diferentes na mesma conta central). "trainingStages" traz a trilha de treinamento (ver /training-stages) já embutida, com "hasStages" deixando explícito quando não há nenhuma etapa cadastrada.',
+    description: 'Use para resolver o companyId antes de cadastrar/atualizar um funcionário, ou para consultar o perfil de relacionamento (trainingStatus + trilha de treinamento + resumo das avaliações do analista). Sem "id" retorna todas; com "id" retorna uma só. Aceita companies:read, companies:write (que já inclui leitura) ou, por compatibilidade com chaves antigas, employees:read. Cada empresa traz "idCentral", o id do cliente no sistema Central (rastreamento/telemetria) vindo da Planilha de CS — pode ser null e NÃO é único (duas empresas podem compartilhar o mesmo id_central quando são marcas/CNPJs diferentes na mesma conta central). "trainingStages" traz a trilha de treinamento (ver /training-stages) já embutida, com "hasStages" deixando explícito quando não há nenhuma etapa cadastrada.',
     scope: 'companies:read',
     params: [{ name: 'id', in: 'query', type: 'uuid', description: 'Retorna só essa empresa.' }],
     exampleResponse: JSON.stringify(
@@ -181,7 +181,7 @@ export const INTEGRATION_ENDPOINTS: EndpointDoc[] = [
             name: 'Empresa Matriz Ltda',
             industry: 'Tecnologia',
             phone: '1140040000',
-            isInTraining: true,
+            trainingStatus: 'em_treinamento',
             idCentral: '1042',
             trainingStages: {
               hasStages: true,
@@ -211,14 +211,14 @@ export const INTEGRATION_ENDPOINTS: EndpointDoc[] = [
     method: 'PUT',
     path: '/api/integrations/v1/companies',
     summary: 'Atualizar empresa',
-    description: 'Atualização parcial: envie só os campos que deseja alterar. Inclui o indicador "cliente em treinamento" (isInTraining), visível só internamente no chat. As avaliações do analista não são editáveis por esta API — só pelo portal. "idCentral" não é aceito aqui (sempre volta na resposta, mas é só leitura): é dado de sincronização da Planilha de CS, que o reescreve por fora.',
+    description: 'Atualização parcial: envie só os campos que deseja alterar. Inclui o status de treinamento (trainingStatus), visível só internamente no chat. "isInTraining" foi REMOVIDO (2026-11-19) — enviá-lo agora devolve 400. As avaliações do analista não são editáveis por esta API — só pelo portal. "idCentral" não é aceito aqui (sempre volta na resposta, mas é só leitura): é dado de sincronização da Planilha de CS, que o reescreve por fora.',
     scope: 'companies:write',
     params: [
       { name: 'id', in: 'query', type: 'uuid', required: true, description: 'Id da empresa a atualizar.' },
       { name: 'name', in: 'body', type: 'string', description: 'Novo nome.' },
       { name: 'industry', in: 'body', type: 'string', description: 'Novo ramo/indústria.' },
       { name: 'phone', in: 'body', type: 'string', description: 'Novo telefone.' },
-      { name: 'isInTraining', in: 'body', type: 'boolean', description: 'Marca a empresa como "em treinamento" — mostra um aviso pra equipe interna no chat. Enviar false remove o status e conta como a remoção: a importação da planilha de CS não marca a empresa de novo sozinha.', placeholder: 'true' },
+      { name: 'trainingStatus', in: 'body', type: '"em_treinamento" | "treinamento_concluido" | null', description: 'Status de treinamento da empresa — mostra um aviso pra equipe interna no chat. Enviar null limpa o status e conta como saída de "em treinamento": a importação da planilha de CS não marca a empresa de novo sozinha.', placeholder: 'em_treinamento' },
     ],
     exampleResponse: JSON.stringify(
       {
@@ -227,7 +227,7 @@ export const INTEGRATION_ENDPOINTS: EndpointDoc[] = [
           name: 'Empresa Matriz Ltda',
           industry: 'Tecnologia',
           phone: '1140040000',
-          isInTraining: false,
+          trainingStatus: 'treinamento_concluido',
           idCentral: '1042',
           trainingStages: { hasStages: false, items: [] },
           evaluation: {
@@ -245,7 +245,7 @@ export const INTEGRATION_ENDPOINTS: EndpointDoc[] = [
     errors: [
       ...AUTH_ERRORS,
       scopeError('companies:write'),
-      { status: 400, code: 'VALIDATION_ERROR', description: 'id ausente, nenhum campo informado para atualizar, ou isInTraining não é um boolean.' },
+      { status: 400, code: 'VALIDATION_ERROR', description: 'id ausente, nenhum campo informado para atualizar, trainingStatus fora da lista, ou isInTraining informado (removido — ver descrição).' },
       { status: 404, code: 'NOT_FOUND', description: 'Empresa não encontrada.' },
     ],
   },
@@ -442,7 +442,7 @@ export const INTEGRATION_ENDPOINTS: EndpointDoc[] = [
     method: 'GET',
     path: '/api/integrations/v1/training-conversations',
     summary: 'Conversas de clientes em treinamento',
-    description: 'Lista as conversas já encerradas com clientes de empresas que estão "em treinamento", com o dia em que ocorreram e o motivo (as tags da conversa: Problema, Dúvida, Solicitação, etc.). Devolve só quando e por quê — sem telefone, sem mensagens. Cada item traz o status da empresa em "company.isInTraining" (hoje sempre true, pois só empresas em treinamento entram na lista) e o id do cliente no sistema Central em "company.idCentral" (pode ser null; não é único — duas empresas podem compartilhar o mesmo id). "summary" traz o resumo da conversa gerado por IA, quando já processado (pode vir null — é um job assíncrono). "Em treinamento" é a situação ATUAL da empresa. A data ("date", "from", "to") é o dia em que a conversa começou, no horário de Brasília; a conversa só aparece depois de encerrada. Uma conversa pode ter mais de uma tag, ou nenhuma (tags: []).',
+    description: 'Lista as conversas já encerradas com clientes de empresas cujo status de treinamento é "em_treinamento" (ver trainingStatus em GET /companies — empresas com "treinamento_concluido" NÃO entram aqui), com o dia em que ocorreram e o motivo (as tags da conversa: Problema, Dúvida, Solicitação, etc.). Devolve só quando e por quê — sem telefone, sem mensagens. Cada item traz o status da empresa em "company.isInTraining" (hoje sempre true, pois só empresas em treinamento entram na lista) e o id do cliente no sistema Central em "company.idCentral" (pode ser null; não é único — duas empresas podem compartilhar o mesmo id). "summary" traz o resumo da conversa gerado por IA, quando já processado (pode vir null — é um job assíncrono). "Em treinamento" é a situação ATUAL da empresa. A data ("date", "from", "to") é o dia em que a conversa começou, no horário de Brasília; a conversa só aparece depois de encerrada. Uma conversa pode ter mais de uma tag, ou nenhuma (tags: []).',
     scope: 'training-conversations:read',
     params: [
       { name: 'from', in: 'query', type: 'AAAA-MM-DD', description: 'Só conversas que começaram neste dia ou depois (horário de Brasília).', placeholder: '2026-09-01' },
@@ -497,7 +497,7 @@ export const INTEGRATION_ENDPOINTS: EndpointDoc[] = [
     method: 'GET',
     path: '/api/integrations/v1/training-stages',
     summary: 'Listar ou consultar etapas de treinamento',
-    description: 'Lista a trilha de treinamento (itens e status) de uma empresa. Informe "companyId" para listar os itens dessa empresa (ordenados por sortOrder), ou "id" para retornar um único item (ignora companyId). Esta trilha é independente do indicador "isInTraining" da empresa — pode existir mesmo que ele mude depois.',
+    description: 'Lista a trilha de treinamento (itens e status) de uma empresa. Informe "companyId" para listar os itens dessa empresa (ordenados por sortOrder), ou "id" para retornar um único item (ignora companyId). Esta trilha é independente do "trainingStatus" da empresa — pode existir mesmo que ele mude depois.',
     scope: 'training-stages:read',
     params: [
       { name: 'id', in: 'query', type: 'uuid', description: 'Retorna só esse item (ignora companyId).' },

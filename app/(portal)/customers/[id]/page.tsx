@@ -12,6 +12,7 @@ import { getActiveSessionsByCompany, getChatHistoriesByCompany, CompanyActiveSes
 import { isClosedTicketStatus } from '@/lib/ticket-status';
 import { ClientTime } from '@/components/client-time';
 import { TrainingStagesTimeline } from '@/components/training-stages-timeline';
+import { TrainingStatusBadge } from '@/components/training-status-badge';
 import { cn } from '@/lib/utils';
 import { useApp } from '@/app/app-context';
 
@@ -87,7 +88,7 @@ export default function CompanyDetailPage() {
       .then(res => { setHistories(res.histories); setHistoriesTotal(res.total); })
       .finally(() => setLoadingHistories(false));
 
-    if (company?.isInTraining && !isCompanyPortalUser) {
+    if (company?.trainingStatus && !isCompanyPortalUser) {
       setLoadingTrainingStages(true);
       getCompanyTrainingStages(resolvedId)
         .then(setTrainingStages)
@@ -95,7 +96,7 @@ export default function CompanyDetailPage() {
     } else {
       setTrainingStages([]);
     }
-  }, [company?.id, company?.isInTraining, isCompanyPortalUser]);
+  }, [company?.id, company?.trainingStatus, isCompanyPortalUser]);
 
   const resolveInternalUser = (id?: string | null) => internalUsers.find(u => u.id === id);
 
@@ -148,11 +149,7 @@ export default function CompanyDetailPage() {
                 {company.industry && <span>{company.industry}</span>}
                 {company.phone && <span className="flex items-center gap-1"><Phone size={11} /> {company.phone}</span>}
               </p>
-              {!isCompanyPortalUser && company.isInTraining && (
-                <span className="inline-flex items-center gap-1.5 mt-2 text-[10px] font-black uppercase tracking-widest px-2.5 py-1 rounded-lg bg-[var(--surface-info)] text-[var(--text-info)]">
-                  <GraduationCap size={12} /> Em treinamento
-                </span>
-              )}
+              {!isCompanyPortalUser && <TrainingStatusBadge status={company.trainingStatus} className="mt-2" />}
               {!isCompanyPortalUser && (
                 <p className="text-xs text-[var(--text-tertiary)] font-bold uppercase tracking-widest mt-1.5 flex items-center gap-3">
                   <span>CS: <span className="text-[var(--text-secondary)] normal-case">{resolveInternalUser(company.csResponsavelId)?.name || 'Não definido'}</span></span>
@@ -164,7 +161,7 @@ export default function CompanyDetailPage() {
         </div>
       </div>
 
-      {!isCompanyPortalUser && company?.isInTraining && (
+      {!isCompanyPortalUser && !!company?.trainingStatus && (
         <div className="bg-[var(--surface-card)] rounded-2xl border border-[var(--border-default)] shadow-sm p-5 space-y-3">
           <h2 className="text-xs font-black uppercase tracking-widest text-[var(--text-secondary)] flex items-center gap-2">
             <GraduationCap size={15} className="text-[var(--text-tertiary)]" /> Etapas de Treinamento

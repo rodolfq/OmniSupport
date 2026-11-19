@@ -13,9 +13,15 @@ import { logAudit } from '@/lib/audit-log';
 // Leitura de empresas, usada pela plataforma externa para resolver o
 // companyId antes de cadastrar/atualizar um funcionário via
 // /api/integrations/v1/employees. Também expõe o perfil interno de
-// relacionamento (isInTraining + resumo das avaliações do analista). PUT faz
-// atualização parcial de name/industry/phone/isInTraining — as notas de
+// relacionamento (trainingStatus + resumo das avaliações do analista). PUT faz
+// atualização parcial de name/industry/phone/trainingStatus — as notas de
 // avaliação em si permanecem editáveis só pelo portal, nunca pela integração.
+//
+// trainingStatus substituiu o antigo campo booleano isInTraining (2026-11-19,
+// pedido do usuário) — SEM compatibilidade: quem ainda manda isInTraining
+// recebe 400, não é mais interpretado. 3 valores possíveis: "em_treinamento",
+// "treinamento_concluido" ou null (nenhum status).
+const VALID_TRAINING_STATUS = ['em_treinamento', 'treinamento_concluido'];
 const EVALUATION_JOIN = `
   LEFT JOIN LATERAL (
     SELECT
@@ -59,7 +65,7 @@ const TRAINING_STAGES_JOIN = `
 
 const COMPANY_SELECT = `
   SELECT
-    c.id, c.name, c.industry, c.phone, c.is_in_training, c.id_central,
+    c.id, c.name, c.industry, c.phone, c.training_status, c.id_central,
     COALESCE(ev.count, 0) AS eval_count,
     ev.knowledge_avg, ev.autonomy_avg, ev.learning_avg, ev.engagement_avg, ev.organization_avg, ev.communication_avg,
     COALESCE(ev.chat_close_count, 0) AS chat_close_count,
@@ -94,7 +100,7 @@ function serializeCompany(row: any) {
     name: row.name,
     industry: row.industry,
     phone: row.phone,
-    isInTraining: row.is_in_training === true,
+    trainingStatus: row.training_status || null,
     // Id do cliente no sistema "Central" (rastreamento/telemetria), vindo da
     // Planilha de CS — pode ser null (nem toda empresa tem a célula
     // preenchida) e NÃO é único (duas empresas podem compartilhar o mesmo
@@ -176,12 +182,15 @@ export async function PUT(request: Request) {
     return integrationError(auth, 'VALIDATION_ERROR', 'JSON inválido.', 400);
   }
 
-  if (body.isInTraining !== undefined && typeof body.isInTraining !== 'boolean') {
-    return integrationError(auth, 'VALIDATION_ERROR', 'isInTraining deve ser um boolean.', 400);
+  if (body.isInTraining !== undefined) {
+    return integrationError(auth, 'VALIDATION_ERROR', 'isInTraining foi removido — use trainingStatus ("em_treinamento", "treinamento_concluido" ou null).', 400);
   }
-  const hasUpdate = body.name !== undefined || body.industry !== undefined || body.phone !== undefined || body.isInTraining !== undefined;
+  if (body.trainingStatus !== undefined && body.trainingStatus !== null && !VALID_TRAINING_STATUS.includes(body.trainingStatus)) {
+    return integrationError(auth, 'VALIDATION_ERROR', `trainingStatus deve ser um de: ${VALID_TRAINING_STATUS.join(', ')}, ou null.`, 400);
+  }
+  const hasUpdate = body.name !== undefined || body.industry !== undefined || body.phone !== undefined || body.trainingStatus !== undefined;
   if (!hasUpdate) {
-    return integrationError(auth, 'VALIDATION_ERROR', 'Informe ao menos um campo para atualizar: name, industry, phone, isInTraining.', 400);
+    return integrationError(auth, 'VALIDATION_ERROR', 'Informe ao menos um campo para atualizar: name, industry, phone, trainingStatus.', 400);
   }
 
   try {
@@ -190,21 +199,23 @@ export async function PUT(request: Request) {
       return integrationError(auth, 'NOT_FOUND', 'Empresa não encontrada.', 404);
     }
 
-    // isInTraining é boolean: precisa distinguir "não veio no corpo" (mantém
-    // o valor atual) de "veio como false" (troca pra false) — por isso não dá
-    // pra usar `|| null` como nos campos de texto abaixo.
+    // trainingStatus aceita null (limpa o status): precisa distinguir "não
+    // veio no corpo" (mantém o valor atual) de "veio como null" (limpa) — por
+    // isso o "toca ou não" vem num parâmetro boolean à parte, não dá pra usar
+    // COALESCE sozinho como nos campos de texto abaixo.
     await query(
       `UPDATE public.companies
        SET name = COALESCE($1, name),
            industry = COALESCE($2, industry),
            phone = COALESCE($3, phone),
-           is_in_training = COALESCE($4, is_in_training),
-           -- Origem do status quando a integração o liga. Remover por aqui também
-           -- vale como remoção: o gatilho de companies grava training_removed_at e
-           -- a importação da planilha deixa de marcar a empresa sozinha.
-           training_origin = CASE WHEN $4::boolean IS TRUE AND NOT is_in_training THEN 'integracao' ELSE training_origin END
-       WHERE id = $5`,
-      [body.name || null, body.industry || null, body.phone || null, body.isInTraining === undefined ? null : body.isInTraining, id]
+           training_status = CASE WHEN $4::boolean THEN $5 ELSE training_status END,
+           -- Origem do status quando a integração o define. Limpar por aqui
+           -- também conta como saída de "em treinamento": o gatilho de
+           -- companies grava training_removed_at e a importação da planilha
+           -- deixa de marcar a empresa sozinha.
+           training_origin = CASE WHEN $4::boolean THEN (CASE WHEN $5 IS NOT NULL THEN 'integracao' ELSE NULL END) ELSE training_origin END
+       WHERE id = $6`,
+      [body.name || null, body.industry || null, body.phone || null, body.trainingStatus !== undefined, body.trainingStatus ?? null, id]
     );
 
     const updated = await query(`${COMPANY_SELECT} WHERE c.id = $1`, [id]);
@@ -215,7 +226,7 @@ export async function PUT(request: Request) {
       entityType: 'company',
       entityId: id,
       entityLabel: existing.rows[0]?.name || null,
-      changes: { name: body.name, industry: body.industry, phone: body.phone, isInTraining: body.isInTraining }
+      changes: { name: body.name, industry: body.industry, phone: body.phone, trainingStatus: body.trainingStatus }
     });
     return integrationJson(auth, { data: serializeCompany(updated.rows[0]) });
   } catch (error: any) {
