@@ -15,10 +15,13 @@ import {
 // não enxerga as demais conversas nem o conteúdo das mensagens.
 //
 // Decisões que não devem ser "melhoradas" sem intenção:
-//  - "Em treinamento" é a situação ATUAL da empresa (companies.is_in_training),
-//    a mesma do filtro da tela Histórico de Conversas. O histórico não guarda o
-//    status da época da conversa: empresa que sair do treinamento deixa de
-//    aparecer aqui com as conversas antigas dela.
+//  - "Em treinamento" é a situação ATUAL da empresa (companies.training_status
+//    = 'em_treinamento' — campo de 3 estados desde 2026-11-19, era um booleano
+//    is_in_training antes), a mesma do filtro da tela Histórico de Conversas.
+//    Empresa com "Treinamento concluído" NÃO entra aqui (este endpoint é só
+//    quem está treinando agora, não quem já passou por isso). O histórico não
+//    guarda o status da época da conversa: empresa que sair do treinamento
+//    deixa de aparecer aqui com as conversas antigas dela.
 //  - Só sai daqui o que já está em chat_histories (conversa finalizada) e cujo
 //    contato está vinculado a um cliente com empresa. Conversa sem vínculo não
 //    tem empresa, logo não conta como "de cliente em treinamento".
@@ -124,7 +127,7 @@ export async function GET(request: Request) {
     const baseFrom = `
       FROM public.chat_histories h
       JOIN public.profiles p ON p.id = h.customer_id
-      JOIN public.companies co ON co.id = p.company_id AND co.is_in_training = true
+      JOIN public.companies co ON co.id = p.company_id AND co.training_status = 'em_treinamento'
       LEFT JOIN public.chat_sessions s ON s.id = h.session_id
       ${conditions.length ? `WHERE ${conditions.join(' AND ')}` : ''}`;
 
@@ -135,7 +138,7 @@ export async function GET(request: Request) {
     const res = await query(
       `SELECT h.id, h.session_id, h.customer_name, h.started_at, h.finished_at,
               (COALESCE(h.started_at, h.created_at) AT TIME ZONE 'America/Sao_Paulo')::date::text AS chat_date,
-              p.name AS customer_profile_name, co.id AS company_id, co.name AS company_name, co.is_in_training AS company_is_in_training,
+              p.name AS customer_profile_name, co.id AS company_id, co.name AS company_name, (co.training_status = 'em_treinamento') AS company_is_in_training,
               co.id_central, h.summary, h.summary_generated_at, s.tags AS session_tags
        ${baseFrom}
        ORDER BY COALESCE(h.started_at, h.created_at) DESC, h.id

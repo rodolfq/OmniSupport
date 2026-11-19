@@ -84,6 +84,7 @@ import { deriveLiveStatus } from '@/lib/presence';
 import { useSearchParams, usePathname, useRouter } from 'next/navigation';
 import { LinkContactModal } from '@/components/link-contact-modal';
 import { EditEmployeeModal } from '@/components/edit-employee-modal';
+import { TrainingStatusBadge } from '@/components/training-status-badge';
 import { renderLinkedText } from '@/components/linked-chat-text';
 import { PhoneContactPanel } from '@/components/phone-contact-panel';
 import { ClientTime } from '@/components/client-time';
@@ -3480,14 +3481,7 @@ useEffect(() => {
                                  {/* Só a equipe interna vê (este bloco inteiro já só
                                      renderiza quando !isCustomer) — nunca aparece pro
                                      próprio cliente/funcionário da empresa. */}
-                                 {company.isInTraining && (
-                                   <span
-                                     title="Cliente em treinamento — visível só pra equipe interna"
-                                     className="text-[8px] font-black uppercase tracking-widest px-1.5 py-0.5 rounded-full bg-[var(--surface-warning)] text-[var(--text-warning)]"
-                                   >
-                                     Em treinamento
-                                   </span>
-                                 )}
+                                 <TrainingStatusBadge status={company.trainingStatus} size="sm" className="rounded-full" />
                                </div>
                              );
                            }

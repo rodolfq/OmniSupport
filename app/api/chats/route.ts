@@ -686,8 +686,8 @@ export async function GET(request: NextRequest) {
         else if (dissatisfactionFilter === 'not_detected') conditions.push(`h.dissatisfaction_processed_at IS NOT NULL AND h.dissatisfaction_detected IS DISTINCT FROM true`);
         else if (dissatisfactionFilter === 'unprocessed') conditions.push(`h.dissatisfaction_processed_at IS NULL`);
 
-        if (trainingFilter === 'training') conditions.push(`co.is_in_training = true`);
-        else if (trainingFilter === 'not_training') conditions.push(`co.is_in_training IS DISTINCT FROM true`);
+        if (trainingFilter === 'training') conditions.push(`co.training_status = 'em_treinamento'`);
+        else if (trainingFilter === 'not_training') conditions.push(`co.training_status IS DISTINCT FROM 'em_treinamento'`);
 
         if (teamId !== 'all') { params.push(teamId); conditions.push(`h.assignee_id = $${params.length}`); }
         if (employeeId !== 'all') { params.push(employeeId); conditions.push(`h.customer_id = $${params.length}`); }
@@ -714,7 +714,7 @@ export async function GET(request: NextRequest) {
         query(`SELECT COUNT(*)::int AS total ${fromSql} ${whereSql}`, countParams),
         query(
           `SELECT h.*, p1.name as customer_profile_name, p1.company_id as customer_company_id,
-                  co.name as company_name, co.is_in_training as company_is_in_training,
+                  co.name as company_name, (co.training_status = 'em_treinamento') as company_is_in_training,
                   p2.name as assignee_profile_name,
                   s.ticket_id, s.ticket_number, s.queue_id, q.name as queue_name, s.tags as session_tags
            ${fromSql} ${whereSql}

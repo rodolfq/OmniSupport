@@ -1,4 +1,4 @@
-import { Company, CustomerEvaluationScores, CustomerProfileTag, CustomerEvaluationSummary, CustomerEvaluationOrigin } from '../types';
+import { Company, CompanyTrainingStatus, CustomerEvaluationScores, CustomerProfileTag, CustomerEvaluationSummary, CustomerEvaluationOrigin } from '../types';
 import { apiJson, apiFetch } from '../api-client';
 import type { MutationResult } from './queue-service';
 
@@ -119,8 +119,8 @@ export async function setCompanyActive(id: string, active: boolean): Promise<Mut
   return post({ action: 'set-active', id, active }, 'Não foi possível alterar a situação da empresa.');
 }
 
-export async function updateCompanyTraining(companyId: string, isInTraining: boolean): Promise<MutationResult> {
-  return post({ action: 'training', companyId, isInTraining }, 'Erro ao atualizar status de treinamento.');
+export async function updateCompanyTraining(companyId: string, trainingStatus: CompanyTrainingStatus): Promise<MutationResult> {
+  return post({ action: 'training', companyId, trainingStatus }, 'Erro ao atualizar status de treinamento.');
 }
 
 /** logoUrl: `data:` URL da imagem nova, ou null para remover a logo atual. */

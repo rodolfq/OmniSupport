@@ -14,8 +14,8 @@ import { logAudit } from '@/lib/audit-log';
 // sistema externo cadastra os itens da trilha (nome + status) e depois
 // atualiza o status de cada um conforme o treinamento avança — dentro do
 // SSX Desk, o analista só visualiza, como uma lista fixa, dentro do
-// cadastro da empresa. Independente de companies.is_in_training: a trilha
-// pode existir e ser consultada mesmo que o indicador mude depois (não há
+// cadastro da empresa. Independente de companies.training_status: a trilha
+// pode existir e ser consultada mesmo que o status mude depois (não há
 // validação cruzada entre as duas coisas).
 const VALID_STATUSES = ['Em andamento', 'Concluído', 'Não concluído'] as const;
 
