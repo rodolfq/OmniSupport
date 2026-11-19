@@ -30,13 +30,23 @@ export function isEmbeddingEnabled(): boolean {
   return ENABLED;
 }
 
+// Threads do onnxruntime (2026-11-18, lentidão em produção): sem limite cada
+// sessão usa TODOS os núcleos da máquina, disputando CPU com o próprio Node
+// (que atende todas as requisições numa thread só) e com o Postgres, que roda
+// na mesma VPS. Com 1 thread a inferência demora um pouco mais, mas nunca
+// tira a máquina do resto da aplicação. Ajustável por env (ML_THREADS).
+const ML_THREADS = Math.max(1, Number(process.env.ML_THREADS) || 1);
+
 let embedderPromise: Promise<any> | null = null;
 async function getEmbedder() {
   if (!embedderPromise) {
     embedderPromise = (async () => {
       const { pipeline, env } = await import('@huggingface/transformers');
       env.cacheDir = CACHE_DIR;
-      return pipeline('feature-extraction', MODEL_NAME, { dtype: 'q8' });
+      return pipeline('feature-extraction', MODEL_NAME, {
+        dtype: 'q8',
+        session_options: { intraOpNumThreads: ML_THREADS, interOpNumThreads: 1 }
+      });
     })();
   }
   return embedderPromise;

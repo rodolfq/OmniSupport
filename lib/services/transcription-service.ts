@@ -94,6 +94,20 @@ function enqueue<T>(job: () => Promise<T>): Promise<T> {
   return run;
 }
 
+// Threads do onnxruntime (2026-11-18, lentidão em produção): sem limite cada
+// sessão usa TODOS os núcleos da máquina, disputando CPU com o próprio Node
+// (que atende todas as requisições numa thread só) e com o Postgres, que roda
+// na mesma VPS. Com 1 thread a inferência demora um pouco mais, mas nunca
+// tira a máquina do resto da aplicação. Ajustável por env (ML_THREADS).
+const ML_THREADS = Math.max(1, Number(process.env.ML_THREADS) || 1);
+
+// Inferência do Whisper ainda em andamento. O timeout (withTimeout) só libera
+// quem esperava o resultado — a inferência nativa continua rodando, sem como
+// cancelar. Antes a próxima da fila começava mesmo assim, e num pico de
+// áudios várias transcrições rodavam juntas (2026-11-18). Agora a próxima
+// espera esta terminar de verdade.
+let inferenceInFlight: Promise<unknown> = Promise.resolve();
+
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 let transcriberPromise: Promise<any> | null = null;
 async function getTranscriber() {
@@ -101,7 +115,10 @@ async function getTranscriber() {
     transcriberPromise = (async () => {
       const { pipeline, env } = await import('@huggingface/transformers');
       env.cacheDir = CACHE_DIR;
-      return pipeline('automatic-speech-recognition', MODEL_NAME, { dtype: 'q8' });
+      return pipeline('automatic-speech-recognition', MODEL_NAME, {
+        dtype: 'q8',
+        session_options: { intraOpNumThreads: ML_THREADS, interOpNumThreads: 1 }
+      });
     })();
   }
   return transcriberPromise;
@@ -240,13 +257,16 @@ export async function transcribeAudio(audioUrl: string): Promise<string | null> 
     // — mas libera a vaga da fila pro próximo áudio em vez de travar tudo
     // atrás de um caso patológico, que é o que importa pra não empacar o
     // servidor inteiro.
+    await inferenceInFlight;
+    const inference = transcriber(samples, {
+      language: 'portuguese',
+      task: 'transcribe',
+      chunk_length_s: 30,
+      stride_length_s: 5
+    });
+    inferenceInFlight = Promise.resolve(inference).catch(() => {});
     const result = await withTimeout<any>(
-      transcriber(samples, {
-        language: 'portuguese',
-        task: 'transcribe',
-        chunk_length_s: 30,
-        stride_length_s: 5
-      }),
+      inference,
       inferenceTimeoutMs,
       `Transcrição excedeu ${Math.round(inferenceTimeoutMs / 1000)}s`
     );

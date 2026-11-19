@@ -7,9 +7,13 @@ import { startEmbeddingScheduler } from './lib/services/embedding-scheduler';
 import { startDissatisfactionScheduler } from './lib/services/dissatisfaction-scheduler';
 import { startPyvonInboundRetryScheduler } from './lib/services/pyvon-inbound-events';
 import { SHOULD_RUN_BACKGROUND_JOBS, SERVICE_ROLE } from './lib/runtime-config';
+import { startEventLoopMonitor } from './lib/event-loop-monitor';
 
 (async () => {
   if (process.env.NEXT_PHASE === PHASE_PRODUCTION_BUILD) return;
+
+  // Em todo container (front e back): lentidão pode vir de qualquer um.
+  startEventLoopMonitor();
 
   // Com o projeto dividido em duas imagens, este arquivo roda nas DUAS — e
   // trabalho de fundo não pode ter dois donos. Dois processos rodando os mesmos
