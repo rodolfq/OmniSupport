@@ -232,7 +232,15 @@ export async function GET(request: Request) {
       const actor = await getCurrentActionUser();
       const closedStatuses = await getClosedTicketStatuses();
       const base = buildBaseWhere(searchParams, closedStatuses);
-      let sql = `SELECT * FROM public.tickets ${base.sql}`;
+      // LEFT JOINs pra poder ordenar por NOME de empresa/responsável (ver
+      // ORDER BY abaixo) — sempre presentes (mesmo sem esse sort) pra não
+      // duplicar a montagem do SQL; são PK/FK indexados, custo desprezível
+      // mesmo quando não usados no ORDER BY desta chamada.
+      let sql = `SELECT public.tickets.* FROM public.tickets
+        LEFT JOIN public.companies ord_company ON ord_company.id = public.tickets.company_id
+        LEFT JOIN public.profiles ord_assignee ON ord_assignee.id = public.tickets.assignee_id
+        LEFT JOIN public.config_priorities ord_priority ON ord_priority.label = public.tickets.priority
+        ${base.sql}`;
       const params: any[] = [...base.params];
       let paramCount = base.paramCount;
 
@@ -261,12 +269,59 @@ export async function GET(request: Request) {
       params.push(...scope.params);
       paramCount = scope.paramCount;
 
-      const countSql = sql.replace('SELECT *', 'SELECT COUNT(*) AS total');
+      const countSql = sql.replace('SELECT public.tickets.*', 'SELECT COUNT(*) AS total');
       const countParams = [...params];
 
-      // Busca por número: o chamado com aquele número exato vem sempre no
-      // topo, antes de quem só tem os mesmos dígitos numa descrição/título.
-      const orderBy = base.exactIdParam
+      // Ordenação por coluna (clique no cabeçalho da Tabela,
+      // tickets-view.tsx) — achado do usuário, 2026-11-19: antes era só um
+      // `.sort()` no CLIENT sobre a página já carregada (pageSize=10), que
+      // nunca tocava os chamados das OUTRAS páginas — clicar "Responsável"
+      // parecia ordenar, mas só embaralhava os 10 já na tela. Movido pro
+      // ORDER BY de verdade, antes do LIMIT/OFFSET, pra ordenar o conjunto
+      // FILTRADO inteiro. `sortBy` é um allowlist fixo (nunca interpolado
+      // cru) — qualquer valor fora da lista cai no default de sempre.
+      const sortBy = searchParams.get('sortBy') || '';
+      const sortDir = searchParams.get('sortDir') === 'desc' ? 'DESC' : 'ASC';
+      let orderByExpr: string | null = null;
+      if (sortBy === 'id') {
+        orderByExpr = 'public.tickets.public_ticket_number';
+      } else if (sortBy === 'title') {
+        orderByExpr = 'public.tickets.title';
+      } else if (sortBy === 'company') {
+        orderByExpr = 'ord_company.name';
+      } else if (sortBy === 'assignee') {
+        orderByExpr = 'ord_assignee.name';
+      } else if (sortBy === 'status') {
+        orderByExpr = 'public.tickets.status';
+      } else if (sortBy === 'priority') {
+        // Mesma ordem fixa Baixa<Média<Alta<Urgente que a tela já usava —
+        // não é alfabética (CLAUDE.md: TicketPriority).
+        orderByExpr = `CASE public.tickets.priority WHEN 'Baixa' THEN 0 WHEN 'Média' THEN 1 WHEN 'Alta' THEN 2 WHEN 'Urgente' THEN 3 ELSE -1 END`;
+      } else if (sortBy === 'sla') {
+        // Mesma regra de "sem SLA" do SLA_OVERDUE_SQL/lib/sla.ts: chamado
+        // encerrado, sem sla_hours configurado, ou em sub-status isento
+        // (config_statuses.sla_exempt) não tem prazo — fica por último.
+        params.push(closedStatuses);
+        const closedParam = paramCount;
+        paramCount++;
+        orderByExpr = `(CASE
+          WHEN public.tickets.status = ANY($${closedParam}::text[]) THEN NULL
+          WHEN COALESCE(ord_priority.sla_hours, 0) <= 0 THEN NULL
+          WHEN EXISTS (
+            SELECT 1 FROM public.config_statuses cs2
+            WHERE cs2.scope = 'ticket' AND cs2.parent_status_id IS NOT NULL
+              AND cs2.sla_exempt AND cs2.label = public.tickets.sub_status
+          ) THEN NULL
+          ELSE public.ticket_sla_deadline(public.tickets.created_at, public.tickets.priority, ord_priority.sla_hours)
+        END)`;
+      }
+
+      // Sem ordenação explícita: busca por número continua trazendo o
+      // chamado exato primeiro, como sempre. Com ordenação explícita, ela
+      // manda — é o que a pessoa acabou de pedir clicando no cabeçalho.
+      const orderBy = orderByExpr
+        ? `ORDER BY ${orderByExpr} ${sortDir} NULLS LAST, public.tickets.created_at DESC`
+        : base.exactIdParam
         ? `ORDER BY (public_ticket_number = $${base.exactIdParam}) DESC, created_at DESC`
         : 'ORDER BY created_at DESC';
       sql += ` ${orderBy} LIMIT $${paramCount} OFFSET $${paramCount + 1}`;

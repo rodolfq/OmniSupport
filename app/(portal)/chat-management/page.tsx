@@ -283,7 +283,11 @@ const handleDeleteNote = async () => {
       refreshData();
       toast.success(targetUserId ? 'Atendimento transferido com sucesso!' : 'Atendimento assumido com sucesso!');
     } else {
-      toast.error('Erro ao atualizar o atendimento.');
+      // Mensagem específica do servidor quando houver (ex.: analista ficou
+      // offline entre o carregamento da lista e o clique) — ver mesma
+      // correção em components/chat-widget.tsx.
+      toast.error(result.error || 'Erro ao atualizar o atendimento.');
+      refreshData();
     }
   };
 
@@ -372,7 +376,12 @@ const handleDeleteNote = async () => {
     } else if (failures < idsToAssign.length) {
       toast.warning(`${idsToAssign.length - failures} de ${idsToAssign.length} atendimento(s) atualizado(s). Alguns falharam.`);
     } else {
-      toast.error('Erro ao atualizar os atendimentos selecionados.');
+      // Todos falharam pelo MESMO motivo (destino único pro lote inteiro) —
+      // mostra a mensagem real do servidor (ex.: "analista está offline
+      // agora") em vez do texto genérico, que escondia exatamente por que o
+      // lote inteiro foi recusado.
+      const firstError = results.find((r): r is { error: string } => 'error' in r)?.error;
+      toast.error(firstError || 'Erro ao atualizar os atendimentos selecionados.');
     }
   };
 

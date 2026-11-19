@@ -14,6 +14,8 @@ import { ConfigService } from "@/lib/services/config-service";
 import { useInternalTeamsQuery, useProfilesLiteQuery, useInternalTicketQueuesQuery } from "@/lib/query-hooks";
 import { findStatusColor } from "@/lib/status-colors";
 import { InlineAssigneePicker } from "@/components/inline-assignee-picker";
+import { TicketExportButton } from "@/components/ticket-export-button";
+import type { ReportExportColumn } from "@/lib/export/table-export";
 
 import { toast } from "sonner";
 import {
@@ -748,6 +750,51 @@ export function InternalTicketsView({
     high: tickets.filter(t => (t.priority || 1) >= 3).length,
   }), [tickets, currentUser?.id]);
 
+  // Exportação (pedido do usuário, 2026-11-18) — `displayTickets` já é a
+  // lista filtrada inteira (filtros avançados no servidor + atalho rápido
+  // client-side), sem paginação por cima: diferente de "Todos os Chamados",
+  // aqui não precisa de uma busca própria.
+  const fmtExportDateTime = (iso?: string | null) => {
+    if (!iso) return '';
+    const d = new Date(iso);
+    return Number.isNaN(d.getTime()) ? '' : d.toLocaleString('pt-BR', { day: '2-digit', month: '2-digit', year: 'numeric', hour: '2-digit', minute: '2-digit' });
+  };
+
+  const internalTicketExportColumns: ReportExportColumn<any>[] = [
+    { key: 'ticket', label: 'Ticket' },
+    { key: 'titulo', label: 'Título' },
+    { key: 'fila', label: 'Fila' },
+    { key: 'responsavel', label: 'Responsável' },
+    { key: 'status', label: 'Status' },
+    { key: 'prioridade', label: 'Prioridade' },
+    { key: 'vencimento', label: 'Vencimento' },
+    { key: 'abertoEm', label: 'Aberto em' },
+  ];
+
+  const buildInternalTicketExportRows = () => displayTickets.map((it) => ({
+    ticket: (it.id || it.uuid || '').toUpperCase(),
+    titulo: it.title,
+    fila: it.internalQueueId ? internalQueueLabel(it.internalQueueId, allInternalQueues) : 'Sem fila',
+    responsavel: it.assigneeName || 'Sem responsável',
+    status: it.status || 'Novo',
+    prioridade: priorityConfig[(it.priority || 1) as keyof typeof priorityConfig]?.label || 'Baixa',
+    vencimento: it.slaRemaining || '',
+    abertoEm: fmtExportDateTime(it.createdAt),
+  }));
+
+  const buildInternalExportFilterSummary = () => {
+    const parts: string[] = [];
+    parts.push(`Fila: ${internalQueueLabel(selectedQueue, allInternalQueues)}`);
+    if (searchTerm) parts.push(`Busca: "${searchTerm}"`);
+    if (filterStatus) parts.push(`Status: ${filterStatus}`);
+    if (filterPriority) parts.push(`Prioridade: ${priorityConfig[Number(filterPriority) as keyof typeof priorityConfig]?.label || filterPriority}`);
+    if (filterAssignee) parts.push(`Responsável: ${analysts.find(a => a.id === filterAssignee)?.name || filterAssignee}`);
+    if (dateFrom || dateTo) parts.push(`Período: ${dateFrom || '…'} a ${dateTo || '…'}`);
+    if (effectiveShowClosed) parts.push('Incluindo concluídos');
+    if (quickFilter !== 'all') parts.push(`Atalho: ${quickFilter === 'mine' ? 'Meus' : quickFilter === 'unassigned' ? 'Sem responsável' : quickFilter === 'overdue' ? 'Atrasados' : 'Alta prioridade'}`);
+    return parts.join(' · ');
+  };
+
 const openEditModal = (ticket: InternalTicketItem) => {
      // Modal por cima da lista (?internalTicket=), não mais outra página.
      openInternalTicket(ticket.id || ticket.uuid || "");
@@ -821,6 +868,13 @@ const openEditModal = (ticket: InternalTicketItem) => {
           </div>
           <div className="flex items-center gap-3 flex-wrap">
             {viewToggle}
+            <TicketExportButton
+              getRows={buildInternalTicketExportRows}
+              columns={internalTicketExportColumns}
+              title="Tickets Internos"
+              filterSummary={buildInternalExportFilterSummary()}
+              fileBase="tickets-internos"
+            />
             {hasPermission(Permission.INTERNAL_TICKETS_EDIT) && (
               <button
                 onClick={() => setShowNewModal(true)}

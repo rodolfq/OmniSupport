@@ -42,6 +42,8 @@ const SCOPE_OPTIONS: { value: string; label: string; description: string }[] = [
   { value: 'companies:write', label: 'Empresas — Escrita', description: 'Atualizar dados da empresa (nome, indústria, telefone, cliente em treinamento) — já inclui leitura' },
   { value: 'training-stages:read', label: 'Etapas de treinamento — Leitura', description: 'Consultar a trilha de treinamento (itens e status) de uma empresa' },
   { value: 'training-stages:write', label: 'Etapas de treinamento — Escrita', description: 'Cadastrar, atualizar e excluir itens da trilha de treinamento — já inclui leitura' },
+  { value: 'internal-tickets:read', label: 'Tickets internos — Leitura', description: 'Consultar tickets internos (dev/infra/QA/produto) e suas notas' },
+  { value: 'internal-tickets:write', label: 'Tickets internos — Escrita', description: 'Abrir e atualizar tickets internos (status, responsável, prioridade, fila) — já inclui leitura' },
 ];
 
 const METHOD_COLORS: Record<string, string> = {

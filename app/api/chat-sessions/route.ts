@@ -11,6 +11,7 @@ import { logAudit } from '@/lib/audit-log';
 import { CHAT_TAG_REQUIRED_MESSAGE, CHAT_ALREADY_CLOSED_MESSAGE } from '@/lib/chat-close-rules';
 import { TicketStatus } from '@/lib/types';
 import { fillTicketDescriptionFromChat } from '@/lib/services/ticket-chat-summary';
+import { deriveLiveStatus } from '@/lib/presence';
 
 // Achado em 2026-09-23 (varredura de permissões): as ações abaixo só
 // checavam "sessão válida" — qualquer papel autenticado atribuía, transferia,
@@ -98,9 +99,40 @@ export async function POST(request: Request) {
       // filtra a lista de "Enviar para", mas a rota não conferia nada — um
       // Cliente/Funcionário logado no portal (que tem presença em analyst_status)
       // chegou a aparecer como opção de transferência.
-      const assigneeRes = await query('SELECT role FROM public.profiles WHERE id = $1', [assigneeId]);
-      if (!isTeamRole(assigneeRes.rows[0]?.role)) {
+      const assigneeRes = await query(
+        `SELECT p.role, a.status, a.is_online, a.last_active
+           FROM public.profiles p
+           LEFT JOIN public.analyst_status a ON a.user_id = p.id
+          WHERE p.id = $1`,
+        [assigneeId]
+      );
+      const assigneeRow = assigneeRes.rows[0];
+      if (!isTeamRole(assigneeRow?.role)) {
         return NextResponse.json({ error: 'A conversa só pode ser atribuída a um analista da equipe.' }, { status: 400 });
+      }
+
+      // Achado 2026-11-18 (usuário relatou colega offline recebendo
+      // transferência): a tela só ESCONDE quem está offline da lista de
+      // "Enviar para" (ver assignableTargets em chat-widget.tsx) — a rota
+      // nunca conferia nada, então um poll de presença atrasado (30s) ou um
+      // "Ausente" preso (ver lib/presence.ts, corrigido no mesmo commit)
+      // deixava a transferência passar mesmo com o destino genuinamente
+      // offline. "Assumir pra si" continua liberado sem checar presença
+      // (decisão de 2026-09-25, AssignChatMenu já documenta isso) — só uma
+      // transferência de verdade, pra OUTRA pessoa, exige o destino estar
+      // Online/Ausente agora.
+      if (actor.id !== assigneeId) {
+        const assigneeLiveStatus = deriveLiveStatus({
+          status: assigneeRow?.status ?? null,
+          isOnline: assigneeRow?.is_online ?? false,
+          lastActive: assigneeRow?.last_active ?? null
+        });
+        if (assigneeLiveStatus === 'offline') {
+          return NextResponse.json(
+            { error: 'Este analista está offline agora — não é possível transferir a conversa para ele.' },
+            { status: 400 }
+          );
+        }
       }
 
       const sessionRes = await query(

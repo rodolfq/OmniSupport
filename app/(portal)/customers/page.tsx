@@ -6,8 +6,9 @@ import Link from 'next/link';
 import { assignChatSession } from '@/lib/services/chat-session-actions';
 import { getUsers } from '@/lib/services/user-actions-service';
 import { getCompanies, setCompanyActive, updateCompanyLogo, deleteCompany, getCompanyTrainingStages, TrainingStage } from '@/lib/services/company-service';
+import { TrainingStagesTimeline } from '@/components/training-stages-timeline';
 import { Company, User, UserRole, Permission } from '@/lib/types';
-import { Building2, User as UserIcon, Mail, Phone, Plus, MessageCircle, Ticket, ShieldCheck, ShieldOff, Search, X, Check, Pencil, UserPlus, RefreshCw, Headset, Briefcase, Camera, Trash2, ArrowLeft, Loader2, CheckCircle2, Clock, GraduationCap, Circle } from 'lucide-react';
+import { Building2, User as UserIcon, Mail, Phone, Plus, MessageCircle, Ticket, ShieldCheck, ShieldOff, Search, X, Check, Pencil, UserPlus, RefreshCw, Headset, Briefcase, Camera, Trash2, ArrowLeft, Loader2, CheckCircle2, Clock, GraduationCap } from 'lucide-react';
 import { cn, normalizeString, normalizePhone, maskPhone, companyDetailHref } from '@/lib/utils';
 import { NewEmployeeModal } from '@/components/new-employee-modal';
 import { EditEmployeeModal } from '@/components/edit-employee-modal';
@@ -804,26 +805,7 @@ if (isCompanyPortalUser) {
                 ) : trainingStages.length === 0 ? (
                   <p className="text-xs text-[var(--text-tertiary)] font-medium italic">Nenhuma etapa cadastrada.</p>
                 ) : (
-                  <div className="space-y-2">
-                    {trainingStages.map(stage => {
-                      const meta = stage.status === 'Concluído'
-                        ? { icon: CheckCircle2, color: 'text-[var(--text-success)]', chip: 'bg-[var(--surface-success)] text-[var(--text-success)]' }
-                        : stage.status === 'Em andamento'
-                        ? { icon: Clock, color: 'text-[var(--text-warning)]', chip: 'bg-[var(--surface-warning)] text-[var(--text-warning)]' }
-                        : { icon: Circle, color: 'text-[var(--text-tertiary)]', chip: 'bg-[var(--surface-pill)] text-[var(--text-tertiary)]' };
-                      return (
-                        <div key={stage.id} className="flex items-center justify-between gap-3 px-4 py-2.5 rounded-xl border border-[var(--border-default)] bg-[var(--surface-card)]">
-                          <div className="flex items-center gap-2.5 min-w-0">
-                            <meta.icon size={15} className={cn('shrink-0', meta.color)} />
-                            <span className="text-sm font-bold text-[var(--text-primary)] truncate">{stage.name}</span>
-                          </div>
-                          <span className={cn('shrink-0 text-[9px] font-black uppercase tracking-widest px-2 py-1 rounded-lg', meta.chip)}>
-                            {stage.status}
-                          </span>
-                        </div>
-                      );
-                    })}
-                  </div>
+                  <TrainingStagesTimeline stages={trainingStages} />
                 )}
               </div>
             )}

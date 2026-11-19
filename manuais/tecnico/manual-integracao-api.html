@@ -78,7 +78,7 @@
     <div class="kicker">Guia Técnico · API de Integração v1</div>
     <h1>Manual de Integração<br>API Externa</h1>
     <div class="role-pill">⚙ Uso: plataformas e sistemas parceiros</div>
-    <p class="lede">Como autenticar, ler e escrever dados no SSX Desk a partir de outro sistema — chamados, conversas, empresas e funcionários, com chave de API própria, escopos por permissão e sincronização incremental.</p>
+    <p class="lede">Como autenticar, ler e escrever dados no SSX Desk a partir de outro sistema — chamados, tickets internos, conversas, empresas e funcionários, com chave de API própria, escopos por permissão e sincronização incremental.</p>
   </div>
   <div class="cover-footer">
     <div class="meta"><b>SSX Desk</b>Plataforma de Atendimento ao Cliente</div>
@@ -90,7 +90,7 @@
 <div class="page">
   <div class="page-head"><span class="tag">Sumário</span><span class="brand">SSX Desk · Manual de Integração</span></div>
   <h2 class="section-title">O que tem neste manual</h2>
-  <p class="section-lede">8 capítulos — da primeira chamada até o checklist de produção.</p>
+  <p class="section-lede">9 capítulos — da primeira chamada até o checklist de produção.</p>
   <ul class="toc-list">
     <li><span class="toc-num">01</span><span class="toc-label">Visão geral</span><span class="toc-desc">O que é, pra quem, arquitetura</span></li>
     <li><span class="toc-num">02</span><span class="toc-label">Autenticação & escopos</span><span class="toc-desc">Chave de API e permissões por escopo</span></li>
@@ -99,7 +99,8 @@
     <li><span class="toc-num">05</span><span class="toc-label">Funcionários</span><span class="toc-desc">Cadastrar, atualizar, desativar</span></li>
     <li><span class="toc-num">06</span><span class="toc-label">Chamados</span><span class="toc-desc">Consultar, abrir e atualizar</span></li>
     <li><span class="toc-num">07</span><span class="toc-label">Conversas</span><span class="toc-desc">Histórico de chat/WhatsApp</span></li>
-    <li><span class="toc-num">08</span><span class="toc-label">Checklist & boas práticas</span><span class="toc-desc">Antes de ligar em produção</span></li>
+    <li><span class="toc-num">08</span><span class="toc-label">Tickets Internos</span><span class="toc-desc">Backlog interno: consultar, abrir, atualizar e notas</span></li>
+    <li><span class="toc-num">09</span><span class="toc-label">Checklist & boas práticas</span><span class="toc-desc">Antes de ligar em produção</span></li>
   </ul>
 </div>
 
@@ -113,7 +114,7 @@
 
   <div class="callout danger"><span class="ico">⚠</span><p><b>Chamadas sempre partem do backend</b> da plataforma parceira — nunca do navegador do usuário final. A chave de API dá acesso amplo aos dados; colocá-la em código que roda no navegador expõe essa chave pra qualquer pessoa que abrir o Developer Tools.</p></div>
 
-  <h3 class="sub-title"><span class="num">i</span>Os quatro recursos disponíveis</h3>
+  <h3 class="sub-title"><span class="num">i</span>Os cinco recursos disponíveis</h3>
   <div class="resource-grid">
     <div class="resource-card">
       <div class="name"><span class="ic">🏢</span>Empresas</div>
@@ -131,7 +132,12 @@
       <div class="name"><span class="ic">💬</span>Conversas</div>
       <p>Consultar o histórico de conversas de chat e WhatsApp, com mensagens e anexos.</p>
     </div>
+    <div class="resource-card">
+      <div class="name"><span class="ic">🛠</span>Tickets Internos</div>
+      <p>Backlog interno de dev/infra/QA/produto: consultar, abrir, atualizar e ler/adicionar notas.</p>
+    </div>
   </div>
+  <div class="callout warn"><span class="ico">!</span><p><b>Tickets Internos não são dados de cliente</b> — são a operação interna do próprio SSX Desk. É o recurso mais sensível desta API: conceda o escopo <code>internal-tickets:*</code> só a integrações que realmente precisam enxergar o backlog interno, não como padrão de toda chave nova.</p></div>
 
   <h3 class="sub-title"><span class="num">ii</span>Endereço base</h3>
   <p>Toda rota começa com <code>/api/integrations/v1/</code>, no mesmo domínio onde o portal está publicado — não existe um subdomínio separado pra API.</p>
@@ -174,6 +180,8 @@ x-api-key: ssx_a1b2c3d4e5f6...</div>
     <tr><td class="scope">tickets:write</td><td>Abrir chamados novos e atualizar status/prioridade/classificação/responsável.</td></tr>
     <tr><td class="scope">conversations:read</td><td>Listar e consultar conversas de chat/WhatsApp.</td></tr>
     <tr><td class="scope">training-conversations:read</td><td>Só a lista de conversas encerradas com clientes em treinamento (data e motivo) — sem mensagens nem telefone.</td></tr>
+    <tr><td class="scope">internal-tickets:read</td><td>Listar e consultar tickets internos (backlog de dev/infra/QA/produto) e suas notas.</td></tr>
+    <tr><td class="scope">internal-tickets:write</td><td>Abrir e atualizar tickets internos (status, responsável, prioridade, fila) e adicionar notas — já inclui leitura.</td></tr>
   </table>
   <div class="callout info"><span class="ico">i</span><p>Chave criada antes desta versão com o escopo <code>employees:read</code> continua conseguindo ler empresas por compatibilidade — mas para chaves novas, use <code>companies:read</code>, que é o nome certo pra essa permissão.</p></div>
 
@@ -437,9 +445,105 @@ X-RateLimit-Reset: 1786994325 <span class="c">// epoch em segundos</span></div>
   <div class="page-foot"><span>SSX Desk</span><span>07 — Conversas</span></div>
 </div>
 
-<!-- ============ 08 CHECKLIST ============ -->
+<!-- ============ 08 TICKETS INTERNOS ============ -->
 <div class="page">
-  <div class="page-head"><span class="tag">Capítulo 08 · Fechamento</span><span class="brand">SSX Desk · Manual de Integração</span></div>
+  <div class="page-head"><span class="tag">Capítulo 08 · Recurso</span><span class="brand">SSX Desk · Manual de Integração</span></div>
+  <div class="section-icon-row"><div class="section-icon">🛠</div><h2 class="section-title mt-0">Tickets Internos</h2></div>
+  <p class="section-lede">Backlog de dev/infra/QA/produto do próprio SSX Desk — não é dado de cliente.</p>
+
+  <div class="callout danger"><span class="ico">⚠</span><p>Diferente de Chamados, aqui não existe "mensagem visível ao cliente": ticket interno não tem cliente nenhum por definição. <b>Toda nota</b> entra na resposta — por isso o escopo <code>internal-tickets:*</code> deve ser concedido com mais cautela que os demais (ver capítulo 01).</p></div>
+
+  <div class="endpoint">
+    <div class="endpoint-head"><span class="method get">GET</span><span class="endpoint-path">/api/integrations/v1/internal-tickets</span><span class="endpoint-scope chip">internal-tickets:read</span></div>
+    <div class="endpoint-body">
+      <p class="new-tag">novo</p>
+      <p>Com <code>id</code>, devolve o ticket + todas as notas (sem filtro de visibilidade). Sem <code>id</code>, aceita <code>queueId</code>, <code>status</code>, <code>priority</code> (1–4), <code>assigneeId</code>, <code>creatorId</code>, <code>tags</code>, <code>search</code>, <code>contentSearch</code> e <code>updatedSince</code> como filtro, todos combináveis.</p>
+      <table class="ptable">
+        <tr><th>Parâmetro</th><th>Onde</th><th>Descrição</th></tr>
+        <tr><td class="name">id</td><td class="type">query</td><td>Retorna esse ticket + notas (ignora os demais filtros).</td></tr>
+        <tr><td class="name">queueId</td><td class="type">query</td><td>Fila do ticket interno.</td></tr>
+        <tr><td class="name">status / subStatus</td><td class="type">query</td><td>Precisam ser rótulos cadastrados em Configurações.</td></tr>
+        <tr><td class="name">priority</td><td class="type">query</td><td>1 (Baixa) a 4 (Urgente).</td></tr>
+        <tr><td class="name">assigneeId / creatorId</td><td class="type">query</td><td>Responsável / quem abriu.</td></tr>
+        <tr><td class="name">tags</td><td class="type">query</td><td>Separadas por vírgula — qualquer uma basta.</td></tr>
+        <tr><td class="name">updatedSince</td><td class="type">query</td><td>ISO 8601 — sincronização incremental.</td></tr>
+        <tr><td class="name">limit / offset</td><td class="type">query</td><td>Paginação. Padrão 100, máximo 500.</td></tr>
+      </table>
+      <div class="code-label">Resposta 200 — detalhe com notas</div>
+      <div class="code-block">{ <span class="k">"data"</span>: { <span class="k">"id"</span>: <span class="s">"a93f1c..."</span>, <span class="k">"ticketNumber"</span>: 1532, <span class="k">"title"</span>: <span class="s">"Erro ao gerar relatório de SLA"</span>,
+  <span class="k">"status"</span>: <span class="s">"Em Andamento"</span>, <span class="k">"priority"</span>: 3, <span class="k">"queueId"</span>: <span class="s">"f0a1..."</span>, <span class="k">"assigneeId"</span>: <span class="s">"c3d4..."</span>,
+  <span class="k">"slaLimit"</span>: <span class="s">"2026-11-21T18:00:00.000Z"</span>, <span class="k">"qaRejected"</span>: false, <span class="k">"resolvedAt"</span>: null,
+  <span class="k">"messages"</span>: [{ <span class="k">"id"</span>: 7421, <span class="k">"authorId"</span>: <span class="s">"c3d4..."</span>, <span class="k">"content"</span>: <span class="s">"Reproduzido em homologação..."</span>, <span class="k">"createdAt"</span>: <span class="s">"..."</span> }] } }</div>
+      <div class="callout info"><span class="ico">i</span><p>Os campos de QA (<code>qaRejected</code>, <code>environmentRejected</code>, <code>lateDelivery</code>, <code>resolvedAt</code>) vêm só pra leitura — têm fluxo e permissão própria dentro do portal, e não são aceitos em POST/PATCH desta API.</p></div>
+    </div>
+  </div>
+
+  <div class="endpoint">
+    <div class="endpoint-head"><span class="method post">POST</span><span class="endpoint-path">/api/integrations/v1/internal-tickets</span><span class="endpoint-scope chip">internal-tickets:write</span></div>
+    <div class="endpoint-body">
+      <p class="new-tag">novo</p>
+      <p>Abre um ticket interno com status inicial <b>"Novo"</b>. A <b>fila é obrigatória</b> — mesma regra do portal: todo ticket nasce numa fila ATIVA. O prazo (<code>slaLimit</code>) é calculado sozinho, a partir da prioridade e da configuração de SLA.</p>
+      <table class="ptable">
+        <tr><th>Campo</th><th>Onde</th><th>Descrição</th></tr>
+        <tr><td class="name">title</td><td class="type">body</td><td class="req">obrigatório</td></tr>
+        <tr><td class="name">description</td><td class="type">body</td><td class="req">obrigatório</td></tr>
+        <tr><td class="name">queueId</td><td class="type">body</td><td class="req">obrigatório — precisa estar ativa</td></tr>
+        <tr><td class="name">priority</td><td class="type">body</td><td>1 (Baixa, padrão) a 4 (Urgente).</td></tr>
+        <tr><td class="name">assigneeId / creatorId</td><td class="type">body</td><td>Opcionais, se já conhecidos.</td></tr>
+        <tr><td class="name">tags</td><td class="type">body</td><td>Array de marcadores livres.</td></tr>
+        <tr><td class="name">expectedPublishDate</td><td class="type">body</td><td>Data prevista de entrega (estimativa própria, não é o SLA).</td></tr>
+        <tr><td class="name">creationRequestId</td><td class="type">body</td><td>UUID por tentativa — torna a criação à prova de reenvio/retry.</td></tr>
+      </table>
+    </div>
+  </div>
+
+  <div class="endpoint">
+    <div class="endpoint-head"><span class="method patch">PATCH</span><span class="endpoint-path">/api/integrations/v1/internal-tickets?id=</span><span class="endpoint-scope chip">internal-tickets:write</span></div>
+    <div class="endpoint-body">
+      <p class="new-tag">novo</p>
+      <p>Atualização parcial — título, descrição, status/subStatus, prioridade, tags, responsável, fila e data prevista. Trocar a prioridade recalcula o prazo automaticamente (ancorado na criação do ticket, nunca em "agora"). A fila pode ser <b>reatribuída</b>, mas nunca removida.</p>
+      <div class="callout danger"><span class="ico">⚠</span><p>Status é validado contra Configurações (escopo "Tickets Internos") antes de gravar — rótulo inexistente devolve <b>400 VALIDATION_ERROR</b>, sem gravar nada.</p></div>
+    </div>
+  </div>
+
+  <h3 class="sub-title"><span class="num">i</span>Notas (ver e adicionar)</h3>
+  <p>Toda nota de um ticket interno é interna por definição — não existe "nota visível ao cliente" aqui. Estes dois endpoints servem exatamente pra quem quer <b>ler as notas já escritas</b> e <b>adicionar novas</b>, sem reler o ticket inteiro a cada vez.</p>
+
+  <div class="endpoint">
+    <div class="endpoint-head"><span class="method get">GET</span><span class="endpoint-path">/api/integrations/v1/internal-tickets/messages</span><span class="endpoint-scope chip">internal-tickets:read</span></div>
+    <div class="endpoint-body">
+      <p class="new-tag">novo</p>
+      <table class="ptable">
+        <tr><th>Parâmetro</th><th>Onde</th><th>Descrição</th></tr>
+        <tr><td class="name">internalTicketId</td><td class="type">query</td><td class="req">obrigatório</td></tr>
+      </table>
+      <div class="code-label">Resposta 200</div>
+      <div class="code-block">{ <span class="k">"data"</span>: [{ <span class="k">"id"</span>: 7421, <span class="k">"internalTicketId"</span>: <span class="s">"a93f1c..."</span>, <span class="k">"authorId"</span>: <span class="s">"c3d4..."</span>,
+  <span class="k">"content"</span>: <span class="s">"Reproduzido em homologação, investigando a query."</span>, <span class="k">"type"</span>: <span class="s">"text"</span>, <span class="k">"attachments"</span>: [], <span class="k">"createdAt"</span>: <span class="s">"..."</span> }], <span class="k">"meta"</span>: { <span class="k">"total"</span>: 1 } }</div>
+    </div>
+  </div>
+
+  <div class="endpoint">
+    <div class="endpoint-head"><span class="method post">POST</span><span class="endpoint-path">/api/integrations/v1/internal-tickets/messages</span><span class="endpoint-scope chip">internal-tickets:write</span></div>
+    <div class="endpoint-body">
+      <p class="new-tag">novo</p>
+      <p>Adiciona uma nova nota de texto. O criador e o responsável do ticket recebem o mesmo e-mail de aviso que já recebem quando a nota vem do portal.</p>
+      <table class="ptable">
+        <tr><th>Campo</th><th>Onde</th><th>Descrição</th></tr>
+        <tr><td class="name">internalTicketId</td><td class="type">body</td><td class="req">obrigatório</td></tr>
+        <tr><td class="name">content</td><td class="type">body</td><td class="req">obrigatório — aceita HTML simples</td></tr>
+        <tr><td class="name">authorId</td><td class="type">body</td><td>Autor da nota, se conhecido. Sem isso, a nota aparece sem autor.</td></tr>
+      </table>
+      <div class="callout warn"><span class="ico">!</span><p>Esta versão não aceita anexo binário — imagem colada em base64 dentro do <code>content</code> é extraída e salva como arquivo automaticamente, mas pra referenciar um arquivo já hospedado em outro lugar, inclua a URL no próprio texto da nota.</p></div>
+    </div>
+  </div>
+
+  <div class="page-foot"><span>SSX Desk</span><span>08 — Tickets Internos</span></div>
+</div>
+
+<!-- ============ 09 CHECKLIST ============ -->
+<div class="page">
+  <div class="page-head"><span class="tag">Capítulo 09 · Fechamento</span><span class="brand">SSX Desk · Manual de Integração</span></div>
   <div class="section-icon-row"><div class="section-icon">✓</div><h2 class="section-title mt-0">Checklist & boas práticas</h2></div>
   <p class="section-lede">Confira antes de ligar a integração em produção.</p>
 
@@ -468,7 +572,7 @@ X-RateLimit-Reset: 1786994325 <span class="c">// epoch em segundos</span></div>
 
   <div class="callout tip"><span class="ico">✓</span><p>Revogar uma chave (em vez de excluir) corta o acesso na hora, mas mantém o histórico de uso — dá pra reativar depois se for engano. Excluir é definitivo.</p></div>
 
-  <div class="page-foot"><span>SSX Desk</span><span>08 — Checklist & boas práticas</span></div>
+  <div class="page-foot"><span>SSX Desk</span><span>09 — Checklist & boas práticas</span></div>
 </div>
 
 <!-- ============ CONTRACAPA ============ -->

@@ -15,12 +15,14 @@ import { useQueryClient } from "@tanstack/react-query";
 import { prefetchTicketModalReferenceData, useProfilesLiteQuery, useConfigPrioritiesQuery, useConfigStatusesQuery } from "@/lib/query-hooks";
 import { TicketService } from "@/lib/services/ticket-service";
 
-import { SearchFilters, searchTickets, getQuickFilterCounts, QuickFilterCounts } from "@/lib/search";
+import { SearchFilters, searchTickets, getQuickFilterCounts, QuickFilterCounts, TicketSort } from "@/lib/search";
 import { isClosedTicketStatus, isInProgressTicketStatus } from "@/lib/ticket-status";
 import { getTicketSlaStatus, isTicketSlaExempt } from "@/lib/sla";
 import { mergeTickets } from "@/lib/services/chat-session-actions";
 import { ConfigService } from "@/lib/services/config-service";
 import { findStatusColor } from "@/lib/status-colors";
+import { TicketExportButton } from "@/components/ticket-export-button";
+import type { ReportExportColumn } from "@/lib/export/table-export";
 import {
   FileText,
   ChevronLeft,
@@ -409,9 +411,11 @@ export function TicketsView({
       // Kanban sempre busca a partir da página 1, com o LOTE crescente de
       // kanbanPageSize (ver comentário na declaração do state) — Tabela/Cards
       // continuam com a paginação numerada de sempre.
+      // Kanban não tem cabeçalho clicável — ordenação só vale pra
+      // Tabela/Cards (sortConfig.key já é um dos ids válidos de `columns`).
       const result = viewMode === "kanban"
         ? await searchTickets(effectiveFilters, 1, kanbanPageSize)
-        : await searchTickets(effectiveFilters, currentPage, pageSize);
+        : await searchTickets(effectiveFilters, currentPage, pageSize, sortConfig as TicketSort | null);
 
       // Só aplica se ainda for o pedido mais recente — ver comentário no
       // `ticketsFetchSeqRef` acima.
@@ -452,11 +456,11 @@ export function TicketsView({
     if (!currentUser?.id) return;
     const requestKey = viewMode === "kanban"
       ? `${currentUser.id}:kanban:${kanbanPageSize}:${JSON.stringify(effectiveFilters)}:${refreshTrigger}`
-      : `${currentUser.id}:${currentPage}:${JSON.stringify(effectiveFilters)}:${refreshTrigger}`;
+      : `${currentUser.id}:${currentPage}:${JSON.stringify(effectiveFilters)}:${JSON.stringify(sortConfig)}:${refreshTrigger}`;
     if (lastAutomaticRequestKeyRef.current === requestKey) return;
     lastAutomaticRequestKeyRef.current = requestKey;
     loadTickets();
-  }, [currentUser?.id, currentPage, viewMode, kanbanPageSize, effectiveFilters, refreshTrigger]);
+  }, [currentUser?.id, currentPage, viewMode, kanbanPageSize, effectiveFilters, sortConfig, refreshTrigger]);
 
   // Contagens dos chips — independem de qual chip está ativo (mostram as 5
   // colunas de uma vez), só acompanham os Filtros avançados/busca de texto.
@@ -790,6 +794,14 @@ export function TicketsView({
     setTags(data);
   };
 
+  // Ordena no SERVIDOR agora (ver ORDER BY em app/api/search/route.ts) — o
+  // clique no cabeçalho só reordenava `filteredTickets`, que na Tabela é
+  // só a PÁGINA atual (pageSize=10, paginação numerada real). Reordenar
+  // isso localmente nunca tocava os chamados das outras páginas: clicar
+  // "Responsável" parecia ordenar, mas só embaralhava os 10 já carregados.
+  // Achado do usuário, 2026-11-19. Troca de ordenação volta pra página 1
+  // (mesmo padrão de troca de filtro) — a página 2 do sort antigo não
+  // corresponde a nada na ordem nova.
   const handleSort = (key: string) => {
     let direction: "asc" | "desc" = "asc";
     if (
@@ -800,61 +812,13 @@ export function TicketsView({
       direction = "desc";
     }
     setSortConfig({ key, direction });
+    setCurrentPage(1);
   };
 
-  const sortedTickets = useMemo(() => {
-    if (!sortConfig) return filteredTickets;
-
-    return [...filteredTickets].sort((a, b) => {
-      let aValue: any = "";
-      let bValue: any = "";
-
-      switch (sortConfig.key) {
-        case "id":
-          aValue = a.ticketNumber || 0;
-          bValue = b.ticketNumber || 0;
-          break;
-        case "title":
-          aValue = a.title;
-          bValue = b.title;
-          break;
-        case "company":
-          aValue = companies.find((c) => c.id === a.companyId)?.name || "";
-          bValue = companies.find((c) => c.id === b.companyId)?.name || "";
-          break;
-        case "assignee":
-          aValue = users.find((u) => u.id === a.assigneeId)?.name || "";
-          bValue = users.find((u) => u.id === b.assigneeId)?.name || "";
-          break;
-        case "status":
-          aValue = a.status;
-          bValue = b.status;
-          break;
-        case "priority":
-          const priorityOrder = ["Baixa", "Média", "Alta", "Urgente"];
-          aValue = priorityOrder.indexOf(a.priority as string);
-          bValue = priorityOrder.indexOf(b.priority as string);
-          break;
-        case "sla":
-          const slaValue = (ticket: Ticket) => {
-            if (isClosedTicketStatus(ticket.status)) return "";
-            const limit = getTicketSlaStatus(ticket.createdAt, ticket.priority, priorities).limit;
-            return limit ? limit.getTime() : "";
-          };
-          aValue = slaValue(a);
-          bValue = slaValue(b);
-          break;
-      }
-
-      if (aValue < bValue) return sortConfig.direction === "asc" ? -1 : 1;
-      if (aValue > bValue) return sortConfig.direction === "asc" ? 1 : -1;
-      return 0;
-    });
-  }, [filteredTickets, sortConfig, companies, users]);
-
-  const visibleTickets = useMemo(() => {
-    return sortedTickets;
-  }, [sortedTickets]);
+  // `filteredTickets` já vem do servidor na ordem certa (com sortConfig) —
+  // nada a reordenar aqui. `visibleTickets` existe só porque outros pontos
+  // da tela (seleção em lote, "Carregar mais") já esperam esse nome.
+  const visibleTickets = filteredTickets;
 
   const paginationPages = useMemo(() => {
     if (totalPages <= 5) {
@@ -1137,6 +1101,74 @@ export function TicketsView({
     );
   };
 
+  // Exportação (pedido do usuário, 2026-11-18). `filteredTickets`/
+  // `visibleTickets` aqui são só a PÁGINA/lote atual (Tabela pede 10 por
+  // vez, Kanban um lote crescente) — exportar "os chamados filtrados" de
+  // verdade exige buscar de novo com `effectiveFilters`, ignorando a
+  // paginação da tela, até o mesmo teto de 500 que o Kanban já usa em
+  // "Carregar todos" (ver KANBAN_MAX_PAGE_SIZE acima).
+  const EXPORT_PAGE_SIZE = 500;
+
+  const fmtExportDateTime = (iso?: string | null) => {
+    if (!iso) return '';
+    const d = new Date(iso);
+    return Number.isNaN(d.getTime()) ? '' : d.toLocaleString('pt-BR', { day: '2-digit', month: '2-digit', year: 'numeric', hour: '2-digit', minute: '2-digit' });
+  };
+
+  const ticketExportColumns: ReportExportColumn<any>[] = [
+    { key: 'numero', label: 'Número' },
+    { key: 'titulo', label: 'Título' },
+    { key: 'cliente', label: 'Cliente' },
+    { key: 'responsavel', label: 'Responsável' },
+    { key: 'status', label: 'Status' },
+    { key: 'prioridade', label: 'Prioridade' },
+    { key: 'vencimento', label: 'Vencimento' },
+    { key: 'abertoEm', label: 'Aberto em' },
+  ];
+
+  const buildTicketExportRows = async () => {
+    const result = await searchTickets(effectiveFilters, 1, EXPORT_PAGE_SIZE);
+    if (result.total > EXPORT_PAGE_SIZE) {
+      toast.info(`Exportando os ${EXPORT_PAGE_SIZE} chamados mais recentes de ${result.total} — refine os filtros para exportar o restante.`);
+    }
+    return result.tickets.map((t) => {
+      const company = companies.find((c) => c.id === t.companyId);
+      const assignee = users.find((u: any) => u.id === t.assigneeId);
+      const exempt = isTicketSlaExempt(t.subStatus, allStatuses);
+      const { limit } = getTicketSlaStatus(t.createdAt, t.priority, priorities, undefined, exempt);
+      return {
+        numero: t.ticketNumber ? `#${String(t.ticketNumber).padStart(4, '0')}` : '',
+        titulo: t.title,
+        cliente: company?.name || '',
+        responsavel: assignee?.name || 'Sem responsável',
+        status: t.status,
+        prioridade: t.priority,
+        vencimento: exempt ? 'Isento' : fmtExportDateTime(limit as any),
+        abertoEm: fmtExportDateTime(t.createdAt),
+      };
+    });
+  };
+
+  const buildExportFilterSummary = () => {
+    const parts: string[] = [];
+    if (effectiveFilters.query) parts.push(`Busca: "${effectiveFilters.query}"`);
+    if (effectiveFilters.status) parts.push(`Status: ${effectiveFilters.status}`);
+    if (effectiveFilters.priority) parts.push(`Prioridade: ${effectiveFilters.priority}`);
+    if (effectiveFilters.companyId) {
+      const c = companies.find((co) => co.id === effectiveFilters.companyId);
+      if (c) parts.push(`Cliente: ${c.name}`);
+    }
+    if (effectiveFilters.startDate || effectiveFilters.endDate) {
+      parts.push(`Período: ${effectiveFilters.startDate || '…'} a ${effectiveFilters.endDate || '…'}`);
+    }
+    if (effectiveFilters.slaOverdue) parts.push('SLA vencido');
+    if (effectiveFilters.unassigned) parts.push('Sem responsável');
+    if (effectiveFilters.highPriority) parts.push('Alta prioridade');
+    if (effectiveFilters.includeClosed) parts.push('Incluindo encerrados');
+    if (quickFilter !== 'all') parts.push(`Atalho: ${quickFilter === 'mine' ? 'Minhas' : quickFilter === 'unassigned' ? 'Sem responsável' : quickFilter === 'overdue' ? 'Atrasadas' : 'Alta prioridade'}`);
+    return parts.length ? parts.join(' · ') : 'Sem filtros aplicados';
+  };
+
   return (
     <div className="space-y-8">
       {/* Header — mesmo tratamento de cartão (fundo, borda, cantos, densidade
@@ -1155,6 +1187,13 @@ export function TicketsView({
         </div>
         <div className="flex items-center gap-3 flex-wrap">
           {viewToggle}
+          <TicketExportButton
+            getRows={buildTicketExportRows}
+            columns={ticketExportColumns}
+            title="Chamados"
+            filterSummary={buildExportFilterSummary()}
+            fileBase="chamados"
+          />
           <button
             onClick={() => setIsNewTicketModalOpen(true)}
             className="px-4 py-2 bg-[var(--accent)] hover:bg-[var(--accent-hover)] text-white rounded-xl text-xs font-semibold uppercase tracking-widest transition-all flex items-center gap-2 whitespace-nowrap"
