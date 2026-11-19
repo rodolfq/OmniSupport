@@ -1298,12 +1298,25 @@ export class PyvonService {
     session.ticket_id = ticketId;
     session.ticket_number = ticketNumber;
 
-    const tagId = await this.ensureUpdateTicketTag();
-    if (tagId) {
-      await query(
-        `UPDATE public.chat_sessions SET tags = CASE WHEN $1::text = ANY(tags) THEN tags ELSE array_append(tags, $1::text) END WHERE id = $2`,
-        [tagId, session.id]
-      );
+    // As DUAS tags, pai + subtag — mesmo bug já corrigido em 2026-11-03 no
+    // vínculo manual (app/api/chat-sessions/route.ts, action=link-ticket),
+    // mas que nunca tinha chegado até aqui: `ensureUpdateTicketTag` só
+    // devolvia a subtag, então toda conversa nascida da resposta do cliente a
+    // uma nota ficava marcada só com "Atualização", sem a principal
+    // "Chamado" — a mesma situação que a regra de tag obrigatória ao encerrar
+    // (2026-10-21) proíbe de propósito pra quem marca na mão. Achado e
+    // corrigido em 2026-11-19, a pedido do usuário.
+    const tagInfo = await this.ensureUpdateTicketTag();
+    if (tagInfo) {
+      const autoTagIds = [tagInfo.chamadoTagId, tagInfo.updateTagId].filter(Boolean).map(String);
+      if (autoTagIds.length > 0) {
+        await query(
+          `UPDATE public.chat_sessions SET tags = (
+             SELECT array_agg(DISTINCT t) FROM unnest(tags || $1::text[]) AS t
+           ) WHERE id = $2`,
+          [autoTagIds, session.id]
+        );
+      }
     }
   }
 
@@ -1312,12 +1325,16 @@ export class PyvonService {
   // conversas que nasceram da resposta do cliente a uma nota. Não cria mais
   // sozinha (a hierarquia é curada pela tela de Gestão de Tags agora) — se a
   // subtag foi apagada/renomeada, só desiste de marcar, igual ao outro ponto
-  // que já faz isso (app/api/chat-sessions/route.ts).
-  private static async ensureUpdateTicketTag(): Promise<string | null> {
+  // que já faz isso (app/api/chat-sessions/route.ts). Devolve o id da
+  // subtag JUNTO com o da principal (parent_tag_id) — as duas precisam ser
+  // aplicadas, nunca só a subtag sozinha (ver linkSessionToTicket).
+  private static async ensureUpdateTicketTag(): Promise<{ updateTagId: string; chamadoTagId: string | null } | null> {
     const existing = await query(
-      `SELECT id FROM public.config_tags WHERE domain = 'chat' AND label = 'Atualização' AND parent_tag_id IS NOT NULL LIMIT 1`
+      `SELECT id, parent_tag_id FROM public.config_tags WHERE domain = 'chat' AND label = 'Atualização' AND parent_tag_id IS NOT NULL LIMIT 1`
     );
-    return existing.rows[0]?.id || null;
+    const row = existing.rows[0];
+    if (!row) return null;
+    return { updateTagId: row.id, chamadoTagId: row.parent_tag_id || null };
   }
 
   // Responsável ATUAL do chamado (pode ter trocado desde que a nota foi

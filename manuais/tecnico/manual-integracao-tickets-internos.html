@@ -1,0 +1,419 @@
+<!doctype html>
+<html lang="pt-BR">
+<head>
+<meta charset="utf-8">
+<title>Tickets Internos via API — SSX Desk</title>
+<link rel="stylesheet" href="../assets/manual.css">
+<style>
+  .code-block {
+    background: #0B1220; color: #D6E4F0; font-family: 'Consolas', 'SF Mono', 'Menlo', monospace;
+    font-size: 10.5px; line-height: 1.6; padding: 12px 15px; border-radius: 10px;
+    margin: 4px 0 14px 0; white-space: pre-wrap; word-break: break-word;
+  }
+  .code-block .c { color: #64748B; }
+  .code-block .k { color: #7EEFDD; }
+  .code-block .s { color: #FBBF87; }
+  .code-label {
+    font-size: 9.5px; font-weight: 800; text-transform: uppercase; letter-spacing: 0.08em;
+    color: var(--text-3); margin: 10px 0 5px 0;
+  }
+  .endpoint {
+    border: 1px solid var(--border-strong); border-radius: 16px; margin: 0 0 16px 0; overflow: hidden;
+    break-inside: avoid;
+  }
+  .endpoint-head { display: flex; align-items: center; gap: 10px; padding: 12px 16px; background: var(--page-bg); border-bottom: 1px solid var(--border); }
+  .method { font-size: 10px; font-weight: 800; letter-spacing: 0.04em; padding: 4px 10px; border-radius: 7px; flex-shrink: 0; }
+  .method.get { background: var(--ok-bg); color: var(--teal-strong); }
+  .method.post { background: var(--info-bg); color: var(--navy-2); }
+  .method.patch { background: var(--warn-bg); color: var(--warn); }
+  .endpoint-path { font-family: 'Consolas', monospace; font-size: 11.5px; font-weight: 700; color: var(--navy); word-break: break-all; }
+  .endpoint-scope { margin-left: auto; flex-shrink: 0; }
+  .endpoint-body { padding: 12px 16px 14px 16px; }
+  .endpoint-body > p { font-size: 12px; margin-bottom: 8px; }
+  .endpoint-body p.new-tag { display: inline-block; background: var(--teal); color: white; font-size: 8.5px; font-weight: 800; text-transform: uppercase; letter-spacing: 0.06em; padding: 2px 8px; border-radius: 999px; margin: 0 0 8px 0; }
+
+  table.ptable { width: 100%; border-collapse: collapse; margin: 4px 0 10px 0; font-size: 10.5px; }
+  table.ptable th { text-align: left; font-size: 9px; text-transform: uppercase; letter-spacing: 0.06em; color: var(--text-3); font-weight: 800; padding: 5px 7px; border-bottom: 2px solid var(--border); }
+  table.ptable td { padding: 6px 7px; border-bottom: 1px solid var(--border); color: var(--text-2); vertical-align: top; }
+  table.ptable td.name { font-family: 'Consolas', monospace; font-weight: 700; color: var(--navy); white-space: nowrap; }
+  table.ptable td.req { color: var(--danger); font-weight: 800; }
+  table.ptable td.type { color: var(--text-3); white-space: nowrap; font-family: 'Consolas', monospace; font-size: 9.5px; }
+
+  table.errtable { width: 100%; border-collapse: collapse; margin: 6px 0 4px 0; font-size: 11px; }
+  table.errtable th { text-align: left; font-size: 9.5px; text-transform: uppercase; letter-spacing: 0.06em; color: var(--text-3); font-weight: 800; padding: 6px 8px; border-bottom: 2px solid var(--border); }
+  table.errtable td { padding: 6px 8px; border-bottom: 1px solid var(--border); color: var(--text-2); vertical-align: top; }
+  table.errtable td.status { font-family: 'Consolas', monospace; font-weight: 800; }
+  table.errtable td.status.err4 { color: var(--warn); }
+  table.errtable td.status.err5 { color: var(--danger); }
+  table.errtable td.code { font-family: 'Consolas', monospace; font-size: 10px; color: var(--navy-2); font-weight: 700; }
+
+  table.scopetable { width: 100%; border-collapse: collapse; margin: 8px 0 4px 0; font-size: 11px; }
+  table.scopetable th { text-align: left; font-size: 9.5px; text-transform: uppercase; letter-spacing: 0.06em; color: var(--text-3); font-weight: 800; padding: 7px 8px; border-bottom: 2px solid var(--border); }
+  table.scopetable td { padding: 8px 8px; border-bottom: 1px solid var(--border); color: var(--text-2); vertical-align: top; }
+  table.scopetable td.scope { font-family: 'Consolas', monospace; font-weight: 800; color: var(--navy); white-space: nowrap; }
+
+  .flow-step {
+    display: flex; gap: 12px; margin: 0 0 9px 0; break-inside: avoid;
+  }
+  .flow-step .fnum {
+    width: 26px; height: 26px; border-radius: 8px; background: var(--navy); color: white;
+    font-size: 12px; font-weight: 800; display: flex; align-items: center; justify-content: center; flex-shrink: 0; margin-top: 2px;
+  }
+  .flow-step .fbody { flex: 1; min-width: 0; }
+  .flow-step .ftitle { font-size: 13px; font-weight: 800; color: var(--navy); margin-bottom: 4px; }
+  .flow-step .fdesc { font-size: 11.5px; color: var(--text-2); margin-bottom: 6px; }
+</style>
+</head>
+<body>
+
+<!-- ============ CAPA ============ -->
+<div class="page cover">
+  <div class="glow"></div>
+  <div class="brand-mark"><div class="dot"></div><span>SSX Desk</span></div>
+  <div>
+    <div class="kicker">Guia Técnico · API de Integração v1 · Recurso</div>
+    <h1>Tickets Internos<br>via API</h1>
+    <div class="role-pill">⚙ Uso: sistemas que integram com o backlog interno</div>
+    <p class="lede">Como consultar, abrir, atualizar e conversar (notas) com o backlog interno de dev/infra/QA/produto do SSX Desk — autenticado por chave de API própria, com exemplos reais de consumo.</p>
+  </div>
+  <div class="cover-footer">
+    <div class="meta"><b>SSX Desk</b>Plataforma de Atendimento ao Cliente</div>
+    <div class="meta"><b>Recurso</b>/api/integrations/v1/internal-tickets</div>
+  </div>
+</div>
+
+<!-- ============ 01 VISÃO GERAL ============ -->
+<div class="page">
+  <div class="page-head"><span class="tag">Capítulo 01 · Introdução</span><span class="brand">SSX Desk · Tickets Internos via API</span></div>
+  <div class="section-icon-row"><div class="section-icon">🛠</div><h2 class="section-title mt-0">Visão geral</h2></div>
+  <p class="section-lede">O backlog interno do próprio SSX Desk, acessível por API.</p>
+
+  <p>Ticket interno é o registro de trabalho de dev/infra/QA/produto do time que opera o SSX Desk — diferente de <b>chamado</b>, que é o atendimento ao cliente final. Esta API permite que outro sistema (um board externo, uma ferramenta de monitoramento, um pipeline de CI/CD) <b>abra</b>, <b>consulte</b>, <b>atualize</b> e <b>converse por notas</b> com esse backlog, sem precisar logar no portal.</p>
+
+  <div class="callout danger"><span class="ico">⚠</span><p><b>Este recurso é mais sensível que os demais da API de integração.</b> Chamados, conversas, empresas e funcionários são dado da EMPRESA-CLIENTE; ticket interno é a operação interna do próprio SSX Desk — conceda o escopo só a integrações que realmente precisam enxergar esse backlog, nunca como padrão de toda chave nova.</p></div>
+
+  <h3 class="sub-title"><span class="num">i</span>O que cada ticket interno carrega</h3>
+  <table class="ptable">
+    <tr><th>Campo</th><th>Tipo</th><th>Descrição</th></tr>
+    <tr><td class="name">title / description</td><td class="type">string</td><td>Título e descrição do problema/tarefa.</td></tr>
+    <tr><td class="name">queueId</td><td class="type">uuid</td><td>Fila do ticket (Configurações → Filas de Ticket Interno) — <b>obrigatória</b> em toda criação.</td></tr>
+    <tr><td class="name">status / subStatus</td><td class="type">string</td><td>Rótulos cadastrados em Configurações (escopo "Tickets Internos"). Ex.: Novo, Em Andamento, Resolvido.</td></tr>
+    <tr><td class="name">priority</td><td class="type">1 a 4</td><td>Estrelas de prioridade — 1 Baixa, 2 Média, 3 Alta, 4 Urgente. Decide o prazo (slaLimit).</td></tr>
+    <tr><td class="name">assigneeId / creatorId</td><td class="type">uuid</td><td>Responsável e quem abriu o ticket.</td></tr>
+    <tr><td class="name">slaLimit</td><td class="type">ISO 8601</td><td><b>Calculado</b> a partir da prioridade — nunca enviado por quem chama a API.</td></tr>
+    <tr><td class="name">tags</td><td class="type">string[]</td><td>Marcadores livres.</td></tr>
+    <tr><td class="name">qaRejected / environmentRejected / lateDelivery / resolvedAt</td><td class="type">—</td><td><b>Só leitura</b> — fluxo e permissão própria dentro do portal (ver capítulo 03).</td></tr>
+  </table>
+
+  <h3 class="sub-title"><span class="num">ii</span>Pré-requisito</h3>
+  <p>Uma chave de API com o escopo <code>internal-tickets:read</code> e/ou <code>internal-tickets:write</code>, gerada em <b>Configurações → Integrações</b> dentro do portal (ver capítulo 02). O endereço base é o mesmo da API de integração completa:</p>
+  <div class="code-block"><span class="c"># exemplo — troque pelo domínio real do seu SSX Desk</span>
+https://suporte.suaempresa.com.br/api/integrations/v1/internal-tickets</div>
+
+  <div class="page-foot"><span>SSX Desk</span><span>01 — Visão geral</span></div>
+</div>
+
+<!-- ============ 02 AUTENTICAÇÃO ============ -->
+<div class="page">
+  <div class="page-head"><span class="tag">Capítulo 02 · Acesso</span><span class="brand">SSX Desk · Tickets Internos via API</span></div>
+  <div class="section-icon-row"><div class="section-icon">🔑</div><h2 class="section-title mt-0">Autenticação & escopos</h2></div>
+  <p class="section-lede">Uma chave por integração, com só os dois escopos deste recurso.</p>
+
+  <h3 class="sub-title"><span class="num">1</span>Gerar a chave</h3>
+  <ol class="steps">
+    <li>No portal: <b>Configurações → Integrações</b> (exige a permissão "Integrações" ou ser Administrador).</li>
+    <li>Clique em <b>Nova Chave</b>, dê um nome que identifique a integração (ex.: "Board de Engenharia") e marque <b>só</b> os escopos abaixo.</li>
+    <li>A chave completa (formato <code>ssx_...</code>) aparece <b>uma única vez</b>, na hora da criação — copie e guarde num cofre de segredos. Não há recuperação depois: perdida, a única saída é gerar outra e revogar a antiga.</li>
+  </ol>
+
+  <h3 class="sub-title"><span class="num">2</span>Enviar a chave nas requisições</h3>
+  <div class="code-block"><span class="c">Authorization: Bearer ssx_a1b2c3d4e5f6...</span>
+<span class="c"># — ou —</span>
+x-api-key: ssx_a1b2c3d4e5f6...</div>
+
+  <h3 class="sub-title"><span class="num">3</span>Escopos deste recurso</h3>
+  <table class="scopetable">
+    <tr><th>Escopo</th><th>Libera</th></tr>
+    <tr><td class="scope">internal-tickets:read</td><td>Listar e consultar tickets internos e suas notas.</td></tr>
+    <tr><td class="scope">internal-tickets:write</td><td>Abrir e atualizar tickets internos, e adicionar notas — já inclui leitura.</td></tr>
+  </table>
+
+  <h3 class="sub-title"><span class="num">4</span>Testar antes de integrar de verdade</h3>
+  <div class="endpoint">
+    <div class="endpoint-head"><span class="method get">GET</span><span class="endpoint-path">/api/integrations/v1/ping</span><span class="endpoint-scope chip off">sem escopo</span></div>
+    <div class="endpoint-body">
+      <div class="code-label">Resposta 200</div>
+      <div class="code-block">{ <span class="k">"data"</span>: { <span class="k">"ok"</span>: true, <span class="k">"keyName"</span>: <span class="s">"Board de Engenharia"</span>, <span class="k">"scopes"</span>: [<span class="s">"internal-tickets:read"</span>, <span class="s">"internal-tickets:write"</span>] } }</div>
+    </div>
+  </div>
+
+  <div class="page-foot"><span>SSX Desk</span><span>02 — Autenticação & escopos</span></div>
+</div>
+
+<!-- ============ 03 CONSULTAR ============ -->
+<div class="page">
+  <div class="page-head"><span class="tag">Capítulo 03 · Endpoint</span><span class="brand">SSX Desk · Tickets Internos via API</span></div>
+  <div class="section-icon-row"><div class="section-icon">🔎</div><h2 class="section-title mt-0">Listar e consultar</h2></div>
+  <p class="section-lede">Sem filtro ou por qualquer combinação de parâmetros — todos somam (E lógico).</p>
+
+  <div class="endpoint">
+    <div class="endpoint-head"><span class="method get">GET</span><span class="endpoint-path">/api/integrations/v1/internal-tickets</span><span class="endpoint-scope chip">internal-tickets:read</span></div>
+    <div class="endpoint-body">
+      <p>Com <code>id</code>, devolve o ticket + <b>todas</b> as notas (sem filtro de visibilidade — ticket interno não tem "nota visível ao cliente"). Sem <code>id</code>, retorna uma página filtrável.</p>
+      <table class="ptable">
+        <tr><th>Parâmetro</th><th>Onde</th><th>Descrição</th></tr>
+        <tr><td class="name">id</td><td class="type">query</td><td>Retorna esse ticket + notas (ignora os demais filtros).</td></tr>
+        <tr><td class="name">queueId / status / subStatus</td><td class="type">query</td><td>Fila e status do ticket.</td></tr>
+        <tr><td class="name">priority</td><td class="type">query</td><td>1 a 4.</td></tr>
+        <tr><td class="name">assigneeId / creatorId</td><td class="type">query</td><td>Responsável / quem abriu.</td></tr>
+        <tr><td class="name">tags</td><td class="type">query</td><td>Separadas por vírgula — qualquer uma basta.</td></tr>
+        <tr><td class="name">search / contentSearch</td><td class="type">query</td><td>Trecho do título / da descrição.</td></tr>
+        <tr><td class="name">createdFrom / createdTo / updatedSince</td><td class="type">query</td><td>ISO 8601 — filtro de data e sincronização incremental.</td></tr>
+        <tr><td class="name">limit / offset</td><td class="type">query</td><td>Paginação. Padrão 100, máximo 500.</td></tr>
+      </table>
+
+      <div class="code-label">Exemplo — detalhe com notas</div>
+      <div class="code-block"><span class="c">GET /api/integrations/v1/internal-tickets?id=a93f1c...</span>
+
+<span class="c"># Resposta 200</span>
+{ <span class="k">"data"</span>: { <span class="k">"id"</span>: <span class="s">"a93f1c..."</span>, <span class="k">"ticketNumber"</span>: 1532, <span class="k">"title"</span>: <span class="s">"Erro ao gerar relatório de SLA"</span>,
+  <span class="k">"status"</span>: <span class="s">"Em Andamento"</span>, <span class="k">"priority"</span>: 3, <span class="k">"queueId"</span>: <span class="s">"f0a1..."</span>, <span class="k">"assigneeId"</span>: <span class="s">"c3d4..."</span>,
+  <span class="k">"slaLimit"</span>: <span class="s">"2026-11-21T18:00:00.000Z"</span>,
+  <span class="k">"messages"</span>: [{ <span class="k">"id"</span>: 7421, <span class="k">"authorId"</span>: <span class="s">"c3d4..."</span>, <span class="k">"content"</span>: <span class="s">"Reproduzido em homologação..."</span>, <span class="k">"createdAt"</span>: <span class="s">"..."</span> }] } }</div>
+    </div>
+  </div>
+
+  <div class="callout tip"><span class="ico">✓</span><p>Sincronização incremental: <code>GET ?updatedSince=2026-11-01T00:00:00Z&queueId=f0a1...</code>. Guarde o horário em que a rodada <b>terminou</b> (não em que começou) e use esse valor na próxima — assim nenhuma mudança fica de fora.</p></div>
+
+  <div class="page-foot"><span>SSX Desk</span><span>03 — Listar e consultar</span></div>
+</div>
+
+<!-- ============ 04 ABRIR ============ -->
+<div class="page">
+  <div class="page-head"><span class="tag">Capítulo 04 · Endpoint</span><span class="brand">SSX Desk · Tickets Internos via API</span></div>
+  <div class="section-icon-row"><div class="section-icon">＋</div><h2 class="section-title mt-0">Abrir ticket interno</h2></div>
+  <p class="section-lede">Fila obrigatória, prazo calculado, criação à prova de reenvio.</p>
+
+  <div class="endpoint">
+    <div class="endpoint-head"><span class="method post">POST</span><span class="endpoint-path">/api/integrations/v1/internal-tickets</span><span class="endpoint-scope chip">internal-tickets:write</span></div>
+    <div class="endpoint-body">
+      <table class="ptable">
+        <tr><th>Campo</th><th>Onde</th><th>Descrição</th></tr>
+        <tr><td class="name">title</td><td class="type">body</td><td class="req">obrigatório</td></tr>
+        <tr><td class="name">description</td><td class="type">body</td><td class="req">obrigatório</td></tr>
+        <tr><td class="name">queueId</td><td class="type">body</td><td class="req">obrigatório — fila precisa existir e estar ATIVA</td></tr>
+        <tr><td class="name">priority</td><td class="type">body</td><td>1 (padrão) a 4.</td></tr>
+        <tr><td class="name">assigneeId / creatorId</td><td class="type">body</td><td>Opcionais, se já conhecidos.</td></tr>
+        <tr><td class="name">tags</td><td class="type">body</td><td>Array de marcadores livres.</td></tr>
+        <tr><td class="name">expectedPublishDate</td><td class="type">body</td><td>Data prevista de entrega (estimativa própria — não é o SLA).</td></tr>
+        <tr><td class="name">creationRequestId</td><td class="type">body</td><td>UUID por tentativa de criação (ver abaixo).</td></tr>
+      </table>
+
+      <div class="code-label">Exemplo de requisição</div>
+      <div class="code-block"><span class="c">POST /api/integrations/v1/internal-tickets</span>
+{ <span class="k">"title"</span>: <span class="s">"Erro ao gerar relatório de SLA"</span>,
+  <span class="k">"description"</span>: <span class="s">"Relatório trava em \"Carregando\" para período acima de 90 dias."</span>,
+  <span class="k">"queueId"</span>: <span class="s">"f0a1..."</span>, <span class="k">"priority"</span>: 3, <span class="k">"tags"</span>: [<span class="s">"bug"</span>],
+  <span class="k">"creationRequestId"</span>: <span class="s">"6e2c0d2e-..."</span> }
+
+<span class="c"># Resposta 201</span>
+{ <span class="k">"data"</span>: { <span class="k">"id"</span>: <span class="s">"a93f1c..."</span>, <span class="k">"ticketNumber"</span>: 1533, <span class="k">"status"</span>: <span class="s">"Novo"</span>,
+  <span class="k">"slaLimit"</span>: <span class="s">"2026-11-22T12:00:00.000Z"</span>, <span class="k">"createdAt"</span>: <span class="s">"2026-11-19T12:00:00.000Z"</span> } }</div>
+    </div>
+  </div>
+
+  <div class="callout info"><span class="ico">i</span><p><b>Prazo (slaLimit) sempre calculado</b> a partir da prioridade — nunca enviado por quem chama a API. <b>creationRequestId</b> é um UUID seu, um por tentativa: reenviar a mesma requisição (retry de rede) nunca cria um segundo ticket, só devolve o que a primeira já criou.</p></div>
+
+  <div class="page-foot"><span>SSX Desk</span><span>04 — Abrir ticket interno</span></div>
+</div>
+
+<!-- ============ 05 ATUALIZAR ============ -->
+<div class="page">
+  <div class="page-head"><span class="tag">Capítulo 05 · Endpoint</span><span class="brand">SSX Desk · Tickets Internos via API</span></div>
+  <div class="section-icon-row"><div class="section-icon">✎</div><h2 class="section-title mt-0">Atualizar ticket interno</h2></div>
+  <p class="section-lede">Atualização parcial — envie só os campos que vão mudar.</p>
+
+  <div class="endpoint">
+    <div class="endpoint-head"><span class="method patch">PATCH</span><span class="endpoint-path">/api/integrations/v1/internal-tickets?id=</span><span class="endpoint-scope chip">internal-tickets:write</span></div>
+    <div class="endpoint-body">
+      <table class="ptable">
+        <tr><th>Campo</th><th>Onde</th><th>Descrição</th></tr>
+        <tr><td class="name">id</td><td class="type">query</td><td class="req">obrigatório</td></tr>
+        <tr><td class="name">title / description</td><td class="type">body</td><td>Novo título/descrição.</td></tr>
+        <tr><td class="name">status</td><td class="type">body</td><td>Precisa ser rótulo cadastrado em Configurações.</td></tr>
+        <tr><td class="name">subStatus</td><td class="type">body</td><td>Precisa ser filho do status informado (ou do atual).</td></tr>
+        <tr><td class="name">priority</td><td class="type">body</td><td>1 a 4 — recalcula o prazo automaticamente.</td></tr>
+        <tr><td class="name">tags</td><td class="type">body</td><td>Substitui os marcadores.</td></tr>
+        <tr><td class="name">assigneeId</td><td class="type">body</td><td>Novo responsável.</td></tr>
+        <tr><td class="name">queueId</td><td class="type">body</td><td>Reatribui a fila (nunca remove).</td></tr>
+        <tr><td class="name">expectedPublishDate</td><td class="type">body</td><td>Nova data prevista (<code>null</code> limpa).</td></tr>
+      </table>
+
+      <div class="code-label">Exemplo — marcar como resolvido</div>
+      <div class="code-block"><span class="c">PATCH /api/integrations/v1/internal-tickets?id=a93f1c...</span>
+Authorization: Bearer ssx_...
+Content-Type: application/json
+
+{ <span class="k">"status"</span>: <span class="s">"Resolvido"</span> }
+
+<span class="c"># Resposta 200</span>
+{ <span class="k">"data"</span>: { <span class="k">"id"</span>: <span class="s">"a93f1c..."</span>, <span class="k">"status"</span>: <span class="s">"Resolvido"</span>,
+  <span class="k">"updatedAt"</span>: <span class="s">"2026-11-19T16:00:00.000Z"</span> } }</div>
+    </div>
+  </div>
+
+  <div class="callout danger"><span class="ico">⚠</span><p><b>A fila nunca pode ser removida</b>, só reatribuída para outra fila ativa — um ticket que já tem fila não volta a "sem fila" por esta API, mesma regra do portal. Status inexistente em Configurações devolve <b>400 VALIDATION_ERROR</b>, sem gravar nada.</p></div>
+
+  <div class="page-foot"><span>SSX Desk</span><span>05 — Atualizar ticket interno</span></div>
+</div>
+
+<!-- ============ 06 NOTAS ============ -->
+<div class="page">
+  <div class="page-head"><span class="tag">Capítulo 06 · Endpoint</span><span class="brand">SSX Desk · Tickets Internos via API</span></div>
+  <div class="section-icon-row"><div class="section-icon">💬</div><h2 class="section-title mt-0">Notas — ver e adicionar</h2></div>
+  <p class="section-lede">Toda nota de ticket interno é interna por definição — não há filtro de visibilidade.</p>
+
+  <div class="endpoint">
+    <div class="endpoint-head"><span class="method get">GET</span><span class="endpoint-path">/api/integrations/v1/internal-tickets/messages</span><span class="endpoint-scope chip">internal-tickets:read</span></div>
+    <div class="endpoint-body">
+      <table class="ptable">
+        <tr><th>Parâmetro</th><th>Onde</th><th>Descrição</th></tr>
+        <tr><td class="name">internalTicketId</td><td class="type">query</td><td class="req">obrigatório</td></tr>
+      </table>
+      <div class="code-label">Exemplo</div>
+      <div class="code-block"><span class="c">GET /api/integrations/v1/internal-tickets/messages?internalTicketId=a93f1c...</span>
+<span class="c"># Resposta 200</span>
+{ <span class="k">"data"</span>: [
+  { <span class="k">"id"</span>: 7420, <span class="k">"authorId"</span>: <span class="s">"b7e1..."</span>, <span class="k">"content"</span>: <span class="s">"Abri este ticket a partir do chamado #4821."</span> },
+  { <span class="k">"id"</span>: 7421, <span class="k">"authorId"</span>: <span class="s">"c3d4..."</span>, <span class="k">"content"</span>: <span class="s">"Reproduzido em homologação..."</span> }
+], <span class="k">"meta"</span>: { <span class="k">"total"</span>: 2 } }</div>
+    </div>
+  </div>
+
+  <div class="endpoint">
+    <div class="endpoint-head"><span class="method post">POST</span><span class="endpoint-path">/api/integrations/v1/internal-tickets/messages</span><span class="endpoint-scope chip">internal-tickets:write</span></div>
+    <div class="endpoint-body">
+      <p>O criador e o responsável do ticket recebem o mesmo e-mail de aviso que já recebem quando a nota vem do portal.</p>
+      <table class="ptable">
+        <tr><th>Campo</th><th>Onde</th><th>Descrição</th></tr>
+        <tr><td class="name">internalTicketId</td><td class="type">body</td><td class="req">obrigatório</td></tr>
+        <tr><td class="name">content</td><td class="type">body</td><td class="req">obrigatório — aceita HTML simples</td></tr>
+        <tr><td class="name">authorId</td><td class="type">body</td><td>Autor da nota, se conhecido.</td></tr>
+      </table>
+      <div class="code-label">Exemplo</div>
+      <div class="code-block"><span class="c">POST /api/integrations/v1/internal-tickets/messages</span>
+{ <span class="k">"internalTicketId"</span>: <span class="s">"a93f1c..."</span>, <span class="k">"content"</span>: <span class="s">"Correção aplicada, aguardando deploy."</span>, <span class="k">"authorId"</span>: <span class="s">"c3d4..."</span> }
+<span class="c"># Resposta 201</span>
+{ <span class="k">"data"</span>: { <span class="k">"id"</span>: 7422, <span class="k">"content"</span>: <span class="s">"Correção aplicada, aguardando deploy."</span>, <span class="k">"createdAt"</span>: <span class="s">"2026-11-19T17:00:00.000Z"</span> } }</div>
+    </div>
+  </div>
+
+  <div class="callout warn"><span class="ico">!</span><p>Esta versão não aceita <b>anexo binário</b> — imagem colada em base64 dentro do <code>content</code> é extraída e salva automaticamente, mas pra referenciar um arquivo já hospedado em outro lugar, inclua a URL no próprio texto da nota.</p></div>
+
+  <div class="page-foot"><span>SSX Desk</span><span>06 — Notas</span></div>
+</div>
+
+<!-- ============ 07 EXEMPLO DE CONSUMO REAL ============ -->
+<div class="page">
+  <div class="page-head"><span class="tag">Capítulo 07 · Prática</span><span class="brand">SSX Desk · Tickets Internos via API</span></div>
+  <div class="section-icon-row"><div class="section-icon">▶</div><h2 class="section-title mt-0">Exemplo de consumo real</h2></div>
+  <p class="section-lede">Um sistema de monitoramento abrindo e acompanhando um ticket, do alerta à resolução.</p>
+
+  <div class="flow-step">
+    <div class="fnum">1</div>
+    <div class="fbody">
+      <div class="ftitle">Alerta dispara → abre o ticket</div>
+      <div class="fdesc">O sistema de monitoramento detecta a falha e abre o ticket já na fila certa, com um <code>creationRequestId</code> próprio — se o alerta repetir por timeout, nunca duplica.</div>
+      <div class="code-block"><span class="c">POST /api/integrations/v1/internal-tickets</span>
+{ <span class="k">"title"</span>: <span class="s">"CPU acima de 95% — servidor de embeddings"</span>,
+  <span class="k">"description"</span>: <span class="s">"Alerta do Zabbix às 03:12. Processo node consumindo 97% de CPU por 12min seguidos."</span>,
+  <span class="k">"queueId"</span>: <span class="s">"f0a1..."</span>, <span class="k">"priority"</span>: 4, <span class="k">"tags"</span>: [<span class="s">"infra"</span>, <span class="s">"alerta-automatico"</span>],
+  <span class="k">"creationRequestId"</span>: <span class="s">"c2b6e4b0-2026-11-20-cpu-alert"</span> }
+<span class="c">→ 201, id "a93f1c...", ticketNumber 1601</span></div>
+    </div>
+  </div>
+
+  <div class="flow-step">
+    <div class="fnum">2</div>
+    <div class="fbody">
+      <div class="ftitle">Analista assume → sistema registra a nota</div>
+      <div class="fdesc">Quando o próprio portal atribui o ticket (ou outro sistema informa quem assumiu), o monitoramento grava uma nota de acompanhamento.</div>
+      <div class="code-block"><span class="c">POST /api/integrations/v1/internal-tickets/messages</span>
+{ <span class="k">"internalTicketId"</span>: <span class="s">"a93f1c..."</span>,
+  <span class="k">"content"</span>: <span class="s">"Pico de CPU associado ao job de reindexação de embeddings — reiniciado o scheduler."</span> }
+<span class="c">→ 201, id 9011</span></div>
+    </div>
+  </div>
+
+  <div class="flow-step">
+    <div class="fnum">3</div>
+    <div class="fbody">
+      <div class="ftitle">Dashboard externo sincroniza o progresso</div>
+      <div class="fdesc">Em paralelo, um painel interno de operações lista as notas pra exibir a linha do tempo do incidente, sem depender de abrir o portal.</div>
+      <div class="code-block"><span class="c">GET /api/integrations/v1/internal-tickets/messages?internalTicketId=a93f1c...</span>
+<span class="c">→ 200, 2 notas (abertura automática + ação do analista)</span></div>
+    </div>
+  </div>
+
+  <div class="flow-step">
+    <div class="fnum">4</div>
+    <div class="fbody">
+      <div class="ftitle">Métrica normaliza → fecha o ciclo</div>
+      <div class="fdesc">O monitoramento confirma que a CPU normalizou e atualiza o status — o criador e o responsável recebem o e-mail de atualização automaticamente.</div>
+      <div class="code-block"><span class="c">PATCH /api/integrations/v1/internal-tickets?id=a93f1c...</span>
+{ <span class="k">"status"</span>: <span class="s">"Resolvido"</span> }
+<span class="c">→ 200, status "Resolvido"</span></div>
+    </div>
+  </div>
+
+  <div class="flow-step">
+    <div class="fnum">5</div>
+    <div class="fbody">
+      <div class="ftitle">Rodada seguinte — só o que mudou</div>
+      <div class="fdesc">A próxima sincronização do painel usa <code>updatedSince</code> com o horário em que a última rodada terminou, em vez de reler o backlog inteiro.</div>
+      <div class="code-block"><span class="c">GET /api/integrations/v1/internal-tickets?queueId=f0a1...&updatedSince=2026-11-20T03:30:00Z</span></div>
+    </div>
+  </div>
+
+  <div class="page-foot"><span>SSX Desk</span><span>07 — Exemplo de consumo real</span></div>
+</div>
+
+<!-- ============ 08 ERROS & CHECKLIST ============ -->
+<div class="page">
+  <div class="page-head"><span class="tag">Capítulo 08 · Fechamento</span><span class="brand">SSX Desk · Tickets Internos via API</span></div>
+  <div class="section-icon-row"><div class="section-icon">✓</div><h2 class="section-title mt-0">Erros & checklist</h2></div>
+  <p class="section-lede">Confira antes de ligar a integração em produção.</p>
+
+  <table class="errtable">
+    <tr><th>Status</th><th>Código</th><th>Quando acontece</th></tr>
+    <tr><td class="status err4">401</td><td class="code">UNAUTHORIZED</td><td>Chave ausente, inválida ou revogada.</td></tr>
+    <tr><td class="status err4">403</td><td class="code">FORBIDDEN_SCOPE</td><td>Chave sem <code>internal-tickets:read</code>/<code>write</code>.</td></tr>
+    <tr><td class="status err4">400</td><td class="code">VALIDATION_ERROR</td><td>Campo obrigatório ausente, <code>queueId</code> inexistente/desativado, <code>priority</code> fora de 1–4, ou <code>status</code>/<code>subStatus</code> não cadastrado.</td></tr>
+    <tr><td class="status err4">404</td><td class="code">NOT_FOUND</td><td>O <code>id</code>/<code>internalTicketId</code> informado não existe.</td></tr>
+    <tr><td class="status err4">429</td><td class="code">RATE_LIMITED</td><td>Mais de 120 requisições/minuto para essa chave.</td></tr>
+    <tr><td class="status err5">500</td><td class="code">INTERNAL_ERROR</td><td>Falha inesperada do servidor.</td></tr>
+  </table>
+
+  <ul class="feat-list">
+    <li>✓ Chave criada com <b>só os escopos necessários</b> (<code>internal-tickets:read</code> e/ou <code>write</code>) — nunca "por garantia".</li>
+    <li>✓ Todo <code>POST</code> de criação envia <code>creationRequestId</code> próprio — retry de rede nunca duplica o ticket.</li>
+    <li>✓ Sincronização recorrente usa <code>updatedSince</code>, nunca relê o backlog inteiro a cada rodada.</li>
+    <li>✓ A plataforma parceira trata <b>429</b> com espera e nova tentativa, em vez de descartar a chamada.</li>
+    <li>✓ A chave fica guardada num cofre de segredos — nunca em código versionado.</li>
+    <li>✓ Chamada feita sempre do <b>backend</b> da plataforma parceira, nunca do navegador do usuário final.</li>
+  </ul>
+
+  <div class="callout info"><span class="ico">i</span><p>Este guia é um recorte do <b>Manual de Integração — API Externa v1</b> completo (capítulo 08 lá), que também cobre Empresas, Funcionários, Chamados e Conversas — consulte-o se a integração for usar mais de um recurso.</p></div>
+
+  <div class="page-foot"><span>SSX Desk</span><span>08 — Erros & checklist</span></div>
+</div>
+
+<!-- ============ CONTRACAPA ============ -->
+<div class="page backcover">
+  <div class="dot"></div>
+  <h3>SSX Desk</h3>
+  <p>Tickets Internos via API — recorte do Manual de Integração v1<br>Chaves de API são gerenciadas em Configurações → Integrações, por quem administra o sistema.</p>
+</div>
+
+</body>
+</html>
