@@ -179,11 +179,13 @@ function SortableHeader({
 
 // Mesmo vocabulário de cor do Kanban em Tickets Internos — o anel do chip
 // usa a cor do status mais urgente entre os tickets internos vinculados.
-const INTERNAL_STATUS_RANK: Record<string, number> = { 'Em Andamento': 0, 'Novo': 1, 'Em Espera': 2, 'Concluído': 3 };
+// "Resolvido" (cadastrado depois) pintava com o azul do "Novo" — 2026-11-24.
+const INTERNAL_STATUS_RANK: Record<string, number> = { 'Em Andamento': 0, 'Novo': 1, 'Em Espera': 2, 'Resolvido': 3, 'Concluído': 4 };
 const INTERNAL_STATUS_DOT: Record<string, string> = {
   'Novo': 'bg-[var(--text-info)]',
   'Em Andamento': 'bg-[var(--text-warning)]',
   'Em Espera': 'bg-[var(--text-secondary)]',
+  'Resolvido': 'bg-[var(--text-success)]',
   'Concluído': 'bg-[var(--text-success)]',
 };
 

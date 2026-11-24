@@ -212,12 +212,27 @@ export default function MyTicketsPage() {
   // rótulo fixo; "Concluído" é só o fallback enquanto o cadastro não chega.
   const [showClosedInternal, setShowClosedInternal] = useState(false);
   const [closedInternalLabels, setClosedInternalLabels] = useState<string[]>(['Concluído']);
+  // Selo de status do card, montado do MESMO cadastro (2026-11-24): antes era
+  // só o mapa fixo INTERNAL_STATUS_META (4 status), e qualquer status fora
+  // dele — "Resolvido", cadastrado depois — caía no fallback e aparecia como
+  // "Novo" (relato do Dagoberto). Mesma cor da lista de Tickets Internos
+  // (findStatusColor sobre config_statuses.color).
+  const [internalStatusMeta, setInternalStatusMeta] = useState<Record<string, { label: string; color: string }>>(INTERNAL_STATUS_META);
   useEffect(() => {
     if (!isInternalRole) return;
     ConfigService.getStatuses('internal_ticket')
       .then(data => {
         const fechados = (data || []).filter((st: any) => st.isClosed).map((st: any) => st.label);
         if (fechados.length > 0) setClosedInternalLabels(fechados);
+        const topo = (data || []).filter((st: any) => !st.parentStatusId);
+        if (topo.length > 0) {
+          const meta: Record<string, { label: string; color: string }> = {};
+          topo.forEach((st: any) => {
+            const c = findStatusColor(st.color);
+            meta[st.label] = { label: st.label, color: `${c.bg} ${c.text}` };
+          });
+          setInternalStatusMeta(meta);
+        }
       })
       .catch(() => {});
   }, [isInternalRole]);
@@ -704,7 +719,10 @@ export default function MyTicketsPage() {
             <>
               <div className={cn("grid gap-6", view === 'grid' ? "grid-cols-1 md:grid-cols-2 lg:grid-cols-3" : "grid-cols-1")}>
                 {visibleInternalTickets.map(it => {
-                  const meta = INTERNAL_STATUS_META[it.status || 'Novo'] || INTERNAL_STATUS_META['Novo'];
+                  // Status fora do cadastro (ex.: renomeado depois) mostra o
+                  // próprio nome em cor neutra — nunca "Novo" por engano.
+                  const statusAtual = it.status || 'Novo';
+                  const meta = internalStatusMeta[statusAtual] || { label: statusAtual, color: 'bg-[var(--surface-pill)] text-[var(--text-secondary)]' };
                   const isCreatorOnly = it.creatorId === currentUser?.id && it.assigneeId !== currentUser?.id;
                   const responsavel = it.assigneeId ? analystsById.get(it.assigneeId) : undefined;
                   const nomeResponsavel = responsavel?.name || (loadingAnalysts ? 'Carregando…' : 'Usuário não encontrado');
