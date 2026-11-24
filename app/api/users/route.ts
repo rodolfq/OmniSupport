@@ -231,7 +231,13 @@ export async function GET(request: Request) {
       const page = Math.max(1, parseInt(searchParams.get('page') || '1', 10) || 1);
       const pageSize = Math.min(50, Math.max(1, parseInt(searchParams.get('pageSize') || '9', 10) || 9));
       const offset = (page - 1) * pageSize;
+      // Sem diferenciar acento (lib/sql-unaccent.ts).
       const likeParam = likeTerm(q);
+      // firstIds (2026-11-24, pedido do usuário): quem já está associado (ex.:
+      // membros atuais da fila) vem antes, em TODAS as páginas — a lista é
+      // paginada aqui, então reordenar só no navegador não bastaria. Só
+      // ordena; não filtra nem expõe nada além do que a busca já devolve.
+      const firstIds = (searchParams.get('firstIds') || '').split(',').map(s => s.trim()).filter(Boolean);
 
       const res = await query(
         `SELECT id, name, email, role, company_id, phone, internal_team_ids, avatar_thumb_url,
@@ -240,9 +246,9 @@ export async function GET(request: Request) {
          FROM public.profiles
          WHERE role IN ('Administrador', 'Equipe', 'Time Interno')
            AND ($1 = '' OR ${unaccentCol('name')} ILIKE $2 OR email ILIKE $2)
-         ORDER BY name ASC
+         ORDER BY (id::text = ANY($5::text[])) DESC, name ASC
          LIMIT $3 OFFSET $4`,
-        [q, likeParam, pageSize, offset]
+        [q, likeParam, pageSize, offset, firstIds]
       );
       return NextResponse.json({
         items: res.rows.map(r => ({

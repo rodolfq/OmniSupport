@@ -175,6 +175,19 @@ export default function ChatInternalPage() {
   const [bubbleColor, setBubbleColor] = useState(currentUser?.chatPreferences?.bubbleColor || 'indigo');
   const [avatarSize, setAvatarSize] = useState(currentUser?.chatPreferences?.avatarSize || 'md');
   const [isAddingMember, setIsAddingMember] = useState(false);
+  // O painel "Adicionar" fica DEPOIS da lista de membros atuais; em grupo
+  // grande ele abriria fora da área visível, então rola até ele ao abrir.
+  const addMemberPanelRef = useRef<HTMLDivElement>(null);
+  // "Novo Grupo": quem já veio marcado ao abrir (ex.: "Convidar para Grupo"
+  // a partir de uma conversa 1:1) aparece primeiro. Retrato da abertura, não
+  // a seleção ao vivo, pra a lista não pular embaixo do clique.
+  const [createGroupInitialIds, setCreateGroupInitialIds] = useState<Set<string>>(new Set());
+  useEffect(() => {
+    if (isCreatingGroup) setCreateGroupInitialIds(new Set(selectedMembers));
+  }, [isCreatingGroup]);
+  useEffect(() => {
+    if (isAddingMember) addMemberPanelRef.current?.scrollIntoView({ block: 'nearest', behavior: 'smooth' });
+  }, [isAddingMember]);
   const [addMemberSearch, setAddMemberSearch] = useState('');
   const [addMemberSelectedIds, setAddMemberSelectedIds] = useState<Set<string>>(new Set());
   const [contextMenu, setContextMenu] = useState<{ x: number, y: number, roomId: string | null } | null>(null);
@@ -2418,7 +2431,10 @@ export default function ChatInternalPage() {
                              selecioná-lo por engano e duplicar o próprio id
                              em memberIds (causa da chave repetida/membro
                              aparecendo 2x na lista de Configurações). */}
-                         {allUsers.filter(u => u.id !== currentUser?.id).map((user, uIdx) => (
+                         {allUsers
+                           .filter(u => u.id !== currentUser?.id)
+                           .sort((a, b) => Number(createGroupInitialIds.has(b.id)) - Number(createGroupInitialIds.has(a.id)))
+                           .map((user, uIdx) => (
                            <button
                              key={`create-group-user-${user.id}-${uIdx}`}
                              onClick={() => toggleMemberSelection(user.id)}
@@ -2573,8 +2589,42 @@ export default function ChatInternalPage() {
                     </button>
                   </div>
 
+                  {/* Membros atuais ANTES do painel "Adicionar" (2026-11-24, pedido do usuário: quem já está associado aparece primeiro). */}
+                  <div className="space-y-2">
+                    {/* Set: alguns grupos antigos têm o próprio id duplicado
+                        em memberIds (bug já corrigido no seletor de "Novo
+                        Grupo", que deixava a pessoa se marcar como membro
+                        além de já entrar sozinha na criação) — sem isso,
+                        dava key repetida e o membro aparecia 2x na lista. */}
+                    {[...new Set(selectedRoom.memberIds || [])].map((userId, idx) => {
+                      const user = allUsers.find(u => u.id === userId) || (userId === currentUser?.id ? currentUser : null);
+                      if (!user) return null;
+                      return (
+                        <div key={`member-${userId || idx}`} className="flex items-center gap-4 p-3 rounded-3xl hover:bg-[var(--surface-card)] transition-all group/member">
+                           <div className="w-10 h-10 rounded-xl bg-[var(--surface-pill)] flex items-center justify-center overflow-hidden">
+                              {(user.avatarThumbUrl || user.avatarUrl) ? <img src={user.avatarThumbUrl || user.avatarUrl} className="w-full h-full object-cover" /> : <span className="font-black text-[var(--text-tertiary)]">{user.name.charAt(0)}</span>}
+                           </div>
+                           <div className="flex-1">
+                              <p className="text-sm font-black text-[var(--text-primary)]">{user.name}{userId === currentUser?.id && ' (Sua conta)'}</p>
+                              <p className="text-[10px] font-bold text-[var(--text-tertiary)] uppercase tracking-tighter">{user.role}</p>
+                           </div>
+                           {userId !== currentUser?.id && (
+                             <button 
+                               onClick={() => handleRemoveMember(userId)}
+                               className="p-2 text-slate-300 hover:text-[var(--text-danger)] opacity-0 group-hover/member:opacity-100 transition-all"
+                               title="Remover Membro"
+                             >
+                                <UserMinus size={18} />
+                             </button>
+                           )}
+                        </div>
+                      );
+                    })}
+                  </div>
+
                   {isAddingMember && (
                     <motion.div
+                      ref={addMemberPanelRef}
                       initial={{ opacity: 0, y: -10 }}
                       animate={{ opacity: 1, y: 0 }}
                       className="p-4 bg-[var(--surface-card)] rounded-3xl border border-[var(--border-default)] animate-in fade-in slide-in-from-top-2"
@@ -2632,38 +2682,6 @@ export default function ChatInternalPage() {
                        </button>
                     </motion.div>
                   )}
-
-                  <div className="space-y-2">
-                    {/* Set: alguns grupos antigos têm o próprio id duplicado
-                        em memberIds (bug já corrigido no seletor de "Novo
-                        Grupo", que deixava a pessoa se marcar como membro
-                        além de já entrar sozinha na criação) — sem isso,
-                        dava key repetida e o membro aparecia 2x na lista. */}
-                    {[...new Set(selectedRoom.memberIds || [])].map((userId, idx) => {
-                      const user = allUsers.find(u => u.id === userId) || (userId === currentUser?.id ? currentUser : null);
-                      if (!user) return null;
-                      return (
-                        <div key={`member-${userId || idx}`} className="flex items-center gap-4 p-3 rounded-3xl hover:bg-[var(--surface-card)] transition-all group/member">
-                           <div className="w-10 h-10 rounded-xl bg-[var(--surface-pill)] flex items-center justify-center overflow-hidden">
-                              {(user.avatarThumbUrl || user.avatarUrl) ? <img src={user.avatarThumbUrl || user.avatarUrl} className="w-full h-full object-cover" /> : <span className="font-black text-[var(--text-tertiary)]">{user.name.charAt(0)}</span>}
-                           </div>
-                           <div className="flex-1">
-                              <p className="text-sm font-black text-[var(--text-primary)]">{user.name}{userId === currentUser?.id && ' (Sua conta)'}</p>
-                              <p className="text-[10px] font-bold text-[var(--text-tertiary)] uppercase tracking-tighter">{user.role}</p>
-                           </div>
-                           {userId !== currentUser?.id && (
-                             <button 
-                               onClick={() => handleRemoveMember(userId)}
-                               className="p-2 text-slate-300 hover:text-[var(--text-danger)] opacity-0 group-hover/member:opacity-100 transition-all"
-                               title="Remover Membro"
-                             >
-                                <UserMinus size={18} />
-                             </button>
-                           )}
-                        </div>
-                      );
-                    })}
-                  </div>
                 </div>
 
                 <div className="pt-4">

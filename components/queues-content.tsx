@@ -73,6 +73,10 @@ export function QueuesContent() {
   // Cache de usuários já vistos (por busca ou pré-carregados por id), para
   // mostrar nome/foto de quem está selecionado mas não está na página atual.
   const [memberDetails, setMemberDetails] = useState<Record<string, User>>({});
+  // Membros da fila NO MOMENTO em que o modal abriu — vão primeiro na lista
+  // (2026-11-24, pedido do usuário). Retrato da abertura, não a seleção ao
+  // vivo: marcar/desmarcar não reordena a lista embaixo do clique.
+  const [initialMemberIds, setInitialMemberIds] = useState<string[]>([]);
 
   const { hasPermission, currentUser } = useApp();
 
@@ -115,7 +119,7 @@ export function QueuesContent() {
     const run = async () => {
       setMemberSearchLoading(true);
       try {
-        const { items, total } = await UserService.searchAnalysts(debouncedMemberSearch, memberPage, MEMBER_PAGE_SIZE);
+        const { items, total } = await UserService.searchAnalysts(debouncedMemberSearch, memberPage, MEMBER_PAGE_SIZE, initialMemberIds);
         if (cancelled) return;
         setMemberResults(items);
         setMemberTotal(total);
@@ -132,7 +136,7 @@ export function QueuesContent() {
     };
     run();
     return () => { cancelled = true; };
-  }, [isModalOpen, debouncedMemberSearch, memberPage]);
+  }, [isModalOpen, debouncedMemberSearch, memberPage, initialMemberIds]);
 
   const loadData = async () => {
     try {
@@ -172,6 +176,7 @@ export function QueuesContent() {
   };
 
   const handleOpenModal = (queue?: Queue) => {
+    setInitialMemberIds(queue?.memberIds || []);
     if (queue) {
       setSelectedQueue(queue);
       setName(queue.name);
