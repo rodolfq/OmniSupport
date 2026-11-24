@@ -76,6 +76,9 @@ import {
 } from "@dnd-kit/sortable";
 import { CSS } from "@dnd-kit/utilities";
 import { toast } from "sonner";
+import { KANBAN_BOARD_CLASS, KANBAN_COLUMN_CLASS } from '@/lib/kanban-layout';
+import { useCollapsedKanbanColumns } from '@/hooks/use-collapsed-kanban-columns';
+import { KanbanCollapseButton, KanbanCollapsedColumn } from '@/components/kanban-collapse';
 
 interface Column {
   id: string;
@@ -2067,6 +2070,7 @@ function TicketKanbanBoard({
   onEdit: (t: Ticket) => void;
   onStatusChange: (ticketId: string, newStatus: string, newSubStatus?: string | null) => void;
 }) {
+  const { isCollapsed, toggleCollapsed } = useCollapsedKanbanColumns('tickets');
   const [activeTicket, setActiveTicket] = useState<Ticket | null>(null);
   const sensors = useSensors(
     useSensor(PointerSensor, { activationConstraint: { distance: 8 } })
@@ -2125,9 +2129,9 @@ function TicketKanbanBoard({
 
   return (
     <DndContext sensors={sensors} onDragStart={handleDragStart} onDragEnd={handleDragEnd}>
-      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4 items-start">
+      <div className={KANBAN_BOARD_CLASS}>
         {columns.map((col) => (
-          <TicketKanbanColumn key={col.value} col={col} onEdit={onEdit} />
+          <TicketKanbanColumn key={col.value} col={col} onEdit={onEdit} collapsed={isCollapsed(col.value)} onToggleCollapse={() => toggleCollapsed(col.value)} />
         ))}
       </div>
       <DragOverlay dropAnimation={{ duration: 180, easing: 'cubic-bezier(0.18, 0.67, 0.6, 1.22)' }}>
@@ -2137,14 +2141,17 @@ function TicketKanbanBoard({
   );
 }
 
-function TicketKanbanColumn({ col, onEdit }: { col: TicketKanbanStatusMeta & { tickets: Ticket[] }; onEdit: (t: Ticket) => void }) {
+function TicketKanbanColumn({ col, onEdit, collapsed = false, onToggleCollapse = () => {} }: { col: TicketKanbanStatusMeta & { tickets: Ticket[] }; onEdit: (t: Ticket) => void; collapsed?: boolean; onToggleCollapse?: () => void }) {
   const { setNodeRef, isOver } = useDroppable({ id: col.value });
+  if (collapsed) {
+    return <KanbanCollapsedColumn ref={setNodeRef} label={col.label} count={col.tickets.length} accent={col.accent} dotClass={col.dot} isOver={isOver} onExpand={onToggleCollapse} />;
+  }
 
   return (
     <div
       ref={setNodeRef}
       className={cn(
-        "rounded-2xl border-t-4 transition-all overflow-hidden",
+        "rounded-2xl border-t-4 transition-all overflow-hidden", KANBAN_COLUMN_CLASS,
         isOver ? "bg-[var(--surface-pill)] ring-2 ring-[var(--accent)]/30" : "bg-[var(--surface-card)]"
       )}
       style={{ borderTopColor: col.accent }}
@@ -2155,6 +2162,7 @@ function TicketKanbanColumn({ col, onEdit }: { col: TicketKanbanStatusMeta & { t
         <span className="text-[10px] font-bold text-[var(--text-tertiary)] ml-auto bg-[var(--surface-pill)] px-2 py-0.5 rounded-full">
           {col.tickets.length}
         </span>
+        <KanbanCollapseButton label={col.label} onClick={onToggleCollapse} />
       </div>
 
       <div className="p-3 space-y-2.5 min-h-[120px]">

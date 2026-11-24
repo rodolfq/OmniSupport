@@ -1,4 +1,4 @@
-import { Company, CompanyTrainingStatus, CustomerEvaluationScores, CustomerProfileTag, CustomerEvaluationSummary, CustomerEvaluationOrigin } from '../types';
+import { Company, CompanyTrainingStatus } from '../types';
 import { apiJson, apiFetch } from '../api-client';
 import type { MutationResult } from './queue-service';
 
@@ -7,7 +7,7 @@ import type { MutationResult } from './queue-service';
  *
  * Além do CRUD que já existia aqui, passou a concentrar o que eram as Server
  * Actions saveCompany / setCompanyActive / deleteCompany / getCompanies /
- * updateCompanyTraining / saveCustomerEvaluation / getCustomerEvaluationSummary
+ * updateCompanyTraining
  * — separação front/back.
  *
  * Tudo por apiFetch/apiJson (lib/api-client.ts): é o que faz a chamada apontar
@@ -126,31 +126,6 @@ export async function updateCompanyTraining(companyId: string, trainingStatus: C
 /** logoUrl: `data:` URL da imagem nova, ou null para remover a logo atual. */
 export async function updateCompanyLogo(companyId: string, logoUrl: string | null): Promise<MutationResult & { logoThumbUrl?: string | null }> {
   return post({ action: 'logo', companyId, logoUrl }, 'Erro ao salvar a logo da empresa.');
-}
-
-export async function saveCustomerEvaluation(
-  companyId: string,
-  analystId: string,
-  scores: CustomerEvaluationScores,
-  profileTag: CustomerProfileTag | null,
-  chatSessionId?: string | null,
-  origin: CustomerEvaluationOrigin = 'manual',
-  contactId?: string | null
-): Promise<MutationResult> {
-  return post(
-    { action: 'evaluation', companyId, analystId, scores, profileTag, chatSessionId, origin, contactId },
-    'Erro ao salvar avaliação do cliente.'
-  );
-}
-
-export async function getCustomerEvaluationSummary(
-  companyId: string
-): Promise<CustomerEvaluationSummary | { error: string }> {
-  try {
-    return await apiJson(`/api/companies?tipo=evaluation-summary&companyId=${encodeURIComponent(companyId)}`);
-  } catch (err: any) {
-    return { error: err?.message || 'Erro ao carregar avaliações do cliente.' };
-  }
 }
 
 export interface TrainingStage {

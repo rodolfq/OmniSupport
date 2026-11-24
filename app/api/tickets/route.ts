@@ -10,6 +10,7 @@ import { getCurrentActionUser } from '@/lib/server-auth';
 import { logAudit } from '@/lib/audit-log';
 import { TicketStatus } from '@/lib/types';
 import { cascadePriorityFromTicket } from '@/lib/services/priority-sync-service';
+import { unaccentCol, likeTerm } from '@/lib/sql-unaccent';
 
 async function getTicketActor(request: NextRequest) {
   const token = request.cookies.get('token')?.value;
@@ -103,9 +104,9 @@ export async function GET(request: NextRequest) {
       const res = search
         ? await query(
             `SELECT id, title, public_ticket_number FROM public.tickets
-              WHERE title ILIKE $1 ${isNumero ? 'OR public_ticket_number::text = $2' : ''}
+              WHERE ${unaccentCol('title')} ILIKE $1 ${isNumero ? 'OR public_ticket_number::text = $2' : ''}
               ORDER BY ${isNumero ? '(public_ticket_number::text = $2) DESC,' : ''} created_at DESC LIMIT ${limit}`,
-            isNumero ? [`%${search}%`, numero] : [`%${search}%`]
+            isNumero ? [likeTerm(search), numero] : [likeTerm(search)]
           )
         : await query(
             `SELECT id, title, public_ticket_number FROM public.tickets
@@ -306,8 +307,8 @@ export async function GET(request: NextRequest) {
       const params: any[] = [companyId, excludeId || ''];
       let whereClause = 'company_id = $1 AND id != $2';
       if (search) {
-        params.push(`%${search}%`);
-        whereClause += ` AND (title ILIKE $${params.length} OR CAST(public_ticket_number AS TEXT) ILIKE $${params.length})`;
+        params.push(likeTerm(search));
+        whereClause += ` AND (${unaccentCol('title')} ILIKE $${params.length} OR CAST(public_ticket_number AS TEXT) ILIKE $${params.length})`;
       }
       params.push(limit);
 

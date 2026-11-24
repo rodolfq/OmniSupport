@@ -12,6 +12,8 @@ import { logAudit } from '@/lib/audit-log';
 import { externalizeInlineImages } from '@/lib/services/attachment-storage';
 import { computeInternalTicketSla } from '@/lib/sla';
 import { queueInternalTicketChangeEmail } from '@/lib/services/internal-ticket-notifications';
+import { loadQueueStatusRule, statusErrorForRule, initialStatusForRule } from '@/lib/services/internal-queue-status-rules';
+import { unaccentCol, likeTerm } from '@/lib/sql-unaccent';
 
 // Leitura, criação e atualização de tickets internos (dev/infra/QA/produto)
 // para sistemas externos. Ao contrário de app/api/integrations/v1/tickets
@@ -195,12 +197,12 @@ export async function GET(request: Request) {
       }
     }
     if (search) {
-      params.push(`%${search}%`);
-      conditions.push(`title ILIKE $${params.length}`);
+      params.push(likeTerm(search));
+      conditions.push(`${unaccentCol('title')} ILIKE $${params.length}`);
     }
     if (contentSearch) {
-      params.push(`%${contentSearch}%`);
-      conditions.push(`description ILIKE $${params.length}`);
+      params.push(likeTerm(contentSearch));
+      conditions.push(`${unaccentCol('description')} ILIKE $${params.length}`);
     }
     if (createdFrom) {
       const parsed = new Date(createdFrom);
@@ -289,9 +291,9 @@ export async function POST(request: Request) {
     // comentário lá para o porquê de cada detalhe.
     const insertSql = `INSERT INTO public.internal_tickets
          (title, description, internal_queue_id, assignee_id, creator_id, priority, tags,
-          sla_limit, expected_publish_date, internal_ticket_number, creation_request_id)
+          sla_limit, expected_publish_date, internal_ticket_number, creation_request_id, status)
        VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9,
-               (SELECT COALESCE(MAX(internal_ticket_number), 0) + 1 FROM public.internal_tickets), $10)
+               (SELECT COALESCE(MAX(internal_ticket_number), 0) + 1 FROM public.internal_tickets), $10, $11)
        ON CONFLICT (creation_request_id) WHERE creation_request_id IS NOT NULL DO NOTHING
        RETURNING ${INTERNAL_TICKET_COLUMNS}`;
     const insertParams = [
@@ -305,6 +307,8 @@ export async function POST(request: Request) {
       slaLimit,
       body.expectedPublishDate || null,
       creationRequestId,
+      // Fila que não usa "Novo" faz o ticket nascer no 1º status aberto dela.
+      initialStatusForRule(await loadQueueStatusRule(queueId)),
     ];
 
     let res;
@@ -438,6 +442,22 @@ export async function PATCH(request: Request) {
       touchStatus = true;
       resolvedStatus = oldTicket.status;
       resolvedSubStatus = body.subStatus;
+    }
+
+    // Status por fila (2026-11-24): mesma regra do portal — só confere quando
+    // fila, status ou sub-status mudam de verdade.
+    const effectiveQueue = body.queueId || oldTicket.internal_queue_id;
+    const effectiveStatus = touchStatus ? resolvedStatus : (oldTicket.status || 'Novo');
+    const effectiveSub = touchStatus ? resolvedSubStatus : oldTicket.sub_status;
+    const queueChanged = !!body.queueId && body.queueId !== oldTicket.internal_queue_id;
+    const statusChanged = touchStatus && (effectiveStatus !== (oldTicket.status || 'Novo') || (effectiveSub || null) !== (oldTicket.sub_status || null));
+    if (effectiveQueue && (queueChanged || statusChanged)) {
+      const statusErr = statusErrorForRule(await loadQueueStatusRule(effectiveQueue), effectiveStatus, effectiveSub);
+      if (statusErr) {
+        return integrationError(auth, 'VALIDATION_ERROR', queueChanged && !touchStatus
+          ? `${statusErr} Envie também "status" ao trocar de fila.`
+          : statusErr, 400);
+      }
     }
 
     // Prioridade muda o prazo (SLA) — recalcula ancorado na CRIAÇÃO do

@@ -11,7 +11,7 @@ import { arrayMove, SortableContext, verticalListSortingStrategy, useSortable } 
 import { CSS } from '@dnd-kit/utilities';
 import { toast } from 'sonner';
 import { motion, AnimatePresence } from 'motion/react';
-import { cn } from '@/lib/utils';
+import { cn, normalizeString } from '@/lib/utils';
 import { UserAvatar } from '@/components/user-avatar';
 import { ConfirmDialog } from '@/components/confirm-dialog';
 import { StyledSelect } from '@/components/styled-select';
@@ -137,8 +137,8 @@ export function GiroConfigView() {
   const oorList = useMemo(() => participants.filter(p => p.outOfRotation), [participants]);
   const totalActive = fixedList.length + freeList.length;
 
-  const term = search.trim().toLowerCase();
-  const matches = useCallback((p: GiroParticipant) => !term || p.name.toLowerCase().includes(term), [term]);
+  const term = normalizeString(search);
+  const matches = useCallback((p: GiroParticipant) => !term || normalizeString(p.name).includes(term), [term]);
   const filteredFixed = useMemo(() => fixedList.filter(matches), [fixedList, matches]);
   const filteredFree = useMemo(() => freeList.filter(matches), [freeList, matches]);
   const filteredOor = useMemo(() => oorList.filter(matches), [oorList, matches]);
@@ -148,8 +148,8 @@ export function GiroConfigView() {
 
   const availableCandidates = useMemo(() => {
     const existing = new Set(participants.map(p => p.userId));
-    const addTerm = addSearch.trim().toLowerCase();
-    return candidates.filter(c => !existing.has(c.id)).filter(c => !addTerm || c.name.toLowerCase().includes(addTerm));
+    const addTerm = normalizeString(addSearch);
+    return candidates.filter(c => !existing.has(c.id)).filter(c => !addTerm || normalizeString(c.name).includes(addTerm));
   }, [candidates, participants, addSearch]);
 
   // --------------------------------------------------------- participantes

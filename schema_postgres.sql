@@ -32,6 +32,7 @@ DROP TABLE IF EXISTS public.queues CASCADE;
 DROP TABLE IF EXISTS public.profiles CASCADE;
 DROP TABLE IF EXISTS public.companies CASCADE;
 DROP TABLE IF EXISTS public.internal_tickets CASCADE;
+DROP TABLE IF EXISTS public.internal_ticket_queue_statuses CASCADE;
 DROP TABLE IF EXISTS public.internal_ticket_queues CASCADE;
 DROP TABLE IF EXISTS public.internal_teams CASCADE;
 DROP TABLE IF EXISTS public.ticket_internal_links CASCADE;
@@ -1598,6 +1599,16 @@ CREATE TABLE public.internal_ticket_queues (
 );
 CREATE UNIQUE INDEX IF NOT EXISTS uq_internal_ticket_queues_name ON public.internal_ticket_queues (lower(name));
 CREATE INDEX IF NOT EXISTS idx_internal_ticket_queues_members ON public.internal_ticket_queues USING GIN (member_ids);
+
+-- Status que cada fila de ticket interno usa (migrations/internal_ticket_queue_statuses.sql,
+-- 2026-11-24). Cadastro de status continua único; fila sem linhas = usa todos.
+CREATE TABLE public.internal_ticket_queue_statuses (
+  queue_id UUID NOT NULL REFERENCES public.internal_ticket_queues(id) ON DELETE CASCADE,
+  status_id UUID NOT NULL REFERENCES public.config_statuses(id) ON DELETE CASCADE,
+  sort_order INTEGER NOT NULL DEFAULT 0,
+  PRIMARY KEY (queue_id, status_id)
+);
+CREATE INDEX IF NOT EXISTS idx_internal_ticket_queue_statuses_status ON public.internal_ticket_queue_statuses (status_id);
 
 -- Internal Tickets Table
 CREATE TABLE public.internal_tickets (

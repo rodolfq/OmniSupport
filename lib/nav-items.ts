@@ -9,7 +9,6 @@ import {
   UserCircle,
   MessageCircle,
   History,
-  Star,
   BarChart3
 } from 'lucide-react';
 import { Permission, UserRole, User } from './types';
@@ -72,7 +71,6 @@ export function getNavItems(currentUser: User | null): NavItem[] {
         // etapa entregar a tela).
         { name: 'Gerencial', icon: BarChart3, href: '/dashboard/management', permission: Permission.DASHBOARD_MANAGEMENT },
         { name: 'Relatórios', icon: PieChart, href: '/reports', permission: Permission.REPORTS_READ },
-        { name: 'Avaliações de Clientes', icon: Star, href: '/customer-evaluations', permission: Permission.REPORTS_READ },
       ]
     },
     {

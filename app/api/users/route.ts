@@ -11,6 +11,7 @@ import { storeAvatarDataUrl } from '@/lib/services/attachment-storage';
 import { canForceOthersOffline } from '@/lib/services/presence-authorization';
 import { logAudit } from '@/lib/audit-log';
 import { Permission } from '@/lib/types';
+import { unaccentCol, likeTerm } from '@/lib/sql-unaccent';
 
 // Papéis "de equipe" — os únicos que hoje consomem GET/POST desta rota
 // (Canais de Atendimento, Filas, Hotfixes, vínculo de contato). Cliente/
@@ -230,7 +231,7 @@ export async function GET(request: Request) {
       const page = Math.max(1, parseInt(searchParams.get('page') || '1', 10) || 1);
       const pageSize = Math.min(50, Math.max(1, parseInt(searchParams.get('pageSize') || '9', 10) || 9));
       const offset = (page - 1) * pageSize;
-      const likeParam = `%${q}%`;
+      const likeParam = likeTerm(q);
 
       const res = await query(
         `SELECT id, name, email, role, company_id, phone, internal_team_ids, avatar_thumb_url,
@@ -238,7 +239,7 @@ export async function GET(request: Request) {
                 COUNT(*) OVER() AS total_count
          FROM public.profiles
          WHERE role IN ('Administrador', 'Equipe', 'Time Interno')
-           AND ($1 = '' OR name ILIKE $2 OR email ILIKE $2)
+           AND ($1 = '' OR ${unaccentCol('name')} ILIKE $2 OR email ILIKE $2)
          ORDER BY name ASC
          LIMIT $3 OFFSET $4`,
         [q, likeParam, pageSize, offset]
@@ -270,7 +271,7 @@ export async function GET(request: Request) {
       const page = Math.max(1, parseInt(searchParams.get('page') || '1', 10) || 1);
       const pageSize = Math.min(50, Math.max(1, parseInt(searchParams.get('pageSize') || '20', 10) || 20));
       const offset = (page - 1) * pageSize;
-      const likeParam = `%${q}%`;
+      const likeParam = likeTerm(q);
 
       const res = await query(
         `SELECT id, name, email, role, access_profile_id, avatar_thumb_url,
@@ -279,7 +280,7 @@ export async function GET(request: Request) {
            FROM public.profiles
           WHERE role IN ('Administrador', 'Equipe', 'Time Interno')
             AND ($1::boolean OR internal_team_ids && $2::uuid[])
-            AND ($3 = '' OR name ILIKE $4 OR email ILIKE $4)
+            AND ($3 = '' OR ${unaccentCol('name')} ILIKE $4 OR email ILIKE $4)
           ORDER BY name ASC
           LIMIT $5 OFFSET $6`,
         [isSystemAdmin, adminTeamIds, q, likeParam, pageSize, offset]

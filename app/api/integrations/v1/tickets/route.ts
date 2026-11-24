@@ -10,6 +10,7 @@ import {
 import { logAudit } from '@/lib/audit-log';
 import { handleTicketCreated, handleTicketUpdated } from '@/lib/services/automation-service';
 import { externalizeInlineImages } from '@/lib/services/attachment-storage';
+import { unaccentCol, likeTerm } from '@/lib/sql-unaccent';
 
 // Leitura, criação e atualização de chamados para a plataforma externa. Ao
 // pedir um chamado específico (?id=), inclui também as mensagens visíveis ao
@@ -194,12 +195,12 @@ export async function GET(request: Request) {
       }
     }
     if (search) {
-      params.push(`%${search}%`);
-      conditions.push(`title ILIKE $${params.length}`);
+      params.push(likeTerm(search));
+      conditions.push(`${unaccentCol('title')} ILIKE $${params.length}`);
     }
     if (contentSearch) {
-      params.push(`%${contentSearch}%`);
-      conditions.push(`description ILIKE $${params.length}`);
+      params.push(likeTerm(contentSearch));
+      conditions.push(`${unaccentCol('description')} ILIKE $${params.length}`);
     }
     if (createdFrom) {
       const parsed = new Date(createdFrom);

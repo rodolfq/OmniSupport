@@ -3,7 +3,7 @@
 import Link from 'next/link';
 import { ArrowLeft } from 'lucide-react';
 
-// Mesmo padrão já usado em customer-evaluations/page.tsx — reaproveitado
+// Mesmo padrão da antiga tela de Avaliações de Clientes (removida em 2026-11-24) — reaproveitado
 // pelos 5 relatórios do roadmap "Time x Gerencial" pra voltar à tela
 // principal de relatórios (/reports).
 export function ReportBackLink() {

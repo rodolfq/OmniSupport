@@ -19,6 +19,7 @@ import { AssistantNotConfiguredError, parseGroqRetryWait } from '@/lib/groq-clie
 import { normalizeBrazilianPhoneDigits } from '@/lib/utils';
 import { isCrisisModeEnabled, recordCrisisModeMessage } from '@/lib/services/crisis-mode-service';
 import { getCurrentActionUser, getActorEffectivePermissions } from '@/lib/server-auth';
+import { unaccentCol, likeTerm } from '@/lib/sql-unaccent';
 
 function normalizePhone(value?: string | null): string {
   return (value || '').replace(/\D/g, '');
@@ -659,10 +660,11 @@ export async function GET(request: NextRequest) {
         conditions.push(`h.id = $${params.length}`);
       } else {
         if (search) {
-          params.push(`%${search}%`);
+          // Sem diferenciar acento (2026-11-24) — ver lib/sql-unaccent.ts.
+          params.push(likeTerm(search));
           const likeParam = params.length;
           const digits = search.replace(/\D/g, '');
-          let cond = `(h.customer_name ILIKE $${likeParam} OR p1.name ILIKE $${likeParam} OR co.name ILIKE $${likeParam} OR h.transcript ILIKE $${likeParam} OR p2.name ILIKE $${likeParam}`;
+          let cond = `(${unaccentCol('h.customer_name')} ILIKE $${likeParam} OR ${unaccentCol('p1.name')} ILIKE $${likeParam} OR ${unaccentCol('co.name')} ILIKE $${likeParam} OR ${unaccentCol('h.transcript')} ILIKE $${likeParam} OR ${unaccentCol('p2.name')} ILIKE $${likeParam}`;
           if (digits) {
             params.push(`%${digits}%`);
             cond += ` OR s.ticket_number::text LIKE $${params.length}`;

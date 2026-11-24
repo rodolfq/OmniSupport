@@ -2,7 +2,7 @@
 
 import React, { useEffect, useMemo, useState } from 'react';
 import { AlertTriangle, Flame, Inbox, Layers, Loader2, Search, User as UserIcon, Archive, LayoutGrid } from 'lucide-react';
-import { cn } from '@/lib/utils';
+import { cn, normalizeString } from '@/lib/utils';
 import { useApp } from '@/app/app-context';
 import { InternalTicketQueue, Permission, User } from '@/lib/types';
 import { useAnalystsQuery, useInternalTicketQueuesQuery } from '@/lib/query-hooks';
@@ -84,7 +84,7 @@ export function InternalQueuePicker({ onSelect, refreshKey }: {
     return t;
   }, [stats]);
 
-  const filtered = queues.filter(q => q.name.toLowerCase().includes(search.trim().toLowerCase()));
+  const filtered = queues.filter(q => normalizeString(q.name).includes(normalizeString(search)));
   const hasTeam = (currentUser?.internalTeamIds?.length ?? 0) > 0;
   const legacy = stats?.get('none') || EMPTY;
 

@@ -7,7 +7,7 @@ import { cn } from "@/lib/utils";
 import { motion, AnimatePresence } from "motion/react";
 import { TicketStatus, SavedFilter, UserRole } from "@/lib/types";
 import { useApp } from "@/app/app-context";
-import { useProfilesLiteQuery, useConfigStatusesQuery } from "@/lib/query-hooks";
+import { useProfilesLiteQuery, useConfigStatusesQuery, useInternalTeamsQuery } from "@/lib/query-hooks";
 import { CompanySearchSelect } from "@/components/company-search-select";
 import { searchTickets, SearchFilters, getSavedViews, saveCustomView, saveSearchHistory } from "@/lib/search";
 
@@ -56,6 +56,20 @@ export function ModernSearchBar({ onSearch, loading, extraControls, quickFilters
   // usar a query "com avatar" (a que ticket-detail-modal.tsx precisa) aqui
   // custaria esse payload à toa pra um dropdown de filtro.
   const { data: users = [] } = useProfilesLiteQuery();
+  // Filtro "Responsável" (2026-11-24, pedido do usuário): só analistas da
+  // equipe interna "Suporte" — antes listava todo perfil, inclusive clientes.
+  // Sem a equipe no cadastro, cai para toda a equipe interna (nunca cliente).
+  // O responsável já escolhido continua na lista mesmo fora da equipe, senão
+  // um filtro salvo apareceria vazio.
+  const { data: internalTeams = [] } = useInternalTeamsQuery();
+  const assigneeOptions = useMemo(() => {
+    const norm = (s: string) => (s || '').normalize('NFD').replace(/[̀-ͯ]/g, '').trim().toLowerCase();
+    const suporte = (internalTeams as any[]).find(t => norm(t.name) === 'suporte');
+    const staff = (users as any[]).filter(u => [UserRole.ADMIN, UserRole.SUPPORT, UserRole.INTERNAL].includes(u.role));
+    const lista = suporte ? staff.filter(u => (u.internalTeamIds || []).includes(suporte.id)) : staff;
+    const atual = assignee && !lista.some(u => u.id === assignee) ? (users as any[]).find(u => u.id === assignee) : null;
+    return [...lista, ...(atual ? [atual] : [])].sort((a, b) => a.name.localeCompare(b.name, 'pt-BR'));
+  }, [users, internalTeams, assignee]);
   // Lista real e editável (Configurações > Status), não os 5 valores fixos
   // de TicketStatus — um status cadastrado depois (ou renomeado) nunca
   // aparecia como opção de filtro, mesmo com chamados nesse status.
@@ -398,7 +412,10 @@ export function ModernSearchBar({ onSearch, loading, extraControls, quickFilters
                     className="w-full px-3 py-2 rounded-lg border border-[var(--border-default)] text-xs font-bold bg-[var(--surface-card)] focus:border-indigo-400 outline-none"
                   >
                     <option value="">Qualquer Status</option>
-                    {statuses.map((s: any) => (
+                    {/* Só status principal do chamado (2026-11-24, pedido do usuário) —
+                        sub-status como "Homologação"/"Resolvido" pareciam de ticket
+                        interno e não servem aqui: o filtro compara com tickets.status. */}
+                    {statuses.filter((s: any) => !(s.parent_status_id ?? s.parentStatusId)).map((s: any) => (
                       <option key={s.id} value={s.label}>{s.label}</option>
                     ))}
                   </StyledSelect>
@@ -446,7 +463,7 @@ export function ModernSearchBar({ onSearch, loading, extraControls, quickFilters
                     className="w-full px-3 py-2 rounded-lg border border-[var(--border-default)] text-xs font-bold bg-[var(--surface-card)] focus:border-indigo-400 outline-none"
                   >
                     <option value="">Qualquer Responsável</option>
-                    {users.map((u: any) => (
+                    {assigneeOptions.map((u: any) => (
                       <option key={u.id} value={u.id}>{u.name}</option>
                     ))}
                   </StyledSelect>

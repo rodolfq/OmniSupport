@@ -257,7 +257,7 @@ export class InternalTicketService {
   // Edição em massa (2026-09-30, pedido do usuário) — mesmo padrão de
   // bulkUpdateTickets em tickets-view.tsx, mas reaproveitando a MESMA action
   // 'update' de sempre (agora aceita `ids` além de `id`, ver a rota).
-  static async bulkUpdate(ids: string[], fields: Partial<{ status: string; assigneeId: string; teamId: string; priority: number }>): Promise<void> {
+  static async bulkUpdate(ids: string[], fields: Partial<{ status: string; subStatus: string; assigneeId: string; teamId: string; internalQueueId: string; priority: number }>): Promise<void> {
     const res = await fetch('/api/internal-tickets', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },

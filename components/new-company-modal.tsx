@@ -2,51 +2,25 @@
 
 import React, { useState } from 'react';
 import { useEscapeToClose } from '@/hooks/use-escape-to-close';
-import { X, Building2, Phone, Mail, Lock, UserPlus, RefreshCw, Eye, EyeOff, GraduationCap, CheckCircle2, ShieldAlert, AlertTriangle, ShieldOff, ShieldCheck, Headset, Briefcase, Trash2, Hash } from 'lucide-react';
+import { X, Building2, Phone, Mail, Lock, UserPlus, RefreshCw, Eye, EyeOff, GraduationCap, CheckCircle2, ShieldAlert, ShieldOff, ShieldCheck, Headset, Briefcase, Trash2, Hash } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
-import { saveCompany, getCustomerEvaluationSummary, updateCompanyTraining, saveCustomerEvaluation } from '@/lib/services/company-service';
-import { Company, User, Permission, type CompanyTrainingStatus, type CustomerEvaluationScores, type CustomerEvaluationSummary, type CustomerProfileTag, MIN_RELIABLE_EVALUATION_COUNT } from '@/lib/types';
+import { saveCompany, updateCompanyTraining } from '@/lib/services/company-service';
+import { Company, User, Permission, type CompanyTrainingStatus } from '@/lib/types';
 import { maskPhone, cn } from '@/lib/utils';
 import { useApp } from '@/app/app-context';
-import { StarRating } from '@/components/star-rating';
 import { StyledSelect } from '@/components/styled-select';
 import { UserService } from '@/lib/services/user-service';
-import { toast } from 'sonner';
 
 function generateTemporaryPassword() {
   const chars = 'ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz23456789@#$';
   return Array.from({ length: 10 }, () => chars[Math.floor(Math.random() * chars.length)]).join('');
 }
 
-const CRITERIA_LABELS: { key: keyof CustomerEvaluationScores; label: string }[] = [
-  { key: 'knowledgeScore', label: 'Conhecimento do sistema' },
-  { key: 'autonomyScore', label: 'Autonomia' },
-  { key: 'learningScore', label: 'Facilidade de aprendizado' },
-  { key: 'engagementScore', label: 'Engajamento' },
-  { key: 'organizationScore', label: 'Organização das demandas' },
-  { key: 'communicationScore', label: 'Comunicação' }
-];
-
 const TRAINING_STATUS_OPTIONS: { value: CompanyTrainingStatus; label: string; activeClass: string }[] = [
   { value: null, label: 'Nenhum', activeClass: 'bg-[var(--surface-card)] text-[var(--text-secondary)] shadow-sm' },
   { value: 'em_treinamento', label: 'Em treinamento', activeClass: 'bg-[var(--accent)] text-white shadow-sm' },
   { value: 'treinamento_concluido', label: 'Concluído', activeClass: 'bg-[var(--text-success)] text-white shadow-sm' },
 ];
-
-const TAG_INFO: Record<CustomerProfileTag, { emoji: string; label: string }> = {
-  technical: { emoji: '👨‍💻', label: 'Cliente Técnico' },
-  beginner: { emoji: '🙋‍♂️', label: 'Cliente com Pouco Conhecimento' },
-  challenging: { emoji: '😤', label: 'Cliente com Atendimento Desafiador' }
-};
-
-const EMPTY_EVAL_SCORES: CustomerEvaluationScores = {
-  knowledgeScore: null,
-  autonomyScore: null,
-  learningScore: null,
-  engagementScore: null,
-  organizationScore: null,
-  communicationScore: null
-};
 
 // DD/MM/AAAA (padrão brasileiro), no fuso do Brasil.
 function formatDateBr(iso: string) {
@@ -55,7 +29,7 @@ function formatDateBr(iso: string) {
 
 export function NewCompanyModal({ isOpen, onClose, onSuccess, company, showInternalSection = false, onRequestDeactivate, onRequestDelete }: { isOpen: boolean, onClose: () => void, onSuccess?: () => void, company?: Company | null, showInternalSection?: boolean, onRequestDeactivate?: () => void, onRequestDelete?: () => void }) {
   useEscapeToClose(isOpen, onClose);
-  const { currentUser, hasPermission } = useApp();
+  const { hasPermission } = useApp();
   // Adicionar/remover "Em treinamento" tem permissão própria (a checagem de
   // verdade é no servidor, action 'training' de /api/companies).
   const canManageTraining = hasPermission(Permission.CUSTOMERS_TRAINING);
@@ -89,12 +63,6 @@ export function NewCompanyModal({ isOpen, onClose, onSuccess, company, showInter
   // Treinamento" a pedido do usuário): null = nenhum, 'em_treinamento',
   // 'treinamento_concluido'.
   const [trainingStatus, setTrainingStatus] = useState<CompanyTrainingStatus>(null);
-  const [evaluationSummary, setEvaluationSummary] = useState<CustomerEvaluationSummary | null>(null);
-  const [loadingSummary, setLoadingSummary] = useState(false);
-  const [evalScores, setEvalScores] = useState<CustomerEvaluationScores>(EMPTY_EVAL_SCORES);
-  const [evalTag, setEvalTag] = useState<CustomerProfileTag | null>(null);
-  const [baselineScores, setBaselineScores] = useState<CustomerEvaluationScores>(EMPTY_EVAL_SCORES);
-  const [baselineTag, setBaselineTag] = useState<CustomerProfileTag | null>(null);
 
   // Update input fields when company prop changes
   React.useEffect(() => {
@@ -125,37 +93,6 @@ export function NewCompanyModal({ isOpen, onClose, onSuccess, company, showInter
     if (!isOpen) return;
     UserService.getAnalysts().then(setInternalUsers).catch(() => setInternalUsers([]));
   }, [isOpen]);
-
-  React.useEffect(() => {
-    if (!isOpen || !company || !showInternalSection) {
-      setEvaluationSummary(null);
-      setEvalScores(EMPTY_EVAL_SCORES);
-      setBaselineScores(EMPTY_EVAL_SCORES);
-      setEvalTag(null);
-      setBaselineTag(null);
-      return;
-    }
-    let cancelled = false;
-    setLoadingSummary(true);
-    getCustomerEvaluationSummary(company.id).then(result => {
-      if (cancelled) return;
-      if ('error' in result) {
-        setEvaluationSummary(null);
-        return;
-      }
-      setEvaluationSummary(result);
-      // Ponto de partida pra edição: a última avaliação registrada (não a
-      // média) — se ninguém avaliou ainda, começa zerado.
-      const starting = result.latestScores || EMPTY_EVAL_SCORES;
-      setEvalScores(starting);
-      setBaselineScores(starting);
-      setEvalTag(result.latestTag);
-      setBaselineTag(result.latestTag);
-    }).finally(() => {
-      if (!cancelled) setLoadingSummary(false);
-    });
-    return () => { cancelled = true; };
-  }, [isOpen, company, showInternalSection]);
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -191,19 +128,6 @@ export function NewCompanyModal({ isOpen, onClose, onSuccess, company, showInter
         if (canManageTraining && trainingStatus !== (company.trainingStatus ?? null)) {
           const trainingResult = await updateCompanyTraining(company.id, trainingStatus);
           if ('error' in trainingResult && trainingResult.error) throw new Error(trainingResult.error);
-        }
-
-        const scoresChanged = JSON.stringify(evalScores) !== JSON.stringify(baselineScores);
-        const tagChanged = evalTag !== baselineTag;
-        // Pelo menos 1 critério avaliado — os demais podem ficar em branco
-        // (não entram na média, ver StarRating).
-        const hasAnyRating = Object.values(evalScores).some(v => v !== null);
-        if ((scoresChanged || tagChanged) && currentUser) {
-          if (hasAnyRating) {
-            await saveCustomerEvaluation(company.id, currentUser.id, evalScores, evalTag, undefined, 'manual');
-          } else {
-            toast.warning('Avalie pelo menos um critério (⭐) para registrar a avaliação.');
-          }
         }
       }
 
@@ -532,70 +456,9 @@ export function NewCompanyModal({ isOpen, onClose, onSuccess, company, showInter
                     </div>
                   </div>
 
-                  <div className="h-px bg-[var(--border-default)] w-full" />
-
-                  <div>
-                    <p className="text-[11px] font-black text-[var(--text-primary)] uppercase tracking-wider">Indicadores rápidos</p>
-                    <p className="text-[9px] text-[var(--text-tertiary)] font-bold uppercase tracking-widest">Editável aqui — vira uma nova avaliação ao salvar</p>
-                  </div>
-
-                  {loadingSummary ? (
-                    <p className="text-[10px] text-[var(--text-tertiary)] font-semibold uppercase tracking-widest">Carregando...</p>
-                  ) : (
-                    <div className="space-y-3">
-                      <p className="text-[9px] text-[var(--text-tertiary)] font-medium">
-                        Deixe em branco o que não se aplica — clique na mesma estrela de novo pra limpar.
-                      </p>
-                      <div className="space-y-2">
-                        {CRITERIA_LABELS.map(c => (
-                          <div key={c.key} className="flex items-center justify-between gap-3">
-                            <span className="text-[10px] font-semibold text-[var(--text-secondary)]">{c.label}</span>
-                            <StarRating
-                              size={15}
-                              value={evalScores[c.key]}
-                              onChange={(v) => setEvalScores(prev => ({ ...prev, [c.key]: v }))}
-                            />
-                          </div>
-                        ))}
-                      </div>
-
-                      <div className="space-y-1.5">
-                        <p className="text-[9px] font-semibold uppercase tracking-widest text-[var(--text-tertiary)]">Perfil do cliente (opcional)</p>
-                        <div className="flex flex-wrap gap-1.5">
-                          {(Object.keys(TAG_INFO) as CustomerProfileTag[]).map(t => (
-                            <button
-                              key={t}
-                              type="button"
-                              onClick={() => setEvalTag(prev => prev === t ? null : t)}
-                              className={cn(
-                                "text-[9px] font-semibold uppercase tracking-widest px-2 py-1.5 rounded-lg border transition-all",
-                                evalTag === t
-                                  ? "border-[var(--accent)] bg-[var(--accent)]/10 text-[var(--accent-text)]"
-                                  : "border-[var(--border-default)] text-[var(--text-tertiary)] hover:border-[var(--accent)]/40"
-                              )}
-                            >
-                              {TAG_INFO[t].emoji} {TAG_INFO[t].label}
-                            </button>
-                          ))}
-                        </div>
-                      </div>
-
-                      {evaluationSummary && evaluationSummary.count > 0 && (
-                        <div className="space-y-1.5 pt-1">
-                          <p className="text-[9px] text-[var(--text-tertiary)] font-bold uppercase tracking-widest">
-                            Média geral: {evaluationSummary.overallAverage.toFixed(1)} ⭐ · baseado em {evaluationSummary.count} avaliaç{evaluationSummary.count === 1 ? 'ão' : 'ões'}
-                            {' '}({evaluationSummary.countByOrigin.chatClose} de atendimento, {evaluationSummary.countByOrigin.manual} manual{evaluationSummary.countByOrigin.manual === 1 ? '' : 'is'})
-                          </p>
-                          {evaluationSummary.count < MIN_RELIABLE_EVALUATION_COUNT && (
-                            <p className="text-[9px] text-[var(--text-warning)] font-bold flex items-center gap-1.5">
-                              <AlertTriangle size={11} className="shrink-0" />
-                              Amostra pequena — a média ainda pode não ser representativa.
-                            </p>
-                          )}
-                        </div>
-                      )}
-                    </div>
-                  )}
+                  {/* "Indicadores rápidos" (avaliação interna do cliente, estrelas +
+                      perfil) removidos em 2026-11-24, a pedido do usuário. O histórico
+                      continua em public.customer_evaluations, só não aparece mais. */}
                 </div>
               )}
 

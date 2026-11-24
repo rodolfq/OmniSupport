@@ -3,11 +3,11 @@
 import React from 'react';
 import Link from 'next/link';
 import { AreaChart, Area, XAxis, YAxis, Tooltip, ResponsiveContainer, PieChart, Pie, Cell } from 'recharts';
-import { TrendingUp, Clock, Calendar, Users, ThumbsUp, ThumbsDown, MessageSquareText, Lock, Star, ClipboardList, AlertTriangle, History, Search, ChevronLeft, ChevronRight, PlusCircle, Pencil, Trash2, Rocket, Download, Gauge, Building2, Ticket } from 'lucide-react';
+import { TrendingUp, Clock, Calendar, Users, ThumbsUp, ThumbsDown, MessageSquareText, Lock, Star, History, Search, ChevronLeft, ChevronRight, PlusCircle, Pencil, Trash2, Rocket, Download, Gauge, Building2, Ticket } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { useTheme } from '@/app/theme-provider';
 import { useApp } from '@/app/app-context';
-import { Permission, MIN_RELIABLE_EVALUATION_COUNT } from '@/lib/types';
+import { Permission } from '@/lib/types';
 
 interface SurveyResponse {
   id: string;
@@ -23,31 +23,6 @@ interface SurveyReport {
   toImprove: number;
   satisfactionRate: number;
   responses: SurveyResponse[];
-}
-
-interface CustomerEvaluationRow {
-  id: string;
-  companyName: string;
-  analystName: string;
-  contactName: string | null;
-  origin: 'chat_close' | 'manual';
-  createdAt: string;
-  knowledgeScore: number | null;
-  autonomyScore: number | null;
-  learningScore: number | null;
-  engagementScore: number | null;
-  organizationScore: number | null;
-  communicationScore: number | null;
-  profileTag: 'technical' | 'beginner' | 'challenging' | null;
-}
-
-interface CustomerEvaluationsReport {
-  count: number;
-  averages: Record<string, number | null>;
-  overallAverage: number;
-  tagDistribution: { technical: number; beginner: number; challenging: number };
-  countByOrigin: { chatClose: number; manual: number };
-  evaluations: CustomerEvaluationRow[];
 }
 
 interface AuditLogEntry {
@@ -89,11 +64,6 @@ const ACTION_LABELS: Record<string, string> = {
   export: 'Exportou'
 };
 
-const ORIGIN_LABELS: Record<'chat_close' | 'manual', string> = {
-  chat_close: 'Atendimento',
-  manual: 'Manual'
-};
-
 const REPORT_LINKS: { href: string; title: string; description: string; icon: React.ReactNode; permission?: Permission }[] = [
   { href: '/reports/overview', title: 'Atendimento — Visão Geral', description: 'Volume, 1ª resposta, duração, abandono e quebra por fila/instância/canal/empresa.', icon: <TrendingUp size={18} /> },
   { href: '/reports/analysts', title: 'Desempenho por Analista', description: 'Chats por hora online, tempo de resposta, satisfação — sempre contra a mediana do time.', icon: <Users size={18} /> },
@@ -105,12 +75,6 @@ const REPORT_LINKS: { href: string; title: string; description: string; icon: Re
   { href: '/reports/internal-tickets', title: 'Tickets Internos', description: 'Entrega no prazo, atrasos, reprovações de QA e a regra de 2 dias do time de desenvolvimento.', icon: <Ticket size={18} />, permission: Permission.REPORTS_INTERNAL },
   { href: '/reports/ticket-evaluations', title: 'Avaliação do Chamado', description: 'Bom ou Ruim + comentário enviado pelo cliente depois do chamado Concluído — uma avaliação por chamado.', icon: <ThumbsUp size={18} /> }
 ];
-
-const TAG_LABELS: Record<'technical' | 'beginner' | 'challenging', string> = {
-  technical: '👨‍💻 Técnico',
-  beginner: '🙋‍♂️ Pouco Conhecimento',
-  challenging: '😤 Desafiador'
-};
 
 const dataByDay = [
   { name: 'Seg', total: 40 },
@@ -138,17 +102,12 @@ export default function ReportsPage() {
     : { borderRadius: '12px', border: 'none', boxShadow: '0 10px 15px -3px rgb(0 0 0 / 0.1)' };
 
   const [surveyReport, setSurveyReport] = React.useState<SurveyReport | null>(null);
-  const [evaluationsReport, setEvaluationsReport] = React.useState<CustomerEvaluationsReport | null>(null);
 
   React.useEffect(() => {
     const controller = new AbortController();
     fetch('/api/reports/survey', { signal: controller.signal })
       .then(res => res.json())
       .then(data => setSurveyReport(data))
-      .catch(() => {});
-    fetch('/api/reports/customer-evaluations', { signal: controller.signal })
-      .then(res => res.json())
-      .then(data => setEvaluationsReport(data))
       .catch(() => {});
     return () => controller.abort();
   }, []);
@@ -187,12 +146,6 @@ export default function ReportsPage() {
     { name: 'Satisfeitos', value: surveyReport.satisfied, color: '#22c55e' },
     { name: 'A Melhorar', value: surveyReport.toImprove, color: '#ef4444' },
   ] : [];
-
-  const evaluationTagPieData = evaluationsReport ? [
-    { name: TAG_LABELS.technical, value: evaluationsReport.tagDistribution.technical, color: '#4f46e5' },
-    { name: TAG_LABELS.beginner, value: evaluationsReport.tagDistribution.beginner, color: '#f59e0b' },
-    { name: TAG_LABELS.challenging, value: evaluationsReport.tagDistribution.challenging, color: '#ef4444' },
-  ].filter(d => d.value > 0) : [];
 
   if (!hasPermission(Permission.REPORTS_READ)) {
     return (
@@ -319,90 +272,8 @@ export default function ReportsPage() {
         </div>
       </div>
 
-      {/* Avaliação interna de clientes: o inverso da pesquisa de satisfação
-          acima — aqui é o analista avaliando o cliente, nunca visível a ele
-          (feita no cadastro da empresa, components/new-company-modal.tsx). */}
-      <div className="space-y-6">
-        <div className="flex flex-wrap justify-between items-end gap-3">
-          <div>
-            <h2 className="text-xl font-black text-[var(--text-primary)] tracking-tight">Avaliação de Clientes</h2>
-            <p className="text-xs text-[var(--text-tertiary)] font-medium mt-1">Indicadores internos preenchidos pelos analistas — nunca visíveis ao cliente.</p>
-          </div>
-          <Link
-            href="/customer-evaluations"
-            className="text-xs font-bold text-[var(--accent-text)] hover:underline whitespace-nowrap"
-          >
-            Ver todas as avaliações →
-          </Link>
-        </div>
-        <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
-          <MetricCard label="Avaliações" value={String(evaluationsReport?.count ?? 0)} icon={<ClipboardList className="text-[var(--accent-text)]" />} />
-          <MetricCard label="Média Geral" value={evaluationsReport ? evaluationsReport.overallAverage.toFixed(1) : '0.0'} icon={<Star size={24} className="text-white" />} accent />
-          <MetricCard label="Clientes Desafiadores" value={String(evaluationsReport?.tagDistribution.challenging ?? 0)} icon={<ThumbsDown className="text-[var(--accent-text)]" />} />
-        </div>
-
-        {evaluationsReport && evaluationsReport.count > 0 && (
-          <div className="flex flex-wrap items-center gap-x-4 gap-y-1 text-[10px] font-bold uppercase tracking-widest text-[var(--text-tertiary)]">
-            <span>
-              {evaluationsReport.countByOrigin.chatClose} de atendimento · {evaluationsReport.countByOrigin.manual} manual{evaluationsReport.countByOrigin.manual === 1 ? '' : 'is'}
-            </span>
-            {evaluationsReport.count < MIN_RELIABLE_EVALUATION_COUNT && (
-              <span className="flex items-center gap-1.5 text-[var(--text-warning)]">
-                <AlertTriangle size={11} /> Amostra pequena — a média geral ainda pode não ser representativa
-              </span>
-            )}
-          </div>
-        )}
-
-        <div className="grid grid-cols-1 lg:grid-cols-2 gap-8">
-          <div className="bg-[var(--surface-card)] p-8 rounded-2xl border border-[var(--border-default)] shadow-sm">
-            <h3 className="font-bold mb-8 uppercase text-[10px] tracking-[0.2em] text-[var(--text-tertiary)]">Distribuição de Perfil</h3>
-            <div className="h-64">
-              {evaluationTagPieData.length > 0 ? (
-                <ResponsiveContainer width="100%" height="100%">
-                  <PieChart>
-                    <Pie data={evaluationTagPieData} innerRadius={60} outerRadius={80} paddingAngle={8} dataKey="value" stroke="none">
-                      {evaluationTagPieData.map((e, i) => <Cell key={i} fill={e.color} />)}
-                    </Pie>
-                    <Tooltip contentStyle={tooltipStyle} />
-                  </PieChart>
-                </ResponsiveContainer>
-              ) : (
-                <div className="h-full flex items-center justify-center text-sm text-[var(--text-tertiary)]">Nenhuma avaliação ainda</div>
-              )}
-            </div>
-          </div>
-
-          <div className="bg-[var(--surface-card)] p-8 rounded-2xl border border-[var(--border-default)] shadow-sm">
-            <h3 className="font-bold mb-4 uppercase text-[10px] tracking-[0.2em] text-[var(--text-tertiary)]">Avaliações Recentes</h3>
-            <div className="h-64 overflow-y-auto space-y-2">
-              {evaluationsReport?.evaluations.length ? evaluationsReport.evaluations.map(e => {
-                // Critérios em branco (null) não entram na média dessa avaliação.
-                const ratedScores = [e.knowledgeScore, e.autonomyScore, e.learningScore, e.engagementScore, e.organizationScore, e.communicationScore]
-                  .filter((v): v is number => v !== null);
-                const avg = ratedScores.length > 0 ? ratedScores.reduce((a, b) => a + b, 0) / ratedScores.length : null;
-                return (
-                  <div key={e.id} className="flex items-center justify-between gap-3 p-3 rounded-xl border border-[var(--border-default)] text-sm">
-                    <div className="min-w-0">
-                      <p className="font-semibold text-[var(--text-primary)] truncate">{e.companyName}</p>
-                      <p className="text-[10px] text-[var(--text-tertiary)] uppercase tracking-widest">
-                        Por {e.analystName}{e.contactName && ` · Atendeu ${e.contactName}`} · {new Date(e.createdAt).toLocaleDateString('pt-BR')} · {ORIGIN_LABELS[e.origin]}
-                        {e.profileTag && ` · ${TAG_LABELS[e.profileTag]}`}
-                      </p>
-                    </div>
-                    <div className="flex items-center gap-1 text-amber-400 shrink-0">
-                      <Star size={14} fill="currentColor" />
-                      <span className="text-xs font-bold text-[var(--text-secondary)]">{avg !== null ? avg.toFixed(1) : '—'}</span>
-                    </div>
-                  </div>
-                );
-              }) : (
-                <div className="h-full flex items-center justify-center text-sm text-[var(--text-tertiary)]">Nenhuma avaliação ainda</div>
-              )}
-            </div>
-          </div>
-        </div>
-      </div>
+      {/* Seção "Avaliação de Clientes" removida em 2026-11-24 junto com a tela
+          de avaliações (pedido do usuário). */}
 
       {/* Log de Alterações — quem mudou o quê no sistema (empresas, usuários,
           filas, hotfixes, perfis de acesso). Ver lib/audit-log.ts. */}

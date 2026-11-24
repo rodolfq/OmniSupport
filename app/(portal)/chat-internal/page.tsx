@@ -2590,7 +2590,7 @@ export default function ChatInternalPage() {
                        <div className="max-h-[200px] overflow-y-auto space-y-1">
                           {allUsers
                             .filter(u => !selectedRoom.memberIds?.includes(u.id))
-                            .filter(u => u.name.toLowerCase().includes(addMemberSearch.trim().toLowerCase()))
+                            .filter(u => normalizeString(u.name).includes(normalizeString(addMemberSearch)))
                             .map((user, idx) => {
                               const isSelected = addMemberSelectedIds.has(user.id);
                               return (

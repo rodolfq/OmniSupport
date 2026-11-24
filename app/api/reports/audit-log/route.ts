@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { query } from '@/lib/db';
 import { verifyJWT } from '@/lib/jwt';
+import { unaccentCol, likeTerm } from '@/lib/sql-unaccent';
 
 // Só Administrador (ou quem tem reports:audit_log, permissão dedicada — ou
 // settings:system, mantido por compatibilidade de quem já administrava por
@@ -51,8 +52,8 @@ export async function GET(request: NextRequest) {
       conditions.push(`entity_type = $${params.length}`);
     }
     if (search) {
-      params.push(`%${search}%`);
-      conditions.push(`(actor_name ILIKE $${params.length} OR entity_label ILIKE $${params.length})`);
+      params.push(likeTerm(search));
+      conditions.push(`(${unaccentCol('actor_name')} ILIKE $${params.length} OR ${unaccentCol('entity_label')} ILIKE $${params.length})`);
     }
     const whereClause = conditions.length ? `WHERE ${conditions.join(' AND ')}` : '';
 

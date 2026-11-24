@@ -22,7 +22,7 @@ import {
   UserCog,
   Pencil
 } from 'lucide-react';
-import { cn } from '@/lib/utils';
+import { cn, normalizeString } from '@/lib/utils';
 import { motion, AnimatePresence } from 'motion/react';
 // Perfis de Acesso passaram de Server Action para rota HTTP (/api/permissions)
 // na separação front/back — ver lib/services/permission-service.ts. As demais
@@ -96,7 +96,6 @@ const permissionGroups = [
       { id: Permission.CUSTOMERS_READ, label: 'Visualizar clientes', desc: 'Permite ver a lista de empresas e contatos (/customers)' },
       { id: Permission.CUSTOMERS_WRITE, label: 'Gerenciar clientes', desc: 'Permite criar, editar, desativar e remover empresas clientes' },
       { id: Permission.CUSTOMERS_TRAINING, label: 'Status "Em treinamento" da empresa', desc: 'Permite adicionar e remover o status "Em treinamento" no cadastro da empresa. O status entra sozinho pela importação da planilha (entrada de 2026 em diante) e, depois de removido, a importação não o devolve — só volta manualmente, por quem tem esta permissão' },
-      { id: Permission.CUSTOMERS_EVALUATE, label: 'Avaliar cliente', desc: 'Permite registrar a avaliação interna de uma empresa-cliente (ao encerrar um chat, pelo sino ou em Atividades)' },
     ]
   },
   {
@@ -414,8 +413,8 @@ export function PermissionsContent() {
     return visiblePermissionGroups.map(group => ({
       ...group,
       permissions: group.permissions.filter(p =>
-        p.label.toLowerCase().includes(q.toLowerCase()) ||
-        p.desc.toLowerCase().includes(q.toLowerCase())
+        normalizeString(p.label).includes(normalizeString(q)) ||
+        normalizeString(p.desc).includes(normalizeString(q))
       )
     })).filter(group => group.permissions.length > 0);
   }, [visiblePermissionGroups, searchQuery]);
@@ -665,10 +664,10 @@ export function PermissionsContent() {
   // Quem já está selecionado pra esta equipe sobe pro topo — sem isso, achar
   // quem já é membro no meio de uma lista grande e alfabética é chato.
   const filteredCandidateUsers = useMemo(() => {
-    const term = memberSearch.trim().toLowerCase();
+    const term = normalizeString(memberSearch);
     const filtered = allUsers.filter(u =>
-      (u.name?.toLowerCase().includes(term) ||
-       u.email?.toLowerCase().includes(term))
+      (normalizeString(u.name || '').includes(term) ||
+       normalizeString(u.email || '').includes(term))
     );
     return [...filtered].sort((a, b) => {
       const aSelected = editSelectedMembers.includes(a.id);

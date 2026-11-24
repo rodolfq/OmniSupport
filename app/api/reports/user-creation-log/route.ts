@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { query } from '@/lib/db';
 import { verifyJWT } from '@/lib/jwt';
+import { unaccentCol, likeTerm } from '@/lib/sql-unaccent';
 
 // Registro RÍGIDO de criação de usuários (public.user_creation_log, gravado por
 // gatilho no banco — ver migrations/user_creation_log.sql): quem foi criado e por
@@ -50,10 +51,10 @@ export async function GET(request: NextRequest) {
       conditions.push(`source = $${params.length}`);
     }
     if (search) {
-      params.push(`%${search}%`);
+      params.push(likeTerm(search));
       const n = params.length;
-      conditions.push(`(created_user_name ILIKE $${n} OR created_user_email ILIKE $${n} OR created_by_name ILIKE $${n}
-        OR created_by_email ILIKE $${n} OR created_user_company_name ILIKE $${n} OR actor_label ILIKE $${n})`);
+      conditions.push(`(${unaccentCol('created_user_name')} ILIKE $${n} OR created_user_email ILIKE $${n} OR ${unaccentCol('created_by_name')} ILIKE $${n}
+        OR created_by_email ILIKE $${n} OR ${unaccentCol('created_user_company_name')} ILIKE $${n} OR ${unaccentCol('actor_label')} ILIKE $${n})`);
     }
     const whereClause = conditions.length ? `WHERE ${conditions.join(' AND ')}` : '';
 

@@ -79,6 +79,8 @@ export enum Permission {
   // 2026-09-23: o servidor só excluía Cliente/Funcionário, qualquer papel
   // interno (Administrador/Equipe/Time Interno) sempre podia avaliar, sem
   // permissão própria pra restringir.
+  // Sem uso desde 2026-11-24 (avaliação interna do cliente removida); mantido
+  // só para não invalidar perfis de acesso que já tinham o valor gravado.
   CUSTOMERS_EVALUATE = 'customers:evaluate',
   // Adicionar E remover o status "Em treinamento" de uma empresa (uma só
   // permissão pros dois sentidos, pedido do usuário 2026-09-28). O status entra
@@ -1465,4 +1467,7 @@ export interface InternalTicketQueue {
   memberIds: string[];
   isActive: boolean;
   sortOrder: number;
+  // Status que a fila usa (config_statuses, escopo internal_ticket), na ordem
+  // da fila — topo e sub-status. Vazio = usa todos (2026-11-24).
+  statusIds?: string[];
 }

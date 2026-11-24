@@ -11,7 +11,7 @@ import { arrayMove, SortableContext, verticalListSortingStrategy, useSortable } 
 import { CSS } from '@dnd-kit/utilities';
 import { toast } from 'sonner';
 import { motion, AnimatePresence } from 'motion/react';
-import { cn } from '@/lib/utils';
+import { cn, normalizeString } from '@/lib/utils';
 import { UserAvatar } from '@/components/user-avatar';
 import { ConfirmDialog } from '@/components/confirm-dialog';
 import { StyledSelect } from '@/components/styled-select';
@@ -174,10 +174,10 @@ export function GiroDayView({ canManage }: GiroDayViewProps) {
 
   const availableCandidates = useMemo(() => {
     const inDay = new Set(day?.rows.map(r => r.userId) || []);
-    const term = memberSearch.trim().toLowerCase();
+    const term = normalizeString(memberSearch);
     return candidates
       .filter(c => !inDay.has(c.id))
-      .filter(c => !term || c.name.toLowerCase().includes(term));
+      .filter(c => !term || normalizeString(c.name).includes(term));
   }, [candidates, day, memberSearch]);
 
   const closeAddMember = () => {

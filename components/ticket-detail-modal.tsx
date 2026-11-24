@@ -3,17 +3,18 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { StyledSelect } from '@/components/styled-select';
 import { UserAvatar } from '@/components/user-avatar';
-import { X, User, MessageCircle, Clock, Link2, Paperclip, Save, Maximize2, Minimize2, Send, Lock, History, Download, File, Image as ImageIcon, Film, Loader2, Check, CheckCheck, Copy, GitMerge } from 'lucide-react';
+import { X, User, MessageCircle, Clock, Link2, Paperclip, Save, Maximize2, Minimize2, Send, Lock, History, Download, File, Film, Loader2, Check, CheckCheck, Copy, GitMerge } from 'lucide-react';
 import { motion } from 'motion/react';
 import { createPortal } from 'react-dom';
 import { Ticket, TicketStatus, User as UserType, Message, UserRole, StatusConfig, Company, Attachment, PriorityConfig, CategoryConfig, RequestTypeConfig, ProductConfig, InternalTicket, Permission, TicketEvaluation, InternalTicketQueue } from '@/lib/types';
+import { statusesForQueue } from '@/lib/internal-queue-statuses';
 import { cn, selectableOptions, linkifyPlainUrls, htmlHasContent } from '@/lib/utils';
 import { useApp } from '@/app/app-context';
 import { Star, MoreHorizontal, ThumbsUp, ThumbsDown } from 'lucide-react';
 import { TicketMergeModal } from './ticket-merge-modal';
 import { toast } from 'sonner';
 import { RichEditor } from './rich-editor';
-import { AttachmentGallery, AttachmentPreviewModal, AttachmentChipThumb, isImageAttachment, openAttachmentInNewTab } from './attachment-gallery';
+import { AttachmentGallery, AttachmentPreviewModal, AttachmentChipThumb } from './attachment-gallery';
 import { LinkInternalTicketModal } from './link-internal-ticket-modal';
 import { LinkSessionToTicketModal } from './link-session-to-ticket-modal';
 import { StartWhatsAppConversationModal } from './start-whatsapp-conversation-modal';
@@ -326,10 +327,12 @@ export function TicketDetailModal({ ticket, onClose, initialDraft, creating = fa
   // escopo internal_ticket) — o primeiro pela ordem é o que o ticket interno
   // recebe ao ser fechado junto com o chamado.
   const [internalClosedLabels, setInternalClosedLabels] = useState<string[]>([]);
+  const [internalStatusConfigs, setInternalStatusConfigs] = useState<StatusConfig[]>([]);
   useEffect(() => {
     if (internalTickets.length === 0 || internalClosedLabels.length > 0) return;
     ConfigService.getStatuses('internal_ticket')
       .then((list: any[]) => {
+        setInternalStatusConfigs(list || []);
         const closed = (list || [])
           .filter(st => st.isClosed && !st.parentStatusId)
           .sort((a, b) => (a.sortOrder ?? 0) - (b.sortOrder ?? 0))
@@ -1249,7 +1252,19 @@ const loadMessages = async () => {
         // histórico e avisa criador/responsável/seguidores como uma mudança
         // de status feita à mão. Falhar aqui não desfaz o fechamento do chamado.
         try {
-          await InternalTicketService.bulkUpdate(internalToClose, { status: internalClosedLabels[0] || 'Concluído' });
+          // Status por fila (2026-11-24): cada ticket fecha com o 1º status
+          // que finaliza na fila DELE; fila sem configuração usa o do cadastro.
+          const fallback = internalClosedLabels[0] || 'Concluído';
+          const porStatus = new Map<string, string[]>();
+          for (const uuid of internalToClose) {
+            const it = internalTickets.find(x => x.uuid === uuid);
+            const fila = (internalQueuesQuery.data as InternalTicketQueue[] | undefined)?.find(q => q.id === it?.internalQueueId);
+            const fechado = statusesForQueue(internalStatusConfigs, fila).find(s => !s.parentStatusId && s.isClosed)?.label || fallback;
+            porStatus.set(fechado, [...(porStatus.get(fechado) || []), uuid]);
+          }
+          for (const [status, ids] of porStatus) {
+            await InternalTicketService.bulkUpdate(ids, { status });
+          }
           toast.success(internalToClose.length === 1
             ? 'Ticket interno vinculado também foi fechado.'
             : `${internalToClose.length} tickets internos vinculados também foram fechados.`);
@@ -2490,7 +2505,9 @@ const loadMessages = async () => {
                                 </div>
                                 <p className="text-sm font-bold text-[var(--text-primary)] mb-2 line-clamp-2">{it.title}</p>
                                 <div className="flex items-center justify-between text-[10px] text-[var(--text-tertiary)] font-medium">
-                                   <span>{it.teamId || 'Sem equipe'} {assignee ? `· ${assignee.name}` : ''}</span>
+                                   {/* Fila do ticket interno (a "Equipe" saiu do ticket em 2026-11-13);
+                                       ticket antigo sem fila mostra a equipe de antes. */}
+                                   <span>{(it.internalQueueId && (internalQueuesQuery.data as InternalTicketQueue[] | undefined)?.find(q => q.id === it.internalQueueId)?.name) || (it.teamId ? `Equipe (antiga): ${it.teamId}` : 'Sem fila')} {assignee ? `· ${assignee.name}` : ''}</span>
                                    <span>{creator ? `por ${creator.name}` : ''}</span>
                                 </div>
                                 <div className="mt-3 flex flex-wrap items-center gap-x-4 gap-y-1">
@@ -2763,30 +2780,13 @@ const loadMessages = async () => {
                             {/* Nota só com anexo não ganha balão vazio. */}
                             {htmlHasContent(m.text) && (
                             <div
-                              className="p-3 rounded-2xl text-sm leading-relaxed shadow-sm prose prose-sm max-w-none break-words bg-[var(--surface-warning)] border border-[var(--border-alert)] text-[var(--text-warning)] border-l-4 border-l-amber-400 prose-amber"
+                              className="p-3 rounded-2xl text-sm leading-relaxed shadow-sm prose prose-sm max-w-none min-w-0 [overflow-wrap:anywhere] bg-[var(--surface-warning)] border border-[var(--border-alert)] text-[var(--text-warning)] border-l-4 border-l-amber-400 prose-amber"
                               dangerouslySetInnerHTML={{ __html: linkifyPlainUrls(m.text) }}
                             />
                             )}
-                            {m.attachments && m.attachments.length > 0 && (
-                              <div className={cn(htmlHasContent(m.text) && "mt-3 pt-3 border-t border-[var(--border-default)]")}>
-                                <div className="flex flex-wrap gap-2">
-                                  {m.attachments.map(att => {
-                                    const isImage = isImageAttachment(att);
-                                    return (
-                                      <button
-                                        key={att.id}
-                                        type="button"
-                                        onClick={() => isImage ? setPreviewAttachment(att) : openAttachmentInNewTab(att)}
-                                        className="flex items-center gap-1 px-2 py-1 bg-[var(--surface-pill)] rounded text-[10px] hover:bg-[var(--border-default)] transition-colors"
-                                      >
-                                        <AttachmentChipThumb attachment={att} size={14} fallback={isImage ? <ImageIcon size={12} /> : <File size={12} />} />
-                                        <span className="truncate max-w-[120px]">{att.name}</span>
-                                      </button>
-                                    );
-                                  })}
-                                </div>
-                              </div>
-                            )}
+                            {/* Imagem aparece em si (não como "anexo" com nome), igual às
+                                notas do ticket interno — 2026-11-24, pedido do usuário. */}
+                            <ChatAttachmentList attachments={m.attachments || []} />
                           </div>
                         </div>
                       </div>
@@ -2973,7 +2973,7 @@ const loadMessages = async () => {
                             )}
                           </div>
 <div className={cn(
-                             "p-3 rounded-2xl text-sm leading-relaxed shadow-sm prose prose-sm max-w-none break-words",
+                             "p-3 rounded-2xl text-sm leading-relaxed shadow-sm prose prose-sm max-w-none min-w-0 [overflow-wrap:anywhere]",
                              isInternal
                                ? "bg-[var(--surface-warning)] border border-[var(--border-alert)] text-[var(--text-warning)] border-l-4 border-l-amber-400 prose-amber"
                                : "bg-[var(--surface-card)] border border-[var(--border-default)] text-[var(--text-secondary)]"
@@ -2987,28 +2987,9 @@ const loadMessages = async () => {
                                Lido pelo cliente em <ClientTime date={m.readByCustomerAt} showDate />
                              </p>
                            )}
-                           {/* Render attachments inline */}
-                           {m.attachments && m.attachments.length > 0 && (
-                             <div className="mt-3 pt-3 border-t border-[var(--border-default)]">
-                               <div className="flex flex-wrap gap-2">
-                                 {m.attachments.map(att => {
-                                   const isImage = isImageAttachment(att);
-
-                                   return (
-                                     <button
-                                       key={att.id}
-                                       type="button"
-                                       onClick={() => isImage ? setPreviewAttachment(att) : openAttachmentInNewTab(att)}
-                                       className="flex items-center gap-1 px-2 py-1 bg-[var(--surface-pill)] rounded text-[10px] hover:bg-[var(--border-default)] transition-colors"
-                                     >
-                                       <AttachmentChipThumb attachment={att} size={14} fallback={isImage ? <ImageIcon size={12} /> : <File size={12} />} />
-                                       <span className="truncate max-w-[120px]">{att.name}</span>
-                                     </button>
-                                   );
-                                 })}
-                               </div>
-                             </div>
-                           )}
+                           {/* Imagem aparece em si (não como "anexo" com nome), igual às
+                               notas do ticket interno — 2026-11-24, pedido do usuário. */}
+                           <ChatAttachmentList attachments={m.attachments || []} />
                          </div>
                       </div>
                     </div>

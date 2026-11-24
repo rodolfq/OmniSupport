@@ -11,6 +11,8 @@ import { ticketPriorityToStars, cascadePriorityFromInternalTicket, reconcilePrio
 import { queueInternalTicketChangeEmail } from '@/lib/services/internal-ticket-notifications';
 import { registerMentions, extractMentionIds } from '@/lib/services/internal-ticket-mentions';
 import { formatChangeMessage, FieldChange } from '@/lib/ticket-diff';
+import { loadQueueStatusRule, statusErrorForRule, initialStatusForRule } from '@/lib/services/internal-queue-status-rules';
+import { unaccentCol, likeTerm } from '@/lib/sql-unaccent';
 
 // Rota dos tickets internos — criada para tirar o InternalTicketService do
 // shim de compatibilidade Supabase (ver lib/services/ticket-service.ts).
@@ -189,12 +191,12 @@ export async function GET(request: NextRequest) {
         // usuário) — aceita "23", "0023" ou "int-0023" (o formato que a tela
         // mostra); o número puro bate contra internal_ticket_number::text.
         const numeroBuscado = search.replace(/^int-/i, '').replace(/^0+(?=\d)/, '');
-        params.push(`%${search}%`);
+        params.push(likeTerm(search));
         if (numeroBuscado && /^\d+$/.test(numeroBuscado)) {
           params.push(numeroBuscado);
-          conditions.push(`(title ILIKE $${params.length - 1} OR internal_ticket_number::text = $${params.length})`);
+          conditions.push(`(${unaccentCol('title')} ILIKE $${params.length - 1} OR internal_ticket_number::text = $${params.length})`);
         } else {
-          conditions.push(`title ILIKE $${params.length}`);
+          conditions.push(`${unaccentCol('title')} ILIKE $${params.length}`);
         }
       }
 
@@ -290,7 +292,7 @@ export async function GET(request: NextRequest) {
         // (abertos e encerrados vêm juntos em qualquer busca — ver
         // `closedOnly` abaixo).
         const numeroBuscado = search.replace(/^int-/i, '').replace(/^0+(?=\d)/, '');
-        addCondition('title ILIKE $?', `%${search}%`);
+        addCondition(`${unaccentCol('title')} ILIKE $?`, likeTerm(search));
         if (/^\d+$/.test(numeroBuscado)) {
           params.push(Number(numeroBuscado));
           exactNumberParam = params.length;
@@ -678,6 +680,13 @@ export async function POST(request: NextRequest) {
         if (ticket.internalQueueId) {
           const err = await queueError(ticket.internalQueueId);
           if (err) return NextResponse.json({ error: err }, { status: 400 });
+          // Trocar de fila exige que o status atual exista na fila nova
+          // (status por fila, 2026-11-24) — esta ação não mexe em status.
+          const atual = (await query('SELECT status, sub_status, internal_queue_id FROM public.internal_tickets WHERE id = $1', [ticket.uuid])).rows[0];
+          if (atual && atual.internal_queue_id !== ticket.internalQueueId) {
+            const statusErr = statusErrorForRule(await loadQueueStatusRule(ticket.internalQueueId), atual.status, atual.sub_status);
+            if (statusErr) return NextResponse.json({ error: statusErr }, { status: 400 });
+          }
         }
         // O prazo é recalculado a cada gravação, ancorado na CRIAÇÃO do
         // ticket (não em "agora"): sem isso, mudar a prioridade deixaria o
@@ -761,11 +770,13 @@ export async function POST(request: NextRequest) {
       const creationRequestId = typeof ticket.creationRequestId === 'string' && ticket.creationRequestId.trim()
         ? ticket.creationRequestId.trim()
         : null;
+      // Fila que não usa "Novo" faz o ticket nascer no 1º status aberto dela.
+      const initialStatus = initialStatusForRule(await loadQueueStatusRule(ticket.internalQueueId));
       const insertInternalTicketSql = `INSERT INTO public.internal_tickets
            (title, team_id, internal_team_id, assignee_id, priority, tags, creator_id, description,
-            sla_limit, internal_queue_id, internal_ticket_number, creation_request_id)
+            sla_limit, internal_queue_id, internal_ticket_number, creation_request_id, status)
          VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10,
-                 (SELECT COALESCE(MAX(internal_ticket_number), 0) + 1 FROM public.internal_tickets), $11)
+                 (SELECT COALESCE(MAX(internal_ticket_number), 0) + 1 FROM public.internal_tickets), $11, $12)
          ON CONFLICT (creation_request_id) WHERE creation_request_id IS NOT NULL DO NOTHING
          RETURNING id, internal_ticket_number`;
       const insertInternalTicketParams = [
@@ -779,7 +790,8 @@ export async function POST(request: NextRequest) {
         ticket.description || '',
         slaLimit,
         ticket.internalQueueId || null,
-        creationRequestId
+        creationRequestId,
+        initialStatus
       ];
 
       let res;
@@ -881,6 +893,36 @@ export async function POST(request: NextRequest) {
         }
         delete fields.internalQueueId;
       }
+
+      // Status por fila (2026-11-24): a combinação fila + status + sub-status
+      // precisa valer para a fila do ticket. Só confere quando algum dos três
+      // MUDA de verdade — a tela reenvia o formulário inteiro, e um ticket cujo
+      // status saiu da fila depois continua editável no resto.
+      if (fields.internalQueueId !== undefined || fields.status !== undefined || fields.subStatus !== undefined) {
+        const atuais = (await query(
+          'SELECT id, internal_ticket_number, status, sub_status, internal_queue_id FROM public.internal_tickets WHERE id = ANY($1::text[])',
+          [targetIds]
+        )).rows;
+        const regras = new Map<string, Awaited<ReturnType<typeof loadQueueStatusRule>>>();
+        for (const a of atuais) {
+          const fila = fields.internalQueueId || a.internal_queue_id;
+          const status = fields.status !== undefined ? (fields.status || 'Novo') : (a.status || 'Novo');
+          const statusMudou = fields.status !== undefined && status !== (a.status || 'Novo');
+          // Status trocado sem sub-status informado: o sub antigo não conta.
+          const sub = fields.subStatus !== undefined ? (fields.subStatus || null) : (statusMudou ? null : a.sub_status);
+          const mudou = (fields.internalQueueId && fields.internalQueueId !== a.internal_queue_id)
+            || statusMudou
+            || (fields.subStatus !== undefined && (fields.subStatus || null) !== (a.sub_status || null));
+          if (!mudou || !fila) continue;
+          if (!regras.has(fila)) regras.set(fila, await loadQueueStatusRule(fila));
+          const err = statusErrorForRule(regras.get(fila)!, status, sub);
+          if (err) {
+            const prefixo = targetIds.length > 1 ? `${formatId(a.internal_ticket_number, a.id)}: ` : '';
+            return NextResponse.json({ error: prefixo + err, code: 'status_not_in_queue' }, { status: 400 });
+          }
+        }
+      }
+
       // Edição em MASSA (lista de Tickets Internos) não gravava registro de
       // alteração nenhum — e sem registro ninguém era avisado. Guarda o
       // "antes" dos 4 campos que ela altera pra registrar depois do UPDATE.

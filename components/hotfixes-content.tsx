@@ -24,7 +24,7 @@ import { ReleaseStageDrawer } from '@/components/release-stage-drawer';
 import { ReleaseItemDrawer } from '@/components/release-item-drawer';
 import { ReleaseTemplateManager } from '@/components/release-template-manager';
 import { useApp } from '@/app/app-context';
-import { cn, selectableOptions } from '@/lib/utils';
+import { cn, selectableOptions, normalizeString } from '@/lib/utils';
 import { toast } from 'sonner';
 import { RELEASE_ITEM_TYPE_META, computeStagesWithStatus, todayIsoDate } from '@/lib/release-stage-logic';
 
@@ -433,12 +433,12 @@ export function HotfixesContent() {
     );
   }
 
-  const q = search.trim().toLowerCase();
+  const q = normalizeString(search);
   // Daqui pra baixo (Semana/Próximos/Histórico) é só o fluxo achatado
   // legado, sem ciclo — o ciclo de publicação vive na timeline acima,
   // numa tabela separada (release_cycles), sem relação com esta lista.
   const visibleHotfixes = hotfixes.filter(h =>
-    h.name.toLowerCase().includes(q) || (h.description || '').toLowerCase().includes(q)
+    normalizeString(h.name).includes(q) || normalizeString(h.description || '').includes(q)
   );
   const published = visibleHotfixes
     .filter(h => h.publishedAt)

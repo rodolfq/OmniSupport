@@ -2,7 +2,7 @@
 
 import React, { useMemo, useState } from 'react';
 import { BarChart, Bar, LineChart, Line, XAxis, YAxis, Tooltip, Legend, ResponsiveContainer } from 'recharts';
-import { Lock, ChevronDown, ChevronUp, AlertTriangle, Star, CheckCircle2, MinusCircle } from 'lucide-react';
+import { Lock, ChevronDown, ChevronUp, AlertTriangle, CheckCircle2, MinusCircle } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { useTheme } from '@/app/theme-provider';
 import { useApp } from '@/app/app-context';
@@ -52,7 +52,6 @@ const SUMMARY_EXPORT_COLUMNS: ReportExportConfig<any>['columns'] = [
   { key: 'minutosConsumidos', label: 'Minutos consumidos', format: (v) => formatMinutosConsumidos(v as number | null) },
   { key: 'recorrenciaRate', label: 'Recorrência 72h', format: (v) => pct2(v as number | null) },
   { key: 'positiveRate', label: '% Satisfação', format: (v) => pct2(v as number | null) },
-  { key: 'avaliacaoInternaMedia', label: 'Avaliação interna', format: (v) => dec2(v as number | null) },
 ];
 
 // Ordem da tabela: contas em risco primeiro; depois quem atende mais critérios; depois o maior volume.
@@ -157,7 +156,6 @@ export default function ReportAccountsPage() {
                 <th className="text-right py-2 px-3">Minutos consumidos</th>
                 <th className="text-right py-2 px-3">Recorrência 72h</th>
                 <th className="text-right py-2 px-3">% Satisfação</th>
-                <th className="text-right py-2 px-3">Avaliação interna</th>
                 <th className="w-8"></th>
               </tr>
             </thead>
@@ -188,21 +186,13 @@ export default function ReportAccountsPage() {
                       <td className="py-3 px-3 text-right tabular-nums">{formatMinutosConsumidos(row.minutosConsumidos)}</td>
                       <td className="py-3 px-3 text-right tabular-nums">{pct2(row.recorrenciaRate)}</td>
                       <td className="py-3 px-3 text-right tabular-nums">{pct2(row.positiveRate)}</td>
-                      <td className="py-3 px-3 text-right">
-                        {row.avaliacaoInternaMedia !== null ? (
-                          <span className="inline-flex items-center gap-1 text-amber-400">
-                            <Star size={12} fill="currentColor" />
-                            <span className="text-[var(--text-secondary)] font-semibold tabular-nums">{dec2(row.avaliacaoInternaMedia)}</span>
-                          </span>
-                        ) : '—'}
-                      </td>
                       <td className="py-3 px-3 text-[var(--text-tertiary)]">
                         {aberta ? <ChevronUp size={14} /> : <ChevronDown size={14} />}
                       </td>
                     </tr>
                     {aberta && (
                       <tr>
-                        <td colSpan={8} className="bg-[var(--surface-pill)]/50 px-3 py-4">
+                        <td colSpan={7} className="bg-[var(--surface-pill)]/50 px-3 py-4">
                           <AccountDrillDown
                             row={row}
                             periodoAnterior={periodoAnterior}

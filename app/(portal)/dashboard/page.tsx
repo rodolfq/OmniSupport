@@ -2,13 +2,14 @@
 import { sortQueueTopPriorityFirst, isQueueTopPriority, QueueTopPriorityBadge, QUEUE_TOP_PRIORITY_CARD_CLASS } from '@/lib/internal-queue-priority';
 
 import React, { useState, useEffect, useMemo, useRef } from 'react';
-import { Ticket as TicketType, TicketStatus, UserRole, TicketPriority, Permission, InternalTicket } from '@/lib/types';
+import { Ticket as TicketType, TicketStatus, UserRole, TicketPriority, Permission, InternalTicket, StatusConfig } from '@/lib/types';
+import { statusesForQueue } from '@/lib/internal-queue-statuses';
 import { fetchAllTickets } from '@/lib/tickets';
 import { TicketService } from '@/lib/services/ticket-service';
 import { isClosedTicketStatus, isInProgressTicketStatus } from '@/lib/ticket-status';
 import { getTicketSlaStatus, isTicketSlaExempt } from '@/lib/sla';
 import { fetchStatuses, ConfigService } from '@/lib/services/config-service';
-import { useProfilesLiteQuery, useConfigPrioritiesQuery } from '@/lib/query-hooks';
+import { useProfilesLiteQuery, useConfigPrioritiesQuery, useInternalTicketQueuesQuery } from '@/lib/query-hooks';
 import { UserAvatar } from '@/components/user-avatar';
 import { findStatusColor } from '@/lib/status-colors';
 import { useApp } from '@/app/app-context';
@@ -22,6 +23,9 @@ import { UnreadDot } from '@/components/notification-count-badge';
 import { useSearchParams, useRouter } from 'next/navigation';
 import { useOpenInternalTicket } from '@/components/internal-ticket-modal-host';
 import { InternalQueuePicker, internalQueueLabel, useVisibleInternalQueues } from '@/components/internal-queue-picker';
+import { KANBAN_BOARD_CLASS, KANBAN_COLUMN_CLASS } from '@/lib/kanban-layout';
+import { useCollapsedKanbanColumns } from '@/hooks/use-collapsed-kanban-columns';
+import { KanbanCollapseButton, KanbanCollapsedColumn } from '@/components/kanban-collapse';
 import {
   DndContext,
   DragOverlay,
@@ -93,6 +97,7 @@ function isTicketInAguardandoPublicacaoColumn(t: TicketType): boolean {
 }
 
 export default function DashboardPage() {
+  const { isCollapsed: isTicketColCollapsed, toggleCollapsed: toggleTicketCol } = useCollapsedKanbanColumns('dashboard-tickets');
   const router = useRouter();
   const [allTickets, setAllTickets] = useState<TicketType[]>([]);
   const [filteredTickets, setFilteredTickets] = useState<TicketType[]>([]);
@@ -261,7 +266,16 @@ export default function DashboardPage() {
   const [ticketsReady, setTicketsReady] = useState(false);
   const [internalReady, setInternalReady] = useState(false);
   useEffect(() => { if (!loading) setTicketsReady(true); }, [loading]);
-  const [internalStatuses, setInternalStatuses] = useState<InternalStatusMeta[]>([]);
+  const [internalStatusConfigs, setInternalStatusConfigs] = useState<StatusConfig[]>([]);
+  // Status por fila (2026-11-24): colunas = status que a fila escolhida usa,
+  // na ordem dela. "Todas"/"Sem fila" ou fila sem configuração = todos.
+  const internalStatuses = useMemo<InternalStatusMeta[]>(() => {
+    const fila = allInternalQueues.find(q => q.id === selectedInternalQueue);
+    return statusesForQueue(internalStatusConfigs, fila).filter(s => !s.parentStatusId).map(s => {
+      const c = findStatusColor(s.color);
+      return { value: s.label, label: s.label, color: `${c.bg} ${c.text}`, dot: c.dot, accent: c.accent };
+    });
+  }, [internalStatusConfigs, allInternalQueues, selectedInternalQueue]);
 
   // Nenhuma das duas permissões é dependente da outra: quem perde/ganha uma
   // delas (ex: perfil de acesso trocado) não deve continuar preso no lado
@@ -277,10 +291,7 @@ export default function DashboardPage() {
       setLoadingInternal(true);
       try {
         const statusConfigs = await ConfigService.getStatuses('internal_ticket');
-        setInternalStatuses(statusConfigs.filter(s => !s.parentStatusId).map(s => {
-          const c = findStatusColor(s.color);
-          return { value: s.label, label: s.label, color: `${c.bg} ${c.text}`, dot: c.dot, accent: c.accent };
-        }));
+        setInternalStatusConfigs(statusConfigs);
 
         // Quem não vê todos os tickets internos enxerga só os das próprias
         // equipes — e é o SERVIDOR que resolve quais são, a partir da sessão
@@ -330,6 +341,7 @@ export default function DashboardPage() {
             uuid: it.id,
             displayId: `INT-${it.internal_ticket_number?.toString().padStart(4, '0') || it.id.slice(0, 8)}`,
             teamId: it.team_id,
+            internalQueueId: it.internal_queue_id ?? null,
             assigneeId: it.assignee_id,
             assigneeName: it.assignee_id ? assigneeMap.get(it.assignee_id)?.name || null : null,
             assigneeAvatarThumbUrl: it.assignee_id ? assigneeMap.get(it.assignee_id)?.avatar_thumb_url || null : null,
@@ -967,19 +979,11 @@ export default function DashboardPage() {
           )}
         </div>
       ) : (
-        /* Kanban estilo Bitrix: uma fileira só, nunca quebra linha. Cada
-           coluna cresce pra dividir igualmente o espaço disponível
-           (md:flex-1) — com poucas colunas elas esticam até preencher a
-           tela, e ocultar uma (Configurações de coluna) redistribui o
-           espaço nas que sobraram automaticamente, de graça, só por ser
-           flex. md:min-w-[220px] é o piso: com colunas demais pra caber
-           nesse mínimo, o container passa a rolar (overflow-x-auto) em vez
-           de espremer a coluna a ponto de ficar ilegível — mesma rede de
-           segurança de antes, só que agora só entra em ação quando
-           realmente precisa (não é mais o padrão fixo pra 1 ou 20 colunas
-           igual). */
+        /* Kanban no layout único do sistema (lib/kanban-layout.ts, 2026-11-24,
+           "como no Odoo"): uma fileira só, colunas de largura fixa e rolagem
+           horizontal quando não cabem — as colunas não esticam nem espremem. */
         <DndContext sensors={dashboardKanbanSensors} onDragStart={handleDashboardTicketDragStart} onDragEnd={handleDashboardTicketDragEnd}>
-          <div className="flex flex-col gap-6 md:flex-row md:items-start md:gap-4 md:overflow-x-auto md:scrollbar-thin md:pb-4">
+          <div className={KANBAN_BOARD_CLASS}>
             {columns.map(col => {
               const colTickets = groupedTickets[col.status] || [];
               const displayTickets = colTickets.slice(0, 20); // Only render first 20 for performance
@@ -999,6 +1003,8 @@ export default function DashboardPage() {
                   users={users}
                   onSelect={setSelectedTicket}
                   onSeeMore={() => router.push(`/tickets?status=${col.status}`)}
+                  collapsed={isTicketColCollapsed(col.status)}
+                  onToggleCollapse={() => toggleTicketCol(col.status)}
                 />
               );
             })}
@@ -1052,6 +1058,7 @@ export default function DashboardPage() {
 // board de chamados acima (StatCard, colunas por status), com dados e cores
 // vindas de config_statuses (scope=internal_ticket), igual /internal-tickets.
 function InternalDashboard({ tickets, loading, router, statuses, onStatusChange }: { tickets: InternalTicketItem[]; loading: boolean; router: ReturnType<typeof useRouter>; statuses: InternalStatusMeta[]; onStatusChange: (ticketUuid: string, newStatus: string) => void }) {
+  const { isCollapsed, toggleCollapsed } = useCollapsedKanbanColumns('dashboard-internal');
   // Abre por cima do Dashboard (?internalTicket=), sem sair dele.
   const openInternalTicket = useOpenInternalTicket();
   const [activeInternalTicket, setActiveInternalTicket] = useState<InternalTicketItem | null>(null);
@@ -1204,9 +1211,9 @@ function InternalDashboard({ tickets, loading, router, statuses, onStatusChange 
       )}
 
       <DndContext sensors={internalKanbanSensors} onDragStart={handleInternalDragStart} onDragEnd={handleInternalDragEnd}>
-        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4 flex-1 min-h-[500px] items-start mt-2">
+        <div className={cn(KANBAN_BOARD_CLASS, "flex-1 min-h-[500px] mt-2")}>
           {columns.map(col => (
-            <InternalDashboardKanbanColumn key={col.value} col={col} router={router} />
+            <InternalDashboardKanbanColumn key={col.value} col={col} router={router} collapsed={isCollapsed(col.value)} onToggleCollapse={() => toggleCollapsed(col.value)} />
           ))}
         </div>
         <DragOverlay dropAnimation={{ duration: 180, easing: 'cubic-bezier(0.18, 0.67, 0.6, 1.22)' }}>
@@ -1220,19 +1227,23 @@ function InternalDashboard({ tickets, loading, router, statuses, onStatusChange 
 // Coluna droppable + card draggable do Kanban de Tickets Internos (mesmo
 // padrão de arrastar-e-soltar do board de Chamados acima e de
 // internal-tickets-view.tsx).
-function InternalDashboardKanbanColumn({ col, router }: { col: InternalStatusMeta & { tickets: InternalTicketItem[] }; router: ReturnType<typeof useRouter> }) {
+function InternalDashboardKanbanColumn({ col, router, collapsed = false, onToggleCollapse = () => {} }: { col: InternalStatusMeta & { tickets: InternalTicketItem[] }; router: ReturnType<typeof useRouter>; collapsed?: boolean; onToggleCollapse?: () => void }) {
   const { setNodeRef, isOver } = useDroppable({ id: col.value });
+  if (collapsed) {
+    return <KanbanCollapsedColumn ref={setNodeRef} label={col.label} count={col.tickets.length} accent={col.accent} dotClass={col.dot} isOver={isOver} onExpand={onToggleCollapse} />;
+  }
 
   return (
     <div
       ref={setNodeRef}
-      className={cn("rounded-2xl border-t-4 overflow-hidden transition-colors", isOver ? "bg-[var(--surface-pill)] ring-2 ring-[var(--text-warning-strong)]/30" : "bg-[var(--surface-card)]")}
+      className={cn("rounded-2xl border-t-4 overflow-hidden transition-colors", KANBAN_COLUMN_CLASS, isOver ? "bg-[var(--surface-pill)] ring-2 ring-[var(--text-warning-strong)]/30" : "bg-[var(--surface-card)]")}
       style={{ borderTopColor: col.accent }}
     >
       <div className="flex items-center gap-2 px-4 py-3 border-b border-[var(--border-default)]">
         <span className={cn("w-2 h-2 rounded-full", col.dot)} />
         <h3 className="text-xs font-black uppercase tracking-wide text-[var(--text-secondary)]">{col.label}</h3>
         <span className="text-[10px] font-bold text-[var(--text-tertiary)] ml-auto bg-[var(--surface-pill)] px-2 py-0.5 rounded-full">{col.tickets.length}</span>
+        <KanbanCollapseButton label={col.label} onClick={onToggleCollapse} />
       </div>
       <div className="p-3 space-y-2.5 min-h-[100px] max-h-[440px] overflow-y-auto">
         {col.tickets.length === 0 ? (
@@ -1268,6 +1279,10 @@ function DraggableInternalDashboardTicketCard({ ticket, router }: { ticket: Inte
 
 function InternalDashboardTicketCard({ ticket, onClick, dragging = false }: { ticket: InternalTicketItem; onClick?: () => void; dragging?: boolean }) {
   const isOverdue = ticket.slaRemaining === 'Expirado';
+  // Fila do ticket (a "Equipe" saiu do ticket interno em 2026-11-13). Query em
+  // cache, compartilhada com o resto da tela.
+  const { data: queuesData } = useInternalTicketQueuesQuery();
+  const queueName = ((queuesData || []) as { id: string; name: string }[]).find(q => q.id === (ticket as any).internalQueueId)?.name;
   return (
     <div
       onClick={() => !dragging && onClick?.()}
@@ -1290,7 +1305,7 @@ function InternalDashboardTicketCard({ ticket, onClick, dragging = false }: { ti
           <span className="flex items-center gap-1 font-bold text-[var(--text-danger)]"><Clock size={11} />Atrasado</span>
         ) : ticket.slaRemaining ? (
           <span className="flex items-center gap-1 font-semibold text-orange-600 dark:text-orange-400"><Clock size={11} />{ticket.slaRemaining}</span>
-        ) : <span className="truncate max-w-[100px]">{ticket.teamId || 'Sem equipe'}</span>}
+        ) : <span className="truncate max-w-[100px]">{queueName || (ticket.teamId ? `Equipe (antiga): ${ticket.teamId}` : 'Sem fila')}</span>}
         {ticket.assigneeName ? (
           <UserAvatar
             name={ticket.assigneeName}
@@ -1588,6 +1603,8 @@ function DashboardTicketKanbanColumn({
   users,
   onSelect,
   onSeeMore,
+  collapsed = false,
+  onToggleCollapse = () => {},
 }: {
   status: string;
   title: string;
@@ -1600,16 +1617,24 @@ function DashboardTicketKanbanColumn({
   users: any[];
   onSelect: (t: TicketType) => void;
   onSeeMore: () => void;
+  collapsed?: boolean;
+  onToggleCollapse?: () => void;
 }) {
   const { setNodeRef, isOver } = useDroppable({ id: status });
+  if (collapsed) {
+    return <KanbanCollapsedColumn ref={setNodeRef} label={title} count={count} isOver={isOver} onExpand={onToggleCollapse} />;
+  }
 
   return (
-    <div className="flex flex-col gap-3 md:flex-1 md:min-w-[220px]">
+    <div className={cn("flex flex-col gap-3", KANBAN_COLUMN_CLASS)}>
       <div className="flex items-center justify-between px-1">
         <h3 className="text-[10px] font-semibold uppercase tracking-[0.2em] text-[var(--text-tertiary)]">{title}</h3>
-        <span className="bg-[var(--border-default)] text-[var(--text-secondary)] text-[10px] font-bold px-2 py-0.5 rounded-full">
-          {count}
-        </span>
+        <div className="flex items-center gap-1">
+          <span className="bg-[var(--border-default)] text-[var(--text-secondary)] text-[10px] font-bold px-2 py-0.5 rounded-full">
+            {count}
+          </span>
+          <KanbanCollapseButton label={title} onClick={onToggleCollapse} />
+        </div>
       </div>
       {/* Altura fixa por coluna (md+) em vez de crescer com a quantidade de
           chamados — clamp() acompanha a tela do usuário (nunca menor que

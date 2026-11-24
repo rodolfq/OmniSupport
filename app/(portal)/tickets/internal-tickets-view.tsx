@@ -8,7 +8,8 @@ import { NotificationCountBadge, UnreadDot } from '@/components/notification-cou
 import { cn } from "@/lib/utils";
 import { motion, AnimatePresence } from "motion/react";
 import { useApp } from "@/app/app-context";
-import { InternalTicket, Permission, User, InternalTicketQueue } from "@/lib/types";
+import { InternalTicket, Permission, User, InternalTicketQueue, StatusConfig } from "@/lib/types";
+import { statusesForQueue, isStatusAllowedInQueue } from "@/lib/internal-queue-statuses";
 import { InternalTicketService } from "@/lib/services/ticket-service";
 import { NewInternalTicketModal } from "@/components/new-internal-ticket-modal";
 import { ConfigService } from "@/lib/services/config-service";
@@ -27,6 +28,9 @@ import {
 import { useRouter, useSearchParams } from "next/navigation";
 import { InternalQueuePicker, InternalQueueQuickFilter, internalQueueLabel, useVisibleInternalQueues } from "@/components/internal-queue-picker";
 import { useOpenInternalTicket } from "@/components/internal-ticket-modal-host";
+import { KANBAN_BOARD_CLASS, KANBAN_COLUMN_CLASS } from '@/lib/kanban-layout';
+import { useCollapsedKanbanColumns } from '@/hooks/use-collapsed-kanban-columns';
+import { KanbanCollapseButton, KanbanCollapsedColumn } from '@/components/kanban-collapse';
 import {
   DndContext, DragOverlay, useDraggable, useDroppable, PointerSensor, useSensor, useSensors,
   type DragStartEvent, type DragEndEvent
@@ -215,7 +219,9 @@ function carregarFiltros(): FiltrosSalvos {
     // versão anterior do código ou de edição manual, e um array onde se espera
     // string quebra a montagem da query silenciosamente.
     return {
-      searchTerm: typeof p.searchTerm === 'string' ? p.searchTerm : "",
+      // A busca digitada NÃO volta (2026-11-24, pedido do usuário: "filtro de
+      // texto precisa resetar quando muda de tela"). Os demais filtros seguem salvos.
+      searchTerm: "",
       // Desde 2026-11-13 guarda ids de FILA (ou "none" = sem fila). Nomes de
       // equipe salvos antes são descartados — mandá-los como fila quebraria a busca.
       filterTeams: Array.isArray(p.filterTeams) ? p.filterTeams.filter((t: any) => typeof t === 'string' && (t === 'none' || /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(t))) : [],
@@ -392,7 +398,8 @@ export function InternalTicketsView({
   useEffect(() => {
     if (!hidratado) return; // não sobrescrever o salvo com os padrões antes de ler
     const atual: FiltrosSalvos = {
-      searchTerm, filterTeams, filterAssignee, filterStatus,
+      // Busca digitada não é guardada (reseta ao sair da tela, 2026-11-24).
+      searchTerm: "", filterTeams, filterAssignee, filterStatus,
       filterPriority, dateFrom, dateTo, showClosed, showClosedKanban: false, quickFilter, viewScope: "team"
     };
     try {
@@ -401,7 +408,13 @@ export function InternalTicketsView({
       // Sem espaço ou storage bloqueado: preferência de filtro não vale
       // interromper a tela.
     }
-  }, [hidratado, searchTerm, filterTeams, filterAssignee, filterStatus, filterPriority, dateFrom, dateTo, showClosed, quickFilter]);
+  }, [hidratado, filterTeams, filterAssignee, filterStatus, filterPriority, dateFrom, dateTo, showClosed, quickFilter]);
+
+  // Trocar de fila (ou voltar à seleção de filas) também limpa a busca digitada.
+  useEffect(() => {
+    setSearchTerm("");
+    setDebouncedSearch("");
+  }, [selectedQueue]);
 
   // Teams (dado de referência — via hook compartilhado, cache de 60s, em vez
   // de buscar internal_teams do zero toda vez que a tela monta).
@@ -462,7 +475,21 @@ export function InternalTicketsView({
   // Status (fetched de config_statuses, scope=internal_ticket — cadastrados
   // em Configurações > Geral > Status) — DEFAULT_KANBAN_STATUSES só cobre o
   // primeiro render, antes do fetch resolver.
-  const [statuses, setStatuses] = useState<KanbanStatusMeta[]>(DEFAULT_KANBAN_STATUSES);
+  const [statusConfigs, setStatusConfigs] = useState<StatusConfig[]>([]);
+  // Status por fila (2026-11-24): dentro de uma fila, só os status que ela usa,
+  // na ordem dela (colunas do Kanban e opções do lote). "Todas"/"Sem fila" = todos.
+  const selectedQueueObj = useMemo(
+    () => internalQueues.find(q => q.id === selectedQueue) || null,
+    [internalQueues, selectedQueue]
+  );
+  const statuses = useMemo<KanbanStatusMeta[]>(() => {
+    const topLevel = statusesForQueue(statusConfigs, selectedQueueObj).filter(s => !s.parentStatusId);
+    if (topLevel.length === 0) return DEFAULT_KANBAN_STATUSES;
+    return topLevel.map(s => {
+      const c = findStatusColor(s.color);
+      return { value: s.label, label: s.label, color: `${c.bg} ${c.text}`, dot: c.dot, accent: c.accent, isClosed: !!s.isClosed };
+    });
+  }, [statusConfigs, selectedQueueObj]);
   // Colunas do Kanban (2026-11-11, pedido do usuário): desmarcado, só as
   // colunas abertas; marcado, SÓ as fechadas (is_closed, ex.: "Concluído") —
   // nunca as duas juntas, mesmo padrão do Kanban de "Todos os Chamados". O
@@ -638,6 +665,54 @@ export function InternalTicketsView({
     }
   };
 
+  // "Mudar Fila" em massa com status por fila (2026-11-24): os selecionados
+  // cujo status não existe na fila de destino precisam de um status novo,
+  // escolhido no mesmo modal antes de gravar.
+  const [bulkQueueTarget, setBulkQueueTarget] = useState<{ id: string; label: string } | null>(null);
+  useEffect(() => { if (!isBulkTeamOpen) setBulkQueueTarget(null); }, [isBulkTeamOpen]);
+  const bulkQueueConflicts = useMemo(() => {
+    if (!bulkQueueTarget) return [] as string[];
+    const destino = internalQueues.find(q => q.id === bulkQueueTarget.id);
+    return tickets
+      .filter(t => t.uuid && selectedIds.includes(t.uuid) && !isStatusAllowedInQueue(statusConfigs, destino, t.status, t.subStatus))
+      .map(t => t.uuid!);
+  }, [bulkQueueTarget, internalQueues, tickets, selectedIds, statusConfigs]);
+  const bulkQueueTargetStatuses = useMemo(
+    () => bulkQueueTarget
+      ? statusesForQueue(statusConfigs, internalQueues.find(q => q.id === bulkQueueTarget.id)).filter(s => !s.parentStatusId)
+      : [],
+    [bulkQueueTarget, statusConfigs, internalQueues]
+  );
+  const chooseBulkQueue = (queueId: string, label: string) => {
+    const destino = internalQueues.find(q => q.id === queueId);
+    const conflitos = tickets.some(t => t.uuid && selectedIds.includes(t.uuid) && !isStatusAllowedInQueue(statusConfigs, destino, t.status, t.subStatus));
+    if (!queueId || !conflitos) {
+      handleBulkFieldChange({ internalQueueId: queueId }, `${selectedIds.length} ticket(s) movido(s) para ${label}`);
+      return;
+    }
+    setBulkQueueTarget({ id: queueId, label });
+  };
+  const applyBulkQueueWithStatus = async (status: string) => {
+    if (!bulkQueueTarget) return;
+    setIsBulkSaving(true);
+    try {
+      const conflitos = bulkQueueConflicts;
+      const semConflito = selectedIds.filter(id => !conflitos.includes(id));
+      // sub-status vazio: o antigo não existe na fila nova.
+      if (conflitos.length) await InternalTicketService.bulkUpdate(conflitos, { internalQueueId: bulkQueueTarget.id, status, subStatus: '' });
+      if (semConflito.length) await InternalTicketService.bulkUpdate(semConflito, { internalQueueId: bulkQueueTarget.id });
+      toast.success(`${selectedIds.length} ticket(s) movido(s) para ${bulkQueueTarget.label}`);
+      setSelectedIds([]);
+      setBulkQueueTarget(null);
+      setIsBulkTeamOpen(false);
+      fetchTickets(currentPage);
+    } catch (error: any) {
+      toast.error(error?.message || 'Erro na atualização em massa.');
+    } finally {
+      setIsBulkSaving(false);
+    }
+  };
+
   const toggleSelectTicket = (uuid: string) => {
     setSelectedIds(prev => prev.includes(uuid) ? prev.filter(id => id !== uuid) : [...prev, uuid]);
   };
@@ -692,13 +767,7 @@ export function InternalTicketsView({
     async function loadStatuses() {
       try {
         const data = await ConfigService.getStatuses('internal_ticket');
-        const topLevel = data.filter(s => !s.parentStatusId);
-        if (topLevel.length > 0) {
-          setStatuses(topLevel.map(s => {
-            const c = findStatusColor(s.color);
-            return { value: s.label, label: s.label, color: `${c.bg} ${c.text}`, dot: c.dot, accent: c.accent, isClosed: !!s.isClosed };
-          }));
-        }
+        setStatusConfigs(data);
       } catch (error) {
         console.error('Error loading internal ticket statuses:', error);
       }
@@ -810,13 +879,14 @@ const openEditModal = (ticket: InternalTicketItem) => {
          headers: { 'Content-Type': 'application/json' },
          body: JSON.stringify({ action: 'update', id: ticketUuid, fields: { status: newStatus } })
        });
-       if (!res.ok) throw new Error('Erro ao atualizar o status.');
+       if (!res.ok) throw new Error((await res.json().catch(() => null))?.error || 'Erro ao atualizar o status.');
        if (newStatus !== previousStatus) {
          await InternalTicketService.logEvent(ticketUuid, currentUser?.id, `Status alterado de "${previousStatus}" para "${newStatus}"`);
        }
        fetchTickets(1);
      } catch (error) {
        console.error('Error updating status:', error);
+       toast.error((error as any)?.message || 'Erro ao atualizar o status.');
      }
    };
 
@@ -1184,18 +1254,43 @@ const openEditModal = (ticket: InternalTicketItem) => {
           <div className="bg-[var(--surface-card)] rounded-2xl p-6 max-w-md w-full" onClick={(e) => e.stopPropagation()}>
             <h3 className="text-lg font-black text-[var(--text-primary)] mb-1 uppercase">Mudar Fila</h3>
             <p className="text-sm text-[var(--text-tertiary)] mb-4">{selectedIds.length} ticket(s) selecionado(s)</p>
+            {bulkQueueTarget ? (
+              <div className="space-y-3">
+                <p className="text-sm text-[var(--text-secondary)]">
+                  {bulkQueueConflicts.length} ticket(s) estão num status que a fila <strong>{bulkQueueTarget.label}</strong> não usa. Escolha o status deles na fila nova
+                  {selectedIds.length > bulkQueueConflicts.length ? ' (os demais mantêm o status)' : ''}:
+                </p>
+                <div className="grid grid-cols-2 gap-3 max-h-[50vh] overflow-y-auto">
+                  {bulkQueueTargetStatuses.map(s => {
+                    const c = findStatusColor(s.color);
+                    return (
+                      <button
+                        key={s.id}
+                        disabled={isBulkSaving}
+                        onClick={() => applyBulkQueueWithStatus(s.label)}
+                        className={cn("py-3 rounded-xl text-[10px] font-semibold uppercase tracking-widest border transition-all disabled:opacity-50", c.bg, c.text)}
+                      >
+                        {s.label}
+                      </button>
+                    );
+                  })}
+                </div>
+                <button type="button" onClick={() => setBulkQueueTarget(null)} className="text-xs font-bold text-[var(--text-tertiary)] hover:underline">← Escolher outra fila</button>
+              </div>
+            ) : (
             <div className="grid grid-cols-2 gap-3 max-h-[60vh] overflow-y-auto">
               {queueOptions.map(t => (
                 <button
                   key={t.value}
                   disabled={isBulkSaving}
-                  onClick={() => handleBulkFieldChange({ internalQueueId: t.value }, `${selectedIds.length} ticket(s) movido(s) para ${t.label}`)}
+                  onClick={() => chooseBulkQueue(t.value, t.label)}
                   className={cn("py-3 rounded-xl text-[10px] font-semibold uppercase tracking-widest border transition-all disabled:opacity-50", t.color)}
                 >
                   {t.label}
                 </button>
               ))}
             </div>
+            )}
           </div>
         </div>
       )}
@@ -1501,6 +1596,7 @@ function KanbanBoard({
   getAssignableUsersForTeam?: (teamName?: string) => typeof assignableUsers;
   onReassign?: (ticketUuid: string, assigneeId: string | null) => Promise<void>;
 }) {
+  const { isCollapsed, toggleCollapsed } = useCollapsedKanbanColumns('internal-tickets');
   const [activeTicket, setActiveTicket] = useState<InternalTicketItem | null>(null);
   const sensors = useSensors(
     useSensor(PointerSensor, { activationConstraint: { distance: 8 } })
@@ -1529,9 +1625,9 @@ function KanbanBoard({
 
   return (
     <DndContext sensors={sensors} onDragStart={handleDragStart} onDragEnd={handleDragEnd}>
-      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4 items-start">
+      <div className={KANBAN_BOARD_CLASS}>
         {columns.map((col) => (
-          <KanbanColumn key={col.value} col={col} onEdit={onEdit} assignableUsers={assignableUsers} getAssignableUsersForTeam={getAssignableUsersForTeam} onReassign={onReassign} />
+          <KanbanColumn key={col.value} col={col} collapsed={isCollapsed(col.value)} onToggleCollapse={() => toggleCollapsed(col.value)} onEdit={onEdit} assignableUsers={assignableUsers} getAssignableUsersForTeam={getAssignableUsersForTeam} onReassign={onReassign} />
         ))}
       </div>
       <DragOverlay dropAnimation={{ duration: 180, easing: 'cubic-bezier(0.18, 0.67, 0.6, 1.22)' }}>
@@ -1543,14 +1639,17 @@ function KanbanBoard({
 
 // Coluna do Kanban — área de soltar (droppable), com destaque visual
 // enquanto um card é arrastado sobre ela.
-function KanbanColumn({ col, onEdit, assignableUsers = [], getAssignableUsersForTeam, onReassign }: { col: KanbanStatusMeta & { tickets: InternalTicketItem[] }; onEdit: (t: InternalTicketItem) => void; assignableUsers?: { id: string; name: string; avatarThumbUrl?: string | null }[]; getAssignableUsersForTeam?: (teamName?: string) => typeof assignableUsers; onReassign?: (ticketUuid: string, assigneeId: string | null) => Promise<void> }) {
+function KanbanColumn({ col, onEdit, assignableUsers = [], getAssignableUsersForTeam, onReassign, collapsed = false, onToggleCollapse = () => {} }: { col: KanbanStatusMeta & { tickets: InternalTicketItem[] }; collapsed?: boolean; onToggleCollapse?: () => void; onEdit: (t: InternalTicketItem) => void; assignableUsers?: { id: string; name: string; avatarThumbUrl?: string | null }[]; getAssignableUsersForTeam?: (teamName?: string) => typeof assignableUsers; onReassign?: (ticketUuid: string, assigneeId: string | null) => Promise<void> }) {
   const { setNodeRef, isOver } = useDroppable({ id: col.value });
+  if (collapsed) {
+    return <KanbanCollapsedColumn ref={setNodeRef} label={col.label} count={col.tickets.length} accent={col.accent} dotClass={col.dot} isOver={isOver} onExpand={onToggleCollapse} />;
+  }
 
   return (
     <div
       ref={setNodeRef}
       className={cn(
-        "rounded-2xl border-t-4 transition-all overflow-hidden",
+        "rounded-2xl border-t-4 transition-all overflow-hidden", KANBAN_COLUMN_CLASS,
         isOver ? "bg-[var(--surface-pill)] ring-2 ring-[var(--text-warning-strong)]/30" : "bg-[var(--surface-card)]"
       )}
       style={{ borderTopColor: col.accent }}
@@ -1561,6 +1660,7 @@ function KanbanColumn({ col, onEdit, assignableUsers = [], getAssignableUsersFor
         <span className="text-[10px] font-bold text-[var(--text-tertiary)] ml-auto bg-[var(--surface-pill)] px-2 py-0.5 rounded-full">
           {col.tickets.length}
         </span>
+        <KanbanCollapseButton label={col.label} onClick={onToggleCollapse} />
       </div>
 
       {/* Scroll por coluna (2026-11-11, pedido do usuário) — mesmo padrão do

@@ -3,6 +3,7 @@
 import React, { useCallback, useEffect, useRef, useState } from 'react';
 import { Attachment } from '@/lib/types';
 import { AttachmentPreviewModal } from '@/components/attachment-gallery';
+import { cn } from '@/lib/utils';
 
 // HTML de nota/mensagem (vindo do editor rico) em que as imagens coladas no
 // texto abrem no mesmo modal das outras fotos da aplicação
@@ -82,7 +83,17 @@ export function HtmlComImagensAmpliaveis({ html, className, as = 'div' }: HtmlCo
     <>
       <Elemento
         ref={(no: HTMLElement | null) => { containerRef.current = no; }}
-        className={className}
+        // Texto longo sem espaço (link de pull request, hash, log colado)
+        // saía da caixa da nota no histórico (2026-11-24). overflow-wrap:
+        // anywhere quebra no meio da palavra só quando não cabe — e, ao
+        // contrário de break-word, também deixa o balão encolher dentro de
+        // flex. Bloco de código, imagem e tabela ficam limitados à largura.
+        className={cn(
+          'min-w-0 max-w-full [overflow-wrap:anywhere]',
+          '[&_pre]:whitespace-pre-wrap [&_pre]:max-w-full [&_code]:[overflow-wrap:anywhere]',
+          '[&_img]:max-w-full [&_img]:h-auto [&_table]:block [&_table]:max-w-full [&_table]:overflow-x-auto',
+          className
+        )}
         onClick={abrir}
         onKeyDown={aoTeclar}
         dangerouslySetInnerHTML={{ __html: html }}

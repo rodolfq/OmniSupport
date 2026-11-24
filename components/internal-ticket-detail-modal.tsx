@@ -4,7 +4,8 @@ import React, { useState, useEffect, useCallback, useMemo } from 'react';
 import { StyledSelect } from '@/components/styled-select';
 import { useRouter } from 'next/navigation';
 import { useApp } from '@/app/app-context';
-import { InternalTicket, Message, User, Hotfix, EffortConfig, OutcomeConfig, Permission, InternalTicketQueue } from '@/lib/types';
+import { InternalTicket, Message, User, Hotfix, EffortConfig, OutcomeConfig, Permission, InternalTicketQueue, StatusConfig } from '@/lib/types';
+import { statusesForQueue, isStatusAllowedInQueue, initialStatusForQueue } from '@/lib/internal-queue-statuses';
 import { MessageService, InternalTicketService } from '@/lib/services/ticket-service';
 import { getHotfixes, saveHotfix } from '@/lib/services/queue-service';
 import { cn, selectableOptions, htmlHasContent } from '@/lib/utils';
@@ -213,7 +214,7 @@ export function InternalTicketDetailModal({ ticketRef, onClose, creating, onCrea
   const [composerKey, setComposerKey] = useState(0);
   const [isUploading, setIsUploading] = useState(false);
   const [previewAttachments, setPreviewAttachments] = useState<Attachment[]>([]);
-  const [activeTab, setActiveTab] = useState<'description' | 'linked' | 'attachments' | 'status-time' | 'history'>('description');
+  const [activeTab, setActiveTab] = useState<'description' | 'attachments' | 'status-time' | 'history'>('description');
   const fileInputRef = React.useRef<HTMLInputElement>(null);
   // Mesmo painel e mesmo botão do chamado do cliente (ticket-detail-modal.tsx):
   // abre em ~90vw e o botão expande para tela cheia.
@@ -308,12 +309,18 @@ export function InternalTicketDetailModal({ ticketRef, onClose, creating, onCrea
   const { data: hotfixesData } = useQuery({ queryKey: ['ref', 'hotfixes'], queryFn: () => getHotfixes() });
   const hotfixes = useMemo(() => (hotfixesData || []) as Hotfix[], [hotfixesData]);
   const { data: statusesData } = useConfigStatusesQuery('internal_ticket');
-  const { statuses, subStatusMap } = useMemo(() => {
-    const data = ((statusesData || []) as any[]).map((st: any) => ({
+  const allStatusConfigs = useMemo(
+    () => ((statusesData || []) as any[]).map((st: any) => ({
       ...st,
       parentStatusId: st.parentStatusId ?? st.parent_status_id ?? null,
       isClosed: !!(st.isClosed ?? st.is_closed),
-    }));
+    })) as StatusConfig[],
+    [statusesData]
+  );
+  const { statuses, subStatusMap } = useMemo(() => {
+    // Status por fila (2026-11-24): só os que a fila do ticket usa, na ordem
+    // dela. Fila sem configuração = todos.
+    const data = statusesForQueue(allStatusConfigs, internalQueues.find(q => q.id === formQueueId)) as any[];
     const topLevel = data.filter(st => !st.parentStatusId);
     const porId = new Map(data.map(st => [st.id, st]));
     const mapa: Record<string, string[]> = {};
@@ -328,8 +335,24 @@ export function InternalTicketDetailModal({ ticketRef, onClose, creating, onCrea
           return { value: st.label, label: st.label, color: `${c.bg} ${c.text}`, isClosed: !!st.isClosed };
         })
       : DEFAULT_KANBAN_STATUSES;
+    // Status atual que saiu da fila depois (reconfiguração) continua visível,
+    // senão o ticket pareceria sem status.
+    if (formStatus && topLevel.length > 0 && !lista.some(s => s.value === formStatus)) {
+      const atual = allStatusConfigs.find(s => !s.parentStatusId && s.label === formStatus);
+      const c = findStatusColor(atual?.color);
+      lista.push({ value: formStatus, label: `${formStatus} (fora da fila)`, color: `${c.bg} ${c.text}`, isClosed: !!atual?.isClosed });
+    }
     return { statuses: lista, subStatusMap: mapa };
-  }, [statusesData]);
+  }, [allStatusConfigs, internalQueues, formQueueId, formStatus]);
+  // Troca de fila em que o status atual não existe: espera a pessoa escolher
+  // um status da fila nova antes de gravar (decisão do usuário, 2026-11-24).
+  const [pendingQueueId, setPendingQueueId] = useState<string | null>(null);
+  const pendingQueueStatuses = useMemo(
+    () => pendingQueueId
+      ? statusesForQueue(allStatusConfigs, internalQueues.find(q => q.id === pendingQueueId)).filter(s => !s.parentStatusId)
+      : [],
+    [pendingQueueId, allStatusConfigs, internalQueues]
+  );
   // B: nome do autor por id, montado uma vez — o histórico fazia uma busca na
   // lista de analistas por mensagem, a cada redesenho.
   const analystsById = useMemo(() => new Map(analysts.map(a => [a.id, a])), [analysts]);
@@ -904,17 +927,6 @@ export function InternalTicketDetailModal({ ticketRef, onClose, creating, onCrea
     setCopyPickerFor(msg);
   };
 
-  const handleUnlinkTicket = async (regularTicketId: string) => {
-    if (!ticket) return;
-    try {
-      await InternalTicketService.unlink(regularTicketId, ticket.uuid);
-      toast.success('Chamado desvinculado');
-      setLinkedTickets(prev => prev.filter(t => t.id !== regularTicketId));
-    } catch (error) {
-      toast.error('Erro ao desvincular chamado');
-    }
-  };
-
   // Fecha igual ao chamado do cliente (ticket-detail-modal.tsx): backdrop,
   // Esc e X chamam o mesmo caminho — quem decide o que acontece (tirar o
   // ?internalTicket= da URL, deixando a tela de trás como estava) é o host.
@@ -1281,7 +1293,23 @@ export function InternalTicketDetailModal({ ticketRef, onClose, creating, onCrea
                   <div className="flex-1 min-w-0">
                     <StyledSelect
                       value={formQueueId}
-                      onChange={(e) => { const v = e.target.value; setFormQueueId(v); handleUpdateTicket({ queueId: v }); }}
+                      onChange={(e) => {
+                        const v = e.target.value;
+                        const nova = internalQueues.find(q => q.id === v);
+                        if (isStatusAllowedInQueue(allStatusConfigs, nova, formStatus, formSubStatus)) {
+                          setPendingQueueId(null);
+                          setFormQueueId(v);
+                          handleUpdateTicket({ queueId: v });
+                        } else if (isCreating) {
+                          // Ainda não gravado: só leva o status para o inicial da fila.
+                          setPendingQueueId(null);
+                          setFormQueueId(v);
+                          setFormStatus(initialStatusForQueue(allStatusConfigs, nova));
+                          setFormSubStatus(null);
+                        } else {
+                          setPendingQueueId(v);
+                        }
+                      }}
                       className="w-full bg-transparent border-none outline-none text-sm font-bold text-[var(--text-primary)] cursor-pointer hover:underline"
                     >
                       {/* Fila obrigatória (2026-11-16): "Sem fila" só aparece, desabilitado,
@@ -1291,6 +1319,35 @@ export function InternalTicketDetailModal({ ticketRef, onClose, creating, onCrea
                       )}
                       {queueOptions.map(q => <option key={q.id} value={q.id}>{q.name}{q.isActive ? '' : ' (inativa)'}</option>)}
                     </StyledSelect>
+                    {pendingQueueId && (
+                      <div role="alert" className="mt-1.5 rounded-xl border border-amber-300 bg-amber-50 dark:bg-amber-500/10 p-2.5 space-y-2">
+                        <p className="text-[11px] text-amber-800 dark:text-amber-200">
+                          A fila <strong>{internalQueues.find(q => q.id === pendingQueueId)?.name}</strong> não usa o status <strong>{formSubStatus ? `${formStatus} › ${formSubStatus}` : formStatus}</strong>. Escolha o status do ticket nela:
+                        </p>
+                        <div className="flex flex-wrap gap-1">
+                          {pendingQueueStatuses.map(s => (
+                            <button
+                              key={s.id}
+                              type="button"
+                              onClick={() => {
+                                const v = pendingQueueId;
+                                setPendingQueueId(null);
+                                setFormQueueId(v);
+                                setFormStatus(s.label);
+                                setFormSubStatus(null);
+                                handleUpdateTicket({ queueId: v, status: s.label, subStatus: null });
+                              }}
+                              className="px-2 py-0.5 text-[10px] font-semibold uppercase rounded-md bg-[var(--surface-card)] border border-[var(--border-default)] hover:border-[var(--accent)]"
+                            >
+                              {s.label}
+                            </button>
+                          ))}
+                          <button type="button" onClick={() => setPendingQueueId(null)} className="px-2 py-0.5 text-[10px] font-semibold rounded-md text-[var(--text-tertiary)] hover:underline">
+                            Cancelar troca
+                          </button>
+                        </div>
+                      </div>
+                    )}
                     {/* Ticket antigo: a equipe de antes fica só para consulta. */}
                     {!formQueueId && formTeam && (
                       <p className="text-[10px] text-[var(--text-tertiary)] mt-0.5">Equipe (antiga): {formTeam}</p>
@@ -1502,16 +1559,6 @@ export function InternalTicketDetailModal({ ticketRef, onClose, creating, onCrea
                 </button>
                 <button
                   hidden={isCreating}
-                  onClick={() => setActiveTab('linked')}
-                  className={cn(
-                    "px-4 py-2 text-[11px] font-semibold uppercase tracking-widest border-b-2 transition-all flex items-center gap-2",
-                    activeTab === 'linked' ? "border-[var(--text-warning-strong)] text-[var(--text-warning)]" : "border-transparent text-[var(--text-tertiary)] hover:text-[var(--text-secondary)]"
-                  )}
-                >
-                  <Link2 size={12} /> Chamados Vinculados {linkedTickets.length > 0 && `(${linkedTickets.length})`}
-                </button>
-                <button
-                  hidden={isCreating}
                   onClick={() => setActiveTab('attachments')}
                   className={cn(
                     "px-4 py-2 text-[11px] font-semibold uppercase tracking-widest border-b-2 transition-all flex items-center gap-2",
@@ -1550,39 +1597,9 @@ export function InternalTicketDetailModal({ ticketRef, onClose, creating, onCrea
                 <RichEditor fill toolbar="basic" content={formDescription} onChange={onDescriptionDraft} minHeight="200px" placeholder="Detalhes técnicos, passos pra reproduzir, notas do desenvolvedor..." />
               </div>
             )}
-            {activeTab === 'linked' && (
-              <div className="min-h-48">
-                <div className="flex items-center justify-between mb-4">
-                  <h2 className="text-xs font-semibold text-[var(--text-tertiary)] uppercase">CHAMADOS QUE ESTE TICKET INTERNO ATENDE</h2>
-                  <button
-                    onClick={() => setShowLinkTicketModal(true)}
-                    className="px-3 py-1.5 rounded-lg text-[10px] font-black uppercase tracking-widest bg-[var(--text-warning-strong)] text-white hover:bg-[var(--accent-warning-hover)] transition-all"
-                  >
-                    + Vincular Chamado
-                  </button>
-                </div>
-                {linkedTickets.length === 0 ? (
-                  <div className="text-center py-8">
-                    <Link2 size={32} className="mx-auto text-slate-300 mb-2" />
-                    <p className="text-xs text-[var(--text-tertiary)]">Nenhum chamado vinculado — este ticket interno é independente.</p>
-                  </div>
-                ) : (
-                  <div className="space-y-2">
-                    {linkedTickets.map((t) => (
-                      <div key={t.id} className="flex items-center justify-between bg-[var(--surface-card)] rounded-lg p-3 border border-[var(--border-default)]">
-                        <a href={`/dashboard?ticket=${t.id}`} className="flex items-center gap-3 min-w-0 hover:underline">
-                          <span className="text-[10px] font-black text-[var(--accent-text)] bg-[var(--accent)]/10 px-2 py-0.5 rounded shrink-0">#{t.ticketNumber ? String(t.ticketNumber).padStart(4, '0') : t.id.slice(0, 8)}</span>
-                          <span className="text-sm font-bold text-[var(--text-primary)] truncate">{t.title}</span>
-                        </a>
-                        <button onClick={() => handleUnlinkTicket(t.id)} title="Desvincular" className="text-[var(--text-tertiary)] hover:text-[var(--text-danger)] shrink-0 ml-2">
-                          <X size={16} />
-                        </button>
-                      </div>
-                    ))}
-                  </div>
-                )}
-              </div>
-            )}
+            {/* Aba "Chamados Vinculados" removida (2026-11-24, pedido do usuário).
+                O vínculo é visto/feito pelo lado do chamado (aba Tickets Internos);
+                a janela de vincular continua aqui só para o "Copiar para Chamado". */}
             {activeTab === 'attachments' && (
               <div className="min-h-48">
                 {(() => {
@@ -1697,7 +1714,7 @@ export function InternalTicketDetailModal({ ticketRef, onClose, creating, onCrea
                   const sender = analystsById.get(msg.senderId || '');
                   return (
                     <div key={msg.id} className={cn(
-                      "group rounded-lg p-3 border",
+                      "group rounded-lg p-3 border min-w-0",
                       isSystem ? "bg-[var(--surface-pill)] border-[var(--border-default)] border-dashed" : "bg-[var(--surface-card)] border-[var(--border-default)]"
                     )}>
                       <div className="flex items-center gap-2 mb-1">

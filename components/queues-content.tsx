@@ -30,7 +30,7 @@ import {
   ChevronLeft,
   ChevronRight
 } from 'lucide-react';
-import { cn } from '@/lib/utils';
+import { cn, normalizeString } from '@/lib/utils';
 import { motion, AnimatePresence } from 'motion/react';
 import { ConfirmDialog } from '@/components/confirm-dialog';
 import { useApp } from '@/app/app-context';
@@ -320,10 +320,10 @@ export function QueuesContent() {
     )
   );
 
-  const queueSearchTerm = search.trim().toLowerCase();
+  const queueSearchTerm = normalizeString(search);
   const filteredQueues = queues.filter(q =>
-    q.name.toLowerCase().includes(queueSearchTerm) ||
-    q.description?.toLowerCase().includes(queueSearchTerm)
+    normalizeString(q.name).includes(queueSearchTerm) ||
+    normalizeString(q.description || '').includes(queueSearchTerm)
   );
 
   if (!hasPermission(Permission.QUEUES_MANAGE)) {

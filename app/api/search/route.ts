@@ -2,6 +2,7 @@ import { NextResponse } from 'next/server';
 import { query } from '@/lib/db';
 import { CLOSED_TICKET_STATUSES } from '@/lib/ticket-status';
 import { getCurrentActionUser } from '@/lib/server-auth';
+import { unaccentCol, likeTerm } from '@/lib/sql-unaccent';
 
 // SQL de "SLA vencido" reutilizado pelo filtro slaOverdue (action=tickets) e
 // pela coluna "overdue" dos chips rápidos (action=quick-counts) — mantido
@@ -87,12 +88,14 @@ function buildBaseWhere(searchParams: URLSearchParams, closedStatuses: string[])
     // do chamado voltava vazio mesmo com o chamado existindo.
     const likeParam = paramCount;
     likeParamForBypass = likeParam;
-    let searchSql = `public.tickets.title ILIKE $${likeParam}
-      OR public.tickets.description ILIKE $${likeParam}
+    // Sem diferenciar acento (2026-11-24): coluna e termo passam pelo mesmo
+    // "tira acento" — ver lib/sql-unaccent.ts.
+    let searchSql = `${unaccentCol('public.tickets.title')} ILIKE $${likeParam}
+      OR ${unaccentCol('public.tickets.description')} ILIKE $${likeParam}
       OR CAST(public.tickets.public_ticket_number AS TEXT) ILIKE $${likeParam}
-      OR EXISTS (SELECT 1 FROM public.profiles cust WHERE cust.id = public.tickets.customer_id AND cust.name ILIKE $${likeParam})
-      OR EXISTS (SELECT 1 FROM public.companies co WHERE co.id = public.tickets.company_id AND co.name ILIKE $${likeParam})`;
-    params.push(`%${q}%`);
+      OR EXISTS (SELECT 1 FROM public.profiles cust WHERE cust.id = public.tickets.customer_id AND ${unaccentCol('cust.name')} ILIKE $${likeParam})
+      OR EXISTS (SELECT 1 FROM public.companies co WHERE co.id = public.tickets.company_id AND ${unaccentCol('co.name')} ILIKE $${likeParam})`;
+    params.push(likeTerm(q));
     paramCount++;
 
     if (exactId) {
@@ -123,8 +126,8 @@ function buildBaseWhere(searchParams: URLSearchParams, closedStatuses: string[])
     // daquela empresa/cliente, encerrados ou não.
     const identityBypass = exactIdParam ? ` OR public.tickets.public_ticket_number = $${exactIdParam}` : '';
     const companyOrCustomerBypass = likeParamForBypass
-      ? ` OR EXISTS (SELECT 1 FROM public.companies co WHERE co.id = public.tickets.company_id AND co.name ILIKE $${likeParamForBypass})
-          OR EXISTS (SELECT 1 FROM public.profiles cust WHERE cust.id = public.tickets.customer_id AND cust.name ILIKE $${likeParamForBypass})`
+      ? ` OR EXISTS (SELECT 1 FROM public.companies co WHERE co.id = public.tickets.company_id AND ${unaccentCol('co.name')} ILIKE $${likeParamForBypass})
+          OR EXISTS (SELECT 1 FROM public.profiles cust WHERE cust.id = public.tickets.customer_id AND ${unaccentCol('cust.name')} ILIKE $${likeParamForBypass})`
       : '';
     sql += ` AND (public.tickets.status NOT IN (${closedStatusPlaceholders})${identityBypass}${companyOrCustomerBypass})`;
     params.push(...closedStatuses);

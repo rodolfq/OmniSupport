@@ -4,12 +4,14 @@ import React, { useState, useEffect } from 'react';
 import { Plus, Trash2, ListChecks, CircleCheck, ChevronDown, ChevronRight, GripVertical, Lock } from 'lucide-react';
 import { StatusConfig, UserRole } from '@/lib/types';
 import { ConfigService } from '@/lib/services/config-service';
+import { useQueryClient } from '@tanstack/react-query';
 import { STATUS_COLOR_PALETTE, findStatusColor } from '@/lib/status-colors';
 import { useApp } from '@/app/app-context';
 import { cn } from '@/lib/utils';
 import { toast } from 'sonner';
 import { ConfirmDialog } from '@/components/confirm-dialog';
 import { EditableLabel } from '@/components/editable-label';
+import { InternalQueueStatusConfig } from '@/components/internal-queue-status-config';
 import {
   DndContext,
   closestCenter,
@@ -45,6 +47,7 @@ interface StatusManagerProps {
 
 export function StatusManager({ allowedScopes }: StatusManagerProps = {}) {
   const { currentUser } = useApp();
+  const queryClient = useQueryClient();
   const isAdmin = currentUser?.role === UserRole.ADMIN;
   const visibleScopes = allowedScopes ? SCOPES.filter(s => allowedScopes.includes(s.value)) : SCOPES;
 
@@ -212,13 +215,21 @@ export function StatusManager({ allowedScopes }: StatusManagerProps = {}) {
     const newIndex = topLevel.findIndex(s => s.id === over.id);
     if (oldIndex === -1 || newIndex === -1) return;
 
-    const reordered = arrayMove(topLevel, oldIndex, newIndex);
+    // A ordem nova precisa ir também para o sortOrder do estado: `topLevel`
+    // reordena por ele, e com o valor antigo a lista voltava para a ordem de
+    // antes logo depois de soltar (2026-11-24, "a reordenação não funciona").
+    const reordered = arrayMove(topLevel, oldIndex, newIndex).map((s, idx) => ({ ...s, sortOrder: idx }));
     const childless = statuses.filter(s => s.parentStatusId);
+    const previous = statuses;
     setStatuses([...reordered, ...childless]);
 
     try {
-      await ConfigService.reorderStatuses(reordered.map((s, idx) => ({ id: s.id, sortOrder: idx })));
+      await ConfigService.reorderStatuses(reordered.map(s => ({ id: s.id, sortOrder: s.sortOrder! })));
+      // As outras telas (Kanban, detalhe do ticket, filtros) leem o cadastro
+      // pelo cache do TanStack Query — sem isto seguiam na ordem antiga.
+      queryClient.invalidateQueries({ queryKey: ['ref', 'config_statuses'] });
     } catch {
+      setStatuses(previous);
       toast.error('Erro ao salvar nova ordem.');
     }
   };
@@ -349,6 +360,10 @@ export function StatusManager({ allowedScopes }: StatusManagerProps = {}) {
             </div>
           </SortableContext>
         </DndContext>
+      )}
+
+      {scope === 'internal_ticket' && !loading && topLevel.length > 0 && (
+        <InternalQueueStatusConfig statuses={statuses} />
       )}
 
       <div className="p-6 bg-[var(--accent)]/10 border border-[var(--accent)]/20 rounded-3xl flex gap-4">

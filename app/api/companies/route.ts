@@ -6,7 +6,7 @@ import { logAudit } from '@/lib/audit-log';
 import { getCurrentActionUser, getActorEffectivePermissions } from '@/lib/server-auth';
 import { processCompanyLogo } from '@/lib/services/logo-thumb-service';
 import { slugify } from '@/lib/utils';
-import type { CustomerEvaluationScores } from '@/lib/types';
+import { unaccentCol, likeTerm } from '@/lib/sql-unaccent';
 
 /**
  * Empresas-cliente e avaliação interna do cliente.
@@ -78,96 +78,19 @@ export async function GET(request: Request) {
       const term = search.trim();
       if (!term) return NextResponse.json([]);
       const res = isCompanyUser
-        ? await query(`SELECT id, name FROM public.companies WHERE id = $1 AND name ILIKE $2`, [actor.company_id, `%${term}%`])
-        : await query(`SELECT id, name FROM public.companies WHERE name ILIKE $1 ORDER BY name ASC LIMIT 20`, [`%${term}%`]);
+        ? await query(`SELECT id, name FROM public.companies WHERE id = $1 AND ${unaccentCol('name')} ILIKE $2`, [actor.company_id, likeTerm(term)])
+        : await query(`SELECT id, name FROM public.companies WHERE ${unaccentCol('name')} ILIKE $1 ORDER BY name ASC LIMIT 20`, [likeTerm(term)]);
       return NextResponse.json(res.rows.map(c => ({ id: c.id, name: c.name })));
     }
 
-    // ------------------------------------------- resumo de avaliação interna
-    // Média por critério + tag mais recente, para o cadastro da empresa. Não
-    // lista cada avaliação (isso é o relatório).
-    if (tipo === 'evaluation-summary') {
-      const companyId = searchParams.get('companyId');
-      if (!companyId) return NextResponse.json({ error: 'companyId é obrigatório.' }, { status: 400 });
-      // Avaliação é perfil INTERNO do cliente: nunca exposta a quem é da
-      // própria empresa avaliada.
-      if (isCompanyUser) return NextResponse.json({ error: 'Não autorizado.' }, { status: 403 });
-
-      const avgRes = await query(
-        `SELECT COUNT(*)::int AS count,
-                AVG(knowledge_score) AS knowledge_avg,
-                AVG(autonomy_score) AS autonomy_avg,
-                AVG(learning_score) AS learning_avg,
-                AVG(engagement_score) AS engagement_avg,
-                AVG(organization_score) AS organization_avg,
-                AVG(communication_score) AS communication_avg
-           FROM public.customer_evaluations WHERE company_id = $1`,
-        [companyId]
-      );
-      const row = avgRes.rows[0];
-      const count = row?.count || 0;
-
-      const originRes = count > 0
-        ? await query(
-            'SELECT origin, COUNT(*)::int AS count FROM public.customer_evaluations WHERE company_id = $1 GROUP BY origin',
-            [companyId]
-          )
-        : { rows: [] as any[] };
-      const countByOrigin = { chatClose: 0, manual: 0 };
-      for (const r of originRes.rows) {
-        if (r.origin === 'chat_close') countByOrigin.chatClose = r.count;
-        else if (r.origin === 'manual') countByOrigin.manual = r.count;
-      }
-
-      const latestRes = count > 0
-        ? await query(
-            `SELECT knowledge_score, autonomy_score, learning_score, engagement_score,
-                    organization_score, communication_score, profile_tag
-               FROM public.customer_evaluations
-              WHERE company_id = $1
-              ORDER BY created_at DESC LIMIT 1`,
-            [companyId]
-          )
-        : { rows: [] as any[] };
-      const latestRow = latestRes.rows[0];
-
-      // AVG do Postgres já ignora linha com aquele critério em branco (NULL).
-      // O cuidado é não confundir "ninguém avaliou esse critério" (NULL) com
-      // nota 0 — que não existe na escala.
-      const toAvgOrNull = (v: any) => (v === null ? null : Number(v));
-      const averages: CustomerEvaluationScores = {
-        knowledgeScore: toAvgOrNull(row?.knowledge_avg),
-        autonomyScore: toAvgOrNull(row?.autonomy_avg),
-        learningScore: toAvgOrNull(row?.learning_avg),
-        engagementScore: toAvgOrNull(row?.engagement_avg),
-        organizationScore: toAvgOrNull(row?.organization_avg),
-        communicationScore: toAvgOrNull(row?.communication_avg)
-      };
-      const rated = Object.values(averages).filter((v): v is number => v !== null);
-      const overallAverage = rated.length > 0 ? rated.reduce((s, v) => s + v, 0) / rated.length : 0;
-
-      return NextResponse.json({
-        count,
-        averages,
-        overallAverage,
-        latestProfileTag: latestRow?.profile_tag || null,
-        latest: latestRow ? {
-          knowledgeScore: latestRow.knowledge_score,
-          autonomyScore: latestRow.autonomy_score,
-          learningScore: latestRow.learning_score,
-          engagementScore: latestRow.engagement_score,
-          organizationScore: latestRow.organization_score,
-          communicationScore: latestRow.communication_score
-        } : null,
-        countByOrigin
-      });
-    }
+    // Resumo de avaliação interna (tipo=evaluation-summary) removido em
+    // 2026-11-24 junto com a tela de Avaliações de Clientes (pedido do usuário).
 
     // ------------------------------------------ etapas de treinamento (leitura)
     // Cadastradas/atualizadas por um sistema externo via API de integração
     // (app/api/integrations/v1/training-stages) — aqui é só leitura, pro
     // analista ver a trilha dentro do SSX Desk. Mesma restrição de
-    // evaluation-summary: perfil interno, não exposto à própria empresa.
+    // Perfil interno: não exposto à própria empresa.
     if (tipo === 'training-stages') {
       const companyId = searchParams.get('companyId');
       if (!companyId) return NextResponse.json({ error: 'companyId é obrigatório.' }, { status: 400 });
@@ -322,35 +245,8 @@ export async function POST(request: Request) {
     const body = await request.json();
     const { action } = body;
 
-    // ------------------------------------------- avaliação interna do cliente
-    if (action === 'evaluation') {
-      if (actor.role === 'Cliente' || actor.role === 'Funcionário') {
-        return NextResponse.json({ error: 'Não autorizado.' }, { status: 403 });
-      }
-      // Achado em 2026-09-23: além de excluir Cliente/Funcionário, faltava
-      // permissão própria — qualquer Administrador/Equipe/Time Interno
-      // sempre podia avaliar, sem como restringir por Perfil de Acesso.
-      if (actor.role !== 'Administrador') {
-        const permissions = await getActorEffectivePermissions(actor.id);
-        if (!permissions.includes('customers:evaluate')) {
-          return NextResponse.json({ error: 'Você não tem permissão para avaliar clientes.' }, { status: 403 });
-        }
-      }
-      const { companyId, analystId, scores, profileTag, chatSessionId, origin = 'manual', contactId } = body;
-      await query(
-        `INSERT INTO public.customer_evaluations
-           (company_id, analyst_id, chat_session_id, knowledge_score, autonomy_score, learning_score,
-            engagement_score, organization_score, communication_score, profile_tag, origin, contact_id)
-         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)`,
-        [
-          companyId, analystId, chatSessionId || null,
-          scores.knowledgeScore, scores.autonomyScore, scores.learningScore,
-          scores.engagementScore, scores.organizationScore, scores.communicationScore,
-          profileTag || null, origin, contactId || null
-        ]
-      );
-      return NextResponse.json({ success: true });
-    }
+    // Gravar avaliação interna (action=evaluation) removido em 2026-11-24 —
+    // ninguém avalia mais o cliente; o histórico fica em customer_evaluations.
 
     // ------------------------------------------------------------- logo
     // Diferente das outras mutações desta rota: liberada também para

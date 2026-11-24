@@ -4,7 +4,7 @@ import React, { useMemo, useState } from 'react';
 import { useQueryClient } from '@tanstack/react-query';
 import { Layers, Plus, Search, Trash2, Edit2, X, Loader2, Check } from 'lucide-react';
 import { toast } from 'sonner';
-import { cn } from '@/lib/utils';
+import { cn, normalizeString } from '@/lib/utils';
 import { InternalTicketQueue, User } from '@/lib/types';
 import { useAnalystsQuery, useInternalTicketQueuesQuery, INTERNAL_TICKET_QUEUES_KEY } from '@/lib/query-hooks';
 import { UserAvatar } from '@/components/user-avatar';
@@ -48,7 +48,7 @@ export function InternalTicketQueuesContent() {
 
   useEscapeToClose(!!draft && !toDelete, () => setDraft(null));
 
-  const filtered = queues.filter(q => q.name.toLowerCase().includes(search.trim().toLowerCase()));
+  const filtered = queues.filter(q => normalizeString(q.name).includes(normalizeString(search)));
   const refresh = () => queryClient.invalidateQueries({ queryKey: INTERNAL_TICKET_QUEUES_KEY });
 
   const openNew = () => { setMemberSearch(''); setDraft({ name: '', isActive: true, memberIds: [] }); };
@@ -106,7 +106,7 @@ export function InternalTicketQueuesContent() {
   const toggleMember = (id: string) => {
     setDraft(d => d ? { ...d, memberIds: d.memberIds.includes(id) ? d.memberIds.filter(x => x !== id) : [...d.memberIds, id] } : d);
   };
-  const visibleMembers = analysts.filter(a => a.name.toLowerCase().includes(memberSearch.trim().toLowerCase()));
+  const visibleMembers = analysts.filter(a => normalizeString(a.name).includes(normalizeString(memberSearch)));
 
   return (
     <div className="space-y-6 animate-in fade-in slide-in-from-bottom-4 duration-300">

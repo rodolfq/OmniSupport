@@ -1350,8 +1350,8 @@ export function ChatWidget() {
     const customerSearchTerm = customerSearch.trim();
     if (customerSearchTerm.length > 1) {
       // Use existing state variables loaded in initial load
-      const filteredCompanies = companies.filter(c => c.name.toLowerCase().includes(customerSearchTerm.toLowerCase()));
-      const filteredUsers = allUsers.filter(u => u.name.toLowerCase().includes(customerSearchTerm.toLowerCase()));
+      const filteredCompanies = companies.filter(c => normalizeString(c.name).includes(normalizeString(customerSearchTerm)));
+      const filteredUsers = allUsers.filter(u => normalizeString(u.name).includes(normalizeString(customerSearchTerm)));
       
       const results: any[] = [];
 

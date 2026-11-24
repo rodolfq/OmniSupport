@@ -9,7 +9,7 @@ import {
 } from 'lucide-react';
 import { ConfirmDialog } from '@/components/confirm-dialog';
 import { UserAvatar } from '@/components/user-avatar';
-import { cn } from '@/lib/utils';
+import { cn, normalizeString } from '@/lib/utils';
 import { motion, AnimatePresence } from 'motion/react';
 import { useApp } from '@/app/app-context';
 import { NotificationSettingsContent } from '@/components/notification-settings';
@@ -1004,10 +1004,10 @@ export function TeamContent() {
               ) : (
                 (() => {
                   const targetTeam = addOperatorTeams.find(t => t.id === addOperatorTargetTeamId);
-                  const q = addOperatorSearch.trim().toLowerCase();
+                  const q = normalizeString(addOperatorSearch);
                   const candidates = addOperatorAllUsers.filter(u =>
                     !targetTeam?.memberIds.includes(u.id) &&
-                    (!q || u.name?.toLowerCase().includes(q) || u.email?.toLowerCase().includes(q))
+                    (!q || normalizeString(u.name || '').includes(q) || normalizeString(u.email || '').includes(q))
                   );
                   if (candidates.length === 0) {
                     return <p className="text-center py-8 text-[var(--text-tertiary)]">Ninguém encontrado fora desta equipe.</p>;

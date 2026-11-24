@@ -40,6 +40,9 @@ import { usePersistedViewMode } from '@/hooks/use-persisted-view-mode';
 import { findStatusColor } from '@/lib/status-colors';
 import { TicketExportButton } from '@/components/ticket-export-button';
 import type { ReportExportColumn } from '@/lib/export/table-export';
+import { KANBAN_BOARD_CLASS, KANBAN_COLUMN_CLASS } from '@/lib/kanban-layout';
+import { useCollapsedKanbanColumns } from '@/hooks/use-collapsed-kanban-columns';
+import { KanbanCollapseButton, KanbanCollapsedColumn } from '@/components/kanban-collapse';
 import {
   DndContext,
   DragOverlay,
@@ -138,6 +141,7 @@ function ticketMatchesSearch(t: Ticket, normalQuery: string): boolean {
 }
 
 export default function MyTicketsPage() {
+  const { isCollapsed: isCustomerColCollapsed, toggleCollapsed: toggleCustomerCol } = useCollapsedKanbanColumns('my-tickets-customer');
   const { currentUser, hasPermission, setIsNewTicketModalOpen, refreshTrigger, triggerRefresh, navBadges } = useApp();
   const searchParams = useSearchParams();
   const router = useRouter();
@@ -903,13 +907,16 @@ export default function MyTicketsPage() {
               // vários status reais (getCustomerStatusLabel) — um card
               // arrastado para "Em Andamento" não tem um status único de
               // destino pra gravar, então este lado nunca ganhou arrastar.
-              <div className="flex flex-col gap-6 md:flex-row md:items-start md:gap-4 md:overflow-x-auto md:scrollbar-thin md:pb-4">
+              <div className={KANBAN_BOARD_CLASS}>
                 {MY_TICKETS_KANBAN_COLUMNS.map(c => {
                   const colTickets = kanbanGrouped[c.status] || [];
+                  if (isCustomerColCollapsed(c.status)) {
+                    return <KanbanCollapsedColumn key={c.status} label={c.title} count={colTickets.length} accent={c.accent} dotClass={c.dot} onExpand={() => toggleCustomerCol(c.status)} />;
+                  }
                   return (
                     <div
                       key={c.status}
-                      className="rounded-2xl border-t-4 bg-[var(--surface-card)] overflow-hidden md:flex-1 md:min-w-[240px]"
+                      className={cn("rounded-2xl border-t-4 bg-[var(--surface-card)] overflow-hidden", KANBAN_COLUMN_CLASS)}
                       style={{ borderTopColor: c.accent }}
                     >
                       <div className="flex items-center gap-2 px-4 py-3 border-b border-[var(--border-default)]">
@@ -918,6 +925,7 @@ export default function MyTicketsPage() {
                         <span className="text-[10px] font-bold text-[var(--text-tertiary)] ml-auto bg-[var(--surface-pill)] px-2 py-0.5 rounded-full">
                           {colTickets.length}
                         </span>
+                        <KanbanCollapseButton label={c.title} onClick={() => toggleCustomerCol(c.status)} />
                       </div>
                       <div className="p-3 space-y-2.5 min-h-[120px] md:h-[clamp(280px,calc(100vh_-_460px),640px)] md:overflow-y-auto">
                         {colTickets.length === 0 ? (
@@ -1168,6 +1176,7 @@ function StaffTicketKanbanBoard({
   onSelect: (t: Ticket) => void;
   onStatusChange: (ticketId: string, newStatus: string) => void;
 }) {
+  const { isCollapsed, toggleCollapsed } = useCollapsedKanbanColumns('my-tickets-staff');
   const [activeTicket, setActiveTicket] = useState<Ticket | null>(null);
   const sensors = useSensors(useSensor(PointerSensor, { activationConstraint: { distance: 8 } }));
   const allTickets = useMemo(() => Object.values(grouped).flat(), [grouped]);
@@ -1189,10 +1198,12 @@ function StaffTicketKanbanBoard({
 
   return (
     <DndContext sensors={sensors} onDragStart={handleDragStart} onDragEnd={handleDragEnd}>
-      <div className="flex flex-col gap-6 md:flex-row md:items-start md:gap-4 md:overflow-x-auto md:scrollbar-thin md:pb-4">
+      <div className={KANBAN_BOARD_CLASS}>
         {columns.map(col => (
           <StaffTicketKanbanColumn
             key={col.value}
+            collapsed={isCollapsed(col.value)}
+            onToggleCollapse={() => toggleCollapsed(col.value)}
             col={{ ...col, tickets: grouped[col.value] || [] }}
             navBadges={navBadges}
             onSelect={onSelect}
@@ -1210,18 +1221,25 @@ function StaffTicketKanbanColumn({
   col,
   navBadges,
   onSelect,
+  collapsed = false,
+  onToggleCollapse = () => {},
 }: {
   col: KanbanStatusMeta & { tickets: Ticket[] };
   navBadges: { myTicketsUnreadByTicket: Record<string, number> };
   onSelect: (t: Ticket) => void;
+  collapsed?: boolean;
+  onToggleCollapse?: () => void;
 }) {
   const { setNodeRef, isOver } = useDroppable({ id: col.value });
+  if (collapsed) {
+    return <KanbanCollapsedColumn ref={setNodeRef} label={col.label} count={col.tickets.length} accent={col.accent} dotClass={col.dot} isOver={isOver} onExpand={onToggleCollapse} />;
+  }
 
   return (
     <div
       ref={setNodeRef}
       className={cn(
-        "rounded-2xl border-t-4 overflow-hidden md:flex-1 md:min-w-[240px] transition-all",
+        "rounded-2xl border-t-4 overflow-hidden transition-all", KANBAN_COLUMN_CLASS,
         isOver ? "bg-[var(--surface-pill)] ring-2 ring-[var(--accent)]/30" : "bg-[var(--surface-card)]"
       )}
       style={{ borderTopColor: col.accent }}
@@ -1232,6 +1250,7 @@ function StaffTicketKanbanColumn({
         <span className="text-[10px] font-bold text-[var(--text-tertiary)] ml-auto bg-[var(--surface-pill)] px-2 py-0.5 rounded-full">
           {col.tickets.length}
         </span>
+        <KanbanCollapseButton label={col.label} onClick={onToggleCollapse} />
       </div>
       <div className="p-3 space-y-2.5 min-h-[120px] md:h-[clamp(280px,calc(100vh_-_460px),640px)] md:overflow-y-auto">
         {col.tickets.length === 0 ? (
