@@ -51,8 +51,12 @@ export function InternalTicketQueuesContent() {
   const filtered = queues.filter(q => q.name.toLowerCase().includes(search.trim().toLowerCase()));
   const refresh = () => queryClient.invalidateQueries({ queryKey: INTERNAL_TICKET_QUEUES_KEY });
 
-  const openNew = () => { setMemberSearch(''); setDraft({ name: '', isActive: true, memberIds: [] }); };
-  const openEdit = (q: QueueRow) => { setMemberSearch(''); setDraft({ id: q.id, name: q.name, isActive: q.isActive, memberIds: [...q.memberIds] }); };
+  // Membros da fila ao abrir o modal — vão primeiro na lista (2026-11-24,
+  // pedido do usuário). Retrato da abertura, não a seleção ao vivo, pra a
+  // lista não reordenar embaixo do clique ao marcar/desmarcar.
+  const [initialMemberIds, setInitialMemberIds] = useState<Set<string>>(new Set());
+  const openNew = () => { setMemberSearch(''); setInitialMemberIds(new Set()); setDraft({ name: '', isActive: true, memberIds: [] }); };
+  const openEdit = (q: QueueRow) => { setMemberSearch(''); setInitialMemberIds(new Set(q.memberIds)); setDraft({ id: q.id, name: q.name, isActive: q.isActive, memberIds: [...q.memberIds] }); };
 
   const post = async (body: any) => {
     const res = await fetch('/api/internal-ticket-queues', {
@@ -106,7 +110,9 @@ export function InternalTicketQueuesContent() {
   const toggleMember = (id: string) => {
     setDraft(d => d ? { ...d, memberIds: d.memberIds.includes(id) ? d.memberIds.filter(x => x !== id) : [...d.memberIds, id] } : d);
   };
-  const visibleMembers = analysts.filter(a => a.name.toLowerCase().includes(memberSearch.trim().toLowerCase()));
+  const visibleMembers = analysts
+    .filter(a => a.name.toLowerCase().includes(memberSearch.trim().toLowerCase()))
+    .sort((a, b) => Number(initialMemberIds.has(b.id)) - Number(initialMemberIds.has(a.id)));
 
   return (
     <div className="space-y-6 animate-in fade-in slide-in-from-bottom-4 duration-300">

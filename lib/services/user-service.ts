@@ -35,8 +35,10 @@ export class UserService {
   // Busca paginada de analistas (com foto), usada pelo seletor de membros
   // de Fila — só a página pedida baixa avatar_url, ao contrário de
   // getAnalysts() que traz todo mundo de uma vez.
-  static async searchAnalysts(q: string, page: number, pageSize: number): Promise<{ items: User[]; total: number }> {
+  // firstIds: quem já está associado sobe pro topo da lista (em todas as páginas).
+  static async searchAnalysts(q: string, page: number, pageSize: number, firstIds: string[] = []): Promise<{ items: User[]; total: number }> {
     const params = new URLSearchParams({ type: 'analysts-search', q, page: String(page), pageSize: String(pageSize) });
+    if (firstIds.length > 0) params.set('firstIds', firstIds.join(','));
     const res = await fetch(`/api/users?${params.toString()}`);
     if (!res.ok) return { items: [], total: 0 };
     return res.json();
