@@ -3,7 +3,7 @@
 import { shouldThisTabAlert, startVisibleTabHeartbeat } from '@/lib/notification-tab-claim';
 import React, { createContext, useContext, useState, useEffect, useRef } from 'react';
 import { User, UserRole, Permission, AbsenceReason, Attachment } from '@/lib/types';
-import { safeJsonStringify } from '@/lib/utils';
+import { safeJsonStringify, truncateNotificationText } from '@/lib/utils';
 import { toast } from 'sonner';
 import { Bell } from 'lucide-react';
 import { AbsenceReasonService, AnalystService } from '@/lib/services/chat-service';
@@ -409,9 +409,30 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       // (`richColors`, verde/vermelho/âmbar) porque essas são pra feedback
       // direto de uma ação do próprio usuário (toast.success/error), não pra
       // aviso de evento de terceiro.
+      // Ticket interno com nota longa: só o começo + "Ver mais", que abre o
+      // ticket por cima da tela atual (?internalTicket=, o mesmo parâmetro de
+      // components/internal-ticket-modal-host.tsx). pushState em vez de
+      // router: este contexto não tem router, e o App Router acompanha o
+      // pushState (o useSearchParams do host enxerga a mudança).
+      const isInternalTicketNotif = notif.type.startsWith('internal_ticket_') && !!notif.targetId;
+      const preview = isInternalTicketNotif ? truncateNotificationText(newNotif.message) : { text: newNotif.message, truncated: false };
       showTimedToast(notif.title, {
-        description: newNotif.message,
-        icon: <Bell size={16} />
+        description: preview.text,
+        icon: <Bell size={16} />,
+        ...(preview.truncated ? {
+          action: {
+            label: 'Ver mais',
+            onClick: () => {
+              try {
+                const url = new URL(window.location.href);
+                url.searchParams.set('internalTicket', String(notif.targetId));
+                window.history.pushState(null, '', url.toString());
+              } catch {
+                window.location.href = `/internal-tickets/${notif.targetId}`;
+              }
+            }
+          }
+        } : {})
       });
 
       // Notificação nativa do Windows: só quando a aba não está em primeiro
@@ -427,7 +448,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
         try {
           const isCompanyUser = [UserRole.CUSTOMER, UserRole.EMPLOYEE].includes(userRef.current?.role as UserRole);
           const osNotif = new Notification(notif.title, {
-            body: newNotif.message,
+            body: isInternalTicketNotif ? preview.text : newNotif.message,
             icon: '/branding/icon.png?v=2',
             tag: newNotif.sourceId || newNotif.id
           });

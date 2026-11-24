@@ -161,6 +161,9 @@ export enum Permission {
   // Configurações > Atendimento > Filas de Ticket Interno (2026-11-13).
   // Backfill: quem tinha settings:system_internal ou settings:system.
   INTERNAL_QUEUES_MANAGE = 'internal:queues_manage',
+  // Marcar/desmarcar "Prioridade máxima na fila" no ticket interno
+  // (2026-11-23). Backfill: quem tinha internal:queues_manage.
+  INTERNAL_QUEUE_PRIORITY = 'internal:queue_priority',
   // Widget flutuante do Agente de IA (busca em chat com cliente, chat de
   // grupo interno, chamados e tickets internos) — concedida por padrão aos
   // perfis de Equipe/Time Interno na migration que introduziu o agente (ver
@@ -445,6 +448,7 @@ export enum TicketPriority {
 
 export interface InternalTicket {
   subStatus?: string | null;      // sub-status do status principal (ex.: Resolvido > Aguardando Publicação)
+  queueTopPriority?: boolean;     // Prioridade máxima na fila (topo e destaque na fila; lib/internal-queue-priority.tsx)
   resolvedAt?: string | null;     // Entrega Real: primeira vez que virou Resolvido
   qaRejected?: boolean;           // Reprovação de QA (manual, sem pontuação)
   lateDelivery?: boolean;         // Atraso na entrega: resolvido depois do prazo

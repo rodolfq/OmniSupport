@@ -349,6 +349,14 @@ export function TicketDetailModal({ ticket, onClose, initialDraft, creating = fa
   const internalQueues = ((internalQueuesQuery.data || []) as InternalTicketQueue[]).filter(q => q.isActive);
   const [itAssignee, setItAssignee] = useState('');
   const [itPriority, setItPriority] = useState(1);
+  // Criar o ticket interno já com título, descrição (texto e imagens) e
+  // anexos do chamado (2026-11-23, pedido do usuário) — ligado por padrão,
+  // aí só falta escolher fila e responsável.
+  const [itCopyContent, setItCopyContent] = useState(true);
+  // "Replicar do chamado" num ticket interno JÁ vinculado: guarda qual está
+  // aguardando confirmação (sobrescreve título e descrição dele).
+  const [replicateTarget, setReplicateTarget] = useState<{ uuid: string; label: string } | null>(null);
+  const [isReplicating, setIsReplicating] = useState(false);
   const [showLinkModal, setShowLinkModal] = useState(false);
   // Trava de duplo clique na criação do ticket interno (achado pelo usuário,
   // 2026-11-16: 2 cliques rápidos criavam 2 tickets). Ref, não state: o
@@ -716,8 +724,34 @@ const loadMessages = async () => {
      setInternalTickets(list);
    };
 
+   // Rótulo do chamado para os registros ("#1234").
+   const ticketRefLabel = () => {
+     const n = (ticket as any)?.ticketNumber;
+     return n ? `#${String(n).padStart(4, '0')}` : `#${String(ticket?.id || '').slice(0, 8)}`;
+   };
+   // Anexos do PRÓPRIO chamado (os da abertura, não os das mensagens): ticket
+   // interno não tem anexo no cabeçalho, então eles entram como uma nota.
+   const ticketOwnAttachments = (): Attachment[] =>
+     (Array.isArray(ticket?.attachments) ? ticket!.attachments! : []).filter(a => a && (a.url || a.id));
+   const copyTicketAttachmentsToInternal = async (internalUuid: string) => {
+     const atts = ticketOwnAttachments();
+     if (!currentUser || atts.length === 0) return;
+     const note: Message = {
+       id: Math.random().toString(36).substr(2, 9),
+       ticketId: internalUuid,
+       senderId: currentUser.id,
+       text: `Anexos do chamado ${ticketRefLabel()}`,
+       timestamp: new Date().toISOString(),
+       isVisibleToCustomer: false,
+       type: 'internal',
+       attachments: atts
+     };
+     await MessageService.createInternal(note, internalUuid);
+   };
+
    const resetCreateForm = () => {
-     setItTitle(`Interno: ${ticket?.title || ''}`);
+     setItCopyContent(true);
+     setItTitle(ticketTitle || ticket?.title || '');
      setItQueueId('');
      setItAssignee('');
      setItPriority(1);
@@ -749,12 +783,17 @@ const loadMessages = async () => {
         priority: itPriority,
         tags: [],
         creatorId: currentUser.id,
-        description: '',
+        description: itCopyContent ? (ticketDescription || '') : '',
         createdAt: new Date().toISOString(),
         updatedAt: new Date().toISOString(),
         creationRequestId: createITRequestIdRef.current,
       };
-      const savedId = await InternalTicketService.save(newIT, ticket.id);
+      const saved = await InternalTicketService.saveWithDetails(newIT, ticket.id);
+      const savedId = saved.id;
+      if (itCopyContent) {
+        // Falhar nos anexos não desfaz o ticket criado: só avisa.
+        await copyTicketAttachmentsToInternal(saved.uuid).catch(() => toast.error('Ticket interno criado, mas não foi possível copiar os anexos do chamado.'));
+      }
 
       const msg: Message = {
         id: Math.random().toString(36).substr(2, 9),
@@ -782,6 +821,31 @@ const loadMessages = async () => {
       } finally {
         isCreatingITRef.current = false;
         setIsCreatingIT(false);
+      }
+    };
+
+    const handleReplicateToInternal = async () => {
+      if (!replicateTarget || !ticket || isReplicating) return;
+      const target = replicateTarget;
+      setIsReplicating(true);
+      try {
+        // Usa o que está na tela agora (título/descrição podem ainda estar no
+        // debounce do autosave do chamado).
+        const title = (ticketTitle || ticket.title || '').trim();
+        if (!title) { toast.error('O chamado está sem título.'); return; }
+        await InternalTicketService.replicateFromTicket(
+          target.uuid,
+          { title, description: ticketDescription || '' },
+          `Título e descrição replicados do chamado ${ticketRefLabel()}`
+        );
+        await copyTicketAttachmentsToInternal(target.uuid).catch(() => toast.error('Não foi possível copiar os anexos do chamado.'));
+        await loadInternalTickets();
+        toast.success(`${target.label} atualizado com o título e a descrição do chamado.`);
+        setReplicateTarget(null);
+      } catch (err: any) {
+        toast.error(err?.message || 'Erro ao replicar o chamado no ticket interno.');
+      } finally {
+        setIsReplicating(false);
       }
     };
 
@@ -2429,20 +2493,48 @@ const loadMessages = async () => {
                                    <span>{it.teamId || 'Sem equipe'} {assignee ? `· ${assignee.name}` : ''}</span>
                                    <span>{creator ? `por ${creator.name}` : ''}</span>
                                 </div>
-                                <a
-                                  href={`/internal-tickets/${it.uuid}`}
-                                  target="_blank"
-                                  rel="noopener noreferrer"
-                                  className="mt-3 inline-flex items-center gap-1 text-[10px] font-black uppercase tracking-widest text-[var(--accent-text)] hover:underline"
-                                >
-                                  Abrir ticket completo →
-                                </a>
+                                <div className="mt-3 flex flex-wrap items-center gap-x-4 gap-y-1">
+                                  <a
+                                    href={`/internal-tickets/${it.uuid}`}
+                                    target="_blank"
+                                    rel="noopener noreferrer"
+                                    className="inline-flex items-center gap-1 text-[10px] font-black uppercase tracking-widest text-[var(--accent-text)] hover:underline"
+                                  >
+                                    Abrir ticket completo →
+                                  </a>
+                                  {hasPermission(Permission.INTERNAL_TICKETS_EDIT) && it.uuid && (
+                                    <button
+                                      type="button"
+                                      onClick={() => setReplicateTarget({ uuid: it.uuid!, label: `INT-${it.internalTicketNumber?.toString().padStart(4, '0') || ''}` })}
+                                      title="Substitui o título e a descrição deste ticket interno pelos do chamado (com imagens) e copia os anexos do chamado"
+                                      className="inline-flex items-center gap-1 text-[10px] font-black uppercase tracking-widest text-[var(--text-secondary)] hover:text-[var(--accent-text)]"
+                                    >
+                                      <Copy size={11} /> Replicar do chamado
+                                    </button>
+                                  )}
+                                </div>
                               </div>
                             );
                           })}
 
                           {showCreatePanel && (
                             <div className="p-5 rounded-2xl border border-[var(--border-alert)] bg-[var(--surface-warning)]/40 space-y-4">
+                               <label className="flex items-start gap-2 text-[11px] font-semibold text-[var(--text-secondary)] cursor-pointer select-none">
+                                  <input
+                                    type="checkbox"
+                                    checked={itCopyContent}
+                                    onChange={(e) => {
+                                      setItCopyContent(e.target.checked);
+                                      setItTitle(e.target.checked ? (ticketTitle || ticket?.title || '') : `Interno: ${ticketTitle || ticket?.title || ''}`);
+                                    }}
+                                    className="mt-0.5 accent-[var(--accent)]"
+                                  />
+                                  <span>
+                                    Copiar título e descrição do chamado (texto e imagens)
+                                    {ticketOwnAttachments().length > 0 && ` e ${ticketOwnAttachments().length} anexo(s)`}
+                                    <span className="block text-[10px] font-medium text-[var(--text-tertiary)]">Só falta escolher a fila e o responsável.</span>
+                                  </span>
+                               </label>
                                <div className="flex flex-col gap-1.5">
                                   <label className="text-[10px] font-semibold uppercase text-[var(--text-tertiary)]">Título</label>
                                   <input
@@ -3017,6 +3109,15 @@ const loadMessages = async () => {
         onSuccess={handleEmployeeCreated}
       />
     )}
+    <ConfirmDialog
+      isOpen={!!replicateTarget}
+      onClose={() => { if (!isReplicating) setReplicateTarget(null); }}
+      onConfirm={handleReplicateToInternal}
+      title={`Replicar o chamado em ${replicateTarget?.label || 'ticket interno'}?`}
+      description={`O título e a descrição de ${replicateTarget?.label || 'ticket interno'} serão SUBSTITUÍDOS pelos deste chamado (texto e imagens)${ticketOwnAttachments().length > 0 ? ', e os anexos do chamado entram como uma nota' : ''}. As notas do ticket interno não mudam, e a alteração fica no histórico dele.`}
+      confirmLabel="Replicar"
+      cancelLabel="Cancelar"
+    />
     <ConfirmDialog
       isOpen={isDuplicateConfirmOpen}
       onClose={() => setIsDuplicateConfirmOpen(false)}

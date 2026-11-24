@@ -423,8 +423,13 @@ export function TicketsView({
       setFilteredTickets(result.tickets);
       setTotalCount(result.total);
       setTotalPages(Math.ceil(result.total / pageSize));
-    } catch (error) {
+    } catch (error: any) {
       console.error("Error loading tickets:", error);
+      // Mantém a lista anterior na tela e avisa — antes um erro da busca
+      // derrubava a página inteira (2026-11-23).
+      if (error?.name !== "AbortError" && seq === ticketsFetchSeqRef.current) {
+        toast.error("Não foi possível carregar os chamados com esse filtro. Tente de novo.");
+      }
     } finally {
       if (seq === ticketsFetchSeqRef.current) setLoading(false);
     }

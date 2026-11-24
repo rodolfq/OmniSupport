@@ -55,6 +55,7 @@ function toInternalTicket(row: any, parentTicketId?: string) {
     effortId: row.effort_id,
     outcomeId: row.outcome_id,
     subStatus: row.sub_status ?? null,
+    queueTopPriority: !!row.queue_top_priority,
     resolvedAt: row.resolved_at ?? null,
     qaRejected: !!row.qa_rejected,
     environmentRejected: !!row.environment_rejected,
@@ -76,7 +77,7 @@ const LIST_COLUMNS = `
   id, internal_ticket_number, title, team_id, internal_team_id, internal_queue_id, assignee_id,
   priority, tags, creator_id, status, created_at, updated_at, sla_limit,
   expected_publish_date, hotfix_id, effort_id, outcome_id, sub_status,
-  resolved_at, qa_rejected, late_delivery, environment_rejected, release_item_id,
+  resolved_at, qa_rejected, late_delivery, environment_rejected, release_item_id, queue_top_priority,
   left(btrim(regexp_replace(regexp_replace(regexp_replace(
     coalesce(description, ''),
     'data:[^"'' >]+', '', 'g'),
@@ -220,7 +221,7 @@ export async function GET(request: NextRequest) {
 
       const where = conditions.length ? `WHERE ${conditions.join(' AND ')}` : '';
       const res = await query(
-        `SELECT ${LIST_COLUMNS} FROM public.internal_tickets ${where} ORDER BY updated_at DESC LIMIT ${limit}`,
+        `SELECT ${LIST_COLUMNS} FROM public.internal_tickets ${where} ORDER BY queue_top_priority DESC, updated_at DESC LIMIT ${limit}`,
         params
       );
       // Linha crua (snake_case) de propósito, diferente das outras actions:
@@ -404,7 +405,7 @@ export async function GET(request: NextRequest) {
       const [rowsRes, countRes] = await Promise.all([
         query(
           `SELECT ${LIST_COLUMNS} FROM public.internal_tickets ${where}
-            ORDER BY created_at DESC LIMIT ${pageSize} OFFSET ${offset}`,
+            ORDER BY queue_top_priority DESC, created_at DESC LIMIT ${pageSize} OFFSET ${offset}`,
           params
         ),
         query(`SELECT COUNT(*)::int AS total FROM public.internal_tickets ${where}`, params)
@@ -571,6 +572,44 @@ export async function GET(request: NextRequest) {
         [ticketId]
       );
       return NextResponse.json(res.rows.map(r => toInternalTicket(r, ticketId)));
+    }
+
+    if (action === 'status-time') {
+      // Tempo por status/sub-status (2026-11-23, migrations/internal_ticket_status_periods.sql).
+      // Um item por trecho, com tempo corrido (segundos) e útil (minutos, 08h–18h seg a sex);
+      // o trecho atual conta até agora.
+      const internalTicketId = searchParams.get('internalTicketId');
+      if (!internalTicketId) return NextResponse.json({ error: 'internalTicketId é obrigatório.' }, { status: 400 });
+      try {
+        const res = await query(
+          `SELECT p.status, p.sub_status, p.started_at, p.ended_at, p.since_deploy,
+                  q.name AS queue_name,
+                  EXTRACT(EPOCH FROM (COALESCE(p.ended_at, now()) - p.started_at)) AS seconds,
+                  public.ticket_business_minutes(p.started_at, COALESCE(p.ended_at, now())) AS business_minutes
+             FROM public.internal_ticket_status_periods p
+             LEFT JOIN public.internal_ticket_queues q ON q.id = p.queue_id
+            WHERE p.internal_ticket_id = $1
+            ORDER BY p.started_at, p.ended_at NULLS LAST`,
+          [internalTicketId]
+        );
+        return NextResponse.json({
+          available: true,
+          periods: res.rows.map((r: any) => ({
+            status: r.status,
+            subStatus: r.sub_status ?? null,
+            queueName: r.queue_name ?? null,
+            startedAt: new Date(r.started_at).toISOString(),
+            endedAt: r.ended_at ? new Date(r.ended_at).toISOString() : null,
+            sinceDeploy: !!r.since_deploy,
+            seconds: Math.max(0, Math.round(Number(r.seconds) || 0)),
+            businessMinutes: Math.max(0, Math.round(Number(r.business_minutes) || 0)),
+          })),
+        });
+      } catch (err: any) {
+        // Banco sem a migration ainda: a tela mostra "indisponível" em vez de erro.
+        if (err?.code === '42P01' || err?.code === '42883') return NextResponse.json({ available: false, periods: [] });
+        throw err;
+      }
     }
 
     if (action === 'messages') {
@@ -884,6 +923,26 @@ export async function POST(request: NextRequest) {
         }
       }
 
+      // Prioridade máxima na fila (2026-11-23): só quem tem
+      // internal:queue_priority muda. Confere contra o valor gravado, para a
+      // tela que reenvia o formulário inteiro não ser barrada à toa.
+      let topPriorityChanged: string[] = [];
+      if (fields.queueTopPriority !== undefined) {
+        fields.queueTopPriority = !!fields.queueTopPriority;
+        topPriorityChanged = (await query(
+          'SELECT id FROM public.internal_tickets WHERE id = ANY($1::text[]) AND queue_top_priority IS DISTINCT FROM $2',
+          [targetIds, fields.queueTopPriority]
+        )).rows.map((r: any) => r.id);
+        if (topPriorityChanged.length === 0) {
+          delete fields.queueTopPriority;
+        } else if (user.role !== 'Administrador') {
+          const permissions = await getActorEffectivePermissions(user.id);
+          if (!permissions.includes(Permission.INTERNAL_QUEUE_PRIORITY)) {
+            return NextResponse.json({ error: 'Você não tem permissão para alterar a prioridade máxima na fila.' }, { status: 403 });
+          }
+        }
+      }
+
       const COLUMNS: Record<string, string> = {
         title: 'title',
         description: 'description',
@@ -900,6 +959,7 @@ export async function POST(request: NextRequest) {
         effortId: 'effort_id',
         outcomeId: 'outcome_id',
         subStatus: 'sub_status',
+        queueTopPriority: 'queue_top_priority',
         qaRejected: 'qa_rejected',
         environmentRejected: 'environment_rejected'
       };
@@ -957,6 +1017,18 @@ export async function POST(request: NextRequest) {
             WHERE id = ANY($1::text[]) AND resolved_at IS NOT NULL`,
           [targetIds, ticketConfig.interno.estrelasMinimas, ticketConfig.interno.diasUteis]
         );
+      }
+
+      if (topPriorityChanged.length > 0) {
+        const text = fields.queueTopPriority ? 'Marcou como prioridade máxima na fila' : 'Removeu a prioridade máxima na fila';
+        for (const tid of topPriorityChanged) {
+          await query(
+            `INSERT INTO public.internal_ticket_messages (internal_ticket_id, author_id, content, type, attachments_data)
+             VALUES ($1, $2, $3, 'system', '[]')`,
+            [tid, user.id, text]
+          ).catch(err => console.error('[internal-tickets update] Falha ao registrar prioridade máxima:', err));
+          queueInternalTicketChangeEmail({ internalTicketId: tid, actorId: user.id, actorName: user.name, kind: 'change', text, closingNow: false });
+        }
       }
 
       // Prioridade mudou (edição individual OU em massa) — reflete em todo

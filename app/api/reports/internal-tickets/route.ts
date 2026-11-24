@@ -91,6 +91,7 @@ export async function GET(request: NextRequest) {
 
   const { searchParams } = new URL(request.url);
   const action = searchParams.get('action') || 'overview';
+  if (action === 'status-time') return statusTime(searchParams);
   if (action !== 'overview') {
     return NextResponse.json({ error: `Action não suportada: ${action}` }, { status: 400 });
   }
@@ -236,6 +237,125 @@ export async function GET(request: NextRequest) {
       return NextResponse.json({ error: 'Relatório indisponível neste banco (migração pendente).' }, { status: 503 });
     }
     console.error('[reports/internal-tickets] Erro:', error);
+    return NextResponse.json({ error: error.message }, { status: 500 });
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Tempo por status e sub-status, por fila (2026-11-23,
+// migrations/internal_ticket_status_periods.sql).
+//
+// Regras (decididas com o usuário):
+// - Média e mediana usam só trechos ENCERRADOS cujo fim caiu no período (horário
+//   de Brasília): é o tempo que o ticket de fato levou para sair daquele status.
+// - Trechos "desde a implantação" (since_deploy) ficam fora das médias: o ticket
+//   já estava no status antes de o registro começar, então o tempo medido é menor
+//   que o real.
+// - Status FECHADOS (config_statuses.is_closed) não entram: ficar em "Concluído"
+//   não é tempo de trabalho.
+// - "Agora" = tickets que estão neste status neste momento (independe do período),
+//   com o mais antigo deles, para achar quem está parado.
+// - Fila = a fila em que o ticket estava NAQUELE trecho; ticket antigo sem fila
+//   cai na equipe (mesma regra do resto do relatório) e, sem as duas, em "Sem fila".
+// - Dois relógios: corrido (24h/dia) e útil (08h–18h, seg a sex).
+// ---------------------------------------------------------------------------
+async function statusTime(searchParams: URLSearchParams) {
+  try {
+    const { startDate, endDate } = await resolvePeriod(searchParams);
+    const res = await query(
+      `SELECT p.internal_ticket_id, p.status, p.sub_status, p.started_at, p.ended_at, p.since_deploy,
+              COALESCE(p.queue_id, i.internal_team_id) AS group_id,
+              COALESCE(q.name, CASE WHEN p.queue_id IS NULL THEN tm.name END, 'Sem fila') AS group_name,
+              EXTRACT(EPOCH FROM (COALESCE(p.ended_at, now()) - p.started_at)) AS seconds,
+              public.ticket_business_minutes(p.started_at, COALESCE(p.ended_at, now())) AS business_minutes
+         FROM public.internal_ticket_status_periods p
+         JOIN public.internal_tickets i ON i.id = p.internal_ticket_id
+         LEFT JOIN public.internal_ticket_queues q ON q.id = p.queue_id
+         LEFT JOIN public.internal_teams tm ON tm.id = i.internal_team_id
+        WHERE NOT EXISTS (
+                SELECT 1 FROM public.config_statuses cs
+                 WHERE cs.scope = 'internal_ticket' AND cs.parent_status_id IS NULL
+                   AND cs.label = p.status AND cs.is_closed
+              )
+          AND (
+                p.ended_at IS NULL
+                OR (NOT p.since_deploy
+                    AND (p.ended_at AT TIME ZONE 'America/Sao_Paulo')::date BETWEEN $1::date AND $2::date)
+              )`,
+      [startDate, endDate]
+    );
+
+    const teamIdFilter = searchParams.get('teamId');
+    type Acc = {
+      filaId: string | null; fila: string; status: string; subStatus: string | null;
+      horas: number[]; horasUteis: number[]; tickets: Set<string>;
+      agora: number; agoraMaisAntigoHoras: number | null; agoraMaisAntigoUteis: number | null;
+    };
+    const groups = new Map<string, Acc>();
+    const filasMap = new Map<string, string>();
+
+    for (const r of res.rows as any[]) {
+      const filaId: string | null = r.group_id ?? null;
+      if (filaId) filasMap.set(filaId, r.group_name);
+      if (teamIdFilter && filaId !== teamIdFilter) continue;
+      const sub = r.sub_status || null;
+      const key = `${filaId ?? '__sem__'}|${r.status}|${sub ?? ''}`;
+      const acc: Acc = groups.get(key) ?? {
+        filaId, fila: r.group_name, status: r.status, subStatus: sub,
+        horas: [], horasUteis: [], tickets: new Set<string>(),
+        agora: 0, agoraMaisAntigoHoras: null, agoraMaisAntigoUteis: null,
+      };
+      const horas = Math.max(0, Number(r.seconds) || 0) / 3600;
+      const horasUteis = Math.max(0, Number(r.business_minutes) || 0) / 60;
+      if (r.ended_at) {
+        // Trecho de menos de 1 min é artefato (status e sub-status gravados em
+        // duas etapas seguidas), não passagem de verdade: não entra na média.
+        if (horas * 60 < 1) { groups.set(key, acc); continue; }
+        acc.horas.push(horas);
+        acc.horasUteis.push(horasUteis);
+        acc.tickets.add(r.internal_ticket_id);
+      } else {
+        acc.agora += 1;
+        if (acc.agoraMaisAntigoHoras === null || horas > acc.agoraMaisAntigoHoras) {
+          acc.agoraMaisAntigoHoras = horas;
+          acc.agoraMaisAntigoUteis = horasUteis;
+        }
+      }
+      groups.set(key, acc);
+    }
+
+    const media = (v: number[]) => (v.length === 0 ? null : v.reduce((a, b) => a + b, 0) / v.length);
+    const linhas = [...groups.values()].map(g => ({
+      filaId: g.filaId,
+      fila: g.fila,
+      status: g.status,
+      subStatus: g.subStatus,
+      passagens: g.horas.length,
+      tickets: g.tickets.size,
+      mediaHoras: round1(media(g.horas)),
+      medianaHoras: round1(median(g.horas)),
+      mediaHorasUteis: round1(media(g.horasUteis)),
+      medianaHorasUteis: round1(median(g.horasUteis)),
+      agora: g.agora,
+      agoraMaisAntigoHoras: round1(g.agoraMaisAntigoHoras),
+      agoraMaisAntigoUteis: round1(g.agoraMaisAntigoUteis),
+    })).sort((a, b) =>
+      a.fila.localeCompare(b.fila, 'pt-BR')
+      || a.status.localeCompare(b.status, 'pt-BR')
+      || (a.subStatus ?? '').localeCompare(b.subStatus ?? '', 'pt-BR')
+    );
+
+    return NextResponse.json({
+      linhas,
+      opcoes: {
+        filas: [...filasMap].map(([id, nome]) => ({ id, nome })).sort((a, b) => a.nome.localeCompare(b.nome, 'pt-BR')),
+      },
+    });
+  } catch (error: any) {
+    if (error?.code === '42P01' || error?.code === '42883') {
+      return NextResponse.json({ error: 'Tempo por status indisponível neste banco (migração pendente).' }, { status: 503 });
+    }
+    console.error('[reports/internal-tickets status-time] Erro:', error);
     return NextResponse.json({ error: error.message }, { status: 500 });
   }
 }

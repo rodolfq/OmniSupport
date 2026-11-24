@@ -13,6 +13,7 @@ DROP TABLE IF EXISTS public.chat_histories CASCADE;
 DROP TABLE IF EXISTS public.chat_assignments CASCADE;
 DROP TABLE IF EXISTS public.analyst_points_config CASCADE;
 DROP TABLE IF EXISTS public.ticket_points_config CASCADE;
+DROP TABLE IF EXISTS public.internal_ticket_status_periods CASCADE;
 DROP TABLE IF EXISTS public.ticket_status_history CASCADE;
 DROP TABLE IF EXISTS public.analyst_status CASCADE;
 DROP TABLE IF EXISTS public.user_status_history CASCADE;
@@ -1625,6 +1626,7 @@ CREATE TABLE public.internal_tickets (
   effort_id UUID REFERENCES public.config_effort_levels(id) ON DELETE SET NULL,
   outcome_id UUID REFERENCES public.config_outcomes(id) ON DELETE SET NULL,
   sub_status TEXT, -- sub-status do status principal (migrations/internal_ticket_resolution.sql)
+  queue_top_priority BOOLEAN NOT NULL DEFAULT false, -- Prioridade máxima na fila: topo e destaque na fila (migrations/internal_ticket_queue_top_priority.sql)
   resolved_at TIMESTAMP WITH TIME ZONE, -- Entrega Real: gravada na 1ª vez que vira Resolvido
   qa_rejected BOOLEAN NOT NULL DEFAULT false, -- Reprovação de QA (manual, sem pontuação)
   late_delivery BOOLEAN NOT NULL DEFAULT false, -- Atraso na entrega: resolvido depois do prazo (horas úteis)
@@ -2769,3 +2771,59 @@ AS $$
      AND rp.role IN ('Administrador', 'Equipe', 'Time Interno')
    GROUP BY cust.at
 $$;
+
+-- Tempo por status e sub-status do ticket interno (migrations/internal_ticket_status_periods.sql).
+-- Gatilho em internal_tickets grava um trecho por (status, sub-status, fila).
+
+CREATE TABLE IF NOT EXISTS public.internal_ticket_status_periods (
+  id UUID PRIMARY KEY DEFAULT (md5(random()::text || clock_timestamp()::text)::uuid),
+  internal_ticket_id TEXT NOT NULL REFERENCES public.internal_tickets(id) ON DELETE CASCADE,
+  status TEXT NOT NULL,
+  sub_status TEXT,
+  queue_id UUID REFERENCES public.internal_ticket_queues(id) ON DELETE SET NULL,
+  started_at TIMESTAMP WITH TIME ZONE NOT NULL,
+  ended_at TIMESTAMP WITH TIME ZONE,
+  since_deploy BOOLEAN NOT NULL DEFAULT false
+);
+
+CREATE INDEX IF NOT EXISTS idx_it_status_periods_ticket
+  ON public.internal_ticket_status_periods(internal_ticket_id, started_at);
+CREATE INDEX IF NOT EXISTS idx_it_status_periods_ended
+  ON public.internal_ticket_status_periods(ended_at);
+-- No máximo UM trecho aberto por ticket.
+CREATE UNIQUE INDEX IF NOT EXISTS uq_it_status_periods_open
+  ON public.internal_ticket_status_periods(internal_ticket_id) WHERE ended_at IS NULL;
+
+CREATE OR REPLACE FUNCTION public.track_internal_ticket_status_period()
+RETURNS trigger
+LANGUAGE plpgsql
+AS $$
+DECLARE
+  v_now TIMESTAMP WITH TIME ZONE := clock_timestamp();
+BEGIN
+  IF TG_OP = 'INSERT' THEN
+    INSERT INTO public.internal_ticket_status_periods (internal_ticket_id, status, sub_status, queue_id, started_at)
+    VALUES (NEW.id, COALESCE(NEW.status, 'Novo'), NULLIF(NEW.sub_status, ''), NEW.internal_queue_id, NEW.created_at);
+  ELSIF COALESCE(NEW.status, '') IS DISTINCT FROM COALESCE(OLD.status, '')
+     OR NULLIF(NEW.sub_status, '') IS DISTINCT FROM NULLIF(OLD.sub_status, '')
+     OR NEW.internal_queue_id IS DISTINCT FROM OLD.internal_queue_id THEN
+    UPDATE public.internal_ticket_status_periods
+       SET ended_at = GREATEST(v_now, started_at)
+     WHERE internal_ticket_id = NEW.id AND ended_at IS NULL;
+    INSERT INTO public.internal_ticket_status_periods (internal_ticket_id, status, sub_status, queue_id, started_at)
+    VALUES (NEW.id, COALESCE(NEW.status, 'Novo'), NULLIF(NEW.sub_status, ''), NEW.internal_queue_id, v_now);
+  END IF;
+  RETURN NEW;
+END;
+$$;
+
+DROP TRIGGER IF EXISTS trg_internal_tickets_status_periods ON public.internal_tickets;
+CREATE TRIGGER trg_internal_tickets_status_periods
+  AFTER INSERT OR UPDATE OF status, sub_status, internal_queue_id ON public.internal_tickets
+  FOR EACH ROW EXECUTE FUNCTION public.track_internal_ticket_status_period();
+
+-- Tickets já existentes: status atual contando a partir de agora.
+INSERT INTO public.internal_ticket_status_periods (internal_ticket_id, status, sub_status, queue_id, started_at, since_deploy)
+SELECT i.id, COALESCE(i.status, 'Novo'), NULLIF(i.sub_status, ''), i.internal_queue_id, now(), true
+  FROM public.internal_tickets i
+ WHERE NOT EXISTS (SELECT 1 FROM public.internal_ticket_status_periods p WHERE p.internal_ticket_id = i.id);

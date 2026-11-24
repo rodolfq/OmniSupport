@@ -1,4 +1,5 @@
 "use client";
+import { sortQueueTopPriorityFirst, isQueueTopPriority, QueueTopPriorityBadge, QUEUE_TOP_PRIORITY_CARD_CLASS, QUEUE_TOP_PRIORITY_ROW_CLASS } from '@/lib/internal-queue-priority';
 
 import React, { useState, useEffect, useCallback, useMemo } from "react";
 import { useEscapeToClose } from '@/hooks/use-escape-to-close';
@@ -539,7 +540,7 @@ export function InternalTicketsView({
         if (arr) arr.push(l.ticket_id); else linksByInternal.set(l.internal_ticket_id, [l.ticket_id]);
       }
 
-      setTickets((internalData || []).map((it: any) => {
+      setTickets(sortQueueTopPriorityFirst((internalData || []).map((it: any) => {
         const linkedIds = linksByInternal.get(it.id) || [];
 
         // Calculate SLA remaining
@@ -593,8 +594,9 @@ export function InternalTicketsView({
           resolvedAt: it.resolved_at ?? null,
           qaRejected: !!it.qa_rejected,
           lateDelivery: !!it.late_delivery,
+          queueTopPriority: !!it.queue_top_priority,
         };
-      }));
+      })));
     } catch (error) {
       console.error("Error loading tickets:", error);
     } finally {
@@ -1248,7 +1250,7 @@ function TicketCard({
       initial={{ opacity: 0, y: 10 }}
       animate={{ opacity: 1, y: 0 }}
       whileHover={{ y: -2 }}
-      className="relative bg-[var(--surface-card)] rounded-2xl border border-[var(--border-default)] pl-5 pr-5 py-5 hover:shadow-lg hover:border-[var(--text-warning-strong)]/40 transition-all group cursor-pointer overflow-hidden"
+      className={cn("relative bg-[var(--surface-card)] rounded-2xl border border-[var(--border-default)] pl-5 pr-5 py-5 hover:shadow-lg hover:border-[var(--text-warning-strong)]/40 transition-all group cursor-pointer overflow-hidden", isQueueTopPriority(ticket) && QUEUE_TOP_PRIORITY_CARD_CLASS)}
       onClick={onEdit}
     >
       <NotificationCountBadge count={unreadCount} />
@@ -1258,6 +1260,7 @@ function TicketCard({
         <div className="flex items-center gap-2">
           <span className="text-[10px] font-semibold text-[var(--text-warning)] uppercase">{ticket.id?.startsWith("int-") ? ticket.id : `#${ticket.internalTicketNumber?.toString().padStart(4, "0")}`}</span>
           <PriorityBars priority={ticket.priority || 1} />
+          {isQueueTopPriority(ticket) && <QueueTopPriorityBadge compact />}
         </div>
         <button
           onClick={(e) => {
@@ -1379,7 +1382,7 @@ function TicketTable({
             <th className="px-4 py-3 text-left text-[10px] font-semibold uppercase text-[var(--text-tertiary)]">Prioridade</th>
             <th className="px-4 py-3 text-left text-[10px] font-semibold uppercase text-[var(--text-tertiary)]">Responsável</th>
             <th className="px-4 py-3 text-left text-[10px] font-semibold uppercase text-[var(--text-tertiary)]">SLA</th>
-            <th className="px-4 py-3 text-left text-[10px] font-semibold uppercase text-[var(--text-tertiary)] whitespace-nowrap">Entrega real</th>
+            <th className="px-4 py-3 text-left text-[10px] font-semibold uppercase text-[var(--text-tertiary)] whitespace-nowrap">Entrega real do desenvolvimento</th>
             <th className="px-4 py-3 text-left text-[10px] font-semibold uppercase text-[var(--text-tertiary)]">QA</th>
             <th className="px-4 py-3 text-left text-[10px] font-semibold uppercase text-[var(--text-tertiary)]">Atraso</th>
             <th className="px-4 py-3 text-left text-[10px] font-semibold uppercase text-[var(--text-tertiary)]"><MessageCircle size={12} /></th>
@@ -1392,7 +1395,7 @@ function TicketTable({
             const isSelected = !!selectedIds?.includes(it.uuid!);
             const scopedAssignableUsers = getAssignableUsersForTeam ? getAssignableUsersForTeam(it.groupKey) : assignableUsers;
             return (
-              <tr key={it.id} className={cn("hover:bg-[var(--surface-card)]/50 transition-colors cursor-pointer group", isSelected && "bg-[var(--accent)]/5")} onClick={() => onEdit(it)}>
+              <tr key={it.id} className={cn("hover:bg-[var(--surface-card)]/50 transition-colors cursor-pointer group", isQueueTopPriority(it) && QUEUE_TOP_PRIORITY_ROW_CLASS, isSelected && "bg-[var(--accent)]/5")} onClick={() => onEdit(it)}>
                 {onToggleSelect && (
                   <td className="px-4 py-3" onClick={(e) => e.stopPropagation()}>
                     <button onClick={() => onToggleSelect(it.uuid!)} className="flex items-center justify-center">
@@ -1409,6 +1412,7 @@ function TicketTable({
                 <td className="px-4 py-3 text-sm font-bold text-[var(--text-primary)] group-hover:text-[var(--text-warning)] transition-colors max-w-xs truncate">
                   <div className="flex items-center gap-1.5">
                     <UnreadDot show={!!unreadByTicket[it.uuid || '']} />
+                    {isQueueTopPriority(it) && <QueueTopPriorityBadge compact />}
                     <span className="truncate">{it.title}</span>
                   </div>
                 </td>
@@ -1605,7 +1609,8 @@ function KanbanCard({ ticket, onEdit, dragging = false, assignableUsers = [], ge
       onClick={() => !dragging && onEdit(ticket)}
       className={cn(
         "relative bg-[var(--surface-card)] rounded-xl p-3.5 border border-[var(--border-default)] transition-all group",
-        dragging ? "shadow-2xl rotate-2 cursor-grabbing" : "hover:shadow-md hover:border-[var(--text-warning-strong)]/40 cursor-grab active:cursor-grabbing"
+        dragging ? "shadow-2xl rotate-2 cursor-grabbing" : "hover:shadow-md hover:border-[var(--text-warning-strong)]/40 cursor-grab active:cursor-grabbing",
+        isQueueTopPriority(ticket) && QUEUE_TOP_PRIORITY_CARD_CLASS
       )}
     >
       <NotificationCountBadge count={unreadCount} />
@@ -1613,7 +1618,10 @@ function KanbanCard({ ticket, onEdit, dragging = false, assignableUsers = [], ge
         <span className="text-[10px] font-semibold text-[var(--text-warning)]">
           {ticket.id?.startsWith("int-") ? ticket.id : `#${ticket.internalTicketNumber?.toString().padStart(4, "0")}`}
         </span>
-        <PriorityBars priority={ticket.priority || 1} />
+        <div className="flex items-center gap-1.5">
+          {isQueueTopPriority(ticket) && <QueueTopPriorityBadge compact />}
+          <PriorityBars priority={ticket.priority || 1} />
+        </div>
       </div>
 
       <h4 className="font-bold text-[var(--text-primary)] text-sm mb-2 line-clamp-2 leading-snug" title={ticket.title}>

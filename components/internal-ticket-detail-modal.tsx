@@ -26,8 +26,11 @@ import {
   Minimize2,
   Layers,
   Trash2,
-  Pencil
+  Pencil,
+  Timer
 } from 'lucide-react';
+import { InternalTicketStatusTime } from '@/components/internal-ticket-status-time';
+import { QueueTopPriorityBadge } from '@/lib/internal-queue-priority';
 import { ConfirmDialog } from '@/components/confirm-dialog';
 import { RichEditor } from '@/components/rich-editor';
 import { motion } from 'motion/react';
@@ -135,6 +138,11 @@ const TitleField = React.memo(function TitleField({ value, placeholder, autoFocu
 // ficam ocultos. Ver NewInternalTicketModal, que é quem abre assim.
 export interface InternalTicketCreateDraft { title?: string; description?: string }
 
+// Largura do painel de Histórico (2026-11-23, pedido do usuário: estava
+// estreito com espaço sobrando). Cresce com a tela; o mesmo valor vai no
+// espaço reservado ao lado dos status, para eles terminarem onde o painel começa.
+const HISTORY_PANEL_WIDTH = "md:w-[380px] lg:w-[440px] xl:w-[520px] 2xl:w-[600px]";
+
 export function InternalTicketDetailModal({ ticketRef, onClose, creating, onCreated }: {
   ticketRef: string;
   onClose: () => void;
@@ -205,7 +213,7 @@ export function InternalTicketDetailModal({ ticketRef, onClose, creating, onCrea
   const [composerKey, setComposerKey] = useState(0);
   const [isUploading, setIsUploading] = useState(false);
   const [previewAttachments, setPreviewAttachments] = useState<Attachment[]>([]);
-  const [activeTab, setActiveTab] = useState<'description' | 'linked' | 'attachments' | 'history'>('description');
+  const [activeTab, setActiveTab] = useState<'description' | 'linked' | 'attachments' | 'status-time' | 'history'>('description');
   const fileInputRef = React.useRef<HTMLInputElement>(null);
   // Mesmo painel e mesmo botão do chamado do cliente (ticket-detail-modal.tsx):
   // abre em ~90vw e o botão expande para tela cheia.
@@ -223,6 +231,8 @@ export function InternalTicketDetailModal({ ticketRef, onClose, creating, onCrea
   // (lista de responsáveis pela equipe e o texto "Equipe (antiga)").
   const { data: internalTeamsData } = useInternalTeamsQuery();
   const [formPriority, setFormPriority] = useState(1);
+  const [formTopPriority, setFormTopPriority] = useState(false);
+  const [savingTopPriority, setSavingTopPriority] = useState(false);
   const [formAssignee, setFormAssignee] = useState('');
   const [formStatus, setFormStatus] = useState('Novo');
   const [formSubStatus, setFormSubStatus] = useState<string | null>(null);
@@ -408,6 +418,7 @@ export function InternalTicketDetailModal({ ticketRef, onClose, creating, onCrea
       setFormTeam(data.team_id || '');
       setFormQueueId(data.internal_queue_id || '');
       setFormPriority(data.priority || 1);
+      setFormTopPriority(!!data.queue_top_priority);
       setFormAssignee(data.assignee_id || '');
       setFormStatus(data.status || 'Novo');
       setFormSubStatus(data.sub_status || null);
@@ -1067,30 +1078,18 @@ export function InternalTicketDetailModal({ ticketRef, onClose, creating, onCrea
                 Criar ticket
               </button>
             </div>
-            ) : (
+            ) : !formAssignee ? (
+            // Sem Salvar e sem Finalizar (2026-11-23, pedido do usuário): a
+            // gravação é automática e finalizar = escolher um status fechado.
             <div className="flex items-center gap-2 pr-2 border-r border-[var(--border-default)]">
-              {!formAssignee && (
                 <button
                   onClick={() => { if (currentUser) { setFormAssignee(currentUser.id); handleUpdateTicket({ assigneeId: currentUser.id }); } }}
                   className="px-3 py-1.5 bg-[var(--text-warning-strong)] hover:bg-[var(--accent-warning-hover)] text-white rounded-lg text-[11px] font-black uppercase tracking-widest shadow-sm transition-all"
                 >
                   Assumir
                 </button>
-              )}
-              <button
-                onClick={() => { setFormStatus('Concluído'); handleUpdateTicket({ status: 'Concluído' }); }}
-                className="px-3 py-1.5 bg-[var(--text-success)] hover:bg-emerald-700 text-white rounded-lg text-[11px] font-black uppercase tracking-widest shadow-sm transition-all"
-              >
-                Finalizar
-              </button>
-              <button
-                onClick={() => handleUpdateTicket()}
-                className="flex items-center gap-2 px-3 py-1.5 bg-[var(--text-warning-strong)] hover:bg-[var(--accent-warning-hover)] text-white rounded-lg text-[11px] font-black uppercase tracking-widest shadow-sm transition-all"
-              >
-                Salvar
-              </button>
             </div>
-            )}
+            ) : null}
             <div className="flex items-center">
               <button
                 hidden={isCreating}
@@ -1111,9 +1110,8 @@ export function InternalTicketDetailModal({ ticketRef, onClose, creating, onCrea
         </div>
 
         {/* Os status terminam exatamente onde começa o painel de histórico:
-            à direita fica um espaço da mesma largura do painel (md:w-[340px]
-            xl:w-[400px], as MESMAS classes do painel lá embaixo — mudar uma
-            exige mudar a outra). Sem o painel (criação), não há espaço. */}
+            à direita fica um espaço da mesma largura do painel (as duas usam
+            HISTORY_PANEL_WIDTH, então mudam juntas). Sem o painel (criação), não há espaço. */}
         <div className="flex">
         <div className="flex-1 min-w-0 px-6 pb-3 flex items-center justify-between gap-x-6 gap-y-2 flex-wrap">
           <TitleField
@@ -1168,7 +1166,7 @@ export function InternalTicketDetailModal({ ticketRef, onClose, creating, onCrea
             )}
           </div>
         </div>
-        <div aria-hidden className={cn("hidden md:block md:w-[340px] xl:w-[400px] shrink-0", isCreating && "md:hidden")} />
+        <div aria-hidden className={cn("hidden md:block shrink-0", HISTORY_PANEL_WIDTH, isCreating && "md:hidden")} />
         </div>
       </div>
 
@@ -1218,7 +1216,7 @@ export function InternalTicketDetailModal({ ticketRef, onClose, creating, onCrea
                       </div>
                     </div>
                     <div className="flex items-start gap-3">
-                      <span className="text-[11px] font-semibold uppercase text-[var(--text-tertiary)] w-40 shrink-0 pt-0.5">Entrega real</span>
+                      <span className="text-[11px] font-semibold uppercase text-[var(--text-tertiary)] w-40 shrink-0 pt-0.5">Entrega real do desenvolvimento</span>
                       <div className="flex flex-col gap-0.5 min-w-0">
                         <span className="font-bold tabular-nums text-[var(--text-primary)]">{entregaAt ? fmt(entregaAt) : '—'}</span>
                         {entregaAt && (
@@ -1436,6 +1434,44 @@ export function InternalTicketDetailModal({ ticketRef, onClose, creating, onCrea
                     </button>
                   ))}</div>
                 </div>
+                {/* Prioridade máxima na fila (2026-11-23): grava sozinha, fora do
+                    formulário, e o servidor confere internal:queue_priority. */}
+                <div className="flex items-start gap-4">
+                  <span className="text-[11px] font-semibold uppercase text-[var(--text-tertiary)] w-24 pt-0.5">Fila</span>
+                  <label
+                    className={cn(
+                      "flex items-center gap-2 text-xs font-semibold select-none",
+                      hasPermission(Permission.INTERNAL_QUEUE_PRIORITY) && !savingTopPriority ? "cursor-pointer text-[var(--text-secondary)]" : "cursor-not-allowed text-[var(--text-tertiary)]"
+                    )}
+                    title={hasPermission(Permission.INTERNAL_QUEUE_PRIORITY) ? 'Coloca este ticket acima de todos os outros abertos da mesma fila' : 'Sem permissão para alterar a prioridade máxima na fila'}
+                  >
+                    <input
+                      type="checkbox"
+                      checked={formTopPriority}
+                      disabled={!hasPermission(Permission.INTERNAL_QUEUE_PRIORITY) || savingTopPriority || !ticket?.uuid}
+                      onChange={async (e) => {
+                        if (!ticket?.uuid) return;
+                        const value = e.target.checked;
+                        setFormTopPriority(value);
+                        setSavingTopPriority(true);
+                        try {
+                          await InternalTicketService.setQueueTopPriority(ticket.uuid, value);
+                          loadMessages();
+                          queryClient.invalidateQueries({ queryKey: ['internal-tickets'] });
+                          toast.success(value ? 'Marcado como prioridade máxima na fila.' : 'Prioridade máxima removida.');
+                        } catch (err: any) {
+                          setFormTopPriority(!value);
+                          toast.error(err?.message || 'Erro ao alterar a prioridade máxima.');
+                        } finally {
+                          setSavingTopPriority(false);
+                        }
+                      }}
+                      className="accent-[var(--text-danger)]"
+                    />
+                    Prioridade máxima na fila
+                    {formTopPriority && <QueueTopPriorityBadge compact />}
+                  </label>
+                </div>
                 <div className="flex items-start gap-4">
                   <span className="text-[11px] font-semibold uppercase text-[var(--text-tertiary)] w-24 pt-0.5">Vencimento</span>
                   {(() => {
@@ -1483,6 +1519,16 @@ export function InternalTicketDetailModal({ ticketRef, onClose, creating, onCrea
                   )}
                 >
                   <Paperclip size={12} /> {messages.some(m => (m.attachments || []).length > 0) && <span className="w-1.5 h-1.5 rounded-full bg-[var(--text-warning-strong)] animate-pulse" />} Anexos
+                </button>
+                <button
+                  hidden={isCreating}
+                  onClick={() => setActiveTab('status-time')}
+                  className={cn(
+                    "px-4 py-2 text-[11px] font-semibold uppercase tracking-widest border-b-2 transition-all flex items-center gap-2",
+                    activeTab === 'status-time' ? "border-[var(--text-warning-strong)] text-[var(--text-warning)]" : "border-transparent text-[var(--text-tertiary)] hover:text-[var(--text-secondary)]"
+                  )}
+                >
+                  <Timer size={12} /> Tempo por status
                 </button>
                 <button
                   hidden={isCreating}
@@ -1560,6 +1606,15 @@ export function InternalTicketDetailModal({ ticketRef, onClose, creating, onCrea
                 })()}
               </div>
             )}
+            {activeTab === 'status-time' && ticket?.uuid && (
+              <div className="min-h-48">
+                {/* key: refaz a busca quando o status/sub-status/fila muda com a aba aberta */}
+                <InternalTicketStatusTime
+                  key={`${ticket.uuid}|${ticket.status}|${ticket.subStatus ?? ''}|${ticket.internalQueueId ?? ''}`}
+                  internalTicketId={ticket.uuid}
+                />
+              </div>
+            )}
             {activeTab === 'history' && (
               <div className="min-h-48">
                 {(() => {
@@ -1615,7 +1670,7 @@ export function InternalTicketDetailModal({ ticketRef, onClose, creating, onCrea
             largura 450px/padding p-6 só em tela grande (2026-11-12: em resolução menor encolhe pra 320-380px e p-3 — pedido do usuário, "tudo muito grande"). Antes era igual ao painel direito do chamado do
             cliente (ticket-detail-modal.tsx), que antes disputava espaço via flex-[1]
             contra o flex-[0.73] do conteúdo principal e acabava bem mais largo. */}
-        <div hidden={isCreating} className="w-full md:w-[340px] xl:w-[400px] border-l border-[var(--border-default)] flex flex-col h-full shrink-0">
+        <div hidden={isCreating} className={cn("w-full border-l border-[var(--border-default)] flex flex-col h-full shrink-0", HISTORY_PANEL_WIDTH)}>
           <div className="px-4 py-3 border-b border-[var(--border-default)] flex items-center">
             <span className="text-xs font-bold uppercase text-[var(--text-warning)] flex items-center gap-1">
               <Clock size={14} /> HISTÓRICO

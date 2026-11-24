@@ -223,6 +223,37 @@ export class InternalTicketService {
     return res.json();
   }
 
+  // Prioridade máxima na fila (2026-11-23). Só esse campo: o servidor confere
+  // a permissão internal:queue_priority e grava o registro no histórico.
+  static async setQueueTopPriority(internalTicketUuid: string, value: boolean): Promise<void> {
+    const res = await fetch('/api/internal-tickets', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ action: 'update', id: internalTicketUuid, fields: { queueTopPriority: value } })
+    });
+    if (!res.ok) {
+      const body = await res.json().catch(() => null);
+      throw new Error(body?.error || 'Erro ao alterar a prioridade máxima.');
+    }
+  }
+
+  // "Replicar do chamado" (2026-11-23): sobrescreve título e descrição de UM
+  // ticket interno já existente com os do chamado. Mesma action 'update' da
+  // tela de detalhe; o registro vai em logEntries (histórico + aviso por
+  // e-mail a criador/responsável, como uma edição feita à mão). Imagem em
+  // base64 na descrição é externalizada pelo servidor.
+  static async replicateFromTicket(internalTicketUuid: string, fields: { title: string; description: string }, logText: string): Promise<void> {
+    const res = await fetch('/api/internal-tickets', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ action: 'update', id: internalTicketUuid, fields, logEntries: [{ type: 'system', text: logText }] })
+    });
+    if (!res.ok) {
+      const body = await res.json().catch(() => null);
+      throw new Error(body?.error || 'Erro ao replicar o chamado no ticket interno.');
+    }
+  }
+
   // Edição em massa (2026-09-30, pedido do usuário) — mesmo padrão de
   // bulkUpdateTickets em tickets-view.tsx, mas reaproveitando a MESMA action
   // 'update' de sempre (agora aceita `ids` além de `id`, ver a rota).

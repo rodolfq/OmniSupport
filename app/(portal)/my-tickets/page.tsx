@@ -1,4 +1,5 @@
 'use client';
+import { sortQueueTopPriorityFirst, isQueueTopPriority, QueueTopPriorityBadge, QUEUE_TOP_PRIORITY_CARD_CLASS } from '@/lib/internal-queue-priority';
 
 import React, { useState, useEffect, useMemo } from 'react';
 import { useApp } from '@/app/app-context';
@@ -356,7 +357,7 @@ export default function MyTicketsPage() {
         const res = await fetch('/api/internal-tickets?action=list&scope=mine');
         if (!res.ok) throw new Error('Falha ao carregar tickets internos.');
         const data = await res.json();
-        setInternalTickets((data || []).map((it: any) => ({
+        setInternalTickets(sortQueueTopPriorityFirst((data || []).map((it: any) => ({
           ...it,
           uuid: it.id,
           displayId: `INT-${it.internal_ticket_number?.toString().padStart(4, '0') || it.id.slice(0, 8)}`,
@@ -369,7 +370,8 @@ export default function MyTicketsPage() {
           status: it.status || 'Novo',
           slaLimit: it.sla_limit,
           updatedAt: it.updated_at,
-        })));
+          queueTopPriority: !!it.queue_top_priority,
+        }))));
       } catch (error) {
         console.error('Error loading internal tickets:', error);
       } finally {
@@ -718,13 +720,17 @@ export default function MyTicketsPage() {
                       onClick={() => openInternalTicket(it.uuid)}
                       className={cn(
                         "relative bg-[var(--surface-card)] border border-[var(--border-default)] rounded-2xl p-6 shadow-sm cursor-pointer transition-all hover:shadow-md hover:border-[var(--text-warning-strong)]/40 group flex flex-col",
-                        view === 'list' && "flex-row items-center gap-6 py-4"
+                        view === 'list' && "flex-row items-center gap-6 py-4",
+                        isQueueTopPriority(it) && QUEUE_TOP_PRIORITY_CARD_CLASS
                       )}
                     >
                       <NotificationCountBadge count={navBadges.internalTicketsUnreadByTicket[it.uuid || ''] || 0} />
                       <div className={cn("flex-1 min-w-0", view === 'list' && "flex items-center gap-6 flex-1")}>
                         <div className="flex items-center justify-between mb-3">
-                          <span className="text-[10px] font-semibold uppercase tracking-widest text-[var(--text-warning)]">{it.displayId}</span>
+                          <span className="flex items-center gap-1.5 text-[10px] font-semibold uppercase tracking-widest text-[var(--text-warning)]">
+                            {it.displayId}
+                            {isQueueTopPriority(it) && <QueueTopPriorityBadge compact />}
+                          </span>
                           <span className={cn("px-3 py-1 rounded-full text-[9px] font-semibold uppercase tracking-widest", meta.color)}>
                             {meta.label}
                           </span>

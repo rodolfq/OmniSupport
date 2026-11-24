@@ -18,6 +18,7 @@ import { ReportSection, ReportSectionStatus } from '@/components/reports/report-
 import { useReportFetch } from '@/components/reports/use-report-fetch';
 import { ReportExportConfig, PageExportPdfButton } from '@/components/reports/export-menu';
 import { ReportBackLink } from '@/components/reports/report-back-link';
+import { formatDuration, formatBusinessMinutes } from '@/components/internal-ticket-status-time';
 
 // Relatório de Tickets Internos. A regra de 2 dias é calculada no servidor
 // (app/api/reports/internal-tickets/route.ts): só sinaliza, não gera pontos.
@@ -81,6 +82,50 @@ interface InternalReport {
   tickets: TicketRow[];
   opcoes: { equipes: { id: string; nome: string }[]; responsaveis: { id: string; nome: string }[] };
 }
+
+// Tempo por status (2026-11-23) — ação status-time da mesma rota. Regras no
+// comentário de statusTime() em app/api/reports/internal-tickets/route.ts.
+interface StatusTimeRow {
+  filaId: string | null;
+  fila: string;
+  status: string;
+  subStatus: string | null;
+  passagens: number;
+  tickets: number;
+  mediaHoras: number | null;
+  medianaHoras: number | null;
+  mediaHorasUteis: number | null;
+  medianaHorasUteis: number | null;
+  agora: number;
+  agoraMaisAntigoHoras: number | null;
+  agoraMaisAntigoUteis: number | null;
+}
+
+interface StatusTimeReport {
+  linhas: StatusTimeRow[];
+}
+
+function fmtCorrido(horas: number | null): string {
+  return horas === null ? '—' : formatDuration(horas * 3600);
+}
+
+function fmtUtil(horas: number | null): string {
+  return horas === null ? '—' : formatBusinessMinutes(horas * 60);
+}
+
+const EXPORT_STATUS_TIME: ReportExportConfig<StatusTimeRow>['columns'] = [
+  { key: 'fila', label: 'Fila' },
+  { key: 'status', label: 'Status' },
+  { key: 'subStatus', label: 'Sub-status', format: (v) => (v as string) || '—' },
+  { key: 'passagens', label: 'Passagens concluídas' },
+  { key: 'tickets', label: 'Tickets' },
+  { key: 'mediaHoras', label: 'Média (corrido)', format: (v) => fmtCorrido(v as number | null) },
+  { key: 'medianaHoras', label: 'Mediana (corrido)', format: (v) => fmtCorrido(v as number | null) },
+  { key: 'mediaHorasUteis', label: 'Média (útil)', format: (v) => fmtUtil(v as number | null) },
+  { key: 'medianaHorasUteis', label: 'Mediana (útil)', format: (v) => fmtUtil(v as number | null) },
+  { key: 'agora', label: 'Neste status agora' },
+  { key: 'agoraMaisAntigoHoras', label: 'Parado há mais tempo (corrido)', format: (v) => fmtCorrido(v as number | null) }
+];
 
 const PERIOD_PRESETS: MetricsPeriodPreset[] = ['month', 'year', 'all', 'custom'];
 
@@ -148,7 +193,7 @@ const EXPORT_TICKETS: ReportExportConfig<TicketRow>['columns'] = [
   { key: 'equipe', label: 'Fila', format: (v) => (v as string) || '—' },
   { key: 'responsavel', label: 'Responsável', format: (v) => (v as string) || 'Sem responsável' },
   { key: 'criadoEm', label: 'Criado em', format: (v) => formatDate(v as string) },
-  { key: 'entregaReal', label: 'Entrega real', format: (v) => formatDate(v as string | null) },
+  { key: 'entregaReal', label: 'Entrega real do desenvolvimento', format: (v) => formatDate(v as string | null) },
   { key: 'qaReprovado', label: 'Reprovado em QA', format: (v) => (v ? 'Sim' : 'Não') },
   { key: 'atrasado', label: 'Com atraso', format: (v) => (v ? 'Sim' : 'Não') },
   { key: 'horasUteis', label: 'Horas úteis até Resolvido', format: (v) => formatHoras(v as number | null) },
@@ -177,6 +222,16 @@ export default function ReportInternalTicketsPage() {
   );
 
   const report = useReportFetch<InternalReport>(REPORT_ENDPOINT, 'overview', filterQs, ready);
+  // Tempo por status quebra só por fila (decisão do usuário): o filtro de
+  // responsável não se aplica a esta seção.
+  const statusTimeQs = useMemo(
+    () => [metricsFilterToQueryString(filter), teamId ? `teamId=${encodeURIComponent(teamId)}` : ''].filter(Boolean).join('&'),
+    [filter, teamId]
+  );
+  const statusTimeReport = useReportFetch<StatusTimeReport>(REPORT_ENDPOINT, 'status-time', statusTimeQs, ready);
+  const statusTimeRows = statusTimeReport.data?.linhas ?? [];
+  const statusTimeStatus: ReportSectionStatus = statusTimeReport.status === 'ready' && statusTimeRows.length === 0 ? 'empty' : statusTimeReport.status;
+  const exportStatusTime: ReportExportConfig<StatusTimeRow> = { title: 'Tempo por status (por fila)', columns: EXPORT_STATUS_TIME, rows: statusTimeRows };
   const data = report.data;
   const kpis = data?.kpis;
   const analistas = data?.analistas ?? [];
@@ -231,7 +286,7 @@ export default function ReportInternalTicketsPage() {
           )}
         </div>
         <PageExportPdfButton
-          sections={[exportAnalistas, exportTickets]}
+          sections={[exportStatusTime, exportAnalistas, exportTickets]}
           reportId={REPORT_ID}
           reportLabel={REPORT_LABEL}
           filterSummary={summaryComFiltro}
@@ -310,6 +365,66 @@ export default function ReportInternalTicketsPage() {
       )}
 
       <ReportSection
+        title="Tempo por status"
+        subtitle="Quanto tempo os tickets levam para sair de cada status e sub-status, por fila."
+        info="Média e mediana: passagens que terminaram no período (o ticket saiu do status). Corrido = 24h por dia; útil = 08h às 18h, seg a sex. Status fechados não entram. Quem já estava no status quando o registro começou não entra na média (o tempo anterior não foi medido). Agora independe do período: tickets neste status neste momento e o que está parado há mais tempo. A fila é a do ticket naquele trecho."
+        status={statusTimeStatus}
+        errorMessage={statusTimeReport.error || undefined}
+        onRetry={statusTimeReport.retry}
+        emptyMessage="Nenhuma passagem de status registrada no período."
+        exportConfig={exportStatusTime}
+        reportId={REPORT_ID}
+        reportLabel={REPORT_LABEL}
+        filterSummary={filterSummary}
+      >
+        <div className="overflow-x-auto">
+          <table className="w-full text-sm">
+            <thead>
+              <tr className="text-[10px] font-black uppercase tracking-widest text-[var(--text-tertiary)] border-b border-[var(--border-default)]">
+                <th className="text-left py-2 pr-3">Fila</th>
+                <th className="text-left py-2 pr-3">Status</th>
+                <th className="text-right py-2 pr-3">Passagens</th>
+                <th className="text-right py-2 pr-3">Média corrido</th>
+                <th className="text-right py-2 pr-3">Mediana corrido</th>
+                <th className="text-right py-2 pr-3">Média útil</th>
+                <th className="text-right py-2 pr-3">Mediana útil</th>
+                <th className="text-right py-2 pr-3">Agora</th>
+                <th className="text-right py-2">Parado há mais tempo</th>
+              </tr>
+            </thead>
+            <tbody className="divide-y divide-[var(--border-default)]">
+              {statusTimeRows.map((r, i) => {
+                const mesmaFila = i > 0 && statusTimeRows[i - 1].fila === r.fila;
+                return (
+                  <tr key={`${r.filaId ?? 'sem'}|${r.status}|${r.subStatus ?? ''}`} className="hover:bg-[var(--surface-pill)]/50 transition-colors">
+                    <td className="py-3 pr-3 font-bold text-[var(--text-primary)]">{mesmaFila ? '' : r.fila}</td>
+                    <td className="py-3 pr-3">
+                      <span className="block text-xs font-bold text-[var(--text-secondary)]">{r.status}</span>
+                      {r.subStatus && <span className="block text-[10px] text-[var(--text-tertiary)]">› {r.subStatus}</span>}
+                    </td>
+                    <td className="py-3 pr-3 text-right tabular-nums">{r.passagens}</td>
+                    <td className="py-3 pr-3 text-right tabular-nums text-[var(--text-secondary)]">{fmtCorrido(r.mediaHoras)}</td>
+                    <td className="py-3 pr-3 text-right tabular-nums text-[var(--text-secondary)]">{fmtCorrido(r.medianaHoras)}</td>
+                    <td className="py-3 pr-3 text-right tabular-nums text-[var(--text-secondary)]">{fmtUtil(r.mediaHorasUteis)}</td>
+                    <td className="py-3 pr-3 text-right tabular-nums text-[var(--text-secondary)]">{fmtUtil(r.medianaHorasUteis)}</td>
+                    <td className="py-3 pr-3 text-right tabular-nums">{r.agora}</td>
+                    <td className="py-3 text-right tabular-nums text-[var(--text-secondary)]">
+                      {r.agora === 0 ? '—' : (
+                        <>
+                          <span className="block">{fmtCorrido(r.agoraMaisAntigoHoras)}</span>
+                          <span className="block text-[10px] text-[var(--text-tertiary)]">{fmtUtil(r.agoraMaisAntigoUteis)} útil</span>
+                        </>
+                      )}
+                    </td>
+                  </tr>
+                );
+              })}
+            </tbody>
+          </table>
+        </div>
+      </ReportSection>
+
+      <ReportSection
         title="Por responsável"
         subtitle="Quem carrega o time: entregas, atrasos, QA e a regra de 2 dias."
         info="Mediana em horas úteis (08h às 18h, seg a sex) entre criação e o primeiro Resolvido. Responsável sem ticket no período não aparece."
@@ -381,7 +496,7 @@ export default function ReportInternalTicketsPage() {
                 <th className="text-left py-2 pr-3">Prioridade</th>
                 <th className="text-left py-2 pr-3">Responsável</th>
                 <th className="text-left py-2 pr-3">Criado</th>
-                <th className="text-left py-2 pr-3">Entrega real</th>
+                <th className="text-left py-2 pr-3">Entrega real do desenvolvimento</th>
                 <th className="text-left py-2 pr-3">QA</th>
                 <th className="text-left py-2 pr-3">Atraso</th>
                 <th className="text-right py-2 pr-3">Horas úteis</th>

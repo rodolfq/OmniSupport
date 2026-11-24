@@ -87,9 +87,9 @@ function buildBaseWhere(searchParams: URLSearchParams, closedStatuses: string[])
     // do chamado voltava vazio mesmo com o chamado existindo.
     const likeParam = paramCount;
     likeParamForBypass = likeParam;
-    let searchSql = `title ILIKE $${likeParam}
-      OR description ILIKE $${likeParam}
-      OR CAST(public_ticket_number AS TEXT) ILIKE $${likeParam}
+    let searchSql = `public.tickets.title ILIKE $${likeParam}
+      OR public.tickets.description ILIKE $${likeParam}
+      OR CAST(public.tickets.public_ticket_number AS TEXT) ILIKE $${likeParam}
       OR EXISTS (SELECT 1 FROM public.profiles cust WHERE cust.id = public.tickets.customer_id AND cust.name ILIKE $${likeParam})
       OR EXISTS (SELECT 1 FROM public.companies co WHERE co.id = public.tickets.company_id AND co.name ILIKE $${likeParam})`;
     params.push(`%${q}%`);
@@ -97,7 +97,7 @@ function buildBaseWhere(searchParams: URLSearchParams, closedStatuses: string[])
 
     if (exactId) {
       // "0172" (como a lista exibe) não casa com o número 172 por texto.
-      searchSql += ` OR public_ticket_number = $${paramCount}`;
+      searchSql += ` OR public.tickets.public_ticket_number = $${paramCount}`;
       exactIdParam = paramCount;
       params.push(exactId);
       paramCount++;
@@ -106,7 +106,7 @@ function buildBaseWhere(searchParams: URLSearchParams, closedStatuses: string[])
   }
 
   if (status) {
-    sql += ` AND status = $${paramCount}`;
+    sql += ` AND public.tickets.status = $${paramCount}`;
     params.push(status);
     paramCount++;
   } else if (!includeClosed) {
@@ -121,24 +121,28 @@ function buildBaseWhere(searchParams: URLSearchParams, closedStatuses: string[])
     // procurar por empresa/cliente é uma busca de identidade, não uma busca
     // de palavra-chave qualquer — deve sempre trazer TODOS os chamados
     // daquela empresa/cliente, encerrados ou não.
-    const identityBypass = exactIdParam ? ` OR public_ticket_number = $${exactIdParam}` : '';
+    const identityBypass = exactIdParam ? ` OR public.tickets.public_ticket_number = $${exactIdParam}` : '';
     const companyOrCustomerBypass = likeParamForBypass
       ? ` OR EXISTS (SELECT 1 FROM public.companies co WHERE co.id = public.tickets.company_id AND co.name ILIKE $${likeParamForBypass})
           OR EXISTS (SELECT 1 FROM public.profiles cust WHERE cust.id = public.tickets.customer_id AND cust.name ILIKE $${likeParamForBypass})`
       : '';
-    sql += ` AND (status NOT IN (${closedStatusPlaceholders})${identityBypass}${companyOrCustomerBypass})`;
+    sql += ` AND (public.tickets.status NOT IN (${closedStatusPlaceholders})${identityBypass}${companyOrCustomerBypass})`;
     params.push(...closedStatuses);
     paramCount += closedStatuses.length;
   }
 
   if (priority) {
-    sql += ` AND priority = $${paramCount}`;
+    sql += ` AND public.tickets.priority = $${paramCount}`;
     params.push(priority);
     paramCount++;
   }
 
   if (companyId) {
-    sql += ` AND company_id = $${paramCount}`;
+    // Sempre com o nome da tabela (2026-11-23): a listagem junta companies e
+    // profiles para ordenar por nome, e profiles também tem company_id — sem
+    // o prefixo o Postgres recusa com "column reference is ambiguous" (500)
+    // e a tela de Todos os Chamados quebrava ao filtrar por cliente.
+    sql += ` AND public.tickets.company_id = $${paramCount}`;
     params.push(companyId);
     paramCount++;
   }
@@ -187,13 +191,13 @@ async function buildScopeWhere(
   // mesmo "ator de empresa-cliente", igual a isCompanyScopedActor em
   // app/api/tickets/route.ts.
   if (actor.role === 'Cliente' || actor.role === 'Funcionário') {
-    sql += ` AND company_id = $${paramCount}`;
+    sql += ` AND public.tickets.company_id = $${paramCount}`;
     params.push(actor.company_id);
     paramCount++;
 
     const profileRes = await query('SELECT view_all_company_tickets FROM public.profiles WHERE id = $1', [actor.id]);
     if (!profileRes.rows[0]?.view_all_company_tickets) {
-      sql += ` AND (customer_id = $${paramCount} OR $${paramCount} = ANY(employee_ids))`;
+      sql += ` AND (public.tickets.customer_id = $${paramCount} OR $${paramCount} = ANY(public.tickets.employee_ids))`;
       params.push(actor.id);
       paramCount++;
     }
@@ -249,17 +253,17 @@ export async function GET(request: Request) {
       }
 
       if (assigneeId) {
-        sql += ` AND assignee_id = $${paramCount}`;
+        sql += ` AND public.tickets.assignee_id = $${paramCount}`;
         params.push(assigneeId);
         paramCount++;
       }
 
       if (unassigned) {
-        sql += ` AND assignee_id IS NULL`;
+        sql += ` AND public.tickets.assignee_id IS NULL`;
       }
 
       if (highPriority) {
-        sql += ` AND priority IN ('Alta', 'Urgente')`;
+        sql += ` AND public.tickets.priority IN ('Alta', 'Urgente')`;
       }
 
       // Escopo por papel dentro do WHERE (não mais um corte client-side

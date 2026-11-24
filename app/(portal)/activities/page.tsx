@@ -3,7 +3,7 @@
 import React from 'react';
 import { useApp } from '@/app/app-context';
 import { Bell, Clock, Search, Filter, Check, Lock, MessageCircle, MessageSquare, Ticket, UserPlus, CheckCircle2 } from 'lucide-react';
-import { cn } from '@/lib/utils';
+import { cn, truncateNotificationText } from '@/lib/utils';
 import Link from 'next/link';
 import { UserRole } from '@/lib/types';
 
@@ -47,7 +47,10 @@ export default function ActivitiesPage() {
 
   const getTargetHref = (notif: { type: string; targetId?: string }) => {
     if (!notif.targetId) return '#';
-    if (notif.type.startsWith('chat_')) return `${isCompanyUser ? '/my-tickets' : '/dashboard'}?chat=${notif.targetId}`;
+    // Ticket interno abre por cima da tela (?internalTicket=). Antes caía no
+    // ?ticket= de chamado de cliente com o id do ticket interno e não abria nada.
+    if (notif.type.startsWith('internal_ticket_')) return `/activities?internalTicket=${notif.targetId}`;
+    if (notif.type.startsWith('chat_'))return `${isCompanyUser ? '/my-tickets' : '/dashboard'}?chat=${notif.targetId}`;
     return `${isCompanyUser ? '/my-tickets' : '/dashboard'}?ticket=${notif.targetId}`;
   };
 
@@ -132,7 +135,25 @@ export default function ActivitiesPage() {
                       })}
                     </span>
                   </div>
-                  <p className="text-sm font-medium text-[var(--text-tertiary)] leading-relaxed max-w-2xl">{stripHtml(notif.message)}</p>
+                  {(() => {
+                    const full = stripHtml(notif.message);
+                    const preview = notif.type.startsWith('internal_ticket_') && notif.targetId
+                      ? truncateNotificationText(full, 300)
+                      : { text: full, truncated: false };
+                    return (
+                      <p className="text-sm font-medium text-[var(--text-tertiary)] leading-relaxed max-w-2xl">
+                        {preview.text}
+                        {preview.truncated && (
+                          <>
+                            {' '}
+                            <Link href={getTargetHref(notif)} className="text-xs font-semibold text-[var(--accent-text)] hover:underline whitespace-nowrap">
+                              Ver mais
+                            </Link>
+                          </>
+                        )}
+                      </p>
+                    );
+                  })()}
 
                   <div className="mt-4 flex items-center gap-4">
                      {notif.targetId && (

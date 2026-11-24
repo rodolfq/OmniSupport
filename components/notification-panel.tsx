@@ -7,7 +7,7 @@ import { Bell, CalendarClock, Check, Clock, Link2, MessageCircle, Rocket, Ticket
 import type { AppNotification } from '@/app/app-context';
 import { useApp, getNotificationTargetHref } from '@/app/app-context';
 import { UserRole } from '@/lib/types';
-import { cn, stripNotificationHtml } from '@/lib/utils';
+import { cn, stripNotificationHtml, truncateNotificationText } from '@/lib/utils';
 
 function getNotificationIcon(type: string) {
   if (type === 'hotfix_overdue') return <Rocket size={14} />;
@@ -84,7 +84,21 @@ export function NotificationPanel({ notifications, onMarkRead, onItemClick }: No
                 </div>
                 <div className="min-w-0 flex-1">
                   <p className="text-[11px] font-semibold text-[var(--text-primary)] truncate">{notif.title}</p>
-                  <p className="text-[10px] text-[var(--text-tertiary)] mt-0.5 line-clamp-2">{stripNotificationHtml(notif.message)}</p>
+                  {(() => {
+                    const full = stripNotificationHtml(notif.message);
+                    const preview = notif.type.startsWith('internal_ticket_') && notif.targetId
+                      ? truncateNotificationText(full, 120)
+                      : { text: full, truncated: false };
+                    return (
+                      <>
+                        <p className="text-[10px] text-[var(--text-tertiary)] mt-0.5 line-clamp-2">{preview.text}</p>
+                        {/* O item inteiro já abre o ticket; o rótulo só deixa claro que há mais. */}
+                        {preview.truncated && (
+                          <span className="inline-block mt-1 text-[9px] font-semibold uppercase tracking-widest text-[var(--accent-text)]">Ver mais</span>
+                        )}
+                      </>
+                    );
+                  })()}
                   <div className="flex items-center gap-1.5 mt-2 text-[9px] text-[var(--text-tertiary)] font-medium">
                     <Clock size={10} />
                     {new Date(notif.timestamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}

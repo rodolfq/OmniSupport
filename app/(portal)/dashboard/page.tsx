@@ -1,4 +1,5 @@
 'use client';
+import { sortQueueTopPriorityFirst, isQueueTopPriority, QueueTopPriorityBadge, QUEUE_TOP_PRIORITY_CARD_CLASS } from '@/lib/internal-queue-priority';
 
 import React, { useState, useEffect, useMemo, useRef } from 'react';
 import { Ticket as TicketType, TicketStatus, UserRole, TicketPriority, Permission, InternalTicket } from '@/lib/types';
@@ -309,7 +310,7 @@ export default function DashboardPage() {
           (users as any[]).map((u: any) => [u.id, { name: u.name, avatar_thumb_url: u.avatarThumbUrl }])
         );
 
-        setInternalTickets((data || []).map((it: any) => {
+        setInternalTickets(sortQueueTopPriorityFirst((data || []).map((it: any) => {
           // Mesmo cálculo de "tempo restante" usado em /internal-tickets —
           // dá pra reaproveitar o texto formatado nos cards do Kanban aqui.
           let slaRemaining: string | null = null;
@@ -339,8 +340,9 @@ export default function DashboardPage() {
             slaRemaining,
             createdAt: it.created_at,
             updatedAt: it.updated_at,
+            queueTopPriority: !!it.queue_top_priority,
           };
-        }));
+        })));
       } catch (err) {
         console.error('Error loading internal tickets for dashboard:', err);
       } finally {
@@ -1269,10 +1271,13 @@ function InternalDashboardTicketCard({ ticket, onClick, dragging = false }: { ti
   return (
     <div
       onClick={() => !dragging && onClick?.()}
-      className="bg-[var(--surface-card)] rounded-xl p-3.5 border border-[var(--border-default)] hover:shadow-md hover:border-[var(--text-warning-strong)]/40 transition-all cursor-pointer"
+      className={cn("bg-[var(--surface-card)] rounded-xl p-3.5 border border-[var(--border-default)] hover:shadow-md hover:border-[var(--text-warning-strong)]/40 transition-all cursor-pointer", isQueueTopPriority(ticket) && QUEUE_TOP_PRIORITY_CARD_CLASS)}
     >
       <div className="flex items-start justify-between mb-2">
-        <span className="text-[10px] font-semibold text-[var(--text-warning)]">{ticket.displayId}</span>
+        <span className="flex items-center gap-1.5 text-[10px] font-semibold text-[var(--text-warning)]">
+          {ticket.displayId}
+          {isQueueTopPriority(ticket) && <QueueTopPriorityBadge compact />}
+        </span>
         <div className="flex items-end gap-[3px]">
           {[0, 1, 2].map(i => (
             <div key={i} className={cn("w-[3px] rounded-full", i === 0 ? "h-2" : i === 1 ? "h-3" : "h-4", i < (ticket.priority || 1) ? (ticket.priority === 3 ? "bg-[var(--text-danger)]" : "bg-[var(--text-warning-strong)]") : "bg-[var(--border-default)]")} />

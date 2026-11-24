@@ -74,7 +74,14 @@ export async function searchTickets(
   });
 
   const res = await fetch(`/api/search?${qParams.toString()}`, { signal });
-  return res.json();
+  const body = await res.json().catch(() => null);
+  // Resposta de erro ({ error }) nunca pode chegar à tela como se fosse a
+  // lista: era assim que um 500 da busca virava tela branca
+  // ("Cannot read properties of undefined (reading 'length')", 2026-11-23).
+  if (!res.ok || !body || !Array.isArray(body.tickets)) {
+    throw new Error(body?.error || 'Não foi possível carregar os chamados.');
+  }
+  return body;
 }
 
 // Contagens dos chips de filtro rápido (Todos/Minhas/Sem responsável/
@@ -101,7 +108,11 @@ export async function getQuickFilterCounts(
   });
 
   const res = await fetch(`/api/search?${qParams.toString()}`, { signal });
-  return res.json();
+  const body = await res.json().catch(() => null);
+  if (!res.ok || !body || typeof body.all !== 'number') {
+    throw new Error(body?.error || 'Não foi possível carregar as contagens.');
+  }
+  return body;
 }
 
 export async function getSearchSuggestions(

@@ -152,6 +152,19 @@ export function maskPhone(value: string) {
   return v
 }
 
+// Nota longa de ticket interno no aviso (2026-11-23, pedido do usuário): o
+// toast, a notificação do Windows, o sininho e Atividades mostram só o começo
+// e um "Ver mais" que abre o ticket. Corta no último espaço antes do limite
+// para não partir palavra.
+export const NOTIFICATION_PREVIEW_CHARS = 180;
+export function truncateNotificationText(value: string, max = NOTIFICATION_PREVIEW_CHARS): { text: string; truncated: boolean } {
+  const clean = (value || '').trim();
+  if (clean.length <= max) return { text: clean, truncated: false };
+  const cut = clean.slice(0, max);
+  const lastSpace = cut.lastIndexOf(' ');
+  return { text: (lastSpace > max * 0.6 ? cut.slice(0, lastSpace) : cut).trimEnd() + '…', truncated: true };
+}
+
 export function stripNotificationHtml(value: string) {
   return value
     .replace(/<style[\s\S]*?<\/style>/gi, ' ')
