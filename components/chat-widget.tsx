@@ -1070,6 +1070,30 @@ export function ChatWidget() {
   // toda vez que a conversa está aberta. "Com {responsável}" continua na
   // LISTA de conversas (fora de uma conversa aberta), sem mudança.
   const [isChatInfoModalOpen, setIsChatInfoModalOpen] = useState(false);
+  // "Copiar informações" do modal acima (2026-11-24, pedido do usuário):
+  // empresa, contato, telefone e nº da conversa, uma linha cada, pra colar
+  // em outro sistema/grupo. Usa os MESMOS valores que o widget já mostra
+  // (empresa do cabeçalho, telefone do modal, "Conversa #" do cabeçalho).
+  const [chatInfoCopied, setChatInfoCopied] = useState(false);
+  const handleCopyChatInfo = async () => {
+    if (!selectedChat) return;
+    const company = selectedChatContact ? companies.find(c => c.id === selectedChatContact.companyId) : null;
+    const contactName = selectedChatContact?.name || ('customerName' in selectedChat ? selectedChat.customerName : '');
+    const linhas = [
+      company?.name,
+      contactName,
+      selectedChat.customerPhone ? formatPhoneDisplay(selectedChat.customerPhone) : '',
+      selectedChat.ticketNumber ? `#${String(selectedChat.ticketNumber).padStart(4, '0')}` : '',
+    ].filter(l => l && l.trim());
+    try {
+      await navigator.clipboard.writeText(linhas.join('\n'));
+      setChatInfoCopied(true);
+      toast.success('Informações copiadas.');
+      setTimeout(() => setChatInfoCopied(false), 2000);
+    } catch {
+      toast.error('Não foi possível copiar. Tente de novo.');
+    }
+  };
   // Editar cadastro do contato (funcionário/cliente da empresa) direto pelo
   // widget — reaproveita o MESMO modal de components/(portal)/customers,
   // com a mesma autorização do servidor (assertUserManageable em
@@ -4761,8 +4785,16 @@ useEffect(() => {
                   )}
                 </div>
                 <button
+                  type="button"
+                  onClick={handleCopyChatInfo}
+                  className="w-full mt-8 flex items-center justify-center gap-2 py-3.5 bg-[var(--surface-card)] border-2 border-[var(--border-default)] text-[var(--text-primary)] rounded-2xl text-[10px] font-semibold uppercase tracking-widest hover:bg-[var(--surface-pill)] transition-all"
+                >
+                  {chatInfoCopied ? <Check size={14} className="text-[var(--text-success)]" /> : <Copy size={14} />}
+                  {chatInfoCopied ? 'Copiado!' : 'Copiar informações'}
+                </button>
+                <button
                   onClick={() => setIsChatInfoModalOpen(false)}
-                  className="w-full mt-8 py-3.5 bg-[var(--surface-card)] border-2 border-[var(--border-default)] text-[var(--text-secondary)] rounded-2xl text-[10px] font-semibold uppercase tracking-widest hover:bg-[var(--surface-pill)] transition-all"
+                  className="w-full mt-3 py-3.5 bg-[var(--surface-card)] border-2 border-[var(--border-default)] text-[var(--text-secondary)] rounded-2xl text-[10px] font-semibold uppercase tracking-widest hover:bg-[var(--surface-pill)] transition-all"
                 >
                   Fechar
                 </button>
