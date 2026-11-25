@@ -1701,7 +1701,7 @@ const loadMessages = async () => {
                   Preencha os dados e clique em <strong>Criar chamado</strong>. Nada é gravado antes disso.
                 </span>
               ) : (
-              <span className="text-[10px] font-medium text-[var(--text-tertiary)]">
+              <span className="text-[14px] font-medium text-[var(--text-tertiary)]">
                 Criado em <ClientTime date={ticket.createdAt} showDate showTime />
                 {ticket.createdBy && (
                   <> · por {allUsers.find(u => u.id === ticket.createdBy)?.name || 'Usuário removido'}</>
