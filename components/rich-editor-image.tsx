@@ -47,17 +47,22 @@ function ResizableImageView({ node, updateAttributes, selected }: NodeViewProps)
     // false) — renderizar o wrapper como <span> (inline) aqui quebrava a
     // suposição do ProseMirror de que esse node ocupa uma linha própria,
     // criando uma área vazia "fantasma" ao redor da imagem quando
-    // selecionada. NodeViewWrapper sem `as` já renderiza um <div>, que é o
-    // que o schema espera.
-    <NodeViewWrapper className="my-4">
-      <span className={cn("relative inline-block max-w-full leading-none rounded-xl", selected && "ring-2 ring-[var(--accent)]")}>
+    // selecionada. Isso valia enquanto ele era de bloco.
+    //
+    // Desde 2026-11-25 a imagem é um node INLINE (pedido do usuário: imagens
+    // lado a lado quando cabem, quebrando linha como texto — `inline: true`
+    // em rich-editor.tsx). Agora o wrapper PRECISA ser <span> inline-block:
+    // um <div> quebraria a linha de novo. A largura fica no wrapper, então
+    // "50%" é metade do parágrafo e duas de 50% ficam lado a lado.
+    <NodeViewWrapper as="span" className="inline-block align-bottom max-w-full my-1" style={{ width: width || undefined }}>
+      <span className={cn("relative inline-block max-w-full leading-none rounded-xl", width && "w-full", selected && "ring-2 ring-[var(--accent)]")}>
         <img
           ref={imgRef}
           src={src}
           alt={alt}
           title={title}
           draggable={false}
-          style={{ width: width || undefined, maxWidth: '100%', display: 'block' }}
+          style={{ width: width ? '100%' : undefined, maxWidth: '100%', display: 'block', margin: 0 }}
           className="rounded-xl border border-[var(--border-default)] shadow-sm"
         />
         {selected && (

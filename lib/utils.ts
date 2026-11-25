@@ -1,5 +1,6 @@
 import { type ClassValue, clsx } from "clsx"
 import { twMerge } from "tailwind-merge"
+import { htmlLinksToText } from "./rich-link"
 
 export function cn(...inputs: ClassValue[]) {
   return twMerge(clsx(inputs))
@@ -191,7 +192,9 @@ export function stripNotificationHtml(value: string) {
 // como o stripNotificationHtml faz, senão perde as linhas da nota.
 export function htmlToWhatsAppText(html: string): string {
   if (!html) return '';
-  return html
+  // Link vira "texto (endereço)" antes de as tags sumirem (2026-11-25) —
+  // senão o cliente recebia só o texto, sem o destino.
+  return htmlLinksToText(html)
     .replace(/<(strong|b)>([\s\S]*?)<\/\1>/gi, '*$2*')
     .replace(/<(em|i)>([\s\S]*?)<\/\1>/gi, '_$2_')
     .replace(/<br\s*\/?>/gi, '\n')
@@ -219,12 +222,16 @@ export function htmlToWhatsAppText(html: string): string {
 // Corta a URL em ] [ < > " ' de propósito: sobra de BBCode de export antigo
 // (ex.: "https://...]https://...[/URL]") vira dois links limpos em vez de um
 // só gigante que engole o `]`/`[/URL]` junto.
+// Também separa TODA tag (2026-11-25): antes só <a> era pulado, e a URL
+// dentro de um atributo (<img src="https://...">, imagem colada de outro site)
+// virava um <a> no meio da tag, quebrando a imagem. Só o texto ENTRE tags é
+// transformado.
 export function linkifyPlainUrls(html: string) {
   const urlPattern = /https?:\/\/[^\s<>"'\[\]]+/g;
   return html
-    .split(/(<a\b[^>]*>[\s\S]*?<\/a>)/gi)
+    .split(/(<a\b[^>]*>[\s\S]*?<\/a>|<[^>]+>)/gi)
     .map(part => (
-      /^<a\b/i.test(part)
+      part.startsWith('<')
         ? part
         : part.replace(urlPattern, url => `<a href="${url}" target="_blank" rel="noopener noreferrer" class="text-[var(--accent-text)] underline break-all">${url}</a>`)
     ))
