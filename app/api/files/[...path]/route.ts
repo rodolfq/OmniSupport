@@ -1,5 +1,4 @@
 import { createReadStream } from 'fs';
-import { Readable } from 'stream';
 import { NextRequest, NextResponse } from 'next/server';
 import { statAttachmentFile } from '@/lib/services/attachment-storage';
 import { lookup as lookupMime } from '@/lib/mime-types';
@@ -30,6 +29,47 @@ import { lookup as lookupMime } from '@/lib/mime-types';
 // pedaço". Efeito colateral bom: também evita carregar o arquivo inteiro na
 // memória do processo a cada requisição (antes lia tudo com `readFile`).
 export const dynamic = 'force-dynamic';
+
+// Stream do arquivo para a resposta, tolerante a cancelamento (2026-11-25).
+// `Readable.toWeb(fs stream)` gerava "Invalid state: Controller is already
+// closed" (ERR_INVALID_STATE, como uncaughtException) quando o navegador
+// desistia do pedido no meio — o <video> faz isso o tempo todo: pede um
+// trecho, cancela e pede outro. Aqui o cancelamento destrói a leitura do
+// arquivo e nada mais é empurrado num stream já fechado; o ritmo segue o
+// consumidor (pause/resume), sem acumular o arquivo na memória.
+function fileToWebStream(nodeStream: ReturnType<typeof createReadStream>): ReadableStream<Uint8Array> {
+  let closed = false;
+  const finish = () => { closed = true; nodeStream.destroy(); };
+  return new ReadableStream<Uint8Array>({
+    start(controller) {
+      nodeStream.on('data', (chunk) => {
+        if (closed) return;
+        try {
+          controller.enqueue(new Uint8Array(chunk as Buffer));
+          if ((controller.desiredSize ?? 1) <= 0) nodeStream.pause();
+        } catch {
+          finish();
+        }
+      });
+      nodeStream.on('end', () => {
+        if (closed) return;
+        closed = true;
+        try { controller.close(); } catch { /* já fechado pelo cancelamento */ }
+      });
+      nodeStream.on('error', (err) => {
+        if (closed) return;
+        closed = true;
+        try { controller.error(err); } catch { /* já fechado */ }
+      });
+    },
+    pull() {
+      if (!closed) nodeStream.resume();
+    },
+    cancel() {
+      finish();
+    }
+  });
+}
 
 function buildContentDisposition(forceDownload: boolean, downloadName: string): string {
   return `${forceDownload ? 'attachment' : 'inline'}; filename*=UTF-8''${encodeURIComponent(downloadName)}`;
@@ -92,7 +132,7 @@ export async function GET(request: NextRequest, context: { params: Promise<{ pat
 
     const chunkSize = end - start + 1;
     const nodeStream = createReadStream(absolutePath, { start, end });
-    return new NextResponse(Readable.toWeb(nodeStream) as unknown as ReadableStream, {
+    return new NextResponse(fileToWebStream(nodeStream), {
       status: 206,
       headers: {
         ...baseHeaders,
@@ -105,7 +145,7 @@ export async function GET(request: NextRequest, context: { params: Promise<{ pat
   // Sem Range: o arquivo inteiro, mas em stream (não carrega tudo na memória
   // do processo de uma vez, o que importa pra vídeo de dezenas de MB).
   const nodeStream = createReadStream(absolutePath);
-  return new NextResponse(Readable.toWeb(nodeStream) as unknown as ReadableStream, {
+  return new NextResponse(fileToWebStream(nodeStream), {
     status: 200,
     headers: {
       ...baseHeaders,

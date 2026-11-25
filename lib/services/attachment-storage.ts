@@ -114,6 +114,103 @@ export async function remuxAudioForSeeking(buffer: Buffer): Promise<Buffer | nul
   }
 }
 
+// ---------------------------------------------------------------------------
+// Vídeo H.265 (HEVC) → H.264 (2026-11-25, pedido do usuário). Vídeo exportado
+// de DVR/câmera costuma vir em HEVC, que o navegador só toca quando o
+// computador tem decodificação por hardware pra ele (Firefox nunca toca): o
+// mesmo anexo dava play numa máquina e não em outra (caso do #int-11253).
+// H.264 toca em qualquer navegador. A conversão acontece AO GRAVAR, antes de
+// a URL existir — assim nenhum navegador chega a guardar em cache a versão
+// que não toca (o /api/files responde com cache "immutable").
+//
+// Só converte o que é HEVC de verdade (a checagem lê o cabeçalho, é rápida);
+// outro vídeo passa direto. Uma conversão por vez e no máximo 2 threads: o
+// ffmpeg é outro processo (não trava o Node), mas a VPS tem 4 núcleos e
+// divide com Postgres e com o resto. Falhou, travou ou passou do tempo →
+// devolve null e o arquivo ORIGINAL é gravado, como sempre foi.
+const VIDEO_PROBE_TIMEOUT_MS = 15_000;
+const VIDEO_TRANSCODE_TIMEOUT_MS = 5 * 60_000;
+const VIDEO_EXTENSIONS = /\.(mp4|m4v|mov|mkv|webm|avi|3gp|hevc|h265)$/i;
+let videoQueue: Promise<unknown> = Promise.resolve();
+
+function runFfmpeg(args: string[], timeoutMs: number): Promise<{ code: number | null; stderr: string }> {
+  return new Promise((resolve, reject) => {
+    const proc = spawn(FFMPEG_BIN, args);
+    let stderr = '';
+    let settled = false;
+    const timer = setTimeout(() => {
+      if (settled) return;
+      settled = true;
+      proc.kill('SIGKILL');
+      reject(new Error(`ffmpeg excedeu ${Math.round(timeoutMs / 1000)}s`));
+    }, timeoutMs);
+    proc.stderr.on('data', (chunk) => { if (stderr.length < 20_000) stderr += chunk.toString(); });
+    proc.on('error', (err) => { if (settled) return; settled = true; clearTimeout(timer); reject(err); });
+    proc.on('close', (code) => { if (settled) return; settled = true; clearTimeout(timer); resolve({ code, stderr }); });
+  });
+}
+
+export function isVideoUpload(mimeType: string, originalName?: string): boolean {
+  return /^video\//i.test(mimeType || '') || (!!originalName && VIDEO_EXTENSIONS.test(originalName));
+}
+
+/** Converte HEVC para H.264 (MP4). Devolve null quando não é HEVC ou quando falha. */
+export async function transcodeHevcVideoIfNeeded(buffer: Buffer): Promise<Buffer | null> {
+  const job = videoQueue.then(() => transcodeHevcNow(buffer), () => transcodeHevcNow(buffer));
+  videoQueue = job.catch(() => null);
+  return job;
+}
+
+async function transcodeHevcNow(buffer: Buffer): Promise<Buffer | null> {
+  if (FFMPEG_BIN !== 'ffmpeg') {
+    try { await fs.access(FFMPEG_BIN); } catch { return null; }
+  }
+  const jobId = crypto.randomUUID();
+  const inputPath = path.join(os.tmpdir(), `video-in-${jobId}`);
+  const outputPath = path.join(os.tmpdir(), `video-out-${jobId}.mp4`);
+  await fs.writeFile(inputPath, buffer);
+  try {
+    // Sem arquivo de saída o ffmpeg só lê o cabeçalho e lista os streams
+    // (sai com código 1, o que é esperado aqui).
+    const probe = await runFfmpeg(['-hide_banner', '-i', inputPath], VIDEO_PROBE_TIMEOUT_MS);
+    if (!/Video:\s*hevc/i.test(probe.stderr)) return null;
+
+    const started = Date.now();
+    const encode = (withAudio: boolean) => runFfmpeg([
+      '-hide_banner', '-loglevel', 'error', '-y',
+      '-i', inputPath,
+      '-map', '0:v:0', ...(withAudio ? ['-map', '0:a?'] : []),
+      '-c:v', 'libx264', '-preset', 'veryfast', '-crf', '23', '-pix_fmt', 'yuv420p',
+      ...(withAudio ? ['-c:a', 'aac', '-b:a', '96k'] : ['-an']),
+      // moov no início: o player começa a tocar antes de baixar tudo.
+      '-movflags', '+faststart',
+      '-threads', '2',
+      outputPath
+    ], VIDEO_TRANSCODE_TIMEOUT_MS);
+
+    let result = await encode(true);
+    let audioDropped = false;
+    if (result.code !== 0) {
+      // Gravador de câmera/DVR costuma mandar uma trilha de áudio corrompida
+      // (caso real do #int-11253: nenhum pacote AAC decodificável, e o ffmpeg
+      // desiste do arquivo inteiro). Melhor o vídeo tocando sem som do que
+      // não tocando: tenta de novo só com a imagem.
+      result = await encode(false);
+      audioDropped = true;
+    }
+    if (result.code !== 0) throw new Error(`ffmpeg saiu com código ${result.code}: ${result.stderr.slice(0, 500)}`);
+
+    const out = await fs.readFile(outputPath);
+    console.log(`[attachment-storage] vídeo HEVC convertido para H.264 em ${Date.now() - started} ms (${buffer.byteLength} → ${out.byteLength} bytes)${audioDropped ? ' — sem o áudio, que estava corrompido' : ''}`);
+    return out;
+  } catch (error) {
+    console.error('[attachment-storage] Falha ao converter vídeo HEVC, salvando original:', error);
+    return null;
+  } finally {
+    await Promise.all([fs.unlink(inputPath).catch(() => {}), fs.unlink(outputPath).catch(() => {})]);
+  }
+}
+
 // Extensão a partir do MIME, com fallback pelo nome original. Só é usada pra
 // deixar o arquivo reconhecível em disco — quem manda no Content-Type servido
 // é o `type` guardado no JSON do anexo.
@@ -141,9 +238,21 @@ export async function storeAttachmentBuffer(
   mimeType: string,
   originalName?: string
 ): Promise<StoredFile> {
+  // Vídeo H.265 vira H.264 antes de gravar (ver transcodeHevcVideoIfNeeded).
+  // O resultado é sempre MP4, então a extensão (que decide o Content-Type
+  // servido por /api/files) passa a ser .mp4.
+  let ext = extensionFor(mimeType, originalName);
+  if (isVideoUpload(mimeType, originalName)) {
+    const converted = await transcodeHevcVideoIfNeeded(buffer);
+    if (converted) {
+      buffer = converted;
+      ext = 'mp4';
+    }
+  }
+
   const now = new Date();
   const folder = path.join(String(now.getUTCFullYear()), String(now.getUTCMonth() + 1).padStart(2, '0'));
-  const fileName = `${crypto.randomUUID()}.${extensionFor(mimeType, originalName)}`;
+  const fileName = `${crypto.randomUUID()}.${ext}`;
   const relativePath = path.posix.join(folder.split(path.sep).join('/'), fileName);
 
   const absoluteDir = path.join(getAttachmentsDir(), folder);
