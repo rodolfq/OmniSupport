@@ -1116,7 +1116,7 @@ export function InternalTicketDetailModal({ ticketRef, onClose, creating, onCrea
         <div className="px-6 pt-3 pb-1 flex items-center justify-between gap-4">
           <div className="flex items-center gap-3 min-w-0 flex-1">
             <span className="text-[11px] font-black text-[var(--text-danger)] bg-[var(--surface-danger)] px-2 py-0.5 rounded tracking-widest shrink-0">{isCreating ? 'NOVO TICKET INTERNO' : <>#{ticket.id}</>}</span>
-            <span className="text-[10px] font-medium text-[var(--text-tertiary)] truncate min-w-0">
+            <span className={cn("font-medium text-[var(--text-tertiary)] truncate min-w-0", isCreating ? "text-[10px]" : "text-[14px]")}>
               {isCreating ? (
                 <>Preencha os dados e clique em <strong>Criar ticket</strong>. Nada é gravado antes disso.</>
               ) : (
