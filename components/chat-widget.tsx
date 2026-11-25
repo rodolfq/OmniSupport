@@ -90,7 +90,7 @@ import { PhoneContactPanel } from '@/components/phone-contact-panel';
 import { ClientTime } from '@/components/client-time';
 import { AssignChatMenu } from '@/components/assign-chat-menu';
 import { AudioPlayer } from '@/components/audio-player';
-import { AttachmentPreviewModal, openAttachmentInNewTab } from '@/components/attachment-gallery';
+import { AttachmentPreviewModal, openAttachmentInNewTab, type MediaGalleryItem } from '@/components/attachment-gallery';
 import { ConfirmDialog } from '@/components/confirm-dialog';
 import { LinkTicketModal } from '@/components/link-ticket-modal';
 import { isImageAttachment, isAudioAttachment, isVideoAttachment } from '@/lib/attachment-kind';
@@ -137,6 +137,33 @@ function formatPhoneDisplay(phone: string): string {
     return `+55 (${local.slice(0, 2)}) ${local.slice(2, 7)}-${local.slice(7)}`;
   }
   return phone;
+}
+
+// Galeria de mídias da conversa (2026-11-25, pedido do usuário, "como no
+// WhatsApp"): imagens e vídeos de todas as mensagens exibidas, em ordem
+// cronológica, para navegar com as setas no visualizador. Aviso de bastidores
+// (type 'internal') fica de fora — ele não mostra anexo na conversa.
+function formatMediaWhen(timestamp: string | number | Date | undefined): string {
+  if (!timestamp) return '';
+  const d = new Date(timestamp);
+  if (Number.isNaN(d.getTime())) return '';
+  const p = (n: number) => String(n).padStart(2, '0');
+  return `${p(d.getDate())}/${p(d.getMonth() + 1)}/${d.getFullYear()} ${p(d.getHours())}:${p(d.getMinutes())}`;
+}
+
+function buildMediaGallery(messages: any[], fallbackSender?: string): MediaGalleryItem[] {
+  const items: MediaGalleryItem[] = [];
+  for (const m of messages) {
+    if (!m || m.type === 'internal') continue;
+    const attachments: Attachment[] = m.attachments || m.metadata?.attachments || [];
+    for (const attachment of attachments) {
+      if (!attachment?.url || !(isImageAttachment(attachment) || isVideoAttachment(attachment))) continue;
+      const who = m.senderName || fallbackSender || 'Cliente';
+      const when = formatMediaWhen(m.timestamp);
+      items.push({ attachment, subtitle: when ? `${who} · ${when}` : who });
+    }
+  }
+  return items;
 }
 
 // Origem visível da conversa — sessão sem `channel` (criada antes deste
@@ -1135,6 +1162,13 @@ export function ChatWidget() {
   const [isDraggingFile, setIsDraggingFile] = useState(false);
   const dragCounterRef = useRef(0);
   const [previewAttachment, setPreviewAttachment] = useState<Attachment | null>(null);
+  // Galeria do visualizador: retrato das mídias no momento em que a imagem
+  // foi aberta (mensagem nova chegando não reordena o que está na tela).
+  const [previewGallery, setPreviewGallery] = useState<MediaGalleryItem[] | undefined>(undefined);
+  const openMediaPreview = (attachment: Attachment, gallery?: MediaGalleryItem[]) => {
+    setPreviewGallery(gallery);
+    setPreviewAttachment(attachment);
+  };
 
   // Histórico da conversa sob demanda: resumos dos atendimentos ANTERIORES do
   // mesmo contato (não a conversa atual), carregados +2 em +2 via botão no
@@ -3689,7 +3723,7 @@ useEffect(() => {
                                                     <button
                                                       key={key}
                                                       type="button"
-                                                      onClick={(e) => { e.stopPropagation(); setPreviewAttachment(attachment); }}
+                                                      onClick={(e) => { e.stopPropagation(); openMediaPreview(attachment, buildMediaGallery(loadedMessages)); }}
                                                       className="block overflow-hidden rounded-lg border border-[var(--border-default)] hover:opacity-80 transition-opacity"
                                                     >
                                                       <img src={attachment.url} alt={attachment.name} className="h-16 w-16 object-cover" />
@@ -3902,7 +3936,7 @@ useEffect(() => {
                                         type="button"
                                         onClick={(event) => {
                                           event.stopPropagation();
-                                          setPreviewAttachment(attachment);
+                                          openMediaPreview(attachment, buildMediaGallery(selectedChat?.messages || [], selectedChat && 'customerName' in selectedChat ? selectedChat.customerName : undefined));
                                         }}
                                         className={attachmentClassName}
                                       >
@@ -3967,14 +4001,30 @@ useEffect(() => {
                                   }
 
                                   if (isVideoAttachment(attachment)) {
+                                    // Continua tocando aqui mesmo; o botão abre no
+                                    // visualizador, onde as setas navegam pelas mídias.
                                     return (
-                                      <video
-                                        key={attachmentKey}
-                                        src={attachment.url}
-                                        controls
-                                        preload="metadata"
-                                        className="max-h-64 w-full rounded-xl bg-black"
-                                      />
+                                      <div key={attachmentKey} className="relative group/video">
+                                        <video
+                                          src={attachment.url}
+                                          controls
+                                          preload="metadata"
+                                          className="max-h-64 w-full rounded-xl bg-black"
+                                        />
+                                        <button
+                                          type="button"
+                                          onClick={(event) => {
+                                            event.stopPropagation();
+                                            event.currentTarget.parentElement?.querySelector('video')?.pause();
+                                            openMediaPreview(attachment, buildMediaGallery(selectedChat?.messages || [], selectedChat && 'customerName' in selectedChat ? selectedChat.customerName : undefined));
+                                          }}
+                                          className="absolute top-2 right-2 flex h-8 w-8 items-center justify-center rounded-full bg-black/55 text-white opacity-80 transition-opacity hover:bg-black/75 hover:opacity-100 focus-visible:opacity-100"
+                                          title="Abrir no visualizador"
+                                          aria-label="Abrir vídeo no visualizador"
+                                        >
+                                          <Maximize2 size={14} />
+                                        </button>
+                                      </div>
                                     );
                                   }
 
@@ -4381,7 +4431,12 @@ useEffect(() => {
       </AnimatePresence>
 
       {/* Attachment Preview */}
-      <AttachmentPreviewModal attachment={previewAttachment} onClose={() => setPreviewAttachment(null)} />
+      <AttachmentPreviewModal
+        attachment={previewAttachment}
+        gallery={previewGallery}
+        onNavigate={setPreviewAttachment}
+        onClose={() => setPreviewAttachment(null)}
+      />
 
       {/* Histórico de edição de mensagem */}
       {createPortal(

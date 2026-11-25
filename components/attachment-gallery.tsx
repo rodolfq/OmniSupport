@@ -1,11 +1,12 @@
 'use client';
 
-import React, { useEffect, useState } from 'react';
+import React, { useCallback, useEffect, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
-import { Download, File, Image as ImageIcon, Film, Music, ExternalLink, Maximize2, X, Play } from 'lucide-react';
+import { Download, File, Image as ImageIcon, Film, Music, ExternalLink, Maximize2, X, Play, ChevronLeft, ChevronRight } from 'lucide-react';
 import { AnimatePresence, motion } from 'motion/react';
 import { Attachment } from '@/lib/types';
 import { isVideoAttachment } from '@/lib/attachment-kind';
+import { cn } from '@/lib/utils';
 
 interface AttachmentGalleryProps {
   attachments: Attachment[];
@@ -88,34 +89,118 @@ export async function openAttachmentInNewTab(attachment: Attachment) {
   }
 }
 
+// Item da galeria do visualizador. `subtitle` aparece no cabeçalho no lugar do
+// tamanho do arquivo (ex.: "Fulano · 25/11/2026 14:32", como no WhatsApp).
+export interface MediaGalleryItem {
+  attachment: Attachment;
+  subtitle?: string;
+}
+
+export function mediaKey(attachment: Attachment): string {
+  return attachment.id || attachment.url;
+}
+
 export function AttachmentPreviewModal({
   attachment,
   onClose,
+  gallery,
+  onNavigate,
 }: {
   attachment: Attachment | null;
   onClose: () => void;
+  // Navegação entre mídias (2026-11-25, pedido do usuário, "como no
+  // WhatsApp"): com a galeria, setas laterais, ← → do teclado, deslizar no
+  // celular e faixa de miniaturas trocam a mídia aberta. Sem galeria (ou com
+  // a mídia aberta fora dela), o modal se comporta como sempre: uma imagem só.
+  gallery?: MediaGalleryItem[];
+  onNavigate?: (attachment: Attachment) => void;
 }) {
   const [mounted, setMounted] = useState(false);
+  const touchStartRef = useRef<{ x: number; y: number } | null>(null);
+  const thumbsRef = useRef<HTMLDivElement>(null);
+  const dialogRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
     setMounted(true);
   }, []);
 
-  // Esc fecha o modal da imagem. Escuta na captura e para a propagação: este
-  // modal abre por cima de outros (detalhe do chamado, chat) que também fecham
-  // com Esc — sem isso um único Esc fecharia a imagem E o modal de trás.
+  const index = attachment && gallery ? gallery.findIndex(item => mediaKey(item.attachment) === mediaKey(attachment)) : -1;
+  const canNavigate = index >= 0 && !!onNavigate && (gallery?.length || 0) > 1;
+  const hasPrev = canNavigate && index > 0;
+  const hasNext = canNavigate && index < (gallery!.length - 1);
+  const current = index >= 0 ? gallery![index] : null;
+  const isVideo = !!attachment && isVideoAttachment(attachment);
+
+  const goTo = useCallback((nextIndex: number) => {
+    if (!gallery || !onNavigate) return;
+    const item = gallery[nextIndex];
+    if (item) onNavigate(item.attachment);
+  }, [gallery, onNavigate]);
+
+  // Teclado: Esc fecha, ← → navegam. Escuta na captura e para a propagação:
+  // este modal abre por cima de outros (detalhe do chamado, chat) que também
+  // reagem ao Esc — sem isso um único Esc fecharia a imagem E o modal de trás.
   useEffect(() => {
     if (!attachment) return;
     const onKeyDown = (event: KeyboardEvent) => {
-      if (event.key !== 'Escape') return;
+      const isEsc = event.key === 'Escape';
+      const isPrev = event.key === 'ArrowLeft' && hasPrev;
+      const isNext = event.key === 'ArrowRight' && hasNext;
+      if (!isEsc && !isPrev && !isNext) return;
+      // ← → dentro dos controles do vídeo (avançar/voltar o trecho) não trocam de mídia.
+      if (!isEsc && (event.target as HTMLElement | null)?.tagName === 'VIDEO') return;
       event.preventDefault();
       event.stopPropagation();
       event.stopImmediatePropagation();
-      onClose();
+      if (isEsc) onClose();
+      else goTo(index + (isNext ? 1 : -1));
     };
     document.addEventListener('keydown', onKeyDown, true);
     return () => document.removeEventListener('keydown', onKeyDown, true);
-  }, [attachment, onClose]);
+  }, [attachment, onClose, hasPrev, hasNext, index, goTo]);
+
+  // Foco no diálogo ao abrir (leitor de tela anuncia, teclado funciona sem
+  // clique) e devolvido a quem abriu ao fechar.
+  useEffect(() => {
+    if (!attachment) return;
+    const origem = document.activeElement as HTMLElement | null;
+    requestAnimationFrame(() => dialogRef.current?.focus());
+    return () => { origem?.focus?.(); };
+    // Só na abertura/fechamento — navegar entre mídias não mexe no foco.
+  }, [!!attachment]);
+
+  // Pré-carrega as imagens vizinhas: a troca pela seta fica instantânea.
+  useEffect(() => {
+    if (!canNavigate) return;
+    [index - 1, index + 1].forEach(i => {
+      const neighbor = gallery?.[i]?.attachment;
+      if (neighbor && isImageAttachment(neighbor)) { const img = new window.Image(); img.src = neighbor.url; }
+    });
+  }, [canNavigate, index, gallery]);
+
+  // Miniatura ativa sempre visível na faixa.
+  useEffect(() => {
+    if (!canNavigate) return;
+    const el = thumbsRef.current?.querySelector<HTMLElement>(`[data-media-index="${index}"]`);
+    el?.scrollIntoView({ block: 'nearest', inline: 'center', behavior: 'smooth' });
+  }, [canNavigate, index]);
+
+  const onTouchStart = (event: React.TouchEvent) => {
+    const t = event.touches[0];
+    touchStartRef.current = t ? { x: t.clientX, y: t.clientY } : null;
+  };
+  const onTouchEnd = (event: React.TouchEvent) => {
+    const start = touchStartRef.current;
+    touchStartRef.current = null;
+    const t = event.changedTouches[0];
+    if (!start || !t || !canNavigate) return;
+    const dx = t.clientX - start.x;
+    const dy = t.clientY - start.y;
+    // Só gesto claramente horizontal: rolagem vertical não troca de mídia.
+    if (Math.abs(dx) < 50 || Math.abs(dx) < Math.abs(dy) * 1.5) return;
+    if (dx < 0 && hasNext) goTo(index + 1);
+    if (dx > 0 && hasPrev) goTo(index - 1);
+  };
 
   if (!mounted) return null;
 
@@ -135,21 +220,28 @@ export function AttachmentPreviewModal({
             style={{ zIndex: 2147483646 }}
           />
           <motion.div
+            ref={dialogRef}
+            role="dialog"
+            aria-modal="true"
+            aria-label={canNavigate ? `Mídia ${index + 1} de ${gallery!.length}: ${attachment.name}` : attachment.name}
+            tabIndex={-1}
             initial={{ scale: 0.96, opacity: 0 }}
             animate={{ scale: 1, opacity: 1 }}
             exit={{ scale: 0.96, opacity: 0 }}
-            className="relative flex h-full max-h-[92vh] w-full max-w-6xl flex-col overflow-hidden rounded-3xl bg-[var(--surface-card)] shadow-2xl"
+            className="relative flex h-full max-h-[92vh] w-full max-w-6xl flex-col overflow-hidden rounded-3xl bg-[var(--surface-card)] shadow-2xl outline-none"
             style={{ zIndex: 2147483647 }}
           >
             <div className="flex items-center justify-between gap-3 border-b border-[var(--border-default)] px-4 py-3 sm:px-5">
               <div className="flex min-w-0 items-center gap-3">
                 <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-2xl bg-[var(--accent)]/10 text-[var(--accent-text)]">
-                  <ImageIcon size={18} />
+                  {isVideo ? <Film size={18} /> : <ImageIcon size={18} />}
                 </div>
                 <div className="min-w-0">
-                  <p className="truncate text-sm font-black text-[var(--text-primary)]">{attachment.name}</p>
-                  <p className="text-[10px] font-semibold text-[var(--text-tertiary)]">
-                    {attachment.size ? `${Math.ceil(attachment.size / 1024)} KB` : 'Imagem'}
+                  <p className="truncate text-sm font-black text-[var(--text-primary)]">{current?.subtitle || attachment.name}</p>
+                  <p className="truncate text-[10px] font-semibold text-[var(--text-tertiary)]">
+                    {canNavigate && <span className="text-[var(--text-secondary)]">{index + 1} de {gallery!.length}</span>}
+                    {canNavigate && ' · '}
+                    {current?.subtitle ? attachment.name : (attachment.size ? `${Math.ceil(attachment.size / 1024)} KB` : (isVideo ? 'Vídeo' : 'Imagem'))}
                   </p>
                 </div>
               </div>
@@ -166,7 +258,8 @@ export function AttachmentPreviewModal({
                   href={attachment.url}
                   download={attachment.name}
                   className="flex h-10 w-10 items-center justify-center rounded-2xl border border-[var(--border-default)] text-[var(--text-tertiary)] transition-all hover:bg-[var(--surface-card)] hover:text-[var(--accent-text)]"
-                  title="Baixar imagem"
+                  title={isVideo ? 'Baixar vídeo' : 'Baixar imagem'}
+                  aria-label={isVideo ? 'Baixar vídeo' : 'Baixar imagem'}
                 >
                   <Download size={17} />
                 </a>
@@ -180,13 +273,91 @@ export function AttachmentPreviewModal({
                 </button>
               </div>
             </div>
-            <div className="flex min-h-0 flex-1 items-center justify-center bg-slate-950 p-3 sm:p-6">
-              <img
-                src={attachment.url}
-                alt={attachment.name}
-                className="max-h-full max-w-full rounded-xl object-contain"
-              />
+            <div
+              className="relative flex min-h-0 flex-1 items-center justify-center bg-slate-950 p-3 sm:p-6"
+              onTouchStart={onTouchStart}
+              onTouchEnd={onTouchEnd}
+            >
+              {/* key = mídia: trocar de item recria o elemento (o vídeo anterior para de tocar). */}
+              {isVideo ? (
+                <video
+                  key={mediaKey(attachment)}
+                  src={attachment.url}
+                  controls
+                  autoPlay
+                  className="max-h-full max-w-full rounded-xl bg-black"
+                />
+              ) : (
+                <img
+                  key={mediaKey(attachment)}
+                  src={attachment.url}
+                  alt={attachment.name}
+                  className="max-h-full max-w-full rounded-xl object-contain select-none"
+                  draggable={false}
+                />
+              )}
+              {canNavigate && (
+                <>
+                  <button
+                    type="button"
+                    onClick={() => goTo(index - 1)}
+                    disabled={!hasPrev}
+                    className="absolute left-2 sm:left-4 top-1/2 -translate-y-1/2 flex h-11 w-11 items-center justify-center rounded-full bg-white/15 text-white ring-1 ring-white/25 shadow-lg backdrop-blur-sm transition-all hover:bg-white/30 disabled:opacity-0 disabled:pointer-events-none"
+                    title="Mídia anterior (←)"
+                    aria-label="Mídia anterior"
+                  >
+                    <ChevronLeft size={24} />
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => goTo(index + 1)}
+                    disabled={!hasNext}
+                    className="absolute right-2 sm:right-4 top-1/2 -translate-y-1/2 flex h-11 w-11 items-center justify-center rounded-full bg-white/15 text-white ring-1 ring-white/25 shadow-lg backdrop-blur-sm transition-all hover:bg-white/30 disabled:opacity-0 disabled:pointer-events-none"
+                    title="Próxima mídia (→)"
+                    aria-label="Próxima mídia"
+                  >
+                    <ChevronRight size={24} />
+                  </button>
+                </>
+              )}
             </div>
+            {canNavigate && (
+              <div
+                ref={thumbsRef}
+                className="flex shrink-0 gap-2 overflow-x-auto border-t border-white/10 bg-slate-950 px-3 py-2.5"
+                role="listbox"
+                aria-label="Mídias da conversa"
+              >
+                {gallery!.map((item, i) => {
+                  const active = i === index;
+                  const thumbIsVideo = isVideoAttachment(item.attachment);
+                  return (
+                    <button
+                      key={`${mediaKey(item.attachment)}-${i}`}
+                      type="button"
+                      role="option"
+                      aria-selected={active}
+                      data-media-index={i}
+                      onClick={() => goTo(i)}
+                      title={item.subtitle || item.attachment.name}
+                      className={cn(
+                        "relative h-14 w-14 shrink-0 overflow-hidden rounded-lg border-2 transition-all",
+                        active ? "border-[var(--accent)] opacity-100" : "border-transparent opacity-55 hover:opacity-90"
+                      )}
+                    >
+                      {thumbIsVideo ? (
+                        <>
+                          <video src={item.attachment.url} preload="metadata" muted className="h-full w-full object-cover bg-black" />
+                          <Play size={14} className="absolute inset-0 m-auto text-white drop-shadow" fill="white" />
+                        </>
+                      ) : (
+                        <img src={item.attachment.url} alt="" loading="lazy" className="h-full w-full object-cover" />
+                      )}
+                    </button>
+                  );
+                })}
+              </div>
+            )}
           </motion.div>
         </div>
       )}
