@@ -1,7 +1,7 @@
 'use client';
 
 import React, { useCallback, useEffect, useRef } from 'react';
-import { useEditor, EditorContent } from '@tiptap/react';
+import { useEditor, EditorContent, Extension } from '@tiptap/react';
 // Some versions of Tiptap export menus from a subpath
 // eslint-disable-next-line @typescript-eslint/no-unsafe-assignment
 import { BubbleMenu } from '@tiptap/react/menus';
@@ -15,12 +15,37 @@ import FloatingMenuExtension from '@tiptap/extension-floating-menu';
 import { 
   Bold, Italic, List, ListOrdered, Image as ImageIcon, 
   Youtube as YoutubeIcon, Link as LinkIcon, 
-  Heading1, Heading2, Quote, Undo, Redo
+  Heading1, Heading2, Quote, Undo, Redo, ExternalLink, Unlink, Pencil
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { toast } from 'sonner';
 import { uploadAttachment } from '@/lib/attachment-upload';
 import { createMentionExtension, MentionItem } from './rich-editor-mention';
+import { isAllowedLinkHref, normalizeLinkUrl, displayLinkUrl } from '@/lib/rich-link';
+
+// Ctrl+K (Cmd+K no Mac) abre o painel de link — atalho pedido em 2026-11-25,
+// o mesmo do Google Docs/Word. O editor é criado uma vez só, então o atalho
+// chama a função mais recente por uma ref.
+function createLinkShortcut(open: () => void) {
+  return Extension.create({
+    name: 'linkShortcut',
+    addKeyboardShortcuts() {
+      return { 'Mod-k': () => { open(); return true; } };
+    },
+  });
+}
+
+interface LinkPanelState {
+  text: string;
+  url: string;
+  // Texto selecionado quando o painel abriu — se a pessoa não mexer no campo
+  // "Texto", o link é aplicado na própria seleção (preserva negrito, imagem
+  // etc.); se mexer, a seleção é trocada pelo texto novo.
+  originalText: string;
+  from: number;
+  to: number;
+  editing: boolean;
+}
 
 // Imagem dentro do texto rico vira ARQUIVO no volume de anexos, e o HTML
 // guarda só o link (/api/files/...). Achado em 2026-11-11: no modo 'full' a
@@ -55,6 +80,9 @@ interface RichEditorProps {
   // fora da área visível, sem nenhuma barra de rolagem pra alcançar. Com o
   // prop, a partir desta altura a rolagem passa a ser DENTRO do campo.
   maxHeight?: string;
+  // Link (Ctrl+K) existe nos TRÊS modos desde 2026-11-25 — o que está escrito
+  // abaixo sobre "sem link" é anterior a isso.
+  //
   // 'full' (padrão): negrito, itálico, títulos, listas, citação, link,
   // imagem, vídeo do YouTube. 'simple': só negrito, itálico e desfazer/
   // refazer — usado na nota do chamado (Histórico Cliente/Nota Interna),
@@ -98,8 +126,12 @@ export function RichEditor({ content, onChange, placeholder = 'Comece a digitar.
   // 'simple' e 'basic': só negrito/itálico (ver o prop). A diferença entre os
   // dois é só a imagem — isSimple continua decidindo isso.
   const isTextOnly = toolbar !== 'full';
-  const [isUrlModalOpen, setIsUrlModalOpen] = React.useState<'link' | 'image' | 'youtube' | null>(null);
+  const [isUrlModalOpen, setIsUrlModalOpen] = React.useState<'image' | 'youtube' | null>(null);
   const [urlInputValue, setUrlInputValue] = React.useState('');
+  // Painel de link (2026-11-25): Texto + Endereço, vale em todos os modos.
+  const [linkPanel, setLinkPanel] = React.useState<LinkPanelState | null>(null);
+  const [linkError, setLinkError] = React.useState<string | null>(null);
+  const linkUrlInputRef = useRef<HTMLInputElement>(null);
 
   // onUpdate propaga pro pai via onChange, o que devolve um novo `content`
   // no próximo render — sem essa flag, o efeito de sync abaixo achava que
@@ -177,6 +209,123 @@ export function RichEditor({ content, onChange, placeholder = 'Comece a digitar.
     }
   }, []);
 
+  // Abre o painel de link a partir da seleção atual. Com o cursor dentro de um
+  // link, seleciona o link inteiro e abre em modo edição.
+  const openLinkPanel = useCallback(() => {
+    const ed = editorRef.current;
+    if (!ed || ed.isDestroyed) return;
+    const editing = ed.isActive('link');
+    if (editing) ed.chain().focus().extendMarkRange('link').run();
+    const { from, to } = ed.state.selection;
+    const text = ed.state.doc.textBetween(from, to, ' ');
+    setIsUrlModalOpen(null);
+    setLinkError(null);
+    setLinkPanel({
+      text,
+      originalText: text,
+      url: editing ? displayLinkUrl(String(ed.getAttributes('link').href || '')) : '',
+      from,
+      to,
+      editing,
+    });
+  }, []);
+  const openLinkPanelRef = useRef(openLinkPanel);
+  useEffect(() => { openLinkPanelRef.current = openLinkPanel; }, [openLinkPanel]);
+
+  const closeLinkPanel = useCallback(() => {
+    setLinkPanel(null);
+    setLinkError(null);
+    editorRef.current?.commands.focus();
+  }, []);
+
+  const applyLink = useCallback((e?: React.FormEvent) => {
+    e?.preventDefault();
+    const ed = editorRef.current;
+    if (!ed || ed.isDestroyed || !linkPanel) return;
+    const href = normalizeLinkUrl(linkPanel.url);
+    if (!href) {
+      setLinkError('Endereço inválido. Use um site (ex.: site.com.br), um e-mail ou um telefone.');
+      linkUrlInputRef.current?.focus();
+      return;
+    }
+    const size = ed.state.doc.content.size;
+    const from = Math.min(linkPanel.from, size);
+    const to = Math.min(linkPanel.to, size);
+    const text = linkPanel.text.trim() ? linkPanel.text : '';
+    const linkMark = [{ type: 'link', attrs: { href } }];
+    let end: number;
+    const chain = ed.chain().focus();
+    if (from === to) {
+      // Sem seleção: insere o texto (ou o próprio endereço) já com o link.
+      const label = text || displayLinkUrl(href);
+      chain.insertContentAt(from, { type: 'text', text: label, marks: linkMark });
+      end = from + label.length;
+    } else if (text && text !== linkPanel.originalText) {
+      chain.insertContentAt({ from, to }, { type: 'text', text, marks: linkMark });
+      end = from + text.length;
+    } else {
+      chain.setTextSelection({ from, to }).setLink({ href });
+      end = to;
+    }
+    // O link é "inclusive" (por causa do autolink): sem tirar a marca
+    // guardada, o que se digita logo depois continuaria dentro do link.
+    chain.setTextSelection(end).unsetMark('link').run();
+    setLinkPanel(null);
+    setLinkError(null);
+  }, [linkPanel]);
+
+  const removeLink = useCallback(() => {
+    const ed = editorRef.current;
+    if (!ed || ed.isDestroyed) return;
+    if (linkPanel) {
+      ed.chain().focus().setTextSelection({ from: linkPanel.from, to: linkPanel.to }).unsetLink().run();
+    } else {
+      ed.chain().focus().extendMarkRange('link').unsetLink().run();
+    }
+    setLinkPanel(null);
+    setLinkError(null);
+  }, [linkPanel]);
+
+  const openHref = (href: string | null | undefined) => {
+    if (href && isAllowedLinkHref(href)) window.open(href, '_blank', 'noopener,noreferrer');
+  };
+
+  // Esc dentro do painel fecha só o painel. stopPropagation: senão o Esc
+  // chegaria ao listener do modal (useEscapeToClose, na window) e fecharia o
+  // chamado/ticket inteiro por baixo.
+  // Teclas do painel de link: Esc fecha SÓ o painel, Enter aplica (sem <form>,
+  // ver o painel), Ctrl+K não abre a busca do navegador.
+  //
+  // Listener NATIVO no próprio painel, não onKeyDown do React: no App Router
+  // o React escuta no `document`, o mesmo nó onde o modal do chamado ouve o
+  // Esc — e stopPropagation de um handler React não barra outro listener do
+  // mesmo nó. O Esc do painel fechava o chamado (achado no teste, 2026-11-25).
+  // Parado aqui, ele não chega ao document nem à window (useEscapeToClose).
+  const linkPanelElRef = useRef<HTMLDivElement>(null);
+  const linkPanelKeyRef = useRef<(e: KeyboardEvent) => void>(() => {});
+  linkPanelKeyRef.current = (e: KeyboardEvent) => {
+    if (e.key === 'Escape') {
+      e.preventDefault();
+      e.stopPropagation();
+      closeLinkPanel();
+    } else if (e.key === 'Enter' && (e.target as HTMLElement).tagName === 'INPUT') {
+      e.preventDefault();
+      e.stopPropagation();
+      applyLink();
+    } else if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'k') {
+      e.preventDefault();
+      e.stopPropagation();
+    }
+  };
+  const isLinkPanelOpen = !!linkPanel;
+  useEffect(() => {
+    const el = linkPanelElRef.current;
+    if (!isLinkPanelOpen || !el) return;
+    const onKey = (e: KeyboardEvent) => linkPanelKeyRef.current(e);
+    el.addEventListener('keydown', onKey);
+    return () => el.removeEventListener('keydown', onKey);
+  }, [isLinkPanelOpen]);
+
   const editor = useEditor({
     immediatelyRender: false,
     // O editor se redesenha a cada transação (tecla, seleção) — só ELE, que é
@@ -200,24 +349,43 @@ export function RichEditor({ content, onChange, placeholder = 'Comece a digitar.
       }),
       BubbleMenuExtension,
       FloatingMenuExtension,
-      // Imagem, link e vídeo embutido não existem no modo simples — nem
-      // como node do editor, pra colar/atalho também não produzir um.
+      // Link em TODOS os modos (2026-11-25, pedido do usuário: corpo e notas do
+      // chamado e do ticket interno). Na nota do chamado, que vira WhatsApp/
+      // e-mail, o link sai como "texto (endereço)" — ver htmlLinksToText.
+      // Clique simples só posiciona o cursor (para editar); Ctrl+clique abre.
+      // Só http(s), mailto e tel: o HTML é exibido sem sanitização, então um
+      // href `javascript:` nunca pode ser gravado (isAllowedUri vale ao criar
+      // E ao ler HTML já salvo).
+      Link.configure({
+        openOnClick: false,
+        autolink: true,
+        linkOnPaste: true,
+        defaultProtocol: 'https',
+        isAllowedUri: (url, ctx) => isAllowedLinkHref(url) && ctx.defaultValidate(url),
+        HTMLAttributes: {
+          target: '_blank',
+          rel: 'noopener noreferrer nofollow',
+          class: 'text-[var(--accent-text)] underline font-medium [overflow-wrap:anywhere]',
+        },
+      }),
+      createLinkShortcut(() => openLinkPanelRef.current()),
+      // Imagem e vídeo embutido não existem no modo simples — nem como node
+      // do editor, pra colar/atalho também não produzir um.
       ...(isSimple ? [] : [
         ResizableImage.configure({
+          // Inline (2026-11-25): imagens ficam lado a lado quando cabem e
+          // quebram linha como texto. HTML antigo com <img> solto entre
+          // parágrafos é embrulhado num parágrafo ao abrir — nada se perde.
+          inline: true,
           allowBase64: true,
           // NodeView cuida do visual dentro do editor — este HTMLAttributes é
           // o que garante que o HTML salvo (editor.getHTML(), usado fora do
           // editor: chamado, e-mail, nota interna) continue com a mesma classe.
           HTMLAttributes: {
-            class: 'rounded-xl max-w-full my-4 border border-[var(--border-default)] shadow-sm',
+            class: 'inline-block align-bottom rounded-xl max-w-full my-1 border border-[var(--border-default)] shadow-sm',
           },
         }),
-        ...(isTextOnly ? [] : [Link.configure({
-          openOnClick: false,
-          HTMLAttributes: {
-            class: 'text-[var(--accent-text)] underline font-medium',
-          },
-        }),
+        ...(isTextOnly ? [] : [
         Youtube.configure({
           width: 480,
           height: 320,
@@ -267,6 +435,16 @@ export function RichEditor({ content, onChange, placeholder = 'Comece a digitar.
         if (isSimple) return false;
 
         insertUploadedImages(files, view.state.selection.from);
+        return true;
+      },
+      // Ctrl+clique (Cmd no Mac) num link abre em outra aba; o clique simples
+      // só posiciona o cursor, para dar para editar o texto do link.
+      handleClick: (_view, _pos, event) => {
+        if (!(event.ctrlKey || event.metaKey)) return false;
+        const anchor = (event.target as HTMLElement | null)?.closest?.('a');
+        const href = anchor?.getAttribute('href');
+        if (!href || !isAllowedLinkHref(href)) return false;
+        window.open(href, '_blank', 'noopener,noreferrer');
         return true;
       },
       // Arrastar imagem do computador pra dentro do editor — mesmo destino do
@@ -327,21 +505,15 @@ export function RichEditor({ content, onChange, placeholder = 'Comece a digitar.
       editor.chain().focus().setImage({ src: urlInputValue }).run();
     } else if (isUrlModalOpen === 'youtube') {
       editor.chain().focus().setYoutubeVideo({ src: urlInputValue }).run();
-    } else if (isUrlModalOpen === 'link') {
-      if (urlInputValue === '') {
-        editor.chain().focus().extendMarkRange('link').unsetLink().run();
-      } else {
-        editor.chain().focus().extendMarkRange('link').setLink({ href: urlInputValue }).run();
-      }
     }
 
     setUrlInputValue('');
     setIsUrlModalOpen(null);
   }, [editor, isUrlModalOpen, urlInputValue]);
 
-  const openUrlModal = (type: 'link' | 'image' | 'youtube') => {
-    const previousUrl = type === 'link' ? editor?.getAttributes('link').href : '';
-    setUrlInputValue(previousUrl || '');
+  const openUrlModal = (type: 'image' | 'youtube') => {
+    setLinkPanel(null);
+    setUrlInputValue('');
     setIsUrlModalOpen(type);
   };
 
@@ -366,6 +538,15 @@ export function RichEditor({ content, onChange, placeholder = 'Comece a digitar.
           title="Itálico"
         >
           <Italic size={16} />
+        </button>
+        <button
+          type="button"
+          onClick={openLinkPanel}
+          className={cn("p-1.5 rounded-lg transition-all hover:bg-[var(--surface-card)] hover:shadow-sm", editor.isActive('link') ? "bg-[var(--surface-card)] shadow-sm text-[var(--accent-text)]" : "text-[var(--text-tertiary)]")}
+          title="Link (Ctrl+K)"
+          aria-label="Inserir link (Ctrl+K)"
+        >
+          <LinkIcon size={16} />
         </button>
         {!isTextOnly && (
           <>
@@ -414,14 +595,6 @@ export function RichEditor({ content, onChange, placeholder = 'Comece a digitar.
             <div className="w-px h-4 bg-[var(--text-tertiary)] mx-1" />
             <button
               type="button"
-              onClick={() => openUrlModal('link')}
-              className={cn("p-1.5 rounded-lg transition-all hover:bg-[var(--surface-card)] hover:shadow-sm", editor.isActive('link') ? "bg-[var(--surface-card)] shadow-sm text-[var(--accent-text)]" : "text-[var(--text-tertiary)]")}
-              title="Link"
-            >
-              <LinkIcon size={16} />
-            </button>
-            <button
-              type="button"
               onClick={() => openUrlModal('image')}
               className="p-1.5 rounded-lg transition-all hover:bg-[var(--surface-card)] hover:shadow-sm text-[var(--text-tertiary)]"
               title="Imagem"
@@ -466,11 +639,7 @@ export function RichEditor({ content, onChange, placeholder = 'Comece a digitar.
               type="text"
               value={urlInputValue}
               onChange={(e) => setUrlInputValue(e.target.value)}
-              placeholder={
-                isUrlModalOpen === 'link' ? "Digite a URL do link..." :
-                isUrlModalOpen === 'image' ? "Cole a URL da imagem..." :
-                "Cole a URL do vídeo do YouTube..."
-              }
+              placeholder={isUrlModalOpen === 'image' ? "Cole a URL da imagem..." : "Cole a URL do vídeo do YouTube..."}
               className="flex-1 px-3 py-1.5 text-sm border border-[var(--border-default)] rounded-lg focus:outline-none focus:ring-2 focus:ring-[var(--accent)]/20 focus:border-[var(--accent)]"
             />
             <button
@@ -489,6 +658,86 @@ export function RichEditor({ content, onChange, placeholder = 'Comece a digitar.
           </form>
         </div>
       )}
+
+      {/* Painel de link (Ctrl+K ou botão da barra). Enter aplica, Esc fecha. */}
+      {/* <div> e não <form>: o editor fica dentro do <form> do "Novo Chamado",
+          e um submit aqui dentro propagaria e enviaria o chamado inteiro. */}
+      {linkPanel && (
+        <div
+          ref={linkPanelElRef}
+          role="group"
+          aria-label={linkPanel.editing ? 'Editar link' : 'Inserir link'}
+          className="bg-[var(--surface-card)] border-b border-[var(--border-default)] p-3 flex flex-col gap-2 animate-in slide-in-from-top-1 duration-200"
+        >
+          <div className="flex flex-col sm:flex-row gap-2">
+            <label className="flex-1 min-w-0">
+              <span className="block text-[10px] font-semibold uppercase tracking-widest text-[var(--text-tertiary)] mb-1">Texto</span>
+              <input
+                type="text"
+                value={linkPanel.text}
+                onChange={e => setLinkPanel(p => p && { ...p, text: e.target.value })}
+                placeholder="Texto exibido (opcional)"
+                className="w-full px-3 py-1.5 text-sm bg-[var(--surface-card)] text-[var(--text-primary)] border border-[var(--border-default)] rounded-lg focus:outline-none focus:ring-2 focus:ring-[var(--accent)]/20 focus:border-[var(--accent)]"
+              />
+            </label>
+            <label className="flex-[1.4] min-w-0">
+              <span className="block text-[10px] font-semibold uppercase tracking-widest text-[var(--text-tertiary)] mb-1">Endereço</span>
+              <input
+                ref={linkUrlInputRef}
+                autoFocus
+                type="text"
+                inputMode="url"
+                value={linkPanel.url}
+                onChange={e => { setLinkError(null); setLinkPanel(p => p && { ...p, url: e.target.value }); }}
+                placeholder="site.com.br, e-mail ou telefone"
+                aria-invalid={!!linkError}
+                aria-describedby={linkError ? 'rich-link-error' : undefined}
+                className={cn(
+                  "w-full px-3 py-1.5 text-sm bg-[var(--surface-card)] text-[var(--text-primary)] border rounded-lg focus:outline-none focus:ring-2 focus:ring-[var(--accent)]/20 focus:border-[var(--accent)]",
+                  linkError ? "border-[var(--text-danger)]" : "border-[var(--border-default)]"
+                )}
+              />
+            </label>
+          </div>
+          {linkError && <p id="rich-link-error" role="alert" className="text-xs font-medium text-[var(--text-danger)]">{linkError}</p>}
+          <div className="flex flex-wrap items-center gap-2">
+            <button type="button" onClick={() => applyLink()} className="px-3 py-1.5 bg-[var(--accent)] text-white text-sm font-semibold rounded-lg hover:bg-[var(--accent-hover)] transition-colors">
+              {linkPanel.editing ? 'Salvar link' : 'Inserir link'}
+            </button>
+            <button type="button" onClick={closeLinkPanel} className="px-3 py-1.5 bg-[var(--surface-pill)] text-[var(--text-secondary)] text-sm font-semibold rounded-lg hover:bg-[var(--border-default)] transition-colors">
+              Cancelar
+            </button>
+            {linkPanel.editing && (
+              <button type="button" onClick={removeLink} className="ml-auto flex items-center gap-1.5 px-3 py-1.5 text-[var(--text-danger)] text-sm font-semibold rounded-lg hover:bg-[var(--surface-danger)] transition-colors">
+                <Unlink size={14} /> Remover link
+              </button>
+            )}
+          </div>
+        </div>
+      )}
+
+      {/* Cursor dentro de um link: mostra o destino e as ações, sem precisar
+          abrir o painel (padrão de editores de texto). */}
+      {!linkPanel && !isUrlModalOpen && editor.isActive('link') && (() => {
+        const href = String(editor.getAttributes('link').href || '');
+        return (
+          <div className="bg-[var(--surface-card)] border-b border-[var(--border-default)] px-3 py-1.5 flex items-center gap-2 text-xs">
+            <LinkIcon size={12} className="text-[var(--text-tertiary)] shrink-0" />
+            <span className="truncate min-w-0 text-[var(--text-secondary)]" title={href}>{displayLinkUrl(href)}</span>
+            <div className="ml-auto flex items-center gap-1 shrink-0">
+              <button type="button" onClick={() => openHref(href)} className="flex items-center gap-1 px-2 py-1 rounded-md text-[var(--accent-text)] font-semibold hover:bg-[var(--surface-pill)]" title="Abrir em outra aba (ou Ctrl+clique no link)">
+                <ExternalLink size={12} /> Abrir
+              </button>
+              <button type="button" onClick={openLinkPanel} className="flex items-center gap-1 px-2 py-1 rounded-md text-[var(--text-secondary)] font-semibold hover:bg-[var(--surface-pill)]" title="Editar link (Ctrl+K)">
+                <Pencil size={12} /> Editar
+              </button>
+              <button type="button" onClick={removeLink} className="flex items-center gap-1 px-2 py-1 rounded-md text-[var(--text-danger)] font-semibold hover:bg-[var(--surface-danger)]" title="Remover link (mantém o texto)">
+                <Unlink size={12} /> Remover
+              </button>
+            </div>
+          </div>
+        );
+      })()}
 
 {/* Editor Content Area */}
         <div
@@ -517,15 +766,14 @@ export function RichEditor({ content, onChange, placeholder = 'Comece a digitar.
           >
             <Italic size={14} />
           </button>
-          {!isTextOnly && (
-            <button
-              type="button"
-              onClick={() => openUrlModal('link')}
-              className={cn("p-1 rounded transition-all", editor.isActive('link') ? "text-[var(--accent-text)]" : "text-white")}
-            >
-              <LinkIcon size={14} />
-            </button>
-          )}
+          <button
+            type="button"
+            onClick={openLinkPanel}
+            title="Link (Ctrl+K)"
+            className={cn("p-1 rounded transition-all", editor.isActive('link') ? "text-[var(--accent-text)]" : "text-white")}
+          >
+            <LinkIcon size={14} />
+          </button>
         </BubbleMenu>
       )}
 

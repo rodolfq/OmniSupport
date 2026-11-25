@@ -2,6 +2,7 @@ import { query } from '../db';
 import { EmailService } from './email-service';
 import { wrapEmailHtml, ticketRefBlock } from '../email-templates';
 import { notifyUser } from './push-service';
+import { htmlLinksToText } from '../rich-link';
 
 // Os antigos avisos por e-mail para a EQUIPE INTEIRA do ticket
 // (notifyInternalTeamByEmail / handleInternalTicketCreated / Updated) foram
@@ -31,7 +32,8 @@ function escapeHtml(text: string): string {
 
 // Texto da mensagem sem HTML (nota vem do editor rico), em parágrafos.
 function textToEmailHtml(text: string): string {
-  const plain = text
+  // Link vira "texto (endereço)" — o e-mail é montado em texto puro aqui.
+  const plain = htmlLinksToText(text)
     .replace(/<img[^>]*>/gi, ' [imagem] ')
     .replace(/<br\s*\/?>/gi, '\n')
     .replace(/<\/(p|div|li)>/gi, '\n')

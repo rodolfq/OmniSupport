@@ -2230,7 +2230,7 @@ const loadMessages = async () => {
                            {isEditingDescription ? (
                              <RichEditor toolbar="basic" content={ticketDescription} onChange={setTicketDescription} minHeight="300px" />
                            ) : (
-                             <div className="text-sm font-medium text-[var(--text-secondary)] leading-relaxed prose prose-sm max-w-none prose-p:my-2 prose-img:rounded-xl prose-img:border" dangerouslySetInnerHTML={{ __html: ticketDescription }} />
+                             <div className="rich-html text-sm font-medium text-[var(--text-secondary)] leading-relaxed prose prose-sm max-w-none prose-p:my-2 prose-img:rounded-xl prose-img:border" dangerouslySetInnerHTML={{ __html: linkifyPlainUrls(ticketDescription) }} />
                            )}
                        </div>
                      )}
@@ -2780,7 +2780,7 @@ const loadMessages = async () => {
                             {/* Nota só com anexo não ganha balão vazio. */}
                             {htmlHasContent(m.text) && (
                             <div
-                              className="p-3 rounded-2xl text-sm leading-relaxed shadow-sm prose prose-sm max-w-none min-w-0 [overflow-wrap:anywhere] bg-[var(--surface-warning)] border border-[var(--border-alert)] text-[var(--text-warning)] border-l-4 border-l-amber-400 prose-amber"
+                              className="rich-html p-3 rounded-2xl text-sm leading-relaxed shadow-sm prose prose-sm max-w-none min-w-0 [overflow-wrap:anywhere] bg-[var(--surface-warning)] border border-[var(--border-alert)] text-[var(--text-warning)] border-l-4 border-l-amber-400 prose-amber"
                               dangerouslySetInnerHTML={{ __html: linkifyPlainUrls(m.text) }}
                             />
                             )}
@@ -2973,7 +2973,7 @@ const loadMessages = async () => {
                             )}
                           </div>
 <div className={cn(
-                             "p-3 rounded-2xl text-sm leading-relaxed shadow-sm prose prose-sm max-w-none min-w-0 [overflow-wrap:anywhere]",
+                             "rich-html p-3 rounded-2xl text-sm leading-relaxed shadow-sm prose prose-sm max-w-none min-w-0 [overflow-wrap:anywhere]",
                              isInternal
                                ? "bg-[var(--surface-warning)] border border-[var(--border-alert)] text-[var(--text-warning)] border-l-4 border-l-amber-400 prose-amber"
                                : "bg-[var(--surface-card)] border border-[var(--border-default)] text-[var(--text-secondary)]"

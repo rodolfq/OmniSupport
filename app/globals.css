@@ -256,6 +256,25 @@ body {
   background: transparent;
 }
 
+/* Texto rico exibido FORA do editor (descrição e notas de chamado e ticket
+   interno, 2026-11-25). Imagens fluem como texto: lado a lado quando cabem,
+   quebrando linha quando não cabem — vale também para as imagens antigas,
+   que foram gravadas como bloco (um <img> por linha) e com margem grande.
+   Sem layer de propósito: precisa ganhar do `display: block` que o reset do
+   Tailwind dá a todo <img> e do `my-4` gravado nas imagens antigas. */
+.rich-html img {
+  display: inline-block;
+  vertical-align: bottom;
+  max-width: 100%;
+  height: auto;
+  margin: 0.25rem 0;
+}
+.rich-html a {
+  color: var(--accent-text);
+  text-decoration: underline;
+  overflow-wrap: anywhere;
+}
+
 /* Menção com @ (notas do ticket interno, 2026-11-16) — vale dentro do editor
    e na nota já gravada (HTML exibido com dangerouslySetInnerHTML). */
 .mention {
