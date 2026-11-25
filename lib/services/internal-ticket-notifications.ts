@@ -3,6 +3,8 @@ import { EmailService } from './email-service';
 import { wrapEmailHtml, ticketRefBlock } from '../email-templates';
 import { notifyUser } from './push-service';
 import { htmlLinksToText } from '../rich-link';
+import { loadEmailPrefs } from './email-notification-prefs-service';
+import { isEmailPrefOn, CATEGORY_PREF, type EmailPrefKey, type InternalChangeCategory } from '../email-notification-prefs';
 
 // Os antigos avisos por e-mail para a EQUIPE INTEIRA do ticket
 // (notifyInternalTeamByEmail / handleInternalTicketCreated / Updated) foram
@@ -63,6 +65,10 @@ export async function notifyInternalTicketChange(params: {
   closingNow?: boolean;
   // Só avisa os marcados (edição de nota que acrescentou alguém).
   onlyMentioned?: boolean;
+  // kind 'change': o que mudou de verdade (lib/services/email-notification-prefs-service.ts,
+  // changedCategories) — decide quem quer receber pelas preferências de e-mail.
+  // Ausente = "outras alterações".
+  categories?: InternalChangeCategory[];
 }): Promise<void> {
   const { internalTicketId, actorId, kind } = params;
   let t: any;
@@ -86,11 +92,28 @@ export async function notifyInternalTicketChange(params: {
   }
   if (!t) return;
 
-  const mentioned = [...new Set((params.mentionedIds || []).filter(id => id && id !== actorId))];
+  const mentionedAll = [...new Set((params.mentionedIds || []).filter(id => id && id !== actorId))];
   const followers: string[] = (!t.is_closed || params.closingNow) ? (t.follower_ids || []) : [];
-  const recipientIds = params.onlyMentioned ? [] : [...new Set([t.creator_id, t.assignee_id, ...followers].filter(Boolean) as string[])]
-    .filter(id => id !== actorId && !mentioned.includes(id));
-  if (recipientIds.length === 0 && mentioned.length === 0) return;
+  const roleIds = params.onlyMentioned ? [] : [...new Set([t.creator_id, t.assignee_id, ...followers].filter(Boolean) as string[])]
+    .filter(id => id !== actorId);
+
+  // Preferências de e-mail de cada pessoa (Configurações > Notificações,
+  // 2026-11-25). Chave ausente = ligada. O push de menção não depende delas.
+  const prefs = await loadEmailPrefs([...roleIds, ...mentionedAll]);
+  const on = (id: string, key: EmailPrefKey) => isEmailPrefOn(prefs.get(id), key);
+  const wantsRegular = (id: string): boolean => {
+    if (kind === 'note') return on(id, 'internal_note');
+    if (kind === 'created') return on(id, id === t.assignee_id ? 'assigned_to_me' : 'internal_assignee');
+    const cats = params.categories && params.categories.length ? params.categories : ['other' as const];
+    return cats.some(cat => cat === 'assignee'
+      ? on(id, id === t.assignee_id ? 'assigned_to_me' : 'internal_assignee')
+      : on(id, CATEGORY_PREF[cat]));
+  };
+  // Marcado com a opção "Marcação com @" desligada: não recebe o aviso de
+  // menção, mas, se já acompanha o ticket, segue a regra comum de nota.
+  const mentioned = mentionedAll.filter(id => on(id, 'mention'));
+  const recipientIds = roleIds.filter(id => !mentioned.includes(id) && wantsRegular(id));
+  if (recipientIds.length === 0 && mentioned.length === 0 && mentionedAll.length === 0) return;
   const peopleRes = await query(`SELECT id, name, email FROM public.profiles WHERE id = ANY($1) AND email IS NOT NULL`, [[...recipientIds, ...mentioned]]);
 
   let actorName = params.actorName || null;
@@ -147,7 +170,8 @@ export async function notifyInternalTicketChange(params: {
   }
 
   // Push imediato só para quem foi marcado (o resto já recebe pelo sino).
-  await Promise.all(mentioned.map(id => notifyUser(id, {
+  // Vale para todo marcado: a preferência desta tela é só de e-mail.
+  await Promise.all(mentionedAll.map(id => notifyUser(id, {
     title: `${actorName || 'Alguém'} mencionou você em ${label}`,
     body: t.title || 'Ticket interno',
     url: `/internal-tickets/${t.internal_ticket_number}`,

@@ -13,6 +13,7 @@ import { externalizeInlineImages } from '@/lib/services/attachment-storage';
 import { computeInternalTicketSla } from '@/lib/sla';
 import { queueInternalTicketChangeEmail } from '@/lib/services/internal-ticket-notifications';
 import { loadQueueStatusRule, statusErrorForRule, initialStatusForRule } from '@/lib/services/internal-queue-status-rules';
+import { changedCategories } from '@/lib/services/email-notification-prefs-service';
 import { unaccentCol, likeTerm } from '@/lib/sql-unaccent';
 
 // Leitura, criação e atualização de tickets internos (dev/infra/QA/produto)
@@ -507,6 +508,18 @@ export async function PATCH(request: Request) {
       actorId: null,
       actorName: `Integração: ${auth.name}`,
       kind: 'change',
+      // O que mudou de verdade, para as preferências de e-mail de cada pessoa.
+      categories: changedCategories(oldTicket, {
+        title: body.title || undefined,
+        description,
+        status: touchStatus ? resolvedStatus : undefined,
+        subStatus: touchStatus ? resolvedSubStatus : undefined,
+        priority: body.priority !== undefined ? parseInt(body.priority, 10) : undefined,
+        tags: Array.isArray(body.tags) ? body.tags : undefined,
+        assigneeId: body.assigneeId !== undefined ? (body.assigneeId || null) : undefined,
+        internalQueueId: body.queueId !== undefined ? (body.queueId || null) : undefined,
+        expectedPublishDate: body.expectedPublishDate !== undefined ? (body.expectedPublishDate || null) : undefined,
+      }),
     });
 
     logAudit({

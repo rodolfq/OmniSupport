@@ -1487,6 +1487,21 @@ const loadMessages = async () => {
     toast.success('Funcionário criado e selecionado como contato.');
   };
 
+  // Número + título juntos (2026-11-25, pedido do usuário): "#7476 - Título",
+  // pronto pra colar em conversa, e-mail ou planilha.
+  const handleCopyNumberAndTitle = async () => {
+    if (!ticket) return;
+    const numero = ticket.ticketNumber ? String(ticket.ticketNumber).padStart(4, '0') : ticket.id.slice(0, 8);
+    const text = `#${numero} - ${(ticketTitle || ticket.title || '').trim()}`;
+    try {
+      await navigator.clipboard.writeText(text);
+      toast.success('Número e título copiados!');
+    } catch (err) {
+      console.error('Erro ao copiar número e título:', err);
+      toast.error('Não foi possível copiar.');
+    }
+  };
+
   // Link curto e compartilhável (/tickets/<número>) — mesmo usado nos
   // e-mails automáticos, resolve pro lugar certo dependendo de quem abrir.
   const handleCopyTicketLink = async () => {
@@ -1826,7 +1841,16 @@ const loadMessages = async () => {
           <div className="flex-1 overflow-y-auto">
             {/* Title Large */}
             <div className="px-8 py-8 space-y-6">
+               {/* Botão de copiar logo depois do fim do título (2026-11-25): o
+                   campo tem a largura do texto — um espelho invisível com a
+                   mesma fonte define a largura, e o input ocupa a mesma célula. */}
+               <div className="flex items-start gap-1 min-w-0">
+               <div className="inline-grid min-w-0 max-w-full -mx-2" style={{ gridTemplateColumns: 'minmax(0, max-content)' }}>
                {!isCustomer && hasPermission(Permission.TICKETS_READ) ? (
+                 <>
+                 <span aria-hidden className="invisible whitespace-pre overflow-hidden [grid-area:1/1] text-3xl font-black tracking-tight leading-tight border border-transparent px-2 pr-6">
+                   {ticketTitle || (isCreating ? 'Título do chamado' : ' ')}
+                 </span>
                  <input
                    value={ticketTitle}
                    autoFocus={isCreating && !ticketTitle}
@@ -1844,11 +1868,25 @@ const loadMessages = async () => {
                      if (e.key === 'Enter') (e.target as HTMLInputElement).blur();
                      if (e.key === 'Escape') { setTicketTitle(ticket.title); (e.target as HTMLInputElement).blur(); }
                    }}
-                   className="w-full text-3xl font-black text-[var(--text-primary)] tracking-tight leading-tight bg-transparent border border-transparent rounded-lg -mx-2 px-2 hover:border-[var(--border-default)] focus:border-[var(--accent)] focus:outline-none transition-colors"
+                   className="w-full [grid-area:1/1] text-3xl font-black text-[var(--text-primary)] tracking-tight leading-tight bg-transparent border border-transparent rounded-lg px-2 hover:border-[var(--border-default)] focus:border-[var(--accent)] focus:outline-none transition-colors"
                  />
+                 </>
                ) : (
-                 <h1 className="text-3xl font-black text-[var(--text-primary)] tracking-tight leading-tight">{ticket.title}</h1>
+                 <h1 className="px-2 text-3xl font-black text-[var(--text-primary)] tracking-tight leading-tight">{ticket.title}</h1>
                )}
+               </div>
+               {!isCreating && (
+                 <button
+                   type="button"
+                   onClick={handleCopyNumberAndTitle}
+                   title="Copiar número e título"
+                   aria-label="Copiar número e título do chamado"
+                   className="mt-2 p-1.5 rounded-lg text-[var(--text-tertiary)] hover:text-[var(--text-primary)] hover:bg-[var(--surface-pill)] shrink-0"
+                 >
+                   <Copy size={18} />
+                 </button>
+               )}
+               </div>
 
                {/* Avaliação do chamado pelo cliente — aparece só quando existe. */}
                {ticketEvaluation && (

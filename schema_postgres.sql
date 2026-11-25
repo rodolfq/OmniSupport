@@ -82,6 +82,9 @@ CREATE TABLE public.profiles (
   password TEXT, -- PBKDF2 hashed password
   must_change_password BOOLEAN DEFAULT TRUE,
   view_all_company_tickets BOOLEAN DEFAULT FALSE,
+  -- Preferências de notificação por e-mail { chave: boolean }; chave ausente = ligada
+  -- (migrations/profile_email_notification_prefs.sql, lib/email-notification-prefs.ts).
+  email_notification_prefs JSONB NOT NULL DEFAULT '{}'::jsonb,
   -- Preferência pessoal do board de chamados do Dashboard: ordem das
   -- colunas, quais ficam ocultas, e modo kanban/lista. Blob de UI só do
   -- dono, sem necessidade de consulta/índice.

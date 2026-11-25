@@ -35,6 +35,7 @@ import { HotfixesContent } from '@/components/hotfixes-content';
 import { UserCreationLogContent } from '@/components/user-creation-log-content';
 import { RankingSettingsHub } from '@/components/ranking-settings-hub';
 import { InternalTicketQueuesContent } from '@/components/internal-ticket-queues-content';
+import { EmailNotificationSettings } from '@/components/email-notification-settings';
 
 type Tab =
   | 'profile' | 'security' | 'notifications'
@@ -378,6 +379,8 @@ export default function SettingsPage() {
                </div>
 
                <NotificationSettingsContent />
+
+               <EmailNotificationSettings />
             </div>
           )}
           {activeTab === 'profile' && currentUser && (

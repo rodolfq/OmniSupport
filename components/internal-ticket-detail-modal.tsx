@@ -113,21 +113,53 @@ const TitleField = React.memo(function TitleField({ value, placeholder, autoFocu
 }) {
   const [local, setLocal] = useState(value);
   const focusedRef = React.useRef(false);
+  const areaRef = React.useRef<HTMLTextAreaElement>(null);
   // Valor vindo de fora (ticket recarregado) só entra se a pessoa não estiver
   // digitando nele agora.
   useEffect(() => { if (!focusedRef.current) setLocal(value); }, [value]);
+  // Título em até 2 linhas (2026-11-25): era um <input> de uma linha só, e
+  // título longo ficava cortado. Textarea que cresce com o texto até 2
+  // linhas; passou disso, rola por dentro (o texto inteiro fica no "title").
+  useEffect(() => {
+    const el = areaRef.current;
+    if (!el) return;
+    el.style.height = 'auto';
+    const cs = getComputedStyle(el);
+    const lineHeight = parseFloat(cs.lineHeight) || 30;
+    const padY = parseFloat(cs.paddingTop) + parseFloat(cs.paddingBottom);
+    const borderY = parseFloat(cs.borderTopWidth) + parseFloat(cs.borderBottomWidth);
+    // box-sizing: border-box (Tailwind) — a altura conta padding e borda;
+    // scrollHeight já inclui o padding, não a borda.
+    el.style.height = `${Math.min(el.scrollHeight + borderY, lineHeight * 2 + padY + borderY)}px`;
+  }, [local]);
+  // Largura do tamanho do texto (2026-11-25): o botão de copiar fica logo
+  // depois do fim do título, não na borda direita. Um espelho invisível com o
+  // mesmo texto e a mesma fonte define a largura da célula do grid; o
+  // textarea ocupa a mesma célula. Espelho limitado a 2 linhas, igual ao campo.
+  // A margem negativa fica no CONTÊINER, não nos filhos: com ela no espelho e
+  // no campo, o espelho (largura automática) esticava 16px a mais que o campo
+  // (largura 100%), e o título quebrava linha antes da hora.
+  const fieldClasses = 'text-2xl font-black tracking-tight leading-tight border border-transparent rounded-lg px-2 py-0.5 [overflow-wrap:anywhere]';
   return (
-    <input
+    <div className="inline-grid min-w-0 max-w-full -mx-2" style={{ gridTemplateColumns: 'minmax(0, max-content)' }}>
+      <span aria-hidden className={cn(fieldClasses, 'invisible whitespace-pre-wrap line-clamp-2 [grid-area:1/1] pr-4')}>
+        {local || placeholder || ' '}
+      </span>
+    <textarea
+      ref={areaRef}
+      rows={1}
       value={local}
       autoFocus={autoFocus}
       placeholder={placeholder}
       onFocus={() => { focusedRef.current = true; }}
-      onChange={(e) => { setLocal(e.target.value); onDraft(e.target.value); }}
+      // Título não tem quebra de linha: colar texto com Enter vira espaço.
+      onChange={(e) => { const v = e.target.value.replace(/[\r\n]+/g, ' '); setLocal(v); onDraft(v); }}
       onBlur={() => { focusedRef.current = false; onCommit(local); }}
-      onKeyDown={(e) => { if (e.key === 'Enter') (e.target as HTMLInputElement).blur(); }}
+      onKeyDown={(e) => { if (e.key === 'Enter') { e.preventDefault(); (e.target as HTMLTextAreaElement).blur(); } }}
       title={local}
-      className="flex-1 min-w-[16rem] text-2xl font-black text-[var(--text-primary)] tracking-tight leading-tight bg-transparent border border-transparent rounded-lg -mx-2 px-2 py-0.5 hover:border-[var(--border-default)] focus:border-[var(--accent)] focus:outline-none transition-colors truncate"
+      className={cn(fieldClasses, 'w-full [grid-area:1/1] resize-none overflow-y-auto text-[var(--text-primary)] bg-transparent hover:border-[var(--border-default)] focus:border-[var(--accent)] focus:outline-none transition-colors')}
     />
+    </div>
   );
 });
 
@@ -990,6 +1022,20 @@ export function InternalTicketDetailModal({ ticketRef, onClose, creating, onCrea
     }
   };
 
+  // Número + título juntos (2026-11-25, pedido do usuário): "#int-11253 - Título",
+  // pronto pra colar em conversa, e-mail ou planilha.
+  const handleCopyNumberAndTitle = async () => {
+    if (!ticket) return;
+    const text = `#${ticket.id} - ${(formTitle || ticket.title || '').trim()}`;
+    try {
+      await navigator.clipboard.writeText(text);
+      toast.success('Número e título copiados!');
+    } catch (err) {
+      console.error('Erro ao copiar número e título:', err);
+      toast.error('Não foi possível copiar.');
+    }
+  };
+
   const handleCreateHotfix = async () => {
     if (!newHotfixName.trim() || !newHotfixDate) {
       toast.error('Preencha nome e data prevista do hotfix.');
@@ -1125,17 +1171,34 @@ export function InternalTicketDetailModal({ ticketRef, onClose, creating, onCrea
             à direita fica um espaço da mesma largura do painel (as duas usam
             HISTORY_PANEL_WIDTH, então mudam juntas). Sem o painel (criação), não há espaço. */}
         <div className="flex">
-        <div className="flex-1 min-w-0 px-6 pb-3 flex items-center justify-between gap-x-6 gap-y-2 flex-wrap">
-          <TitleField
-            value={formTitle}
-            autoFocus={isCreating && !formTitle}
-            placeholder={isCreating ? 'Título do ticket interno' : 'Título'}
-            onDraft={onTitleDraft}
-            onCommit={onTitleCommit}
-          />
-          <div className="flex flex-col items-end gap-1.5 shrink-0 max-w-full">
+        {/* Título numa linha e status na de baixo (2026-11-25, pedido do
+            usuário): na mesma linha, cada status novo da fila espremia o
+            título até cortá-lo. Agora o título usa a largura toda e a barra de
+            status quebra em mais de uma linha se precisar. */}
+        <div className="flex-1 min-w-0 px-6 pb-3 flex flex-col gap-2">
+          <div className="flex items-start gap-1 min-w-0">
+            <TitleField
+              value={formTitle}
+              autoFocus={isCreating && !formTitle}
+              placeholder={isCreating ? 'Título do ticket interno' : 'Título'}
+              onDraft={onTitleDraft}
+              onCommit={onTitleCommit}
+            />
+            {!isCreating && (
+              <button
+                type="button"
+                onClick={handleCopyNumberAndTitle}
+                title="Copiar número e título"
+                aria-label="Copiar número e título do ticket"
+                className="mt-1.5 p-1.5 rounded-lg text-[var(--text-tertiary)] hover:text-[var(--text-primary)] hover:bg-[var(--surface-pill)] shrink-0"
+              >
+                <Copy size={16} />
+              </button>
+            )}
+          </div>
+          <div className="flex flex-col items-start gap-1.5 max-w-full">
             {statuses.length > 0 ? (
-              <div className="inline-flex flex-wrap justify-end bg-[var(--surface-pill)] p-0.5 rounded-lg max-w-full">
+              <div className="inline-flex flex-wrap bg-[var(--surface-pill)] p-0.5 rounded-lg max-w-full">
                 {statuses.map((status) => (
                   <button
                     key={status.value}
@@ -1159,7 +1222,7 @@ export function InternalTicketDetailModal({ ticketRef, onClose, creating, onCrea
 
             {/* Sub-status do status escolhido (ex.: Resolvido > Aguardando Publicação) */}
             {(subStatusMap[formStatus] ?? []).length > 0 && (
-              <div className="flex flex-wrap items-center justify-end gap-1">
+              <div className="flex flex-wrap items-center gap-1">
                 <span className="text-[9px] font-bold uppercase tracking-widest text-[var(--text-tertiary)] mr-0.5">{formStatus} &gt;</span>
                 {(subStatusMap[formStatus] ?? []).map(sub => (
                   <button

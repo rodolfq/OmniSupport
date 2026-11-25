@@ -540,7 +540,28 @@ export function ChatWidget() {
   // ficavam no estado (message/chatAttachments não são por conversa) e
   // apareciam na caixa da conversa SEGUINTE, prontos pra ir parar no
   // destinatário errado se a pessoa nem notasse e mandasse enviar.
-  useEffect(() => { setMessage(''); setChatAttachments([]); }, [selectedChatId]);
+  //
+  // Rascunho POR CONVERSA (2026-11-25, pedido do usuário): ao trocar, o texto
+  // digitado fica guardado na conversa de onde saiu e volta quando ela for
+  // reaberta — nunca aparece em outra. Fica em memória do widget (ele não é
+  // desmontado ao navegar pelo portal); recarregar a página descarta. Anexo
+  // ainda não enviado continua sendo descartado ao trocar.
+  const draftsRef = useRef<Map<string, string>>(new Map());
+  const prevChatIdRef = useRef<string | null>(selectedChatId);
+  const messageForDraftRef = useRef('');
+  useEffect(() => {
+    const prev = prevChatIdRef.current;
+    if (prev && prev !== selectedChatId) {
+      const text = messageForDraftRef.current;
+      if (text.trim()) draftsRef.current.set(prev, text);
+      else draftsRef.current.delete(prev);
+    }
+    prevChatIdRef.current = selectedChatId;
+    const restored = selectedChatId ? draftsRef.current.get(selectedChatId) || '' : '';
+    messageForDraftRef.current = restored;
+    setMessage(restored);
+    setChatAttachments([]);
+  }, [selectedChatId]);
   // A citação pertence à conversa em que foi escolhida: trocar de conversa a descarta.
   useEffect(() => { setReplyingTo(null); setIsQuickRepliesOpen(false); }, [selectedChatId]);
 
@@ -707,6 +728,9 @@ export function ChatWidget() {
   }, [customerSessions, isCustomer, currentUser?.id]);
   const [lastViewedAt, setLastViewedAt] = useState<Record<string, string>>({});
   const [message, setMessage] = useState('');
+  // Texto atual sempre à mão para o efeito de troca de conversa guardar o
+  // rascunho da conversa que está sendo deixada (ver draftsRef acima).
+  messageForDraftRef.current = message;
   const [quickNotes, setQuickNotes] = useState<QuickNote[]>([]);
   // Painel "Respostas prontas" (botão ao lado do anexo/microfone): lista todas
   // as respostas com o conteúdo e busca por texto.

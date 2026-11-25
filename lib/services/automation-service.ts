@@ -5,6 +5,8 @@ import { AUTOMATION_EVENTS, renderTemplate } from '../automation-events';
 import { PyvonService } from './pyvon-service';
 import { EmailService } from './email-service';
 import { wrapEmailHtml, ticketRefBlock } from '../email-templates';
+import { loadEmailPrefs } from './email-notification-prefs-service';
+import { isEmailPrefOn } from '../email-notification-prefs';
 
 // Linha crua de public.tickets (snake_case), como vem de SELECT/RETURNING —
 // os 7 pontos de disparo (ver app/api/tickets/route.ts e
@@ -575,6 +577,9 @@ export async function dispatchEvent(eventKey: string, ticket: TicketRow, extra: 
 // aconteceu antes no mesmo handleTicketUpdated.
 async function notifyAssigneeByEmail(ticket: TicketRow): Promise<void> {
   if (!ticket.assignee_id) return;
+  // Preferência "Atribuído a você" (Configurações > Notificações, 2026-11-25).
+  const prefs = await loadEmailPrefs([ticket.assignee_id]);
+  if (!isEmailPrefOn(prefs.get(ticket.assignee_id), 'assigned_to_me')) return;
   const res = await query('SELECT email, name FROM public.profiles WHERE id = $1', [ticket.assignee_id]);
   const assignee = res.rows[0];
   if (!assignee?.email) return;

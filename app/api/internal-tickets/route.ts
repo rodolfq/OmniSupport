@@ -12,6 +12,7 @@ import { queueInternalTicketChangeEmail } from '@/lib/services/internal-ticket-n
 import { registerMentions, extractMentionIds } from '@/lib/services/internal-ticket-mentions';
 import { formatChangeMessage, FieldChange } from '@/lib/ticket-diff';
 import { loadQueueStatusRule, statusErrorForRule, initialStatusForRule } from '@/lib/services/internal-queue-status-rules';
+import { changedCategories, CHANGE_COMPARE_COLUMNS } from '@/lib/services/email-notification-prefs-service';
 import { unaccentCol, likeTerm } from '@/lib/sql-unaccent';
 
 // Rota dos tickets internos — criada para tirar o InternalTicketService do
@@ -927,6 +928,17 @@ export async function POST(request: NextRequest) {
       // alteração nenhum — e sem registro ninguém era avisado. Guarda o
       // "antes" dos 4 campos que ela altera pra registrar depois do UPDATE.
       const isBulk = Array.isArray(ids) && ids.length > 0;
+      // Retrato do ticket ANTES de gravar, para o e-mail saber o que mudou de
+      // verdade (preferências de e-mail por tipo de mudança, 2026-11-25).
+      // Falhar aqui só faz o aviso cair em "outras alterações".
+      const changeBefore = new Map<string, any>();
+      try {
+        (await query(`SELECT id, ${CHANGE_COMPARE_COLUMNS} FROM public.internal_tickets WHERE id = ANY($1::text[])`, [targetIds])).rows
+          .forEach((r: any) => changeBefore.set(r.id, r));
+      } catch (err) {
+        console.error('[internal-tickets update] Não foi possível ler o estado anterior para o e-mail:', (err as any)?.message || err);
+      }
+      const categoriesFor = (tid: string) => changedCategories(changeBefore.get(tid), fields);
       const bulkBefore = isBulk
         ? (await query(`SELECT id, status, assignee_id, team_id, internal_queue_id, priority FROM public.internal_tickets WHERE id = ANY($1::text[])`, [targetIds])).rows
         : [];
@@ -1069,7 +1081,7 @@ export async function POST(request: NextRequest) {
              VALUES ($1, $2, $3, 'system', '[]')`,
             [tid, user.id, text]
           ).catch(err => console.error('[internal-tickets update] Falha ao registrar prioridade máxima:', err));
-          queueInternalTicketChangeEmail({ internalTicketId: tid, actorId: user.id, actorName: user.name, kind: 'change', text, closingNow: false });
+          queueInternalTicketChangeEmail({ internalTicketId: tid, actorId: user.id, actorName: user.name, kind: 'change', text, closingNow: false, categories: ['top_priority'] });
         }
       }
 
@@ -1114,7 +1126,7 @@ export async function POST(request: NextRequest) {
              VALUES ($1, $2, $3, 'system', '[]')`,
             [antes.id, user.id, text]
           ).catch(err => console.error('[internal-tickets update] Falha ao registrar alteração em massa:', err));
-          queueInternalTicketChangeEmail({ internalTicketId: antes.id, actorId: user.id, actorName: user.name, kind: 'change', text, closingNow: closingNowFor(antes.id) });
+          queueInternalTicketChangeEmail({ internalTicketId: antes.id, actorId: user.id, actorName: user.name, kind: 'change', text, closingNow: closingNowFor(antes.id), categories: categoriesFor(antes.id) });
         }
       }
 
@@ -1135,7 +1147,10 @@ export async function POST(request: NextRequest) {
           .map((e: any) => (typeof e?.text === 'string' ? e.text : ''))
           .filter(Boolean)
           .join('\n');
-        if (textoAviso) queueInternalTicketChangeEmail({ internalTicketId: singleId, actorId: user.id, actorName: user.name, kind: 'change', text: textoAviso, closingNow: closingNowFor(singleId) });
+        // A prioridade máxima já mandou o próprio aviso acima: aqui ela não
+        // entra de novo na decisão de quem recebe.
+        const cats = categoriesFor(singleId).filter(c => c !== 'top_priority');
+        if (textoAviso) queueInternalTicketChangeEmail({ internalTicketId: singleId, actorId: user.id, actorName: user.name, kind: 'change', text: textoAviso, closingNow: closingNowFor(singleId), categories: cats.length ? cats : undefined });
       }
       let messages: any[] | undefined;
       if (singleId && returnMessages) {
