@@ -1479,7 +1479,7 @@ export default function ChatInternalPage() {
         {selectedRoom ? (
           <>
             {/* Header */}
-            <div className="px-4 md:px-8 py-5 border-b border-[var(--border-default)] flex items-center justify-between gap-2 bg-[var(--surface-card)]/80 backdrop-blur-xl sticky top-0 z-10">
+            <div className="px-4 md:px-8 py-5 border-b border-[var(--border-default)] flex items-center justify-between gap-2 bg-[var(--surface-card)]/80 sticky top-0 z-10">
               <div className="flex items-center gap-3 md:gap-4 min-w-0">
                 {isMobileViewport && (
                   <button
@@ -2347,7 +2347,7 @@ export default function ChatInternalPage() {
                animate={{ opacity: 1 }}
                exit={{ opacity: 0 }}
                onClick={() => setIsCreatingGroup(false)}
-               className="absolute inset-0 bg-slate-900/40 backdrop-blur-sm"
+               className="absolute inset-0 bg-slate-900/40"
              />
              <motion.div 
                initial={{ opacity: 0, scale: 0.95, y: 20 }}
@@ -2490,7 +2490,7 @@ export default function ChatInternalPage() {
               animate={{ opacity: 1 }}
               exit={{ opacity: 0 }}
               onClick={() => setShowGroupSettings(false)}
-              className="absolute inset-0 bg-slate-900/40 backdrop-blur-sm"
+              className="absolute inset-0 bg-slate-900/40"
             />
             <motion.div 
               initial={{ opacity: 0, scale: 0.95, y: 20 }}
@@ -2719,7 +2719,7 @@ export default function ChatInternalPage() {
               animate={{ opacity: 1 }}
               exit={{ opacity: 0 }}
               onClick={() => setShowSettings(false)}
-              className="absolute inset-0 bg-slate-900/40 backdrop-blur-sm"
+              className="absolute inset-0 bg-slate-900/40"
             />
             <motion.div 
               initial={{ opacity: 0, scale: 0.95, y: 20 }}
@@ -2829,7 +2829,7 @@ export default function ChatInternalPage() {
               animate={{ opacity: 1 }}
               exit={{ opacity: 0 }}
               onClick={() => setIsCroppingSticker(false)}
-              className="absolute inset-0 bg-slate-900/60 backdrop-blur-md"
+              className="absolute inset-0 bg-slate-900/60"
             />
             <motion.div 
               initial={{ opacity: 0, scale: 0.95, y: 20 }}
@@ -2861,7 +2861,7 @@ export default function ChatInternalPage() {
                   />
                   {isTempStickerGif || (tempStickerUrl && tempStickerUrl.startsWith('data:image/gif')) ? (
                     <div className="absolute bottom-6 left-1/2 -translate-x-1/2 z-20">
-                      <div className="bg-[var(--surface-warning)]/90 backdrop-blur-md px-4 py-2 rounded-xl border border-[var(--border-alert)] flex items-center gap-3 shadow-lg">
+                      <div className="bg-[var(--surface-warning)]/90 px-4 py-2 rounded-xl border border-[var(--border-alert)] flex items-center gap-3 shadow-lg">
                         <span className="text-[10px] font-semibold text-[var(--text-warning)] uppercase tracking-widest">Aviso: Recortar removerá a animação</span>
                         <button 
                           onClick={() => {
@@ -3099,7 +3099,7 @@ export default function ChatInternalPage() {
             animate={{ opacity: 1 }}
             exit={{ opacity: 0 }}
             onClick={() => setPreviewImageUrl(null)}
-            className="fixed inset-0 z-[300] bg-black/80 backdrop-blur-sm flex items-center justify-center p-8 cursor-zoom-out"
+            className="fixed inset-0 z-[300] bg-black/80 flex items-center justify-center p-8 cursor-zoom-out"
           >
             <button
               onClick={() => setPreviewImageUrl(null)}

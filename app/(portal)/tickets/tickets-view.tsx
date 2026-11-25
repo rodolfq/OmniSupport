@@ -1701,7 +1701,7 @@ export function TicketsView({
               initial={{ opacity: 0 }}
               animate={{ opacity: 1 }}
               exit={{ opacity: 0 }}
-              className="absolute inset-0 bg-slate-900/60 backdrop-blur-sm"
+              className="absolute inset-0 bg-slate-900/60"
               onClick={() => setIsTransferModalOpen(false)}
             />
             <motion.div
@@ -1778,7 +1778,7 @@ export function TicketsView({
               initial={{ opacity: 0 }}
               animate={{ opacity: 1 }}
               exit={{ opacity: 0 }}
-              className="absolute inset-0 bg-slate-900/60 backdrop-blur-sm"
+              className="absolute inset-0 bg-slate-900/60"
               onClick={() => setIsStatusModalOpen(false)}
             />
             <motion.div
@@ -1835,7 +1835,7 @@ export function TicketsView({
               initial={{ opacity: 0 }}
               animate={{ opacity: 1 }}
               exit={{ opacity: 0 }}
-              className="absolute inset-0 bg-slate-900/60 backdrop-blur-sm"
+              className="absolute inset-0 bg-slate-900/60"
               onClick={() => setIsMergeModalOpen(false)}
             />
             <motion.div
@@ -1904,7 +1904,7 @@ export function TicketsView({
               initial={{ opacity: 0 }}
               animate={{ opacity: 1 }}
               exit={{ opacity: 0 }}
-              className="absolute inset-0 bg-slate-900/60 backdrop-blur-sm"
+              className="absolute inset-0 bg-slate-900/60"
               onClick={() => setIsTitleModalOpen(false)}
             />
             <motion.div
@@ -1956,7 +1956,7 @@ export function TicketsView({
               initial={{ opacity: 0 }}
               animate={{ opacity: 1 }}
               exit={{ opacity: 0 }}
-              className="absolute inset-0 bg-slate-900/60 backdrop-blur-sm"
+              className="absolute inset-0 bg-slate-900/60"
               onClick={() => setIsPriorityModalOpen(false)}
             />
             <motion.div
@@ -2009,7 +2009,7 @@ export function TicketsView({
               initial={{ opacity: 0 }}
               animate={{ opacity: 1 }}
               exit={{ opacity: 0 }}
-              className="absolute inset-0 bg-slate-900/60 backdrop-blur-sm"
+              className="absolute inset-0 bg-slate-900/60"
               onClick={() => setIsTagsModalOpen(false)}
             />
             <motion.div

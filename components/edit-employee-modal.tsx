@@ -220,7 +220,7 @@ export function EditEmployeeModal({ isOpen, onClose, user, onSuccess }: { isOpen
             animate={{ opacity: 1 }}
             exit={{ opacity: 0 }}
             onClick={onClose}
-            className="absolute inset-0 bg-slate-900/60 backdrop-blur-sm"
+            className="absolute inset-0 bg-slate-900/60"
           />
           <motion.div
             initial={{ opacity: 0, scale: 0.95, y: 20 }}
@@ -508,7 +508,7 @@ export function EditEmployeeModal({ isOpen, onClose, user, onSuccess }: { isOpen
                   initial={{ opacity: 0 }}
                   animate={{ opacity: 1 }}
                   exit={{ opacity: 0 }}
-                  className="absolute inset-0 bg-rose-900/40 backdrop-blur-md"
+                  className="absolute inset-0 bg-rose-900/40"
                   onClick={() => !deleteLoading && setShowDeleteConfirm(false)}
                 />
                 <motion.div

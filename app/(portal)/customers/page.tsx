@@ -134,7 +134,7 @@ function WhatsAppNumberModal({
             animate={{ opacity: 1 }}
             exit={{ opacity: 0 }}
             onClick={onClose}
-            className="absolute inset-0 bg-slate-900/40 backdrop-blur-sm"
+            className="absolute inset-0 bg-slate-900/40"
           />
           <motion.div
             initial={{ opacity: 0, scale: 0.95 }}
@@ -945,7 +945,7 @@ if (isCompanyPortalUser) {
           tem botão fixo "Confirmar Exclusão" em vermelho — aqui nada é
           excluído, e o botão precisa dizer a ação de verdade. */}
       {companyToToggle && (
-        <div className="fixed inset-0 bg-slate-900/50 backdrop-blur-sm z-50 flex items-center justify-center p-4">
+        <div className="fixed inset-0 bg-slate-900/50 z-50 flex items-center justify-center p-4">
           <div className="bg-[var(--surface-card)] rounded-2xl shadow-xl w-full max-w-md overflow-hidden">
             <div className="p-6 border-b border-[var(--border-default)] flex items-center gap-3">
               <div className="w-10 h-10 rounded-full bg-[var(--surface-pill)] flex items-center justify-center text-[var(--text-secondary)]">
@@ -1005,7 +1005,7 @@ if (isCompanyPortalUser) {
           avisar e permitir, não bloquear sempre). Pessoa vinculada continua
           bloqueando sem opção de prosseguir — ver deleteError abaixo. */}
       {companyToDelete && (
-        <div className="fixed inset-0 bg-slate-900/50 backdrop-blur-sm z-50 flex items-center justify-center p-4">
+        <div className="fixed inset-0 bg-slate-900/50 z-50 flex items-center justify-center p-4">
           <div className="bg-[var(--surface-card)] rounded-2xl shadow-xl w-full max-w-md overflow-hidden">
             <div className="p-6 border-b border-[var(--border-default)] flex items-center gap-3">
               <div className="w-10 h-10 rounded-full bg-[var(--surface-danger)] flex items-center justify-center text-[var(--text-danger)]">

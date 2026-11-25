@@ -72,7 +72,7 @@ export function ChangePasswordModal({ isOpen, onClose }: { isOpen: boolean, onCl
 
   return (
     <div className="fixed inset-0 z-[300] flex items-center justify-center p-4">
-      <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} onClick={onClose} className="absolute inset-0 bg-slate-900/40 backdrop-blur-sm" />
+      <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} onClick={onClose} className="absolute inset-0 bg-slate-900/40" />
       <motion.div initial={{ scale: 0.9, opacity: 0 }} animate={{ scale: 1, opacity: 1 }} className="relative bg-[var(--surface-card)] w-full max-w-sm rounded-[2.5rem] shadow-2xl p-8 overflow-hidden">
         <button onClick={onClose} className="absolute right-6 top-6 text-[var(--text-tertiary)] hover:text-[var(--text-secondary)] transition-all p-2">
             <X size={20} />

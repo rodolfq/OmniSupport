@@ -399,7 +399,7 @@ export default function SettingsPage() {
                     )}
 
                     {isUploading && (
-                      <div className="absolute inset-0 bg-[var(--surface-card)] backdrop-blur-sm flex items-center justify-center">
+                      <div className="absolute inset-0 bg-[var(--surface-card)] flex items-center justify-center">
                         <Loader2 className="w-8 h-8 text-[var(--accent-text)] animate-spin" />
                       </div>
                     )}

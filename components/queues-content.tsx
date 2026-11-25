@@ -398,7 +398,7 @@ export function QueuesContent() {
                  <p className="text-xs text-indigo-100 dark:text-[var(--accent-soft-text)] font-medium leading-relaxed mb-6 opacity-80">
                     Cada fila pode ter sua própria conexão WhatsApp independente, permitindo segregar atendimentos por DDD ou departamento.
                  </p>
-                 <button className="w-full py-4 bg-white/20 hover:bg-white/30 rounded-2xl text-[10px] font-black uppercase tracking-widest transition-all backdrop-blur-md">
+                 <button className="w-full py-4 bg-white/20 hover:bg-white/30 rounded-2xl text-[10px] font-black uppercase tracking-widest transition-all">
                     Ver logs de roteamento
                  </button>
               </div>
@@ -584,7 +584,7 @@ export function QueuesContent() {
               animate={{ opacity: 1 }}
               exit={{ opacity: 0 }}
               onClick={() => setIsModalOpen(false)}
-              className="absolute inset-0 bg-slate-900/60 backdrop-blur-sm"
+              className="absolute inset-0 bg-slate-900/60"
             />
             <motion.div
               initial={{ scale: 0.95, opacity: 0 }}

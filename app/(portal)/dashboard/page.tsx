@@ -1362,7 +1362,7 @@ function InternalPriorityList({ title, tickets, color, router }: {
           <div
             key={t.uuid}
             onClick={() => openInternalTicket(t.uuid)}
-            className="group cursor-pointer bg-[var(--surface-card)]/80 backdrop-blur-sm p-3 rounded-xl border border-[var(--surface-card)] hover:border-[var(--border-default)] transition-all flex items-center justify-between gap-3 shadow-sm"
+            className="group cursor-pointer bg-[var(--surface-card)]/80 p-3 rounded-xl border border-[var(--surface-card)] hover:border-[var(--border-default)] transition-all flex items-center justify-between gap-3 shadow-sm"
           >
             <div className="flex-1 min-w-0">
               <h5 className="text-xs font-semibold text-[var(--text-secondary)] truncate group-hover:text-[var(--accent-text)] transition-colors">
@@ -1450,7 +1450,7 @@ function PriorityList({ title, tickets, color, onSelect, priorities, users }: {
             <div
               key={t.id}
               onClick={() => onSelect(t)}
-              className="group cursor-pointer bg-[var(--surface-card)]/80 backdrop-blur-sm p-3 rounded-xl border border-[var(--surface-card)] hover:border-[var(--border-default)] transition-all flex items-center justify-between gap-3 shadow-sm"
+              className="group cursor-pointer bg-[var(--surface-card)]/80 p-3 rounded-xl border border-[var(--surface-card)] hover:border-[var(--border-default)] transition-all flex items-center justify-between gap-3 shadow-sm"
             >
               <div className="flex-1 min-w-0">
                 <h5 className="text-xs font-semibold text-[var(--text-secondary)] truncate group-hover:text-[var(--accent-text)] transition-colors">

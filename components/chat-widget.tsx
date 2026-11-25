@@ -3111,7 +3111,7 @@ useEffect(() => {
               style={isMobileFullScreen ? { paddingTop: 'calc(1rem + env(safe-area-inset-top))' } : undefined}
             >
               <div className="flex items-center gap-2.5">
-                <div className="w-8 h-8 bg-white/20 rounded-xl flex items-center justify-center backdrop-blur-md">
+                <div className="w-8 h-8 bg-white/20 rounded-xl flex items-center justify-center">
                   <MessageCircle size={16} />
                 </div>
                 <div>
@@ -4472,7 +4472,7 @@ useEffect(() => {
                 animate={{ opacity: 1 }}
                 exit={{ opacity: 0 }}
                 onClick={() => setMessageHistoryFor(null)}
-                className="absolute inset-0 bg-slate-950/70 backdrop-blur-sm"
+                className="absolute inset-0 bg-slate-950/70"
               />
               <motion.div
                 initial={{ scale: 0.96, opacity: 0 }}
@@ -4509,7 +4509,7 @@ useEffect(() => {
       <AnimatePresence>
         {isNewChatModalOpen && (
           <div className="fixed inset-0 z-[250] flex items-center justify-center p-4">
-             <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} onClick={() => setIsNewChatModalOpen(false)} className="absolute inset-0 bg-slate-900/40 backdrop-blur-sm" />
+             <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} onClick={() => setIsNewChatModalOpen(false)} className="absolute inset-0 bg-slate-900/40" />
              <motion.div initial={{ scale: 0.9, opacity: 0 }} animate={{ scale: 1, opacity: 1 }} exit={{ scale: 0.9, opacity: 0 }} className="relative bg-[var(--surface-card)] w-full max-w-md rounded-[2.5rem] shadow-2xl p-8 max-h-[80vh] overflow-y-auto">
                 <h3 className="text-xl font-black text-[var(--text-primary)] uppercase tracking-tight mb-2">Novo WhatsApp</h3>
                 <p className="text-xs text-[var(--text-tertiary)] font-medium mb-6">Inicie uma conversa manual ou busque um cliente cadastrado.</p>
@@ -4640,7 +4640,7 @@ useEffect(() => {
       <AnimatePresence>
         {isFinishModalOpen && (
           <div className="fixed inset-0 z-[250] flex items-center justify-center p-4">
-             <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} onClick={() => !finishingAction && setIsFinishModalOpen(false)} className="absolute inset-0 bg-slate-900/40 backdrop-blur-sm" />
+             <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} onClick={() => !finishingAction && setIsFinishModalOpen(false)} className="absolute inset-0 bg-slate-900/40" />
              <motion.div initial={{ scale: 0.9, opacity: 0 }} animate={{ scale: 1, opacity: 1 }} exit={{ scale: 0.9, opacity: 0 }} className="relative bg-[var(--surface-card)] w-full max-w-sm rounded-[2.5rem] shadow-2xl p-8">
                 {selectedChat?.ticketId ? (
                   <>
@@ -4795,7 +4795,7 @@ useEffect(() => {
       <AnimatePresence>
         {isChatInfoModalOpen && selectedChat && (
           <div className="fixed inset-0 z-[250] flex items-center justify-center p-4">
-             <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} onClick={() => setIsChatInfoModalOpen(false)} className="absolute inset-0 bg-slate-900/40 backdrop-blur-sm" />
+             <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} onClick={() => setIsChatInfoModalOpen(false)} className="absolute inset-0 bg-slate-900/40" />
              <motion.div initial={{ scale: 0.9, opacity: 0 }} animate={{ scale: 1, opacity: 1 }} exit={{ scale: 0.9, opacity: 0 }} className="relative bg-[var(--surface-card)] w-full max-w-sm rounded-[2.5rem] shadow-2xl p-8">
                 <h3 className="text-xl font-black text-[var(--text-primary)] uppercase tracking-tight mb-6">Informações da conversa</h3>
                 <div className="space-y-4">
@@ -4885,7 +4885,7 @@ useEffect(() => {
       <AnimatePresence>
         {isDuplicateModalOpen && (
           <div className="fixed inset-0 z-[250] flex items-center justify-center p-4">
-             <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} onClick={() => !isDuplicatingChat && setIsDuplicateModalOpen(false)} className="absolute inset-0 bg-slate-900/40 backdrop-blur-sm" />
+             <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} onClick={() => !isDuplicatingChat && setIsDuplicateModalOpen(false)} className="absolute inset-0 bg-slate-900/40" />
              <motion.div initial={{ scale: 0.9, opacity: 0 }} animate={{ scale: 1, opacity: 1 }} exit={{ scale: 0.9, opacity: 0 }} className="relative bg-[var(--surface-card)] w-full max-w-sm rounded-[2.5rem] shadow-2xl p-8">
                 <h3 className="text-xl font-black text-[var(--text-primary)] uppercase tracking-tight mb-2">Duplicar Conversa</h3>
                 <p className="text-xs text-[var(--text-tertiary)] font-medium mb-6">

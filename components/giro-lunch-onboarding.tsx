@@ -170,7 +170,7 @@ export function GiroLunchOnboarding() {
     <>
       <AnimatePresence>
         {showSetup && (
-          <div className="fixed inset-0 z-[1000] flex items-center justify-center bg-slate-900/60 backdrop-blur-md p-4">
+          <div className="fixed inset-0 z-[1000] flex items-center justify-center bg-slate-900/60 p-4">
             <motion.div
               initial={{ scale: 0.9, opacity: 0 }}
               animate={{ scale: 1, opacity: 1 }}
@@ -185,7 +185,7 @@ export function GiroLunchOnboarding() {
                 >
                   <X size={16} />
                 </button>
-                <div className="w-16 h-16 bg-white/20 rounded-2xl flex items-center justify-center mx-auto mb-4 backdrop-blur-sm">
+                <div className="w-16 h-16 bg-white/20 rounded-2xl flex items-center justify-center mx-auto mb-4">
                   <UtensilsCrossed size={32} />
                 </div>
                 <h2 className="text-2xl font-black uppercase tracking-tight">Giro de Hoje</h2>
@@ -276,7 +276,7 @@ export function GiroLunchOnboarding() {
 
       <AnimatePresence>
         {reminderMinutes !== null && (
-          <div className="fixed inset-0 z-[1000] flex items-center justify-center bg-slate-900/60 backdrop-blur-md p-4">
+          <div className="fixed inset-0 z-[1000] flex items-center justify-center bg-slate-900/60 p-4">
             <motion.div
               initial={{ scale: 0.9, opacity: 0 }}
               animate={{ scale: 1, opacity: 1 }}
@@ -291,7 +291,7 @@ export function GiroLunchOnboarding() {
                 >
                   <X size={16} />
                 </button>
-                <div className="w-16 h-16 bg-white/20 rounded-2xl flex items-center justify-center mx-auto mb-4 backdrop-blur-sm">
+                <div className="w-16 h-16 bg-white/20 rounded-2xl flex items-center justify-center mx-auto mb-4">
                   <UtensilsCrossed size={32} />
                 </div>
                 <h2 className="text-2xl font-black uppercase tracking-tight">Hora do Almoço</h2>

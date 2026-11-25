@@ -120,7 +120,7 @@ export function ReleaseTemplateManager({ isOpen, onClose, templates, teams, user
     <AnimatePresence>
       {isOpen && (
         <div className="fixed inset-0 z-[150] flex items-center justify-center p-4">
-          <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} onClick={onClose} className="absolute inset-0 bg-slate-900/60 backdrop-blur-sm" />
+          <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} onClick={onClose} className="absolute inset-0 bg-slate-900/60" />
           <motion.div initial={{ scale: 0.96, opacity: 0 }} animate={{ scale: 1, opacity: 1 }} exit={{ scale: 0.96, opacity: 0 }}
             className="relative bg-[var(--surface-card)] w-full max-w-3xl max-h-[88vh] rounded-[2.5rem] shadow-2xl overflow-hidden flex flex-col">
             <div className="p-7 border-b border-[var(--border-default)] flex items-center justify-between gap-3">

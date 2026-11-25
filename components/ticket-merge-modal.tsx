@@ -102,7 +102,7 @@ export function TicketMergeModal({ source, onClose, onMerged, beforeMerge }: Tic
 
   return createPortal(
     <div className="fixed inset-0 z-[130] flex items-center justify-center p-4" role="dialog" aria-modal="true" aria-labelledby="merge-title">
-      <div className="absolute inset-0 bg-slate-900/40 backdrop-blur-sm" onClick={() => { if (!mesclando) onClose(); }} />
+      <div className="absolute inset-0 bg-slate-900/40" onClick={() => { if (!mesclando) onClose(); }} />
       <div className="relative w-full max-w-lg rounded-2xl bg-[var(--surface-card)] border border-[var(--border-default)] shadow-2xl p-6 space-y-4">
         <header className="flex items-start justify-between gap-3">
           <div className="flex items-start gap-3 min-w-0">

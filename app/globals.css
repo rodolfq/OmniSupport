@@ -286,15 +286,10 @@ body {
   white-space: nowrap;
 }
 
-/* Desfoque de fundo DESLIGADO no app inteiro (2026-11-25, lentidão com modal
-   aberto e na tela de chamados). `backdrop-blur-*` obriga o navegador a
-   redesenhar borrado tudo que está atrás do elemento a cada quadro — atrás de
-   um modal costuma estar o Kanban inteiro, e no Dashboard cada card de ticket
-   interno tinha o próprio blur. Os fundos continuam escurecendo/translúcidos
-   (bg-slate-900/60, surface-card/80...), só sem borrar. Fora de @layer e com
-   !important de propósito: vale sobre qualquer utilitário do Tailwind. Para
-   voltar o efeito, é só apagar esta regra. Não usar backdrop-blur em tela nova. */
-[class*="backdrop-blur"] {
-  backdrop-filter: none !important;
-  -webkit-backdrop-filter: none !important;
-}
+/* Sem desfoque de fundo (2026-11-25): todas as classes backdrop-blur-* foram
+   REMOVIDAS dos componentes (lentidão com modal aberto e na tela de chamados —
+   o navegador redesenhava borrado o Kanban inteiro atrás do modal a cada
+   quadro). Antes havia aqui uma regra [class*="backdrop-blur"] com
+   backdrop-filter:none !important, mas o minificador do build juntou as duas
+   declarações e deixou só a -webkit-, que o Chrome ignora: o blur continuou em
+   produção. Não usar backdrop-blur em tela nova. */

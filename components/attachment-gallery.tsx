@@ -216,7 +216,7 @@ export function AttachmentPreviewModal({
             animate={{ opacity: 1 }}
             exit={{ opacity: 0 }}
             onClick={onClose}
-            className="absolute inset-0 bg-slate-950/85 backdrop-blur-sm"
+            className="absolute inset-0 bg-slate-950/85"
             style={{ zIndex: 2147483646 }}
           />
           <motion.div
@@ -302,7 +302,7 @@ export function AttachmentPreviewModal({
                     type="button"
                     onClick={() => goTo(index - 1)}
                     disabled={!hasPrev}
-                    className="absolute left-2 sm:left-4 top-1/2 -translate-y-1/2 flex h-11 w-11 items-center justify-center rounded-full bg-white/15 text-white ring-1 ring-white/25 shadow-lg backdrop-blur-sm transition-all hover:bg-white/30 disabled:opacity-0 disabled:pointer-events-none"
+                    className="absolute left-2 sm:left-4 top-1/2 -translate-y-1/2 flex h-11 w-11 items-center justify-center rounded-full bg-white/15 text-white ring-1 ring-white/25 shadow-lg transition-all hover:bg-white/30 disabled:opacity-0 disabled:pointer-events-none"
                     title="Mídia anterior (←)"
                     aria-label="Mídia anterior"
                   >
@@ -312,7 +312,7 @@ export function AttachmentPreviewModal({
                     type="button"
                     onClick={() => goTo(index + 1)}
                     disabled={!hasNext}
-                    className="absolute right-2 sm:right-4 top-1/2 -translate-y-1/2 flex h-11 w-11 items-center justify-center rounded-full bg-white/15 text-white ring-1 ring-white/25 shadow-lg backdrop-blur-sm transition-all hover:bg-white/30 disabled:opacity-0 disabled:pointer-events-none"
+                    className="absolute right-2 sm:right-4 top-1/2 -translate-y-1/2 flex h-11 w-11 items-center justify-center rounded-full bg-white/15 text-white ring-1 ring-white/25 shadow-lg transition-all hover:bg-white/30 disabled:opacity-0 disabled:pointer-events-none"
                     title="Próxima mídia (→)"
                     aria-label="Próxima mídia"
                   >

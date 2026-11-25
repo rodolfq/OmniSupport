@@ -953,7 +953,7 @@ export function HotfixesContent() {
               animate={{ opacity: 1 }}
               exit={{ opacity: 0 }}
               onClick={() => setIsModalOpen(false)}
-              className="absolute inset-0 bg-slate-900/60 backdrop-blur-sm"
+              className="absolute inset-0 bg-slate-900/60"
             />
             <motion.div
               initial={{ scale: 0.95, opacity: 0 }}
@@ -1152,7 +1152,7 @@ export function HotfixesContent() {
       <AnimatePresence>
         {isCreateCycleOpen && (
           <div className="fixed inset-0 z-[150] flex items-center justify-center p-4">
-            <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} onClick={closeCreateCycleModal} className="absolute inset-0 bg-slate-900/60 backdrop-blur-sm" />
+            <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} onClick={closeCreateCycleModal} className="absolute inset-0 bg-slate-900/60" />
             <motion.div initial={{ scale: 0.95, opacity: 0 }} animate={{ scale: 1, opacity: 1 }} exit={{ scale: 0.95, opacity: 0 }} className="relative bg-[var(--surface-card)] w-full max-w-lg rounded-[2.5rem] shadow-2xl overflow-hidden">
               <div className="p-8 border-b border-[var(--border-default)] flex items-center gap-4">
                 <div className="w-12 h-12 bg-[var(--accent)] rounded-2xl flex items-center justify-center text-white shrink-0"><Layers size={22} /></div>
@@ -1344,7 +1344,7 @@ function AddStageModal({ cycle, onClose, onSaved }: { cycle: ReleaseCycle; onClo
 
   return (
     <div className="fixed inset-0 z-[160] flex items-center justify-center p-4">
-      <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} onClick={onClose} className="absolute inset-0 bg-slate-900/60 backdrop-blur-sm" />
+      <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} onClick={onClose} className="absolute inset-0 bg-slate-900/60" />
       <motion.div initial={{ scale: 0.96, opacity: 0 }} animate={{ scale: 1, opacity: 1 }} exit={{ scale: 0.96, opacity: 0 }} className="relative bg-[var(--surface-card)] w-full max-w-sm rounded-[2rem] shadow-2xl p-7 space-y-4">
         <h3 className="text-base font-black text-[var(--text-primary)] uppercase tracking-tight">Nova etapa — {cycle.name}</h3>
         <div className="flex items-center gap-2">
@@ -1391,7 +1391,7 @@ function SaveAsTemplateModal({ cycle, onClose, onSaved }: { cycle: ReleaseCycle;
 
   return (
     <div className="fixed inset-0 z-[160] flex items-center justify-center p-4">
-      <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} onClick={onClose} className="absolute inset-0 bg-slate-900/60 backdrop-blur-sm" />
+      <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} onClick={onClose} className="absolute inset-0 bg-slate-900/60" />
       <motion.div initial={{ scale: 0.96, opacity: 0 }} animate={{ scale: 1, opacity: 1 }} exit={{ scale: 0.96, opacity: 0 }} className="relative bg-[var(--surface-card)] w-full max-w-sm rounded-[2rem] shadow-2xl p-7 space-y-4">
         <h3 className="text-base font-black text-[var(--text-primary)] uppercase tracking-tight">Transformar em modelo</h3>
         <p className="text-xs text-[var(--text-tertiary)]">Cria um modelo novo com as etapas deste ciclo, usando os deslocamentos a partir da data-âncora.</p>
@@ -1436,7 +1436,7 @@ function CreateItemModal({ cycle, users, onClose, onSaved }: { cycle: ReleaseCyc
 
   return (
     <div className="fixed inset-0 z-[160] flex items-center justify-center p-4">
-      <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} onClick={onClose} className="absolute inset-0 bg-slate-900/60 backdrop-blur-sm" />
+      <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} onClick={onClose} className="absolute inset-0 bg-slate-900/60" />
       <motion.div initial={{ scale: 0.96, opacity: 0 }} animate={{ scale: 1, opacity: 1 }} exit={{ scale: 0.96, opacity: 0 }} className="relative bg-[var(--surface-card)] w-full max-w-sm rounded-[2rem] shadow-2xl p-7 space-y-4">
         <h3 className="text-base font-black text-[var(--text-primary)] uppercase tracking-tight">Novo item — {cycle.name}</h3>
         <div className="flex gap-2">
@@ -1504,7 +1504,7 @@ function LinkHotfixToCycleModal({ hotfix, cycles, onClose, onSaved }: { hotfix: 
 
   return (
     <div className="fixed inset-0 z-[160] flex items-center justify-center p-4">
-      <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} onClick={onClose} className="absolute inset-0 bg-slate-900/60 backdrop-blur-sm" />
+      <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} onClick={onClose} className="absolute inset-0 bg-slate-900/60" />
       <motion.div initial={{ scale: 0.96, opacity: 0 }} animate={{ scale: 1, opacity: 1 }} exit={{ scale: 0.96, opacity: 0 }} className="relative bg-[var(--surface-card)] w-full max-w-sm rounded-[2rem] shadow-2xl p-7 space-y-4">
         <h3 className="text-base font-black text-[var(--text-primary)] uppercase tracking-tight">Vincular a um ciclo</h3>
         <p className="text-xs text-[var(--text-tertiary)]">

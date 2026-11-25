@@ -1550,7 +1550,7 @@ const loadMessages = async () => {
         animate={{ opacity: 1 }}
         exit={{ opacity: 0 }}
         onClick={handleRequestClose}
-        className="absolute inset-0 bg-slate-900/40 backdrop-blur-sm"
+        className="absolute inset-0 bg-slate-900/40"
       />
       <motion.div
         initial={{ x: '100%' }}
@@ -2434,7 +2434,7 @@ const loadMessages = async () => {
 
                       {openedSessionId && typeof document !== 'undefined' && createPortal(
                         <div className="fixed inset-0 z-[500] flex items-center justify-center p-4">
-                          <div className="absolute inset-0 bg-slate-900/60 backdrop-blur-sm" onClick={closeLinkedSession} />
+                          <div className="absolute inset-0 bg-slate-900/60" onClick={closeLinkedSession} />
                           <div className="relative bg-[var(--surface-card)] w-full max-w-2xl max-h-[88vh] rounded-3xl shadow-2xl flex flex-col overflow-hidden border border-[var(--border-default)]">
                             <div className="p-5 border-b border-[var(--border-default)] flex items-start justify-between gap-4 shrink-0">
                               <div className="min-w-0">

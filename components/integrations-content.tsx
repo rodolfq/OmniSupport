@@ -640,7 +640,7 @@ export function IntegrationsContent() {
 
       {isNewModalOpen && (
         <div className="fixed inset-0 z-[110] flex items-center justify-center p-4">
-          <div className="absolute inset-0 bg-slate-900/60 backdrop-blur-sm" onClick={() => setIsNewModalOpen(false)} />
+          <div className="absolute inset-0 bg-slate-900/60" onClick={() => setIsNewModalOpen(false)} />
           <div className="relative bg-[var(--surface-card)] w-full max-w-lg rounded-[2.5rem] shadow-2xl p-8 flex flex-col gap-6 animate-in zoom-in-95 duration-200">
             <div className="flex items-center gap-4">
               <div className="w-12 h-12 bg-[var(--accent)] rounded-2xl flex items-center justify-center text-white shadow-lg shadow-indigo-100">
@@ -709,7 +709,7 @@ export function IntegrationsContent() {
 
       {revealedKey && (
         <div className="fixed inset-0 z-[120] flex items-center justify-center p-4">
-          <div className="absolute inset-0 bg-slate-900/60 backdrop-blur-sm" />
+          <div className="absolute inset-0 bg-slate-900/60" />
           <div className="relative bg-[var(--surface-card)] w-full max-w-lg rounded-[2.5rem] shadow-2xl p-8 flex flex-col gap-6 animate-in zoom-in-95 duration-200">
             <div className="flex items-center gap-4">
               <div className="w-12 h-12 bg-[var(--text-success)] rounded-2xl flex items-center justify-center text-white shadow-lg">

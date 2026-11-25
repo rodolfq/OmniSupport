@@ -470,7 +470,7 @@ function EvaluationDrilldownModal({
 }) {
   useEscapeToClose(true, onClose);
   return (
-    <div className="fixed inset-0 z-[200] flex items-center justify-center bg-slate-900/60 backdrop-blur-sm p-4" onClick={onClose}>
+    <div className="fixed inset-0 z-[200] flex items-center justify-center bg-slate-900/60 p-4" onClick={onClose}>
       <div
         className="bg-[var(--surface-card)] w-full max-w-3xl max-h-[85vh] rounded-3xl shadow-2xl overflow-hidden flex flex-col"
         onClick={(e) => e.stopPropagation()}

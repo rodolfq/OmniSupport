@@ -98,7 +98,7 @@ export function MobileMoreSheet({ isOpen, onClose }: MobileMoreSheetProps) {
             animate={{ opacity: 1 }}
             exit={{ opacity: 0 }}
             onClick={onClose}
-            className="absolute inset-0 bg-slate-900/50 backdrop-blur-sm"
+            className="absolute inset-0 bg-slate-900/50"
           />
           <motion.div
             initial={{ y: '100%' }}

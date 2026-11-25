@@ -1142,7 +1142,7 @@ export function PermissionsContent() {
       <AnimatePresence>
         {showNewTeamModal && (
           <div className="fixed inset-0 z-[100] flex items-center justify-center p-4">
-            <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} onClick={() => setShowNewTeamModal(false)} className="absolute inset-0 bg-slate-900/60 backdrop-blur-sm" />
+            <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} onClick={() => setShowNewTeamModal(false)} className="absolute inset-0 bg-slate-900/60" />
             <motion.div initial={{ scale: 0.95, opacity: 0 }} animate={{ scale: 1, opacity: 1 }} exit={{ scale: 0.95, opacity: 0 }} className="relative bg-[var(--surface-card)] w-full max-w-md rounded-[2.5rem] shadow-2xl p-8 space-y-5">
               <div>
                 <h3 className="text-xl font-black text-[var(--text-primary)] uppercase tracking-tight">Nova Equipe</h3>
@@ -1169,7 +1169,7 @@ export function PermissionsContent() {
       <AnimatePresence>
         {editingTeamMeta && (
           <div className="fixed inset-0 z-[100] flex items-center justify-center p-4">
-            <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} onClick={() => setEditingTeamMeta(null)} className="absolute inset-0 bg-slate-900/60 backdrop-blur-sm" />
+            <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} onClick={() => setEditingTeamMeta(null)} className="absolute inset-0 bg-slate-900/60" />
             <motion.div initial={{ scale: 0.95, opacity: 0 }} animate={{ scale: 1, opacity: 1 }} exit={{ scale: 0.95, opacity: 0 }} className="relative bg-[var(--surface-card)] w-full max-w-md rounded-[2.5rem] shadow-2xl p-8 space-y-5">
               <h3 className="text-xl font-black text-[var(--text-primary)] uppercase tracking-tight">Editar Equipe</h3>
               <div className="space-y-1.5">
@@ -1193,7 +1193,7 @@ export function PermissionsContent() {
       <AnimatePresence>
         {teamToDelete && (
           <div className="fixed inset-0 z-[100] flex items-center justify-center p-4">
-            <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} onClick={() => setTeamToDelete(null)} className="absolute inset-0 bg-slate-900/60 backdrop-blur-sm" />
+            <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} onClick={() => setTeamToDelete(null)} className="absolute inset-0 bg-slate-900/60" />
             <motion.div initial={{ scale: 0.9, opacity: 0, y: 20 }} animate={{ scale: 1, opacity: 1, y: 0 }} exit={{ scale: 0.9, opacity: 0, y: 20 }} className="relative bg-[var(--surface-card)] w-full max-w-md rounded-[2.5rem] shadow-2xl p-10 overflow-hidden">
               <div className="space-y-6 text-center">
                 <div className="w-20 h-20 bg-[var(--surface-danger)] text-[var(--text-danger)] rounded-3xl flex items-center justify-center mx-auto">
@@ -1220,7 +1220,7 @@ export function PermissionsContent() {
       <AnimatePresence>
         {profileToDelete && (
           <div className="fixed inset-0 z-[100] flex items-center justify-center p-4">
-            <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} onClick={() => setProfileToDelete(null)} className="absolute inset-0 bg-slate-900/60 backdrop-blur-sm" />
+            <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} onClick={() => setProfileToDelete(null)} className="absolute inset-0 bg-slate-900/60" />
             <motion.div initial={{ scale: 0.9, opacity: 0, y: 20 }} animate={{ scale: 1, opacity: 1, y: 0 }} exit={{ scale: 0.9, opacity: 0, y: 20 }} className="relative bg-[var(--surface-card)] w-full max-w-md rounded-[2.5rem] shadow-2xl p-10 overflow-hidden">
               <div className="space-y-6 text-center">
                 <div className="w-20 h-20 bg-[var(--surface-danger)] text-[var(--text-danger)] rounded-3xl flex items-center justify-center mx-auto">

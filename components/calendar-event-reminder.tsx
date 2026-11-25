@@ -47,7 +47,7 @@ export function CalendarEventReminder() {
   return (
     <AnimatePresence>
       {active && (
-        <div className="fixed inset-0 z-[1000] flex items-center justify-center bg-slate-900/60 backdrop-blur-md p-4">
+        <div className="fixed inset-0 z-[1000] flex items-center justify-center bg-slate-900/60 p-4">
           <motion.div
             initial={{ scale: 0.9, opacity: 0 }}
             animate={{ scale: 1, opacity: 1 }}
@@ -62,7 +62,7 @@ export function CalendarEventReminder() {
               >
                 <X size={16} />
               </button>
-              <div className="w-16 h-16 bg-white/20 rounded-2xl flex items-center justify-center mx-auto mb-4 backdrop-blur-sm">
+              <div className="w-16 h-16 bg-white/20 rounded-2xl flex items-center justify-center mx-auto mb-4">
                 <CalendarClock size={32} />
               </div>
               <h2 className="text-2xl font-black uppercase tracking-tight">{active.title}</h2>

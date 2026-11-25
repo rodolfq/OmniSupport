@@ -1246,7 +1246,7 @@ const handleDeleteNote = async () => {
                animate={{ opacity: 1 }}
                exit={{ opacity: 0 }}
                onClick={() => setIsNoteModalOpen(false)}
-               className="absolute inset-0 bg-slate-900/60 backdrop-blur-sm"
+               className="absolute inset-0 bg-slate-900/60"
             />
             <motion.div 
                initial={{ scale: 0.95, opacity: 0 }}
@@ -1310,7 +1310,7 @@ const handleDeleteNote = async () => {
               animate={{ opacity: 1 }}
               exit={{ opacity: 0 }}
               onClick={() => setViewingSession(null)}
-              className="absolute inset-0 bg-slate-900/60 backdrop-blur-sm"
+              className="absolute inset-0 bg-slate-900/60"
             />
             <motion.div
               initial={{ scale: 0.95, opacity: 0 }}
