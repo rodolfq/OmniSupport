@@ -9,8 +9,8 @@ import { summarizeTranscriptWithAi } from './chat-summary-service';
 // Por que gera aqui e não reaproveita o resumo do Histórico de Conversas:
 // aquele só existe DEPOIS que a conversa é encerrada (chat_histories), e o
 // chamado nasce antes — no "Gerar Chamado" sem finalizar a conversa nem
-// terminou. Mesmo modelo e mesmas instruções (summarizeTranscriptWithAi),
-// então o texto tem o mesmo jeito do "Chat Resumido".
+// terminou. Mesmo modelo (summarizeTranscriptWithAi), mas com instrução e
+// formato próprios (TICKET_SUMMARY_INSTRUCTION, 2026-11-24).
 //
 // Roda em SEGUNDO PLANO, depois de o chamado já ter sido criado e devolvido
 // à tela: a IA leva alguns segundos e pode falhar (cota/429). Falhar aqui
@@ -19,6 +19,26 @@ import { summarizeTranscriptWithAi } from './chat-summary-service';
 
 const MAX_ATTEMPTS = 3;
 const RETRY_DELAY_MS = 20_000;
+
+// Formato pedido pelo usuário em 2026-11-24 para a descrição do chamado.
+// "Central" = empresa-cliente (vem do cadastro do chamado, passada como fato);
+// "Cliente" = o cliente FINAL dessa empresa, que aparece na conversa. Linha
+// sem informação na conversa fica "—": nunca inventar login/senha/nome.
+const TICKET_SUMMARY_INSTRUCTION = `Você registra, na descrição de um chamado de suporte do SSX, o resumo de uma conversa de atendimento. Responda SEMPRE em português do Brasil, EXATAMENTE neste formato, sem nada antes ou depois:
+
+SSX
+Central: <nome da empresa-cliente>
+Cliente: <nome do cliente final da empresa>
+Login: <login>
+Senha: <senha>
+
+Resumo: <de 3 a 6 frases em texto corrido: motivo do contato, o que foi feito/informado e como terminou (resolvido, pendente, escalado etc.)>
+
+Regras:
+- "Central" é a empresa-cliente atendida. Use o nome informado em "Empresa do chamado" quando houver; senão, o que a conversa disser.
+- "Cliente" é o cliente FINAL dessa empresa (a pessoa/empresa que ela atende), não a pessoa que está conversando com o suporte. Normalmente o contato ou o analista o menciona na conversa ("o cliente X", "o veículo do cliente Y"). Se não aparecer, escreva "—".
+- "Login" e "Senha": só se aparecerem escritos na conversa, copiados exatamente como estão. Se não aparecerem, escreva "—".
+- Baseie-se só no que está na conversa. Nunca invente nome, login, senha, número de chamado ou fato.`;
 
 function escapeHtml(text: string): string {
   return text.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
@@ -75,11 +95,27 @@ export async function fillTicketDescriptionFromChat(ticketId: string, sessionId:
   const { transcript, customerName } = await buildSessionTranscript(sessionId);
   if (!transcript.trim()) return; // conversa sem nenhuma mensagem do cliente/equipe
 
+  // Empresa do chamado (cadastro), com a do contato da conversa de reserva.
+  const companyRes = await query(
+    `SELECT COALESCE(ct.name, cs_co.name) AS company_name
+       FROM public.tickets t
+       LEFT JOIN public.companies ct ON ct.id = t.company_id
+       LEFT JOIN public.chat_sessions s ON s.id = $2
+       LEFT JOIN public.profiles p ON p.id = s.customer_id
+       LEFT JOIN public.companies cs_co ON cs_co.id = p.company_id
+      WHERE t.id = $1`,
+    [ticketId, sessionId]
+  ).catch(() => ({ rows: [] as any[] }));
+  const companyName: string | null = companyRes.rows[0]?.company_name || null;
+
   let summary: string | null = null;
   let lastError: any = null;
   for (let attempt = 1; attempt <= MAX_ATTEMPTS && !summary; attempt++) {
     try {
-      summary = await summarizeTranscriptWithAi(transcript, customerName);
+      summary = await summarizeTranscriptWithAi(transcript, customerName, {
+        systemInstruction: TICKET_SUMMARY_INSTRUCTION,
+        context: `Empresa do chamado: ${companyName || '(não informada no cadastro)'}`
+      });
     } catch (err: any) {
       lastError = err;
       // Só vale tentar de novo quando é cota/instabilidade (429/5xx); chave
@@ -95,11 +131,11 @@ export async function fillTicketDescriptionFromChat(ticketId: string, sessionId:
     return;
   }
 
-  const paragraphs = summary.split(/\n{2,}/).map(p => `<p>${escapeHtml(p.trim()).replace(/\n/g, '<br>')}</p>`).join('');
-  // Só "Resumo do atendimento", sem dizer que é IA (pedido do usuário,
-  // 2026-11-11) — a descrição é visível ao cliente. A origem fica registrada
-  // no log interno abaixo.
-  const block = `<p><strong>Resumo do atendimento</strong></p>${paragraphs}`;
+  // Cada linha do formato (SSX / Central / Cliente / Login / Senha / Resumo)
+  // vira uma linha na descrição; bloco separado por linha em branco vira
+  // parágrafo. Não diz que é IA (pedido de 2026-11-11 — a descrição é visível
+  // ao cliente); a origem fica no log interno abaixo.
+  const block = summary.split(/\n{2,}/).map(p => `<p>${escapeHtml(p.trim()).replace(/\n/g, '<br>')}</p>`).join('');
 
   // Descrição vazia: vira o resumo. Se alguém já escreveu nela nesses
   // segundos, o resumo entra DEPOIS do texto, sem apagar nada.

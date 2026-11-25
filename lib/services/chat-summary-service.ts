@@ -77,7 +77,14 @@ export async function getOrGenerateChatSummary(historyId: string): Promise<ChatS
  * chat (lib/services/ticket-chat-summary.ts) — mesmo modelo e mesmas
  * instruções do "Chat Resumido", pra os dois resumos terem o mesmo jeito.
  */
-export async function summarizeTranscriptWithAi(transcript: string, customerName?: string | null): Promise<string> {
+// `systemInstruction`/`context` (2026-11-24): o resumo que vai na DESCRIÇÃO do
+// chamado tem formato próprio (lib/services/ticket-chat-summary.ts); sem
+// eles, segue o "Chat Resumido" do Histórico de Conversas de sempre.
+export async function summarizeTranscriptWithAi(
+  transcript: string,
+  customerName?: string | null,
+  options?: { systemInstruction?: string; context?: string }
+): Promise<string> {
   // getGroqClient() lança AssistantNotConfiguredError se nem o override de
   // Configurações > Agente de IA nem GROQ_API_KEY estiverem setados —
   // propagada pro chamador (rota da API), não capturada aqui, pra virar um
@@ -94,10 +101,10 @@ export async function summarizeTranscriptWithAi(transcript: string, customerName
     reasoning_effort: 'low',
     max_tokens: 800,
     messages: [
-      { role: 'system', content: SUMMARY_SYSTEM_INSTRUCTION },
+      { role: 'system', content: options?.systemInstruction || SUMMARY_SYSTEM_INSTRUCTION },
       {
         role: 'user',
-        content: `Conversa com ${customerName || 'o cliente'}:\n\n${truncateTranscriptForSummary(transcript)}`
+        content: `${options?.context ? `${options.context}\n\n` : ''}Conversa com ${customerName || 'o cliente'}:\n\n${truncateTranscriptForSummary(transcript)}`
       }
     ]
   });
